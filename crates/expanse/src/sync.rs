@@ -35,9 +35,10 @@
 //! 1. **Racing optimistic loads.** Between `sample` and a failed `validate`,
 //!    a reader, or an optimistic writer descending to its lock point, makes
 //!    plain loads that race with a covered writer's plain stores: a root
-//!    leaf's keys and values, a node's bitmap words, and — on the string,
-//!    bytes and blob wrappers — the root state (the map and set publish
-//!    theirs as atomics in `TreeHead`). Every such
+//!    leaf's keys and values, a node's edges, header fields and value
+//!    arrays, and — on the string wrapper — the root state (the map, set,
+//!    bytes map and blob map publish theirs as atomics in `TreeHead`; node bitmaps
+//!    are atomic on every shared path, `bits::shared_bitmap`). Every such
 //!    value is discarded unless validation proves no writer overlapped. That
 //!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
 //!    design), and it is sound at the protocol level — `SeqVersion` uses
@@ -46,18 +47,20 @@
 //!    Word-sized fields can be loaded atomically on stable Rust; packed
 //!    1–7-byte leaf keys, read with unaligned SWAR loads, have no atomic
 //!    spelling.
-//! 2. **References over shared state.** The string, bytes and blob wrappers
-//!    form `&T` to the whole engine on optimistic paths (`Shared::inner_ref`,
-//!    `optimistic_read`, `validated_len`) while a covered writer holds
-//!    `&mut T` for its whole operation. The map and set no longer do: their
-//!    readers load the published root and never touch the engine, and their
-//!    covered writers hold the tree word for the whole operation. On every
-//!    wrapper the engine still calls methods on node fields through
-//!    references on both sides (`Bitmap256::test` against
-//!    `Bitmap256::set`). Nothing in a node sits in an `UnsafeCell`, so each
-//!    reference asserts something the other thread falsifies, and Stacked
-//!    and Tree Borrows both report it. This class is not a seqlock property
-//!    and needs no new language feature to remove.
+//! 2. **References over shared state.** The string wrapper forms `&T` to
+//!    the whole engine on optimistic paths (`optimistic_read`,
+//!    `validated_len`) while a covered writer holds `&mut T` for its whole
+//!    operation. The map, set, bytes map and blob map no longer do: their
+//!    readers load the published root and never touch the engine (the bytes
+//!    map's hash with the wrapper's clone of the hasher; the blob map's load
+//!    the arena's reader table from a heap cell, `blobmap::ArenaDeferred`), their
+//!    covered writers hold the tree word for the whole operation, and the
+//!    shared paths reach node bitmaps through raw pointers
+//!    (`bits::shared_bitmap`) rather than `&Bitmap256` / `&mut Bitmap256`
+//!    and whole-node references. Nothing in a node sits in an `UnsafeCell`,
+//!    so a reference to one asserts something another thread falsifies;
+//!    Stacked and Tree Borrows both report it. This class is not a seqlock
+//!    property and needs no new language feature to remove.
 //!
 //! The threaded tests in `sync::tests` are compiled out under Miri for these
 //! reasons; `mod miri_ub_sites` holds the workloads Miri runs. The per-node
@@ -396,8 +399,8 @@ macro_rules! walk_validated_body {
                         let d = digit($key, bl);
                         (
                             bl,
-                            (*node).bitmap.test(d),
-                            (*node).bitmap.subexpanse_rank(d) as usize,
+                            crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
+                            crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
                             (*node).subarrays[(d >> 5) as usize],
                         )
                     };
@@ -486,8 +489,8 @@ macro_rules! walk_validated_body {
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         let (bit, rank, vals) = unsafe {
                             (
-                                (*node).bitmap.test(d),
-                                (*node).bitmap.subexpanse_rank(d) as usize,
+                                crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
+                                crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
                                 (*node).values[(d >> 5) as usize],
                             )
                         };
@@ -505,7 +508,7 @@ macro_rules! walk_validated_body {
                     }
                     let node = edge.node_ptr().cast::<LeafBitmap1>();
                     // SAFETY: EBR-live LeafBitmap1.
-                    let bit = unsafe { (*node).bitmap.test(d) };
+                    let bit = unsafe { crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d) };
                     chk!();
                     return Ok(bit.then_some(0));
                 }
@@ -813,6 +816,20 @@ impl<S: BuildHasher> SharedTree for ExpanseBytesMap<S> {
         // SAFETY: forwarded contract.
         unsafe { self.root_top_ptr() }
     }
+
+    /// The hash trie's root, published as the map's and set's are: readers
+    /// and optimistic writers load it from the wrapper and hash with the
+    /// wrapper's copy of the hasher, so neither forms a reference to the
+    /// map (#1086).
+    const PUBLISHES_ROOT: bool = true;
+
+    fn publish_snapshot(&self) -> RootSnapshot {
+        self.occ_root().0
+    }
+
+    fn hold_tree_word(&self, held: bool) {
+        self.alloc().hold_tree_word(held);
+    }
 }
 
 impl SharedTree for ExpanseBlobMap {
@@ -836,6 +853,20 @@ impl SharedTree for ExpanseBlobMap {
     unsafe fn root_top_ptr(&self) -> *mut Edge {
         // SAFETY: forwarded contract.
         unsafe { self.root_top_ptr() }
+    }
+
+    /// The index's root, published as the map's and set's are: readers and
+    /// optimistic writers load it from the wrapper, and the reader table
+    /// from the arena's shared cell, so neither forms a reference to the
+    /// blob map (#1086).
+    const PUBLISHES_ROOT: bool = true;
+
+    fn publish_snapshot(&self) -> RootSnapshot {
+        self.index().occ_root().0
+    }
+
+    fn hold_tree_word(&self, held: bool) {
+        self.index().alloc().hold_tree_word(held);
     }
 }
 
@@ -2260,13 +2291,14 @@ impl<T: SharedTree> Shared<T> {
 
     /// One mutation under the writer lock and the writer gate.
     ///
-    /// A wrapper that publishes its root (`T::PUBLISHES_ROOT`: the map and
-    /// set) holds the tree-level word for the whole operation, in either
+    /// A wrapper that publishes its root (`T::PUBLISHES_ROOT`: the map, set,
+    /// bytes map and blob map) holds the tree-level word for the whole operation, in either
     /// root state, and republishes the root before closing it (#1086). Its
     /// readers then never touch the engine, so the `&mut` this takes to it
     /// overlaps no other thread's access; the engine's own tree bracket is a
     /// no-op meanwhile (`NodeAlloc::hold_tree_word`). Ordinary writes to a
-    /// tree-state map or set take the optimistic path and never come here;
+    /// tree-state map, set, bytes map or blob map take the optimistic path
+    /// and never come here;
     /// what does is a fallback, a root-state change or a serialised
     /// operation, and readers retry across it.
     ///
@@ -2740,14 +2772,15 @@ impl OlcHost for Shared<ExpanseBlobMap> {
 
     #[inline(always)]
     unsafe fn top_ptr(&self) -> *mut Edge {
-        // SAFETY: top_ptr obtained without taking &mut on inner.
-        unsafe { (*self.inner.get()).root_top_ptr() }
+        // The published top edge, never the engine's (#1086).
+        self.published().top_edge_ptr()
     }
 
     #[inline(always)]
     fn alloc(&self) -> &NodeAlloc {
-        // SAFETY: inner_ref is valid and alloc is constant.
-        self.inner_ref().index().alloc()
+        // SAFETY: the block outlives `&self`; an admitted optimistic writer
+        // runs only while no covered writer holds `&mut` to the engine.
+        unsafe { ExpanseBlobMap::alloc_of(self.inner.get()) }
     }
 
     #[inline(always)]
@@ -2774,14 +2807,15 @@ impl<S: BuildHasher> OlcHost for Shared<ExpanseBytesMap<S>> {
 
     #[inline(always)]
     unsafe fn top_ptr(&self) -> *mut Edge {
-        // SAFETY: top_ptr obtained without taking &mut on inner.
-        unsafe { (*self.inner.get()).root_top_ptr() }
+        // The published top edge, never the engine's (#1086).
+        self.published().top_edge_ptr()
     }
 
     #[inline(always)]
     fn alloc(&self) -> &NodeAlloc {
-        // SAFETY: inner_ref is valid and alloc is constant.
-        self.inner_ref().alloc()
+        // SAFETY: the block outlives `&self`; an admitted optimistic writer
+        // runs only while no covered writer holds `&mut` to the engine.
+        unsafe { ExpanseBytesMap::alloc_of(self.inner.get()) }
     }
 
     #[inline(always)]
@@ -3097,8 +3131,11 @@ unsafe fn bump_ancestor_pop0(
                         }
                         EdgeType::BranchB => {
                             let b = node.cast::<BranchB>();
-                            if (*b).bitmap.test(d) {
-                                let rank = (*b).bitmap.subexpanse_rank(d) as usize;
+                            if crate::bits::shared_bitmap::test::<true>(&raw const (*b).bitmap, d) {
+                                let rank = crate::bits::shared_bitmap::subexpanse_rank::<true>(
+                                    &raw const (*b).bitmap,
+                                    d,
+                                ) as usize;
                                 let sub = (*b).subarrays[(d >> 5) as usize];
                                 if !sub.is_null() {
                                     bump_edge_pop0(sub.add(rank), child_level, delta);
@@ -3314,14 +3351,17 @@ unsafe fn redescend_and_bump(top_ptr: *mut Edge, key: Key, mut stop_level: u8, d
                     };
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     let (bl, bit, rank, sub) = unsafe {
-                        let b = &*node;
-                        let bl = b.level;
+                        // Through the raw pointer: a `&` to the whole node
+                        // would assert its bytes stable against the writer
+                        // holding its lock (#1086).
+                        let bl = (*node).level;
                         let d = digit(key, bl);
+                        let bm = &raw const (*node).bitmap;
                         (
                             bl,
-                            b.bitmap.test(d),
-                            b.bitmap.subexpanse_rank(d) as usize,
-                            b.subarrays[(d >> 5) as usize],
+                            crate::bits::shared_bitmap::test::<true>(bm, d),
+                            crate::bits::shared_bitmap::subexpanse_rank::<true>(bm, d) as usize,
+                            (*node).subarrays[(d >> 5) as usize],
                         )
                     };
                     if !(2..=level).contains(&bl) {
@@ -3787,7 +3827,10 @@ impl SyncExpanseSet {
         let mut level = 8u8;
 
         loop {
-            let tag = edge.tag().expect("valid edge tag");
+            // The decode pinned inline, as the map host's `edge_tag` does:
+            // `Edge::tag` is `#[inline]`, and whether LLVM inlines it here
+            // moves with the size of this body.
+            let tag = EdgeTag::from_u8(edge.tag_byte()).expect("valid edge tag");
             match tag {
                 EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
                     let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -3949,8 +3992,11 @@ impl SyncExpanseSet {
                         let d = digit(key, bl);
                         (
                             bl,
-                            (*node).bitmap.test(d),
-                            (*node).bitmap.subexpanse_rank(d) as usize,
+                            crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
+                            crate::bits::shared_bitmap::subexpanse_rank::<true>(
+                                &raw const (*node).bitmap,
+                                d,
+                            ) as usize,
                             (*node).subarrays[(d >> 5) as usize],
                         )
                     };
@@ -3960,7 +4006,10 @@ impl SyncExpanseSet {
                     if !bit || sub.is_null() {
                         let d = digit(key, bl);
                         // SAFETY: node pointer is EBR-live and validated by parent version check.
-                        if unsafe { (*node).bitmap.count() } as usize + 1
+                        if unsafe {
+                            crate::bits::shared_bitmap::count::<true>(&raw const (*node).bitmap)
+                        } as usize
+                            + 1
                             > crate::mutate::BRANCHB_UP
                         {
                             return branch_split(BranchSplitKind::Upgrade);
@@ -4001,7 +4050,9 @@ impl SyncExpanseSet {
                         };
 
                         // SAFETY: node pointer is EBR-live; read under version lock.
-                        if unsafe { (*node).bitmap.test(d) } {
+                        if unsafe {
+                            crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d)
+                        } {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
                                 unsafe {
@@ -4023,7 +4074,10 @@ impl SyncExpanseSet {
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node pointer is EBR-live; read under version lock.
-                        if unsafe { (*node).bitmap.count() } as usize + 1
+                        if unsafe {
+                            crate::bits::shared_bitmap::count::<true>(&raw const (*node).bitmap)
+                        } as usize
+                            + 1
                             > crate::mutate::BRANCHB_UP
                         {
                             if let Some(p) = pre_alloc {
@@ -4073,7 +4127,12 @@ impl SyncExpanseSet {
                         let new_edge =
                             Edge::new_immed_single_set(bl - 1, crate::mutate::key_low(key, bl - 1));
                         // SAFETY: node pointer is EBR-live; rank computed under version lock.
-                        let rank = unsafe { (*node).bitmap.subexpanse_rank(d) as usize };
+                        let rank = unsafe {
+                            crate::bits::shared_bitmap::subexpanse_rank::<true>(
+                                &raw const (*node).bitmap,
+                                d,
+                            ) as usize
+                        };
                         let mut old_arr_to_free: Option<core::ptr::NonNull<Edge>> = None;
 
                         if let Some(new_arr) = pre_alloc {
@@ -4107,7 +4166,7 @@ impl SyncExpanseSet {
                         // SAFETY: Raw-pointer mutation under exclusive version lock.
                         unsafe {
                             (*node).pop_counts[sub_idx] = (old_n + 1) as u16;
-                            (*node).bitmap.set(d);
+                            crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                         }
 
                         // SAFETY: version cell is within an EBR-live node allocation.
@@ -4213,7 +4272,9 @@ impl SyncExpanseSet {
                     let node = edge.node_ptr().cast::<LeafBitmap1>();
                     let d = (key & 0xFF) as u8;
                     // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
-                    let bit = unsafe { (*node).bitmap.test(d) };
+                    let bit = unsafe {
+                        crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d)
+                    };
                     if bit {
                         if !crate::occ::node_validate(p_cell, parent.version_snap) {
                             return OlcOutcome::Retry;
@@ -4236,7 +4297,7 @@ impl SyncExpanseSet {
                     }
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
-                        if (*node).bitmap.set(d) {
+                        if crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d) {
                             (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             self.shared.mark_dirty_digit(digit(key, 8));
@@ -4803,7 +4864,10 @@ impl SyncExpanseSet {
         let mut level = 8u8;
 
         loop {
-            let tag = edge.tag().expect("valid edge tag");
+            // The decode pinned inline, as the map host's `edge_tag` does:
+            // `Edge::tag` is `#[inline]`, and whether LLVM inlines it here
+            // moves with the size of this body.
+            let tag = EdgeTag::from_u8(edge.tag_byte()).expect("valid edge tag");
             match tag {
                 EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
                     let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -4902,8 +4966,11 @@ impl SyncExpanseSet {
                         let d = digit(key, bl);
                         (
                             bl,
-                            (*node).bitmap.test(d),
-                            (*node).bitmap.subexpanse_rank(d) as usize,
+                            crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
+                            crate::bits::shared_bitmap::subexpanse_rank::<true>(
+                                &raw const (*node).bitmap,
+                                d,
+                            ) as usize,
                             (*node).subarrays[(d >> 5) as usize],
                         )
                     };
@@ -5011,7 +5078,9 @@ impl SyncExpanseSet {
                     let node = edge.node_ptr().cast::<LeafBitmap1>();
                     let d = (key & 0xFF) as u8;
                     // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
-                    let bit = unsafe { (*node).bitmap.test(d) };
+                    let bit = unsafe {
+                        crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d)
+                    };
                     if !bit {
                         if !crate::occ::node_validate(p_cell, parent.version_snap) {
                             return OlcOutcome::Retry;
@@ -5050,8 +5119,10 @@ impl SyncExpanseSet {
                     if pop0 < crate::types::LEAFB1_DOWN {
                         let mut keys = crate::mutate::StackKeys32::new();
                         // SAFETY: node is an EBR-live LeafB1 pointer validated under the OLC protocol.
-                        let bitmap = unsafe { &(*node).bitmap };
-                        let mut dg = bitmap.next_set(0);
+                        let bitmap = unsafe { &raw const (*node).bitmap };
+                        // SAFETY: as above.
+                        let mut dg =
+                            unsafe { crate::bits::shared_bitmap::next_set::<true>(bitmap, 0) };
                         while let Some(dig) = dg {
                             if dig != d {
                                 keys.push(u64::from(dig));
@@ -5059,7 +5130,10 @@ impl SyncExpanseSet {
                             dg = if dig == 255 {
                                 None
                             } else {
-                                bitmap.next_set(dig + 1)
+                                // SAFETY: as above.
+                                unsafe {
+                                    crate::bits::shared_bitmap::next_set::<true>(bitmap, dig + 1)
+                                }
                             };
                         }
                         let immed_max = crate::types::ImmedType::max_count(level) as usize;
@@ -5159,7 +5233,7 @@ impl SyncExpanseSet {
                     }
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
-                        (*node).bitmap.clear(d);
+                        crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         self.shared.mark_dirty_digit(digit(key, 8));
@@ -6244,8 +6318,8 @@ macro_rules! olc_insert_map_body {
                     let d = digit($key, bl);
                     (
                         bl,
-                        (*node).bitmap.test(d),
-                        (*node).bitmap.subexpanse_rank(d) as usize,
+                        crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
+                        crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
                         (*node).subarrays[(d >> 5) as usize],
                     )
                 };
@@ -6266,7 +6340,7 @@ macro_rules! olc_insert_map_body {
                 if !bit || sub.is_null() {
                     let d = digit($key, bl);
                     // SAFETY: node pointer is EBR-live and validated by parent version check.
-                    if unsafe { (*node).bitmap.count() } as usize + 1 > crate::mutate::BRANCHB_UP {
+                    if unsafe { crate::bits::shared_bitmap::count::<true>(&raw const (*node).bitmap) } as usize + 1 > crate::mutate::BRANCHB_UP {
                         return branch_split(BranchSplitKind::Upgrade);
                     }
                     let sub_idx = (d >> 5) as usize;
@@ -6305,7 +6379,7 @@ macro_rules! olc_insert_map_body {
                     };
 
                     // SAFETY: node pointer is EBR-live; read under version lock.
-                    if unsafe { (*node).bitmap.test(d) } {
+                    if unsafe { crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d) } {
                         if let Some(p) = pre_alloc {
                             // SAFETY: pre_alloc was allocated above and never published.
                             unsafe {
@@ -6327,7 +6401,7 @@ macro_rules! olc_insert_map_body {
                         return OlcOutcome::Retry;
                     }
                     // SAFETY: node pointer is EBR-live; read under version lock.
-                    if unsafe { (*node).bitmap.count() } as usize + 1 > crate::mutate::BRANCHB_UP {
+                    if unsafe { crate::bits::shared_bitmap::count::<true>(&raw const (*node).bitmap) } as usize + 1 > crate::mutate::BRANCHB_UP {
                         if let Some(p) = pre_alloc {
                             // SAFETY: pre_alloc was allocated above and never published.
                             unsafe {
@@ -6378,7 +6452,7 @@ macro_rules! olc_insert_map_body {
                         $val,
                     );
                     // SAFETY: node pointer is EBR-live; rank computed under version lock.
-                    let rank = unsafe { (*node).bitmap.subexpanse_rank(d) as usize };
+                    let rank = unsafe { crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize };
                     let mut old_arr_to_free: Option<core::ptr::NonNull<Edge>> = None;
 
                     if let Some(new_arr) = pre_alloc {
@@ -6412,7 +6486,7 @@ macro_rules! olc_insert_map_body {
                     // SAFETY: Raw-pointer mutation under exclusive version lock.
                     unsafe {
                         (*node).pop_counts[sub_idx] = (old_n + 1) as u16;
-                        (*node).bitmap.set(d);
+                        crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                     }
 
                     // SAFETY: version cell is within an EBR-live node allocation.
@@ -6511,7 +6585,7 @@ macro_rules! olc_insert_map_body {
                 let d = ($key & 0xFF) as u8;
                 let sub = (d >> 5) as usize;
                 // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
-                let tested = unsafe { (*node).bitmap.test_and_subexpanse_rank_with_sub(d) };
+                let tested = unsafe { crate::bits::shared_bitmap::test_and_subexpanse_rank_with_sub::<true>(&raw const (*node).bitmap, d) };
                 if let Some((_, rank)) = tested {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     let vals = unsafe { (*node).values[sub] };
@@ -6551,9 +6625,9 @@ macro_rules! olc_insert_map_body {
                     return OlcOutcome::Done(None);
                 }
                 // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
-                let old_n = unsafe { (*node).bitmap.subexpanse_count(sub) as usize };
+                let old_n = unsafe { crate::bits::shared_bitmap::subexpanse_count::<true>(&raw const (*node).bitmap, sub) as usize };
                 // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
-                let rank = unsafe { (*node).bitmap.subexpanse_rank(d) as usize };
+                let rank = unsafe { crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize };
                 let pop0 = edge.pop0(1) as usize;
                 if pop0 >= 254 {
                     return cap_expansion(CapExpansionKind::BitmapNearFull);
@@ -6576,7 +6650,7 @@ macro_rules! olc_insert_map_body {
                         let arr = (*node).values[sub];
                         core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
                         arr.add(rank).write($val);
-                        (*node).bitmap.set(d);
+                        crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                         (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         $host.mark_dirty_digit(digit($key, 8));
@@ -6631,7 +6705,7 @@ macro_rules! olc_insert_map_body {
                         };
                         new_vals.add(rank).write($val);
                         (*node).values[sub] = new_vals;
-                        (*node).bitmap.set(d);
+                        crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                         (*edge_ptr).set_pop0(1, (pop0 + 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         if let Some(old_arr) = old_vals_to_free {
@@ -7520,8 +7594,8 @@ macro_rules! olc_remove_map_body {
                     let d = digit($key, bl);
                     (
                         bl,
-                        (*node).bitmap.test(d),
-                        (*node).bitmap.subexpanse_rank(d) as usize,
+                        crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
+                        crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
                         (*node).subarrays[(d >> 5) as usize],
                     )
                 };
@@ -7630,7 +7704,7 @@ macro_rules! olc_remove_map_body {
                 let sub = (d >> 5) as usize;
                 // SAFETY: node is an EBR-live bitmap node and parent is validated/locked.
                 let Some((_, rank)) =
-                    (unsafe { (*node).bitmap.test_and_subexpanse_rank_with_sub(d) })
+                    (unsafe { crate::bits::shared_bitmap::test_and_subexpanse_rank_with_sub::<true>(&raw const (*node).bitmap, d) })
                 else {
                     if !crate::occ::node_validate(p_cell, parent.version_snap) {
                         return OlcOutcome::Retry;
@@ -7703,19 +7777,19 @@ macro_rules! olc_remove_map_body {
                     // SAFETY: node is an EBR-live LeafBitmapL pointer validated under the OLC protocol.
                     let (entries, old) = unsafe {
                         let mut out = crate::mutate_map::StackEntries32::new();
-                        let bitmap = &(*node).bitmap;
+                        let bitmap = &raw const (*node).bitmap;
                         let old_val = *(*node).values[sub].add(rank);
-                        let mut dig = bitmap.next_set(0);
+                        let mut dig = crate::bits::shared_bitmap::next_set::<true>(bitmap, 0);
                         while let Some(g) = dig {
                             if g != d {
                                 let s = (g >> 5) as usize;
-                                let r = bitmap.subexpanse_rank(g) as usize;
+                                let r = crate::bits::shared_bitmap::subexpanse_rank::<true>(bitmap, g) as usize;
                                 out.push((u64::from(g), *(*node).values[s].add(r)));
                             }
                             dig = if g == 255 {
                                 None
                             } else {
-                                bitmap.next_set(g + 1)
+                                crate::bits::shared_bitmap::next_set::<true>(bitmap, g + 1)
                             };
                         }
                         (out, old_val)
@@ -7753,7 +7827,7 @@ macro_rules! olc_remove_map_body {
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = $host.alloc();
                                 for s in 0..8 {
-                                    let n = (*node).bitmap.subexpanse_count(s) as usize;
+                                    let n = crate::bits::shared_bitmap::subexpanse_count::<true>(&raw const (*node).bitmap, s) as usize;
                                     if n > 0 {
                                         alloc.free_bytes(
                                             core::ptr::NonNull::new_unchecked(
@@ -7817,7 +7891,7 @@ macro_rules! olc_remove_map_body {
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = $host.alloc();
                                 for s in 0..8 {
-                                    let n = (*node).bitmap.subexpanse_count(s) as usize;
+                                    let n = crate::bits::shared_bitmap::subexpanse_count::<true>(&raw const (*node).bitmap, s) as usize;
                                     if n > 0 {
                                         alloc.free_bytes(
                                             core::ptr::NonNull::new_unchecked(
@@ -7877,7 +7951,7 @@ macro_rules! olc_remove_map_body {
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             for s in 0..8 {
-                                let n = (*node).bitmap.subexpanse_count(s) as usize;
+                                let n = crate::bits::shared_bitmap::subexpanse_count::<true>(&raw const (*node).bitmap, s) as usize;
                                 if n > 0 {
                                     alloc.free_bytes(
                                         core::ptr::NonNull::new_unchecked((*node).values[s].cast()),
@@ -7892,7 +7966,7 @@ macro_rules! olc_remove_map_body {
                     }
                 }
                 // SAFETY: node is an EBR-live LeafBitmapL pointer validated under the OLC protocol.
-                let old_n = unsafe { (*node).bitmap.subexpanse_count(sub) as usize };
+                let old_n = unsafe { crate::bits::shared_bitmap::subexpanse_count::<true>(&raw const (*node).bitmap, sub) as usize };
                 if old_n == 1 {
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -7910,7 +7984,7 @@ macro_rules! olc_remove_map_body {
                         let old_arr = (*node).values[sub];
                         let old = *old_arr.add(rank);
                         (*node).values[sub] = core::ptr::null_mut();
-                        (*node).bitmap.clear(d);
+                        crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         let alloc = $host.alloc();
@@ -7938,7 +8012,7 @@ macro_rules! olc_remove_map_body {
                         let arr = (*node).values[sub];
                         let old = arr.add(rank).read();
                         core::ptr::copy(arr.add(rank + 1), arr.add(rank), old_n - 1 - rank);
-                        (*node).bitmap.clear(d);
+                        crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         $host.mark_dirty_digit(digit($key, 8));
@@ -7982,7 +8056,7 @@ macro_rules! olc_remove_map_body {
                             .add(rank)
                             .copy_from_nonoverlapping(old_arr.add(rank + 1), old_n - 1 - rank);
                         (*node).values[sub] = new_vals;
-                        (*node).bitmap.clear(d);
+                        crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         (*edge_ptr).set_pop0(1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         alloc.free_bytes(
@@ -9236,6 +9310,9 @@ struct BlobWriterArenas {
 /// incorrect result has been observed.
 pub struct SyncExpanseBlobMap {
     shared: SharedBox<ExpanseBlobMap>,
+    /// The arena's reader table, loaded without reaching into the arena
+    /// (#1086; see `blobmap::ArenaDeferred`).
+    tables: Arc<crate::blobmap::ArenaDeferred>,
     #[cfg(feature = "std")]
     #[allow(dead_code)]
     arena_write: Box<Line<Mutex<()>>>,
@@ -9291,10 +9368,15 @@ impl SyncExpanseBlobMap {
         // whole allocations and defer in place.
         map.rebuild_index_deferred(&collector);
         map.arena().defer_to(Arc::clone(&collector));
+        let tables = map
+            .arena()
+            .deferred_cell()
+            .expect("the arena was deferred on the line above");
         #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
         let chunk_size = map.arena().chunk_size();
         Self {
             shared: Shared::with_collector(map, collector),
+            tables,
             #[cfg(feature = "std")]
             arena_write: Box::new(line(Mutex::new(()))),
             #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
@@ -9440,9 +9522,9 @@ impl SyncExpanseBlobMap {
         owner: Option<&mut WriterArenaOwner<'_>>,
         old_slot: ValueSlot,
     ) {
-        // SAFETY: single atomic load of the published table pointer, as in
+        // A single atomic load of the published table pointer, as in
         // `BlobReadGuard::get`.
-        let table = unsafe { (*self.shared.inner.get()).arena().reader_table() };
+        let table = self.tables.reader_table();
         // SAFETY: the caller's pin predates the load, so the table and its
         // chunks are EBR-live. The replaced word was published after its
         // record was written and after the table naming its chunk was
@@ -9493,7 +9575,7 @@ impl SyncExpanseBlobMap {
                     return Err(ArenaError::MetaOverflow);
                 }
 
-                if !self.shared.inner_ref().root_is_tree() {
+                if !self.shared.published().is_tree() {
                     crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                     crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                     #[cfg(not(feature = "ablation-blob-shared-arena"))]
@@ -9937,10 +10019,8 @@ impl BlobReader<'_> {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version().sample();
-            // SAFETY: pinned + freshly sampled version; the walk validates
-            // every load (see `walk_validated`).
-            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-            let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
+            // The published root, loaded after the sample (#1086).
+            let root = shared.published().load();
             // SAFETY: same pin + snapshot contract as the line above.
             let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
             if let Ok(found) = walked
@@ -10015,10 +10095,8 @@ impl BlobReadGuard<'_> {
         'outer: for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let snap = shared.version().sample();
-            // SAFETY: the guard's pin predates this sample; the walk
-            // validates every load (see `walk_validated`).
-            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-            let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
+            // The published root, loaded after the sample (#1086).
+            let root = shared.published().load();
             // SAFETY: same pin + snapshot contract as the line above.
             let Ok(found) = (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
             else {
@@ -10068,11 +10146,9 @@ impl BlobReadGuard<'_> {
                 continue 'outer;
             }
             let meta = slot.arena_meta_meta();
-            // SAFETY: single atomic load of the published table pointer; the
-            // racy `&` borrow of the arena struct is confined to that load
-            // (documented module-level seqlock caveat).
-            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-            let table = unsafe { (*shared.inner.get()).arena().reader_table() };
+            // A single atomic load of the published table pointer, through
+            // the arena's shared cell rather than the arena (#1086).
+            let table = self.map.tables.reader_table();
             // SAFETY: the guard's pin predates the table load, so the table
             // and every chunk it references are EBR-live.
             let resolved =
@@ -10099,10 +10175,7 @@ impl BlobReadGuard<'_> {
                     // Check if the chunk table was superseded (chunk appended or arena compacted)
                     // while reading. If so, retry under the fresh table instead of falsely reporting
                     // a present key as absent (Refs #929).
-                    // SAFETY: single atomic load of the published table pointer; the
-                    // racy `&` borrow of the arena struct is confined to that load.
-                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                    let table_now = unsafe { (*shared.inner.get()).arena().reader_table() };
+                    let table_now = self.map.tables.reader_table();
                     if table_now != table {
                         continue 'outer;
                     }
@@ -10606,8 +10679,13 @@ impl StrReader<'_> {
 /// the epoch [`Collector`]; only value words mutate in place, covered
 /// by the reader's final tree-version validation.
 ///
-/// The hasher is shared untouched between the writer and every reader
-/// (hashing goes through `&self` concurrently), hence the `Sync` bound.
+/// The wrapper keeps its own clone of the hasher, taken at construction,
+/// and its readers and optimistic writers hash with that clone rather than
+/// reach into the map a covered writer may hold `&mut` to (#1086); hence
+/// the `Clone` bound on the constructors. The clone must hash every key as
+/// the original does, which every `BuildHasher` in `std` guarantees
+/// (`RandomState` clones its keys). Hashing goes through `&self`
+/// concurrently, hence the `Sync` bound.
 ///
 /// # Undefined behaviour under concurrent use
 ///
@@ -10616,6 +10694,8 @@ impl StrReader<'_> {
 /// incorrect result has been observed.
 pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
     shared: SharedBox<ExpanseBytesMap<S>>,
+    /// The readers' and optimistic writers' hasher: a clone of the map's.
+    hasher: S,
     #[cfg(all(
         feature = "std",
         target_pointer_width = "64",
@@ -10638,17 +10718,21 @@ impl SyncExpanseBytesMap<RandomState> {
     }
 }
 
-impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
+impl<S: BuildHasher + Clone + Send + Sync> SyncExpanseBytesMap<S> {
     /// Creates an empty concurrent map using `hasher`.
+    ///
+    /// The map hashes with `hasher` and the wrapper's lock-free paths with a
+    /// clone of it, so the clone must hash identically (see the type docs).
     #[must_use]
     pub fn with_hasher(hasher: S) -> Self {
         let collector = Arc::new(Collector::new());
-        let map = ExpanseBytesMap::with_hasher(hasher);
+        let map = ExpanseBytesMap::with_hasher(hasher.clone());
         // Fresh map: deferral precedes every allocation.
         map.defer_to(Arc::clone(&collector));
         let shared = Shared::with_collector(map, collector);
         Self {
             shared,
+            hasher,
             #[cfg(all(
                 feature = "std",
                 target_pointer_width = "64",
@@ -10657,7 +10741,9 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             entry_pop: Box::new(ShardedTreePop::new(0)),
         }
     }
+}
 
+impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// Inserts `key → val`; returns the replaced value, if any.
     ///
     /// Optimistic multi-writer lock coupling (OLC) with immutable bucket
@@ -10671,7 +10757,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         ))]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.remove_root_covered(|m| {
@@ -10688,7 +10774,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
 
             let guard = self.shared.enter_writer_blocking();
             let slot_id = guard.slot_id();
-            let h = self.shared.inner_ref().hash_key(key);
+            let h = self.hasher.hash_one(key);
 
             let res = self.shared.with_writer_pin(|| {
                 crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -10723,7 +10809,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                     }
 
                     let snap = self.shared.version().sample();
-                    let root = self.shared.inner_ref().occ_root().0;
+                    let root = self.shared.published().load();
                     // SAFETY: pinned + freshly sampled even version; loads are validated.
                     let found = match unsafe {
                         walk_validated::<true>(root, h, self.shared.version(), snap)
@@ -10930,7 +11016,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         ))]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.remove_serialised(key);
@@ -10938,7 +11024,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
 
             let guard = self.shared.enter_writer_blocking();
             let slot_id = guard.slot_id();
-            let h = self.shared.inner_ref().hash_key(key);
+            let h = self.hasher.hash_one(key);
 
             let res = self.shared.with_writer_pin(|| {
                 crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -10972,7 +11058,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                     }
 
                     let snap = self.shared.version().sample();
-                    let root = self.shared.inner_ref().occ_root().0;
+                    let root = self.shared.published().load();
                     // SAFETY: pinned + freshly sampled even version; loads are validated.
                     let found = match unsafe {
                         walk_validated::<true>(root, h, self.shared.version(), snap)
@@ -11259,10 +11345,13 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
 /// is invisible): a populated map's hash trie holds slab-carved node
 /// memory that must never be retired to the collector (see
 /// `NodeAlloc::defer_to`).
-impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncExpanseBytesMap<S> {
+impl<S: BuildHasher + Clone + Send + Sync + Default> From<ExpanseBytesMap<S>>
+    for SyncExpanseBytesMap<S>
+{
     fn from(src: ExpanseBytesMap<S>) -> Self {
         let collector = Arc::new(Collector::new());
-        let mut map = ExpanseBytesMap::with_hasher(S::default());
+        let hasher = S::default();
+        let mut map = ExpanseBytesMap::with_hasher(hasher.clone());
         map.defer_to(Arc::clone(&collector));
         // Entry-by-entry sweep: O(n) with one rehash per entry — a
         // wrap-once construction cost (see `SyncExpanseStrMap`).
@@ -11273,6 +11362,7 @@ impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncEx
         let shared = Shared::with_collector(map, collector);
         Self {
             shared,
+            hasher,
             #[cfg(all(
                 feature = "std",
                 target_pointer_width = "64",
@@ -11310,11 +11400,14 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version().sample();
-            // SAFETY: pinned + freshly sampled version; every load is
-            // validated (see `ExpanseBytesMap::get_validated`).
-            let attempt =
-                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                unsafe { (*shared.inner.get()).get_validated(key, shared.version(), snap) };
+            // The published root and the wrapper's hasher: the lookup forms
+            // no reference to the map (#1086).
+            let root = shared.published().load();
+            // SAFETY: pinned + freshly sampled version, the root loaded after
+            // it; every load is validated (see `bytesmap::get_validated`).
+            let attempt = unsafe {
+                crate::bytesmap::get_validated(root, &self.map.hasher, key, shared.version(), snap)
+            };
             if let Ok(r) = attempt {
                 return r;
             }
@@ -13987,7 +14080,7 @@ mod tests {
     /// Every key hashes identically, so the whole map is one collision
     /// bucket: the concurrent bucket-replacement paths (append, remove,
     /// removed-key retirement) all run on it.
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct Degenerate;
     impl std::hash::Hasher for Degenerate {
         fn finish(&self) -> u64 {
@@ -14196,7 +14289,7 @@ mod tests {
     /// hash trie is a real tree and the optimistic write path runs — which
     /// [`Degenerate`] cannot do, since one hash is one root leaf — while
     /// every slot still holds a real collision bucket.
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct FewBuckets(u64);
     impl std::hash::Hasher for FewBuckets {
         fn finish(&self) -> u64 {

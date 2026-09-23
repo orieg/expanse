@@ -1855,9 +1855,14 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 // version).
                 cover.begin_if::<OCC, NESTED>(a);
                 a.assert_bracketed_by(cover.addr(a));
-                // SAFETY: live LeafBitmap1 per contract.
-                let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmap1>() };
-                if !node.bitmap.set(digit(key, 1)) {
+                // SAFETY: live LeafBitmap1 per contract; reached through the
+                // raw pointer, since readers read this bitmap concurrently
+                // (#1086).
+                let node = edge.node_ptr().cast::<LeafBitmap1>();
+                // SAFETY: as above; the parent's bracket is open.
+                if !unsafe {
+                    crate::bits::shared_bitmap::set::<OCC>(&raw mut (*node).bitmap, digit(key, 1))
+                } {
                     cover.end_if::<OCC, NESTED>(a);
                     return false;
                 }
@@ -2053,11 +2058,20 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 }
                 let slot_level = level;
                 let d = digit(key, bl);
-                // SAFETY: live BranchB per contract.
-                let b = unsafe { &mut *edge.node_ptr().cast::<BranchB>() };
-                let inner = Cover::Node(&raw mut b.version);
-                if let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) {
-                    let sub = b.subarrays[(d >> 5) as usize];
+                // Live BranchB per contract, reached through the raw pointer: readers
+                // read its bitmap and arrays while this writer changes them (#1086).
+                let b = edge.node_ptr().cast::<BranchB>();
+                // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                let inner = Cover::Node(unsafe { &raw mut (*b).version });
+                // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                if let Some(slot) = unsafe {
+                    crate::bits::shared_bitmap::test_and_subexpanse_rank::<OCC>(
+                        &raw const (*b).bitmap,
+                        d,
+                    )
+                } {
+                    // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                    let sub = unsafe { (*b).subarrays[(d >> 5) as usize] };
                     inner.nest_begin::<OCC, NESTED>(a);
                     // SAFETY: bitmap/subarray consistency invariant. The
                     // descent is not bracketed (see the L3 arm).
@@ -2081,7 +2095,12 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     }
                     return inserted;
                 }
-                if b.bitmap.count() as usize + 1 > BRANCHB_UP {
+                // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                if unsafe { crate::bits::shared_bitmap::count::<OCC>(&raw const (*b).bitmap) }
+                    as usize
+                    + 1
+                    > BRANCHB_UP
+                {
                     if bl < slot_level {
                         // BranchU has no header level, so it cannot skip:
                         // materialize the level just above the form and retry.
@@ -2109,15 +2128,19 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 // bitmap set mutate state a reader may be traversing; the
                 // descent that follows is not).
                 let sub = (d >> 5) as usize;
-                let old_n = b.pop_counts[sub] as usize;
-                let rank = b.bitmap.subexpanse_rank(d) as usize;
+                // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                let old_n = unsafe { (*b).pop_counts[sub] } as usize;
+                // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                let rank = unsafe {
+                    crate::bits::shared_bitmap::subexpanse_rank::<OCC>(&raw const (*b).bitmap, d)
+                } as usize;
                 inner.nest_begin::<OCC, NESTED>(a);
                 inner.begin_if::<OCC, NESTED>(a);
                 if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
                     // Fast path: spare class capacity — shift in place.
                     // SAFETY: the subarray holds cap_class(old_n) slots.
                     unsafe {
-                        let arr = b.subarrays[sub];
+                        let arr = (*b).subarrays[sub];
                         core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
                         arr.add(rank).write(Edge::NULL);
                     }
@@ -2130,7 +2153,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                     // touches no old pointer.
                     unsafe {
                         if old_n > 0 {
-                            let old = b.subarrays[sub];
+                            let old = (*b).subarrays[sub];
                             new.as_ptr().copy_from_nonoverlapping(old, rank);
                             new.as_ptr()
                                 .add(rank + 1)
@@ -2142,10 +2165,13 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                         }
                         new.as_ptr().add(rank).write(Edge::NULL);
                     }
-                    b.subarrays[sub] = new.as_ptr();
+                    // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                    unsafe { (*b).subarrays[sub] = new.as_ptr() };
                 }
-                b.pop_counts[sub] = (old_n + 1) as u16;
-                b.bitmap.set(d);
+                // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                unsafe { (*b).pop_counts[sub] = (old_n + 1) as u16 };
+                // SAFETY: live BranchB; readers read it concurrently, so every access goes through the raw pointer (#1086).
+                unsafe { crate::bits::shared_bitmap::set::<OCC>(&raw mut (*b).bitmap, d) };
                 inner.end_if::<OCC, NESTED>(a);
                 inner.nest_end::<OCC, NESTED>(a);
                 inner.nest_begin::<OCC, NESTED>(a);
@@ -2153,7 +2179,7 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 let inserted = unsafe {
                     insert_with_path::<OCC, NESTED>(
                         a,
-                        &mut *b.subarrays[sub].add(rank),
+                        &mut *(*b).subarrays[sub].add(rank),
                         key,
                         bl - 1,
                         path,
@@ -2536,7 +2562,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             let d = digit(key, 1);
             let node = edge.node_ptr().cast::<LeafBitmap1>();
             // SAFETY: live LeafBitmap1 per contract.
-            if !unsafe { (*node).bitmap.test(d) } {
+            if !unsafe { crate::bits::shared_bitmap::test::<OCC>(&raw const (*node).bitmap, d) } {
                 return false;
             }
             // The bitmap leaf carries no version: the parent's word covers
@@ -2544,21 +2570,24 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             cover.begin_if::<OCC, NESTED>(a);
             a.assert_bracketed_by(cover.addr(a));
             // SAFETY: live LeafBitmap1 per contract; `d` is present.
-            let cleared = unsafe { (*node).bitmap.clear(d) };
+            let cleared =
+                unsafe { crate::bits::shared_bitmap::clear::<OCC>(&raw mut (*node).bitmap, d) };
             debug_assert!(cleared);
             let pop = edge.pop0(1) as usize; // old pop - 1
             // Hysteresis: convert back to a linear leaf when pop drops below the floor.
             if pop < LEAFB1_DOWN {
                 let mut keys = StackKeys32::new();
                 // SAFETY: live LeafBitmap1 per contract.
-                let bitmap = unsafe { &(*node).bitmap };
-                let mut dg = bitmap.next_set(0);
+                let bitmap = unsafe { &raw const (*node).bitmap };
+                // SAFETY: as above.
+                let mut dg = unsafe { crate::bits::shared_bitmap::next_set::<OCC>(bitmap, 0) };
                 while let Some(dig) = dg {
                     keys.push(u64::from(dig));
                     dg = if dig == 255 {
                         None
                     } else {
-                        bitmap.next_set(dig + 1)
+                        // SAFETY: as above.
+                        unsafe { crate::bits::shared_bitmap::next_set::<OCC>(bitmap, dig + 1) }
                     };
                 }
                 let saved_aux = *edge.aux_bytes();
@@ -2787,10 +2816,10 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                         );
                     }
                     (*b).pop_counts[sub] = (old_n - 1) as u16;
-                    (*b).bitmap.clear(d);
+                    crate::bits::shared_bitmap::clear::<OCC>(&raw mut (*b).bitmap, d);
                     inner.end_if::<OCC, NESTED>(a);
                     inner.nest_end::<OCC, NESTED>(a);
-                    (*b).bitmap.count() as usize
+                    crate::bits::shared_bitmap::count::<OCC>(&raw const (*b).bitmap) as usize
                 };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {

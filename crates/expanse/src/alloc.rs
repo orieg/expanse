@@ -61,7 +61,33 @@ pub(crate) struct FreeBlock {
 #[repr(C)]
 pub(crate) struct SlabPage {
     pub(crate) next: *mut SlabPage,
-    pub(crate) layout: Layout,
+    /// The size class this page was carved into. It fixes the page's layout
+    /// ([`slab_page_layout`]) and lets [`NodeAlloc::bytes_held`] count the
+    /// blocks the page holds.
+    pub(crate) class: usize,
+}
+
+/// Bytes of a slab page's header: blocks start one cache line in.
+const SLAB_HEADER: usize = CACHE_LINE;
+/// Bytes of one slab page.
+const SLAB_PAGE_SIZE: usize = 4096;
+
+/// The layout a slab page of `class` is allocated and freed with.
+fn slab_page_layout(class: usize) -> Layout {
+    Layout::from_size_align(SLAB_PAGE_SIZE, CLASS_SPECS[class].1.max(CACHE_LINE))
+        .expect("valid slab page layout")
+}
+
+/// Blocks a slab page of `class` is carved into.
+const fn slab_blocks(class: usize) -> usize {
+    let (bytes, align) = CLASS_SPECS[class];
+    (SLAB_PAGE_SIZE - SLAB_HEADER) / accounted_size(bytes, align)
+}
+
+/// Whether a class is served from slab pages (every block of it came from
+/// one) rather than straight from the system allocator.
+const fn is_slab_class(class: usize) -> bool {
+    CLASS_SPECS[class].0 <= 256
 }
 
 pub(crate) const NUM_CLASSES: usize = 62;
@@ -147,6 +173,53 @@ const fn build_raw_class_table() -> [u8; 376] {
 }
 
 pub(crate) const RAW_CLASS_TABLE: [u8; 376] = build_raw_class_table();
+
+/// For each request size, the smallest raw size class that holds it at the
+/// same accounted size; a size with no such class, or above the table, maps
+/// to itself.
+#[cfg(any(feature = "packed-suffix", test))]
+const fn build_raw_fit_table() -> [u16; 376] {
+    let mut table = [0u16; 376];
+    let mut bytes = 0;
+    while bytes < 376 {
+        let mut fit = bytes;
+        let mut i = 6;
+        while i < NUM_CLASSES {
+            let (b, align) = CLASS_SPECS[i];
+            if align == RAW_ALIGN && b >= bytes {
+                if accounted_size(b, RAW_ALIGN) == accounted_size(bytes, RAW_ALIGN) {
+                    fit = b;
+                }
+                break;
+            }
+            i += 1;
+        }
+        table[bytes] = fit as u16;
+        bytes += 1;
+    }
+    table
+}
+
+#[cfg(any(feature = "packed-suffix", test))]
+const RAW_FIT_TABLE: [u16; 376] = build_raw_fit_table();
+
+/// The request size [`NodeAlloc::alloc_bytes`] should be given for a block of
+/// at least `bytes`: the smallest raw size class holding it, so the block
+/// comes from a class (slab-carved up to 256 bytes) rather than straight from
+/// the system allocator — when that class has the same accounted size, which
+/// holds for every size except the few just above a class gap (251..=256
+/// lies between the 250- and 275-byte classes). Otherwise `bytes`. For callers whose sizes
+/// vary freely, such as string suffix leaves; the engine's own node sizes are
+/// class sizes already.
+#[cfg(any(feature = "packed-suffix", test))]
+#[inline]
+pub(crate) fn raw_class_fit(bytes: usize) -> usize {
+    if bytes < RAW_FIT_TABLE.len() {
+        RAW_FIT_TABLE[bytes] as usize
+    } else {
+        bytes
+    }
+}
 
 #[inline(always)]
 pub(crate) fn class_for_raw(bytes: usize) -> Option<usize> {
@@ -336,7 +409,9 @@ pub struct NodeAlloc {
     /// shared monomorph that brackets root state itself. `ROOT_COVER_HELD`
     /// while a map or set wrapper holds the word around a whole covered
     /// write (#1086): the monomorph is unchanged, and its own tree bracket
-    /// is a no-op for that operation.
+    /// is a no-op for that operation. The bytes and blob wrappers also hold
+    /// the word around their covered writes, but their engines are in
+    /// `ROOT_COVER_WRAPPER` and the hand-over is a no-op there.
     #[cfg(feature = "std")]
     root_cover: core::sync::atomic::AtomicU8,
     /// #568 PR 3: the tree-level version word this tree's root state is
@@ -433,7 +508,7 @@ impl Drop for NodeAlloc {
             // SAFETY: cur_page is the raw base pointer of an allocated 4096-byte slab page.
             unsafe {
                 let next = (*cur_page).next;
-                let layout = (*cur_page).layout;
+                let layout = slab_page_layout((*cur_page).class);
                 dealloc(cur_page.cast::<u8>(), layout);
                 cur_page = next;
             }
@@ -476,6 +551,196 @@ impl NodeAlloc {
             return if total < 0 { 0 } else { total as usize };
         }
         inline
+    }
+
+    /// Bytes this handle holds from the system allocator: the live bytes
+    /// [`Self::bytes_in_use`] counts, plus freed blocks kept on the
+    /// per-tree size-class freelists for reuse, plus the unused blocks and
+    /// headers of the 4 KiB slab pages small classes are carved from.
+    ///
+    /// Freed blocks are recycled within the tree and returned to the system
+    /// only when the tree is dropped, so this, not `bytes_in_use`, is what
+    /// the tree costs the process before the system allocator's own
+    /// per-allocation overhead (chunk headers and size-class rounding),
+    /// which depends on the allocator and is not included.
+    ///
+    /// Computed on demand by walking the slab pages and freelists: no
+    /// counter is updated on the allocation path. O(slab pages + free
+    /// blocks).
+    ///
+    /// A tree shared through a concurrent wrapper allocates from its
+    /// collector's pools, which other trees may share and which are not
+    /// attributed here; for such a tree this is the per-tree share, which
+    /// is `bytes_in_use` plus any slab pages carved before it was shared.
+    #[must_use]
+    pub fn bytes_held(&self) -> usize {
+        let mut pages = [0usize; NUM_CLASSES];
+        let mut page = self.slab_pages.load(Ordering::Relaxed);
+        while !page.is_null() {
+            // SAFETY: every entry of the slab list is a live page this handle
+            // carved, and its header was written before it was linked. The
+            // list is single-writer and `&self` excludes a plain tree's writer.
+            unsafe {
+                pages[(*page).class] += 1;
+                page = (*page).next;
+            }
+        }
+        let mut slab_total = 0;
+        let mut slab_carved_live = 0;
+        let mut free_system = 0;
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            let step = accounted_size(bytes, align);
+            let mut free = 0usize;
+            let mut cur = self.freelists[class].load(Ordering::Relaxed);
+            while !cur.is_null() {
+                free += 1;
+                // SAFETY: freelist entries are free blocks of this class owned
+                // by this handle; `next` was written when each was pushed.
+                cur = unsafe { (*cur).next };
+            }
+            if is_slab_class(class) {
+                slab_total += pages[class] * SLAB_PAGE_SIZE;
+                slab_carved_live += (pages[class] * slab_blocks(class)).saturating_sub(free) * step;
+            } else {
+                free_system += free * step;
+            }
+        }
+        // Live bytes not on a slab page came from the system allocator.
+        let live_system = self.bytes_in_use().saturating_sub(slab_carved_live);
+        slab_total + live_system + free_system
+    }
+
+    /// Returns retained memory to the system allocator: every freed block
+    /// of a class served straight from the system allocator, and every slab
+    /// page none of whose blocks is in use. Returns the bytes released,
+    /// by the rule [`Self::bytes_held`] counts them, so `bytes_held` falls by
+    /// exactly this much.
+    ///
+    /// Live nodes never move, and blocks on a page that still holds a live
+    /// node stay on their freelists. Costs O(slab pages · log slab pages +
+    /// free blocks) and one scratch allocation; nothing on the allocation
+    /// path changes.
+    ///
+    /// `&mut self`: the freelists and slab list are single-writer. A tree
+    /// shared through a concurrent wrapper keeps no per-tree freelists, so
+    /// this returns 0 for it.
+    pub fn release_free(&mut self) -> usize {
+        #[cfg(feature = "std")]
+        if self.deferred.get().is_some() {
+            return 0;
+        }
+        let mut released = 0;
+
+        // Classes above the slab ceiling: each free block is its own
+        // system allocation.
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            if is_slab_class(class) {
+                continue;
+            }
+            let layout = Self::layout_for(bytes, align);
+            let mut cur =
+                core::mem::replace(self.freelists[class].get_mut(), core::ptr::null_mut());
+            while !cur.is_null() {
+                // SAFETY: `cur` is a free block of this class, allocated by
+                // `alloc_system(bytes, align)`, and no longer reachable from
+                // the freelist this loop just detached.
+                let next = unsafe { (*cur).next };
+                // SAFETY: as above; `layout` is the one it was allocated with.
+                unsafe { dealloc(cur.cast::<u8>(), layout) };
+                released += accounted_size(bytes, align);
+                cur = next;
+            }
+        }
+
+        // Slab pages, sorted by base address so a block finds its page by
+        // binary search: (base, page, free blocks counted, blocks carved).
+        let mut pages: core_alloc::vec::Vec<(usize, *mut SlabPage, usize, usize)> =
+            core_alloc::vec::Vec::new();
+        let mut page = *self.slab_pages.get_mut();
+        while !page.is_null() {
+            // SAFETY: slab list entries are live pages with written headers.
+            unsafe {
+                pages.push((page as usize, page, 0, slab_blocks((*page).class)));
+                page = (*page).next;
+            }
+        }
+        if pages.is_empty() {
+            return released;
+        }
+        pages.sort_unstable_by_key(|p| p.0);
+        let page_of = |pages: &[(usize, *mut SlabPage, usize, usize)], addr: usize| -> usize {
+            let i = pages.partition_point(|p| p.0 <= addr) - 1;
+            debug_assert!(
+                addr < pages[i].0 + SLAB_PAGE_SIZE,
+                "free block outside every slab page"
+            );
+            i
+        };
+        // Count each page's free blocks.
+        for class in 0..NUM_CLASSES {
+            if !is_slab_class(class) {
+                continue;
+            }
+            let mut cur = *self.freelists[class].get_mut();
+            while !cur.is_null() {
+                let i = page_of(&pages, cur as usize);
+                pages[i].2 += 1;
+                // SAFETY: freelist entries are free blocks with `next` written.
+                cur = unsafe { (*cur).next };
+            }
+        }
+        // A page is free when every block carved from it is on a freelist.
+        let is_free = |p: &(usize, *mut SlabPage, usize, usize)| p.2 == p.3;
+        if !pages.iter().any(is_free) {
+            return released;
+        }
+        // Drop the blocks of free pages from their freelists, keeping order.
+        for class in 0..NUM_CLASSES {
+            if !is_slab_class(class) {
+                continue;
+            }
+            let mut kept: *mut FreeBlock = core::ptr::null_mut();
+            let mut tail: Option<NonNull<FreeBlock>> = None;
+            let mut cur = *self.freelists[class].get_mut();
+            while let Some(block) = NonNull::new(cur) {
+                // SAFETY: freelist entries are free blocks with `next` written.
+                let next = unsafe { (*block.as_ptr()).next };
+                if !is_free(&pages[page_of(&pages, cur as usize)]) {
+                    match tail {
+                        None => kept = cur,
+                        // SAFETY: `t` is a kept free block of this class.
+                        Some(t) => unsafe { (*t.as_ptr()).next = cur },
+                    }
+                    tail = Some(block);
+                }
+                cur = next;
+            }
+            if let Some(t) = tail {
+                // SAFETY: `t` is a kept free block of this class.
+                unsafe { (*t.as_ptr()).next = core::ptr::null_mut() };
+            }
+            *self.freelists[class].get_mut() = kept;
+        }
+        // Rebuild the slab list from the kept pages and free the rest.
+        let mut head: *mut SlabPage = core::ptr::null_mut();
+        for p in pages.iter().rev() {
+            if is_free(p) {
+                // SAFETY: the page is live, no block on it is live or listed
+                // any more, and its header's class fixes the layout it was
+                // carved with.
+                unsafe {
+                    let layout = slab_page_layout((*p.1).class);
+                    dealloc(p.1.cast::<u8>(), layout);
+                }
+                released += SLAB_PAGE_SIZE;
+            } else {
+                // SAFETY: a kept page's header is live and single-writer here.
+                unsafe { (*p.1).next = head };
+                head = p.1;
+            }
+        }
+        *self.slab_pages.get_mut() = head;
+        released
     }
 
     /// Number of live allocations (diagnostics / leak assertions in tests).
@@ -614,7 +879,6 @@ impl NodeAlloc {
                 #[cfg(debug_assertions)]
                 let _bookkeeping = self.enter_bookkeeping();
                 // Pre-populate freelist from an intrusive 4KB slab page
-                const SLAB_PAGE_SIZE: usize = 4096;
                 let page_align = align.max(CACHE_LINE);
                 let page_layout = Layout::from_size_align(SLAB_PAGE_SIZE, page_align)
                     .expect("valid slab page layout");
@@ -629,11 +893,11 @@ impl NodeAlloc {
                 // SAFETY: page_raw is a fresh 4KB zeroed allocation.
                 unsafe {
                     (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
-                    (*slab_page).layout = page_layout;
+                    (*slab_page).class = class;
                 }
                 self.slab_pages.store(slab_page, Ordering::Relaxed);
 
-                let header_offset = CACHE_LINE;
+                let header_offset = SLAB_HEADER;
                 let step = accounted_size;
                 let available_bytes = SLAB_PAGE_SIZE - header_offset;
                 let num_blocks = available_bytes / step;
@@ -1668,6 +1932,96 @@ mod tests {
         }
         assert_eq!(class_for_raw(376), None);
         assert_eq!(class_for_raw(1000), None);
+    }
+
+    /// `raw_class_fit` returns the smallest raw class holding each size, and
+    /// never a size whose accounted bytes exceed the request's own; every
+    /// suffix-sized request up to 250 bytes lands in a class.
+    #[test]
+    fn raw_class_fit_is_the_smallest_holding_class() {
+        for bytes in 1..RAW_FIT_TABLE.len() + 8 {
+            let fit = raw_class_fit(bytes);
+            assert!(fit >= bytes, "{bytes} -> {fit}");
+            assert_eq!(
+                accounted_size(fit, RAW_ALIGN),
+                accounted_size(bytes, RAW_ALIGN),
+                "{bytes} -> {fit} changes the accounted size"
+            );
+            if fit != bytes {
+                assert!(
+                    class_for_raw(fit).is_some(),
+                    "{bytes} -> {fit} has no class"
+                );
+                assert!(
+                    (bytes..fit).all(|b| class_for_raw(b).is_none()),
+                    "{bytes} -> {fit} skips a smaller class"
+                );
+            }
+            if bytes > 375 {
+                assert_eq!(fit, bytes);
+            }
+            if (16..=250).contains(&bytes) {
+                assert!(
+                    class_for_raw(fit).is_some(),
+                    "{bytes} is not fitted to a class"
+                );
+            }
+        }
+    }
+
+    /// `release_free` frees exactly the slab pages with no live block and
+    /// every free system-class block, keeps a page that still holds a live
+    /// block (and its free blocks on the freelist), and `bytes_held` falls
+    /// by exactly the bytes it reports.
+    #[test]
+    fn release_free_returns_free_pages_and_system_blocks() {
+        let class = class_for_raw(64).expect("64 is a raw class");
+        let per_page = slab_blocks(class);
+        let mut a = NodeAlloc::new();
+        // Three pages: two full, one holding the last block.
+        let n = 2 * per_page + 1;
+        let blocks: core_alloc::vec::Vec<_> = (0..n).map(|_| a.alloc_bytes(64)).collect();
+        let big = a.alloc_bytes(300);
+        assert!(class_for_raw(300).is_some_and(|c| !is_slab_class(c)));
+        // SAFETY: `big` came from `alloc_bytes(300)` and is not used again.
+        unsafe { a.free_bytes(big, 300) };
+        for &b in &blocks[..n - 1] {
+            // SAFETY: each block came from `alloc_bytes(64)` and is freed once.
+            unsafe { a.free_bytes(b, 64) };
+        }
+        assert_eq!(a.bytes_in_use(), 64);
+        assert_eq!(
+            a.bytes_held(),
+            3 * SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+        );
+
+        let released = a.release_free();
+        assert_eq!(
+            released,
+            2 * SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+        );
+        assert_eq!(
+            a.bytes_held(),
+            SLAB_PAGE_SIZE,
+            "the page with a live block stays"
+        );
+        assert_eq!(
+            a.release_free(),
+            0,
+            "a second call finds nothing to release"
+        );
+
+        // The kept page's free blocks are still served, then everything goes.
+        let again = a.alloc_bytes(64);
+        assert_eq!(a.bytes_held(), SLAB_PAGE_SIZE, "reuse, not a new page");
+        // SAFETY: both blocks came from `alloc_bytes(64)` and are freed once.
+        unsafe {
+            a.free_bytes(again, 64);
+            a.free_bytes(blocks[n - 1], 64);
+        }
+        assert_eq!(a.release_free(), SLAB_PAGE_SIZE);
+        assert_eq!(a.bytes_held(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
     }
 
     #[cfg(feature = "std")]

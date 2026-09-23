@@ -39,6 +39,7 @@ use crate::slot::{SlotTag, ValueSlot};
 use crate::types::Key;
 use core::alloc::Layout;
 use core::ptr::NonNull;
+#[cfg(feature = "std")]
 use core::sync::atomic::AtomicPtr;
 #[cfg(feature = "std")]
 use core::sync::atomic::Ordering;
@@ -691,15 +692,37 @@ pub struct BlobArena {
     max_capacity: usize,
     /// Phase 7 (issue #219): when set, dead chunks and superseded chunk
     /// tables are retired to the collector instead of freed — concurrent
-    /// readers may still hold pointers into them. Mirrors
-    /// [`crate::alloc::NodeAlloc`]'s deferred mode.
+    /// readers may still hold pointers into them — and the reader table is
+    /// published. Mirrors [`crate::alloc::NodeAlloc`]'s deferred mode.
     #[cfg(feature = "std")]
-    deferred: OnceLock<Arc<Collector>>,
-    /// RCU-published [`ChunkTable`] for optimistic readers; null unless
-    /// deferred mode has published one. Republished whole on every
-    /// chunk-set change, always *before* the chunks it dropped are retired
-    /// (a block must be unreachable before it enters the grace period).
+    deferred: OnceLock<Arc<ArenaDeferred>>,
+}
+
+/// A deferred arena's shared state, on the heap rather than in the arena
+/// (#1086): the collector, and the reader table the concurrent wrapper's
+/// readers load. A wrapper writer that holds `&mut BlobArena` (a shared-path
+/// allocation) covers the arena's own bytes, so a reader that loaded the
+/// table through the arena would access memory that reference asserts no
+/// one else touches. Through this cell it does not.
+#[cfg(feature = "std")]
+pub(crate) struct ArenaDeferred {
+    collector: Arc<Collector>,
+    /// RCU-published [`ChunkTable`] for optimistic readers; null while the
+    /// arena has no chunks. Republished whole on every chunk-set change,
+    /// always *before* the chunks it dropped are retired (a block must be
+    /// unreachable before it enters the grace period).
     reader_table: AtomicPtr<ChunkTable>,
+}
+
+#[cfg(feature = "std")]
+impl ArenaDeferred {
+    /// Current published chunk table (null when the arena has no chunks).
+    /// Readers must hold an epoch pin taken before this load — see
+    /// [`resolve_meta_in_table`].
+    #[inline(always)]
+    pub(crate) fn reader_table(&self) -> *const ChunkTable {
+        self.reader_table.load(Ordering::Acquire)
+    }
 }
 
 impl BlobArena {
@@ -726,7 +749,6 @@ impl BlobArena {
             max_capacity: MAX_ARENA_CAPACITY,
             #[cfg(feature = "std")]
             deferred: OnceLock::new(),
-            reader_table: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 
@@ -774,20 +796,35 @@ impl BlobArena {
     /// different-collector panic would be reachable from safe code.
     #[cfg(feature = "std")]
     pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
-        let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
+        let stored = self.deferred.get_or_init(|| {
+            Arc::new(ArenaDeferred {
+                collector: Arc::clone(&collector),
+                reader_table: AtomicPtr::new(core::ptr::null_mut()),
+            })
+        });
         assert!(
-            Arc::ptr_eq(stored, &collector),
+            Arc::ptr_eq(&stored.collector, &collector),
             "BlobArena already deferred to a different collector"
         );
         self.republish_table();
     }
 
     /// Current published chunk table (null when not in deferred mode or
-    /// when the arena has no chunks). Readers must hold an epoch pin taken
-    /// before this load — see [`resolve_meta_in_table`].
-    #[cfg(feature = "std")]
+    /// when the arena has no chunks), for tests; the concurrent wrapper
+    /// loads it through [`Self::deferred_cell`].
+    #[cfg(all(feature = "std", test))]
     pub(crate) fn reader_table(&self) -> *const ChunkTable {
-        self.reader_table.load(Ordering::Acquire)
+        self.deferred
+            .get()
+            .map_or(core::ptr::null(), |d| d.reader_table())
+    }
+
+    /// The deferred arena's shared cell, for a concurrent wrapper to hold
+    /// and load the reader table through without reaching into the arena
+    /// (#1086). `None` until [`Self::defer_to`].
+    #[cfg(feature = "std")]
+    pub(crate) fn deferred_cell(&self) -> Option<Arc<ArenaDeferred>> {
+        self.deferred.get().cloned()
     }
 
     /// Rebuilds and publishes the reader chunk table from the current chunk
@@ -797,9 +834,10 @@ impl BlobArena {
     fn republish_table(&self) {
         #[cfg(feature = "std")]
         {
-            let Some(collector) = self.deferred.get() else {
+            let Some(deferred) = self.deferred.get() else {
                 return;
             };
+            let collector = &deferred.collector;
             let new_table: *mut ChunkTable = if self.chunks.is_empty() {
                 core::ptr::null_mut()
             } else {
@@ -832,7 +870,7 @@ impl BlobArena {
                 }
                 table.as_ptr()
             };
-            let old = self.reader_table.swap(new_table, Ordering::AcqRel);
+            let old = deferred.reader_table.swap(new_table, Ordering::AcqRel);
             if let Some(old) = NonNull::new(old) {
                 // SAFETY: `old` was published by this arena; its `len` header
                 // field is immutable, giving back the exact allocation size.
@@ -849,9 +887,9 @@ impl BlobArena {
     /// first, so no new reader can reach these chunks.
     fn dispose_chunks(&self, _chunks: Vec<ArenaChunk>) {
         #[cfg(feature = "std")]
-        if let Some(collector) = self.deferred.get() {
+        if let Some(deferred) = self.deferred.get() {
             for chunk in _chunks {
-                chunk.retire_into(collector);
+                chunk.retire_into(&deferred.collector);
             }
         }
         // Not deferred: dropping the Vec frees each chunk immediately.
@@ -1214,7 +1252,18 @@ impl Drop for BlobArena {
         // table is freed directly; chunks still owned by `self.chunks` free
         // via `ArenaChunk::drop`, and already-retired ones drain with the
         // collector.
-        let table = *self.reader_table.get_mut();
+        #[cfg(feature = "std")]
+        let Some(deferred) = self.deferred.get() else {
+            return;
+        };
+        // A concurrent wrapper may hold the cell past this drop; leave it
+        // null rather than naming the freed table.
+        #[cfg(feature = "std")]
+        let table = deferred
+            .reader_table
+            .swap(core::ptr::null_mut(), Ordering::AcqRel);
+        #[cfg(not(feature = "std"))]
+        let table: *mut ChunkTable = core::ptr::null_mut();
         if let Some(table) = NonNull::new(table) {
             // SAFETY: `table` was allocated by `republish_table` with
             // `table_layout(len)`; its `len` header field is immutable.
@@ -1274,6 +1323,23 @@ impl ExpanseBlobMap {
             index: ExpanseMap::new(),
             arena: BlobArena::with_chunk_size_and_max_capacity(chunk_size, max_capacity),
         }
+    }
+
+    /// The index's allocator, reached through a raw pointer to the map
+    /// without a reference to the whole map (#1086; see
+    /// [`ExpanseMap::alloc_of`]).
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live map for `'a`, and no `&mut` to it exists
+    /// meanwhile.
+    #[cfg(feature = "std")]
+    #[cfg_attr(feature = "ablation-blob-serial-writers", allow(dead_code))]
+    #[inline(always)]
+    pub(crate) unsafe fn alloc_of<'a>(this: *const Self) -> &'a crate::alloc::NodeAlloc {
+        // SAFETY: caller contract; the field is projected through the raw
+        // pointer, so no reference to the whole map is formed.
+        unsafe { ExpanseMap::alloc_of(core::ptr::addr_of!((*this).index)) }
     }
 
     /// Number of entries in the blob map.

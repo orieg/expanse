@@ -23,6 +23,26 @@ use core_alloc::string::String;
 #[cfg(not(feature = "std"))]
 use core_alloc::vec::Vec;
 
+/// Evaluates `$op` with `$this` bound to `$m`, and counts a root-state
+/// change (diagnostic builds only). A macro rather than a method taking a
+/// closure: the plain insert and remove bodies then reach their callers
+/// through `#[inline(always)]` functions alone, and never through a closure
+/// call whose inlining LLVM decides by heuristic, a decision that moves with
+/// the size of unrelated code in the crate (Refs #1086).
+macro_rules! noting_root_rewrite {
+    ($this:expr, $m:ident => $op:expr) => {{
+        let $m = $this;
+        #[cfg(feature = "occ-stats")]
+        let before = $m.root_fingerprint();
+        let r = $op;
+        #[cfg(feature = "occ-stats")]
+        if $m.root_fingerprint() != before {
+            crate::occ_stats::note_root_rewrite();
+        }
+        r
+    }};
+}
+
 pub use crate::types::ROOT_LEAF_CAP;
 
 /// Allocation size of a root leaf holding `pop` keys. Class-sized (like
@@ -303,6 +323,39 @@ impl ExpanseSet {
         self.alloc.bytes_in_use()
     }
 
+    /// Heap bytes the set holds from the system allocator: [`Self::mem_used`]
+    /// plus the freed blocks its allocator keeps on per-tree freelists for
+    /// reuse and the unused part of the slab pages small nodes are carved
+    /// from. Those blocks go back to the system only when the set is
+    /// dropped, so `malloc_trim` cannot recover them; this is the figure to
+    /// compare with resident memory. The system allocator's own
+    /// per-allocation overhead (chunk headers, size-class rounding) is
+    /// allocator-specific and not included; the `allocator_overhead`
+    /// example measures it.
+    ///
+    /// Computed on demand by walking the allocator's slab pages and
+    /// freelists (O(pages + free blocks)); no counter is kept on the
+    /// allocation path.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.alloc.bytes_held()
+    }
+
+    /// Returns memory the set holds but does not use to the system
+    /// allocator: freed blocks of the larger size classes, and slab pages
+    /// with no live node on them. Returns the bytes released; afterwards
+    /// [`Self::mem_held`] is lower by exactly that much and
+    /// [`Self::mem_used`] is unchanged. Nothing moves, so no key, value or
+    /// value pointer is affected.
+    ///
+    /// The set keeps freed blocks for reuse, so this pays off after a
+    /// build or a burst of removals that leaves many blocks idle; it costs a
+    /// walk of the allocator's pages and freelists. A no-op on a set
+    /// shared through a concurrent wrapper.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.alloc.release_free()
+    }
+
     /// Cumulative node/leaf allocations made by this container since it
     /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
     /// subtracts these from the process-wide count to isolate
@@ -464,30 +517,17 @@ impl ExpanseSet {
         }
     }
 
-    /// Runs `f` and counts a root-state change (diagnostic builds only).
-    #[inline(always)]
-    fn noting_root_rewrite<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        #[cfg(feature = "occ-stats")]
-        let before = self.root_fingerprint();
-        let r = f(self);
-        #[cfg(feature = "occ-stats")]
-        if self.root_fingerprint() != before {
-            crate::occ_stats::note_root_rewrite();
-        }
-        r
-    }
-
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.insert_inner(key))
+        noting_root_rewrite!(self, t => t.insert_inner(key))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn insert_plain(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.insert_inner_plain(key))
+        noting_root_rewrite!(self, t => t.insert_inner_plain(key))
     }
 
     #[inline(always)]
@@ -878,14 +918,14 @@ impl ExpanseSet {
     /// Removes `key`; returns `true` if it was present.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.remove_inner(key))
+        noting_root_rewrite!(self, t => t.remove_inner(key))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn remove_plain(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.remove_inner_plain(key))
+        noting_root_rewrite!(self, t => t.remove_inner_plain(key))
     }
 
     #[inline(always)]
@@ -894,7 +934,7 @@ impl ExpanseSet {
         &mut self,
         key: Key,
     ) -> bool {
-        self.noting_root_rewrite(|t| t.remove_inner_dispatch::<OCC, NESTED>(key))
+        noting_root_rewrite!(self, t => t.remove_inner_dispatch::<OCC, NESTED>(key))
     }
 
     #[inline(always)]

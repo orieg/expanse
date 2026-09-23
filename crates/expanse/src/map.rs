@@ -111,6 +111,26 @@ pub(crate) fn leaf_values_offset(pop: usize) -> usize {
     8 * crate::leaf::cap_class(pop)
 }
 
+/// Evaluates `$op` with `$this` bound to `$m`, and counts a root-state
+/// change (diagnostic builds only). A macro rather than a method taking a
+/// closure: the plain insert and remove bodies then reach their callers
+/// through `#[inline(always)]` functions alone, and never through a closure
+/// call whose inlining LLVM decides by heuristic, a decision that moves with
+/// the size of unrelated code in the crate (Refs #1086).
+macro_rules! noting_root_rewrite {
+    ($this:expr, $m:ident => $op:expr) => {{
+        let $m = $this;
+        #[cfg(feature = "occ-stats")]
+        let before = $m.root_fingerprint();
+        let r = $op;
+        #[cfg(feature = "occ-stats")]
+        if $m.root_fingerprint() != before {
+            crate::occ_stats::note_root_rewrite();
+        }
+        r
+    }};
+}
+
 /// See `set::by_mode`: the three sharing modes an engine call is
 /// monomorphized for, decided once per operation.
 macro_rules! by_mode {
@@ -1322,19 +1342,6 @@ impl MapCore {
         }
     }
 
-    /// Runs `f` and counts a root-state change (diagnostic builds only).
-    #[inline(always)]
-    fn noting_root_rewrite<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        #[cfg(feature = "occ-stats")]
-        let before = self.root_fingerprint();
-        let r = f(self);
-        #[cfg(feature = "occ-stats")]
-        if self.root_fingerprint() != before {
-            crate::occ_stats::note_root_rewrite();
-        }
-        r
-    }
-
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     #[inline(always)]
@@ -1345,7 +1352,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.insert_inner(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner(alloc, key, val, path))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
@@ -1357,7 +1364,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.insert_inner_plain(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner_plain(alloc, key, val, path))
     }
 
     #[inline(always)]
@@ -1368,7 +1375,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.insert_inner_dispatch::<OCC, NESTED>(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner_dispatch::<OCC, NESTED>(alloc, key, val, path))
     }
 
     #[inline(always)]
@@ -1930,7 +1937,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner(alloc, key, path))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -1941,7 +1948,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner_dispatch::<false, false>(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner_dispatch::<false, false>(alloc, key, path))
     }
 
     #[inline(always)]
@@ -1951,7 +1958,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner_dispatch::<OCC, NESTED>(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner_dispatch::<OCC, NESTED>(alloc, key, path))
     }
 
     #[inline(always)]
@@ -2886,6 +2893,39 @@ impl ExpanseMap {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.alloc.bytes_in_use()
+    }
+
+    /// Heap bytes the map holds from the system allocator: [`Self::mem_used`]
+    /// plus the freed blocks its allocator keeps on per-tree freelists for
+    /// reuse and the unused part of the slab pages small nodes are carved
+    /// from. Those blocks go back to the system only when the map is
+    /// dropped, so `malloc_trim` cannot recover them; this is the figure to
+    /// compare with resident memory. The system allocator's own
+    /// per-allocation overhead (chunk headers, size-class rounding) is
+    /// allocator-specific and not included; the `allocator_overhead`
+    /// example measures it.
+    ///
+    /// Computed on demand by walking the allocator's slab pages and
+    /// freelists (O(pages + free blocks)); no counter is kept on the
+    /// allocation path.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.alloc.bytes_held()
+    }
+
+    /// Returns memory the map holds but does not use to the system
+    /// allocator: freed blocks of the larger size classes, and slab pages
+    /// with no live node on them. Returns the bytes released; afterwards
+    /// [`Self::mem_held`] is lower by exactly that much and
+    /// [`Self::mem_used`] is unchanged. Nothing moves, so no key, value or
+    /// value pointer is affected.
+    ///
+    /// The map keeps freed blocks for reuse, so this pays off after a
+    /// build or a burst of removals that leaves many blocks idle; it costs a
+    /// walk of the allocator's pages and freelists. A no-op on a map
+    /// shared through a concurrent wrapper.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.alloc.release_free()
     }
 
     /// Cumulative node/leaf allocations made by this container since it

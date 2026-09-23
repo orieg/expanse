@@ -13,12 +13,14 @@ impl expanse_trie::alloc::NodeAlloc
 pub fn expanse_trie::alloc::NodeAlloc::alloc_bytes(&self, usize) -> core::ptr::non_null::NonNull<u8>
 pub fn expanse_trie::alloc::NodeAlloc::alloc_node<T>(&self, T) -> core::ptr::non_null::NonNull<T>
 pub fn expanse_trie::alloc::NodeAlloc::alloc_node_zeroed<T>(&self) -> core::ptr::non_null::NonNull<T>
+pub fn expanse_trie::alloc::NodeAlloc::bytes_held(&self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::bytes_in_use(&self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::defer_to(&self, alloc::sync::Arc<expanse_trie::occ::Collector>)
 pub unsafe fn expanse_trie::alloc::NodeAlloc::free_bytes(&self, core::ptr::non_null::NonNull<u8>, usize)
 pub unsafe fn expanse_trie::alloc::NodeAlloc::free_node<T>(&self, core::ptr::non_null::NonNull<T>)
 pub fn expanse_trie::alloc::NodeAlloc::live_allocs(&self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::new() -> Self
+pub fn expanse_trie::alloc::NodeAlloc::release_free(&mut self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::total_allocs(&self) -> usize
 impl core::default::Default for expanse_trie::alloc::NodeAlloc
 pub fn expanse_trie::alloc::NodeAlloc::default() -> Self
@@ -401,7 +403,7 @@ pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::remove(&mut self, &[u8]) -> c
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::with_hasher(S) -> Self
 impl core::default::Default for expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>::default() -> Self
-impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
+impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::from(expanse_trie::bytesmap::ExpanseBytesMap<S>) -> Self
 impl<S: core::hash::BuildHasher + core::marker::Send> core::marker::Send for expanse_trie::bytesmap::ExpanseBytesMap<S>
 impl<S: core::hash::BuildHasher> core::ops::drop::Drop for expanse_trie::bytesmap::ExpanseBytesMap<S>
@@ -682,6 +684,7 @@ pub fn expanse_trie::map::ExpanseMap::iter(&self) -> expanse_trie::map::MapIter<
 pub fn expanse_trie::map::ExpanseMap::iter_rev(&self) -> expanse_trie::map::MapIterRev<'_>
 pub fn expanse_trie::map::ExpanseMap::last(&self) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::len(&self) -> u64
+pub fn expanse_trie::map::ExpanseMap::mem_held(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::mem_used(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::new() -> Self
 pub fn expanse_trie::map::ExpanseMap::next_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
@@ -693,6 +696,7 @@ pub fn expanse_trie::map::ExpanseMap::range_filtered<'a, P>(&'a self, core::ops:
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, u64) -> bool
+pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
@@ -1322,9 +1326,11 @@ pub fn expanse_trie::set::ExpanseSet::insert(&mut self, expanse_trie::types::Key
 pub fn expanse_trie::set::ExpanseSet::insert_c_int(&mut self, expanse_trie::types::Key) -> core::ffi::primitives::c_int
 pub fn expanse_trie::set::ExpanseSet::is_empty(&self) -> bool
 pub fn expanse_trie::set::ExpanseSet::len(&self) -> u64
+pub fn expanse_trie::set::ExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::new() -> Self
 pub fn expanse_trie::set::ExpanseSet::remove(&mut self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::set::ExpanseSet::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::set::ExpanseSet::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::set::ExpanseSet::total_node_allocs(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::validate(&self)
@@ -1686,6 +1692,7 @@ pub fn expanse_trie::strmap::ExpanseStrMap::insert(&mut self, &expanse_trie::str
 pub fn expanse_trie::strmap::ExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::strmap::ExpanseStrMap::last(&mut self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::len(&self) -> u64
+pub fn expanse_trie::strmap::ExpanseStrMap::mem_held(&self) -> usize
 pub fn expanse_trie::strmap::ExpanseStrMap::mem_used(&self) -> usize
 pub fn expanse_trie::strmap::ExpanseStrMap::new() -> Self
 pub fn expanse_trie::strmap::ExpanseStrMap::next_after(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
@@ -1693,6 +1700,7 @@ pub fn expanse_trie::strmap::ExpanseStrMap::next_at_or_after(&mut self, &expanse
 pub fn expanse_trie::strmap::ExpanseStrMap::prev_at_or_before(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::prev_before(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::remove(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::strmap::ExpanseStrMap::shrink_to_fit(&mut self) -> usize
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::from(expanse_trie::strmap::ExpanseStrMap) -> Self
 impl core::default::Default for expanse_trie::strmap::ExpanseStrMap
@@ -1915,6 +1923,8 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBlo
 pub struct expanse_trie::sync::SyncExpanseBytesMap<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>
 impl expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>::new() -> Self
+impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core::marker::Sync> expanse_trie::sync::SyncExpanseBytesMap<S>
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_hasher(S) -> Self
 impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync> expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::contains_key(&self, &[u8]) -> bool
@@ -1925,20 +1935,19 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::reader(&self) -> expanse_trie::sync::BytesReader<'_, S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::remove(&self, &[u8]) -> core::option::Option<u64>
-pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_hasher(S) -> Self
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked_mut<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>::default() -> Self
-impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
+impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::from(expanse_trie::bytesmap::ExpanseBytesMap<S>) -> Self
-impl<S> core::marker::Freeze for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Freeze
+impl<S> core::marker::Freeze for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Freeze, S: core::marker::Freeze
 impl<S> core::marker::Send for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Send
 impl<S> core::marker::Sync for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Sync
-impl<S> core::marker::Unpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Unpin
-impl<S> core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::UnsafeUnpin
+impl<S> core::marker::Unpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Unpin, S: core::marker::Unpin
+impl<S> core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::UnsafeUnpin, S: core::marker::UnsafeUnpin
 impl<S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S>
-impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::panic::unwind_safe::UnwindSafe
+impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::panic::unwind_safe::UnwindSafe, S: core::panic::unwind_safe::UnwindSafe
 pub struct expanse_trie::sync::SyncExpanseMap
 impl expanse_trie::sync::SyncExpanseMap
 pub fn expanse_trie::sync::SyncExpanseMap::clear(&self)
@@ -2855,6 +2864,7 @@ pub fn expanse_trie::map::ExpanseMap::iter(&self) -> expanse_trie::map::MapIter<
 pub fn expanse_trie::map::ExpanseMap::iter_rev(&self) -> expanse_trie::map::MapIterRev<'_>
 pub fn expanse_trie::map::ExpanseMap::last(&self) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::len(&self) -> u64
+pub fn expanse_trie::map::ExpanseMap::mem_held(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::mem_used(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::new() -> Self
 pub fn expanse_trie::map::ExpanseMap::next_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
@@ -2866,6 +2876,7 @@ pub fn expanse_trie::map::ExpanseMap::range_filtered<'a, P>(&'a self, core::ops:
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, u64) -> bool
+pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
@@ -2962,9 +2973,11 @@ pub fn expanse_trie::set::ExpanseSet::insert(&mut self, expanse_trie::types::Key
 pub fn expanse_trie::set::ExpanseSet::insert_c_int(&mut self, expanse_trie::types::Key) -> core::ffi::primitives::c_int
 pub fn expanse_trie::set::ExpanseSet::is_empty(&self) -> bool
 pub fn expanse_trie::set::ExpanseSet::len(&self) -> u64
+pub fn expanse_trie::set::ExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::new() -> Self
 pub fn expanse_trie::set::ExpanseSet::remove(&mut self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::set::ExpanseSet::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::set::ExpanseSet::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::set::ExpanseSet::total_node_allocs(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::validate(&self)
