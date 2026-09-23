@@ -328,7 +328,7 @@ def memory_chart(key_type: str, name: str, title: str) -> None:
             out.append(f'  <text x="{LABEL_X + 10}" y="{y + 9}" class="t-axis-label">{esc(rlabel)}</text>')
             out.append(f'  <rect x="{PLOT_X0}" y="{y + 1}" width="{max(v * scale, 0.5):.1f}" height="{row_h - 3}" '
                        f'rx="1.5" class="{cls}"/>')
-            out.append(f'  <text x="{VALUE_X}" y="{y + 9}" class="t-unit" text-anchor="end">{v:.2f} B/key</text>')
+            out.append(f'  <text x="{VALUE_X}" y="{y + 9}" class="t-unit" text-anchor="end">{v:.1f} B/key</text>')
             y += row_h
         y += gap
     out.append(svg_footer())

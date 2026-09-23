@@ -100,77 +100,77 @@
   <text x="24" y="102" class="t-bar-label">sequential</text>
   <text x="34" y="117" class="t-axis-label">Expanse · generator</text>
   <rect x="200" y="109" width="77.3" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="117" class="t-unit" text-anchor="end">8.65 B/key</text>
+  <text x="990" y="117" class="t-unit" text-anchor="end">8.7 B/key</text>
   <text x="34" y="130" class="t-axis-label">Expanse · shuffled</text>
   <rect x="200" y="122" width="176.1" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="130" class="t-unit" text-anchor="end">19.72 B/key</text>
+  <text x="990" y="130" class="t-unit" text-anchor="end">19.7 B/key</text>
   <text x="34" y="143" class="t-axis-label">patricia_tree · generator</text>
   <rect x="200" y="135" width="214.9" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="143" class="t-unit" text-anchor="end">24.06 B/key</text>
+  <text x="990" y="143" class="t-unit" text-anchor="end">24.1 B/key</text>
   <text x="34" y="156" class="t-axis-label">patricia_tree · shuffled</text>
   <rect x="200" y="148" width="214.9" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="156" class="t-unit" text-anchor="end">24.06 B/key</text>
+  <text x="990" y="156" class="t-unit" text-anchor="end">24.1 B/key</text>
   <text x="34" y="169" class="t-axis-label">qp-trie · generator</text>
   <rect x="200" y="161" width="381.1" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="169" class="t-unit" text-anchor="end">42.67 B/key</text>
+  <text x="990" y="169" class="t-unit" text-anchor="end">42.7 B/key</text>
   <text x="34" y="182" class="t-axis-label">qp-trie · shuffled</text>
   <rect x="200" y="174" width="381.1" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="182" class="t-unit" text-anchor="end">42.67 B/key</text>
+  <text x="990" y="182" class="t-unit" text-anchor="end">42.7 B/key</text>
   <text x="24" y="206" class="t-bar-label">clustered</text>
   <text x="34" y="221" class="t-axis-label">Expanse · generator</text>
   <rect x="200" y="213" width="78.4" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="221" class="t-unit" text-anchor="end">8.77 B/key</text>
+  <text x="990" y="221" class="t-unit" text-anchor="end">8.8 B/key</text>
   <text x="34" y="234" class="t-axis-label">Expanse · shuffled</text>
   <rect x="200" y="226" width="178.2" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="234" class="t-unit" text-anchor="end">19.95 B/key</text>
+  <text x="990" y="234" class="t-unit" text-anchor="end">19.9 B/key</text>
   <text x="34" y="247" class="t-axis-label">patricia_tree · generator</text>
   <rect x="200" y="239" width="215.1" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="247" class="t-unit" text-anchor="end">24.08 B/key</text>
+  <text x="990" y="247" class="t-unit" text-anchor="end">24.1 B/key</text>
   <text x="34" y="260" class="t-axis-label">patricia_tree · shuffled</text>
   <rect x="200" y="252" width="215.1" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="260" class="t-unit" text-anchor="end">24.08 B/key</text>
+  <text x="990" y="260" class="t-unit" text-anchor="end">24.1 B/key</text>
   <text x="34" y="273" class="t-axis-label">qp-trie · generator</text>
   <rect x="200" y="265" width="381.6" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="273" class="t-unit" text-anchor="end">42.72 B/key</text>
+  <text x="990" y="273" class="t-unit" text-anchor="end">42.7 B/key</text>
   <text x="34" y="286" class="t-axis-label">qp-trie · shuffled</text>
   <rect x="200" y="278" width="381.6" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="286" class="t-unit" text-anchor="end">42.72 B/key</text>
+  <text x="990" y="286" class="t-unit" text-anchor="end">42.7 B/key</text>
   <text x="24" y="310" class="t-bar-label">uniform_random</text>
   <text x="34" y="325" class="t-axis-label">Expanse · generator</text>
   <rect x="200" y="317" width="219.4" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="325" class="t-unit" text-anchor="end">24.56 B/key</text>
+  <text x="990" y="325" class="t-unit" text-anchor="end">24.6 B/key</text>
   <text x="34" y="338" class="t-axis-label">Expanse · shuffled</text>
   <rect x="200" y="330" width="219.8" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="338" class="t-unit" text-anchor="end">24.61 B/key</text>
+  <text x="990" y="338" class="t-unit" text-anchor="end">24.6 B/key</text>
   <text x="34" y="351" class="t-axis-label">patricia_tree · generator</text>
   <rect x="200" y="343" width="227.9" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="351" class="t-unit" text-anchor="end">25.51 B/key</text>
+  <text x="990" y="351" class="t-unit" text-anchor="end">25.5 B/key</text>
   <text x="34" y="364" class="t-axis-label">patricia_tree · shuffled</text>
   <rect x="200" y="356" width="227.9" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="364" class="t-unit" text-anchor="end">25.51 B/key</text>
+  <text x="990" y="364" class="t-unit" text-anchor="end">25.5 B/key</text>
   <text x="34" y="377" class="t-axis-label">qp-trie · generator</text>
   <rect x="200" y="369" width="600.0" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="377" class="t-unit" text-anchor="end">67.17 B/key</text>
+  <text x="990" y="377" class="t-unit" text-anchor="end">67.2 B/key</text>
   <text x="34" y="390" class="t-axis-label">qp-trie · shuffled</text>
   <rect x="200" y="382" width="600.0" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="390" class="t-unit" text-anchor="end">67.17 B/key</text>
+  <text x="990" y="390" class="t-unit" text-anchor="end">67.2 B/key</text>
   <text x="24" y="414" class="t-bar-label">sparse_stride</text>
   <text x="34" y="429" class="t-axis-label">Expanse · generator</text>
   <rect x="200" y="421" width="146.4" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="429" class="t-unit" text-anchor="end">16.39 B/key</text>
+  <text x="990" y="429" class="t-unit" text-anchor="end">16.4 B/key</text>
   <text x="34" y="442" class="t-axis-label">Expanse · shuffled</text>
   <rect x="200" y="434" width="216.0" height="10" rx="1.5" class="b-expanse"/>
-  <text x="990" y="442" class="t-unit" text-anchor="end">24.19 B/key</text>
+  <text x="990" y="442" class="t-unit" text-anchor="end">24.2 B/key</text>
   <text x="34" y="455" class="t-axis-label">patricia_tree · generator</text>
   <rect x="200" y="447" width="214.9" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="455" class="t-unit" text-anchor="end">24.06 B/key</text>
+  <text x="990" y="455" class="t-unit" text-anchor="end">24.1 B/key</text>
   <text x="34" y="468" class="t-axis-label">patricia_tree · shuffled</text>
   <rect x="200" y="460" width="214.9" height="10" rx="1.5" class="b-patricia"/>
-  <text x="990" y="468" class="t-unit" text-anchor="end">24.06 B/key</text>
+  <text x="990" y="468" class="t-unit" text-anchor="end">24.1 B/key</text>
   <text x="34" y="481" class="t-axis-label">qp-trie · generator</text>
   <rect x="200" y="473" width="381.1" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="481" class="t-unit" text-anchor="end">42.67 B/key</text>
+  <text x="990" y="481" class="t-unit" text-anchor="end">42.7 B/key</text>
   <text x="34" y="494" class="t-axis-label">qp-trie · shuffled</text>
   <rect x="200" y="486" width="381.1" height="10" rx="1.5" class="b-qp"/>
-  <text x="990" y="494" class="t-unit" text-anchor="end">42.67 B/key</text>
+  <text x="990" y="494" class="t-unit" text-anchor="end">42.7 B/key</text>
 </svg>

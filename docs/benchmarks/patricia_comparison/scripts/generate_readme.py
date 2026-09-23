@@ -176,8 +176,8 @@ def verdict_rows() -> tuple[list[str], list[str]]:
                         where = " ".join(str(r[x]) for x in ("operation", "distribution", "prefix_len", "order")
                                          if x in r)
                         pre = "NOT_PREREGISTERED " if draws(r) not in EVAL_N else ""
-                        losses.append(f"{pre}UNPREDICTED_LOSS — `{name}` {where}, n = {r['population']:,}: "
-                                      f"Expanse/{t} {fmt_ratio(r, k)}")
+                        losses.append(f"{pre}UNPREDICTED_LOSS — `{name}` {where}, n = {r['population']:,}, "
+                                      f"against `{t}`: {fmt_ratio(r, k)}")
     scan_losses("patricia_lookup_hit", hit, lambda t: [f"ratio_expanse_over_{t}"])
     scan_losses("patricia_lookup_miss", miss, lambda t: [f"ratio_expanse_over_{t}"])
     scan_losses("patricia_insert", ins, lambda t: [f"ratio_expanse_over_{t}_generator", f"ratio_expanse_over_{t}_shuffled"])
@@ -269,8 +269,8 @@ def render() -> str:
         "",
         "## Losses and qualifications",
         "",
-        "Every evaluated cell whose interval lies wholly above 1 (Expanse slower); none of them is "
-        "covered by a prediction, so each is an `UNPREDICTED_LOSS`.",
+        "Every evaluated cell whose interval lies wholly above 1, where the ratio is Expanse ns ÷ twin ns "
+        "(so Expanse is slower); none of them is covered by a prediction, so each is an `UNPREDICTED_LOSS`.",
         "",
         *([f"- {n}" for n in notes] or ["- none"]),
         *([f"- Outside the evaluated n (`NOT_PREREGISTERED`), {len(outside)} further cells have Expanse "
