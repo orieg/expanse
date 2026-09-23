@@ -169,6 +169,18 @@ fn trim() {
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn trim() {}
 
+/// Bytes glibc holds in free chunks (`mallinfo2().fordblks`): memory the
+/// process has freed that is still mapped, reusable by later allocations.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn glibc_free() -> Option<usize> {
+    // SAFETY: plain libc call returning a struct by value.
+    Some(unsafe { libc::mallinfo2() }.fordblks)
+}
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn glibc_free() -> Option<usize> {
+    None
+}
+
 struct SplitMix(u64);
 impl SplitMix {
     fn next(&mut self) -> u64 {
@@ -288,7 +300,7 @@ fn main() {
     let Some(shape) = args.get(2) else {
         println!("allocator census, N = {n} keys per shape, 8-byte values (bytes/key)");
         println!(
-            "{:<11} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>10} {:>9} {:>9}",
+            "{:<11} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>10} {:>9} {:>9} {:>9}",
             "shape",
             "mem_used",
             "mem_held",
@@ -299,7 +311,8 @@ fn main() {
             "trimmed",
             "allocs/key",
             "held/shr",
-            "RSS/shr"
+            "RSS/shr",
+            "free/shr"
         );
         let mut detail = String::new();
         for shape in SHAPES {
@@ -322,7 +335,9 @@ fn main() {
              live Layout sizes; usable: allocator usable size; +headers: usable + \
              {HEADER} B per live chunk (glibc 64-bit, derived); RSS / trimmed: resident delta \
              after the build, and after malloc_trim(0), one process per shape (Linux only); \
-             held/shr, RSS/shr: mem_held and trimmed RSS after shrink_to_fit()."
+             held/shr, RSS/shr: mem_held and trimmed RSS after shrink_to_fit(); free/shr: \
+             growth of glibc's free-chunk bytes (mallinfo2 fordblks) over the run, read \
+             after shrink_to_fit() and malloc_trim(0) (glibc only)."
         );
         return;
     };
@@ -338,6 +353,7 @@ fn run_shape(shape: &str, n: u64) {
         trim();
         HIST.lock().expect("histogram lock").clear();
         let rss0 = rss();
+        let free0 = glibc_free();
         TRACKING.store(true, Ordering::SeqCst);
         let mut tree = build(shape, n);
         TRACKING.store(false, Ordering::SeqCst);
@@ -352,13 +368,14 @@ fn run_shape(shape: &str, n: u64) {
         tree.shrink_to_fit();
         trim();
         let rss3 = rss();
+        let free3 = glibc_free();
         let held_after = tree.mem_held();
         let rss_col = |r: Option<usize>| match (rss0, r) {
             (Some(a), Some(b)) => format!("{:.2}", per(b.saturating_sub(a))),
             _ => "n/a".to_string(),
         };
         println!(
-            "{:<11} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9} {:>9} {:>10.4} {:>9.2} {:>9}",
+            "{:<11} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9.2} {:>9} {:>9} {:>10.4} {:>9.2} {:>9} {:>9}",
             shape,
             per(tree.mem_used()),
             per(held),
@@ -369,7 +386,11 @@ fn run_shape(shape: &str, n: u64) {
             rss_col(rss2),
             live as f64 / n as f64,
             per(held_after),
-            rss_col(rss3)
+            rss_col(rss3),
+            match (free0, free3) {
+                (Some(a), Some(b)) => format!("{:.2}", per(b.saturating_sub(a))),
+                _ => "n/a".to_string(),
+            }
         );
         // The request sizes carrying the most allocator overhead.
         let hist = HIST.lock().expect("histogram lock");
