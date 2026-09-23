@@ -165,29 +165,28 @@
     {
       "test": "str_two_writers",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "strongly protected",
-      "frame": "occ::version_try_lock_expect"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "str_two_writers",
       "check": "alias-tb",
-      "expect": "clean",
-      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "map::MapCore::insert_inner_dispatch"
     },
     {
       "test": "str_reader_writer",
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "strmap::ExpanseStrMap::insert_impl"
+      "frame": "map::MapCore::insert_inner_dispatch"
     },
     {
       "test": "str_reader_writer",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "does not exist in the borrow stack",
-      "frame": "sync::Shared::<strmap::ExpanseStrMap>::write_root_covered_with"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "str_reader_writer",
@@ -227,7 +226,7 @@
       "test": "bytes_reader_writer",
       "check": "alias-sb",
       "expect": "ub",
-      "error": "does not exist in the borrow stack",
+      "error": "strongly protected",
       "frame": "sync::Shared::<bytesmap::ExpanseBytesMap>::write_root_covered_with"
     },
     {
@@ -275,8 +274,9 @@
     {
       "test": "blob_reader_writer",
       "check": "alias-tb",
-      "expect": "clean",
-      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "map::MapCore::insert_inner"
     }
   ]
 }
