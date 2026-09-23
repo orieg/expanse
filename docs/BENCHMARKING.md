@@ -1783,6 +1783,22 @@ The set columns are key presence only (`ExpanseSet`); the map column is `Expanse
 
 **The `memory-budget` gate is calibrated in that trough.** Its `random` ceiling — `("random", 1_000_000, 9.00, 18.00)` in `examples/bytes_per_key.rs` — sits 10% above the 8.21 B/key it guards, which reads as headroom in bytes. It is not: it is headroom in N, and less than 2× of it — the 64-bit cells stay under 9.00 through 1.6M (8.75 B/key) and cross it by 1.8M (10.72). At N = 2M the same workload breaches the set ceiling by 53% (13.74 against 9.00) and the map ceiling by 10% (19.78 against 18.00) with no code change, because the node ladder is behaving as designed. Anyone changing the gate's population re-derives its ceiling from the curve rather than raising the number until green. Because a regression that manifests only in the cascade regime — a `Leaf6` packing change, an immediate-edge cost change on the level-5 children — is invisible at λ = 15.26, the gate samples `random` at a **second density**: `("random", 2_000_000, 15.00, 21.00)`, λ = 30.5 (95% of `LEAF_CAP`, 35% of expanses cascaded by census), the steepest part of the curve and so the most sensitive point for those regressions. Its ceilings sit a little above the measured 13.74 set / 19.78 map under the same policy as the other rows. The two `random` cells are two points on one curve, not a before/after (workload: `example_bytes_per_key`). Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (workload: `example_bytes_per_key`; `branch_skip_clusters` tests, both flavors).
 
+### What the process pays beyond `mem_used()` (measured: Intel Xeon E5-2697 v4, glibc 2.41, commit 7e922d52)
+
+> Produced by `cargo run --release -p expanse-trie --example allocator_overhead -- 10000000`, one process per shape; artifact [`results/allocator_overhead_7e922d52.txt`](../results/allocator_overhead_7e922d52.txt), which also carries the 1e6 run and the request sizes behind each term (workload: `example_allocator_overhead`). Every column except RSS is exact byte accounting; RSS is one reading per shape.
+
+`mem_used()` counts the bytes of the tree's live nodes. The table above is that figure. The process pays more, in three terms. **Engine retention** is `mem_held()` minus `mem_used()`: a plain tree keeps every freed block on its per-tree size-class freelists and carves small classes from 4 KiB slab pages, and both stay allocated until the tree is dropped, so `malloc_trim` cannot recover them. **Allocator overhead** is the system allocator's usable bytes plus one 8-byte chunk header per live allocation, minus `mem_held()` (the usable size is measured through `malloc_usable_size`; the header is derived from glibc's 64-bit chunk layout). **Residual** is RSS minus both. Bytes/key, 10⁷ keys, 8-byte values:
+
+| shape | `mem_used` | `mem_held` | RSS | gap | engine retention | allocator overhead | residual |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| sequential u64 | 8.56 | 8.59 | 9.11 | 0.55 | 0.03 | 0.50 | 0.02 |
+| timestamp-like u64 | 20.92 | 21.47 | 21.83 | 0.91 | 0.55 | 0.09 | 0.27 |
+| random u64 | 22.69 | 32.70 | 33.69 | 11.00 | 10.01 | 0.71 | 0.28 |
+| `tNNN:orders:N` strings | 38.76 | 40.40 | 47.24 | 8.48 | 1.64 | 6.81 | 0.03 |
+| UUIDv4 strings | 60.86 | 66.81 | 87.10 | 26.24 | 5.95 | 20.12 | 0.17 |
+
+Engine retention is 91% of the random-u64 gap: random inserts grow leaves through size classes, and each outgrown block stays on its freelist. On strings the allocator term dominates (77% of the UUID gap), because each suffix leaf is its own global allocation: a 44-byte UUID suffix occupies 56 usable bytes plus its header. Compare `mem_held()`, not `mem_used()`, with resident memory; the allocator term is allocator-specific and is left to this census. Returning retained blocks and packing suffix leaves are tracked in [#1095](https://github.com/orieg/expanse/issues/1095).
+
 ### Instruction counts: issue #1 items 1-3 (measured: callgrind via the `instruction-counts` CI job; deterministic, so these are exact — commit with this section)
 
 Controlled A/B against a branch with all three items reverted, same harness and job. Instructions retired, 50k keys per benchmark; negative is less work.
