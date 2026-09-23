@@ -174,7 +174,7 @@ At 1M keys, the trie is simultaneously **L3 cache-resident** (16.7 MB against 30
 
 *Density & Huge-Page Trade-off Invariant:*
 Backing the slab arena with 2 MiB pages (`madvise(MADV_HUGEPAGE)` on Linux or 2 MiB aligned maps) is architecturally contained in `alloc.rs` (no node layout or `Edge`/`ValueSlot` changes). However, default-on 2 MiB pages would introduce catastrophic memory amplification for sparse and clustered keys:
-- Sequential keys consume 0.07–0.36 B/key. A map holding 1,000 sequential keys requires ~70 bytes; backing it with an eager 2 MiB page represents a **$28,500\times$ footprint bloat**.
+- Dense and clustered **sets** consume 0.07–0.36 B/key at 1M keys; at 1,000 sequential keys a set holds 320 bytes (0.32 B/key) and a map with 8-byte values 8,700 bytes (8.70 B/key) *(measured: deterministic `mem_used()` accounting, host-independent; workload `example_bytes_per_key`; `docs/visualizer_data.json` → `memory_budget`)*. Backing either with an eager 2 MiB page is a **$6{,}554\times$** (set) or **$241\times$** (map) footprint bloat (derived: 2,097,152 B divided by those byte counts).
 - Consequently, huge-page backing must remain an opt-in configuration or employ progressive slab growth ($4\text{ KiB} \to 64\text{ KiB} \to 2\text{ MiB}$) as the tree expands past 1M keys.
 
 *Status:* Unmeasured on reference host; diagnostic counter `dTLB-load-misses` in `scripts/perf_counters.py` tracks translation misses under open issues [#431](https://github.com/orieg/expanse/issues/431) and [#455](https://github.com/orieg/expanse/issues/455).
