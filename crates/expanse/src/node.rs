@@ -313,6 +313,41 @@ impl Edge {
         self.set_aux_word((w & !mask) | (pop0 & mask));
     }
 
+    /// [`Self::set_pop0`] on the edge at `this`, through the raw pointer
+    /// (#1086): the shared paths store to edges other threads copy, and a
+    /// `&mut Edge` would assert that no one else reads them meanwhile. The
+    /// same masked store of the `aux` word; word 0 is not touched.
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live edge whose node this thread holds locked or
+    /// otherwise writes exclusively.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) unsafe fn set_pop0_at(this: *mut Self, level: u8, pop0: u64) {
+        debug_assert!((1..=7).contains(&level));
+        debug_assert!(level == 7 || pop0 < 1u64 << (level as u32 * 8));
+        let mask = POP0_MASKS[level as usize];
+        // SAFETY: caller contract; the `aux` word is the edge's second
+        // 8-aligned word, as `aux_word` reads it.
+        unsafe {
+            let p = this.cast::<u64>().add(1);
+            p.write((p.read() & !mask) | (pop0 & mask));
+        }
+    }
+
+    /// [`Self::word0`] of the edge at `this`, read through the raw pointer.
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live edge.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) unsafe fn word0_at(this: *const Self) -> u64 {
+        // SAFETY: caller contract.
+        unsafe { this.cast::<u64>().read() }
+    }
+
     /// The narrow-pointer decode bytes for a child at `level`: the high
     /// `7 - level` aux bytes. `decode[0]` is the byte nearest the child's
     /// level; unused when the edge skips no levels.
@@ -408,6 +443,38 @@ impl BranchHeader {
         }
         let num = self.num as usize;
         crate::bits::find_byte_8(&self.digits, num, digit)
+    }
+
+    /// [`Self::find`] on the header at `this`, read by value through the
+    /// raw pointer (#1086): the shared paths search a node another thread
+    /// may be locking or storing to, and a reference to the header would
+    /// assert that nothing else writes its version word meanwhile.
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live header; the caller validates the result.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    #[must_use]
+    pub(crate) unsafe fn find_at(this: *const Self, digit: u8) -> Option<usize> {
+        // SAFETY: caller contract; a by-value copy of a `Copy` header.
+        unsafe { this.read() }.find(digit)
+    }
+
+    /// [`Self::add_presence`] on the header at `this`, through the raw
+    /// pointer (see [`Self::find_at`]).
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live header whose node this thread holds locked.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) unsafe fn add_presence_at(this: *mut Self, digit: u8) {
+        // SAFETY: caller contract; the field is projected, not borrowed.
+        unsafe {
+            let p = &raw mut (*this).presence;
+            p.write(p.read() | (1u16 << (digit & 0x0F)));
+        }
     }
 }
 
