@@ -632,3 +632,63 @@ fn strmap_cursor_scan_does_not_allocate_per_element() {
          measuring the wrong thing"
     );
 }
+
+/// The same slope invariant on a trie whose *interior* levels branch: every
+/// key shares a first chunk with two other keys, so thousands of sub-maps are
+/// each advanced more than once during a scan. A cursor that keeps per-level
+/// state must reuse its storage across levels rather than allocate it per
+/// level, or allocations grow with the number of branching levels scanned —
+/// the #722 defect in a shape the corpus above, whose keys diverge in the
+/// first chunk and end in suffix leaves, never reaches (#1096).
+#[test]
+fn strmap_cursor_scan_does_not_allocate_per_branching_level() {
+    use expanse_trie::strmap::ExpanseStrMap;
+
+    // 8-byte first chunk per group, then one of three 8-byte second chunks,
+    // then a short tail: every group's second-level sub-map holds 3 entries.
+    let key = |g: u32, j: u32| {
+        let mut k = Vec::with_capacity(20);
+        k.extend_from_slice(format!("g{g:07}").as_bytes());
+        k.extend_from_slice(format!("s{j:07}").as_bytes());
+        k.extend_from_slice(b"tail");
+        k
+    };
+
+    let groups: u32 = if cfg!(miri) { 60 } else { 6_000 };
+    let mut m = ExpanseStrMap::new();
+    for g in 0..groups {
+        for j in 0..3 {
+            m.insert(tk(&key(g, j)), u64::from(g * 3 + j));
+        }
+    }
+
+    let scan = |k: usize, m: &mut ExpanseStrMap| {
+        let mut seen = 0usize;
+        let mut sink = 0u64;
+        let n = allocations_during(|| {
+            let mut c = m.cursor();
+            while let Some((key, slot)) = c.next() {
+                // SAFETY: the cursor holds the map borrowed for its lifetime,
+                // so the slot it just returned is a live value word.
+                let value = unsafe { *slot.as_ptr() };
+                sink ^= u64::from(key[0]) ^ value;
+                seen += 1;
+                if seen == k {
+                    break;
+                }
+            }
+        });
+        assert_eq!(seen, k, "scan stopped early");
+        std::hint::black_box(sink);
+        n
+    };
+
+    let total = (groups * 3) as usize;
+    let a = scan(total / 10, &mut m);
+    let b = scan(total, &mut m);
+    assert_eq!(
+        a, b,
+        "a {total}-element scan over branching levels cost {b} allocations against {a} for \
+         a tenth of it: per-level cursor state is being allocated per level"
+    );
+}
