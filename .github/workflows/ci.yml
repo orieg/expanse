@@ -225,6 +225,8 @@ jobs:
               - 'crates/expanse/**'
               - 'crates/expanse-capi/**'
               - 'tests/test_python_bindings.py'
+              - 'scripts/bench_bindings.py'
+              - 'scripts/bench_pin.py'
               - 'pyproject.toml'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -429,6 +431,9 @@ jobs:
           # a mask including an E-core) run against a synthetic topology, so
           # they are checkable on a runner that is not hybrid at all.
           python3 scripts/check_bench_pin.py --self-test
+          # The nightly cross-language orchestrator: exit-code contract and the
+          # diagnostics a runtime that produced no result leaves in the log.
+          python3 scripts/bench_bindings.py --self-test
           python3 scripts/check_bench_provenance.py --self-test
           python3 scripts/check_man_pages.py --self-test
           python3 scripts/check_abi_parity.py --self-test
@@ -2100,6 +2105,13 @@ jobs:
 
       - name: Run Python comparative benchmark smoke
         run: python3 bindings/python/bench.py --quick
+
+      # The nightly bench-report job reads bench.py --json through the
+      # orchestrator, which parses all of stdout as one JSON document and exits
+      # 2 when a requested runtime produced none; the table smoke above cannot
+      # see a stray stdout line (#1078).
+      - name: Run Python benchmark through the nightly orchestrator (--json)
+        run: python3 scripts/bench_bindings.py --quick --runtimes python --json > /dev/null
 
   test-node:
     name: Bindings / Node.js (${{ matrix.os }}, Node ${{ matrix.node-version }})
