@@ -1857,11 +1857,11 @@ fn published_docs() -> Vec<std::path::PathBuf> {
 fn test_benchmarking_md_density_table_matches_engine() {
     // (markdown row label, `bytes_per_key.rs` distribution name)
     const ROWS: &[(&str, &str)] = &[
-        ("sequential (set)", "sequential"),
-        ("clustered 256-run (set)", "clustered"),
-        ("clustered 4096-run (set)", "clustered-wide"),
-        ("random (set)", "random"),
-        ("sparse `i << 40` (set)", "sparse"),
+        ("sequential", "sequential"),
+        ("clustered 256-run", "clustered"),
+        ("clustered 4096-run", "clustered-wide"),
+        ("random", "random"),
+        ("sparse `i << 40`", "sparse"),
     ];
     let md = fs::read_to_string(repo_root().join("docs").join("BENCHMARKING.md"))
         .expect("read docs/BENCHMARKING.md");
@@ -1875,11 +1875,12 @@ fn test_benchmarking_md_density_table_matches_engine() {
                 panic!("bytes/key table row {label:?} not found in BENCHMARKING.md")
             });
 
-        // `| label | 1k | 100k | 1M | note |` -- cells may carry ** emphasis.
+        // `| label | set 1k | set 100k | set 1M | map 1M | note |` -- cells
+        // may carry ** emphasis.
         let cells: Vec<f64> = line
             .split('|')
             .skip(2)
-            .take(3)
+            .take(4)
             .map(|c| {
                 c.trim()
                     .trim_matches('*')
@@ -1887,14 +1888,24 @@ fn test_benchmarking_md_density_table_matches_engine() {
                     .unwrap_or_else(|_| panic!("row {label:?}: cell {c:?} is not a number"))
             })
             .collect();
-        assert_eq!(cells.len(), 3, "row {label:?} must publish 1k/100k/1M");
+        assert_eq!(
+            cells.len(),
+            4,
+            "row {label:?} must publish set 1k/100k/1M and map 1M"
+        );
 
-        for (cell, pop) in cells.iter().zip([1_000usize, 100_000, 1_000_000]) {
-            let (set_bpk, _) = bytes_per_key(dist, pop);
-            let expected = round_to(set_bpk, 2);
+        let columns = [
+            (1_000usize, false),
+            (100_000, false),
+            (1_000_000, false),
+            (1_000_000, true),
+        ];
+        for (cell, (pop, map)) in cells.iter().zip(columns) {
+            let (set_bpk, map_bpk) = bytes_per_key(dist, pop);
+            let expected = round_to(if map { map_bpk } else { set_bpk }, 2);
             assert!(
                 (cell - expected).abs() < 1e-9,
-                "docs/BENCHMARKING.md bytes/key, row {label:?} at pop {pop}: \
+                "docs/BENCHMARKING.md bytes/key, row {label:?} at pop {pop} (map: {map}): \
                  publishes {cell} B/key but the engine measures {expected} B/key. \
                  This table and docs/visualizer_data.json must both derive from \
                  `cargo run --release -p expanse-trie --example bytes_per_key` -- \
