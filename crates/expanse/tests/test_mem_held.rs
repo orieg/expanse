@@ -146,10 +146,12 @@ impl SplitMix {
 fn mem_held_brackets_what_the_tree_holds() {
     const N: u64 = 50_000;
 
-    // The first removal on a thread makes one 32-byte allocation that
-    // outlives the tree (lazily initialised state; its owner is not
-    // identified here). Reach it untracked, so the counts below are the
-    // trees' own: without this the emptied-map bracket is 32 B short.
+    // In debug builds the first removal on a thread grows the thread-local
+    // bracket stack (`alloc::bracket_stack`, a `Vec<usize>` behind
+    // `#[cfg(debug_assertions)]`) by one 32-byte allocation, which lives
+    // until the thread exits. Reach it untracked, so the counts below are the
+    // trees' own: without this the emptied-map bracket is 32 B short. Release
+    // builds have no bracket stack.
     {
         let mut warm = ExpanseMap::new();
         for k in 0..1_000u64 {
