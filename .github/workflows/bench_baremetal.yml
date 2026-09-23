@@ -1000,7 +1000,7 @@ jobs:
                   | tee hashbrown-ycsb.txt
                 ;;
               "patricia_comparison")
-                # Five harness=false benches driven by the suite runner, which
+                # Six harness=false benches driven by the suite runner, which
                 # writes one `results/baseline_*.json` per pillar with host
                 # facts, the applied pin and a load snapshot before each
                 # harness. This step already holds the bench lock and the pin.
