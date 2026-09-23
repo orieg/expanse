@@ -403,7 +403,7 @@ pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::remove(&mut self, &[u8]) -> c
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::with_hasher(S) -> Self
 impl core::default::Default for expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>::default() -> Self
-impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
+impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::from(expanse_trie::bytesmap::ExpanseBytesMap<S>) -> Self
 impl<S: core::hash::BuildHasher + core::marker::Send> core::marker::Send for expanse_trie::bytesmap::ExpanseBytesMap<S>
 impl<S: core::hash::BuildHasher> core::ops::drop::Drop for expanse_trie::bytesmap::ExpanseBytesMap<S>
@@ -1923,6 +1923,8 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBlo
 pub struct expanse_trie::sync::SyncExpanseBytesMap<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>
 impl expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>::new() -> Self
+impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core::marker::Sync> expanse_trie::sync::SyncExpanseBytesMap<S>
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_hasher(S) -> Self
 impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync> expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::contains_key(&self, &[u8]) -> bool
@@ -1933,20 +1935,19 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::reader(&self) -> expanse_trie::sync::BytesReader<'_, S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::remove(&self, &[u8]) -> core::option::Option<u64>
-pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_hasher(S) -> Self
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked_mut<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>::default() -> Self
-impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
+impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::from(expanse_trie::bytesmap::ExpanseBytesMap<S>) -> Self
-impl<S> core::marker::Freeze for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Freeze
+impl<S> core::marker::Freeze for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Freeze, S: core::marker::Freeze
 impl<S> core::marker::Send for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Send
 impl<S> core::marker::Sync for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Sync
-impl<S> core::marker::Unpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Unpin
-impl<S> core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::UnsafeUnpin
+impl<S> core::marker::Unpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::Unpin, S: core::marker::Unpin
+impl<S> core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::marker::UnsafeUnpin, S: core::marker::UnsafeUnpin
 impl<S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S>
-impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::panic::unwind_safe::UnwindSafe
+impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseBytesMap<S> where SharedBox<expanse_trie::bytesmap::ExpanseBytesMap<S>>: core::panic::unwind_safe::UnwindSafe, S: core::panic::unwind_safe::UnwindSafe
 pub struct expanse_trie::sync::SyncExpanseMap
 impl expanse_trie::sync::SyncExpanseMap
 pub fn expanse_trie::sync::SyncExpanseMap::clear(&self)
