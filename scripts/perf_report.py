@@ -115,6 +115,9 @@ BENCH_N_MAP: Dict[str, int] = {
     "strmap_insert": 50_000,
     "strmap_get": 50_000,
     "strmap_churn": 50_000,
+    # Prefix scan (#1096): entries yielded by 64 prefixes over `path_keys`;
+    # `built_path_strmap` asserts the count, so it cannot drift from the arm.
+    "strmap_prefix_scan": 12_547,
     "bytesmap_insert": 50_000,
     "bytesmap_get": 50_000,
     "bytesmap_churn": 50_000,
@@ -236,6 +239,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map32_for_each_range",
             "set32_iterate",
             "set32_range",
+            "strmap_prefix_scan",
         },
     ),
     (

@@ -833,6 +833,91 @@ fn strmap_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+/// Shared-prefix path keys for the prefix-scan arm: the
+/// `docs/benchmarks/patricia_comparison/` string workload at this file's
+/// population — `https://example.com/api/v2/objects/` plus 12 hex digits of a
+/// 48-bit id drawn from that suite's `STRING_SEED`, first-seen order.
+fn path_keys(_dist: &str) -> Vec<Vec<u8>> {
+    let mut rng = XorShift(0x5A71_C1A0_0000_0001);
+    let mut seen = std::collections::HashSet::with_capacity(POP);
+    let mut out = Vec::with_capacity(POP);
+    while out.len() < POP {
+        let id = rng.next() & 0xFFFF_FFFF_FFFF;
+        if seen.insert(id) {
+            out.push(format!("https://example.com/api/v2/objects/{id:012x}").into_bytes());
+        }
+    }
+    out
+}
+
+/// The 64 prefixes the suite's prefix-scan cell walks: the shared prefix plus
+/// two hex digits `{:02x}` of `4 * i`, each covering about 1/256 of the keys.
+fn scan_prefixes() -> Vec<Vec<u8>> {
+    (0..64u32)
+        .map(|i| format!("https://example.com/api/v2/objects/{:02x}", (i * 4) as u8).into_bytes())
+        .collect()
+}
+
+/// Entries the 64 prefixes yield over `path_keys` — the ops count
+/// `scripts/perf_report.py` divides by. `built_path_strmap` asserts it, so the
+/// registered count cannot drift from the generator.
+const PREFIX_SCAN_ENTRIES: u64 = 12_547;
+
+/// Sums the values of every key under `prefix`: one seek, then cursor steps
+/// until the first key outside the prefix. Returns (entries, value sum).
+#[inline(always)]
+fn strmap_prefix_sum(map: &mut ExpanseStrMap, prefix: &[u8]) -> (u64, u64) {
+    let mut cur = map.cursor_at_or_after(tk(prefix));
+    let (mut n, mut sum) = (0u64, 0u64);
+    while let Some((k, slot)) = cur.next() {
+        if !k.starts_with(prefix) {
+            break;
+        }
+        // SAFETY: `slot` is the map's live value word, valid until the next
+        // structural mutation; the cursor's `&mut` borrow of `map` rules that
+        // out for as long as the slot is read.
+        sum ^= unsafe { slot.as_ptr().read() };
+        n += 1;
+    }
+    (n, sum)
+}
+
+/// Prebuilt shared-prefix map and the scan prefixes; setup also walks every
+/// prefix once and checks the entry count, outside the measured region.
+fn built_path_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in path_keys(dist).iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    let prefixes = scan_prefixes();
+    let entries: u64 = prefixes
+        .iter()
+        .map(|p| strmap_prefix_sum(&mut map, p).0)
+        .sum();
+    assert_eq!(
+        entries, PREFIX_SCAN_ENTRIES,
+        "prefix-scan population drifted from its registered ops count"
+    );
+    (map, prefixes)
+}
+
+// The `patricia_comparison` prefix-scan cell (#1096) as a deterministic arm:
+// 64 seeks with `cursor_at_or_after` and a bounded cursor walk each, over the
+// suite's shared-prefix path keys. Ops = entries yielded, so the report reads
+// instructions per scanned entry; the 64 seeks are part of that figure.
+#[library_benchmark]
+#[bench::paths(args = ("paths",), setup = built_path_strmap)]
+fn strmap_prefix_scan(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, prefixes) = built;
+    let mut sink = 0u64;
+    for p in &prefixes {
+        let (n, sum) = strmap_prefix_sum(&mut map, black_box(p));
+        sink ^= n ^ sum;
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 // Same-key reinsert (in-place suffix value update), remove (suffix
 // disposal + emptied-node pruning), reinsert — the mutation ladder the
 // concurrency work routes through disposal helpers.
@@ -1732,6 +1817,7 @@ library_benchmark_group!(
         strmap_insert,
         strmap_get,
         strmap_churn,
+        strmap_prefix_scan,
         bytesmap_insert,
         bytesmap_get,
         bytesmap_churn,
