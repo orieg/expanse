@@ -548,6 +548,35 @@ def self_test() -> None:
             os.environ.pop("EXPANSE_PIN_SYSFS_ROOT", None)
             os.environ.pop("EXPANSE_BENCH_PIN_APPLIED", None)
 
+    # ---- the Python twin writes nothing to its caller's stdout -----------
+    # A harness's stdout is its output: `bindings/python/bench.py --json` hands
+    # all of it to json.loads (#1078). Each branch runs in a child so the pin it
+    # applies cannot reach this process, and must still report on stderr, so
+    # deleting the status line does not pass.
+    with tempfile.TemporaryDirectory() as td:
+        uniform = Path(td) / "sysfs_uniform"
+        (uniform / "cpu_core").mkdir(parents=True)
+        (uniform / "cpu_core" / "cpus").write_text("0-15\n", encoding="utf-8")
+        branches: list[tuple[str, dict[str, str], str]] = [
+            ("uniform host", {}, "core pin: not needed"),
+            ("opted out", {"EXPANSE_BENCH_PIN": "off"}, "core pin: DISABLED"),
+            ("inherited from a runner", {"EXPANSE_BENCH_PIN_APPLIED": "none"}, "core pin: inherited"),
+        ]
+        if hasattr(os, "sched_getaffinity"):
+            # Pinning to the mask the child already has changes nothing and
+            # takes the confining branch; the lint job's Linux runner reaches it.
+            mask = ",".join(str(c) for c in sorted(os.sched_getaffinity(0)))
+            branches.append(("confined to a CPU list", {"EXPANSE_BENCH_PIN": mask}, "core pin: stdout-check confined"))
+        for name, extra, status in branches:
+            env = {k: v for k, v in os.environ.items() if not k.startswith("EXPANSE_BENCH_PIN")}
+            env.update({"EXPANSE_PIN_SYSFS_ROOT": str(uniform), **extra})
+            r = subprocess.run(
+                [sys.executable, "-c", "import bench_pin; bench_pin.apply('stdout-check')"],
+                cwd=REPO_ROOT / "scripts", env=env, capture_output=True, text=True)
+            assert r.returncode == 0, (name, r.returncode, r.stderr)
+            assert r.stdout == "", f"apply() wrote to stdout ({name}): {r.stdout!r}"
+            assert status in r.stderr, (name, r.stderr)
+
     print("check_bench_pin.py --self-test: all checks passed")
 
 
