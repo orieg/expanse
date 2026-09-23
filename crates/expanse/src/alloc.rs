@@ -725,9 +725,10 @@ impl NodeAlloc {
         for p in pages.iter().rev() {
             if is_free(p) {
                 // SAFETY: the page is live, no block on it is live or listed
-                // any more, and its header holds the layout it was carved with.
+                // any more, and its header's class fixes the layout it was
+                // carved with.
                 unsafe {
-                    let layout = (*p.1).layout;
+                    let layout = slab_page_layout((*p.1).class);
                     dealloc(p.1.cast::<u8>(), layout);
                 }
                 released += SLAB_PAGE_SIZE;
