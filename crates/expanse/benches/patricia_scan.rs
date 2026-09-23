@@ -242,7 +242,9 @@ fn main() {
         for dist in DISTS {
             let keys = u64_dist(dist, n);
             for (order, ks) in [("generator", keys.clone()), ("shuffled", shuffled(&keys))] {
-                rows.push(Value::Object(traversal_row(dist, order, &ks, cli.rounds)));
+                let mut row = traversal_row(dist, order, &ks, cli.rounds);
+                row.insert("raw_draws".into(), json!(n));
+                rows.push(Value::Object(row));
             }
         }
         let keys = gen_paths(n, SCAN_PREFIX_LEN, STRING_SEED);

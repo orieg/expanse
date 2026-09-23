@@ -231,7 +231,11 @@ Shared by all harnesses (`benches/patricia_common/mod.rs`):
 - **Memory.** The hook records requested `Layout::size` and the allocator's
   usable size (`malloc_usable_size` on Linux, `malloc_size` on macOS), because
   small nodes round up more than large ones. Every arm owns its key bytes.
-  Usable bytes depend on the host's allocator.
+  Usable bytes depend on the host's allocator, and neither column is the full
+  resident cost of a small node. glibc's `malloc_usable_size` reports the chunk's
+  payload but excludes its 8-byte header. A 24-byte `patricia_tree` node
+  therefore reads 24 usable bytes while it occupies a 32-byte chunk (derived from
+  glibc's chunk layout, not measured here).
 - **Scans.** `qp-trie`'s traversal is unordered, so its full-traversal cell is
   a traversal, not an ordered scan. The only public prefix read on
   `patricia_tree` and `fast_radix_trie` materialises an owned key per entry,

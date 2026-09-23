@@ -26,7 +26,7 @@ REPO_ROOT = BASE_DIR.parent.parent.parent
 RESULTS_DIR = BASE_DIR / "results"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
-from bench_provenance import add_load, attach, estimators, git_sha, host_facts  # noqa: E402
+from bench_provenance import add_load, attach, estimators, git_sha, host_facts, rewrite  # noqa: E402
 
 # (bench, artifact, full-run populations). Each population runs in its own
 # harness process with a load snapshot before it, so contamination during a
@@ -129,7 +129,12 @@ def main() -> None:
     for name, out_file, pops in BENCHES:
         run_bench(name, out_file, QUICK if quick else pops, out_dir, quick, prov)
     add_load(prov, "end")
-    print("Done. README result tables are pending the first committed full run.")
+    # Each artifact was written inside the loop, before this snapshot; re-stamp
+    # so the last population's interval has a snapshot after it too (§8.17).
+    stamped = rewrite([out_dir / f for _, f, _ in BENCHES], prov)
+    print(f"Re-stamped provenance with the end snapshot into {stamped} artifacts.")
+    if not quick:
+        subprocess.run([sys.executable, str(BASE_DIR / "scripts" / "generate_readme.py")], check=True)
 
 
 if __name__ == "__main__":
