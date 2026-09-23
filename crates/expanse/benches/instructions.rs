@@ -332,6 +332,33 @@ fn map_remove(built: (ExpanseMap, Vec<u64>)) -> u64 {
     black_box(removed)
 }
 
+// Snapshot by deep copy (#1103): `Clone` rebuilds by ordered iteration, so
+// an arm measures iteration plus an ascending insert per key. The original
+// is built in `setup`, and both it and the copy are leaked (see `map_get`).
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::random(args = ("random",), setup = built_map)]
+fn map_clone(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, _) = built;
+    let copy = black_box(&map).clone();
+    let n = copy.len();
+    core::mem::forget(copy);
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_set)]
+#[bench::random(args = ("random",), setup = built_set)]
+fn set_clone(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, _) = built;
+    let copy = black_box(&set).clone();
+    let n = copy.len();
+    core::mem::forget(copy);
+    core::mem::forget(set);
+    black_box(n)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_map)]
 fn map_iterate(built: (ExpanseMap, Vec<u64>)) -> u64 {
@@ -1685,6 +1712,8 @@ library_benchmark_group!(
         map_churn,
         map_remove,
         map_iterate,
+        map_clone,
+        set_clone,
         map_nav,
         map_prev,
         set32_insert,

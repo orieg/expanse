@@ -1625,6 +1625,20 @@ impl<'a> IntoIterator for &'a ExpanseSet {
     }
 }
 
+/// A deep copy: a new set holding the same keys and sharing no node with
+/// this one, so later writes to either are invisible to the other. This is
+/// the supported way to keep a point-in-time snapshot of a set.
+///
+/// Built by [`ExpanseSet::from_sorted_iter`] over the set's own ascending
+/// iteration: O(n) time, one full tree of memory, and a result never less
+/// compact than the insert path's. Copying a root edge out of a set's
+/// internals is *not* a snapshot (`docs/ARCHITECTURE.md`, "Snapshots").
+impl Clone for ExpanseSet {
+    fn clone(&self) -> Self {
+        Self::from_sorted_iter(self.iter())
+    }
+}
+
 impl FromIterator<Key> for ExpanseSet {
     fn from_iter<I: IntoIterator<Item = Key>>(iter: I) -> Self {
         let mut set = Self::new();

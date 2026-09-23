@@ -1504,6 +1504,7 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `map_churn/*` | Steady-state upsert/insert/delete mix | Crosses capacity-class boundaries in steady state (`k ^ 1` fresh neighbor insertion and removal). |
 | `map_remove/*` | Key removal and tree condensation | Evaluates 1-index hysteresis and node compaction back down the compression ladder. |
 | `map_iterate/*` | Full-order traversal | Measures iterator state machine and stackless trie traversal. |
+| `map_clone/*` · `set_clone/*` | Deep-copy snapshot (`Clone`, #1103) of a prebuilt 50k-key map or set | Ordered iteration plus an ascending rebuild (the map through the sequential-run insert bypass, the set through `from_sorted_iter`); the cost of a checkpoint snapshot per key. |
 | `map_nav/*` | Ordered navigation (`next_at_or_after`) | Evaluates cursor bounding and successor searching across multi-level branches. |
 | `map_prev/*` | Strict predecessor (`prev_before`) from each present key | The backtracking path: a probe that is its terminal's smallest key descends a sibling subtree to its maximum. The single-threaded reference for #900's optimistic ordered reads. |
 | `map32_nav/*` · `map32_prev/*` | 32-bit `next_at_or_after` and `prev_before` from each `keys32` probe | The 32-bit twins of `map_nav` and `map_prev`. |
@@ -1591,6 +1592,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map32_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
 | `cost` | `map32_remove` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `map_churn` | `random` | 50,000 |
+| `cost` | `map_clone` | `sequential`, `random` | 50,000 |
 | `cost` | `map_get` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf` | 50,000 |
 | `cost` | `map_get_batch` | `random` | 50,000 |
 | `cost` | `map_ins_slot` | `random` | 50,000 |
@@ -1603,6 +1605,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `set32_iterate` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `set32_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
 | `cost` | `set32_remove` | `sequential`, `clustered`, `random` | 2,000 |
+| `cost` | `set_clone` | `sequential`, `random` | 50,000 |
 | `cost` | `set_contains` | `random` | 50,000 |
 | `cost` | `set_contains_batch` | `random` | 50,000 |
 | `cost` | `set_insert` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf` | 50,000 |
