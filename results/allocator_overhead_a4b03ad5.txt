@@ -1,0 +1,114 @@
+# allocator_overhead census at a4b03ad5
+# host: Intel Xeon E5-2697 v4 @ 2.30GHz, 72 threads, x86_64, Debian GLIBC 2.41 (rustlang/rust:nightly container)
+# command: cargo run --release -p expanse-trie --example allocator_overhead -- N   (N = 1e6, then 1e7; default features)
+# deterministic byte accounting except the RSS and free/shr columns (one reading per shape, one process per shape)
+# load average: 1.03, 2.04, 3.01 before / load average: 2.07, 2.17, 2.99 after (72 threads)
+rustc 1.100.0-nightly (2e2b193f8 2026-09-02)
+ldd (Debian GLIBC 2.41-12+deb13u3) 2.41
+allocator census, N = 1000000 keys per shape, 8-byte values (bytes/key)
+shape        mem_used  mem_held   request    usable  +headers       RSS   trimmed allocs/key  held/shr   RSS/shr  free/shr
+sequential       8.56      8.65      8.65      8.90      9.16      9.10      9.37     0.0314      8.59      9.41      0.07
+timestamp       20.92     21.52     21.52     21.57     21.61     21.84     22.08     0.0055     21.48     22.12      0.29
+random          17.60     24.68     24.57     24.79     25.12     26.35     26.48     0.0413     21.56     25.58      4.34
+prefix          34.34     35.73     35.73     41.45     49.06     49.20     49.35     0.9517     34.88     49.35      0.86
+uuid            60.02     68.80     68.80     81.03     89.25     89.75     89.75     1.0281     66.05     89.83      3.10
+
+sequential: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+      256    16       31251     264.0       0.500   99.5%
+     4096    64         144    4104.0       0.002    0.5%
+     4160    64          15    4168.0       0.000    0.0%
+      512    16           2     520.0       0.000    0.0%
+
+timestamp: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+     4096    64        5175    4104.0       0.083   93.3%
+      256    16         305     264.0       0.005    5.5%
+     4160    64          59    4168.0       0.001    1.1%
+      512    16           5     520.0       0.000    0.1%
+      384    16           2     392.0       0.000    0.0%
+
+random: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+      336    16       22843     344.0       0.366   66.7%
+      168    16       14112     168.0       0.113   20.6%
+     4096    64        3187    4104.0       0.051    9.3%
+      448    16         897     456.0       0.014    2.6%
+     4160    64         257    4168.0       0.004    0.8%
+
+prefix: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+       18     8      806720      24.2      11.484   86.1%
+       17     8       80663      24.3       1.231    9.2%
+       40     8       51806      40.1       0.418    3.1%
+       16     8        8074      24.0       0.129    1.0%
+     4096    64        4302    4104.0       0.069    0.5%
+      156    16         100     168.0       0.002    0.0%
+      320    16           4     328.0       0.000    0.0%
+
+uuid: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+       44     8      999774      56.0      20.005   97.8%
+      288    16       22689     296.0       0.363    1.8%
+     4096    64        4376    4104.0       0.070    0.3%
+      384    16         880     392.0       0.014    0.1%
+       36     8         226      40.0       0.003    0.0%
+       40     8         114      40.0       0.001    0.0%
+
+mem_held: mem_used plus freed blocks and slab slack the tree keeps; request: sum of live Layout sizes; usable: allocator usable size; +headers: usable + 8 B per live chunk (glibc 64-bit, derived); RSS / trimmed: resident delta after the build, and after malloc_trim(0), one process per shape (Linux only); held/shr, RSS/shr: mem_held and trimmed RSS after shrink_to_fit(); free/shr: growth of glibc's free-chunk bytes (mallinfo2 fordblks) over the run, read after shrink_to_fit() and malloc_trim(0) (glibc only).
+
+allocator census, N = 10000000 keys per shape, 8-byte values (bytes/key)
+shape        mem_used  mem_held   request    usable  +headers       RSS   trimmed allocs/key  held/shr   RSS/shr  free/shr
+sequential       8.56      8.59      8.59      8.84      9.09      9.10      9.12     0.0314      8.58      9.12      0.01
+timestamp       20.92     21.47     21.47     21.52     21.56     21.82     21.82     0.0055     21.47     21.83      0.25
+random          22.69     32.70     32.70     33.05     33.41     33.70     33.72     0.0443     28.39     32.24      4.61
+prefix          38.76     40.40     40.36     42.25     47.21     47.24     47.24     0.6193     39.14     47.24      1.27
+uuid            60.86     66.81     66.24     78.50     86.93     87.12     87.13     1.0536     65.71     87.13      1.28
+
+sequential: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+      256    16      312500     264.0       0.500   99.5%
+     4096    64        1278    4104.0       0.002    0.4%
+     4160    64         152    4168.0       0.000    0.0%
+      512    16           9     520.0       0.000    0.0%
+      384    16           1     392.0       0.000    0.0%
+
+timestamp: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+     4096    64       51633    4104.0       0.083   93.6%
+      256    16        2923     264.0       0.005    5.3%
+     4160    64         598    4168.0       0.001    1.1%
+      512    16           6     520.0       0.000    0.0%
+      384    16           1     392.0       0.000    0.0%
+
+random: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+      256    16      273208     264.0       0.438   61.7%
+      384    16      117714     392.0       0.188   26.6%
+     4096    64       51444    4104.0       0.082   11.6%
+     4160    64         257    4168.0       0.000    0.1%
+      512    16          71     520.0       0.000    0.0%
+
+prefix: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+       19     8     2963643      24.1       3.871   56.6%
+       40     8     2747076      40.1       2.216   32.4%
+       18     8      296820      24.2       0.423    6.2%
+      108    16       98580     120.2       0.199    2.9%
+     4096    64       53929    4104.0       0.086    1.3%
+       17     8       29701      24.2       0.045    0.7%
+       16     8        2933      24.0       0.005    0.1%
+      156    16         100     168.0       0.000    0.0%
+
+uuid: request sizes by overhead (usable + headers - requested)
+  request align        live usable/ea  overhead/k   share
+       44     8     9976840      56.1      20.022   96.7%
+      132    16      467571     136.0       0.561    2.7%
+     4096    64       37930    4104.0       0.061    0.3%
+       36     8       23160      40.0       0.028    0.1%
+      264    16       18932     264.0       0.015    0.1%
+       40     8       11575      40.0       0.009    0.0%
+      352    16          18     360.0       0.000    0.0%
+
+mem_held: mem_used plus freed blocks and slab slack the tree keeps; request: sum of live Layout sizes; usable: allocator usable size; +headers: usable + 8 B per live chunk (glibc 64-bit, derived); RSS / trimmed: resident delta after the build, and after malloc_trim(0), one process per shape (Linux only); held/shr, RSS/shr: mem_held and trimmed RSS after shrink_to_fit(); free/shr: growth of glibc's free-chunk bytes (mallinfo2 fordblks) over the run, read after shrink_to_fit() and malloc_trim(0) (glibc only).
+
