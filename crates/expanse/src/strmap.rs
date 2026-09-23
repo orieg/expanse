@@ -1857,10 +1857,13 @@ impl ExpanseStrMap {
     /// version sampled from `ver` after this map switched to deferred
     /// reclamation ([`Self::defer_to`]), and the caller must hold an epoch
     /// pin for the whole call — every pointer read under a still-valid
-    /// cover then references EBR-live memory.
+    /// cover then references EBR-live memory. `root` is the meta-trie root
+    /// the wrapper published ([`Self::root_word`], `None` when empty), loaded
+    /// after `snap`: the reader does not touch the map, which a covered
+    /// writer may hold `&mut` to meanwhile (#1086).
     #[cfg(feature = "std")]
     pub(crate) unsafe fn get_validated(
-        &self,
+        root: Option<NonNull<u8>>,
         key: &NulFreeStr,
         ver: &crate::occ::SeqVersion,
         snap: u64,
@@ -1873,7 +1876,7 @@ impl ExpanseStrMap {
         // before anything is read through it, an unlinked root is
         // obsolete-marked and EBR-live, and the tree word is validated before
         // any answer.
-        let Some(root) = self.root_raw() else {
+        let Some(root) = root.map(|p| p.as_ptr().cast::<StrNode>()) else {
             return if ver.validate(snap) {
                 Ok(None)
             } else {
@@ -1896,7 +1899,7 @@ impl ExpanseStrMap {
             };
             // SAFETY: as above; a by-value copy, validated by the walk's
             // first check against the cover sampled just above.
-            let msnap = unsafe { (*node).map.occ_snapshot() };
+            let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
             // SAFETY: the caller's pin + snapshot contract carries through.
             let found = unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) }?;
             if terminal {
@@ -2213,7 +2216,7 @@ mod olc {
             // SAFETY: live node; the top edge is read by value through validated
             // loads only, and an optimistic writer never stores to it (a
             // root-state change is a `RootGrowth` fallback).
-            unsafe { (*self.node).map.root_top_ptr() }
+            unsafe { MapCore::root_top_ptr_of(&raw mut (*self.node).map) }
         }
 
         #[inline(always)]
@@ -2468,7 +2471,7 @@ mod olc {
                     return OlcOutcome::Retry;
                 };
                 // SAFETY: as above; a by-value copy validated before use.
-                let msnap = unsafe { (*node).map.occ_snapshot() };
+                let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
                 let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
                 let host = StrHost {
                     node,
@@ -2489,7 +2492,7 @@ mod olc {
                     // node's root state, and readers validate the word.
                     let prev = unsafe {
                         under_lock(node, alloc, || {
-                            (*node).map.insert_pathless(alloc, chunk, val)
+                            MapCore::insert_leaf_state_at(&raw mut (*node).map, alloc, chunk, val)
                         })
                     };
                     drop(lock);
@@ -2531,7 +2534,12 @@ mod olc {
                             // SAFETY: as for T1 in leaf state.
                             let prev = unsafe {
                                 under_lock(node, alloc, || {
-                                    (*node).map.insert_pathless(alloc, chunk, w)
+                                    MapCore::insert_leaf_state_at(
+                                        &raw mut (*node).map,
+                                        alloc,
+                                        chunk,
+                                        w,
+                                    )
                                 })
                             };
                             debug_assert!(
@@ -2603,7 +2611,12 @@ mod olc {
                         // SAFETY: as for T1 in leaf state.
                         let old_w = unsafe {
                             under_lock(node, alloc, || {
-                                (*node).map.insert_pathless(alloc, chunk, cw)
+                                MapCore::insert_leaf_state_at(
+                                    &raw mut (*node).map,
+                                    alloc,
+                                    chunk,
+                                    cw,
+                                )
                             })
                         };
                         debug_assert_eq!(old_w, Some(v), "the entry moved under the cover lock");
@@ -2669,7 +2682,7 @@ mod olc {
                     return (OlcOutcome::Retry, None);
                 };
                 // SAFETY: as above.
-                let msnap = unsafe { (*node).map.occ_snapshot() };
+                let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
                 let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
                 let host = StrHost {
                     node,
@@ -2689,7 +2702,9 @@ mod olc {
                     // SAFETY: the cover lock excludes every other writer of this
                     // node's root state.
                     let prev = unsafe {
-                        under_lock(node, alloc, || (*node).map.remove_pathless(alloc, chunk))
+                        under_lock(node, alloc, || {
+                            MapCore::remove_leaf_state_at(&raw mut (*node).map, alloc, chunk)
+                        })
                     };
                     if prev.is_none() {
                         lock.abort_unmodified();
@@ -2746,7 +2761,9 @@ mod olc {
                     } else {
                         // SAFETY: as for T7 in leaf state.
                         let w = unsafe {
-                            under_lock(node, alloc, || (*node).map.remove_pathless(alloc, chunk))
+                            under_lock(node, alloc, || {
+                                MapCore::remove_leaf_state_at(&raw mut (*node).map, alloc, chunk)
+                            })
                         };
                         debug_assert_eq!(w, Some(v), "the entry moved under the cover lock");
                     }
@@ -2797,7 +2814,7 @@ mod olc {
                 // A tree never empties on this path, whatever its stale
                 // population reads; a leaf's population is exact under the lock.
                 // SAFETY: `node` is live and locked by `lock`.
-                if !unsafe { (*node).map.is_empty() } {
+                if unsafe { MapCore::len_of(&raw const (*node).map) } != 0 {
                     drop(lock);
                     return None;
                 }
@@ -2812,7 +2829,7 @@ mod olc {
                 };
                 // SAFETY: the parent is live and locked; its root state cannot
                 // change under the lock.
-                let parent_is_tree = unsafe { (*parent).map.root_is_tree() };
+                let parent_is_tree = unsafe { MapCore::root_is_tree_of(&raw const (*parent).map) };
                 let removed = if parent_is_tree {
                     let held = StrHost {
                         node: parent,
@@ -2838,7 +2855,7 @@ mod olc {
                     // SAFETY: as for T7 in leaf state, on the parent.
                     unsafe {
                         under_lock(parent, alloc, || {
-                            (*parent).map.remove_pathless(alloc, pchunk)
+                            MapCore::remove_leaf_state_at(&raw mut (*parent).map, alloc, pchunk)
                         })
                     }
                 };
@@ -2901,6 +2918,15 @@ impl ExpanseStrMap {
         // carries write provenance for the optimistic writers.
         let p: *mut StrNode = unsafe { (&raw const self.root).cast::<*mut StrNode>().read() };
         if p.is_null() { None } else { Some(p) }
+    }
+
+    /// The meta-trie root as an untyped pointer, null when the map is empty:
+    /// what the concurrent wrapper publishes for its readers (#1086).
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn root_word(&self) -> *const u8 {
+        self.root_raw()
+            .map_or(core::ptr::null(), |p| p.cast_const().cast::<u8>())
     }
 
     /// The exclusive prune (Refs #929): unlinks every empty node on `key`'s

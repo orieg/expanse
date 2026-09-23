@@ -33,7 +33,7 @@ BLART_INNER_NODE256 = 2072
 # 2. Pinned Reference Constants (Expanse node & slot layouts)
 # ---------------------------------------------------------------------------
 
-# From crates/expanse/src/node.rs:596-629
+# From crates/expanse/src/node.rs:663-696
 EXPANSE_EDGE = 16
 EXPANSE_BRANCH_HEADER = 16
 EXPANSE_BRANCH_L3 = 64
