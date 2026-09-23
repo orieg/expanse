@@ -23,6 +23,26 @@ use core_alloc::string::String;
 #[cfg(not(feature = "std"))]
 use core_alloc::vec::Vec;
 
+/// Evaluates `$op` with `$this` bound to `$m`, and counts a root-state
+/// change (diagnostic builds only). A macro rather than a method taking a
+/// closure: the plain insert and remove bodies then reach their callers
+/// through `#[inline(always)]` functions alone, and never through a closure
+/// call whose inlining LLVM decides by heuristic, a decision that moves with
+/// the size of unrelated code in the crate (Refs #1086).
+macro_rules! noting_root_rewrite {
+    ($this:expr, $m:ident => $op:expr) => {{
+        let $m = $this;
+        #[cfg(feature = "occ-stats")]
+        let before = $m.root_fingerprint();
+        let r = $op;
+        #[cfg(feature = "occ-stats")]
+        if $m.root_fingerprint() != before {
+            crate::occ_stats::note_root_rewrite();
+        }
+        r
+    }};
+}
+
 pub use crate::types::ROOT_LEAF_CAP;
 
 /// Allocation size of a root leaf holding `pop` keys. Class-sized (like
@@ -464,30 +484,17 @@ impl ExpanseSet {
         }
     }
 
-    /// Runs `f` and counts a root-state change (diagnostic builds only).
-    #[inline(always)]
-    fn noting_root_rewrite<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        #[cfg(feature = "occ-stats")]
-        let before = self.root_fingerprint();
-        let r = f(self);
-        #[cfg(feature = "occ-stats")]
-        if self.root_fingerprint() != before {
-            crate::occ_stats::note_root_rewrite();
-        }
-        r
-    }
-
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.insert_inner(key))
+        noting_root_rewrite!(self, t => t.insert_inner(key))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn insert_plain(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.insert_inner_plain(key))
+        noting_root_rewrite!(self, t => t.insert_inner_plain(key))
     }
 
     #[inline(always)]
@@ -878,14 +885,14 @@ impl ExpanseSet {
     /// Removes `key`; returns `true` if it was present.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.remove_inner(key))
+        noting_root_rewrite!(self, t => t.remove_inner(key))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn remove_plain(&mut self, key: Key) -> bool {
-        self.noting_root_rewrite(|t| t.remove_inner_plain(key))
+        noting_root_rewrite!(self, t => t.remove_inner_plain(key))
     }
 
     #[inline(always)]
@@ -894,7 +901,7 @@ impl ExpanseSet {
         &mut self,
         key: Key,
     ) -> bool {
-        self.noting_root_rewrite(|t| t.remove_inner_dispatch::<OCC, NESTED>(key))
+        noting_root_rewrite!(self, t => t.remove_inner_dispatch::<OCC, NESTED>(key))
     }
 
     #[inline(always)]

@@ -111,6 +111,26 @@ pub(crate) fn leaf_values_offset(pop: usize) -> usize {
     8 * crate::leaf::cap_class(pop)
 }
 
+/// Evaluates `$op` with `$this` bound to `$m`, and counts a root-state
+/// change (diagnostic builds only). A macro rather than a method taking a
+/// closure: the plain insert and remove bodies then reach their callers
+/// through `#[inline(always)]` functions alone, and never through a closure
+/// call whose inlining LLVM decides by heuristic, a decision that moves with
+/// the size of unrelated code in the crate (Refs #1086).
+macro_rules! noting_root_rewrite {
+    ($this:expr, $m:ident => $op:expr) => {{
+        let $m = $this;
+        #[cfg(feature = "occ-stats")]
+        let before = $m.root_fingerprint();
+        let r = $op;
+        #[cfg(feature = "occ-stats")]
+        if $m.root_fingerprint() != before {
+            crate::occ_stats::note_root_rewrite();
+        }
+        r
+    }};
+}
+
 /// See `set::by_mode`: the three sharing modes an engine call is
 /// monomorphized for, decided once per operation.
 macro_rules! by_mode {
@@ -1322,19 +1342,6 @@ impl MapCore {
         }
     }
 
-    /// Runs `f` and counts a root-state change (diagnostic builds only).
-    #[inline(always)]
-    fn noting_root_rewrite<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        #[cfg(feature = "occ-stats")]
-        let before = self.root_fingerprint();
-        let r = f(self);
-        #[cfg(feature = "occ-stats")]
-        if self.root_fingerprint() != before {
-            crate::occ_stats::note_root_rewrite();
-        }
-        r
-    }
-
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     #[inline(always)]
@@ -1345,7 +1352,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.insert_inner(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner(alloc, key, val, path))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
@@ -1357,7 +1364,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.insert_inner_plain(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner_plain(alloc, key, val, path))
     }
 
     #[inline(always)]
@@ -1368,7 +1375,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.insert_inner_dispatch::<OCC, NESTED>(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner_dispatch::<OCC, NESTED>(alloc, key, val, path))
     }
 
     #[inline(always)]
@@ -1930,7 +1937,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner(alloc, key, path))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -1941,7 +1948,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner_dispatch::<false, false>(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner_dispatch::<false, false>(alloc, key, path))
     }
 
     #[inline(always)]
@@ -1951,7 +1958,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        self.noting_root_rewrite(|m| m.remove_inner_dispatch::<OCC, NESTED>(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner_dispatch::<OCC, NESTED>(alloc, key, path))
     }
 
     #[inline(always)]
