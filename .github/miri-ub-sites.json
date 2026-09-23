@@ -238,21 +238,19 @@
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "map::MapCore::root_is_tree"
+      "frame": "sync::olc_insert_map"
     },
     {
       "test": "blob_two_writers",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "strongly protected",
-      "frame": "sync::Shared::<blobmap::ExpanseBlobMap>::inner_ref"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "blob_two_writers",
       "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "map::MapCore::insert_inner"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "blob_reader_writer",
@@ -264,16 +262,14 @@
     {
       "test": "blob_reader_writer",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "does not exist in the borrow stack",
-      "frame": "sync::Shared::<blobmap::ExpanseBlobMap>::write_root_covered_with"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "blob_reader_writer",
       "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "sync::BlobReadGuard::<'_>::get"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     }
   ]
 }

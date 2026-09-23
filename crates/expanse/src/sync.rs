@@ -36,8 +36,8 @@
 //!    a reader, or an optimistic writer descending to its lock point, makes
 //!    plain loads that race with a covered writer's plain stores: a root
 //!    leaf's keys and values, a node's edges, header fields and value
-//!    arrays, and — on the string and blob wrappers — the root state (the
-//!    map, set and bytes map publish theirs as atomics in `TreeHead`; node bitmaps
+//!    arrays, and — on the string wrapper — the root state (the map, set,
+//!    bytes map and blob map publish theirs as atomics in `TreeHead`; node bitmaps
 //!    are atomic on every shared path, `bits::shared_bitmap`). Every such
 //!    value is discarded unless validation proves no writer overlapped. That
 //!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
@@ -47,12 +47,13 @@
 //!    Word-sized fields can be loaded atomically on stable Rust; packed
 //!    1–7-byte leaf keys, read with unaligned SWAR loads, have no atomic
 //!    spelling.
-//! 2. **References over shared state.** The string and blob wrappers form
-//!    `&T` to the whole engine on optimistic paths (`Shared::inner_ref`,
-//!    `optimistic_read`, `validated_len`) while a covered writer holds
-//!    `&mut T` for its whole operation. The map, set and bytes map no longer
-//!    do: their readers load the published root and never touch the engine
-//!    (the bytes map's hash with the wrapper's clone of the hasher), their
+//! 2. **References over shared state.** The string wrapper forms `&T` to
+//!    the whole engine on optimistic paths (`optimistic_read`,
+//!    `validated_len`) while a covered writer holds `&mut T` for its whole
+//!    operation. The map, set, bytes map and blob map no longer do: their
+//!    readers load the published root and never touch the engine (the bytes
+//!    map's hash with the wrapper's clone of the hasher; the blob map's load
+//!    the arena's reader table from a heap cell, `blobmap::ArenaDeferred`), their
 //!    covered writers hold the tree word for the whole operation, and the
 //!    shared paths reach node bitmaps through raw pointers
 //!    (`bits::shared_bitmap`) rather than `&Bitmap256` / `&mut Bitmap256`
@@ -852,6 +853,20 @@ impl SharedTree for ExpanseBlobMap {
     unsafe fn root_top_ptr(&self) -> *mut Edge {
         // SAFETY: forwarded contract.
         unsafe { self.root_top_ptr() }
+    }
+
+    /// The index's root, published as the map's and set's are: readers and
+    /// optimistic writers load it from the wrapper, and the reader table
+    /// from the arena's shared cell, so neither forms a reference to the
+    /// blob map (#1086).
+    const PUBLISHES_ROOT: bool = true;
+
+    fn publish_snapshot(&self) -> RootSnapshot {
+        self.index().occ_root().0
+    }
+
+    fn hold_tree_word(&self, held: bool) {
+        self.index().alloc().hold_tree_word(held);
     }
 }
 
@@ -2276,14 +2291,14 @@ impl<T: SharedTree> Shared<T> {
 
     /// One mutation under the writer lock and the writer gate.
     ///
-    /// A wrapper that publishes its root (`T::PUBLISHES_ROOT`: the map, set
-    /// and bytes map) holds the tree-level word for the whole operation, in either
+    /// A wrapper that publishes its root (`T::PUBLISHES_ROOT`: the map, set,
+    /// bytes map and blob map) holds the tree-level word for the whole operation, in either
     /// root state, and republishes the root before closing it (#1086). Its
     /// readers then never touch the engine, so the `&mut` this takes to it
     /// overlaps no other thread's access; the engine's own tree bracket is a
     /// no-op meanwhile (`NodeAlloc::hold_tree_word`). Ordinary writes to a
-    /// tree-state map, set or bytes map take the optimistic path and never
-    /// come here;
+    /// tree-state map, set, bytes map or blob map take the optimistic path
+    /// and never come here;
     /// what does is a fallback, a root-state change or a serialised
     /// operation, and readers retry across it.
     ///
@@ -2757,14 +2772,15 @@ impl OlcHost for Shared<ExpanseBlobMap> {
 
     #[inline(always)]
     unsafe fn top_ptr(&self) -> *mut Edge {
-        // SAFETY: top_ptr obtained without taking &mut on inner.
-        unsafe { (*self.inner.get()).root_top_ptr() }
+        // The published top edge, never the engine's (#1086).
+        self.published().top_edge_ptr()
     }
 
     #[inline(always)]
     fn alloc(&self) -> &NodeAlloc {
-        // SAFETY: inner_ref is valid and alloc is constant.
-        self.inner_ref().index().alloc()
+        // SAFETY: the block outlives `&self`; an admitted optimistic writer
+        // runs only while no covered writer holds `&mut` to the engine.
+        unsafe { ExpanseBlobMap::alloc_of(self.inner.get()) }
     }
 
     #[inline(always)]
@@ -9294,6 +9310,9 @@ struct BlobWriterArenas {
 /// incorrect result has been observed.
 pub struct SyncExpanseBlobMap {
     shared: SharedBox<ExpanseBlobMap>,
+    /// The arena's reader table, loaded without reaching into the arena
+    /// (#1086; see `blobmap::ArenaDeferred`).
+    tables: Arc<crate::blobmap::ArenaDeferred>,
     #[cfg(feature = "std")]
     #[allow(dead_code)]
     arena_write: Box<Line<Mutex<()>>>,
@@ -9349,10 +9368,15 @@ impl SyncExpanseBlobMap {
         // whole allocations and defer in place.
         map.rebuild_index_deferred(&collector);
         map.arena().defer_to(Arc::clone(&collector));
+        let tables = map
+            .arena()
+            .deferred_cell()
+            .expect("the arena was deferred on the line above");
         #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
         let chunk_size = map.arena().chunk_size();
         Self {
             shared: Shared::with_collector(map, collector),
+            tables,
             #[cfg(feature = "std")]
             arena_write: Box::new(line(Mutex::new(()))),
             #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
@@ -9498,9 +9522,9 @@ impl SyncExpanseBlobMap {
         owner: Option<&mut WriterArenaOwner<'_>>,
         old_slot: ValueSlot,
     ) {
-        // SAFETY: single atomic load of the published table pointer, as in
+        // A single atomic load of the published table pointer, as in
         // `BlobReadGuard::get`.
-        let table = unsafe { (*self.shared.inner.get()).arena().reader_table() };
+        let table = self.tables.reader_table();
         // SAFETY: the caller's pin predates the load, so the table and its
         // chunks are EBR-live. The replaced word was published after its
         // record was written and after the table naming its chunk was
@@ -9551,7 +9575,7 @@ impl SyncExpanseBlobMap {
                     return Err(ArenaError::MetaOverflow);
                 }
 
-                if !self.shared.inner_ref().root_is_tree() {
+                if !self.shared.published().is_tree() {
                     crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                     crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                     #[cfg(not(feature = "ablation-blob-shared-arena"))]
@@ -9995,10 +10019,8 @@ impl BlobReader<'_> {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version().sample();
-            // SAFETY: pinned + freshly sampled version; the walk validates
-            // every load (see `walk_validated`).
-            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-            let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
+            // The published root, loaded after the sample (#1086).
+            let root = shared.published().load();
             // SAFETY: same pin + snapshot contract as the line above.
             let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
             if let Ok(found) = walked
@@ -10073,10 +10095,8 @@ impl BlobReadGuard<'_> {
         'outer: for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let snap = shared.version().sample();
-            // SAFETY: the guard's pin predates this sample; the walk
-            // validates every load (see `walk_validated`).
-            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-            let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
+            // The published root, loaded after the sample (#1086).
+            let root = shared.published().load();
             // SAFETY: same pin + snapshot contract as the line above.
             let Ok(found) = (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
             else {
@@ -10126,11 +10146,9 @@ impl BlobReadGuard<'_> {
                 continue 'outer;
             }
             let meta = slot.arena_meta_meta();
-            // SAFETY: single atomic load of the published table pointer; the
-            // racy `&` borrow of the arena struct is confined to that load
-            // (documented module-level seqlock caveat).
-            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-            let table = unsafe { (*shared.inner.get()).arena().reader_table() };
+            // A single atomic load of the published table pointer, through
+            // the arena's shared cell rather than the arena (#1086).
+            let table = self.map.tables.reader_table();
             // SAFETY: the guard's pin predates the table load, so the table
             // and every chunk it references are EBR-live.
             let resolved =
@@ -10157,10 +10175,7 @@ impl BlobReadGuard<'_> {
                     // Check if the chunk table was superseded (chunk appended or arena compacted)
                     // while reading. If so, retry under the fresh table instead of falsely reporting
                     // a present key as absent (Refs #929).
-                    // SAFETY: single atomic load of the published table pointer; the
-                    // racy `&` borrow of the arena struct is confined to that load.
-                    // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                    let table_now = unsafe { (*shared.inner.get()).arena().reader_table() };
+                    let table_now = self.map.tables.reader_table();
                     if table_now != table {
                         continue 'outer;
                     }
