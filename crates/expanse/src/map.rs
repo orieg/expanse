@@ -56,10 +56,12 @@ enum Root {
 /// pathless twin) with the allocator that produced the core's nodes.
 pub(crate) struct MapCore {
     root: Root,
-    /// Total population while `root` is a `Tree` (the JPM role): an atomic
-    /// word so a shared tree bumps it under no bracket and a concurrent
-    /// `len()` reads it whole (#568 PR 3); the unshared path writes it
-    /// through `get_mut`, no atomic instruction.
+    /// Total population while `root` is a `Tree` (the JPM role). A plain
+    /// word, and on an unshared tree the population itself. A shared tree
+    /// counts in its wrapper's sharded counter (`sync::ShardedTreePop`),
+    /// which optimistic writers bump directly; a covered write folds the
+    /// change it makes here back into that counter, so on a shared tree this
+    /// field lags the population between covered writes.
     tree_pop: u64,
 }
 
@@ -173,8 +175,9 @@ macro_rules! by_mode {
     };
 }
 
-/// The tree arm of insert, per sharing mode: the engine call and the
-/// population bump (atomic on a shared tree, a plain add otherwise).
+/// The tree arm of insert, per sharing mode: the engine call and a plain
+/// bump of `tree_pop` (on a shared tree the covered write folds it into the
+/// wrapper's counter).
 #[inline(always)]
 fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     alloc: &NodeAlloc,
@@ -1286,8 +1289,10 @@ impl MapCore {
     #[inline(always)]
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn occ_snapshot(&self) -> RootSnapshot {
-        // `top` is a possibly-torn by-value copy (validated by the reader);
-        // `pop` is loaded whole, since a shared tree bumps it under no bracket.
+        // A plain read of the root state that races a covered writer's
+        // stores. The reader validates the tree word before acting on the
+        // value, which makes it safe to discard, not the read race-free
+        // (#1086, class 1).
         match &self.root {
             Root::Empty => RootSnapshot::Empty,
             Root::Leaf { ptr, pop } => RootSnapshot::Leaf {

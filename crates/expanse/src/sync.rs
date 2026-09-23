@@ -23,19 +23,42 @@
 //!   the walk; after a bounded number of restarts the reader falls back
 //!   to the writer mutex (guaranteed progress under a write storm).
 //!
-//! ## Memory-model caveat (deliberate, documented)
+//! ## Undefined behaviour the wrappers still reach (#1086)
 //!
-//! Between `sample` and a failed `validate`, a reader may perform plain
-//! loads that race with the writer's plain stores — the classic seqlock
-//! pattern (Linux kernel seqlocks; Judy's own published OCC design).
-//! Those racy loads are never *used*: every value is discarded unless the
-//! subsequent validation proves no writer overlapped. This is undefined
-//! behavior under a strict reading of the C++/Rust memory model (hence
-//! not Miri/loom-checkable end-to-end; loom covers the `occ` protocol
-//! pieces, and the thread stress tests cover the whole); it is the
-//! industry-standard trade until Rust grows blessed tearable atomics.
-//! The per-node version words are live protocol state (readers validate
-//! against them hand-over-hand); the two bitmap-leaf words are reserved.
+//! Concurrent use of every wrapper here reaches two classes of undefined
+//! behaviour from safe code. No incorrect result has been observed from
+//! either. `scripts/miri_ub_sites.py` runs the threaded workloads in
+//! `mod miri_ub_sites` under Miri each night and compares every site they
+//! reach with `.github/miri-ub-sites.json`, so a change to any of them —
+//! a fix included — is an explicit edit there.
+//!
+//! 1. **Racing optimistic loads.** Between `sample` and a failed `validate`,
+//!    a reader, or an optimistic writer descending to its lock point, makes
+//!    plain loads that race with a covered writer's plain stores: the root
+//!    state, a root leaf's keys and values, a node's bitmap words. Every such
+//!    value is discarded unless validation proves no writer overlapped. That
+//!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
+//!    design), and it is sound at the protocol level — `SeqVersion` uses
+//!    Boehm's fence construction, which loom checks — but it is still a data
+//!    race under the Rust memory model, because neither access is atomic.
+//!    Word-sized fields can be loaded atomically on stable Rust; packed
+//!    1–7-byte leaf keys, read with unaligned SWAR loads, have no atomic
+//!    spelling.
+//! 2. **References over shared state.** The wrappers form `&T` to the whole
+//!    engine on optimistic paths (`Shared::inner_ref`, `optimistic_read`,
+//!    `validated_len`) while a covered writer holds `&mut T` for its whole
+//!    operation, and the engine calls methods on node fields through
+//!    references on both sides (`Bitmap256::test` against
+//!    `Bitmap256::set`). Nothing in the engine's root state or in a node sits
+//!    in an `UnsafeCell`, so each reference asserts something the other
+//!    thread falsifies, and Stacked and Tree Borrows both report it. This
+//!    class is not a seqlock property and needs no new language feature to
+//!    remove.
+//!
+//! The threaded tests in `sync::tests` are compiled out under Miri for these
+//! reasons; `mod miri_ub_sites` holds the workloads Miri runs. The per-node
+//! version words are live protocol state (readers validate against them
+//! hand-over-hand); the two bitmap-leaf words are reserved.
 
 use crate::alloc::NodeAlloc;
 use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
@@ -3219,6 +3242,12 @@ impl ProbeCell {
 /// A set shareable across threads: one writer at a time (internally
 /// serialized), validated optimistic readers. See the module docs for the
 /// protocol and its trade-offs.
+///
+/// # Undefined behaviour under concurrent use
+///
+/// Concurrent use reaches undefined behaviour from safe code, as the module
+/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
+/// incorrect result has been observed.
 pub struct SyncExpanseSet {
     shared: SharedBox<ExpanseSet>,
 }
@@ -5248,6 +5277,12 @@ impl SetReader<'_> {
 
 /// A map shareable across threads: one writer at a time (internally
 /// serialized), validated optimistic readers. See the module docs.
+///
+/// # Undefined behaviour under concurrent use
+///
+/// Concurrent use reaches undefined behaviour from safe code, as the module
+/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
+/// incorrect result has been observed.
 pub struct SyncExpanseMap {
     shared: SharedBox<ExpanseMap>,
 }
@@ -8923,6 +8958,12 @@ struct BlobWriterArenas {
 ///   life of the guard's pin.
 /// - Structural reads that need multi-field consistency (`mem_used`,
 ///   `scan_filtered`, iteration) go through [`Self::with_locked`].
+///
+/// # Undefined behaviour under concurrent use
+///
+/// Concurrent use reaches undefined behaviour from safe code, as the module
+/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
+/// incorrect result has been observed.
 pub struct SyncExpanseBlobMap {
     shared: SharedBox<ExpanseBlobMap>,
     #[cfg(feature = "std")]
@@ -9934,6 +9975,12 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// serialised protocol as a diagnostic comparison build; it is not a
 /// deployment option, since a cargo feature applies to every string map in
 /// the binary.
+///
+/// # Undefined behaviour under concurrent use
+///
+/// Concurrent use reaches undefined behaviour from safe code, as the module
+/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
+/// incorrect result has been observed.
 pub struct SyncExpanseStrMap {
     shared: SharedBox<ExpanseStrMap>,
 }
@@ -10291,6 +10338,12 @@ impl StrReader<'_> {
 ///
 /// The hasher is shared untouched between the writer and every reader
 /// (hashing goes through `&self` concurrently), hence the `Sync` bound.
+///
+/// # Undefined behaviour under concurrent use
+///
+/// Concurrent use reaches undefined behaviour from safe code, as the module
+/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
+/// incorrect result has been observed.
 pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
     shared: SharedBox<ExpanseBytesMap<S>>,
     #[cfg(all(
@@ -11070,6 +11123,421 @@ mod miri_tests {
             assert!(set.remove(splitmix64(i)));
         }
         assert_eq!(set.len(), KEYS - KEYS.div_ceil(3));
+    }
+}
+
+/// The concurrent wrappers' undefined-behaviour sites (#1086), one workload per
+/// site so each can change state on its own.
+///
+/// Under `cargo test` each is an ordinary threaded test and checks what it
+/// reads. Under Miri each is ignored by default: it reaches one of the two
+/// classes the module docs name — a data race on an optimistic load, or a
+/// `&T` / `&mut T` overlap on the engine — and Miri stops a whole shard at the
+/// first. `scripts/miri_ub_sites.py` runs them one at a time with
+/// `--ignored --exact` under the checks `.github/miri-ub-sites.json` lists, and
+/// fails when a site's state differs from the manifest — including a site that
+/// stops reproducing, so a fix flips an entry by an explicit edit and a
+/// schedule change cannot. A workload whose every check is `clean` moves to
+/// `miri_tests`.
+#[cfg(test)]
+mod miri_ub_sites {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+
+    fn splitmix64(i: u64) -> u64 {
+        let mut z = i.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Keys per thread in the root-leaf regime: two threads together stay
+    /// under `ROOT_LEAF_CAP`, so the root never becomes a tree.
+    const LEAF_KEYS: u64 = 12;
+    /// Keys inserted on one thread before any other starts, in the tree
+    /// regime: past `ROOT_LEAF_CAP`, so the root is a tree throughout.
+    const TREE_PREFILL: u64 = 64;
+    /// Keys each thread adds once the root is a tree.
+    const TREE_KEYS: u64 = 32;
+    /// Keys per thread for the wrappers without a root-leaf regime.
+    const KEYS: u64 = 24;
+
+    const _: () = assert!(2 * LEAF_KEYS < ROOT_LEAF_CAP as u64);
+    const _: () = assert!(TREE_PREFILL > ROOT_LEAF_CAP as u64);
+
+    /// Thread `t`'s `i`-th key, disjoint across threads and from the prefill.
+    fn key(t: u64, i: u64) -> u64 {
+        splitmix64((t + 1) * 1_000_000 + i)
+    }
+
+    fn str_key(t: u64, i: u64) -> std::string::String {
+        std::format!("k{t}-{i:04}")
+    }
+
+    fn nf(s: &str) -> &NulFreeStr {
+        NulFreeStr::new(s.as_bytes()).expect("no NUL in a formatted key")
+    }
+
+    /// Runs `pass` until the writer signals `done`, then once more: the reader
+    /// overlaps the writer on every schedule, not only on the seeds where the
+    /// scheduler happens to interleave them.
+    fn read_until(done: &AtomicBool, pass: impl Fn()) {
+        loop {
+            let finished = done.load(Ordering::Acquire);
+            pass();
+            if finished {
+                break;
+            }
+        }
+    }
+
+    // --- SyncExpanseMap ---------------------------------------------------
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_leaf_two_writers() {
+        let map = SyncExpanseMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..LEAF_KEYS {
+                        assert_eq!(map.insert(key(t, i), i), None);
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..LEAF_KEYS {
+                assert_eq!(map.get(key(t, i)), Some(i));
+            }
+        }
+        assert_eq!(map.len(), 2 * LEAF_KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_leaf_reader_writer() {
+        let map = SyncExpanseMap::new();
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..LEAF_KEYS {
+                    assert_eq!(map.insert(key(0, i), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..LEAF_KEYS {
+                        if let Some(v) = map.get(key(0, i)) {
+                            assert_eq!(v, i);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), LEAF_KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_tree_two_writers() {
+        let map = SyncExpanseMap::new();
+        for i in 0..TREE_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..TREE_KEYS {
+                        assert_eq!(map.insert(key(t, i), i), None);
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..TREE_KEYS {
+                assert_eq!(map.get(key(t, i)), Some(i));
+            }
+        }
+        assert_eq!(map.len(), TREE_PREFILL + 2 * TREE_KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_tree_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for i in 0..TREE_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_KEYS {
+                    assert_eq!(map.insert(key(0, i), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    // Every prefilled key is present for the whole run.
+                    for i in 0..TREE_PREFILL {
+                        assert_eq!(map.get(splitmix64(i)), Some(i));
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
+    // --- SyncExpanseSet ---------------------------------------------------
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_leaf_two_writers() {
+        let set = SyncExpanseSet::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let set = &set;
+                s.spawn(move || {
+                    for i in 0..LEAF_KEYS {
+                        assert!(set.insert(key(t, i)));
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..LEAF_KEYS {
+                assert!(set.contains(key(t, i)));
+            }
+        }
+        assert_eq!(set.len(), 2 * LEAF_KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_leaf_reader_writer() {
+        let set = SyncExpanseSet::new();
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..LEAF_KEYS {
+                    assert!(set.insert(key(0, i)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..LEAF_KEYS {
+                        std::hint::black_box(set.contains(key(0, i)));
+                    }
+                });
+            });
+        });
+        assert_eq!(set.len(), LEAF_KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_tree_two_writers() {
+        let set = SyncExpanseSet::new();
+        for i in 0..TREE_PREFILL {
+            set.insert(splitmix64(i));
+        }
+        thread::scope(|s| {
+            for t in 0..2 {
+                let set = &set;
+                s.spawn(move || {
+                    for i in 0..TREE_KEYS {
+                        assert!(set.insert(key(t, i)));
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..TREE_KEYS {
+                assert!(set.contains(key(t, i)));
+            }
+        }
+        assert_eq!(set.len(), TREE_PREFILL + 2 * TREE_KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_tree_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for i in 0..TREE_PREFILL {
+            set.insert(splitmix64(i));
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_KEYS {
+                    assert!(set.insert(key(0, i)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..TREE_PREFILL {
+                        assert!(set.contains(splitmix64(i)));
+                    }
+                });
+            });
+        });
+        assert_eq!(set.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
+    // --- SyncExpanseStrMap ------------------------------------------------
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_two_writers() {
+        let map = SyncExpanseStrMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        assert_eq!(map.insert(nf(&str_key(t, i)), i), None);
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                assert_eq!(map.get(nf(&str_key(t, i))), Some(i));
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_reader_writer() {
+        let map = SyncExpanseStrMap::new();
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    assert_eq!(map.insert(nf(&str_key(0, i)), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..KEYS {
+                        if let Some(v) = map.get(nf(&str_key(0, i))) {
+                            assert_eq!(v, i);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), KEYS);
+    }
+
+    // --- SyncExpanseBytesMap ----------------------------------------------
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn bytes_two_writers() {
+        let map = SyncExpanseBytesMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        assert_eq!(map.insert(&key(t, i).to_le_bytes(), i), None);
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                assert_eq!(map.get(&key(t, i).to_le_bytes()), Some(i));
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn bytes_reader_writer() {
+        let map = SyncExpanseBytesMap::new();
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    assert_eq!(map.insert(&key(0, i).to_le_bytes(), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..KEYS {
+                        if let Some(v) = map.get(&key(0, i).to_le_bytes()) {
+                            assert_eq!(v, i);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), KEYS);
+    }
+
+    // --- SyncExpanseBlobMap -----------------------------------------------
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn blob_two_writers() {
+        let map = SyncExpanseBlobMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        map.insert(key(t, i), &i.to_le_bytes(), 0).expect("insert");
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                let (data, _) = map.get(key(t, i)).expect("present");
+                assert_eq!(data, i.to_le_bytes());
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn blob_reader_writer() {
+        let map = SyncExpanseBlobMap::new();
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    map.insert(key(0, i), &i.to_le_bytes(), 0).expect("insert");
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..KEYS {
+                        if let Some((data, _)) = map.get(key(0, i)) {
+                            assert_eq!(data, i.to_le_bytes());
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), KEYS);
     }
 }
 

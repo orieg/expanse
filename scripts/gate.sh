@@ -156,6 +156,7 @@ fi
 python3 scripts/check_bench_provenance.py --self-test
 python3 scripts/check_man_pages.py --self-test
 python3 scripts/check_miri_shards.py --self-test
+python3 scripts/miri_ub_sites.py --self-test
 python3 scripts/check_man_examples.py --self-test
 python3 scripts/check_abi_parity.py --self-test
 python3 scripts/check_deletion_rationale.py --self-test

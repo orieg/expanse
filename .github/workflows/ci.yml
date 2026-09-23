@@ -143,6 +143,9 @@ jobs:
               - '.github/workflows/**'
               - '.github/bench-suites.json'
               - '.github/superseded-figures.json'
+              # `lint` validates the UB-site manifest against `sync::miri_ub_sites`
+              # (`miri_ub_sites.py --self-test`); a manifest-only edit must run it.
+              - '.github/miri-ub-sites.json'
               # The `cargo deny` policy. Kept out of `rust-src` for the same
               # reason `man/**` is: editing a policy file compiles nothing, and
               # gating Miri/ASan/fuzz/Callgrind on it would undo #412. The
@@ -417,6 +420,7 @@ jobs:
           python3 scripts/ci_job_diff.py --self-test
           python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_miri_shards.py --self-test
+          python3 scripts/miri_ub_sites.py --self-test
           python3 scripts/check_bench_suites.py --self-test
           python3 scripts/check_chart_themes.py --self-test
           python3 scripts/check_chart_layout.py --self-test
