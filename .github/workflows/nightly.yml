@@ -259,15 +259,20 @@ jobs:
     # — including a site that stops reproducing, so a fix flips its entry by an
     # explicit, reviewed edit. Deterministic: every run uses the manifest's
     # fixed seed range.
+    # Pinned to the toolchain and host target `.github/miri-ub-sites.json`
+    # was generated with (the manifest's `toolchain` / `target`, checked equal
+    # by `miri_ub_sites.py --self-test`): Miri's schedule for a seed depends on
+    # both, so another target or nightly could report a different site for the
+    # same code. `macos-latest` is arm64.
     name: Safety / Miri UB-site census (Sync*)
     if: inputs.only != 'bench'
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-toolchain
         with:
-          toolchain: nightly
+          toolchain: nightly-2026-09-05
           components: miri
       - uses: Swatinem/rust-cache@v2
       - name: Every Sync* UB site is in the state the manifest records

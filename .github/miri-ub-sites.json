@@ -1,6 +1,8 @@
 {
   "issue": 1086,
   "about": "Each Sync* UB site the workloads in sync::miri_ub_sites reach, per Miri check. `ub` pins the error phrase and the innermost frame of the lowest failing seed; `clean` means every seed in the range passed. Checked nightly by scripts/miri_ub_sites.py --check; a fix flips an entry to `clean` by an explicit edit.",
+  "toolchain": "nightly-2026-09-05",
+  "target": "aarch64-apple-darwin",
   "seeds": "0..8",
   "sites": [
     {
