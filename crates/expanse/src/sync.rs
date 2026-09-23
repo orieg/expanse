@@ -810,14 +810,15 @@ impl SharedTree for ExpanseStrMap {
     }
 }
 
-/// The string wrapper's published meta-trie root as the untyped pointer
-/// `ExpanseStrMap::root_word` gave (null when empty); see
-/// `SharedTree for ExpanseStrMap`.
+/// The string wrapper's published meta-trie root, the untyped pointer
+/// `ExpanseStrMap::root_word` gave; `None` when the map is empty. An
+/// `Option` rather than a nullable pointer, so no null value flows toward
+/// the reader's dereference (see `ExpanseStrMap::root_raw`).
 #[inline(always)]
-fn str_root_of(snap: RootSnapshot) -> *const u8 {
+fn str_root_of(snap: RootSnapshot) -> Option<core::ptr::NonNull<u8>> {
     match snap {
-        RootSnapshot::Leaf { ptr, .. } => ptr,
-        _ => core::ptr::null(),
+        RootSnapshot::Leaf { ptr, .. } => core::ptr::NonNull::new(ptr.cast_mut()),
+        _ => None,
     }
 }
 

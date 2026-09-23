@@ -1858,12 +1858,12 @@ impl ExpanseStrMap {
     /// reclamation ([`Self::defer_to`]), and the caller must hold an epoch
     /// pin for the whole call — every pointer read under a still-valid
     /// cover then references EBR-live memory. `root` is the meta-trie root
-    /// the wrapper published ([`Self::root_word`], null when empty), loaded
+    /// the wrapper published ([`Self::root_word`], `None` when empty), loaded
     /// after `snap`: the reader does not touch the map, which a covered
     /// writer may hold `&mut` to meanwhile (#1086).
     #[cfg(feature = "std")]
     pub(crate) unsafe fn get_validated(
-        root: *const u8,
+        root: Option<NonNull<u8>>,
         key: &NulFreeStr,
         ver: &crate::occ::SeqVersion,
         snap: u64,
@@ -1876,8 +1876,7 @@ impl ExpanseStrMap {
         // before anything is read through it, an unlinked root is
         // obsolete-marked and EBR-live, and the tree word is validated before
         // any answer.
-        let root = root.cast_mut().cast::<StrNode>();
-        let Some(root) = (!root.is_null()).then_some(root) else {
+        let Some(root) = root.map(|p| p.as_ptr().cast::<StrNode>()) else {
             return if ver.validate(snap) {
                 Ok(None)
             } else {
