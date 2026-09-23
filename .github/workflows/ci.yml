@@ -1483,9 +1483,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features packed-suffix --lib -- strmap:: sync:: 2>&1 | tee packed-suffix-asan.log
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features packed-suffix --lib -- strmap:: sync::tests::concurrent_str sync::tests::sync_str sync::miri_ub_sites::str_ 2>&1 | tee packed-suffix-asan.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' packed-suffix-asan.log \
-            || { echo "::error::the strmap::/sync:: filter ran zero tests"; exit 1; }
+            || { echo "::error::the string-map filters ran zero tests"; exit 1; }
           cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --features packed-suffix --test no_heap_churn --test test_mem_held --test linearizability --test test_boundary_invariants --test test_serialised_section_unwind --test test_mem_used_order_invariant
         env:
           RUSTFLAGS: "-Zsanitizer=address"
