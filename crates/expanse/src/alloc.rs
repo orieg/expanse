@@ -561,6 +561,139 @@ impl NodeAlloc {
         slab_total + live_system + free_system
     }
 
+    /// Returns retained memory to the system allocator: every freed block
+    /// of a class served straight from the system allocator, and every slab
+    /// page none of whose blocks is in use. Returns the bytes released,
+    /// by the rule [`Self::bytes_held`] counts them, so `bytes_held` falls by
+    /// exactly this much.
+    ///
+    /// Live nodes never move, and blocks on a page that still holds a live
+    /// node stay on their freelists. Costs O(slab pages · log slab pages +
+    /// free blocks) and one scratch allocation; nothing on the allocation
+    /// path changes.
+    ///
+    /// `&mut self`: the freelists and slab list are single-writer. A tree
+    /// shared through a concurrent wrapper keeps no per-tree freelists, so
+    /// this returns 0 for it.
+    pub fn release_free(&mut self) -> usize {
+        #[cfg(feature = "std")]
+        if self.deferred.get().is_some() {
+            return 0;
+        }
+        let mut released = 0;
+
+        // Classes above the slab ceiling: each free block is its own
+        // system allocation.
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            if is_slab_class(class) {
+                continue;
+            }
+            let layout = Self::layout_for(bytes, align);
+            let mut cur =
+                core::mem::replace(self.freelists[class].get_mut(), core::ptr::null_mut());
+            while !cur.is_null() {
+                // SAFETY: `cur` is a free block of this class, allocated by
+                // `alloc_system(bytes, align)`, and no longer reachable from
+                // the freelist this loop just detached.
+                let next = unsafe { (*cur).next };
+                // SAFETY: as above; `layout` is the one it was allocated with.
+                unsafe { dealloc(cur.cast::<u8>(), layout) };
+                released += accounted_size(bytes, align);
+                cur = next;
+            }
+        }
+
+        // Slab pages, sorted by base address so a block finds its page by
+        // binary search: (base, page, free blocks counted, blocks carved).
+        let mut pages: core_alloc::vec::Vec<(usize, *mut SlabPage, usize, usize)> =
+            core_alloc::vec::Vec::new();
+        let mut page = *self.slab_pages.get_mut();
+        while !page.is_null() {
+            // SAFETY: slab list entries are live pages with written headers.
+            unsafe {
+                pages.push((page as usize, page, 0, slab_blocks((*page).class)));
+                page = (*page).next;
+            }
+        }
+        if pages.is_empty() {
+            return released;
+        }
+        pages.sort_unstable_by_key(|p| p.0);
+        let page_of = |pages: &[(usize, *mut SlabPage, usize, usize)], addr: usize| -> usize {
+            let i = pages.partition_point(|p| p.0 <= addr) - 1;
+            debug_assert!(
+                addr < pages[i].0 + SLAB_PAGE_SIZE,
+                "free block outside every slab page"
+            );
+            i
+        };
+        // Count each page's free blocks.
+        for class in 0..NUM_CLASSES {
+            if !is_slab_class(class) {
+                continue;
+            }
+            let mut cur = *self.freelists[class].get_mut();
+            while !cur.is_null() {
+                let i = page_of(&pages, cur as usize);
+                pages[i].2 += 1;
+                // SAFETY: freelist entries are free blocks with `next` written.
+                cur = unsafe { (*cur).next };
+            }
+        }
+        // A page is free when every block carved from it is on a freelist.
+        let is_free = |p: &(usize, *mut SlabPage, usize, usize)| p.2 == p.3;
+        if !pages.iter().any(is_free) {
+            return released;
+        }
+        // Drop the blocks of free pages from their freelists, keeping order.
+        for class in 0..NUM_CLASSES {
+            if !is_slab_class(class) {
+                continue;
+            }
+            let mut kept: *mut FreeBlock = core::ptr::null_mut();
+            let mut tail: *mut FreeBlock = core::ptr::null_mut();
+            let mut cur = *self.freelists[class].get_mut();
+            while !cur.is_null() {
+                // SAFETY: freelist entries are free blocks with `next` written.
+                let next = unsafe { (*cur).next };
+                if !is_free(&pages[page_of(&pages, cur as usize)]) {
+                    if tail.is_null() {
+                        kept = cur;
+                    } else {
+                        // SAFETY: `tail` is a kept free block of this class.
+                        unsafe { (*tail).next = cur };
+                    }
+                    tail = cur;
+                }
+                cur = next;
+            }
+            if !tail.is_null() {
+                // SAFETY: `tail` is a kept free block of this class.
+                unsafe { (*tail).next = core::ptr::null_mut() };
+            }
+            *self.freelists[class].get_mut() = kept;
+        }
+        // Rebuild the slab list from the kept pages and free the rest.
+        let mut head: *mut SlabPage = core::ptr::null_mut();
+        for p in pages.iter().rev() {
+            if is_free(p) {
+                // SAFETY: the page is live, no block on it is live or listed
+                // any more, and its header holds the layout it was carved with.
+                unsafe {
+                    let layout = (*p.1).layout;
+                    dealloc(p.1.cast::<u8>(), layout);
+                }
+                released += SLAB_PAGE_SIZE;
+            } else {
+                // SAFETY: a kept page's header is live and single-writer here.
+                unsafe { (*p.1).next = head };
+                head = p.1;
+            }
+        }
+        *self.slab_pages.get_mut() = head;
+        released
+    }
+
     /// Number of live allocations (diagnostics / leak assertions in tests).
     #[must_use]
     pub fn live_allocs(&self) -> usize {
@@ -1750,6 +1883,61 @@ mod tests {
         }
         assert_eq!(class_for_raw(376), None);
         assert_eq!(class_for_raw(1000), None);
+    }
+
+    /// `release_free` frees exactly the slab pages with no live block and
+    /// every free system-class block, keeps a page that still holds a live
+    /// block (and its free blocks on the freelist), and `bytes_held` falls
+    /// by exactly the bytes it reports.
+    #[test]
+    fn release_free_returns_free_pages_and_system_blocks() {
+        let class = class_for_raw(64).expect("64 is a raw class");
+        let per_page = slab_blocks(class);
+        let mut a = NodeAlloc::new();
+        // Three pages: two full, one holding the last block.
+        let n = 2 * per_page + 1;
+        let blocks: core_alloc::vec::Vec<_> = (0..n).map(|_| a.alloc_bytes(64)).collect();
+        let big = a.alloc_bytes(300);
+        assert!(class_for_raw(300).is_some_and(|c| !is_slab_class(c)));
+        // SAFETY: `big` came from `alloc_bytes(300)` and is not used again.
+        unsafe { a.free_bytes(big, 300) };
+        for &b in &blocks[..n - 1] {
+            // SAFETY: each block came from `alloc_bytes(64)` and is freed once.
+            unsafe { a.free_bytes(b, 64) };
+        }
+        assert_eq!(a.bytes_in_use(), 64);
+        assert_eq!(
+            a.bytes_held(),
+            3 * SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+        );
+
+        let released = a.release_free();
+        assert_eq!(
+            released,
+            2 * SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+        );
+        assert_eq!(
+            a.bytes_held(),
+            SLAB_PAGE_SIZE,
+            "the page with a live block stays"
+        );
+        assert_eq!(
+            a.release_free(),
+            0,
+            "a second call finds nothing to release"
+        );
+
+        // The kept page's free blocks are still served, then everything goes.
+        let again = a.alloc_bytes(64);
+        assert_eq!(a.bytes_held(), SLAB_PAGE_SIZE, "reuse, not a new page");
+        // SAFETY: both blocks came from `alloc_bytes(64)` and are freed once.
+        unsafe {
+            a.free_bytes(again, 64);
+            a.free_bytes(blocks[n - 1], 64);
+        }
+        assert_eq!(a.release_free(), SLAB_PAGE_SIZE);
+        assert_eq!(a.bytes_held(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
     }
 
     #[cfg(feature = "std")]
