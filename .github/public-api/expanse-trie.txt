@@ -701,6 +701,8 @@ pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::Ex
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
 pub fn expanse_trie::map::ExpanseMap::validate_defensive(&self) -> core::result::Result<(), alloc::string::String>
+impl core::clone::Clone for expanse_trie::map::ExpanseMap
+pub fn expanse_trie::map::ExpanseMap::clone(&self) -> Self
 impl core::default::Default for expanse_trie::map::ExpanseMap
 pub fn expanse_trie::map::ExpanseMap::default() -> Self
 impl core::iter::traits::collect::Extend<(u64, u64)> for expanse_trie::map::ExpanseMap
@@ -1350,6 +1352,8 @@ pub fn expanse_trie::set::ExpanseSet::union_len_many(&[&expanse_trie::set::Expan
 pub fn expanse_trie::set::ExpanseSet::union_many(&[&expanse_trie::set::ExpanseSet]) -> expanse_trie::set::ExpanseSet
 impl expanse_trie::set::ExpanseSet
 pub fn expanse_trie::set::ExpanseSet::from_sorted_iter<I: core::iter::traits::collect::IntoIterator<Item = expanse_trie::types::Key>>(I) -> Self
+impl core::clone::Clone for expanse_trie::set::ExpanseSet
+pub fn expanse_trie::set::ExpanseSet::clone(&self) -> Self
 impl core::default::Default for expanse_trie::set::ExpanseSet
 pub fn expanse_trie::set::ExpanseSet::default() -> Self
 impl core::iter::traits::collect::Extend<u64> for expanse_trie::set::ExpanseSet
@@ -2881,6 +2885,8 @@ pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::Ex
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
 pub fn expanse_trie::map::ExpanseMap::validate_defensive(&self) -> core::result::Result<(), alloc::string::String>
+impl core::clone::Clone for expanse_trie::map::ExpanseMap
+pub fn expanse_trie::map::ExpanseMap::clone(&self) -> Self
 impl core::default::Default for expanse_trie::map::ExpanseMap
 pub fn expanse_trie::map::ExpanseMap::default() -> Self
 impl core::iter::traits::collect::Extend<(u64, u64)> for expanse_trie::map::ExpanseMap
@@ -2997,6 +3003,8 @@ pub fn expanse_trie::set::ExpanseSet::union_len_many(&[&expanse_trie::set::Expan
 pub fn expanse_trie::set::ExpanseSet::union_many(&[&expanse_trie::set::ExpanseSet]) -> expanse_trie::set::ExpanseSet
 impl expanse_trie::set::ExpanseSet
 pub fn expanse_trie::set::ExpanseSet::from_sorted_iter<I: core::iter::traits::collect::IntoIterator<Item = expanse_trie::types::Key>>(I) -> Self
+impl core::clone::Clone for expanse_trie::set::ExpanseSet
+pub fn expanse_trie::set::ExpanseSet::clone(&self) -> Self
 impl core::default::Default for expanse_trie::set::ExpanseSet
 pub fn expanse_trie::set::ExpanseSet::default() -> Self
 impl core::iter::traits::collect::Extend<u64> for expanse_trie::set::ExpanseSet

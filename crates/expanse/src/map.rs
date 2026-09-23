@@ -2678,6 +2678,28 @@ impl<'a> IntoIterator for &'a ExpanseMap {
     }
 }
 
+/// A deep copy: a new map holding the same entries and sharing no node with
+/// this one, so later writes to either are invisible to the other. This is
+/// the supported way to keep a point-in-time snapshot of a map.
+///
+/// Built by ordered iteration into a fresh map, so it costs O(n) time and one
+/// full tree of memory, and it runs on the sequential-run insert bypass. The
+/// copy's node census depends only on the key set (`mem_used` is
+/// order-invariant, `tests/test_mem_used_order_invariant.rs`), so it equals
+/// that of a map built by inserting the same keys; the copy takes nothing from
+/// the original's freelists.
+///
+/// Copying a root edge out of a map's internals is *not* a snapshot: the
+/// engine mutates nodes in place on every insert and remove, including the
+/// population counts in every ancestor edge (`docs/ARCHITECTURE.md`,
+/// "Snapshots"). Structurally shared snapshots are tracked in
+/// [#1103](https://github.com/orieg/expanse/issues/1103).
+impl Clone for ExpanseMap {
+    fn clone(&self) -> Self {
+        self.iter().collect()
+    }
+}
+
 impl FromIterator<(Key, u64)> for ExpanseMap {
     fn from_iter<I: IntoIterator<Item = (Key, u64)>>(iter: I) -> Self {
         let mut map = Self::new();
@@ -3272,6 +3294,48 @@ impl Drop for ExpanseMap {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    /// Pins the hazard `docs/ARCHITECTURE.md` "Snapshots" documents (#1103):
+    /// a copy of the root edge is not a snapshot. The engine mutates nodes in
+    /// place, so a value overwrite and an insert below the root are both
+    /// visible through a root edge copied before them. If
+    /// this ever fails, writes have become out of place and that section,
+    /// and `Clone`'s documentation, are out of date.
+    #[test]
+    fn a_copied_root_edge_sees_later_writes() {
+        let mut map = ExpanseMap::new();
+        // Past the root leaf, so the root is a level-8 tree.
+        for k in 0..(4 * ROOT_LEAF_CAP as u64) {
+            map.insert(k, k);
+        }
+        let copied = match map.core.root {
+            Root::Tree { top } => top,
+            _ => panic!("the root must be a tree"),
+        };
+        // SAFETY: `copied` is the live root edge's value and every node it
+        // reaches is live; the map is not mutated during the read.
+        let read = |k: u64| unsafe { crate::get::get_map(&copied, k, 8) };
+        assert_eq!(read(7), Some(7));
+        assert_eq!(read(4 * ROOT_LEAF_CAP as u64), None);
+
+        map.insert(7, 700);
+        map.insert(4 * ROOT_LEAF_CAP as u64, 1);
+        assert_eq!(
+            read(7),
+            Some(700),
+            "an overwrite is visible through the copied root edge"
+        );
+        assert_eq!(
+            read(4 * ROOT_LEAF_CAP as u64),
+            Some(1),
+            "an insert below the root is visible through the copied root edge"
+        );
+
+        // A clone is a snapshot.
+        let snapshot = map.clone();
+        map.insert(7, 7_000);
+        assert_eq!(snapshot.get(7), Some(700));
+    }
 
     /// The shared-tree engine (`OCC = true`) on one thread, so Miri can see
     /// its raw-pointer discipline (#568 PR 3): a map deferred to a collector
