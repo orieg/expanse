@@ -987,6 +987,242 @@ impl Bitmap256 {
     }
 }
 
+/// Shared-tree access to a node's bitmap (#1086): relaxed atomic loads and
+/// stores through a raw pointer, forming no reference to the bitmap or the
+/// node that holds it.
+///
+/// A shared tree's readers and optimistic writers read a node's bitmap while
+/// a writer holding the node's lock stores to it. A `&Bitmap256` on either
+/// side asserts the bytes do not change (or that nothing else reads them) for
+/// as long as the reference lives, which the other side falsifies, and a
+/// plain load or store against the other side's access is a data race. These
+/// functions are what the shared (`OCC`) paths use instead of the inherent
+/// methods; the unshared paths keep the inherent methods and their codegen.
+///
+/// Each reads the same word the inherent method it mirrors reads, as a whole
+/// `u64`: the inherent rank helpers read a `u32` subword through a pointer
+/// cast, and a half-word load racing a word store is a mixed-size access.
+/// The subword is extracted by shift instead, which gives the same value on
+/// the little-endian targets that cast assumed.
+pub(crate) mod shared_bitmap {
+    use super::Bitmap256;
+    use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    /// Word `w` (0..4) of the bitmap at `p`.
+    ///
+    /// # Safety
+    /// `p` points to a live `Bitmap256`, 8-byte aligned (its own alignment),
+    /// every concurrent access to which goes through this module, and `p`
+    /// carries write permission — derived from a raw or `&mut` pointer, as a
+    /// node pointer loaded from an edge is, never from `&Bitmap256`: the load
+    /// forms an `&AtomicU64`, which is interior-mutable.
+    #[inline(always)]
+    unsafe fn word(p: *const Bitmap256, w: usize) -> u64 {
+        debug_assert!(w < 4);
+        // SAFETY: caller contract; `words` is the bitmap's only field.
+        unsafe {
+            AtomicU64::from_ptr((&raw const (*p).words).cast::<u64>().add(w).cast_mut())
+                .load(Relaxed)
+        }
+    }
+
+    /// Stores word `w` of the bitmap at `p`.
+    ///
+    /// # Safety
+    /// As [`word`], and the caller holds the lock of the node that contains
+    /// the bitmap (the one writer for it).
+    #[inline(always)]
+    unsafe fn store_word(p: *mut Bitmap256, w: usize, v: u64) {
+        debug_assert!(w < 4);
+        // SAFETY: caller contract.
+        unsafe { AtomicU64::from_ptr((&raw mut (*p).words).cast::<u64>().add(w)).store(v, Relaxed) }
+    }
+
+    /// The 32-digit subexpanse `sub` (0..8) as the inherent helpers' `u32`
+    /// subword: the low or high half of word `sub / 2`.
+    #[inline(always)]
+    unsafe fn sub_word(p: *const Bitmap256, sub: usize) -> u32 {
+        // SAFETY: forwarded.
+        let w = unsafe { word(p, sub >> 1) };
+        (w >> ((sub & 1) * 32)) as u32
+    }
+
+    /// [`Bitmap256::test`].
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[inline(always)]
+    pub(crate) unsafe fn test<const OCC: bool>(p: *const Bitmap256, idx: u8) -> bool {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).test(idx) };
+        }
+        // SAFETY: forwarded.
+        let w = unsafe { word(p, (idx >> 6) as usize) };
+        w & (1u64 << (idx & 63)) != 0
+    }
+
+    /// [`Bitmap256::set`], by the node's lock holder.
+    ///
+    /// # Safety
+    /// As [`store_word`].
+    #[inline(always)]
+    pub(crate) unsafe fn set<const OCC: bool>(p: *mut Bitmap256, idx: u8) -> bool {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).set(idx) };
+        }
+        let w = (idx >> 6) as usize;
+        let bit = 1u64 << (idx & 63);
+        // SAFETY: forwarded.
+        let old = unsafe { word(p, w) };
+        // SAFETY: forwarded.
+        unsafe { store_word(p, w, old | bit) };
+        old & bit == 0
+    }
+
+    /// [`Bitmap256::clear`], by the node's lock holder.
+    ///
+    /// # Safety
+    /// As [`store_word`].
+    #[inline(always)]
+    pub(crate) unsafe fn clear<const OCC: bool>(p: *mut Bitmap256, idx: u8) -> bool {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).clear(idx) };
+        }
+        let w = (idx >> 6) as usize;
+        let bit = 1u64 << (idx & 63);
+        // SAFETY: forwarded.
+        let old = unsafe { word(p, w) };
+        // SAFETY: forwarded.
+        unsafe { store_word(p, w, old & !bit) };
+        old & bit != 0
+    }
+
+    /// [`Bitmap256::count`].
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[inline(always)]
+    pub(crate) unsafe fn count<const OCC: bool>(p: *const Bitmap256) -> u32 {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).count() };
+        }
+        // SAFETY: forwarded, for each of the four words.
+        unsafe {
+            word(p, 0).count_ones()
+                + word(p, 1).count_ones()
+                + word(p, 2).count_ones()
+                + word(p, 3).count_ones()
+        }
+    }
+
+    /// [`Bitmap256::subexpanse_rank`].
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[inline(always)]
+    pub(crate) unsafe fn subexpanse_rank<const OCC: bool>(p: *const Bitmap256, idx: u8) -> u32 {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).subexpanse_rank(idx) };
+        }
+        // SAFETY: forwarded.
+        let s = unsafe { sub_word(p, (idx >> 5) as usize) };
+        (s & ((1u32 << (idx & 31)) - 1)).count_ones()
+    }
+
+    /// [`Bitmap256::subexpanse_count`].
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[inline(always)]
+    pub(crate) unsafe fn subexpanse_count<const OCC: bool>(p: *const Bitmap256, sub: usize) -> u32 {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).subexpanse_count(sub) };
+        }
+        debug_assert!(sub < 8);
+        // SAFETY: forwarded.
+        unsafe { sub_word(p, sub) }.count_ones()
+    }
+
+    /// [`Bitmap256::test_and_subexpanse_rank`].
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[inline(always)]
+    pub(crate) unsafe fn test_and_subexpanse_rank<const OCC: bool>(
+        p: *const Bitmap256,
+        idx: u8,
+    ) -> Option<usize> {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).test_and_subexpanse_rank(idx) };
+        }
+        // SAFETY: forwarded.
+        let s = unsafe { sub_word(p, (idx >> 5) as usize) };
+        let bit = 1u32 << (idx & 31);
+        if s & bit == 0 {
+            None
+        } else {
+            Some((s & (bit - 1)).count_ones() as usize)
+        }
+    }
+
+    /// [`Bitmap256::test_and_subexpanse_rank_with_sub`].
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[inline(always)]
+    pub(crate) unsafe fn test_and_subexpanse_rank_with_sub<const OCC: bool>(
+        p: *const Bitmap256,
+        idx: u8,
+    ) -> Option<(usize, usize)> {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).test_and_subexpanse_rank_with_sub(idx) };
+        }
+        let sub = (idx >> 5) as usize;
+        // SAFETY: forwarded.
+        let s = unsafe { sub_word(p, sub) };
+        let bit = 1u32 << (idx & 31);
+        if s & bit == 0 {
+            None
+        } else {
+            Some((sub, (s & (bit - 1)).count_ones() as usize))
+        }
+    }
+
+    /// [`Bitmap256::next_set`].
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[inline(always)]
+    pub(crate) unsafe fn next_set<const OCC: bool>(p: *const Bitmap256, from: u8) -> Option<u8> {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).next_set(from) };
+        }
+        let mut w = (from >> 6) as usize;
+        // SAFETY: forwarded.
+        let mut bits = unsafe { word(p, w) } & (u64::MAX << (from & 63));
+        loop {
+            if bits != 0 {
+                return Some(((w as u32 * 64) + bits.trailing_zeros()) as u8);
+            }
+            w += 1;
+            if w == 4 {
+                return None;
+            }
+            // SAFETY: forwarded.
+            bits = unsafe { word(p, w) };
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1039,6 +1275,87 @@ mod tests {
         }
     }
     use super::*;
+
+    /// The shared-path bitmap accessors (#1086) answer exactly what the
+    /// inherent methods answer, for both instantiations, on every index of
+    /// bitmaps with each subword empty, full and mixed. The rank helpers are
+    /// the case that matters: the inherent ones read a `u32` subword through
+    /// a pointer cast, the shared ones shift it out of an atomic `u64` load.
+    /// In the Tier-1 Miri lane (`bits::`), so the `from_ptr` loads and
+    /// stores are checked there too.
+    #[test]
+    fn shared_bitmap_matches_inherent_methods() {
+        use super::shared_bitmap as sb;
+        let mut z: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut v = z;
+            v = (v ^ (v >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            v = (v ^ (v >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            v ^ (v >> 31)
+        };
+        let mut shapes: Vec<Bitmap256> = vec![Bitmap256::new(), Bitmap256::full()];
+        for _ in 0..6 {
+            shapes.push(Bitmap256 {
+                words: [next(), next(), next(), next()],
+            });
+        }
+        // One word per subword pattern: low half full, high half empty, and so on.
+        shapes.push(Bitmap256 {
+            words: [0xFFFF_FFFF, 0xFFFF_FFFF_0000_0000, 0, u64::MAX],
+        });
+        for b in &shapes {
+            // A pointer with write permission, as a node pointer has: the
+            // atomic loads form `&AtomicU64`, which a pointer derived from
+            // `&Bitmap256` cannot back (Stacked Borrows rejects the retag).
+            let mut owned = *b;
+            let p: *const Bitmap256 = &raw mut owned;
+            // SAFETY: `p` points to a live local bitmap no other thread touches.
+            unsafe {
+                assert_eq!(sb::count::<true>(p), b.count());
+                assert_eq!(sb::count::<false>(p), b.count());
+                for sub in 0..8 {
+                    assert_eq!(
+                        sb::subexpanse_count::<true>(p, sub),
+                        b.subexpanse_count(sub)
+                    );
+                }
+                for i in 0..=255u8 {
+                    assert_eq!(sb::test::<true>(p, i), b.test(i), "test {i}");
+                    assert_eq!(
+                        sb::subexpanse_rank::<true>(p, i),
+                        b.subexpanse_rank(i),
+                        "rank {i}"
+                    );
+                    assert_eq!(
+                        sb::test_and_subexpanse_rank::<true>(p, i),
+                        b.test_and_subexpanse_rank(i),
+                        "test_and_rank {i}"
+                    );
+                    assert_eq!(
+                        sb::test_and_subexpanse_rank_with_sub::<true>(p, i),
+                        b.test_and_subexpanse_rank_with_sub(i),
+                        "test_and_rank_with_sub {i}"
+                    );
+                    assert_eq!(sb::next_set::<true>(p, i), b.next_set(i), "next_set {i}");
+                }
+            }
+            // The writes: set and clear every index on a copy, both ways.
+            for i in 0..=255u8 {
+                let mut shared = *b;
+                let mut plain = *b;
+                let sp: *mut Bitmap256 = &mut shared;
+                // SAFETY: `sp` points to a live local bitmap no other thread touches.
+                let got = unsafe { sb::set::<true>(sp, i) };
+                assert_eq!(got, plain.set(i), "set {i}");
+                assert_eq!(shared.words, plain.words, "set {i}");
+                // SAFETY: as above.
+                let got = unsafe { sb::clear::<true>(sp, i) };
+                assert_eq!(got, plain.clear(i), "clear {i}");
+                assert_eq!(shared.words, plain.words, "clear {i}");
+            }
+        }
+    }
 
     /// Deterministic xorshift so parity sweeps are reproducible without an
     /// RNG dependency.
