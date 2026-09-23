@@ -34,8 +34,10 @@
 //!
 //! 1. **Racing optimistic loads.** Between `sample` and a failed `validate`,
 //!    a reader, or an optimistic writer descending to its lock point, makes
-//!    plain loads that race with a covered writer's plain stores: the root
-//!    state, a root leaf's keys and values, a node's bitmap words. Every such
+//!    plain loads that race with a covered writer's plain stores: a root
+//!    leaf's keys and values, a node's bitmap words, and — on the string,
+//!    bytes and blob wrappers — the root state (the map and set publish
+//!    theirs as atomics in `TreeHead`). Every such
 //!    value is discarded unless validation proves no writer overlapped. That
 //!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
 //!    design), and it is sound at the protocol level — `SeqVersion` uses
@@ -44,16 +46,18 @@
 //!    Word-sized fields can be loaded atomically on stable Rust; packed
 //!    1–7-byte leaf keys, read with unaligned SWAR loads, have no atomic
 //!    spelling.
-//! 2. **References over shared state.** The wrappers form `&T` to the whole
-//!    engine on optimistic paths (`Shared::inner_ref`, `optimistic_read`,
-//!    `validated_len`) while a covered writer holds `&mut T` for its whole
-//!    operation, and the engine calls methods on node fields through
+//! 2. **References over shared state.** The string, bytes and blob wrappers
+//!    form `&T` to the whole engine on optimistic paths (`Shared::inner_ref`,
+//!    `optimistic_read`, `validated_len`) while a covered writer holds
+//!    `&mut T` for its whole operation. The map and set no longer do: their
+//!    readers load the published root and never touch the engine, and their
+//!    covered writers hold the tree word for the whole operation. On every
+//!    wrapper the engine still calls methods on node fields through
 //!    references on both sides (`Bitmap256::test` against
-//!    `Bitmap256::set`). Nothing in the engine's root state or in a node sits
-//!    in an `UnsafeCell`, so each reference asserts something the other
-//!    thread falsifies, and Stacked and Tree Borrows both report it. This
-//!    class is not a seqlock property and needs no new language feature to
-//!    remove.
+//!    `Bitmap256::set`). Nothing in a node sits in an `UnsafeCell`, so each
+//!    reference asserts something the other thread falsifies, and Stacked
+//!    and Tree Borrows both report it. This class is not a seqlock property
+//!    and needs no new language feature to remove.
 //!
 //! The threaded tests in `sync::tests` are compiled out under Miri for these
 //! reasons; `mod miri_ub_sites` holds the workloads Miri runs. The per-node
@@ -136,6 +140,22 @@ pub(crate) enum RootSnapshot {
         /// The top edge (by value).
         top: Edge,
     },
+}
+
+impl RootSnapshot {
+    /// Same variant and same words: the debug check that the published root
+    /// matches the engine's (`Shared::assert_published`).
+    #[cfg(debug_assertions)]
+    fn bits_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Empty, Self::Empty) => true,
+            (Self::Leaf { ptr: a, pop: n }, Self::Leaf { ptr: b, pop: m }) => {
+                core::ptr::eq(*a, *b) && n == m
+            }
+            (Self::Tree { top: a }, Self::Tree { top: b }) => a.bits_eq(b),
+            _ => false,
+        }
+    }
 }
 
 /// A validated read failed because the version moved; restart.
@@ -658,6 +678,24 @@ pub(crate) trait SharedTree {
     unsafe fn root_top_ptr(&self) -> *mut Edge {
         core::ptr::null_mut()
     }
+
+    /// Whether this wrapper's readers load the root state from
+    /// [`TreeHead::root`] instead of from the engine (#1086). When true,
+    /// every covered write holds the tree word for its whole operation and
+    /// republishes before closing it, so readers never touch the engine and
+    /// the covered writer's `&mut` to it overlaps no other thread's access.
+    const PUBLISHES_ROOT: bool = false;
+
+    /// The engine's root state, for [`PublishedRoot::store`]. Called only
+    /// with the engine exclusively held: at construction, or by a covered
+    /// writer.
+    fn publish_snapshot(&self) -> RootSnapshot {
+        RootSnapshot::Empty
+    }
+
+    /// Hands the tree word to the wrapper for one covered write (`true`) and
+    /// back (`false`): see `NodeAlloc::hold_tree_word`.
+    fn hold_tree_word(&self, _held: bool) {}
 }
 
 impl SharedTree for ExpanseMap {
@@ -682,6 +720,16 @@ impl SharedTree for ExpanseMap {
         // SAFETY: forwarded contract.
         unsafe { self.root_top_ptr() }
     }
+
+    const PUBLISHES_ROOT: bool = true;
+
+    fn publish_snapshot(&self) -> RootSnapshot {
+        self.occ_root().0
+    }
+
+    fn hold_tree_word(&self, held: bool) {
+        self.alloc().hold_tree_word(held);
+    }
 }
 
 impl SharedTree for ExpanseSet {
@@ -705,6 +753,16 @@ impl SharedTree for ExpanseSet {
     unsafe fn root_top_ptr(&self) -> *mut Edge {
         // SAFETY: forwarded contract.
         unsafe { self.root_top_ptr() }
+    }
+
+    const PUBLISHES_ROOT: bool = true;
+
+    fn publish_snapshot(&self) -> RootSnapshot {
+        self.occ_root().0
+    }
+
+    fn hold_tree_word(&self, held: bool) {
+        self.alloc().hold_tree_word(held);
     }
 }
 
@@ -1525,9 +1583,129 @@ impl<S: BuildHasher> RootState for ExpanseBytesMap<S> {
 /// through `NodeAlloc::bind_tree_word`, which is why the block is boxed —
 /// its address must not change when the wrapper moves. `layout_report`
 /// names the offsets and its test pins the invariant (#568 PR 3).
+/// The tree-level version word and a published copy of the engine's root
+/// state, on one line (#1086): a reader of a wrapper that publishes its root
+/// (`SharedTree::PUBLISHES_ROOT`) samples `word`, loads `root` and validates,
+/// touching nothing else before its walk reaches the heap.
+#[repr(C)]
+struct TreeHead {
+    word: SeqVersion,
+    root: PublishedRoot,
+}
+
+impl TreeHead {
+    fn new() -> Self {
+        Self {
+            word: SeqVersion::new(),
+            root: PublishedRoot::new(),
+        }
+    }
+}
+
+/// [`RootSnapshot`] as words readers load atomically (#1086). Written only by
+/// a covered writer holding the tree word, and at construction. `a` and `b`
+/// are adjacent and in `Edge` layout, so in tree state they are the published
+/// top edge itself ([`Self::top_edge_ptr`]).
+#[repr(C)]
+struct PublishedRoot {
+    kind: core::sync::atomic::AtomicU64,
+    /// Root leaf: its base. Tree: the top edge's word 0.
+    a: core::sync::atomic::AtomicPtr<u8>,
+    /// Root leaf: its population. Tree: the top edge's `aux`/tag word.
+    b: core::sync::atomic::AtomicU64,
+}
+
+impl PublishedRoot {
+    const EMPTY: u64 = 0;
+    const LEAF: u64 = 1;
+    const TREE: u64 = 2;
+
+    fn new() -> Self {
+        Self {
+            kind: core::sync::atomic::AtomicU64::new(Self::EMPTY),
+            a: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
+            b: core::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// Publishes `s`. The caller holds the tree word (or owns the wrapper
+    /// outright, at construction), so no reader acts on a partial store.
+    fn store(&self, s: RootSnapshot) {
+        use core::sync::atomic::Ordering::Relaxed;
+        let (kind, a, b) = match s {
+            RootSnapshot::Empty => (Self::EMPTY, core::ptr::null_mut(), 0),
+            RootSnapshot::Leaf { ptr, pop } => (Self::LEAF, ptr.cast_mut(), pop as u64),
+            RootSnapshot::Tree { top } => {
+                let (a, b) = top.as_words();
+                (Self::TREE, a, b)
+            }
+        };
+        self.a.store(a, Relaxed);
+        self.b.store(b, Relaxed);
+        self.kind.store(kind, Relaxed);
+    }
+
+    /// The published root, loaded between a sample and a validate. Possibly
+    /// torn, like the engine read it replaces; the reader's validation runs
+    /// before anything read here is dereferenced.
+    #[inline(always)]
+    fn load(&self) -> RootSnapshot {
+        use core::sync::atomic::Ordering::Relaxed;
+        let kind = self.kind.load(Relaxed);
+        let a = self.a.load(Relaxed);
+        let b = self.b.load(Relaxed);
+        match kind {
+            Self::LEAF => RootSnapshot::Leaf {
+                ptr: a.cast_const(),
+                pop: b as usize,
+            },
+            Self::TREE => RootSnapshot::Tree {
+                top: Edge::from_words(a, b),
+            },
+            _ => RootSnapshot::Empty,
+        }
+    }
+
+    /// Whether the published root is a tree: the routing probe the insert
+    /// and remove paths take before choosing the optimistic path. Unvalidated,
+    /// as the engine read it replaces was; a covered write re-reads the
+    /// engine under the lock.
+    #[inline(always)]
+    fn is_tree(&self) -> bool {
+        self.kind.load(core::sync::atomic::Ordering::Relaxed) == Self::TREE
+    }
+
+    /// The published top edge, as the optimistic writers' level-8 edge:
+    /// valid to read while the root is a tree and the writer is admitted
+    /// (every publish happens with the optimistic writers quiesced).
+    /// Optimistic writers never store through it: at depth 0 they fall back
+    /// (`FallbackCause::RootGrowth`).
+    #[inline(always)]
+    fn top_edge_ptr(&self) -> *mut Edge {
+        if self.is_tree() {
+            // Derived from the whole struct, then offset to `a`: a pointer
+            // taken from the place `self.a` would be valid for `a`'s 8 bytes
+            // alone, and the edge spans `a` and `b`.
+            (&raw const *self)
+                .cast::<u8>()
+                .wrapping_add(core::mem::offset_of!(Self, a))
+                .cast::<Edge>()
+                .cast_mut()
+        } else {
+            core::ptr::null_mut()
+        }
+    }
+}
+
+const _: () = {
+    assert!(core::mem::offset_of!(PublishedRoot, b) == core::mem::offset_of!(PublishedRoot, a) + 8);
+    assert!(core::mem::size_of::<Edge>() == 16);
+    assert!(core::mem::align_of::<PublishedRoot>() >= core::mem::align_of::<Edge>());
+};
+
 #[repr(C, align(64))]
 struct Shared<T> {
-    version: Line<SeqVersion>,
+    version: Line<TreeHead>,
     inner: UnsafeCell<T>,
     tree_pop: Line<ShardedTreePop>,
     write: Line<Mutex<()>>,
@@ -1648,7 +1826,7 @@ impl<T: SharedTree> Shared<T> {
     fn with_collector(inner: T, collector: Arc<Collector>) -> SharedBox<T> {
         let initial_pop = inner.tree_pop();
         let shared = SharedBox::new(Self {
-            version: line(SeqVersion::new()),
+            version: line(TreeHead::new()),
             inner: UnsafeCell::new(inner),
             tree_pop: line(ShardedTreePop::new(initial_pop)),
             write: line(Mutex::new(())),
@@ -1674,6 +1852,12 @@ impl<T: SharedTree> Shared<T> {
                 .inner_ref()
                 .bind_tree_word(core::ptr::from_ref(shared.version()))
         };
+        if T::PUBLISHES_ROOT {
+            // Construction owns the block outright: no reader or writer yet.
+            shared
+                .published()
+                .store(shared.inner_ref().publish_snapshot());
+        }
         shared
     }
 }
@@ -1682,7 +1866,28 @@ impl<T: SharedTree> Shared<T> {
     /// The tree-level version word.
     #[inline(always)]
     fn version(&self) -> &SeqVersion {
-        &self.version
+        &self.version.word
+    }
+
+    /// The published root state (#1086); meaningful when
+    /// `T::PUBLISHES_ROOT`.
+    #[inline(always)]
+    fn published(&self) -> &PublishedRoot {
+        &self.version.root
+    }
+
+    /// Debug builds: after an operation that could change root state, the
+    /// published root equals the engine's. A covered write that changed the
+    /// root without republishing would leave readers a stale root and a
+    /// validation that passes against it — a wrong answer, not a retry.
+    #[cfg(debug_assertions)]
+    fn assert_published(&self, inner: &T) {
+        if T::PUBLISHES_ROOT {
+            assert!(
+                self.published().load().bits_eq(&inner.publish_snapshot()),
+                "published root is stale (#1086)"
+            );
+        }
     }
 
     /// The wrapped engine, for construction-time calls that need no lock.
@@ -2020,7 +2225,14 @@ impl<T: SharedTree> Shared<T> {
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let inner = unsafe { &mut *self.inner.get() };
         let pop_before = inner.tree_pop();
+        if T::PUBLISHES_ROOT {
+            inner.hold_tree_word(true);
+        }
         let r = f(inner);
+        if T::PUBLISHES_ROOT {
+            inner.hold_tree_word(false);
+            self.published().store(inner.publish_snapshot());
+        }
         inner.clear_path();
         let pop_after = inner.tree_pop();
         let delta = pop_after as i64 - pop_before as i64;
@@ -2046,16 +2258,22 @@ impl<T: SharedTree> Shared<T> {
         r
     }
 
-    /// One mutation under the writer lock, bracketed with the tree-level
-    /// word only while the root is not a tree (#568 PR 3). In root-leaf
-    /// state every store is a root-state write — the leaf in place, its
-    /// reallocation, the promotion to a tree — so the wrapper holds the word
-    /// for the whole operation, exactly as `write` does. In tree state an
-    /// ordinary insert or remove never touches the word: the engine brackets
-    /// every store with the version of the node that holds it, and the two
-    /// root-state changes a remove can make (to empty, or a condense back to
-    /// a root leaf) bracket themselves. The unshared path pays nothing for
-    /// this: the decision is one branch here, on the shared path only.
+    /// One mutation under the writer lock and the writer gate.
+    ///
+    /// A wrapper that publishes its root (`T::PUBLISHES_ROOT`: the map and
+    /// set) holds the tree-level word for the whole operation, in either
+    /// root state, and republishes the root before closing it (#1086). Its
+    /// readers then never touch the engine, so the `&mut` this takes to it
+    /// overlaps no other thread's access; the engine's own tree bracket is a
+    /// no-op meanwhile (`NodeAlloc::hold_tree_word`). Ordinary writes to a
+    /// tree-state map or set take the optimistic path and never come here;
+    /// what does is a fallback, a root-state change or a serialised
+    /// operation, and readers retry across it.
+    ///
+    /// Any other wrapper is bracketed only while the root is not a tree
+    /// (#568 PR 3): in root-leaf state every store is a root-state write,
+    /// and in tree state the engine brackets each store with the version of
+    /// the node that holds it.
     #[inline(always)]
     fn write_root_covered<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
@@ -2155,18 +2373,27 @@ impl<T: SharedTree> Shared<T> {
         }
         let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
-        let r = if !COVER_ALWAYS && inner.root_is_tree() {
+        let r = if !COVER_ALWAYS && !T::PUBLISHES_ROOT && inner.root_is_tree() {
             f(inner)
         } else {
             self.version().begin();
             #[cfg(debug_assertions)]
             crate::alloc::bracket_stack::enter(self.tree_cover_addr());
+            if T::PUBLISHES_ROOT {
+                inner.hold_tree_word(true);
+            }
             let r = f(inner);
+            if T::PUBLISHES_ROOT {
+                inner.hold_tree_word(false);
+                self.published().store(inner.publish_snapshot());
+            }
             #[cfg(debug_assertions)]
             crate::alloc::bracket_stack::leave(self.tree_cover_addr());
             self.version().end();
             r
         };
+        #[cfg(debug_assertions)]
+        self.assert_published(inner);
         inner.clear_path();
         let pop_after = inner.tree_pop();
         let delta = pop_after as i64 - pop_before as i64;
@@ -2208,11 +2435,14 @@ impl<T: SharedTree> Shared<T> {
         #[cfg(feature = "std")]
         let _gate = self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
-        // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
-        // readers and writers, so creating a temporary unique reference to flush
-        // acceleration path cursors (`inner.clear_path()`) does not alias any concurrent access.
+        // SAFETY: the writer mutex and the writer gate exclude every writer.
+        // Optimistic readers still run, and they touch the engine only where
+        // the wrapper does not publish its root (`T::PUBLISHES_ROOT`, #1086);
+        // this is a temporary unique reference to flush the path cursors.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
+        #[cfg(debug_assertions)]
+        self.assert_published(inner);
         let res = f(inner);
         inner.clear_path();
         drop(_g);
@@ -2245,12 +2475,20 @@ impl<T: SharedTree> Shared<T> {
                 let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
                 inner.set_tree_pop(folded);
                 self.tree_pop.flush_and_set(folded);
+                if T::PUBLISHES_ROOT {
+                    // The fold rewrote population bytes of the top edge.
+                    self.version().begin();
+                    self.published().store(inner.publish_snapshot());
+                    self.version().end();
+                }
             }
         } else {
             let pop = self.tree_pop.load();
             inner.set_tree_pop(pop);
             self.tree_pop.flush_and_set(pop);
         }
+        #[cfg(debug_assertions)]
+        self.assert_published(inner);
         let res = f(inner);
         inner.clear_path();
         drop(_g);
@@ -2283,12 +2521,20 @@ impl<T: SharedTree> Shared<T> {
                 let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
                 inner.set_tree_pop(folded);
                 self.tree_pop.flush_and_set(folded);
+                if T::PUBLISHES_ROOT {
+                    // The fold rewrote population bytes of the top edge.
+                    self.version().begin();
+                    self.published().store(inner.publish_snapshot());
+                    self.version().end();
+                }
             }
         } else {
             let pop = self.tree_pop.load();
             inner.set_tree_pop(pop);
             self.tree_pop.flush_and_set(pop);
         }
+        #[cfg(debug_assertions)]
+        self.assert_published(inner);
         let res = f(inner);
         inner.clear_path();
         drop(_g);
@@ -2322,9 +2568,16 @@ impl<T: SharedTree> Shared<T> {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = reader.pin();
             let snap = self.version().sample();
-            // SAFETY: pinned, with a freshly sampled version; `root_of` copies
-            // the root by value, and `walk` validates every load it makes from it.
-            let root = root_of(unsafe { &*self.inner.get() });
+            // A publishing wrapper's root comes from the head, so the reader
+            // touches nothing in the engine (#1086).
+            let root = if T::PUBLISHES_ROOT {
+                self.published().load()
+            } else {
+                // SAFETY: pinned, with a freshly sampled version; `root_of`
+                // copies the root by value, and `walk` validates every load
+                // it makes from it.
+                root_of(unsafe { &*self.inner.get() })
+            };
             if let Ok(r) = walk(root, self.version(), snap) {
                 return r;
             }
@@ -2345,8 +2598,12 @@ impl<T: SharedTree> Shared<T> {
     ) -> u64 {
         for _ in 0..MAX_RETRIES {
             let snap = self.version().sample();
-            // SAFETY: by-value snapshot; validated before use.
-            let root = root_of(unsafe { &*self.inner.get() });
+            let root = if T::PUBLISHES_ROOT {
+                self.published().load()
+            } else {
+                // SAFETY: by-value snapshot; validated before use.
+                root_of(unsafe { &*self.inner.get() })
+            };
             if self.version().validate(snap) {
                 return match root {
                     RootSnapshot::Empty => 0,
@@ -2432,6 +2689,17 @@ fn edge_tag_out_of_line(edge: &Edge) -> Option<EdgeTag> {
     edge.tag()
 }
 
+impl Shared<ExpanseSet> {
+    /// The set's allocator for its optimistic paths, reached without a
+    /// reference to the whole set (#1086; see [`ExpanseSet::alloc_of`]).
+    #[inline(always)]
+    fn engine_alloc(&self) -> &NodeAlloc {
+        // SAFETY: the block outlives `&self`; an admitted optimistic writer
+        // runs only while no covered writer holds `&mut` to the engine.
+        unsafe { ExpanseSet::alloc_of(self.inner.get()) }
+    }
+}
+
 #[cfg(feature = "std")]
 impl OlcHost for Shared<ExpanseMap> {
     #[inline(always)]
@@ -2441,13 +2709,15 @@ impl OlcHost for Shared<ExpanseMap> {
 
     #[inline(always)]
     unsafe fn top_ptr(&self) -> *mut Edge {
-        // SAFETY: top_ptr obtained without taking &mut on inner.
-        unsafe { (*self.inner.get()).root_top_ptr() }
+        // The published top edge, never the engine's (#1086).
+        self.published().top_edge_ptr()
     }
 
     #[inline(always)]
     fn alloc(&self) -> &NodeAlloc {
-        self.inner_ref().alloc()
+        // SAFETY: the block outlives `&self`; an admitted optimistic writer
+        // runs only while no covered writer holds `&mut` to the engine.
+        unsafe { ExpanseMap::alloc_of(self.inner.get()) }
     }
 
     #[inline(always)]
@@ -3279,7 +3549,7 @@ impl SyncExpanseSet {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "std")]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.write_root_covered(|s| s.insert(key));
@@ -3353,7 +3623,7 @@ impl SyncExpanseSet {
     pub fn remove(&self, key: Key) -> bool {
         #[cfg(feature = "std")]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.remove_root_covered(|s| s.remove(key));
@@ -3497,8 +3767,8 @@ impl SyncExpanseSet {
         if (v_snap & 1) != 0 {
             return OlcOutcome::Retry;
         }
-        // SAFETY: top_ptr obtained without taking &mut on inner.
-        let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
+        // The published top edge, never the engine's (#1086).
+        let top_ptr = self.shared.published().top_edge_ptr();
         if top_ptr.is_null() {
             return OlcOutcome::Fallback(FallbackCause::RootGrowth);
         }
@@ -3703,7 +3973,7 @@ impl SyncExpanseSet {
                         }
                         let needs_realloc = old_n == 0
                             || crate::leaf::cap_class(old_n + 1) != crate::leaf::cap_class(old_n);
-                        let alloc = self.shared.inner_ref().alloc();
+                        let alloc = self.shared.engine_alloc();
                         let pre_alloc = if needs_realloc {
                             Some(
                                 alloc
@@ -4102,7 +4372,7 @@ impl SyncExpanseSet {
                             }
                             let old_size = crate::leaf::size_set(kb as u8, pop);
                             let new_size = crate::leaf::size_set(kb as u8, pop + 1);
-                            let alloc = self.shared.inner_ref().alloc();
+                            let alloc = self.shared.engine_alloc();
                             let new_buf = alloc.alloc_bytes(new_size).as_ptr();
 
                             let Ok((old_v, lock_t0)) =
@@ -4164,7 +4434,7 @@ impl SyncExpanseSet {
                     }
                     let old_size = crate::leaf::size_set(kb as u8, pop);
                     let saved_aux = *edge.aux_bytes();
-                    let alloc = self.shared.inner_ref().alloc();
+                    let alloc = self.shared.engine_alloc();
                     // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
                     let mut keys = unsafe { crate::mutate::leaf_keys(&edge, kb as u8, pop) };
                     // The copy was read after the version check above, so a
@@ -4444,7 +4714,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Done(true);
                     }
                     let new_size = crate::leaf::size_set(kb, n + 1);
-                    let alloc = self.shared.inner_ref().alloc();
+                    let alloc = self.shared.engine_alloc();
                     let new_buf = alloc.alloc_bytes(new_size).as_ptr();
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -4513,8 +4783,8 @@ impl SyncExpanseSet {
         if (v_snap & 1) != 0 {
             return OlcOutcome::Retry;
         }
-        // SAFETY: top_ptr obtained without taking &mut on inner.
-        let top_ptr = unsafe { (*self.shared.inner.get()).root_top_ptr() };
+        // The published top edge, never the engine's (#1086).
+        let top_ptr = self.shared.published().top_edge_ptr();
         if top_ptr.is_null() {
             return OlcOutcome::Fallback(FallbackCause::RootGrowth);
         }
@@ -4769,7 +5039,7 @@ impl SyncExpanseSet {
                             unsafe {
                                 edge_ptr.write(Edge::NULL);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                let alloc = self.shared.inner_ref().alloc();
+                                let alloc = self.shared.engine_alloc();
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
                                 self.shared.mark_dirty_digit(digit(key, 8));
                             }
@@ -4823,14 +5093,14 @@ impl SyncExpanseSet {
                                 crate::mutate::write_immed(&mut new_edge, level, full.as_slice());
                                 edge_ptr.write(new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                let alloc = self.shared.inner_ref().alloc();
+                                let alloc = self.shared.engine_alloc();
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
                                 self.shared.mark_dirty_digit(digit(key, 8));
                             }
                             return OlcOutcome::Done(true);
                         } else {
                             let new_size = crate::leaf::size_set(1, keys.len);
-                            let alloc = self.shared.inner_ref().alloc();
+                            let alloc = self.shared.engine_alloc();
                             let new_buf = alloc.alloc_bytes(new_size).as_ptr();
                             let Ok((old_v, lock_t0)) =
                                 version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -4966,7 +5236,7 @@ impl SyncExpanseSet {
                     }
                     if pop - 1 > immed_max {
                         let new_size = crate::leaf::size_set(kb as u8, pop - 1);
-                        let alloc = self.shared.inner_ref().alloc();
+                        let alloc = self.shared.engine_alloc();
                         let new_buf = alloc.alloc_bytes(new_size).as_ptr();
                         let Ok((old_v, lock_t0)) =
                             version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -5046,7 +5316,7 @@ impl SyncExpanseSet {
                             crate::mutate::write_immed(&mut new_edge, level, &entries[..rem_pop]);
                             edge_ptr.write(new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            let alloc = self.shared.inner_ref().alloc();
+                            let alloc = self.shared.engine_alloc();
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(keys_ptr),
                                 crate::leaf::size_set(kb as u8, pop),
@@ -5071,7 +5341,7 @@ impl SyncExpanseSet {
                         unsafe {
                             edge_ptr.write(Edge::NULL);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            let alloc = self.shared.inner_ref().alloc();
+                            let alloc = self.shared.engine_alloc();
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(keys_ptr),
                                 crate::leaf::size_set(kb as u8, pop),
@@ -5314,7 +5584,7 @@ impl SyncExpanseMap {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "std")]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.write_root_covered(|m| m.insert(key, val));
@@ -5390,7 +5660,7 @@ impl SyncExpanseMap {
     pub fn remove(&self, key: Key) -> Option<u64> {
         #[cfg(feature = "std")]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.remove_root_covered(|m| m.remove(key));
@@ -5518,7 +5788,7 @@ impl SyncExpanseMap {
         };
         #[cfg(feature = "std")]
         {
-            if !self.shared.inner_ref().root_is_tree() {
+            if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
                 return self.shared.remove_root_covered(exclusive);

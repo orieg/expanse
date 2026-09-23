@@ -65,6 +65,23 @@ pub struct Edge {
     tag: u8,
 }
 
+/// `Edge` as the two words a published copy stores (#1086): word 0 as a
+/// pointer, then the `aux`/tag word.
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct EdgeWords {
+    w0: *mut u8,
+    aux: u64,
+}
+
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+const _: () = {
+    assert!(size_of::<EdgeWords>() == size_of::<Edge>());
+    assert!(align_of::<EdgeWords>() == align_of::<Edge>());
+    assert!(core::mem::offset_of!(EdgeWords, aux) == core::mem::offset_of!(Edge, aux));
+};
+
 /// Precomputed bitmasks for low `level` bytes (1..=7).
 const POP0_MASKS: [u64; 8] = [
     0,
@@ -249,6 +266,29 @@ impl Edge {
         // (not from the `aux` field alone), stays inside the 16-byte
         // object, and is 8-byte aligned by the struct's own alignment.
         unsafe { (&raw const *self).cast::<u64>().add(1).read() }
+    }
+
+    /// The edge as two words: word 0 as a pointer, so a child pointer keeps
+    /// its provenance (an immediate's bytes come back as an address-only
+    /// pointer), and the `aux`/tag word. What a published copy of an edge
+    /// stores, and what [`Self::from_words`] rebuilds it from (#1086). A
+    /// transmute rather than two reads through `&self`, so an edge held in
+    /// registers is not spilled to memory to be split.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[inline(always)]
+    pub(crate) fn as_words(&self) -> (*mut u8, u64) {
+        // SAFETY: `EdgeWords` has `Edge`'s size, alignment and field offsets
+        // (const-asserted below), and every bit pattern is valid for both.
+        let w: EdgeWords = unsafe { core::mem::transmute(*self) };
+        (w.w0, w.aux)
+    }
+
+    /// Rebuilds an edge from the two words [`Self::as_words`] returns.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[inline(always)]
+    pub(crate) fn from_words(w0: *mut u8, aux: u64) -> Self {
+        // SAFETY: as in `as_words`.
+        unsafe { core::mem::transmute(EdgeWords { w0, aux }) }
     }
 
     /// Writes the `aux`/tag word read by [`Self::aux_word`].

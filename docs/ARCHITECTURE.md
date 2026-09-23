@@ -184,7 +184,7 @@ Readers are optimistic and validated; writers serialize on a mutex.
 
 **Ordered reads (#900).** A predecessor or successor search is not shaped like a lookup: when a child subtree holds nothing on the searched side of the key, the search returns to the parent and descends a sibling, so its answer depends on several subtrees. Moving one cover down the path is then unsound, because a search that has left `C` no longer notices a later insert into `C` while it reads the sibling (`loom_ordered_read_hand_over_hand_is_not_enough`), and the lazy census rollup below means that insert does not move the parent's version either. `sync_nav::next_validated` and `sync_nav::prev_validated` keep a *retained read set* instead: every branch version the search samples stays in a bounded set, and the whole set is validated again with the tree version after the search's last load, so the answer and every empty subtree it passed over held at one instant. Memory safety is argued separately and as in the lookup walk: the node holding a pointer is validated after the pointer is loaded and before it is dereferenced. A consistent search retains at most ℓ + 5 branch versions for a backtrack at level ℓ (`scripts/olc_bounds.py`); the set holds 16, and a search that needs more restarts. The walks are separate from `nav.rs`, which the single-threaded API keeps using. They are reached through `optimistic_read`, so they share the lookup's retry budget, counters and writer-mutex fallback. `sync::ordered_read_tests` replays the backtrack interleaving on the real walk with a park point, in an insert and a remove variant, and a negative control that forgets the child's snapshots returns a key that was never the predecessor.
 
-**Who holds the tree word.** The word heads the wrapper's `Shared` block, which is `repr(C)`, line-aligned and boxed, so a reader reaches it at a fixed offset from the pointer it already holds, and the writer-private words (the mutex, the holder token, the advance tick) follow the tree on lines no reader samples. Since the padded writer state was promoted to the default (Refs #568, #930, AGENTS.md §2.7) the word sits on a cache line of its own and the root snapshot begins on the next one, so a reader's sample and its root load no longer touch a single line as they did when `Line<X>` was a transparent alias; `ablation-unpadded-lock` restores that layout. What this costs or buys a reader is not measured here (§8.9), and the offsets are pinned by `layout_report`'s test. The engine reaches the word through a pointer bound once at construction (`NodeAlloc::bind_tree_word`), which is why the block is boxed — the address must survive the wrapper moving (`layout_report`'s test pins the layout). The engine is monomorphized per sharing mode, decided once per operation where the runtime dispatch always sat, so the unshared path pays one load and one branch and nothing else. `SyncExpanseSet` and `SyncExpanseMap` defer their tree with `defer_to_engine_root`: the wrapper holds the tree word only while the root is a leaf (every store is then a root-state write), the engine brackets the two root-state changes a remove can make, and an ordinary tree-state insert or remove never stores to the tree word — readers on other subtrees never wait on it, and every per-node bracket is *brief*, around the frame's own stores. `SyncExpanseBytesMap` and `SyncExpanseBlobMap` keep the whole-operation tree bracket in `Shared::write` — their reads validate the hash trie and the arena metadata against that one word — and their inner trees run the engine's *nested* mode: a node's word stays odd across the whole descent beneath it, as before #568 PR 3. That is not a leftover: with brief brackets under a whole-operation tree word, a reader that used to wait at an odd node instead restarts its whole walk (measured as a reader loss on the string wrapper during #568 PR 3's development; the PR records it). The two modes are one engine with a compile-time flag; a tree in one mode never sees the other's brackets. `clear` on every wrapper is a root-state change the wrapper covers with the tree word. On `SyncExpanseBlobMap`, writers serialize on one mutex: this is the single-writer protocol with brief brackets, not lock coupling. On `SyncExpanseSet` and `SyncExpanseMap`, Stage B multi-writer OLC (§4.2) replaces the writer mutex on common write paths with per-node version locks; on `SyncExpanseBytesMap`, multi-writer OLC (Refs #929 Task C) replaces the writer mutex on common insert/overwrite paths with optimistic CAS bucket publication, while `ablation-bytes-serial-writers` preserves the serial writer mutex; `SyncExpanseStrMap` runs the same bodies on each `StrNode`'s sub-map under that node's own cover word (§4.2, *The string wrapper*), and its serialised path — the fallbacks, `with_locked_mut`, and every mutation under `ablation-str-serial-writers` — brackets each `StrNode`'s cover around each sub-map mutation while holding the tree word for the whole operation.
+**Who holds the tree word.** The word heads the wrapper's `Shared` block, which is `repr(C)`, line-aligned and boxed, so a reader reaches it at a fixed offset from the pointer it already holds, and the writer-private words (the mutex, the holder token, the advance tick) follow the tree on lines no reader samples. Since the padded writer state was promoted to the default (Refs #568, #930, AGENTS.md §2.7) the word sits on a cache line of its own. For `SyncExpanseMap` and `SyncExpanseSet` that line also holds the root state readers load (`TreeHead`: the word, then a published copy of the root as three atomic words), so their sample, root load and validate touch it alone and never the engine behind it (#1086); the other wrappers' readers still copy the root out of the engine, which begins on the next line. `ablation-unpadded-lock` restores the unpadded layout. What this costs or buys a reader is not measured here (§8.9), and the offsets are pinned by `layout_report`'s test. The engine reaches the word through a pointer bound once at construction (`NodeAlloc::bind_tree_word`), which is why the block is boxed — the address must survive the wrapper moving (`layout_report`'s test pins the layout). The engine is monomorphized per sharing mode, decided once per operation where the runtime dispatch always sat, so the unshared path pays one load and one branch and nothing else. `SyncExpanseSet` and `SyncExpanseMap` defer their tree with `defer_to_engine_root`, and an ordinary tree-state insert or remove takes the optimistic path and never stores to the tree word — readers on other subtrees never wait on it, and every per-node bracket is *brief*, around the frame's own stores. A covered write (a fallback, a root-state change, a serialised operation) holds the tree word for its whole operation in either root state and republishes the root before closing it, and the engine's own tree bracket is a no-op meanwhile (`NodeAlloc::hold_tree_word`); readers retry across it (#1086). Holding the word only while the root is a leaf, as before #1086, lets readers copy the root out of the engine while a covered writer holds `&mut` to it. `SyncExpanseBytesMap` and `SyncExpanseBlobMap` keep the whole-operation tree bracket in `Shared::write` — their reads validate the hash trie and the arena metadata against that one word — and their inner trees run the engine's *nested* mode: a node's word stays odd across the whole descent beneath it, as before #568 PR 3. That is not a leftover: with brief brackets under a whole-operation tree word, a reader that used to wait at an odd node instead restarts its whole walk (measured as a reader loss on the string wrapper during #568 PR 3's development; the PR records it). The two modes are one engine with a compile-time flag; a tree in one mode never sees the other's brackets. `clear` on every wrapper is a root-state change the wrapper covers with the tree word. On `SyncExpanseBlobMap`, writers serialize on one mutex: this is the single-writer protocol with brief brackets, not lock coupling. On `SyncExpanseSet` and `SyncExpanseMap`, Stage B multi-writer OLC (§4.2) replaces the writer mutex on common write paths with per-node version locks; on `SyncExpanseBytesMap`, multi-writer OLC (Refs #929 Task C) replaces the writer mutex on common insert/overwrite paths with optimistic CAS bucket publication, while `ablation-bytes-serial-writers` preserves the serial writer mutex; `SyncExpanseStrMap` runs the same bodies on each `StrNode`'s sub-map under that node's own cover word (§4.2, *The string wrapper*), and its serialised path — the fallbacks, `with_locked_mut`, and every mutation under `ablation-str-serial-writers` — brackets each `StrNode`'s cover around each sub-map mutation while holding the tree word for the whole operation.
 
 The properties the design rests on, each with the instrument that falsifies it:
 
@@ -491,25 +491,25 @@ byte  8 .. 14   aux      7 B, level-split: low L bytes pop0, high bytes decode
 byte 15         tag      1 B type tag
 ```
 
-Declared at `crates/expanse/src/node.rs:62`; `size_of` = 16, `align_of` = 8, `aux` at offset 8, `tag` at offset 15, all const-asserted at `crates/expanse/src/node.rs:556`–`559`.
+Declared at `crates/expanse/src/node.rs:62`; `size_of` = 16, `align_of` = 8, `aux` at offset 8, `tag` at offset 15, all const-asserted at `crates/expanse/src/node.rs:596`–`559`.
 
 **Word 0 is a `union`** (`crates/expanse/src/node.rs:47`) of `*mut u8` and `[u8; 8]`. What it carries depends on the tag class:
 
 | Tag class | Word 0 holds |
 |---|---|
-| `Null` | zero (`Edge::NULL`, `crates/expanse/src/node.rs:82`) |
-| Branch / linear-leaf / bitmap-leaf tags | the raw child-node pointer (`Edge::new_node`, `crates/expanse/src/node.rs:91`) |
+| `Null` | zero (`Edge::NULL`, `crates/expanse/src/node.rs:99`) |
+| Branch / linear-leaf / bitmap-leaf tags | the raw child-node pointer (`Edge::new_node`, `crates/expanse/src/node.rs:108`) |
 | `FullExpanse` | unused — the tag alone states that the whole subexpanse is present |
-| Set immediate | the first 8 of up to 15 packed key-remainder bytes (`Edge::imm_payload`, `crates/expanse/src/node.rs:194`) |
-| Map immediate, 1 key | the value word (`Edge::new_immed_single_map`, `crates/expanse/src/node.rs:115`) |
+| Set immediate | the first 8 of up to 15 packed key-remainder bytes (`Edge::imm_payload`, `crates/expanse/src/node.rs:211`) |
+| Map immediate, 1 key | the value word (`Edge::new_immed_single_map`, `crates/expanse/src/node.rs:132`) |
 | Map immediate, ≥ 2 keys | a pointer to a heap value array of `8 × cap_class(n)` bytes (`crates/expanse/src/mutate_map.rs:86`, sized by `map_immed_val_size`, `crates/expanse/src/mutate_map.rs:33`) |
 
-**Word 1 is the aux/tag word.** `Edge::aux_word` (`crates/expanse/src/node.rs:247`) reads `aux[0..7]` plus the tag byte as one little-endian `u64`: `aux[0]` is the low byte, the tag is the high byte. The little-endian requirement is const-asserted at `crates/expanse/src/node.rs:563`.
+**Word 1 is the aux/tag word.** `Edge::aux_word` (`crates/expanse/src/node.rs:264`) reads `aux[0..7]` plus the tag byte as one little-endian `u64`: `aux[0]` is the low byte, the tag is the high byte. The little-endian requirement is const-asserted at `crates/expanse/src/node.rs:603`.
 
 The 7 aux bytes are **level-split** for a pointer-carrying edge whose child sits at level `L` (1..=7):
 
-- low `L` bytes: `pop0`, the subtree population minus one. A level-`L` subtree holds at most `256^L` keys, so `L` bytes always suffice. Masked by `POP0_MASKS` (`crates/expanse/src/node.rs:69`), read by `Edge::pop0` (`crates/expanse/src/node.rs:226`) and written by `Edge::set_pop0` (`crates/expanse/src/node.rs:266`) as a masked read-modify-write of the same word, so the decode bytes and the tag survive.
-- high `7 - L` bytes: the narrow-pointer *decode* bytes naming the digits this edge skips. `Edge::decode_bytes` (`crates/expanse/src/node.rs:281`) returns `&self.aux[L..]`.
+- low `L` bytes: `pop0`, the subtree population minus one. A level-`L` subtree holds at most `256^L` keys, so `L` bytes always suffice. Masked by `POP0_MASKS` (`crates/expanse/src/node.rs:86`), read by `Edge::pop0` (`crates/expanse/src/node.rs:243`) and written by `Edge::set_pop0` (`crates/expanse/src/node.rs:306`) as a masked read-modify-write of the same word, so the decode bytes and the tag survive.
+- high `7 - L` bytes: the narrow-pointer *decode* bytes naming the digits this edge skips. `Edge::decode_bytes` (`crates/expanse/src/node.rs:321`) returns `&self.aux[L..]`.
 
 The two regions never overlap. That is why no branch header carries a wide population field, and why level-8 slots can never skip: at `L = 8` there are no aux bytes left over for decode digits.
 
@@ -517,7 +517,7 @@ For **immediate** edges the aux bytes are key or value storage instead, and ther
 
 #### Why word 0 is stored unmasked *(gated)*
 
-Word 0 holds the full, untruncated 64-bit pointer. No bit of it is stolen for metadata — the tag has its own byte, and the population and decode fields have their own word. `Edge::node_ptr` (`crates/expanse/src/node.rs:163`) reads the union member and returns it with no masking, shifting or sign-extension.
+Word 0 holds the full, untruncated 64-bit pointer. No bit of it is stolen for metadata — the tag has its own byte, and the population and decode fields have their own word. `Edge::node_ptr` (`crates/expanse/src/node.rs:180`) reads the union member and returns it with no masking, shifting or sign-extension.
 
 This is the deliberate opposite of the classic 48-bit-virtual-address assumption, and it is what keeps the representation correct on 57-bit x86-64 (LA57 / PML5) and 52-bit ARM64 (LVA) hardware, where a heap pointer can legitimately use bits above 47. §9 gives the hardware background and the primary-source citations.
 
@@ -642,7 +642,7 @@ The tags the shipped 32-bit engine actually writes are module-private constants 
 
 The budget rule is a byte count, not a key count. This is the fact most often restated wrongly: an immediate holds **15 bytes** of set-flavor key payload, which is 15 keys only when the remainder is 1 byte wide, and 2 keys when it is 7 bytes wide.
 
-- **Set flavor, 64-bit.** Keys pack across word 0 and the aux bytes — bytes 0..14 of the edge, 15 usable bytes, byte 15 being the tag (`Edge::imm_payload`, `crates/expanse/src/node.rs:194`; writer `write_immed`, `crates/expanse/src/mutate.rs:301`). Capacity is `IMMED_PAYLOAD_BYTES / key_bytes`, i.e. `ImmedType::max_count` (`crates/expanse/src/types.rs:260`).
+- **Set flavor, 64-bit.** Keys pack across word 0 and the aux bytes — bytes 0..14 of the edge, 15 usable bytes, byte 15 being the tag (`Edge::imm_payload`, `crates/expanse/src/node.rs:211`; writer `write_immed`, `crates/expanse/src/mutate.rs:301`). Capacity is `IMMED_PAYLOAD_BYTES / key_bytes`, i.e. `ImmedType::max_count` (`crates/expanse/src/types.rs:260`).
 - **Map flavor, 64-bit.** Keys live in the 7 aux bytes only, because word 0 is spent on the value (one key) or on the value-array pointer (two or more) — `write_map_immed`, `crates/expanse/src/mutate_map.rs:75`. Capacity is `7 / key_bytes`, `mutate::map_immed_max` (`crates/expanse/src/mutate.rs:325`). The gate derives the 7 from the compiled length of `Edge::aux_bytes()` rather than from this sentence.
 - **Set flavor, 32-bit.** Keys pack across word 0 and the 3 aux bytes — 7 usable bytes of an 8-byte edge. Capacity is `7 / key_bytes`, `trie32::set_immed_cap` (`crates/expanse/src/trie32.rs:85`), for `key_bytes` in 1..=4.
 - **Map flavor, 32-bit.** A map immediate is single-entry by construction: the tag encodes only `key_bytes` (1..=3) and word 0 is the value (`crates/expanse/src/trie32.rs:119`–`120`, `crates/expanse/src/types32.rs:243`).
@@ -755,11 +755,11 @@ Both bitmap branches and bitmap map-leaves partition those 256 values into **eig
 - `subexpanse_count` (`crates/expanse/src/bits.rs:765`) is the length of one subexpanse's packed array.
 - `rank` (`crates/expanse/src/bits.rs:695`) is the *global* count of members below `idx`, used for ordered navigation rather than slot addressing; `select` (`crates/expanse/src/bits.rs:776`) inverts it and is the `ByCount` primitive.
 
-**`BranchB`** (`crates/expanse/src/node.rs:425`) is 128 bytes: the bitmap at offset 0, `subarrays: [*mut Edge; 8]` at offset 32, `pop_counts: [u16; 8]` at offset 96, `version` at 112. Line 0 therefore holds the bitmap plus the first four subarray pointers, so a lookup landing in digits `0x00..0x7F` touches one line before the child edge. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
+**`BranchB`** (`crates/expanse/src/node.rs:465`) is 128 bytes: the bitmap at offset 0, `subarrays: [*mut Edge; 8]` at offset 32, `pop_counts: [u16; 8]` at offset 96, `version` at 112. Line 0 therefore holds the bitmap plus the first four subarray pointers, so a lookup landing in digits `0x00..0x7F` touches one line before the child edge. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
 
-**`LeafBitmapL`** (`crates/expanse/src/node.rs:523`) is the map-flavor bitmap leaf, also 128 bytes: bitmap at 0, `values: [*mut u64; 8]` at offset 32, `version` at 96. Reaching a value is the same three steps against the value subarrays — bitmap test, subexpanse rank, index into `values[digit >> 5]`.
+**`LeafBitmapL`** (`crates/expanse/src/node.rs:563`) is the map-flavor bitmap leaf, also 128 bytes: bitmap at 0, `values: [*mut u64; 8]` at offset 32, `version` at 96. Reaching a value is the same three steps against the value subarrays — bitmap test, subexpanse rank, index into `values[digit >> 5]`.
 
-**`LeafBitmap1`** (`crates/expanse/src/node.rs:491`) is the set-flavor level-1 leaf, 64 bytes: the bitmap *is* the membership answer, so there is no subarray and no rank on the lookup path.
+**`LeafBitmap1`** (`crates/expanse/src/node.rs:531`) is the set-flavor level-1 leaf, 64 bytes: the bitmap *is* the membership answer, so there is no subarray and no rank on the lookup path.
 
 The 32-bit bitmap leaf `LeafBitmap1_32` (`crates/expanse/src/node32.rs:170`) stores its 256-bit mask as `[u64; 4]` plus a `u16` population and a level byte. Its declared fields total 36 bytes but `#[repr(C, align(32))]` rounds the type to 64 bytes, and 64 is the figure the engine's own accounting and conversion threshold use (`crates/expanse/src/trie32.rs:93`, `crates/expanse/src/trie32.rs:247`).
 
@@ -773,7 +773,7 @@ Each version word is a plain `u32` seqlock counter: even means stable, odd means
 
 | Node type | Field | Byte offset | In the read protocol? |
 |---|---|---|---|
-| `BranchL3` / `BranchL7` | `hdr.version` | 0 | yes — `crates/expanse/src/sync.rs:218` |
+| `BranchL3` / `BranchL7` | `hdr.version` | 0 | yes — `crates/expanse/src/sync.rs:309` |
 | `BranchB` | `version` | 112 | yes |
 | `BranchU` | `version` | 0 | yes |
 | `LeafBitmap1` | `version` | 32 | no — field present, never bracketed |
@@ -789,10 +789,10 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 
 | Symbol | Value | Source |
 |---|---|---|
-| `size_of::<Edge>()` | 16 | `crates/expanse/src/node.rs:556` |
-| `align_of::<Edge>()` | 8 | `crates/expanse/src/node.rs:557` |
-| `offset_of!(Edge, aux)` | 8 | `crates/expanse/src/node.rs:558` |
-| `offset_of!(Edge, tag)` | 15 | `crates/expanse/src/node.rs:559` |
+| `size_of::<Edge>()` | 16 | `crates/expanse/src/node.rs:596` |
+| `align_of::<Edge>()` | 8 | `crates/expanse/src/node.rs:597` |
+| `offset_of!(Edge, aux)` | 8 | `crates/expanse/src/node.rs:598` |
+| `offset_of!(Edge, tag)` | 15 | `crates/expanse/src/node.rs:599` |
 | `MAX_LEVEL` | 8 | `crates/expanse/src/types.rs:61` |
 | `BRANCH_FANOUT` | 256 | `crates/expanse/src/types.rs:64` |
 | `BRANCH_L3_CAP` | 3 | `crates/expanse/src/types.rs:71` |
@@ -807,25 +807,25 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `ROOT_LEAF_CAP` | 31 | `crates/expanse/src/types.rs:102` |
 | `CACHE_LINE` | 64 | `crates/expanse/src/types.rs:43` |
 | `RAW_ALIGN` | 16 | `crates/expanse/src/types.rs:58` |
-| `size_of::<BranchHeader>()` | 16 | `crates/expanse/src/node.rs:565` |
-| `offset_of!(BranchHeader, version)` | 0 | `crates/expanse/src/node.rs:317` |
-| `offset_of!(BranchHeader, digits)` | 8 | `crates/expanse/src/node.rs:566` |
-| `size_of::<BranchL3>()` | 64 | `crates/expanse/src/node.rs:568` |
-| `offset_of!(BranchL3, edges)` | 16 | `crates/expanse/src/node.rs:570` |
-| `size_of::<BranchL7>()` | 128 | `crates/expanse/src/node.rs:572` |
-| `offset_of!(BranchL7, edges)` | 16 | `crates/expanse/src/node.rs:574` |
-| `size_of::<BranchB>()` | 128 | `crates/expanse/src/node.rs:577` |
-| `offset_of!(BranchB, subarrays)` | 32 | `crates/expanse/src/node.rs:580` |
-| `offset_of!(BranchB, pop_counts)` | 96 | `crates/expanse/src/node.rs:582` |
-| `offset_of!(BranchB, version)` | 112 | `crates/expanse/src/node.rs:583` |
-| `size_of::<BranchU>()` | 4160 | `crates/expanse/src/node.rs:585` |
-| `offset_of!(BranchU, version)` | 0 | `crates/expanse/src/node.rs:462` |
-| `size_of::<LeafBitmap1>()` | 64 | `crates/expanse/src/node.rs:588` |
-| `offset_of!(LeafBitmap1, version)` | 32 | `crates/expanse/src/node.rs:495` |
-| `size_of::<LeafBitmapL>()` | 128 | `crates/expanse/src/node.rs:589` |
-| `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:590` |
-| `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:529` |
-| `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:576` |
+| `size_of::<BranchHeader>()` | 16 | `crates/expanse/src/node.rs:605` |
+| `offset_of!(BranchHeader, version)` | 0 | `crates/expanse/src/node.rs:357` |
+| `offset_of!(BranchHeader, digits)` | 8 | `crates/expanse/src/node.rs:606` |
+| `size_of::<BranchL3>()` | 64 | `crates/expanse/src/node.rs:608` |
+| `offset_of!(BranchL3, edges)` | 16 | `crates/expanse/src/node.rs:610` |
+| `size_of::<BranchL7>()` | 128 | `crates/expanse/src/node.rs:612` |
+| `offset_of!(BranchL7, edges)` | 16 | `crates/expanse/src/node.rs:614` |
+| `size_of::<BranchB>()` | 128 | `crates/expanse/src/node.rs:617` |
+| `offset_of!(BranchB, subarrays)` | 32 | `crates/expanse/src/node.rs:620` |
+| `offset_of!(BranchB, pop_counts)` | 96 | `crates/expanse/src/node.rs:622` |
+| `offset_of!(BranchB, version)` | 112 | `crates/expanse/src/node.rs:623` |
+| `size_of::<BranchU>()` | 4160 | `crates/expanse/src/node.rs:625` |
+| `offset_of!(BranchU, version)` | 0 | `crates/expanse/src/node.rs:502` |
+| `size_of::<LeafBitmap1>()` | 64 | `crates/expanse/src/node.rs:628` |
+| `offset_of!(LeafBitmap1, version)` | 32 | `crates/expanse/src/node.rs:535` |
+| `size_of::<LeafBitmapL>()` | 128 | `crates/expanse/src/node.rs:629` |
+| `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:630` |
+| `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:569` |
+| `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:616` |
 | `size_of::<ValueSlot>()` | 8 | `crates/expanse/src/slot.rs:174` |
 | `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:183` |
 | `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:185` |

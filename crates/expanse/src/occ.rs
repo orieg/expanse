@@ -310,20 +310,20 @@ pub(crate) unsafe fn version_end_if_ptr<const OCC: bool>(a: &crate::alloc::NodeA
 }
 
 /// Opens the tree-level bracket for a root-state write, when `OCC` and when
-/// the engine (not the wrapper) covers root state for this tree
-/// (`NodeAlloc::engine_covers_root`). The map and set wrappers hand root
-/// coverage to the engine so ordinary writes never touch the tree word; the
-/// string, bytes and blob wrappers keep bracketing whole operations in
-/// `Shared::write`, and there this is a no-op so the word is never opened
-/// twice.
+/// the engine (not the wrapper) opens the tree word for this tree now
+/// (`NodeAlloc::engine_opens_tree_word`). The map and set wrappers hand root
+/// coverage to the engine, and hold the word themselves around a whole
+/// covered write (#1086); the string, bytes and blob wrappers keep
+/// bracketing whole operations in `Shared::write`. In both held cases this
+/// is a no-op, so the word is never opened twice.
 #[inline(always)]
 pub(crate) fn tree_begin_if<const OCC: bool>(a: &crate::alloc::NodeAlloc) {
     #[cfg(feature = "std")]
-    if OCC && a.engine_covers_root() {
+    if OCC && a.engine_opens_tree_word() {
         a.tree_version().begin();
     }
     #[cfg(all(debug_assertions, feature = "std"))]
-    if OCC && a.engine_covers_root() {
+    if OCC && a.engine_opens_tree_word() {
         a.bracket_enter(a.tree_cover_addr());
     }
     let _ = a;
@@ -333,11 +333,11 @@ pub(crate) fn tree_begin_if<const OCC: bool>(a: &crate::alloc::NodeAlloc) {
 #[inline(always)]
 pub(crate) fn tree_end_if<const OCC: bool>(a: &crate::alloc::NodeAlloc) {
     #[cfg(all(debug_assertions, feature = "std"))]
-    if OCC && a.engine_covers_root() {
+    if OCC && a.engine_opens_tree_word() {
         a.bracket_leave(a.tree_cover_addr());
     }
     #[cfg(feature = "std")]
-    if OCC && a.engine_covers_root() {
+    if OCC && a.engine_opens_tree_word() {
         a.tree_version().end();
     }
     let _ = a;

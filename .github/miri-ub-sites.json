@@ -8,23 +8,20 @@
     {
       "test": "map_leaf_two_writers",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "map::MapCore::insert_inner"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_leaf_two_writers",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "does not exist in the borrow stack",
-      "frame": "sync::Shared::<map::ExpanseMap>::write_root_covered_with"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_leaf_two_writers",
       "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "map::MapCore::insert_inner"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_leaf_reader_writer",
@@ -36,12 +33,48 @@
     {
       "test": "map_leaf_reader_writer",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "does not exist in the borrow stack",
-      "frame": "sync::Shared::<map::ExpanseMap>::write_root_covered_with"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_leaf_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_two_writers",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_two_writers",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_two_writers",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": "set::ExpanseSet::insert_inner"
+    },
+    {
+      "test": "set_leaf_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_reader_writer",
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
@@ -58,7 +91,7 @@
       "check": "alias-sb",
       "expect": "ub",
       "error": "strongly protected",
-      "frame": "bits::Bitmap256::set"
+      "frame": "sync::SyncExpanseMap::olc_insert_map"
     },
     {
       "test": "map_tree_two_writers",
@@ -72,7 +105,7 @@
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "bits::Bitmap256::set"
+      "frame": "sync::SyncExpanseMap::olc_insert_map"
     },
     {
       "test": "map_tree_reader_writer",
@@ -84,48 +117,6 @@
     {
       "test": "map_tree_reader_writer",
       "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "bits::Bitmap256::set"
-    },
-    {
-      "test": "set_leaf_two_writers",
-      "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "set::ExpanseSet::insert_inner"
-    },
-    {
-      "test": "set_leaf_two_writers",
-      "check": "alias-sb",
-      "expect": "ub",
-      "error": "does not exist in the borrow stack",
-      "frame": "sync::Shared::<set::ExpanseSet>::write_root_covered_with"
-    },
-    {
-      "test": "set_leaf_two_writers",
-      "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "set::ExpanseSet::insert_inner"
-    },
-    {
-      "test": "set_leaf_reader_writer",
-      "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "set::ExpanseSet::insert_inner"
-    },
-    {
-      "test": "set_leaf_reader_writer",
-      "check": "alias-sb",
-      "expect": "ub",
-      "error": "does not exist in the borrow stack",
-      "frame": "sync::Shared::<set::ExpanseSet>::write_root_covered_with"
-    },
-    {
-      "test": "set_leaf_reader_writer",
-      "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
@@ -134,13 +125,14 @@
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "bits::Bitmap256::set"
+      "frame": "bits::Bitmap256::test"
     },
     {
       "test": "set_tree_two_writers",
       "check": "alias-sb",
-      "expect": "clean",
-      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+      "expect": "ub",
+      "error": "strongly protected",
+      "frame": "bits::Bitmap256::set"
     },
     {
       "test": "set_tree_two_writers",
@@ -166,8 +158,9 @@
     {
       "test": "set_tree_reader_writer",
       "check": "alias-tb",
-      "expect": "clean",
-      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": "bits::Bitmap256::set"
     },
     {
       "test": "str_two_writers",

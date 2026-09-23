@@ -273,6 +273,24 @@ impl ExpanseSet {
         self.tree_pop = pop;
     }
 
+    /// The allocator, reached from a raw pointer to the set without forming
+    /// a reference to the whole set (#1086). A wrapper's optimistic writers
+    /// take it while other optimistic writers run; a `&` to the whole set
+    /// would also cover the root state, which the covered writer owns.
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live set for `'a`, and no `&mut` to it exists
+    /// meanwhile (the wrapper's optimistic writers are quiesced before any
+    /// covered writer takes one).
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[inline(always)]
+    pub(crate) unsafe fn alloc_of<'a>(this: *const Self) -> &'a NodeAlloc {
+        // SAFETY: caller contract; the place is projected through the raw
+        // pointer, so no reference to the whole set is formed.
+        unsafe { &*core::ptr::addr_of!((*this).alloc) }
+    }
+
     #[inline(always)]
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn alloc(&self) -> &NodeAlloc {
