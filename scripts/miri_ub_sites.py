@@ -15,6 +15,13 @@ process per (workload, check), and compares what Miri reports with
   alias-sb  -Zmiri-disable-data-race-detector                      aliasing, Stacked Borrows
   alias-tb  -Zmiri-disable-data-race-detector -Zmiri-tree-borrows  aliasing, Tree Borrows
 
+The manifest names the toolchain and host target it was generated with, and
+the census runs only there: Miri's schedule for a seed depends on both (the
+target selects the SIMD kernels, the toolchain the interpreter), so the same
+code on another target or nightly can report a different lowest failing seed.
+A run on any other host target is could-not-check. Moving to a new toolchain
+or target means regenerating the manifest (`--observe`), an explicit edit.
+
 Seeds run one after another, one Miri process each, and the lowest seed that
 reports undefined behaviour is the observation. `-Zmiri-many-seeds` is not
 used: it runs seeds in parallel and reports whichever fails first by wall
@@ -43,7 +50,7 @@ Usage:
   python3 scripts/miri_ub_sites.py --check                       # every entry
   python3 scripts/miri_ub_sites.py --check --only map_leaf_two_writers
   python3 scripts/miri_ub_sites.py --observe                     # report, judge nothing
-  python3 scripts/miri_ub_sites.py --toolchain nightly --check   # cargo +nightly
+  python3 scripts/miri_ub_sites.py --toolchain nightly --check   # another toolchain name for the same build
   python3 scripts/miri_ub_sites.py --self-test
 """
 
@@ -62,6 +69,7 @@ from typing import Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / ".github" / "miri-ub-sites.json"
 SYNC_RS = ROOT / "crates" / "expanse" / "src" / "sync.rs"
+NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 MODULE = "sync::miri_ub_sites"
 
 CHECKS: Dict[str, str] = {
@@ -164,6 +172,10 @@ def load_manifest(data: dict, tests: List[str]) -> Tuple[List[Entry], str, List[
     seeds = data.get("seeds", "")
     if not re.fullmatch(r"\d+\.\.\d+", str(seeds)):
         errors.append(f"`seeds` must look like `0..4`, got `{seeds}`")
+    if not re.fullmatch(r"nightly-\d{4}-\d{2}-\d{2}", str(data.get("toolchain", ""))):
+        errors.append(f"`toolchain` must be a dated nightly (`nightly-YYYY-MM-DD`), got `{data.get('toolchain')}`")
+    if not data.get("target"):
+        errors.append("`target` must name the host target the manifest was generated on")
     entries: List[Entry] = []
     seen = set()
     for i, raw in enumerate(data.get("sites", [])):
@@ -212,6 +224,36 @@ def first_seed(runs) -> Observation:
     return last
 
 
+def host_target(toolchain: str) -> str:
+    """The host target `rustc +TOOLCHAIN -vV` reports, or "" if it cannot run."""
+    try:
+        cp = subprocess.run(["rustc", f"+{toolchain}", "-vV"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return ""
+    return parse_host(cp.stdout) if cp.returncode == 0 else ""
+
+
+def parse_host(vv: str) -> str:
+    m = re.search(r"^host: (\S+)$", vv, re.MULTILINE)
+    return m.group(1) if m else ""
+
+
+def workflow_pin(workflow: str) -> Tuple[str, str]:
+    """(runner, toolchain) of the `miri-ub-sites` job in nightly.yml."""
+    start = workflow.find("\n  miri-ub-sites:\n")
+    if start < 0:
+        return "", ""
+    nxt = re.search(r"\n  [a-z0-9-]+:\n", workflow[start + 1:])
+    body = workflow[start: start + 1 + nxt.start()] if nxt else workflow[start:]
+    runner = re.search(r"runs-on: (\S+)", body)
+    tc = re.search(r"toolchain: (\S+)", body)
+    return (runner.group(1) if runner else "", tc.group(1) if tc else "")
+
+
+# The hosted runner that provides each target the manifest may name.
+RUNNERS = {"aarch64-apple-darwin": "macos-latest"}
+
+
 def run_seed(entry: Entry, seed: int, toolchain: Optional[str]) -> Observation:
     cmd = ["cargo"]
     if toolchain:
@@ -245,6 +287,15 @@ def main_run(args: argparse.Namespace) -> int:
         for e in errors:
             print(f"::error::miri-ub-sites manifest: {e}")
         return 2
+    toolchain = args.toolchain or data["toolchain"]
+    host = host_target(toolchain)
+    if host != data["target"]:
+        msg = (f"the manifest was generated on {data['target']} with {data['toolchain']}; "
+               f"this host is {host or 'unknown'} ({toolchain})")
+        if not args.observe:
+            print(f"::error::miri-ub-sites could not check: {msg}")
+            return 2
+        print(f"::notice::observing off the manifest's target: {msg}")
     if args.only:
         entries = [e for e in entries if e.test == args.only]
         if not entries:
@@ -252,7 +303,7 @@ def main_run(args: argparse.Namespace) -> int:
             return 2
     worst = 0
     for e in entries:
-        obs = run_one(e, seeds, args.toolchain)
+        obs = run_one(e, seeds, toolchain)
         if args.observe:
             status = "could-not-check" if obs.kind == "error" else "observed"
             reason = obs.detail if obs.kind == "error" else (
@@ -353,23 +404,37 @@ def self_test() -> int:
     # followed by many `]#[` repetitions. Linear now, and still no test.
     hostile = "mod miri_ub_sites {\n    #[test]#[" + "]#[" * 50_000 + "\n}\n"
     check("pathological attributes", module_tests(hostile), [])
-    ok = {"seeds": "0..4", "sites": [
+    ok = {"seeds": "0..4", "toolchain": "nightly-2026-09-05", "target": "aarch64-apple-darwin", "sites": [
         {"test": "a", "check": "race", "expect": "ub", "error": "Data race", "frame": ["f", "g"]},
         {"test": "b", "check": "alias-tb", "expect": "clean"},
     ]}
     check("valid manifest", load_manifest(ok, ["a", "b"])[2], [])
-    bad = {"seeds": "4", "sites": [
+    bad = {"seeds": "4", "toolchain": "nightly", "sites": [
         {"test": "a", "check": "tsan", "expect": "ub"},
         {"test": "a", "check": "tsan", "expect": "maybe"},
         {"test": "z", "check": "race", "expect": "clean"},
     ]}
     errs = " ".join(load_manifest(bad, ["a", "b"])[2])
-    for needle in ("`seeds`", "unknown check", "expect must be", "names its `error`",
+    for needle in ("`seeds`", "dated nightly", "`target`", "unknown check", "expect must be", "names its `error`",
                    "listed twice", "no test `z`", "test `b`"):
         check(f"manifest rejects: {needle}", needle in errs, True)
 
-    # The committed manifest and module agree now.
-    entries, _, errors = load_manifest(json.loads(MANIFEST.read_text()), module_tests(SYNC_RS.read_text()))
+    # Host detection, and the workflow pin read from a job body.
+    check("host", parse_host("rustc 1.100.0-nightly\nhost: aarch64-apple-darwin\nrelease: 1.100.0\n"),
+          "aarch64-apple-darwin")
+    check("host absent", parse_host("rustc 1.0\n"), "")
+    wf = ("jobs:\n  test-tsan:\n    runs-on: ubuntu-latest\n  miri-ub-sites:\n    runs-on: macos-latest\n"
+          "    steps:\n      - uses: x\n        with:\n          toolchain: nightly-2026-09-05\n  bench-report:\n"
+          "    runs-on: ubuntu-latest\n")
+    check("workflow pin", workflow_pin(wf), ("macos-latest", "nightly-2026-09-05"))
+
+    # The committed manifest and module agree now, and the nightly job runs
+    # the manifest's toolchain on a runner of the manifest's target.
+    committed = json.loads(MANIFEST.read_text())
+    runner, tc = workflow_pin(NIGHTLY.read_text())
+    check("nightly job toolchain is the manifest's", tc, committed.get("toolchain"))
+    check("nightly job runner provides the manifest's target", runner, RUNNERS.get(committed.get("target")))
+    entries, _, errors = load_manifest(committed, module_tests(SYNC_RS.read_text()))
     check("committed manifest valid", errors, [])
     check("committed manifest non-empty", len(entries) > 0, True)
     print(f"miri_ub_sites self-test OK ({len(entries)} manifest entries)")
