@@ -61,9 +61,9 @@ pub(crate) struct FreeBlock {
 #[repr(C)]
 pub(crate) struct SlabPage {
     pub(crate) next: *mut SlabPage,
-    pub(crate) layout: Layout,
-    /// The size class this page was carved into, so
-    /// [`NodeAlloc::bytes_held`] can count the blocks it holds.
+    /// The size class this page was carved into. It fixes the page's layout
+    /// ([`slab_page_layout`]) and lets [`NodeAlloc::bytes_held`] count the
+    /// blocks the page holds.
     pub(crate) class: usize,
 }
 
@@ -71,6 +71,12 @@ pub(crate) struct SlabPage {
 const SLAB_HEADER: usize = CACHE_LINE;
 /// Bytes of one slab page.
 const SLAB_PAGE_SIZE: usize = 4096;
+
+/// The layout a slab page of `class` is allocated and freed with.
+fn slab_page_layout(class: usize) -> Layout {
+    Layout::from_size_align(SLAB_PAGE_SIZE, CLASS_SPECS[class].1.max(CACHE_LINE))
+        .expect("valid slab page layout")
+}
 
 /// Blocks a slab page of `class` is carved into.
 const fn slab_blocks(class: usize) -> usize {
@@ -453,7 +459,7 @@ impl Drop for NodeAlloc {
             // SAFETY: cur_page is the raw base pointer of an allocated 4096-byte slab page.
             unsafe {
                 let next = (*cur_page).next;
-                let layout = (*cur_page).layout;
+                let layout = slab_page_layout((*cur_page).class);
                 dealloc(cur_page.cast::<u8>(), layout);
                 cur_page = next;
             }
@@ -705,14 +711,14 @@ impl NodeAlloc {
                 // SAFETY: page_raw is a fresh 4KB zeroed allocation.
                 unsafe {
                     (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
-                    (*slab_page).layout = page_layout;
                     (*slab_page).class = class;
                 }
                 self.slab_pages.store(slab_page, Ordering::Relaxed);
 
                 let header_offset = SLAB_HEADER;
                 let step = accounted_size;
-                let num_blocks = slab_blocks(class);
+                let available_bytes = SLAB_PAGE_SIZE - header_offset;
+                let num_blocks = available_bytes / step;
 
                 for i in (1..num_blocks).rev() {
                     // SAFETY: ptr is inside the allocated SLAB_PAGE_SIZE buffer.
