@@ -3794,7 +3794,10 @@ impl SyncExpanseSet {
         let mut level = 8u8;
 
         loop {
-            let tag = edge.tag().expect("valid edge tag");
+            // The decode pinned inline, as the map host's `edge_tag` does:
+            // `Edge::tag` is `#[inline]`, and whether LLVM inlines it here
+            // moves with the size of this body.
+            let tag = EdgeTag::from_u8(edge.tag_byte()).expect("valid edge tag");
             match tag {
                 EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
                     let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -4828,7 +4831,10 @@ impl SyncExpanseSet {
         let mut level = 8u8;
 
         loop {
-            let tag = edge.tag().expect("valid edge tag");
+            // The decode pinned inline, as the map host's `edge_tag` does:
+            // `Edge::tag` is `#[inline]`, and whether LLVM inlines it here
+            // moves with the size of this body.
+            let tag = EdgeTag::from_u8(edge.tag_byte()).expect("valid edge tag");
             match tag {
                 EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
                     let is_l3 = matches!(t, EdgeType::BranchL3);
