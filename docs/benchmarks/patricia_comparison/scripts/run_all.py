@@ -134,7 +134,8 @@ def main() -> None:
     stamped = rewrite([out_dir / f for _, f, _ in BENCHES], prov)
     print(f"Re-stamped provenance with the end snapshot into {stamped} artifacts.")
     if not quick:
-        subprocess.run([sys.executable, str(BASE_DIR / "scripts" / "generate_readme.py")], check=True)
+        for script in ("generate_charts.py", "generate_readme.py"):
+            subprocess.run([sys.executable, str(BASE_DIR / "scripts" / script)], check=True)
 
 
 if __name__ == "__main__":
