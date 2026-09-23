@@ -299,6 +299,17 @@ impl Deferred {
     }
 }
 
+/// `NodeAlloc::root_cover`: the wrapper brackets whole operations.
+#[cfg(feature = "std")]
+const ROOT_COVER_WRAPPER: u8 = 0;
+/// `NodeAlloc::root_cover`: the engine brackets root-state writes.
+#[cfg(feature = "std")]
+const ROOT_COVER_ENGINE: u8 = 1;
+/// `NodeAlloc::root_cover`: the engine covers the root, and a wrapper holds
+/// the word for the current covered write (#1086).
+#[cfg(feature = "std")]
+const ROOT_COVER_HELD: u8 = 2;
+
 /// Allocation handle owned by a tree: hands out zeroed memory — at
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
 /// [`Self::alloc_bytes`] — and keeps byte-exact accounting.
@@ -317,13 +328,17 @@ pub struct NodeAlloc {
     /// tree that never becomes concurrent carries no second word.
     #[cfg(feature = "std")]
     deferred: OnceLock<DeferredCell>,
-    /// Phase 7 / #568 PR 3: who brackets root-state writes. `true` when the
-    /// engine does (the map and set wrappers: ordinary writes never touch the
-    /// tree word); `false` when the wrapper brackets whole operations in
-    /// `Shared::write` (string, bytes, blob), so the engine's tree cover is a
-    /// no-op and the word is never opened twice.
+    /// Phase 7 / #568 PR 3: who brackets root-state writes, one of the
+    /// `ROOT_COVER_*` states. `ROOT_COVER_WRAPPER` when the wrapper brackets
+    /// whole operations in `Shared::write` (string, bytes, blob), so the
+    /// engine's tree cover is a no-op and the word is never opened twice.
+    /// `ROOT_COVER_ENGINE` for the map and set, whose engine walks run the
+    /// shared monomorph that brackets root state itself. `ROOT_COVER_HELD`
+    /// while a map or set wrapper holds the word around a whole covered
+    /// write (#1086): the monomorph is unchanged, and its own tree bracket
+    /// is a no-op for that operation.
     #[cfg(feature = "std")]
-    engine_covers_root: core::sync::atomic::AtomicBool,
+    root_cover: core::sync::atomic::AtomicU8,
     /// #568 PR 3: the tree-level version word this tree's root state is
     /// bracketed by — the wrapper's `Shared::version`, bound once by
     /// [`Self::bind_tree_word`] after the wrapper is boxed, so the address
@@ -363,7 +378,7 @@ impl Default for NodeAlloc {
             #[cfg(feature = "std")]
             deferred: OnceLock::new(),
             #[cfg(feature = "std")]
-            engine_covers_root: core::sync::atomic::AtomicBool::new(false),
+            root_cover: core::sync::atomic::AtomicU8::new(ROOT_COVER_WRAPPER),
             #[cfg(feature = "std")]
             tree_word: AtomicPtr::new(core::ptr::null_mut()),
             total_allocs: AtomicUsize::new(0),
@@ -987,7 +1002,33 @@ impl NodeAlloc {
             !self.tree_word.load(Ordering::Relaxed).is_null(),
             "cover_root before bind_tree_word"
         );
-        self.engine_covers_root.store(true, Ordering::Relaxed);
+        self.root_cover.store(ROOT_COVER_ENGINE, Ordering::Relaxed);
+    }
+
+    /// A map or set wrapper takes (`true`) or returns (`false`) the tree word
+    /// for one whole covered write (#1086). While it holds the word the
+    /// engine's own tree bracket is a no-op ([`Self::engine_opens_tree_word`])
+    /// and the engine walks keep the monomorph they run otherwise
+    /// ([`Self::engine_covers_root`] stays true). Called only under the
+    /// writer mutex with the optimistic writers quiesced.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn hold_tree_word(&self, held: bool) {
+        let (from, to) = if held {
+            (ROOT_COVER_ENGINE, ROOT_COVER_HELD)
+        } else {
+            (ROOT_COVER_HELD, ROOT_COVER_ENGINE)
+        };
+        // The only writer of this byte after `cover_root` is the covered
+        // writer, under the writer mutex, so a load and a store suffice; no
+        // read-modify-write. A tree whose engine does not cover the root (no
+        // `cover_root`: the wrapper already brackets whole operations) needs
+        // no hand-over.
+        let prev = self.root_cover.load(Ordering::Relaxed);
+        if prev == from {
+            self.root_cover.store(to, Ordering::Relaxed);
+        } else {
+            debug_assert_eq!(prev, ROOT_COVER_WRAPPER, "hold_tree_word out of order");
+        }
     }
 
     /// Sentinel address for the tree cover on the debug bracket stack: the
@@ -1007,11 +1048,21 @@ impl NodeAlloc {
     }
 
     /// Whether the engine brackets root-state writes on this tree (see the
-    /// field). False until [`Self::cover_root`].
+    /// field): what `by_mode!` selects the brief-bracket monomorph on. False
+    /// until [`Self::cover_root`]; still true while a wrapper holds the word.
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn engine_covers_root(&self) -> bool {
-        self.engine_covers_root.load(Ordering::Relaxed)
+        self.root_cover.load(Ordering::Relaxed) != ROOT_COVER_WRAPPER
+    }
+
+    /// Whether the engine's own tree bracket opens the word now: the engine
+    /// covers the root and no wrapper holds the word
+    /// ([`Self::hold_tree_word`]).
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn engine_opens_tree_word(&self) -> bool {
+        self.root_cover.load(Ordering::Relaxed) == ROOT_COVER_ENGINE
     }
 
     /// `no_std` twin: nothing is shared, nothing covers a root.
@@ -1323,7 +1374,7 @@ mod tests {
         {
             let classes = NUM_CLASSES * size_of::<usize>();
             // bytes_in_use, live_allocs, total_allocs, slab_pages, tree_word,
-            // one word shared by engine_covers_root and the debug-only
+            // one word shared by root_cover and the debug-only
             // bookkeeping flag, and the two-word cell.
             assert_eq!(size_of::<NodeAlloc>(), 8 * 8 + classes);
         }

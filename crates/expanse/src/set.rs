@@ -56,10 +56,12 @@ enum Root {
 /// distributions, and membership tests run in at most eight digit steps.
 pub struct ExpanseSet {
     root: Root,
-    /// Total population while `root` is a `Tree` (the JPM role): an atomic
-    /// word so a shared tree bumps it under no bracket and a concurrent
-    /// `len()` reads it whole (#568 PR 3); the unshared path writes it
-    /// through `get_mut`, no atomic instruction.
+    /// Total population while `root` is a `Tree` (the JPM role). A plain
+    /// word, and on an unshared tree the population itself. A shared tree
+    /// counts in its wrapper's sharded counter (`sync::ShardedTreePop`),
+    /// which optimistic writers bump directly; a covered write folds the
+    /// change it makes here back into that counter, so on a shared tree this
+    /// field lags the population between covered writes.
     tree_pop: u64,
     alloc: NodeAlloc,
     path: core::cell::UnsafeCell<crate::mutate::InsertPath>,
@@ -146,8 +148,9 @@ macro_rules! by_mode {
     };
 }
 
-/// The tree arm of insert, per sharing mode: the engine call and the
-/// population bump (atomic on a shared tree, a plain add otherwise).
+/// The tree arm of insert, per sharing mode: the engine call and a plain
+/// bump of `tree_pop` (on a shared tree the covered write folds it into the
+/// wrapper's counter).
 #[inline(always)]
 fn tree_insert<const OCC: bool, const NESTED: bool>(
     alloc: &NodeAlloc,
@@ -268,6 +271,24 @@ impl ExpanseSet {
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn set_tree_pop(&mut self, pop: u64) {
         self.tree_pop = pop;
+    }
+
+    /// The allocator, reached from a raw pointer to the set without forming
+    /// a reference to the whole set (#1086). A wrapper's optimistic writers
+    /// take it while other optimistic writers run; a `&` to the whole set
+    /// would also cover the root state, which the covered writer owns.
+    ///
+    /// # Safety
+    ///
+    /// `this` points to a live set for `'a`, and no `&mut` to it exists
+    /// meanwhile (the wrapper's optimistic writers are quiesced before any
+    /// covered writer takes one).
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[inline(always)]
+    pub(crate) unsafe fn alloc_of<'a>(this: *const Self) -> &'a NodeAlloc {
+        // SAFETY: caller contract; the place is projected through the raw
+        // pointer, so no reference to the whole set is formed.
+        unsafe { &*core::ptr::addr_of!((*this).alloc) }
     }
 
     #[inline(always)]
@@ -833,8 +854,10 @@ impl ExpanseSet {
     /// snapshot may be torn mid-mutation; `sync` validates before use.
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
-        // `top` is a possibly-torn by-value copy (validated by the reader);
-        // `pop` is loaded whole, since a shared tree bumps it under no bracket.
+        // A plain read of the root state that races a covered writer's
+        // stores. The reader validates the tree word before acting on the
+        // value, which makes it safe to discard, not the read race-free
+        // (#1086, class 1).
         let snap = match &self.root {
             Root::Empty => RootSnapshot::Empty,
             Root::Leaf { keys, pop } => RootSnapshot::Leaf {

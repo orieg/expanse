@@ -1767,15 +1767,15 @@ here; how the runner is stood up and triggered is an operations concern.
 
 > Produced by `cargo run --release -p expanse-trie --example bytes_per_key`. `test_memory_budget_matches_engine` recomputes every cell in-process and asserts [`docs/visualizer_data.json`](visualizer_data.json) matches, so that artifact is the gated copy and this table must agree with it. Regenerate both from the example rather than editing either by hand.
 
-| dist | pop 1k | pop 100k | pop 1M | |
-|---|---|---|---|---|
-| sequential (set) | 0.32 | 0.07 | **0.07** | full-expanse + bitmap-leaf compression |
-| clustered 256-run (set) | 0.38 | 0.37 | **0.36** | was 1.34 before leaf-targeted narrow pointers — a 3.7× improvement |
-| clustered 4096-run (set) | 0.32 | 0.12 | **0.12** | was 0.64 / 0.20 / 0.19 before **branch-targeted** narrow pointers (divergence-level branch placement + `split_skip`) |
-| random (set) | 13.50 | 14.85 | 8.21 | not part of the dense/clustered target. **Density-dependent** — the only row that is: λ = N / 2¹⁶ = 0.02 · 1.53 · **15.26** (48% of `LEAF_CAP`); see below |
-| sparse `i << 40` (set) | 16.83 | 16.32 | **16.31** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
+| dist | set 1k | set 100k | set 1M | map 1M | |
+|---|---|---|---|---|---|
+| sequential | 0.32 | 0.07 | **0.07** | 8.56 | full-expanse + bitmap-leaf compression |
+| clustered 256-run | 0.38 | 0.37 | **0.36** | 8.61 | was 1.34 before leaf-targeted narrow pointers — a 3.7× improvement |
+| clustered 4096-run | 0.32 | 0.12 | **0.12** | 8.60 | was 0.64 / 0.20 / 0.19 before **branch-targeted** narrow pointers (divergence-level branch placement + `split_skip`) |
+| random | 13.50 | 14.85 | 8.21 | 17.58 | not part of the dense/clustered target. **Density-dependent** — the only row that is: λ = N / 2¹⁶ = 0.02 · 1.53 · **15.26** (48% of `LEAF_CAP`); see below |
+| sparse `i << 40` | 16.83 | 16.32 | **16.31** | 16.31 | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
 
-Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names.
+The set columns are key presence only (`ExpanseSet`); the map column is `ExpanseMap` with an 8-byte value per key (the 1k and 100k map cells are in `docs/visualizer_data.json` → `memory_budget`). On the packed distributions the map pays its value word on top of the set figure, so it cannot go below 8 B/key; on `sparse` the two flavors measure the same 16.31 B/key, and which node form absorbs the value there is not established by this table. The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names.
 
 **Density of each cell.** Per-key cost on `random` keys is a sawtooth in expanse occupancy λ = N / 2¹⁶, not a monotone function of N ([`ARCHITECTURE.md` §3.5](ARCHITECTURE.md#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth)): keyspace width and population are one knob, and the `LEAF_CAP = 32` overflow cascade puts the tooth at λ ≈ `LEAF_CAP`. The three `random` cells sit at λ = 0.02 (top two key bytes unsaturated — most keys alone in their expanse), 1.53 and 15.26. The 1M cell, at 48% of `LEAF_CAP`, is in the trough of that curve; the same generator at N = 2M (λ = 30.5, 95% of `LEAF_CAP`) measures **13.74 B/key set / 19.78 B/key map**, and at λ = 61 (the 1M @62 cell, which the width rule equates with 4M @64) 19.66 / 23.16 *(measured: deterministic `mem_used()` accounting, host-independent; `crates/expanse/examples/keyspace_density.rs` at commit `66a355f9`; workload: `example_keyspace_density`; `docs/assets/data/bench_assets.json` → `density_sweep`, the λ = 30.52 and λ = 61.04 rows of `ARCHITECTURE.md` §3.5)*. The other four rows have occupancy fixed by construction — `sequential` and `clustered` are packed, `sparse` puts exactly 256 keys in every 2-byte expanse and so is permanently cascaded — and do not move with N. Read a change in the `random` row against its λ before reading it as a design change. The finer 64-bit ladder puts the trough at N = 1.3M (7.96 B/key, λ = 19.8) and the knee at N ≈ 1.8M (10.72, λ = 27.5); one byte level down the same tooth repeats at λ ≈ 256 × `LEAF_CAP`, with a second trough of 7.08 B/key at λ = 4,688 and a second peak of 20.99 at λ = 10,547 *(measured: same deterministic instrument at commit `66a355f9`; workload: `example_keyspace_density`; `docs/assets/data/bench_assets.json` → `density_sweep`)*.
 
