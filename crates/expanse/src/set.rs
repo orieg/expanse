@@ -341,6 +341,21 @@ impl ExpanseSet {
         self.alloc.bytes_held()
     }
 
+    /// Returns memory the set holds but does not use to the system
+    /// allocator: freed blocks of the larger size classes, and slab pages
+    /// with no live node on them. Returns the bytes released; afterwards
+    /// [`Self::mem_held`] is lower by exactly that much and
+    /// [`Self::mem_used`] is unchanged. Nothing moves, so no key, value or
+    /// value pointer is affected.
+    ///
+    /// The set keeps freed blocks for reuse, so this pays off after a
+    /// build or a burst of removals that leaves many blocks idle; it costs a
+    /// walk of the allocator's pages and freelists. A no-op on a set
+    /// shared through a concurrent wrapper.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.alloc.release_free()
+    }
+
     /// Cumulative node/leaf allocations made by this container since it
     /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
     /// subtracts these from the process-wide count to isolate

@@ -507,13 +507,27 @@ fn strmap_suffix_leaf_costs_one_allocation() {
         drop(b);
 
         let per_leaf = with - without;
-        assert_eq!(
-            per_leaf, n as usize,
-            "at n={n}, {n} suffix leaves cost {per_leaf} allocations \
-             ({with} with leaves, {without} without) — one each is the \
-             post-#723 shape, two each was the `Box<StrSuffix>` shell plus \
-             its `Box<[u8]>` byte buffer"
-        );
+        // With `packed-suffix` a leaf is a block of the tree's own allocator:
+        // a 4-byte suffix is a 20-byte request, served from the 32-byte slab
+        // class, (4096 - 64) / 32 = 126 blocks per 4 KiB page, so the leaves
+        // cost one global allocation per page they fill.
+        if cfg!(feature = "packed-suffix") {
+            assert_eq!(
+                per_leaf,
+                (n as usize).div_ceil(126),
+                "at n={n}, {n} packed suffix leaves cost {per_leaf} global \
+                 allocations ({with} with leaves, {without} without); one per \
+                 126-block slab page is the packed shape"
+            );
+        } else {
+            assert_eq!(
+                per_leaf, n as usize,
+                "at n={n}, {n} suffix leaves cost {per_leaf} allocations \
+                 ({with} with leaves, {without} without) — one each is the \
+                 post-#723 shape, two each was the `Box<StrSuffix>` shell plus \
+                 its `Box<[u8]>` byte buffer"
+            );
+        }
     }
 }
 

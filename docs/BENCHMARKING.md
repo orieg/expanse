@@ -1799,6 +1799,18 @@ The set columns are key presence only (`ExpanseSet`); the map column is `Expanse
 
 Engine retention is 91% of the random-u64 gap: random inserts grow leaves through size classes, and each outgrown block stays on its freelist. On strings the allocator term dominates (77% of the UUID gap), because each suffix leaf is its own global allocation: a 44-byte UUID suffix occupies 56 usable bytes plus its header. Compare `mem_held()`, not `mem_used()`, with resident memory; the allocator term is allocator-specific and is left to this census. Returning retained blocks and packing suffix leaves are tracked in [#1095](https://github.com/orieg/expanse/issues/1095).
 
+**Two remedies, both opt-in** *(measured: same host, commit 7685ab6b; artifact [`results/allocator_overhead_7685ab6b.txt`](../results/allocator_overhead_7685ab6b.txt); workload: `example_allocator_overhead`)*. `shrink_to_fit()` returns free blocks of the system-served classes and every slab page with no live node to the system allocator; nothing moves. The `packed-suffix` cargo feature allocates string suffix leaves from the tree's size classes instead of one global allocation each, which saves glibc's header and 16-byte rounding where the suffix length makes them bite: a suffix of `s` bytes costs `round_up(s + 8, 16)` from glibc and `round_up(s, 16)` from a class, 16 bytes less when `s mod 16` is 0 or 9–15 and the same otherwise (derived). Bytes/key at 10⁷ keys, RSS after `malloc_trim(0)`:
+
+| shape | default `mem_held` | default RSS | after `shrink_to_fit`: `mem_held` | RSS | `packed-suffix`: `mem_held` | RSS |
+|---|---:|---:|---:|---:|---:|---:|
+| sequential u64 | 8.59 | 9.11 | 8.58 | 9.11 | — | — |
+| timestamp-like u64 | 21.47 | 21.82 | 21.47 | 21.83 | — | — |
+| random u64 | 32.70 | 33.72 | 28.39 | 32.24 | — | — |
+| `tNNN:orders:N` strings | 40.40 | 47.24 | 39.14 | 47.24 | 46.72 | 49.38 |
+| UUIDv4 strings | 66.81 | 87.14 | 65.71 | 87.14 | 69.71 | 70.64 |
+
+`shrink_to_fit()` gives back 4.31 B/key of `mem_held` on random keys but only 1.48 B/key of RSS: the released blocks go back to glibc, where the rest of the process can reuse them, and few of them reach the kernel. Why is unmeasured; the working hypothesis is that a 4 KiB slab page, 64-byte aligned, straddles two OS pages that live neighbours still occupy. What stays retained sits on pages that still hold a live node, and returning it would mean moving nodes, which the value-pointer contract (`docs/COMPAT.md`) forbids. `packed-suffix` takes UUID keys from 87.14 to 70.64 B/key RSS (−18.9%) and costs the prefix shape 2.14 B/key (+4.5%): its suffix allocations are mostly 19 and 40 bytes, sizes glibc already rounds as tightly as a class does, and the feature raises that shape's engine retention (`mem_held − mem_used`) from 1.64 to 3.64 B/key. It stays off by default for that reason; turn it on for long, high-entropy string keys.
+
 ### Instruction counts: issue #1 items 1-3 (measured: callgrind via the `instruction-counts` CI job; deterministic, so these are exact — commit with this section)
 
 Controlled A/B against a branch with all three items reverted, same harness and job. Instructions retired, 50k keys per benchmark; negative is less work.

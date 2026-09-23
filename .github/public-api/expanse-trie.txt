@@ -20,6 +20,7 @@ pub unsafe fn expanse_trie::alloc::NodeAlloc::free_bytes(&self, core::ptr::non_n
 pub unsafe fn expanse_trie::alloc::NodeAlloc::free_node<T>(&self, core::ptr::non_null::NonNull<T>)
 pub fn expanse_trie::alloc::NodeAlloc::live_allocs(&self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::new() -> Self
+pub fn expanse_trie::alloc::NodeAlloc::release_free(&mut self) -> usize
 pub fn expanse_trie::alloc::NodeAlloc::total_allocs(&self) -> usize
 impl core::default::Default for expanse_trie::alloc::NodeAlloc
 pub fn expanse_trie::alloc::NodeAlloc::default() -> Self
@@ -695,6 +696,7 @@ pub fn expanse_trie::map::ExpanseMap::range_filtered<'a, P>(&'a self, core::ops:
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, u64) -> bool
+pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
@@ -1328,6 +1330,7 @@ pub fn expanse_trie::set::ExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::new() -> Self
 pub fn expanse_trie::set::ExpanseSet::remove(&mut self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::set::ExpanseSet::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::set::ExpanseSet::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::set::ExpanseSet::total_node_allocs(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::validate(&self)
@@ -1697,6 +1700,7 @@ pub fn expanse_trie::strmap::ExpanseStrMap::next_at_or_after(&mut self, &expanse
 pub fn expanse_trie::strmap::ExpanseStrMap::prev_at_or_before(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::prev_before(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::remove(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::strmap::ExpanseStrMap::shrink_to_fit(&mut self) -> usize
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::from(expanse_trie::strmap::ExpanseStrMap) -> Self
 impl core::default::Default for expanse_trie::strmap::ExpanseStrMap
@@ -2871,6 +2875,7 @@ pub fn expanse_trie::map::ExpanseMap::range_filtered<'a, P>(&'a self, core::ops:
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, u64) -> bool
+pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
@@ -2971,6 +2976,7 @@ pub fn expanse_trie::set::ExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::new() -> Self
 pub fn expanse_trie::set::ExpanseSet::remove(&mut self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::set::ExpanseSet::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::set::ExpanseSet::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::set::ExpanseSet::total_node_allocs(&self) -> usize
 pub fn expanse_trie::set::ExpanseSet::validate(&self)
