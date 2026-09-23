@@ -720,7 +720,8 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
-      "summary": "Expanse vs three radix tries (`patricia_tree`, `fast_radix_trie`, `qp-trie`) through `docs/benchmarks/patricia_comparison/scripts/run_all.py`: live-heap census (requested and usable bytes), point lookup at 100% and 50% hit, cold-build insert in both orders, shared-prefix string lookup across four prefix lengths, full traversal and prefix scan; paired per-round ratios with BCa intervals; writes `results/baseline_*.json`."
+      "summary": "Expanse vs three radix tries (`patricia_tree`, `fast_radix_trie`, `qp-trie`) through `docs/benchmarks/patricia_comparison/scripts/run_all.py`: live-heap census (requested and usable bytes), point lookup at 100% and 50% hit, cold-build insert in both orders, shared-prefix string lookup across four prefix lengths, full traversal and prefix scan; paired per-round ratios with BCa intervals; writes `results/baseline_*.json`.",
+      "suite": "patricia_comparison"
     },
     {
       "name": "wasm_fuel",

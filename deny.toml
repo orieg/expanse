@@ -53,6 +53,14 @@ allow = [
     "bzip2-1.0.6",
 ]
 confidence-threshold = 0.9
+# One crate-scoped exception, never a global allow: `qp-trie` (MPL-2.0, weak
+# file-level copyleft) is a dev-dependency used only as a benchmark twin in
+# crates/expanse/benches/patricia_* (docs/benchmarks/patricia_comparison/). It
+# is not linked into any published artifact and no Expanse source is derived
+# from it. Any other MPL-2.0 crate still fails this gate.
+exceptions = [
+    { allow = ["MPL-2.0"], crate = "qp-trie" },
+]
 
 [bans]
 # Duplicate versions are noise in a tree this shallow, not a defect; warn so a

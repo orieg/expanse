@@ -1,0 +1,218 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 1000 400" width="100%" height="100%">
+  <title>String lookup vs shared-prefix length</title>
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }
+      .t-val-loss { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #b45309; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-art { fill: #2563eb; }
+      .b-patricia { fill: #2563eb; }
+      .b-radix { fill: #d97706; }
+      .b-qp { fill: #7c3aed; }
+      .b-btree { fill: #d97706; }
+      .b-hashmap { fill: #7c3aed; }
+
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-note { fill: #94a3b8; }
+        .t-val-loss { fill: #fbbf24; }
+        .b-expanse { fill: #22c55e; }
+        .b-art { fill: #3b82f6; }
+        .b-patricia { fill: #3b82f6; }
+        .b-radix { fill: #f59e0b; }
+        .b-qp { fill: #a855f7; }
+        .b-btree { fill: #f59e0b; }
+        .b-hashmap { fill: #a855f7; }
+        .badge-win { fill: #052e16; stroke: #166534; }
+        .badge-win-text { fill: #4ade80; }
+        .badge-loss { fill: #451a03; stroke: #92400e; }
+        .badge-loss-text { fill: #fbbf24; }
+      }
+
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-val-loss, [data-theme="dark"] .t-val-loss { fill: #fbbf24; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-art, [data-theme="dark"] .b-art { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-patricia, [data-theme="dark"] .b-patricia { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-radix, [data-theme="dark"] .b-radix { fill: #f59e0b; }
+      :root[data-theme="dark"] .b-qp, [data-theme="dark"] .b-qp { fill: #a855f7; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #f59e0b; }
+      :root[data-theme="dark"] .b-hashmap, [data-theme="dark"] .b-hashmap { fill: #a855f7; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #052e16; stroke: #166534; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #4ade80; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #92400e; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fbbf24; }
+    </style>
+    <style>.ln-patricia{stroke:#2563eb;stroke-width:1.6px}.ln-radix{stroke:#d97706;stroke-width:1.6px}.ln-qp{stroke:#7c3aed;stroke-width:1.6px}</style>
+  </defs>
+  <rect width="100%" height="100%" class="bg" rx="6" />
+  <rect width="100%" height="100%" class="border" rx="6" />
+
+  <text x="24" y="30" class="t-title">String lookup vs shared-prefix length · Expanse vs radix tries</text>
+  <text x="24" y="46" class="t-sub">ratio = Expanse ns / twin ns, 50% hit, generator build order · workload: patricia_string_lookup</text>
+  <text x="24" y="61" class="t-note">Log scale. Below 1 = Expanse faster. Points: geometric mean; bars: BCa 95% interval.</text>
+  <rect x="24" y="72" width="10" height="10" rx="2" class="b-patricia"/><text x="38" y="81" class="t-legend">vs patricia_tree</text>
+  <rect x="174" y="72" width="10" height="10" rx="2" class="b-radix"/><text x="188" y="81" class="t-legend">vs fast_radix_trie</text>
+  <rect x="324" y="72" width="10" height="10" rx="2" class="b-qp"/><text x="338" y="81" class="t-legend">vs qp-trie</text>
+  <text x="60" y="100" class="t-bar-label">n = 10,000</text>
+  <line x1="60" y1="330.0" x2="330" y2="330.0" class="grid"/>
+  <text x="54" y="333.0" class="t-axis-label" text-anchor="end">0.1</text>
+  <line x1="60" y1="220.0" x2="330" y2="220.0" class="axis"/>
+  <text x="54" y="223.0" class="t-axis-label" text-anchor="end">1</text>
+  <line x1="60" y1="110.0" x2="330" y2="110.0" class="grid"/>
+  <text x="54" y="113.0" class="t-axis-label" text-anchor="end">10</text>
+  <text x="60.0" y="346" class="t-axis-label" text-anchor="middle">8 B</text>
+  <text x="150.0" y="346" class="t-axis-label" text-anchor="middle">35 B</text>
+  <text x="240.0" y="346" class="t-axis-label" text-anchor="middle">128 B</text>
+  <text x="330.0" y="346" class="t-axis-label" text-anchor="middle">240 B</text>
+  <path d="M60.0,290.0 L150.0,282.9 L240.0,264.8 L330.0,250.8" class="ln-patricia" fill="none"/>
+  <line x1="60.0" y1="290.2" x2="60.0" y2="289.7" class="axis"/>
+  <circle cx="60.0" cy="290.0" r="3.2" class="b-patricia"/>
+  <line x1="150.0" y1="283.2" x2="150.0" y2="282.8" class="axis"/>
+  <circle cx="150.0" cy="282.9" r="3.2" class="b-patricia"/>
+  <line x1="240.0" y1="265.0" x2="240.0" y2="264.7" class="axis"/>
+  <circle cx="240.0" cy="264.8" r="3.2" class="b-patricia"/>
+  <line x1="330.0" y1="250.8" x2="330.0" y2="250.7" class="axis"/>
+  <circle cx="330.0" cy="250.8" r="3.2" class="b-patricia"/>
+  <path d="M60.0,234.4 L150.0,226.8 L240.0,213.0 L330.0,198.3" class="ln-radix" fill="none"/>
+  <line x1="60.0" y1="234.5" x2="60.0" y2="234.2" class="axis"/>
+  <circle cx="60.0" cy="234.4" r="3.2" class="b-radix"/>
+  <line x1="150.0" y1="227.0" x2="150.0" y2="226.7" class="axis"/>
+  <circle cx="150.0" cy="226.8" r="3.2" class="b-radix"/>
+  <line x1="240.0" y1="213.1" x2="240.0" y2="212.9" class="axis"/>
+  <circle cx="240.0" cy="213.0" r="3.2" class="b-radix"/>
+  <line x1="330.0" y1="198.5" x2="330.0" y2="198.2" class="axis"/>
+  <circle cx="330.0" cy="198.3" r="3.2" class="b-radix"/>
+  <path d="M60.0,227.0 L150.0,219.0 L240.0,199.5 L330.0,182.6" class="ln-qp" fill="none"/>
+  <line x1="60.0" y1="227.2" x2="60.0" y2="226.8" class="axis"/>
+  <circle cx="60.0" cy="227.0" r="3.2" class="b-qp"/>
+  <line x1="150.0" y1="219.1" x2="150.0" y2="218.9" class="axis"/>
+  <circle cx="150.0" cy="219.0" r="3.2" class="b-qp"/>
+  <line x1="240.0" y1="199.6" x2="240.0" y2="199.4" class="axis"/>
+  <circle cx="240.0" cy="199.5" r="3.2" class="b-qp"/>
+  <line x1="330.0" y1="182.7" x2="330.0" y2="182.5" class="axis"/>
+  <circle cx="330.0" cy="182.6" r="3.2" class="b-qp"/>
+  <text x="380" y="100" class="t-bar-label">n = 100,000</text>
+  <line x1="380" y1="330.0" x2="650" y2="330.0" class="grid"/>
+  <text x="374" y="333.0" class="t-axis-label" text-anchor="end">0.1</text>
+  <line x1="380" y1="220.0" x2="650" y2="220.0" class="axis"/>
+  <text x="374" y="223.0" class="t-axis-label" text-anchor="end">1</text>
+  <line x1="380" y1="110.0" x2="650" y2="110.0" class="grid"/>
+  <text x="374" y="113.0" class="t-axis-label" text-anchor="end">10</text>
+  <text x="380.0" y="346" class="t-axis-label" text-anchor="middle">8 B</text>
+  <text x="470.0" y="346" class="t-axis-label" text-anchor="middle">35 B</text>
+  <text x="560.0" y="346" class="t-axis-label" text-anchor="middle">128 B</text>
+  <text x="650.0" y="346" class="t-axis-label" text-anchor="middle">240 B</text>
+  <path d="M380.0,295.4 L470.0,288.9 L560.0,274.7 L650.0,263.8" class="ln-patricia" fill="none"/>
+  <line x1="380.0" y1="295.7" x2="380.0" y2="295.1" class="axis"/>
+  <circle cx="380.0" cy="295.4" r="3.2" class="b-patricia"/>
+  <line x1="470.0" y1="289.1" x2="470.0" y2="288.8" class="axis"/>
+  <circle cx="470.0" cy="288.9" r="3.2" class="b-patricia"/>
+  <line x1="560.0" y1="274.8" x2="560.0" y2="274.6" class="axis"/>
+  <circle cx="560.0" cy="274.7" r="3.2" class="b-patricia"/>
+  <line x1="650.0" y1="263.9" x2="650.0" y2="263.6" class="axis"/>
+  <circle cx="650.0" cy="263.8" r="3.2" class="b-patricia"/>
+  <path d="M380.0,236.5 L470.0,229.8 L560.0,217.7 L650.0,206.9" class="ln-radix" fill="none"/>
+  <line x1="380.0" y1="236.7" x2="380.0" y2="236.3" class="axis"/>
+  <circle cx="380.0" cy="236.5" r="3.2" class="b-radix"/>
+  <line x1="470.0" y1="229.9" x2="470.0" y2="229.6" class="axis"/>
+  <circle cx="470.0" cy="229.8" r="3.2" class="b-radix"/>
+  <line x1="560.0" y1="218.0" x2="560.0" y2="217.6" class="axis"/>
+  <circle cx="560.0" cy="217.7" r="3.2" class="b-radix"/>
+  <line x1="650.0" y1="207.0" x2="650.0" y2="206.8" class="axis"/>
+  <circle cx="650.0" cy="206.9" r="3.2" class="b-radix"/>
+  <path d="M380.0,235.8 L470.0,232.2 L560.0,225.1 L650.0,218.3" class="ln-qp" fill="none"/>
+  <line x1="380.0" y1="236.5" x2="380.0" y2="235.2" class="axis"/>
+  <circle cx="380.0" cy="235.8" r="3.2" class="b-qp"/>
+  <line x1="470.0" y1="233.0" x2="470.0" y2="231.6" class="axis"/>
+  <circle cx="470.0" cy="232.2" r="3.2" class="b-qp"/>
+  <line x1="560.0" y1="225.5" x2="560.0" y2="224.9" class="axis"/>
+  <circle cx="560.0" cy="225.1" r="3.2" class="b-qp"/>
+  <line x1="650.0" y1="218.4" x2="650.0" y2="218.2" class="axis"/>
+  <circle cx="650.0" cy="218.3" r="3.2" class="b-qp"/>
+  <text x="700" y="100" class="t-bar-label">n = 1,000,000</text>
+  <line x1="700" y1="330.0" x2="970" y2="330.0" class="grid"/>
+  <text x="694" y="333.0" class="t-axis-label" text-anchor="end">0.1</text>
+  <line x1="700" y1="220.0" x2="970" y2="220.0" class="axis"/>
+  <text x="694" y="223.0" class="t-axis-label" text-anchor="end">1</text>
+  <line x1="700" y1="110.0" x2="970" y2="110.0" class="grid"/>
+  <text x="694" y="113.0" class="t-axis-label" text-anchor="end">10</text>
+  <text x="700.0" y="346" class="t-axis-label" text-anchor="middle">8 B</text>
+  <text x="790.0" y="346" class="t-axis-label" text-anchor="middle">35 B</text>
+  <text x="880.0" y="346" class="t-axis-label" text-anchor="middle">128 B</text>
+  <text x="970.0" y="346" class="t-axis-label" text-anchor="middle">240 B</text>
+  <path d="M700.0,308.7 L790.0,285.0 L880.0,284.0 L970.0,275.6" class="ln-patricia" fill="none"/>
+  <line x1="700.0" y1="308.8" x2="700.0" y2="308.6" class="axis"/>
+  <circle cx="700.0" cy="308.7" r="3.2" class="b-patricia"/>
+  <line x1="790.0" y1="285.1" x2="790.0" y2="284.9" class="axis"/>
+  <circle cx="790.0" cy="285.0" r="3.2" class="b-patricia"/>
+  <line x1="880.0" y1="284.1" x2="880.0" y2="283.8" class="axis"/>
+  <circle cx="880.0" cy="284.0" r="3.2" class="b-patricia"/>
+  <line x1="970.0" y1="275.6" x2="970.0" y2="275.6" class="axis"/>
+  <circle cx="970.0" cy="275.6" r="3.2" class="b-patricia"/>
+  <path d="M700.0,260.2 L790.0,235.4 L880.0,237.5 L970.0,229.9" class="ln-radix" fill="none"/>
+  <line x1="700.0" y1="260.2" x2="700.0" y2="260.1" class="axis"/>
+  <circle cx="700.0" cy="260.2" r="3.2" class="b-radix"/>
+  <line x1="790.0" y1="235.5" x2="790.0" y2="235.3" class="axis"/>
+  <circle cx="790.0" cy="235.4" r="3.2" class="b-radix"/>
+  <line x1="880.0" y1="237.6" x2="880.0" y2="237.4" class="axis"/>
+  <circle cx="880.0" cy="237.5" r="3.2" class="b-radix"/>
+  <line x1="970.0" y1="230.0" x2="970.0" y2="229.9" class="axis"/>
+  <circle cx="970.0" cy="229.9" r="3.2" class="b-radix"/>
+  <path d="M700.0,257.7 L790.0,234.3 L880.0,235.8 L970.0,228.0" class="ln-qp" fill="none"/>
+  <line x1="700.0" y1="258.0" x2="700.0" y2="257.7" class="axis"/>
+  <circle cx="700.0" cy="257.7" r="3.2" class="b-qp"/>
+  <line x1="790.0" y1="234.4" x2="790.0" y2="234.1" class="axis"/>
+  <circle cx="790.0" cy="234.3" r="3.2" class="b-qp"/>
+  <line x1="880.0" y1="235.9" x2="880.0" y2="235.6" class="axis"/>
+  <circle cx="880.0" cy="235.8" r="3.2" class="b-qp"/>
+  <line x1="970.0" y1="228.0" x2="970.0" y2="227.9" class="axis"/>
+  <circle cx="970.0" cy="228.0" r="3.2" class="b-qp"/>
+  <text x="24" y="384" class="t-note">x axis: shared-prefix length in bytes (key = prefix + 12 hex digits).</text>
+</svg>
