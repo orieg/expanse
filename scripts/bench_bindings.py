@@ -113,6 +113,50 @@ def parse_args():
     return p.parse_args()
 
 
+_STDERR_TAIL_LINES = 20
+
+
+def _run_json_harness(label: str, cmd: List[str], cwd: Path) -> Optional[Dict[str, Any]]:
+    """Runs a harness whose whole stdout is one JSON document, and parses it.
+
+    Stdout is held to that contract strictly: a status line printed ahead of the
+    JSON is a harness defect, not something to skip past, because tolerating it
+    would let any stray `print()` into the measured process unnoticed.
+
+    A failure names its cause in the log: the exit status, the first line of
+    stdout and the tail of stderr. A bare JSON parse error does not — the stray
+    line that broke the nightly python runtime (#780, #1078) was the cause, and
+    it was discarded.
+    """
+    try:
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    except OSError as e:
+        # Caught rather than raised: an uncaught exception exits 1, which the
+        # nightly step reads as EXIT_REGRESSION_FOUND and only warns on. A
+        # runtime that could not start is a missing result, and main() turns
+        # that into EXIT_DID_NOT_MEASURE.
+        print(f"[WARN] {label} benchmark failed: could not start {cmd[0]!r} ({e})", file=sys.stderr)
+        return None
+    if proc.returncode == 0:
+        try:
+            return json.loads(proc.stdout)
+        except json.JSONDecodeError as e:
+            reason = f"stdout is not one JSON document ({e})"
+    else:
+        reason = f"exited {proc.returncode}"
+    first = next((ln for ln in proc.stdout.splitlines() if ln.strip()), None)
+    lines = [f"[WARN] {label} benchmark failed: {reason}"]
+    lines.append(f"  first stdout line: {first[:200]!r}" if first is not None else "  stdout: empty")
+    tail = proc.stderr.rstrip().splitlines()[-_STDERR_TAIL_LINES:]
+    if tail:
+        lines.append(f"  stderr (last {len(tail)} lines):")
+        lines.extend(f"    {ln}" for ln in tail)
+    else:
+        lines.append("  stderr: empty")
+    print("\n".join(lines), file=sys.stderr)
+    return None
+
+
 def run_node_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     node_dir = REPO_ROOT / "crates" / "expanse-node"
     bench_js = node_dir / "bench.js"
@@ -123,12 +167,7 @@ def run_node_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     if quick:
         cmd.append("--quick")
 
-    try:
-        proc = subprocess.run(cmd, cwd=node_dir, capture_output=True, text=True, check=True)
-        return json.loads(proc.stdout)
-    except Exception as e:
-        print(f"[WARN] Node.js benchmark failed: {e}", file=sys.stderr)
-        return None
+    return _run_json_harness("Node.js", cmd, node_dir)
 
 
 def run_wasm_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
@@ -141,12 +180,7 @@ def run_wasm_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     if quick:
         cmd.append("--quick")
 
-    try:
-        proc = subprocess.run(cmd, cwd=wasm_dir, capture_output=True, text=True, check=True)
-        return json.loads(proc.stdout)
-    except Exception as e:
-        print(f"[WARN] WASM benchmark failed: {e}", file=sys.stderr)
-        return None
+    return _run_json_harness("WASM", cmd, wasm_dir)
 
 
 def run_python_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
@@ -159,12 +193,7 @@ def run_python_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     if quick:
         cmd.append("--quick")
 
-    try:
-        proc = subprocess.run(cmd, cwd=py_dir, capture_output=True, text=True, check=True)
-        return json.loads(proc.stdout)
-    except Exception as e:
-        print(f"[WARN] Python benchmark failed: {e}", file=sys.stderr)
-        return None
+    return _run_json_harness("Python", cmd, py_dir)
 
 
 def run_php_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
@@ -180,12 +209,7 @@ def run_php_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     if quick:
         cmd.append("--quick")
 
-    try:
-        proc = subprocess.run(cmd, cwd=php_dir, capture_output=True, text=True, check=True)
-        return json.loads(proc.stdout)
-    except Exception as e:
-        print(f"[WARN] PHP benchmark failed: {e}", file=sys.stderr)
-        return None
+    return _run_json_harness("PHP", cmd, php_dir)
 
 
 def run_ruby_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
@@ -198,12 +222,7 @@ def run_ruby_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     if quick:
         cmd.append("--quick")
 
-    try:
-        proc = subprocess.run(cmd, cwd=rb_dir, capture_output=True, text=True, check=True)
-        return json.loads(proc.stdout)
-    except Exception as e:
-        print(f"[WARN] Ruby benchmark failed: {e}", file=sys.stderr)
-        return None
+    return _run_json_harness("Ruby", cmd, rb_dir)
 
 
 _GO_BENCH_LINE_RE = re.compile(
@@ -824,6 +843,56 @@ def run_self_test() -> int:
     finally:
         RUNNERS.clear()
         RUNNERS.update(saved_runners)
+
+    # 7. A JSON-stdout harness that fails says why. Driven through real child
+    #    processes; the stray line is the one #780 put ahead of the JSON.
+    import contextlib
+    import io
+
+    def harness(code: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            got = _run_json_harness("Synthetic", [sys.executable, "-c", code], REPO_ROOT)
+        return got, err.getvalue()
+
+    got, warn = harness('import json; print(json.dumps({"runtime": "python", "results": []}))')
+    check("json harness: clean stdout parses", got == {"runtime": "python", "results": []} and warn == "")
+
+    got, warn = harness(
+        "import json, sys\n"
+        "print('core pin: not needed \\u2014 this host exposes one core class (bench.py)')\n"
+        "print(json.dumps({'runtime': 'python', 'results': []}))\n"
+    )
+    check("json harness: a status line ahead of the JSON is refused", got is None)
+    check(
+        "json harness: the refusal quotes the stray stdout line",
+        "not one JSON document" in warn and "first stdout line: 'core pin: not needed" in warn,
+    )
+
+    got, warn = harness("import sys; sys.stderr.write('Error: expanse_trie module not found\\n'); sys.exit(1)")
+    check(
+        "json harness: a non-zero exit reports its status and stderr",
+        got is None and "exited 1" in warn and "stdout: empty" in warn and "expanse_trie module not found" in warn,
+    )
+
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        got = _run_json_harness("Synthetic", [str(Path(tempfile.gettempdir()) / "no-such-runtime-binary")], REPO_ROOT)
+    check("json harness: a runtime that cannot start is a missing result", got is None and "could not start" in err.getvalue())
+
+    # The python runner reaches that helper. Asserted at the call site: the
+    # checks above stay green if a runner goes back to parsing stdout itself.
+    calls: List[Tuple[str, List[str]]] = []
+    saved_helper = globals()["_run_json_harness"]
+    globals()["_run_json_harness"] = lambda label, cmd, cwd: calls.append((label, cmd)) or {"runtime": "python"}
+    try:
+        got = run_python_benchmark(True)
+    finally:
+        globals()["_run_json_harness"] = saved_helper
+    check(
+        "json harness: run_python_benchmark goes through it",
+        got == {"runtime": "python"} and len(calls) == 1 and calls[0][1][-2:] == ["--json", "--quick"],
+    )
 
     if failures:
         print(f"\nSelf-test FAILED ({len(failures)}): {failures}", file=sys.stderr)

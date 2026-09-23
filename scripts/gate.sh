@@ -141,6 +141,7 @@ python3 scripts/check_ecosystem_theme.py --self-test
 python3 scripts/check_bench_suites.py --self-test
 python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/check_bench_pin.py --self-test
+python3 scripts/bench_bindings.py --self-test
 python3 scripts/check_public_api.py --self-test
 python3 scripts/check_readme_tables.py --self-test
 python3 docs/benchmarks/hot_comparison/scripts/concurrent_tables.py --self-test
