@@ -283,6 +283,11 @@ def main_run(args: argparse.Namespace) -> int:
         print(f"cannot read {MANIFEST.relative_to(ROOT)}: {exc}", file=sys.stderr)
         return 2
     entries, seeds, errors = load_manifest(data, module_tests(SYNC_RS.read_text()))
+    if args.seeds:
+        if not re.fullmatch(r"\d+\.\.\d+", args.seeds):
+            print(f"--seeds must look like 0..4, got {args.seeds}", file=sys.stderr)
+            return 2
+        seeds = args.seeds
     if errors:
         for e in errors:
             print(f"::error::miri-ub-sites manifest: {e}")
@@ -449,6 +454,7 @@ def main() -> int:
     mode.add_argument("--self-test", action="store_true")
     ap.add_argument("--only", help="one workload")
     ap.add_argument("--toolchain", help="run `cargo +TOOLCHAIN miri`")
+    ap.add_argument("--seeds", help="override the manifest seed range (e.g. 0..2) for a quick development run; a verdict needs the manifest's own range")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
