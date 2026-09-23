@@ -574,10 +574,12 @@ pub struct ExpanseBytesMap<S: BuildHasher = DefaultBuildHasher> {
 ///   ([`refresh_replacement_values`]), so the two cannot interleave
 ///   and no acknowledged overwrite is dropped.
 ///
-/// `root` is the hash trie's root state and `h` the key's hash under the
-/// map's hasher. Neither is read from the map here: the concurrent wrapper
+/// `root` is the hash trie's root state and `hasher` hashes as the map's
+/// hasher does. Neither is read from the map here: the concurrent wrapper
 /// passes its published root and its own copy of the hasher, so a reader
 /// forms no reference to a map a covered writer may hold `&mut` to (#1086).
+/// Inlined, hash included, into the reader's retry loop: the hash is only
+/// specialised to the call when it is inlined with it.
 ///
 /// # Safety
 ///
@@ -588,14 +590,16 @@ pub struct ExpanseBytesMap<S: BuildHasher = DefaultBuildHasher> {
 /// for the whole call — every pointer read under a still-valid cover then
 /// references EBR-live memory.
 #[cfg(all(target_pointer_width = "64", feature = "std"))]
-pub(crate) unsafe fn get_validated(
+#[inline(always)]
+pub(crate) unsafe fn get_validated<S: BuildHasher>(
     root: crate::sync::RootSnapshot,
-    h: u64,
+    hasher: &S,
     key: &[u8],
     ver: &crate::occ::SeqVersion,
     snap: u64,
 ) -> Result<Option<u64>, crate::sync::Retry> {
     use crate::sync::Retry;
+    let h = hasher.hash_one(key);
     // SAFETY: the caller's pin + snapshot contract carries through.
     let found = unsafe { crate::sync::walk_validated::<true>(root, h, ver, snap) }?;
     let Some(word) = found else { return Ok(None) };

@@ -11381,7 +11381,6 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
     pub fn get(&self, key: &[u8]) -> Option<u64> {
         let shared = &self.map.shared;
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        let h = self.map.hasher.hash_one(key);
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
@@ -11391,8 +11390,9 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
             let root = shared.published().load();
             // SAFETY: pinned + freshly sampled version, the root loaded after
             // it; every load is validated (see `bytesmap::get_validated`).
-            let attempt =
-                unsafe { crate::bytesmap::get_validated(root, h, key, shared.version(), snap) };
+            let attempt = unsafe {
+                crate::bytesmap::get_validated(root, &self.map.hasher, key, shared.version(), snap)
+            };
             if let Ok(r) = attempt {
                 return r;
             }
