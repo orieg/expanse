@@ -2378,6 +2378,17 @@ impl MapCore {
         crate::cursor::MapCursor::new(self.range_fwd_raw(start), self.cursor_top())
     }
 
+    /// The engine behind [`cursor_from`](Self::cursor_from), without the
+    /// `MapCursor` wrapper's `PhantomData<&ExpanseMap>`. For a crate-internal
+    /// owner that keeps the cursor across calls and must not inherit the
+    /// public map's auto-trait bounds (`StrCursor`, #1096): the marker would
+    /// make it `!RefUnwindSafe`, a change to its public API.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn raw_cursor_from(&self, start: Key) -> crate::cursor::RawCursor<true> {
+        crate::cursor::RawCursor::new(self.range_fwd_raw(start), self.cursor_top())
+    }
+
     /// Ascending iterator over `(key, value)` entries.
     #[inline(always)]
     #[must_use]

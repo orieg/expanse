@@ -26,6 +26,7 @@
 //!   NUL-free key bytes and the user value in a single allocation.
 
 use crate::alloc::NodeAlloc;
+use crate::cursor::RawCursor;
 use crate::map::MapCore;
 #[cfg(feature = "std")]
 use crate::occ::Collector;
@@ -1063,10 +1064,18 @@ impl StrNode {
 /// truncates the key buffer back to it and appends the next chunk, so the
 /// prefix every ancestor contributed is never recomputed and never
 /// reallocated.
+///
+/// `advanced` makes advancing within a level incremental too (#1096). The
+/// first advance of a level is a positional `next_after`, one descent of the
+/// level's sub-map; the second builds a sub-map cursor just past the current
+/// chunk in [`StrCursor::subs`], and every later advance streams it instead of
+/// re-descending from the sub-map root. A level advanced only once — the
+/// one-entry sub-maps under a distinct key — never builds one.
 struct StrFrame {
     node: *mut StrNode,
     chunk: u64,
     key_len: usize,
+    advanced: bool,
 }
 
 /// An ordered cursor over [`ExpanseStrMap`], and the reason it exists: the
@@ -1103,6 +1112,11 @@ pub struct StrCursor<'a> {
     /// The path from the root to the entry last emitted. Empty before the
     /// first `next` and after the walk is exhausted.
     stack: Vec<StrFrame>,
+    /// One slot per frame depth: the sub-map cursor of the level at that
+    /// depth once it has been advanced twice, `None` before that. Reused in
+    /// place across levels, so after it first grows to the deepest path it
+    /// costs no allocation per element or per level (#722, #1096).
+    subs: Vec<Option<RawCursor<true>>>,
     /// The key last emitted, reused across elements.
     key: Vec<u8>,
     /// Set once the walk has run out, so a caller looping to `None` does not
@@ -1122,6 +1136,7 @@ impl<'a> StrCursor<'a> {
     fn new(map: &'a mut ExpanseStrMap) -> Self {
         Self {
             stack: Vec::new(),
+            subs: Vec::new(),
             key: Vec::new(),
             done: false,
             started: false,
@@ -1130,21 +1145,72 @@ impl<'a> StrCursor<'a> {
         }
     }
 
+    /// Pushes a frame at depth `stack.len()`. A fresh level (`!advanced`)
+    /// clears its cursor slot; a level that replaces its own previous frame
+    /// keeps it, so its sub-map cursor survives the step.
+    fn push_frame(&mut self, node: *mut StrNode, chunk: u64, key_len: usize, advanced: bool) {
+        let depth = self.stack.len();
+        if self.subs.len() <= depth {
+            self.subs.resize_with(depth + 1, || None);
+        } else if !advanced {
+            self.subs[depth] = None;
+        }
+        self.stack.push(StrFrame {
+            node,
+            chunk,
+            key_len,
+            advanced,
+        });
+    }
+
+    /// The next entry after `frame.chunk` in the level `frame` records, which
+    /// sat at depth `stack.len()` before it was popped: streamed from that
+    /// depth's sub-map cursor if built, a positional `next_after` on the
+    /// level's first advance, and a newly built cursor on its second.
+    fn sibling(&mut self, frame: &StrFrame) -> Option<(u64, u64)> {
+        let depth = self.stack.len();
+        if let Some(c) = self.subs[depth].as_mut() {
+            return c.next();
+        }
+        // SAFETY: `node` was recorded on the walk and stays live for the
+        // cursor's borrow of the map. The reference is transient: a
+        // `RawCursor` holds raw pointers only, never this borrow, and
+        // it reads only entries after those already emitted, which are the
+        // only slots a caller can have written through.
+        let node: &StrNode = unsafe { &*frame.node };
+        if !frame.advanced {
+            return node.map.next_after(frame.chunk);
+        }
+        let mut c = node.map.raw_cursor_from(frame.chunk.checked_add(1)?);
+        let entry = c.next();
+        self.subs[depth] = Some(c);
+        entry
+    }
+
     /// Descends from `node` taking the smallest entry at every level until an
     /// entry that *is* a value is reached, pushing a frame per level.
     ///
     /// `entry` is the entry to take at `node`; every level below takes its
     /// `first`. Returns the value slot, or `None` for an empty node, which a
     /// well-formed trie does not contain below the root.
-    fn descend(&mut self, mut node: *mut StrNode, mut entry: (u64, u64)) -> Option<NonNull<u64>> {
+    fn descend(&mut self, node: *mut StrNode, entry: (u64, u64)) -> Option<NonNull<u64>> {
+        self.descend_from(node, entry, false)
+    }
+
+    /// [`descend`](Self::descend), with the first level's frame carrying the
+    /// advance state of the frame it replaces: with `advanced`, the level keeps
+    /// its sub-map cursor slot; every level below starts fresh.
+    fn descend_from(
+        &mut self,
+        mut node: *mut StrNode,
+        mut entry: (u64, u64),
+        mut advanced: bool,
+    ) -> Option<NonNull<u64>> {
         loop {
             let (chunk, v) = entry;
             let key_len = self.key.len();
-            self.stack.push(StrFrame {
-                node,
-                chunk,
-                key_len,
-            });
+            self.push_frame(node, chunk, key_len, advanced);
+            advanced = false;
             if is_terminal(chunk) {
                 self.key.extend(terminal_bytes(chunk));
                 // SAFETY: `node` is a live node on the path just walked, and
@@ -1206,11 +1272,8 @@ impl<'a> StrCursor<'a> {
         // key bytes each abandoned level contributed.
         while let Some(frame) = self.stack.pop() {
             self.key.truncate(frame.key_len);
-            // SAFETY: recorded during the descent and still live; the borrow
-            // taken from it in `descend` has ended.
-            let sibling = unsafe { &*frame.node }.map.next_after(frame.chunk);
-            if let Some(entry) = sibling {
-                let slot = self.descend(frame.node, entry);
+            if let Some(entry) = self.sibling(&frame) {
+                let slot = self.descend_from(frame.node, entry, true);
                 return self.emit(slot);
             }
         }
@@ -1271,11 +1334,8 @@ impl<'a> StrCursor<'a> {
                 } else {
                     // Exact continuation — the answer is deeper if it exists.
                     // Record the level so the unwind below can resume at it.
-                    self.stack.push(StrFrame {
-                        node,
-                        chunk,
-                        key_len: self.key.len(),
-                    });
+                    let key_len = self.key.len();
+                    self.push_frame(node, chunk, key_len, false);
                     self.key.extend_from_slice(&chunk.to_be_bytes());
                     node = unpack_child(v);
                     off += CHUNK;
@@ -1287,10 +1347,8 @@ impl<'a> StrCursor<'a> {
             // Nothing at or after here: unwind, exactly as `next` does.
             while let Some(frame) = self.stack.pop() {
                 self.key.truncate(frame.key_len);
-                // SAFETY: recorded during this descent; still live.
-                let p = unsafe { &*frame.node };
-                if let Some(entry) = p.map.next_after(frame.chunk) {
-                    return self.descend(frame.node, entry);
+                if let Some(entry) = self.sibling(&frame) {
+                    return self.descend_from(frame.node, entry, true);
                 }
             }
             self.done = true;
@@ -2987,6 +3045,77 @@ mod tests {
             walked.windows(2).all(|w| w[0].0 < w[1].0),
             "cursor order is not byte-lexicographic"
         );
+    }
+
+    /// Levels advanced many times stream from a sub-map cursor after their
+    /// second advance (#1096): the walk still visits exactly what the
+    /// positional surface visits, including a level whose chunk is
+    /// `u64::MAX` (all `0xFF`, which has no successor), and a walk resumed
+    /// from a seek into the middle of a level.
+    #[test]
+    fn cursor_streams_levels_it_advances_repeatedly() {
+        let mut keys: Vec<Vec<u8>> = Vec::new();
+        let groups = if cfg!(miri) { 6 } else { 40 };
+        for g in 0..groups {
+            for j in 0..(3 + g % 3) {
+                let mut k = format!("grp{g:05}").into_bytes();
+                k.extend_from_slice(format!("sub{j:05}").as_bytes());
+                if j % 2 == 0 {
+                    k.extend_from_slice(b"tail");
+                }
+                keys.push(k);
+            }
+        }
+        for tail in [
+            b"".as_slice(),
+            b"a",
+            b"b",
+            b"\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF",
+        ] {
+            let mut k = vec![0xFF; 8];
+            k.extend_from_slice(tail);
+            keys.push(k);
+        }
+        let mut m = ExpanseStrMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        let positional_from = |m: &mut ExpanseStrMap, start: Option<&[u8]>| {
+            let mut out: Vec<(Vec<u8>, u64)> = Vec::new();
+            let mut cur = match start {
+                Some(s) => m.next_at_or_after(tk(s)),
+                None => m.first(),
+            };
+            while let Some((k, slot)) = cur {
+                // SAFETY: slot is live until the next structural mutation;
+                // this walk performs none.
+                out.push((k.clone(), unsafe { *slot.as_ptr() }));
+                cur = m.next_after(tk(&k));
+            }
+            out
+        };
+        let expected = positional_from(&mut m, None);
+        assert_eq!(expected.len(), keys.len());
+        let mut walked: Vec<(Vec<u8>, u64)> = Vec::new();
+        let mut c = m.cursor();
+        while let Some((k, slot)) = c.next() {
+            // SAFETY: as above.
+            walked.push((k.to_vec(), unsafe { *slot.as_ptr() }));
+        }
+        assert_eq!(
+            walked, expected,
+            "streamed walk diverges from the positional walk"
+        );
+
+        let start = b"grp00001sub00001".to_vec();
+        let expected = positional_from(&mut m, Some(&start));
+        let mut walked: Vec<(Vec<u8>, u64)> = Vec::new();
+        let mut c = m.cursor_at_or_after(tk(&start));
+        while let Some((k, slot)) = c.next() {
+            // SAFETY: as above.
+            walked.push((k.to_vec(), unsafe { *slot.as_ptr() }));
+        }
+        assert_eq!(walked, expected, "walk resumed from a seek diverges");
     }
 
     /// Seeking lands where `next_at_or_after` lands, for keys that are
