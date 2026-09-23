@@ -111,14 +111,67 @@ fn suffix_layout(len: usize) -> Layout {
         .expect("suffix layout: size is header + key remainder, align is 8")
 }
 
-/// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
-fn new_suffix(bytes: &[u8], value: u64) -> *mut StrSuffix {
-    let layout = suffix_layout(bytes.len());
-    // SAFETY: `layout` has non-zero size — the header alone is 16 bytes.
-    let raw = unsafe { core_alloc::alloc::alloc(layout) };
-    if raw.is_null() {
-        core_alloc::alloc::handle_alloc_error(layout);
+/// Where suffix leaves are allocated. With `packed-suffix` they come from the
+/// tree's `NodeAlloc` size classes (slab-carved up to 256 bytes), so a
+/// suffix costs its size rounded to 16 bytes and no system-allocator chunk
+/// header; without it this is a zero-sized marker and suffixes are separate
+/// global allocations, as before the feature existed.
+#[derive(Clone, Copy)]
+struct SuffixArena<'a> {
+    #[cfg(feature = "packed-suffix")]
+    alloc: &'a NodeAlloc,
+    #[cfg(not(feature = "packed-suffix"))]
+    _alloc: core::marker::PhantomData<&'a NodeAlloc>,
+}
+
+impl<'a> SuffixArena<'a> {
+    #[inline(always)]
+    fn of(alloc: &'a NodeAlloc) -> Self {
+        #[cfg(feature = "packed-suffix")]
+        {
+            Self { alloc }
+        }
+        #[cfg(not(feature = "packed-suffix"))]
+        {
+            let _ = alloc;
+            Self {
+                _alloc: core::marker::PhantomData,
+            }
+        }
     }
+}
+
+/// The `NodeAlloc` request for a packed suffix with this `suffix_layout`:
+/// header plus bytes, fitted to a size class so it never becomes its own
+/// system allocation. Every alloc and free of a packed suffix goes through
+/// this, so the two always agree.
+#[cfg(feature = "packed-suffix")]
+#[inline]
+fn packed_suffix_bytes(layout: Layout) -> usize {
+    crate::alloc::raw_class_fit(layout.size())
+}
+
+/// Whether suffix bytes are already inside `NodeAlloc::bytes_in_use`.
+const SUFFIX_IN_NODE_ALLOC: bool = cfg!(feature = "packed-suffix");
+
+/// Allocates a suffix leaf holding `bytes` and `value` in one allocation.
+fn new_suffix(bytes: &[u8], value: u64, arena: SuffixArena<'_>) -> *mut StrSuffix {
+    let layout = suffix_layout(bytes.len());
+    #[cfg(feature = "packed-suffix")]
+    let raw = arena
+        .alloc
+        .alloc_bytes(packed_suffix_bytes(layout))
+        .as_ptr();
+    #[cfg(not(feature = "packed-suffix"))]
+    let raw = {
+        let _ = arena;
+        // SAFETY: `layout` has non-zero size — the header alone is 16 bytes.
+        let raw = unsafe { core_alloc::alloc::alloc(layout) };
+        if raw.is_null() {
+            core_alloc::alloc::handle_alloc_error(layout);
+        }
+        raw
+    };
     let ptr = raw.cast::<StrSuffix>();
     // SAFETY: `raw` is a fresh allocation of `SUFFIX_BYTES + bytes.len()` at
     // `align_of::<StrSuffix>()`, so the header write is in bounds and aligned
@@ -281,12 +334,30 @@ const _: () = {
 /// shape this replaces had to move the byte buffer's owning `Box` out **by
 /// value** so its provenance travelled to the collector, and to special-case
 /// an empty suffix that owned no buffer at all; neither applies now.
-fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>) {
+fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixArena<'_>) {
     // SAFETY: the caller unlinked `ptr` and this is the last owner, so the
     // header is still live and `len` — write-once since publication — still
     // describes the allocation `new_suffix` made.
     let layout = suffix_layout(unsafe { (*ptr).len });
-    #[cfg(feature = "std")]
+    // The tree's allocator decides between freeing and retiring by itself:
+    // a shared tree's allocator is deferred, so this retires through the
+    // same collector `defer` names.
+    #[cfg(feature = "packed-suffix")]
+    {
+        let _ = defer;
+        // SAFETY: `ptr` came from `alloc_bytes(packed_suffix_bytes(layout))` on this
+        // allocator in `new_suffix`, is unlinked, and is freed once.
+        unsafe {
+            arena.alloc.free_bytes(
+                NonNull::new(ptr.cast::<u8>()).expect("non-null suffix"),
+                packed_suffix_bytes(layout),
+            );
+        }
+    }
+    // Every arm below is the global-allocator path, compiled out above.
+    #[cfg(not(feature = "packed-suffix"))]
+    let _ = arena;
+    #[cfg(all(feature = "std", not(feature = "packed-suffix")))]
     match defer {
         // SAFETY: unlinked, last owner, and `layout` is by construction the
         // one this block was allocated with.
@@ -297,7 +368,7 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>) {
             layout.align(),
         ),
     }
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), not(feature = "packed-suffix")))]
     {
         // Without `std` there is no epoch collector to defer to, so the
         // deferred arm degenerates to the immediate one.
@@ -385,7 +456,7 @@ fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
         for (k, v) in unsafe { (*p).map.iter() } {
             if !is_terminal(k) {
                 if is_suffix_ptr(v) {
-                    dispose_suffix(unpack_suffix(v), defer);
+                    dispose_suffix(unpack_suffix(v), defer, SuffixArena::of(alloc));
                 } else {
                     debug_assert_ne!(v, 0);
                     stack.push(unpack_child(v));
@@ -910,7 +981,7 @@ impl StrNode {
                     // SAFETY: unlinked but still live; last owner.
                     let removed_val = unsafe { (*sfx).value };
                     // Unlinked above; retired when shared.
-                    dispose_suffix(sfx, defer);
+                    dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                     break removed_val;
                 }
                 return None;
@@ -968,8 +1039,12 @@ impl StrNode {
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
                         // One block: header plus the inline bytes, which is
-                        // exactly what `dispose_suffix` will hand back.
-                        bytes += suffix_layout(len).size() as u64;
+                        // exactly what `dispose_suffix` will hand back —
+                        // unless it came from `NodeAlloc`, whose
+                        // `bytes_in_use` already counts it.
+                        if !SUFFIX_IN_NODE_ALLOC {
+                            bytes += suffix_layout(len).size() as u64;
+                        }
                     } else {
                         debug_assert_ne!(v, 0);
                         stack.push(unpack_child(v));
@@ -1439,7 +1514,8 @@ impl ExpanseStrMap {
             // The continuation bytes are copied into the new leaf here, so
             // the borrow of `old` is over before it is disposed of.
             // SAFETY: as above.
-            let s1 = unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value) };
+            let s1 =
+                unsafe { new_suffix(&suffix_bytes(old)[CHUNK..], value, SuffixArena::of(alloc)) };
             child
                 .map
                 .insert_pathless_dispatch::<SHARED, SHARED>(alloc, c1, pack_suffix(s1));
@@ -1464,7 +1540,7 @@ impl ExpanseStrMap {
         covered::<SHARED, _>(node, alloc, |m| {
             m.insert_pathless_dispatch::<SHARED, SHARED>(alloc, chunk, pack_child(child_raw))
         });
-        dispose_suffix(old, defer);
+        dispose_suffix(old, defer, SuffixArena::of(alloc));
         child_raw
     }
 
@@ -1521,7 +1597,7 @@ impl ExpanseStrMap {
             }
             match node.map.get(chunk) {
                 None => {
-                    let suffix = new_suffix(&key[off + CHUNK..], val);
+                    let suffix = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
                     resync::<SHARED>(node);
                     covered::<SHARED, _>(node, alloc, |m| {
                         m.insert_pathless_dispatch::<SHARED, SHARED>(
@@ -1619,7 +1695,7 @@ impl ExpanseStrMap {
             }
             match node.map.get(chunk) {
                 None => {
-                    let suffix = new_suffix(&key[off + CHUNK..], 0);
+                    let suffix = new_suffix(&key[off + CHUNK..], 0, SuffixArena::of(alloc));
                     resync::<SHARED>(node);
                     covered::<SHARED, _>(node, alloc, |m| {
                         m.insert_pathless_dispatch::<SHARED, SHARED>(
@@ -2198,12 +2274,29 @@ mod olc {
 
     /// Frees a suffix leaf that was allocated and never published: no reader
     /// can hold it, so it needs no retirement.
-    fn free_unpublished_suffix(ptr: *mut StrSuffix) {
+    fn free_unpublished_suffix(ptr: *mut StrSuffix, arena: SuffixArena<'_>) {
         // SAFETY: allocated by `new_suffix` on this thread and never stored
         // anywhere; `len` describes the allocation.
         let layout = suffix_layout(unsafe { (*ptr).len });
-        // SAFETY: as above, and `layout` is the one the block was allocated with.
-        unsafe { core_alloc::alloc::dealloc(ptr.cast::<u8>(), layout) };
+        // With `packed-suffix` the block is the allocator's: it goes back
+        // through the unpublished path, which recycles it at once without a
+        // grace period — no reader ever saw it.
+        #[cfg(feature = "packed-suffix")]
+        // SAFETY: `ptr` came from `alloc_bytes(packed_suffix_bytes(layout))` on this
+        // allocator in `new_suffix` and was never published.
+        unsafe {
+            arena.alloc.free_bytes_unpublished(
+                NonNull::new(ptr.cast::<u8>()).expect("non-null suffix"),
+                packed_suffix_bytes(layout),
+            );
+        }
+        #[cfg(not(feature = "packed-suffix"))]
+        {
+            let _ = arena;
+            // SAFETY: as above, and `layout` is the one the block was
+            // allocated with.
+            unsafe { core_alloc::alloc::dealloc(ptr.cast::<u8>(), layout) };
+        }
     }
 
     /// The chunk-chain frames of an optimistic remove, for the prune that may
@@ -2351,7 +2444,7 @@ mod olc {
                     Some(v) => v,
                     None => {
                         // T2: publish a suffix leaf holding the key's remainder.
-                        let sfx = new_suffix(&key[off + CHUNK..], val);
+                        let sfx = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
                         let w = pack_suffix(sfx);
                         if is_tree {
                             match olc_insert_map::<_, true>(&host, chunk, w) {
@@ -2359,11 +2452,11 @@ mod olc {
                                 OlcOutcome::Done(Some(existing)) => {
                                     // Another writer published this chunk first:
                                     // ours was never reachable.
-                                    free_unpublished_suffix(sfx);
+                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
                                     existing
                                 }
                                 other => {
-                                    free_unpublished_suffix(sfx);
+                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
                                     return other;
                                 }
                             }
@@ -2371,7 +2464,7 @@ mod olc {
                             // SAFETY: live node (above).
                             let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
                             else {
-                                free_unpublished_suffix(sfx);
+                                free_unpublished_suffix(sfx, SuffixArena::of(alloc));
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: as for T1 in leaf state.
@@ -2455,7 +2548,7 @@ mod olc {
                         debug_assert_eq!(old_w, Some(v), "the entry moved under the cover lock");
                     }
                     // Unlinked above; retired, since a reader may still hold it.
-                    dispose_suffix(sfx, defer);
+                    dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                     drop(lock);
                     node = child_raw;
                     off += CHUNK;
@@ -2599,7 +2692,7 @@ mod olc {
                     // SAFETY: unlinked but still live; last owner. Read out
                     // before disposal.
                     let val = unsafe { (*sfx).value };
-                    dispose_suffix(sfx, defer);
+                    dispose_suffix(sfx, defer, SuffixArena::of(alloc));
                     // SAFETY: as for T7.
                     let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
                     return (OlcOutcome::Done(Some(val)), deferred);
