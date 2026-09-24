@@ -1011,11 +1011,18 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
     /// Removes every key and releases all memory.
     pub fn clear(&mut self) {
+        self.clear_entries();
+        self.map.shrink_to_fit();
+    }
+
+    /// [`Self::clear`] without returning the trie allocator's freed blocks,
+    /// for `Drop`, where the trie's own `Drop` frees them.
+    fn clear_entries(&mut self) {
         let defer = self.defer_handle();
         let buckets: Vec<u64> = self.map.iter().map(|(_, word)| word).collect();
         // Unlink everything from the trie first (its nodes free/retire
         // through its own `NodeAlloc`), then dispose of the buckets.
-        self.map.clear();
+        self.map.clear_entries();
         for word in buckets {
             // Each collected word is a live bucket, unlinked above and
             // disposed of (with its keys) exactly once here.
@@ -1028,7 +1035,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
 impl<S: BuildHasher> Drop for ExpanseBytesMap<S> {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_entries();
     }
 }
 

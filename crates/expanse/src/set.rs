@@ -1106,9 +1106,15 @@ impl ExpanseSet {
     /// after `clear` starts cold. Not on a set shared through a concurrent
     /// wrapper, whose blocks belong to its collector.
     pub fn clear(&mut self) {
+        self.clear_entries();
+        self.alloc.release_free();
+    }
+
+    /// [`Self::clear`] without the release, for `Drop`, where a release
+    /// would only walk the blocks the allocator's own `Drop` frees.
+    fn clear_entries(&mut self) {
         by_mode!(self.alloc, 1 self.clear_dispatch());
         debug_assert_eq!(self.alloc.bytes_in_use(), 0);
-        self.alloc.release_free();
     }
 
     /// Single-threaded clear, bypassing OCC checks. Unlike [`Self::clear`]
@@ -2312,7 +2318,7 @@ impl Default for ExpanseSet {
 
 impl Drop for ExpanseSet {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_entries();
     }
 }
 

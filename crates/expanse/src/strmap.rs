@@ -2108,6 +2108,17 @@ impl ExpanseStrMap {
     /// last key, the allocator's retained blocks go back to the system
     /// allocator too; the return value counts only the entries' bytes.
     pub fn clear(&mut self) -> u64 {
+        let bytes = self.clear_entries();
+        // As an emptying `remove`; a no-op on a shared map.
+        self.alloc.release_free();
+        bytes
+    }
+
+    /// [`Self::clear`] without the release: frees every entry and leaves
+    /// the allocator's freed blocks in place. For `Drop` and the C ABI's
+    /// `JudySLFreeArray`, which drop the allocator straight after, so a
+    /// release there would only walk the blocks its own `Drop` frees.
+    fn clear_entries(&mut self) -> u64 {
         let bytes = match self.root.take() {
             Some(root) => {
                 // Count first — the shared allocator's byte-exact
@@ -2127,16 +2138,17 @@ impl ExpanseStrMap {
             None => 0,
         };
         self.pop = 0;
-        // As an emptying `remove`; a no-op on a shared map.
-        self.alloc.release_free();
         bytes
     }
 
-    /// Single-threaded clear, bypassing deferred/OCC checks.
+    /// Single-threaded clear, bypassing deferred/OCC checks. Unlike
+    /// [`Self::clear`] it keeps the allocator's freed blocks: the C ABI's
+    /// `JudySLFreeArray` drops the map straight after, which returns them
+    /// anyway.
     #[doc(hidden)]
     #[inline(always)]
     pub fn clear_plain(&mut self) -> u64 {
-        self.clear()
+        self.clear_entries()
     }
 }
 
@@ -3003,7 +3015,7 @@ impl Default for ExpanseStrMap {
 
 impl Drop for ExpanseStrMap {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_entries();
     }
 }
 

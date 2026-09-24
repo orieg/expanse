@@ -3417,12 +3417,20 @@ impl ExpanseMap {
     /// starts cold. Not on a map shared through a concurrent wrapper, whose
     /// blocks belong to its collector.
     pub fn clear(&mut self) {
+        self.clear_entries();
+        self.alloc.release_free();
+    }
+
+    /// [`Self::clear`] without the release: frees every entry and leaves the
+    /// allocator's freed blocks in place. For `Drop` and for owners about to
+    /// drop the map, where a release would only walk the blocks the
+    /// allocator's own `Drop` frees.
+    pub(crate) fn clear_entries(&mut self) {
         by_mode!(
             self.alloc,
             1 self.core.clear(&self.alloc, self.path.get_mut())
         );
         debug_assert_eq!(self.alloc.bytes_in_use(), 0);
-        self.alloc.release_free();
     }
 
     /// Single-threaded clear, bypassing OCC checks. Unlike [`Self::clear`]
@@ -3603,7 +3611,7 @@ impl Default for ExpanseMap {
 
 impl Drop for ExpanseMap {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_entries();
     }
 }
 
