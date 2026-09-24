@@ -199,10 +199,16 @@ pub enum Stat {
     /// harness that sums all seven still reaches [`Stat::LockFallbacks`]
     /// and one that sums the six is short by exactly this counter.
     FallbackForced = 46,
+    /// Optimistic map and set read attempts during which a covered write
+    /// opened or closed the tree word: the reader's sample no longer
+    /// validates after its walk (#1086). The window in which a reader walks
+    /// nodes a covered writer is mutating; a workload that should exercise
+    /// it is checked against this being non-zero.
+    ReadCoverOverlaps = 47,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 47;
+pub const NUM_STATS: usize = 48;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -253,6 +259,7 @@ pub const NAMES: [&str; NUM_STATS] = [
     "cap_expansion_map_bitmap_sub",
     "cap_expansion_remove",
     "fallback_forced",
+    "read_cover_overlaps",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -435,13 +442,14 @@ pub const fn enabled() -> bool {
 // ---- cycle counter ------------------------------------------------------
 
 /// The host's cycle counter: `rdtsc` on x86-64, `cntvct_el0` on AArch64,
-/// zero elsewhere. Constant-rate on every target it reads (a wall-clock
+/// zero elsewhere and under Miri, which cannot execute either instruction.
+/// Constant-rate on every target it reads (a wall-clock
 /// tick, not a core-clock cycle), so a delta converts to seconds with
 /// [`cycles_hz`]. Always compiled; costs one instruction where it exists.
 #[must_use]
 #[inline(always)]
 pub fn cycles_now() -> u64 {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
         let (lo, hi): (u32, u32);
         // SAFETY: `rdtsc` reads the time-stamp counter into edx:eax and has no
@@ -451,7 +459,7 @@ pub fn cycles_now() -> u64 {
         }
         (u64::from(hi) << 32) | u64::from(lo)
     }
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
         let v: u64;
         // SAFETY: `cntvct_el0` is the user-readable virtual counter; the read
@@ -461,7 +469,7 @@ pub fn cycles_now() -> u64 {
         }
         v
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
         0
     }
@@ -527,7 +535,11 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::FallbackForced as usize + 1, NUM_STATS);
+        assert_eq!(Stat::ReadCoverOverlaps as usize + 1, NUM_STATS);
+        assert_eq!(
+            NAMES[Stat::ReadCoverOverlaps as usize],
+            "read_cover_overlaps"
+        );
         assert_eq!(NAMES[Stat::SampleSpinCycles as usize], "sample_spin_cycles");
         assert_eq!(NAMES[Stat::DeepCascades as usize], "deep_cascades");
         assert_eq!(NAMES[Stat::LockRestarts as usize], "lock_restarts");
