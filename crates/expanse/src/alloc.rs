@@ -72,6 +72,13 @@ const SLAB_HEADER: usize = CACHE_LINE;
 /// Bytes of one slab page.
 const SLAB_PAGE_SIZE: usize = 4096;
 
+/// Slab pages an emptied tree keeps for its next insert instead of
+/// returning them (`NodeAlloc::release_if_empty_above`). Above the footprint
+/// of trees of up to about 100 keys (5–7.2 pages measured), so a tree that
+/// repeatedly empties at a small population keeps its warm pages, and it
+/// bounds what an emptied tree holds at 32 KiB (#1119).
+pub(crate) const EMPTY_TREE_KEPT_PAGES: usize = 8;
+
 /// The layout a slab page of `class` is allocated and freed with.
 fn slab_page_layout(class: usize) -> Layout {
     Layout::from_size_align(SLAB_PAGE_SIZE, CLASS_SPECS[class].1.max(CACHE_LINE))
@@ -629,6 +636,11 @@ impl NodeAlloc {
         if self.deferred.get().is_some() {
             return 0;
         }
+        // Nothing live: every page and every free block goes, so the
+        // per-block page census below has nothing to decide.
+        if *self.bytes_in_use.get_mut() == 0 {
+            return self.release_all_unused();
+        }
         let mut released = 0;
 
         // Classes above the slab ceiling: each free block is its own
@@ -741,6 +753,82 @@ impl NodeAlloc {
         }
         *self.slab_pages.get_mut() = head;
         released
+    }
+
+    /// Returns every slab page and every free block of a system-served class
+    /// to the system allocator, the way `Drop` does, and leaves the handle
+    /// as a new one. Only sound when no byte is live: the caller checks.
+    fn release_all_unused(&mut self) -> usize {
+        debug_assert_eq!(*self.bytes_in_use.get_mut(), 0);
+        let mut released = 0;
+        let mut page = core::mem::replace(self.slab_pages.get_mut(), core::ptr::null_mut());
+        while !page.is_null() {
+            // SAFETY: a detached slab-list entry is a live page this handle
+            // carved; no byte is in use, so no block on it is live, and its
+            // header's class fixes the layout it was allocated with.
+            unsafe {
+                let next = (*page).next;
+                dealloc(page.cast::<u8>(), slab_page_layout((*page).class));
+                page = next;
+            }
+            released += SLAB_PAGE_SIZE;
+        }
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            // Slab-class blocks lived on the pages just freed.
+            let mut cur =
+                core::mem::replace(self.freelists[class].get_mut(), core::ptr::null_mut());
+            if is_slab_class(class) {
+                continue;
+            }
+            let layout = Self::layout_for(bytes, align);
+            while !cur.is_null() {
+                // SAFETY: a detached free block of a system-served class,
+                // allocated with `layout` and no longer reachable.
+                let next = unsafe { (*cur).next };
+                // SAFETY: as above.
+                unsafe { dealloc(cur.cast::<u8>(), layout) };
+                released += accounted_size(bytes, align);
+                cur = next;
+            }
+        }
+        released
+    }
+
+    /// For a tree whose last entry was just removed: when no byte is live
+    /// and the handle holds more than `max_pages` slab pages, or any free
+    /// block of a system-served class, returns them all as
+    /// [`Self::release_free`] would; otherwise keeps them for the next
+    /// insert. Returns the bytes released. A no-op on a deferred handle.
+    ///
+    /// Out of line and cold: the removal path that calls it pays a call on
+    /// its emptying branch only.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn release_if_empty_above(&mut self, max_pages: usize) -> usize {
+        #[cfg(feature = "std")]
+        if self.deferred.get().is_some() {
+            return 0;
+        }
+        if *self.bytes_in_use.get_mut() != 0 {
+            return 0;
+        }
+        let large_free = CLASS_SPECS
+            .iter()
+            .enumerate()
+            .any(|(class, _)| !is_slab_class(class) && !self.freelists[class].get_mut().is_null());
+        if !large_free {
+            let mut pages = 0;
+            let mut page = *self.slab_pages.get_mut();
+            while !page.is_null() && pages <= max_pages {
+                pages += 1;
+                // SAFETY: slab list entries are live pages with written headers.
+                page = unsafe { (*page).next };
+            }
+            if pages <= max_pages {
+                return 0;
+            }
+        }
+        self.release_all_unused()
     }
 
     /// Number of live allocations (diagnostics / leak assertions in tests).

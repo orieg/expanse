@@ -1532,7 +1532,8 @@ impl ExpanseStrMap {
     /// plus the freed blocks its allocator keeps on per-tree freelists for
     /// reuse and the unused part of the slab pages small nodes are carved
     /// from. Those blocks go back to the system only when the map is
-    /// dropped or emptied (or on [`Self::shrink_to_fit`]), so `malloc_trim`
+    /// dropped or cleared, emptied while holding more than 32 KiB, or on
+    /// [`Self::shrink_to_fit`], so `malloc_trim`
     /// cannot recover them before then; this is the figure to
     /// compare with resident memory. The system allocator's own
     /// per-allocation overhead (chunk headers, size-class rounding) is
@@ -1988,10 +1989,14 @@ impl ExpanseStrMap {
 
     /// Removes `key`; returns its value if it was present.
     ///
-    /// Removing the last key also returns every block the map's allocator
-    /// kept for reuse to the system allocator, so an emptied map holds what
-    /// a new one does ([`Self::mem_held`] is 0), as `JudySLDel` frees the
-    /// array. Not on a map shared through a concurrent wrapper.
+    /// Removing the last key also returns the blocks the map's allocator
+    /// kept for reuse to the system allocator when they exceed 32 KiB
+    /// (eight slab pages), so a drained map holds what a new one does
+    /// ([`Self::mem_held`] is 0). A smaller emptied map keeps them for its
+    /// next insert, so a map that repeatedly empties at a small population
+    /// does not return and re-carve its pages each time;
+    /// [`Self::shrink_to_fit`] or [`Self::clear`] returns them. Not on a map
+    /// shared through a concurrent wrapper.
     pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
         // As `insert`: the deferred twin for a shared map, the plain path
         // otherwise (Refs #929).
@@ -2024,11 +2029,13 @@ impl ExpanseStrMap {
             let root_box = self.root.take().expect("root present");
             // Unlinked (the root slot is cleared); retired when shared.
             dispose_node(Box::into_raw(root_box), alloc, defer);
-            // The map is empty, so every block its allocator keeps for reuse
-            // is idle: hand them back, as `JudySLDel` does by freeing the
-            // array. A shared map's blocks belong to its collector.
+            // The map is empty, so every block its allocator keeps is idle:
+            // hand them back unless there are few enough that the next
+            // insert would carve them again (#1119). A shared map's blocks
+            // belong to its collector.
             if !SHARED {
-                self.alloc.release_free();
+                self.alloc
+                    .release_if_empty_above(crate::alloc::EMPTY_TREE_KEPT_PAGES);
             }
         }
         Some(removed)
@@ -2113,9 +2120,9 @@ impl ExpanseStrMap {
     }
 
     /// Removes every entry; returns the heap bytes released (the compat
-    /// `JudySLFreeArray` return value). As when [`Self::remove`] takes the
-    /// last key, the allocator's retained blocks go back to the system
-    /// allocator too; the return value counts only the entries' bytes.
+    /// `JudySLFreeArray` return value). The allocator's retained blocks go
+    /// back to the system allocator too, however few; the return value
+    /// counts only the entries' bytes.
     pub fn clear(&mut self) -> u64 {
         let bytes = self.clear_entries();
         // As an emptying `remove`; a no-op on a shared map.

@@ -235,3 +235,35 @@ fn a_map_emptied_by_clear_holds_what_a_new_map_does() {
     assert_eq!(m.mem_held(), 0);
     TRACK.with(|t| t.set(false));
 }
+
+/// A small map emptied by `remove` keeps its few pages for the next insert
+/// (#1119): a map that repeatedly empties at a small population must not
+/// return and re-carve them every time. `shrink_to_fit` still returns them.
+#[test]
+fn a_small_map_emptied_by_remove_keeps_its_pages_until_shrink_to_fit() {
+    let mut buf = Vec::with_capacity(17);
+    start_counting();
+    let mut m = ExpanseStrMap::new();
+    let empty = live();
+    for round in 0..3 {
+        for id in 0..10 {
+            key(&mut buf, 0, id);
+            m.insert(nul_free(&buf), id);
+        }
+        for id in 0..10 {
+            key(&mut buf, 0, id);
+            assert_eq!(m.remove(nul_free(&buf)), Some(id));
+        }
+        assert!(m.is_empty());
+        let held = live() - empty;
+        assert!(
+            held > 0,
+            "round {round}: a 10-key map emptied by remove keeps its pages"
+        );
+        assert_eq!(m.mem_held() as isize, held, "round {round}");
+    }
+    let held = live() - empty;
+    assert_eq!(m.shrink_to_fit() as isize, held);
+    assert_eq!(live(), empty, "shrink_to_fit returns all of it");
+    TRACK.with(|t| t.set(false));
+}
