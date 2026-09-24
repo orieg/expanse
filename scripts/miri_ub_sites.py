@@ -259,6 +259,24 @@ def workflow_pin(workflow: str) -> Tuple[str, str]:
     return (runner.group(1) if runner else "", tc.group(1) if tc else "")
 
 
+def workflow_shards(workflow: str) -> List[int]:
+    """The `miri-ub-sites` job's `matrix.shard` list, or [] when the job's
+    `--check` step does not pass `--shard ${{ matrix.shard }}/N` with N equal
+    to the list's length (a matrix whose shards do not cover the manifest)."""
+    start = workflow.find("\n  miri-ub-sites:\n")
+    if start < 0:
+        return []
+    nxt = re.search(r"\n  [a-z0-9-]+:\n", workflow[start + 1:])
+    body = workflow[start: start + 1 + nxt.start()] if nxt else workflow[start:]
+    m = re.search(r"shard: \[([\d, ]+)\]", body)
+    if not m:
+        return []
+    shards = [int(x) for x in m.group(1).split(",")]
+    if f"--shard ${{{{ matrix.shard }}}}/{len(shards)}" not in body:
+        return []
+    return shards
+
+
 # The hosted runner that provides each target the manifest may name.
 RUNNERS = {"aarch64-apple-darwin": "macos-latest"}
 
@@ -310,6 +328,15 @@ def main_run(args: argparse.Namespace) -> int:
             print(f"::error::miri-ub-sites could not check: {msg}")
             return 2
         print(f"::notice::observing off the manifest's target: {msg}")
+    if args.shard:
+        try:
+            i, n = parse_shard(args.shard)
+        except ValueError as exc:
+            print(f"::error::{exc}")
+            return 2
+        entries = shard(entries, i, n)
+        print(f"shard {i}/{n}: {len(entries)} entries, "
+              f"{len({e.test for e in entries})} workloads", flush=True)
     if args.only:
         entries = [e for e in entries if e.test == args.only]
         if not entries:
@@ -334,6 +361,29 @@ def main_run(args: argparse.Namespace) -> int:
             worst = 2
             print(f"::error::{e.test} ({e.check}) could not be checked: {reason}")
     return worst
+
+
+def parse_shard(spec: str) -> Tuple[int, int]:
+    """`I/N` -> (I, N), 1 <= I <= N. Raises ValueError otherwise."""
+    m = re.fullmatch(r"(\d+)/(\d+)", spec)
+    if not m:
+        raise ValueError(f"--shard must look like `1/4`, got `{spec}`")
+    i, n = int(m.group(1)), int(m.group(2))
+    if not 1 <= i <= n:
+        raise ValueError(f"--shard {spec}: need 1 <= I <= N")
+    return i, n
+
+
+def shard(entries: List[Entry], i: int, n: int) -> List[Entry]:
+    """Shard `i` of `n`: whole workloads, dealt round-robin in manifest order,
+    so a workload's checks share one shard and every entry lands in exactly
+    one shard for any `n`."""
+    workloads: List[str] = []
+    for e in entries:
+        if e.test not in workloads:
+            workloads.append(e.test)
+    mine = {w for k, w in enumerate(workloads) if k % n == i - 1}
+    return [e for e in entries if e.test in mine]
 
 
 def self_test() -> int:
@@ -456,6 +506,30 @@ def self_test() -> int:
     entries, _, errors = load_manifest(committed, module_tests(SYNC_RS.read_text()))
     check("committed manifest valid", errors, [])
     check("committed manifest non-empty", len(entries) > 0, True)
+
+    # Shards partition the committed manifest exactly, for every shard count
+    # the nightly matrix could use; a bad spec is refused.
+    for n in range(1, 9):
+        parts = [shard(entries, i, n) for i in range(1, n + 1)]
+        flat = [(e.test, e.check) for part in parts for e in part]
+        check(f"{n} shards cover every entry once", sorted(flat), sorted((e.test, e.check) for e in entries))
+        check(f"{n} shards keep a workload together",
+              all(len({k for k, part in enumerate(parts) if any(e.test == w for e in part)}) == 1
+                  for w in {e.test for e in entries}), True)
+    check("shard spec", parse_shard("2/4"), (2, 4))
+    for bad in ("0/4", "5/4", "4", "a/b", "1/0"):
+        try:
+            parse_shard(bad)
+            check(f"shard spec {bad} refused", "accepted", "refused")
+        except ValueError:
+            pass
+    wf_ok = ("jobs:\n  miri-ub-sites:\n    strategy:\n      matrix:\n        shard: [1, 2, 3]\n"
+             "    steps:\n      - run: python3 scripts/miri_ub_sites.py --check --shard ${{ matrix.shard }}/3\n"
+             "  bench-report:\n    runs-on: x\n")
+    check("matrix shards read", workflow_shards(wf_ok), [1, 2, 3])
+    check("matrix N must match the list", workflow_shards(wf_ok.replace("}}/3", "}}/4")), [])
+    shards = workflow_shards(NIGHTLY.read_text())
+    check("nightly job is a shard matrix covering 1..N", bool(shards) and shards == list(range(1, len(shards) + 1)), True)
     print(f"miri_ub_sites self-test OK ({len(entries)} manifest entries)")
     return 0
 
@@ -467,6 +541,7 @@ def main() -> int:
     mode.add_argument("--observe", action="store_true", help="print what each entry reports")
     mode.add_argument("--self-test", action="store_true")
     ap.add_argument("--only", help="one workload")
+    ap.add_argument("--shard", help="I/N: only shard I of N (whole workloads, round-robin), for the nightly matrix")
     ap.add_argument("--toolchain", help="run `cargo +TOOLCHAIN miri`")
     ap.add_argument("--seeds", help="override the manifest seed range (e.g. 0..2) for a quick development run; a verdict needs the manifest's own range")
     args = ap.parse_args()
