@@ -522,7 +522,7 @@ impl ExpanseSet {
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.insert_inner::<false>(key))
+        noting_root_rewrite!(self, t => t.insert_inner(key))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
@@ -533,19 +533,41 @@ impl ExpanseSet {
     }
 
     /// [`Self::insert`] for the concurrent wrapper, whose readers load the
-    /// root leaf while this stores to it: stores into a live root leaf are
-    /// atomic words (#1086).
+    /// root leaf while this stores to it (#1086). The one store into a live
+    /// root leaf, the in-place shift, is made here with atomic words; every
+    /// other case (an empty root, a reallocation into a fresh leaf, the
+    /// promotion, a tree) writes only memory no reader can reach yet, or
+    /// goes through the engine's own shared walk, and is left to
+    /// [`Self::insert`]. A separate entry point, so the plain path's code is
+    /// not touched by the shared one.
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn insert_shared(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.insert_inner::<true>(key))
+        if let Root::Leaf { keys, pop } = self.root
+            && pop < ROOT_LEAF_CAP
+            && root_leaf_size(pop + 1) == root_leaf_size(pop)
+        {
+            // SAFETY: root leaf holds `pop` keys; the writer is its one
+            // writer, and reads do not race the readers' reads.
+            let slice = unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
+            let Err(at) = slice.binary_search(&key) else {
+                return false;
+            };
+            // SAFETY: the allocation holds the same class of slots for
+            // `pop + 1` as for `pop`, so the extra slot is in bounds.
+            unsafe {
+                let base = keys.as_ptr().cast::<u64>();
+                shared_word::shift_up::<true>(base, at, pop - at);
+                shared_word::store::<true>(base.add(at), key);
+            }
+            self.root = Root::Leaf { keys, pop: pop + 1 };
+            return true;
+        }
+        self.insert(key)
     }
 
-    /// The insert behind [`Self::insert`] and [`Self::insert_shared`].
-    /// `SHARED` selects only the access mode of the stores into a live root
-    /// leaf (`bits::shared_word`); every other step is the same code.
     #[inline(always)]
-    fn insert_inner<const SHARED: bool>(&mut self, key: Key) -> bool {
+    fn insert_inner(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
                 let keys = self.alloc.alloc_bytes(root_leaf_size(1));
@@ -586,8 +608,8 @@ impl ExpanseSet {
                         // slots for `pop + 1` as for `pop`.
                         unsafe {
                             let base = keys.as_ptr().cast::<u64>();
-                            shared_word::shift_up::<SHARED>(base, at, pop - at);
-                            shared_word::store::<SHARED>(base.add(at), key);
+                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                            base.add(at).write(key);
                         }
                         self.root = Root::Leaf { keys, pop: pop + 1 };
                         return true;
@@ -937,7 +959,7 @@ impl ExpanseSet {
     /// drain.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.remove_inner::<false>(key))
+        noting_root_rewrite!(self, t => t.remove_inner(key))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -956,18 +978,16 @@ impl ExpanseSet {
         noting_root_rewrite!(self, t => t.remove_inner_dispatch::<OCC, NESTED>(key))
     }
 
-    /// [`Self::remove`] for the concurrent wrapper; as
-    /// [`Self::insert_shared`].
+    /// [`Self::remove`] for the concurrent wrapper: the `OCC`-generic
+    /// removal, whose in-place root-leaf shift is atomic words (#1086).
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn remove_shared(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.remove_inner::<true>(key))
+        by_mode!(self.alloc, self.remove_dispatch(key))
     }
 
-    /// The removal behind [`Self::remove`] and [`Self::remove_shared`];
-    /// `SHARED` as for [`Self::insert_inner`].
     #[inline(always)]
-    fn remove_inner<const SHARED: bool>(&mut self, key: Key) -> bool {
+    fn remove_inner(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => false,
@@ -988,7 +1008,7 @@ impl ExpanseSet {
                     // SAFETY: in-place shift inside class-sized buffer.
                     unsafe {
                         let ptr = keys.as_ptr().cast::<u64>();
-                        shared_word::shift_down::<SHARED>(ptr, at, pop - 1 - at);
+                        core::ptr::copy(ptr.add(at + 1), ptr.add(at), pop - 1 - at);
                     }
                     self.root = Root::Leaf { keys, pop: pop - 1 };
                 } else {

@@ -1739,11 +1739,13 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        noting_root_rewrite!(self, m => m.insert_inner::<false>(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner(alloc, key, val, path))
     }
 
-    /// [`Self::insert`] on a tree whose readers run concurrently: stores
-    /// into a live root leaf are atomic words (#1086).
+    /// [`Self::insert`] on a tree whose readers run concurrently: the
+    /// `OCC`-generic insert, whose stores into a live root leaf are atomic
+    /// words (#1086). A separate entry point, so the plain path's code is not
+    /// touched by the shared one.
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn insert_shared(
@@ -1753,7 +1755,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        noting_root_rewrite!(self, m => m.insert_inner::<true>(alloc, key, val, path))
+        by_mode!(alloc, self.insert_dispatch(alloc, key, val, path))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
@@ -1779,11 +1781,8 @@ impl MapCore {
         noting_root_rewrite!(self, m => m.insert_inner_dispatch::<OCC, NESTED>(alloc, key, val, path))
     }
 
-    /// The insert behind [`Self::insert`] and [`Self::insert_shared`].
-    /// `SHARED` selects only the access mode of the stores into a live root
-    /// leaf (`bits::shared_word`); every other step is the same code.
     #[inline(always)]
-    fn insert_inner<const SHARED: bool>(
+    fn insert_inner(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -1827,7 +1826,7 @@ impl MapCore {
                     unsafe {
                         let slot = vals.add(at);
                         let old = *slot;
-                        shared_word::store::<SHARED>(slot, val);
+                        slot.write(val);
                         return Some(old);
                     }
                 }
@@ -1840,11 +1839,11 @@ impl MapCore {
                         // offsets and the extra slot is in bounds.
                         unsafe {
                             let base = ptr.as_ptr().cast::<u64>();
-                            shared_word::shift_up::<SHARED>(base, at, pop - at);
-                            shared_word::store::<SHARED>(base.add(at), key);
+                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                            base.add(at).write(key);
                             let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
-                            shared_word::shift_up::<SHARED>(v, at, pop - at);
-                            shared_word::store::<SHARED>(v.add(at), val);
+                            core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
+                            v.add(at).write(val);
                         }
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
@@ -2267,7 +2266,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        noting_root_rewrite!(self, m => m.remove_inner::<false>(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner(alloc, key, path))
     }
 
     /// [`Self::remove`] on a tree whose readers run concurrently; as
@@ -2280,7 +2279,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        noting_root_rewrite!(self, m => m.remove_inner::<true>(alloc, key, path))
+        by_mode!(alloc, self.remove_dispatch(alloc, key, path))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -2304,10 +2303,8 @@ impl MapCore {
         noting_root_rewrite!(self, m => m.remove_inner_dispatch::<OCC, NESTED>(alloc, key, path))
     }
 
-    /// The removal behind [`Self::remove`] and [`Self::remove_shared`];
-    /// `SHARED` as for [`Self::insert_inner`].
     #[inline(always)]
-    fn remove_inner<const SHARED: bool>(
+    fn remove_inner(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -2331,8 +2328,8 @@ impl MapCore {
                     // SAFETY: in-place shift inside class-sized buffer.
                     unsafe {
                         let nk = ptr.as_ptr().cast::<u64>();
-                        shared_word::shift_down::<SHARED>(nk, at, pop - 1 - at);
-                        shared_word::shift_down::<SHARED>(vals, at, pop - 1 - at);
+                        core::ptr::copy(nk.add(at + 1), nk.add(at), pop - 1 - at);
+                        core::ptr::copy(vals.add(at + 1), vals.add(at), pop - 1 - at);
                     }
                     self.root = Root::Leaf { ptr, pop: pop - 1 };
                 } else {
