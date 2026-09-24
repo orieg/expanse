@@ -1633,6 +1633,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `strmap_prefix_scan` | `paths`, `paths_dense` | `paths` 12,547, `paths_dense` 12,544 |
 | `cost` | `strmap_prefix_seek` | `paths`, `paths_dense` | 64 |
 | `cost` | `strmap_refill` | `routes` | 100,000 |
+| `cost` | `strmap_refill_small` | `routes` | 100,000 |
 | `cost` | `sync_blobmap_churn` | `random` | 50,000 |
 | `cost` | `sync_blobmap_get` | `random` | 50,000 |
 | `cost` | `sync_blobmap_insert` | `random` | 50,000 |
