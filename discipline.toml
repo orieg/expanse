@@ -23,7 +23,13 @@ description = "Judy digital tree engine and libexpanse C ABI"
 # repository's test entry point, and neither pytest nor unittest would collect
 # it. Read by every gate that separates test code from production code.
 [tests]
-functions = ["self_test"]
+# Self-test entry points in scripts; the names are plain function names, not globs.
+functions = ["self_test", "_self_test"]
+
+[languages.c]
+# Unity / ESP-IDF test macro: TEST_CASE("name", "[tag]") { ... }
+function_macros = ["TEST_CASE"]
+
 
 # --- agent diff sentinel -----------------------------------------------------
 
