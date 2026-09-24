@@ -285,7 +285,7 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
   dotnet add package Orieg.Expanse
 
   # PackageReference (csproj)
-  <PackageReference Include="Orieg.Expanse" Version="0.8.0" />
+  <PackageReference Include="Orieg.Expanse" Version="0.8.1" />
   ```
 - **Quick Usage Snippet (C#)**:
   ```csharp
@@ -376,7 +376,7 @@ Expanse is distributed for Ruby 3.0+ as the `expanse` gem under `bindings/ruby`:
 The Go binding is consumed directly from the monorepo as a **nested Go module**:
 
 ```bash
-go get github.com/orieg/expanse/bindings/go@v0.8.0
+go get github.com/orieg/expanse/bindings/go@v0.8.1
 ```
 
 Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `github-release` job on every release tag.
@@ -515,7 +515,7 @@ Add the dependency to your project's `main/idf_component.yml`:
 ```yaml
 dependencies:
   expanse:
-    version: "^0.8.0"
+    version: "^0.8.1"
 ```
 Or clone the component directly into your project's `components/` directory.
 
