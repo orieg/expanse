@@ -1225,8 +1225,143 @@ pub(crate) mod shared_bitmap {
     }
 }
 
+/// Word loads, stores and in-place shifts of node memory that a shared
+/// tree's readers load while its writer stores (#1086, class 1;
+/// `docs/ARCHITECTURE.md` §4.2). `OCC = false` is the plain access the
+/// unshared paths have always compiled — `ptr::read`, `ptr::write`,
+/// `ptr::copy` — so their instantiations are unchanged; `OCC = true` is a
+/// relaxed atomic `u64` per word, the same size on both sides of every race.
+///
+/// Relaxed is enough: every value a reader loads through this module is
+/// discarded unless the version word it sampled validates afterwards, and
+/// the version protocol supplies the ordering.
+pub(crate) mod shared_word {
+    use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    /// The word at `p`.
+    ///
+    /// # Safety
+    /// `p` is 8-byte aligned and points into a live allocation; with
+    /// `OCC = true` it carries write permission (a pointer from a node or a
+    /// root, never from a `&u64`), since the load forms an `&AtomicU64`.
+    #[inline(always)]
+    pub(crate) unsafe fn load<const OCC: bool>(p: *const u64) -> u64 {
+        if OCC {
+            // SAFETY: caller contract.
+            unsafe { AtomicU64::from_ptr(p.cast_mut()).load(Relaxed) }
+        } else {
+            // SAFETY: caller contract.
+            unsafe { p.read() }
+        }
+    }
+
+    /// Stores `v` at `p`.
+    ///
+    /// # Safety
+    /// As [`load`], and the caller is the one writer of the word.
+    #[inline(always)]
+    pub(crate) unsafe fn store<const OCC: bool>(p: *mut u64, v: u64) {
+        if OCC {
+            // SAFETY: caller contract.
+            unsafe { AtomicU64::from_ptr(p).store(v, Relaxed) }
+        } else {
+            // SAFETY: caller contract.
+            unsafe { p.write(v) }
+        }
+    }
+
+    /// Moves words `at..at + n` of `base` up one place, to `at + 1..at + n + 1`.
+    /// The shared form moves the highest word first, so each word is read
+    /// before the move below it overwrites it.
+    ///
+    /// # Safety
+    /// As [`store`], for every word of `base[at..=at + n]`.
+    #[inline(always)]
+    pub(crate) unsafe fn shift_up<const OCC: bool>(base: *mut u64, at: usize, n: usize) {
+        if !OCC {
+            // SAFETY: caller contract.
+            unsafe { core::ptr::copy(base.add(at), base.add(at + 1), n) };
+            return;
+        }
+        let mut i = at + n;
+        while i > at {
+            // SAFETY: `at <= i - 1 < i <= at + n`, inside the caller's range.
+            unsafe { store::<true>(base.add(i), load::<true>(base.add(i - 1))) };
+            i -= 1;
+        }
+    }
+
+    /// Moves words `at + 1..at + n + 1` of `base` down one place, to
+    /// `at..at + n`. The shared form moves the lowest word first, the
+    /// mirror of [`shift_up`].
+    ///
+    /// # Safety
+    /// As [`shift_up`].
+    #[inline(always)]
+    pub(crate) unsafe fn shift_down<const OCC: bool>(base: *mut u64, at: usize, n: usize) {
+        if !OCC {
+            // SAFETY: caller contract.
+            unsafe { core::ptr::copy(base.add(at + 1), base.add(at), n) };
+            return;
+        }
+        for i in at..at + n {
+            // SAFETY: `at <= i < i + 1 <= at + n`, inside the caller's range.
+            unsafe { store::<true>(base.add(i), load::<true>(base.add(i + 1))) };
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// Every in-place shift a root leaf makes, over a 32-word buffer of
+    /// distinct words, in both access modes: the shared form must leave the
+    /// buffer exactly as `ptr::copy` does. In the Tier-1 Miri lane
+    /// (`bits::`), so the atomic accesses are checked there too.
+    #[test]
+    fn shared_word_shifts_match_plain() {
+        use super::shared_word as sw;
+        const W: usize = 32;
+        let fresh = || -> [u64; W] { core::array::from_fn(|i| 0xA000 + i as u64) };
+        for at in 0..W {
+            for n in 0..W - at {
+                let (mut plain, mut shared) = (fresh(), fresh());
+                // SAFETY: `at + n + 1 <= W`, in bounds of each buffer.
+                unsafe {
+                    sw::shift_up::<false>(plain.as_mut_ptr(), at, n);
+                    sw::shift_up::<true>(shared.as_mut_ptr(), at, n);
+                }
+                assert_eq!(plain, shared, "shift_up at {at} n {n}");
+                let (mut plain, mut shared) = (fresh(), fresh());
+                // SAFETY: as above.
+                unsafe {
+                    sw::shift_down::<false>(plain.as_mut_ptr(), at, n);
+                    sw::shift_down::<true>(shared.as_mut_ptr(), at, n);
+                }
+                assert_eq!(plain, shared, "shift_down at {at} n {n}");
+            }
+        }
+    }
+
+    /// The negative control for [`shared_word_shifts_match_plain`]: a
+    /// shared shift that walks the other way (lowest first for an upward
+    /// move) smears one word over the range, and the comparison sees it.
+    #[test]
+    fn shared_word_shift_in_the_wrong_direction_is_caught() {
+        use super::shared_word as sw;
+        let mut plain: [u64; 8] = core::array::from_fn(|i| i as u64 + 1);
+        let mut wrong = plain;
+        // SAFETY: `2 + 4 + 1 <= 8`.
+        unsafe {
+            sw::shift_up::<false>(plain.as_mut_ptr(), 2, 4);
+            let b = wrong.as_mut_ptr();
+            for i in 2..6 {
+                sw::store::<true>(b.add(i + 1), sw::load::<true>(b.add(i)));
+            }
+        }
+        assert_ne!(plain, wrong);
+        assert_eq!(wrong, [1, 2, 3, 3, 3, 3, 3, 8]);
+    }
 
     /// SIMD/intrinsic parity rule (docs/TESTING.md): the `popcnt`
     /// dispatch path must agree with the portable body on every

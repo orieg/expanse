@@ -8,6 +8,7 @@
 //! below the promotion boundary (1-index hysteresis, as everywhere).
 
 use crate::alloc::NodeAlloc;
+use crate::bits::shared_word;
 use crate::get;
 use crate::mutate;
 use crate::node::Edge;
@@ -521,7 +522,7 @@ impl ExpanseSet {
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.insert_inner(key))
+        noting_root_rewrite!(self, t => t.insert_inner::<false>(key))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
@@ -531,8 +532,20 @@ impl ExpanseSet {
         noting_root_rewrite!(self, t => t.insert_inner_plain(key))
     }
 
+    /// [`Self::insert`] for the concurrent wrapper, whose readers load the
+    /// root leaf while this stores to it: stores into a live root leaf are
+    /// atomic words (#1086).
+    #[cfg(feature = "std")]
     #[inline(always)]
-    fn insert_inner(&mut self, key: Key) -> bool {
+    pub(crate) fn insert_shared(&mut self, key: Key) -> bool {
+        noting_root_rewrite!(self, t => t.insert_inner::<true>(key))
+    }
+
+    /// The insert behind [`Self::insert`] and [`Self::insert_shared`].
+    /// `SHARED` selects only the access mode of the stores into a live root
+    /// leaf (`bits::shared_word`); every other step is the same code.
+    #[inline(always)]
+    fn insert_inner<const SHARED: bool>(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
                 let keys = self.alloc.alloc_bytes(root_leaf_size(1));
@@ -573,8 +586,8 @@ impl ExpanseSet {
                         // slots for `pop + 1` as for `pop`.
                         unsafe {
                             let base = keys.as_ptr().cast::<u64>();
-                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
-                            base.add(at).write(key);
+                            shared_word::shift_up::<SHARED>(base, at, pop - at);
+                            shared_word::store::<SHARED>(base.add(at), key);
                         }
                         self.root = Root::Leaf { keys, pop: pop + 1 };
                         return true;
@@ -924,7 +937,7 @@ impl ExpanseSet {
     /// drain.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.remove_inner(key))
+        noting_root_rewrite!(self, t => t.remove_inner::<false>(key))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -943,8 +956,18 @@ impl ExpanseSet {
         noting_root_rewrite!(self, t => t.remove_inner_dispatch::<OCC, NESTED>(key))
     }
 
+    /// [`Self::remove`] for the concurrent wrapper; as
+    /// [`Self::insert_shared`].
+    #[cfg(feature = "std")]
     #[inline(always)]
-    fn remove_inner(&mut self, key: Key) -> bool {
+    pub(crate) fn remove_shared(&mut self, key: Key) -> bool {
+        noting_root_rewrite!(self, t => t.remove_inner::<true>(key))
+    }
+
+    /// The removal behind [`Self::remove`] and [`Self::remove_shared`];
+    /// `SHARED` as for [`Self::insert_inner`].
+    #[inline(always)]
+    fn remove_inner<const SHARED: bool>(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => false,
@@ -965,7 +988,7 @@ impl ExpanseSet {
                     // SAFETY: in-place shift inside class-sized buffer.
                     unsafe {
                         let ptr = keys.as_ptr().cast::<u64>();
-                        core::ptr::copy(ptr.add(at + 1), ptr.add(at), pop - 1 - at);
+                        shared_word::shift_down::<SHARED>(ptr, at, pop - 1 - at);
                     }
                     self.root = Root::Leaf { keys, pop: pop - 1 };
                 } else {
@@ -1047,7 +1070,7 @@ impl ExpanseSet {
                     // SAFETY: in-place shift inside class-sized buffer.
                     unsafe {
                         let ptr = keys.as_ptr().cast::<u64>();
-                        core::ptr::copy(ptr.add(at + 1), ptr.add(at), pop - 1 - at);
+                        shared_word::shift_down::<OCC>(ptr, at, pop - 1 - at);
                     }
                     self.root = Root::Leaf { keys, pop: pop - 1 };
                 } else {

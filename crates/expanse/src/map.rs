@@ -7,6 +7,7 @@
 //! leaf when its population falls one below the promotion boundary.
 
 use crate::alloc::NodeAlloc;
+use crate::bits::shared_word;
 use crate::get;
 use crate::mutate;
 use crate::mutate_map;
@@ -346,11 +347,12 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
                 (false, 0)
             };
             if hit {
-                // SAFETY: in-place value swap.
+                // SAFETY: in-place value swap; the writer is the one
+                // writer of the leaf.
                 unsafe {
                     let slot = vals.add(at);
                     let old = *slot;
-                    slot.write(val);
+                    shared_word::store::<OCC>(slot, val);
                     return LeafStateInsert {
                         old: Some(old),
                         root: None,
@@ -367,11 +369,11 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
                     // offsets and the extra slot is in bounds.
                     unsafe {
                         let base = ptr.as_ptr().cast::<u64>();
-                        core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
-                        base.add(at).write(key);
+                        shared_word::shift_up::<OCC>(base, at, pop - at);
+                        shared_word::store::<OCC>(base.add(at), key);
                         let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
-                        core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
-                        v.add(at).write(val);
+                        shared_word::shift_up::<OCC>(v, at, pop - at);
+                        shared_word::store::<OCC>(v.add(at), val);
                     }
                     return LeafStateInsert {
                         old: None,
@@ -445,8 +447,8 @@ fn leaf_state_remove<const OCC: bool>(
                 // SAFETY: in-place shift inside class-sized buffer.
                 unsafe {
                     let nk = ptr.as_ptr().cast::<u64>();
-                    core::ptr::copy(nk.add(at + 1), nk.add(at), pop - 1 - at);
-                    core::ptr::copy(vals.add(at + 1), vals.add(at), pop - 1 - at);
+                    shared_word::shift_down::<OCC>(nk, at, pop - 1 - at);
+                    shared_word::shift_down::<OCC>(vals, at, pop - 1 - at);
                 }
                 (Some(old), Some(Root::Leaf { ptr, pop: pop - 1 }))
             } else {
@@ -1737,7 +1739,21 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        noting_root_rewrite!(self, m => m.insert_inner(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner::<false>(alloc, key, val, path))
+    }
+
+    /// [`Self::insert`] on a tree whose readers run concurrently: stores
+    /// into a live root leaf are atomic words (#1086).
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn insert_shared(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        val: u64,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        noting_root_rewrite!(self, m => m.insert_inner::<true>(alloc, key, val, path))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
@@ -1763,8 +1779,11 @@ impl MapCore {
         noting_root_rewrite!(self, m => m.insert_inner_dispatch::<OCC, NESTED>(alloc, key, val, path))
     }
 
+    /// The insert behind [`Self::insert`] and [`Self::insert_shared`].
+    /// `SHARED` selects only the access mode of the stores into a live root
+    /// leaf (`bits::shared_word`); every other step is the same code.
     #[inline(always)]
-    fn insert_inner(
+    fn insert_inner<const SHARED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -1808,7 +1827,7 @@ impl MapCore {
                     unsafe {
                         let slot = vals.add(at);
                         let old = *slot;
-                        slot.write(val);
+                        shared_word::store::<SHARED>(slot, val);
                         return Some(old);
                     }
                 }
@@ -1821,11 +1840,11 @@ impl MapCore {
                         // offsets and the extra slot is in bounds.
                         unsafe {
                             let base = ptr.as_ptr().cast::<u64>();
-                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
-                            base.add(at).write(key);
+                            shared_word::shift_up::<SHARED>(base, at, pop - at);
+                            shared_word::store::<SHARED>(base.add(at), key);
                             let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
-                            core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
-                            v.add(at).write(val);
+                            shared_word::shift_up::<SHARED>(v, at, pop - at);
+                            shared_word::store::<SHARED>(v.add(at), val);
                         }
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
@@ -2248,7 +2267,20 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        noting_root_rewrite!(self, m => m.remove_inner(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner::<false>(alloc, key, path))
+    }
+
+    /// [`Self::remove`] on a tree whose readers run concurrently; as
+    /// [`Self::insert_shared`].
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn remove_shared(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        noting_root_rewrite!(self, m => m.remove_inner::<true>(alloc, key, path))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -2272,8 +2304,10 @@ impl MapCore {
         noting_root_rewrite!(self, m => m.remove_inner_dispatch::<OCC, NESTED>(alloc, key, path))
     }
 
+    /// The removal behind [`Self::remove`] and [`Self::remove_shared`];
+    /// `SHARED` as for [`Self::insert_inner`].
     #[inline(always)]
-    fn remove_inner(
+    fn remove_inner<const SHARED: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -2297,8 +2331,8 @@ impl MapCore {
                     // SAFETY: in-place shift inside class-sized buffer.
                     unsafe {
                         let nk = ptr.as_ptr().cast::<u64>();
-                        core::ptr::copy(nk.add(at + 1), nk.add(at), pop - 1 - at);
-                        core::ptr::copy(vals.add(at + 1), vals.add(at), pop - 1 - at);
+                        shared_word::shift_down::<SHARED>(nk, at, pop - 1 - at);
+                        shared_word::shift_down::<SHARED>(vals, at, pop - 1 - at);
                     }
                     self.root = Root::Leaf { ptr, pop: pop - 1 };
                 } else {
@@ -3382,6 +3416,15 @@ impl ExpanseMap {
         self.core.insert(&self.alloc, key, val, self.path.get_mut())
     }
 
+    /// [`Self::insert`] for the concurrent wrapper, whose readers load the
+    /// root leaf while this stores to it (`MapCore::insert_shared`).
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn insert_shared(&mut self, key: Key, val: u64) -> Option<u64> {
+        self.core
+            .insert_shared(&self.alloc, key, val, self.path.get_mut())
+    }
+
     /// Single-threaded insert, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
@@ -3400,6 +3443,14 @@ impl ExpanseMap {
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> Option<u64> {
         self.core.remove(&self.alloc, key, self.path.get_mut())
+    }
+
+    /// [`Self::remove`] for the concurrent wrapper; as [`Self::insert_shared`].
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) fn remove_shared(&mut self, key: Key) -> Option<u64> {
+        self.core
+            .remove_shared(&self.alloc, key, self.path.get_mut())
     }
 
     /// Single-threaded remove, bypassing OCC checks.
