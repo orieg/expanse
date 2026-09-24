@@ -1,6 +1,6 @@
 {
   "name": "@orieg/expanse-wasm",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "WebAssembly bindings for expanse-trie (Edge runtimes & browsers)",
   "keywords": [
     "judy",

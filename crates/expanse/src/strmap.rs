@@ -1112,12 +1112,16 @@ pub struct StrCursor<'a> {
     /// The path from the root to the entry last emitted. Empty before the
     /// first `next` and after the walk is exhausted.
     stack: Vec<StrFrame>,
-    /// One slot per frame depth: the sub-map cursor of the level at that
-    /// depth, live (`true`) once the level has been advanced twice. The
-    /// cursors are resident and re-seeded in place, so after the vector first
-    /// grows to the deepest path a scan costs no allocation per element or
-    /// per level (#722), and a level's cursor is never moved (#1096).
-    subs: Vec<(bool, RawCursor<true>)>,
+    /// The sub-map cursors of the levels that have gone live — advanced twice
+    /// — tagged with their frame depth, in increasing depth order. Only
+    /// `subs[..live]` is in use; slots past it are retained and re-seeded in
+    /// place when a later level goes live, so a scan costs no allocation per
+    /// element or per level (#722) and a cursor is never moved (#1096). A
+    /// level that never goes live — every single-entry node on a path — costs
+    /// no cursor at all.
+    subs: Vec<(usize, RawCursor<true>)>,
+    /// How many leading `subs` slots belong to frames still on the stack.
+    live: usize,
     /// The key last emitted, reused across elements.
     key: Vec<u8>,
     /// Set once the walk has run out, so a caller looping to `None` does not
@@ -1138,6 +1142,7 @@ impl<'a> StrCursor<'a> {
         Self {
             stack: Vec::new(),
             subs: Vec::new(),
+            live: 0,
             key: Vec::new(),
             done: false,
             started: false,
@@ -1146,18 +1151,12 @@ impl<'a> StrCursor<'a> {
         }
     }
 
-    /// Pushes a frame at depth `stack.len()`. A fresh level (`!advanced`)
-    /// clears its cursor slot; a level that replaces its own previous frame
-    /// keeps it, so its sub-map cursor survives the step.
+    /// Pushes a frame at depth `stack.len()`. A live cursor is dropped from
+    /// `subs[..live]` when its frame is popped for good, which `sibling` does
+    /// before it reads the level, so a fresh frame never finds one at its own
+    /// depth and pushing needs no bookkeeping.
     #[inline(always)]
     fn push_frame(&mut self, node: *mut StrNode, chunk: u64, key_len: usize, advanced: bool) {
-        let depth = self.stack.len();
-        if self.subs.len() <= depth {
-            self.subs
-                .resize_with(depth + 1, || (false, RawCursor::empty()));
-        } else if !advanced {
-            self.subs[depth].0 = false;
-        }
         self.stack.push(StrFrame {
             node,
             chunk,
@@ -1172,9 +1171,13 @@ impl<'a> StrCursor<'a> {
     /// level's first advance, and a newly built cursor on its second.
     fn sibling(&mut self, frame: &StrFrame) -> Option<(u64, u64)> {
         let depth = self.stack.len();
-        let (live, cur) = &mut self.subs[depth];
-        if *live {
-            return cur.next();
+        // Every frame deeper than `depth` has been popped, so their cursors
+        // are dead; the one at `depth`, if any, is this level's.
+        while self.live > 0 && self.subs[self.live - 1].0 > depth {
+            self.live -= 1;
+        }
+        if self.live > 0 && self.subs[self.live - 1].0 == depth {
+            return self.subs[self.live - 1].1.next();
         }
         // SAFETY: `node` was recorded on the walk and stays live for the
         // cursor's borrow of the map. The reference is transient: a
@@ -1185,8 +1188,14 @@ impl<'a> StrCursor<'a> {
         if !frame.advanced {
             return node.map.next_after(frame.chunk);
         }
-        node.map.reset_raw_cursor(cur, frame.chunk.checked_add(1)?);
-        *live = true;
+        let start = frame.chunk.checked_add(1)?;
+        if self.live == self.subs.len() {
+            self.subs.push((depth, RawCursor::empty()));
+        }
+        let (d, cur) = &mut self.subs[self.live];
+        *d = depth;
+        self.live += 1;
+        node.map.reset_raw_cursor(cur, start);
         cur.next()
     }
 
@@ -2045,6 +2054,12 @@ impl ExpanseStrMap {
     pub fn cursor_at_or_after(&mut self, key: &NulFreeStr) -> StrCursor<'_> {
         let key = key.as_bytes();
         let mut c = StrCursor::new(self);
+        // A seek records one frame per chunk of `key` and the walk rarely
+        // goes more than a level past it, so sizing the buffers from the
+        // target replaces their doubling growth with one allocation each.
+        c.key.reserve(key.len() + 2 * CHUNK);
+        c.stack.reserve(key.len() / CHUNK + 2);
+        c.subs.reserve(1);
         c.pending = c.seek(key);
         c
     }
@@ -2108,6 +2123,17 @@ impl ExpanseStrMap {
     /// last key, the allocator's retained blocks go back to the system
     /// allocator too; the return value counts only the entries' bytes.
     pub fn clear(&mut self) -> u64 {
+        let bytes = self.clear_entries();
+        // As an emptying `remove`; a no-op on a shared map.
+        self.alloc.release_free();
+        bytes
+    }
+
+    /// [`Self::clear`] without the release: frees every entry and leaves
+    /// the allocator's freed blocks in place. For `Drop` and the C ABI's
+    /// `JudySLFreeArray`, which drop the allocator straight after, so a
+    /// release there would only walk the blocks its own `Drop` frees.
+    fn clear_entries(&mut self) -> u64 {
         let bytes = match self.root.take() {
             Some(root) => {
                 // Count first — the shared allocator's byte-exact
@@ -2127,16 +2153,17 @@ impl ExpanseStrMap {
             None => 0,
         };
         self.pop = 0;
-        // As an emptying `remove`; a no-op on a shared map.
-        self.alloc.release_free();
         bytes
     }
 
-    /// Single-threaded clear, bypassing deferred/OCC checks.
+    /// Single-threaded clear, bypassing deferred/OCC checks. Unlike
+    /// [`Self::clear`] it keeps the allocator's freed blocks: the C ABI's
+    /// `JudySLFreeArray` drops the map straight after, which returns them
+    /// anyway.
     #[doc(hidden)]
     #[inline(always)]
     pub fn clear_plain(&mut self) -> u64 {
-        self.clear()
+        self.clear_entries()
     }
 }
 
@@ -3003,7 +3030,7 @@ impl Default for ExpanseStrMap {
 
 impl Drop for ExpanseStrMap {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_entries();
     }
 }
 
