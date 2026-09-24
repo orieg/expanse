@@ -34,11 +34,12 @@
 //!
 //! 1. **Racing optimistic loads.** Between `sample` and a failed `validate`,
 //!    a reader, or an optimistic writer descending to its lock point, makes
-//!    plain loads that race with a covered writer's plain stores: a root
-//!    leaf's keys and values, a node's edges, header fields and value
-//!    arrays, and a string node's sub-map root (every wrapper publishes its
-//!    own root as atomics in `TreeHead`; node bitmaps are atomic on every
-//!    shared path, `bits::shared_bitmap`). Every such
+//!    plain loads that race with a covered writer's plain stores: a node's
+//!    edges, header fields and value arrays, and a string node's sub-map
+//!    root (every wrapper publishes its own root as
+//!    atomics in `TreeHead`; node bitmaps are atomic on every shared path,
+//!    `bits::shared_bitmap`, and so are the map's and set's root-leaf keys
+//!    and values, `bits::shared_word`). Every such
 //!    value is discarded unless validation proves no writer overlapped. That
 //!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
 //!    design), and it is sound at the protocol level — `SeqVersion` uses
@@ -80,6 +81,7 @@
 //! hand-over-hand); the two bitmap-leaf words are reserved.
 
 use crate::alloc::NodeAlloc;
+use crate::bits::shared_word;
 use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
 use crate::bytesmap::ExpanseBytesMap;
 #[cfg(all(feature = "std", not(feature = "ablation-bytes-serial-writers")))]
@@ -272,7 +274,7 @@ macro_rules! walk_validated_body {
                 // SAFETY: `mid < pop` and the allocation is EBR-live;
                 // the loaded value is validated before use.
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                let k = unsafe { keys.add(mid).read() };
+                let k = unsafe { shared_word::load::<true>(keys.add(mid)) };
                 chk!();
                 if k < $key {
                     lo = mid + 1;
@@ -284,7 +286,7 @@ macro_rules! walk_validated_body {
                 return Ok(None);
             }
             // SAFETY: in-bounds read of the EBR-live $root leaf.
-            let found = unsafe { keys.add(lo).read() } == $key;
+            let found = unsafe { shared_word::load::<true>(keys.add(lo)) } == $key;
             chk!();
             if !found {
                 return Ok(None);
@@ -296,10 +298,11 @@ macro_rules! walk_validated_body {
             // offset; `lo < pop` so the slot is in bounds.
             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
             let v = unsafe {
-                ptr.add(crate::map::leaf_values_offset(pop))
-                    .cast::<u64>()
-                    .add(lo)
-                    .read()
+                shared_word::load::<true>(
+                    ptr.add(crate::map::leaf_values_offset(pop))
+                        .cast::<u64>()
+                        .add(lo),
+                )
             };
             chk!();
             return Ok(Some(v));
@@ -3640,7 +3643,7 @@ impl SyncExpanseSet {
             if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.write_root_covered(|s| s.insert(key));
+                return self.shared.write_root_covered(|s| s.insert_shared(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -3698,12 +3701,12 @@ impl SyncExpanseSet {
             drop(_guard);
             match res {
                 Ok(ins) => ins,
-                Err(_) => self.shared.write_root_covered(|s| s.insert(key)),
+                Err(_) => self.shared.write_root_covered(|s| s.insert_shared(key)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.write_root_covered(|s| s.insert(key))
+            self.shared.write_root_covered(|s| s.insert_shared(key))
         }
     }
 
@@ -3714,7 +3717,7 @@ impl SyncExpanseSet {
             if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.remove_root_covered(|s| s.remove(key));
+                return self.shared.remove_root_covered(|s| s.remove_shared(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -3766,12 +3769,12 @@ impl SyncExpanseSet {
             drop(_guard);
             match res {
                 Ok(rem) => rem,
-                Err(_) => self.shared.remove_root_covered(|s| s.remove(key)),
+                Err(_) => self.shared.remove_root_covered(|s| s.remove_shared(key)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.remove_root_covered(|s| s.remove(key))
+            self.shared.remove_root_covered(|s| s.remove_shared(key))
         }
     }
 
@@ -3810,7 +3813,7 @@ impl SyncExpanseSet {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
         crate::occ_stats::bump(FallbackCause::Forced.stat());
-        self.shared.write_root_covered(|s| s.insert(key))
+        self.shared.write_root_covered(|s| s.insert_shared(key))
     }
 
     /// Diagnostic (`diag-entry`): [`Self::remove`] forced down the serialised
@@ -3822,7 +3825,7 @@ impl SyncExpanseSet {
     pub fn remove_serialized(&self, key: Key) -> bool {
         crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
         crate::occ_stats::bump(FallbackCause::Forced.stat());
-        self.shared.remove_root_covered(|s| s.remove(key))
+        self.shared.remove_root_covered(|s| s.remove_shared(key))
     }
 
     /// Diagnostic (`diag-entry`): the optimistic write protocol's fixed steps
@@ -5709,7 +5712,9 @@ impl SyncExpanseMap {
             if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.write_root_covered(|m| m.insert(key, val));
+                return self
+                    .shared
+                    .write_root_covered(|m| m.insert_shared(key, val));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -5767,12 +5772,15 @@ impl SyncExpanseMap {
             drop(_guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.write_root_covered(|m| m.insert(key, val)),
+                Err(_) => self
+                    .shared
+                    .write_root_covered(|m| m.insert_shared(key, val)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.write_root_covered(|m| m.insert(key, val))
+            self.shared
+                .write_root_covered(|m| m.insert_shared(key, val))
         }
     }
 
@@ -5785,7 +5793,7 @@ impl SyncExpanseMap {
             if !self.shared.published().is_tree() {
                 crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
                 crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
-                return self.shared.remove_root_covered(|m| m.remove(key));
+                return self.shared.remove_root_covered(|m| m.remove_shared(key));
             }
 
             let _guard = self.shared.enter_writer_blocking();
@@ -5837,12 +5845,12 @@ impl SyncExpanseMap {
             drop(_guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.remove_root_covered(|m| m.remove(key)),
+                Err(_) => self.shared.remove_root_covered(|m| m.remove_shared(key)),
             }
         }
         #[cfg(not(feature = "std"))]
         {
-            self.shared.remove_root_covered(|m| m.remove(key))
+            self.shared.remove_root_covered(|m| m.remove_shared(key))
         }
     }
 
@@ -5899,10 +5907,10 @@ impl SyncExpanseMap {
             if seen == expected {
                 match new {
                     Some(v) => {
-                        m.insert(key, v);
+                        m.insert_shared(key, v);
                     }
                     None => {
-                        m.remove(key);
+                        m.remove_shared(key);
                     }
                 }
             }
@@ -6027,7 +6035,8 @@ impl SyncExpanseMap {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
         crate::occ_stats::bump(FallbackCause::Forced.stat());
-        self.shared.write_root_covered(|m| m.insert(key, val))
+        self.shared
+            .write_root_covered(|m| m.insert_shared(key, val))
     }
 
     /// Diagnostic (`diag-entry`): [`Self::remove`] forced down the serialised
@@ -6039,7 +6048,7 @@ impl SyncExpanseMap {
     pub fn remove_serialized(&self, key: Key) -> Option<u64> {
         crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
         crate::occ_stats::bump(FallbackCause::Forced.stat());
-        self.shared.remove_root_covered(|m| m.remove(key))
+        self.shared.remove_root_covered(|m| m.remove_shared(key))
     }
 
     /// Diagnostic (`diag-entry`): the optimistic write protocol's fixed steps
@@ -11667,6 +11676,49 @@ mod miri_ub_sites {
         assert_eq!(map.len(), LEAF_KEYS);
     }
 
+    /// Keys a churn workload keeps in its root leaf: pops `CHURN_KEYS - 1`
+    /// and `CHURN_KEYS` share one capacity class, so every removal and
+    /// reinsertion shifts the leaf in place rather than reallocating it.
+    const CHURN_KEYS: u64 = 11;
+    const _: () = assert!(
+        crate::leaf::cap_class(CHURN_KEYS as usize - 1)
+            == crate::leaf::cap_class(CHURN_KEYS as usize)
+    );
+
+    /// A reader over a root leaf whose writer overwrites values in place,
+    /// removes keys (shifting the tail down) and reinserts them (shifting it
+    /// up): the root-leaf stores `map_leaf_reader_writer`'s appends and
+    /// inserts do not reach.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_leaf_churn_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for i in 0..CHURN_KEYS {
+            map.insert(key(0, i), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..CHURN_KEYS {
+                    assert_eq!(map.insert(key(0, i), i + 100), Some(i));
+                    assert_eq!(map.remove(key(0, i)), Some(i + 100));
+                    assert_eq!(map.insert(key(0, i), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..CHURN_KEYS {
+                        if let Some(v) = map.get(key(0, i)) {
+                            assert!(v == i || v == i + 100);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), CHURN_KEYS);
+    }
+
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn map_tree_two_writers() {
@@ -11764,6 +11816,35 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(set.len(), LEAF_KEYS);
+    }
+
+    /// `map_leaf_churn_reader_writer` for the set: removals shift the leaf
+    /// down and reinsertions shift it up, under a reader.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_leaf_churn_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for i in 0..CHURN_KEYS {
+            set.insert(key(0, i));
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..CHURN_KEYS {
+                    assert!(set.remove(key(0, i)));
+                    assert!(set.insert(key(0, i)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..CHURN_KEYS {
+                        std::hint::black_box(set.contains(key(0, i)));
+                    }
+                });
+            });
+        });
+        assert_eq!(set.len(), CHURN_KEYS);
     }
 
     #[test]

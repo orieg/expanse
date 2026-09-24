@@ -32,6 +32,7 @@
 //! (`scripts/olc_bounds.py::ordered_read_set_branches`). A read that needs more
 //! than [`READ_SET_CAP`] can only have read a moving tree, and restarts.
 
+use crate::bits::shared_word;
 use crate::leaf;
 use crate::mutate::{key_low, pow256, read_packed};
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
@@ -254,7 +255,7 @@ unsafe fn root_leaf<const MAP: bool>(
     while lo < hi {
         let mid = (lo + hi) / 2;
         // SAFETY: `mid < pop`, in bounds of the live root leaf.
-        let k = unsafe { keys.add(mid).read() };
+        let k = unsafe { shared_word::load::<true>(keys.add(mid)) };
         let right = if forward { k < key } else { k <= key };
         if right {
             lo = mid + 1;
@@ -268,15 +269,16 @@ unsafe fn root_leaf<const MAP: bool>(
         lo.checked_sub(1)?
     };
     // SAFETY: `at < pop`.
-    let k = unsafe { keys.add(at).read() };
+    let k = unsafe { shared_word::load::<true>(keys.add(at)) };
     let v = if MAP {
         // SAFETY: the value area begins at the class-based offset and holds
         // `pop` values.
         unsafe {
-            ptr.add(crate::map::leaf_values_offset(pop))
-                .cast::<u64>()
-                .add(at)
-                .read()
+            shared_word::load::<true>(
+                ptr.add(crate::map::leaf_values_offset(pop))
+                    .cast::<u64>()
+                    .add(at),
+            )
         }
     } else {
         0

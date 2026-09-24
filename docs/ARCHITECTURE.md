@@ -322,13 +322,13 @@ Models 1–8 exercise the gate primitives; model 9 the `sync` functions above th
 
 *Where the races are.* Every location a reader or optimistic writer loads while a writer may store to it:
 
-- root-leaf keys and values of the map and set (`walk_validated`, `RootSnapshot::Leaf` arm) and a string node's sub-map root words (`MapCore::occ_snapshot_of`);
+- a string node's sub-map root words (`MapCore::occ_snapshot_of`), read while its lock holder stores the root by value (`MapCore::insert_leaf_state_at`);
 - branch headers (`BranchHeader::find_at` copies 16 bytes) and edges in branches, `BranchB` subarrays and `BranchU` (read by value, 16 bytes);
 - value arrays of leaves and bitmap leaves (`u64`);
 - packed 1–7-byte leaf keys, searched by `leaf::search` with byte, unaligned `u16`/`u32` loads, and 128-bit SIMD (`bits::search_16_u8`, `search_8_u16`, `search_4_u32`);
 - the string map's suffix value word read by `ExpanseStrMap::get_validated`.
 
-Already atomic: version words, published roots (`PublishedRoot`), bitmap words (`bits::shared_bitmap`), the bytes map's bucket value words (`bytesmap::entry_value_atomic`). Each writer-side store to a listed location is the other half of its race.
+Already atomic: version words, published roots (`PublishedRoot`), bitmap words (`bits::shared_bitmap`), the bytes map's bucket value words (`bytesmap::entry_value_atomic`), and the map's and set's root-leaf keys and values (`bits::shared_word`; the census's `map_leaf_*` and `set_leaf_*` `race` entries are clean, and reverting any one converted load or store brings the race back at seed 0). Each writer-side store to a listed location is the other half of its race.
 
 *Decisions.*
 

@@ -26,9 +26,8 @@
     {
       "test": "map_leaf_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "map::MapCore::insert_inner"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_leaf_reader_writer",
@@ -38,6 +37,24 @@
     },
     {
       "test": "map_leaf_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_leaf_churn_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_leaf_churn_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_leaf_churn_reader_writer",
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
@@ -63,9 +80,8 @@
     {
       "test": "set_leaf_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "set::ExpanseSet::insert_inner"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "set_leaf_reader_writer",
@@ -75,6 +91,24 @@
     },
     {
       "test": "set_leaf_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_churn_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_churn_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_leaf_churn_reader_writer",
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
