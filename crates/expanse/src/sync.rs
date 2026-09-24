@@ -63,9 +63,16 @@
 //!    holds the tree word and quiesces the optimistic writers, but still
 //!    mutates published nodes through `&mut Edge` (the engine walks) and
 //!    `&mut StrNode` (the string map's serialised path) while readers may be
-//!    copying them. The census does not reach it within its seed range. This
-//!    class is not a seqlock property and needs no new language feature to
-//!    remove.
+//!    copying them. A covered write holds the tree word odd and a reader's
+//!    `sample` waits it out, so the overlap is a reader that sampled just
+//!    before and is still walking. `map_covered_reader_writer` and
+//!    `set_covered_reader_writer` force covered removals under a reader, and
+//!    `occ_stats::Stat::ReadCoverOverlaps` shows those overlaps happening under
+//!    Miri on every seed, without an aliasing report. That is a site unsound
+//!    in principle and not observed, not one shown absent: the counter proves
+//!    the reader overlapped a covered write, not that it read the node being
+//!    rewritten. This class is not a seqlock property and needs no new
+//!    language feature to remove.
 //!
 //! The threaded tests in `sync::tests` are compiled out under Miri for these
 //! reasons; `mod miri_ub_sites` holds the workloads Miri runs. The per-node
@@ -2644,7 +2651,14 @@ impl<T: SharedTree> Shared<T> {
                 // it makes from it.
                 root_of(unsafe { &*self.inner.get() })
             };
-            if let Ok(r) = walk(root, self.version(), snap) {
+            let attempt = walk(root, self.version(), snap);
+            // Diagnostic builds: the attempt overlapped a covered write when
+            // the tree word moved during it (#1086, `ReadCoverOverlaps`).
+            #[cfg(feature = "occ-stats")]
+            if !self.version().validate(snap) {
+                crate::occ_stats::bump(crate::occ_stats::Stat::ReadCoverOverlaps);
+            }
+            if let Ok(r) = attempt {
                 return r;
             }
         }
@@ -11801,6 +11815,88 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(set.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
+    // --- Covered writes into published nodes -----------------------------
+
+    /// Random keys the covered workloads prefill: past `ROOT_LEAF_CAP`, so the
+    /// root is a tree.
+    const COVERED_PREFILL: u64 = 64;
+    /// How many of them the writer removes. A removal that shrinks the tree
+    /// is a structural change the optimistic path hands to a covered write,
+    /// which rewrites published nodes (38 of the first 48 removals take that
+    /// path on this key set); the reader meanwhile reads the keys that stay.
+    const COVERED_REMOVE: u64 = 48;
+
+    const _: () = assert!(COVERED_PREFILL > ROOT_LEAF_CAP as u64);
+    const _: () = assert!(COVERED_REMOVE < COVERED_PREFILL);
+
+    /// Diagnostic builds: how many read attempts overlapped a covered write
+    /// (`occ_stats::Stat::ReadCoverOverlaps`), the positive control for a
+    /// clean aliasing result on these workloads. Printed, not asserted:
+    /// whether a run overlaps is up to the schedule.
+    fn report_cover_overlaps(workload: &str) {
+        #[cfg(feature = "occ-stats")]
+        std::eprintln!(
+            "{workload}: read_cover_overlaps = {}",
+            crate::occ_stats::snapshot()[crate::occ_stats::Stat::ReadCoverOverlaps as usize]
+        );
+        #[cfg(not(feature = "occ-stats"))]
+        let _ = workload;
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_covered_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for i in 0..COVERED_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..COVERED_REMOVE {
+                    assert_eq!(map.remove(splitmix64(i)), Some(i));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in COVERED_REMOVE..COVERED_PREFILL {
+                        assert_eq!(map.get(splitmix64(i)), Some(i));
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), COVERED_PREFILL - COVERED_REMOVE);
+        report_cover_overlaps("map_covered_reader_writer");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_covered_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for i in 0..COVERED_PREFILL {
+            set.insert(splitmix64(i));
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..COVERED_REMOVE {
+                    assert!(set.remove(splitmix64(i)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in COVERED_REMOVE..COVERED_PREFILL {
+                        assert!(set.contains(splitmix64(i)));
+                    }
+                });
+            });
+        });
+        assert_eq!(set.len(), COVERED_PREFILL - COVERED_REMOVE);
+        report_cover_overlaps("set_covered_reader_writer");
     }
 
     // --- SyncExpanseStrMap ------------------------------------------------
