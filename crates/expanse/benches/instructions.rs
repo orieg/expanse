@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0 |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083) |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -1436,6 +1436,57 @@ fn built_sync_map(dist: &str) -> (SyncExpanseMap, Vec<u64>) {
     (map, shuffled(ks))
 }
 
+/// Keys in the `leaf` variants of the `sync_*` arms: below `ROOT_LEAF_CAP`, so
+/// the map or set stays a root leaf throughout, including the churn arms'
+/// transient extra key. The root-leaf path is what stage (a) of the #1086
+/// class-1 plan converts (`docs/ARCHITECTURE.md` §4.2); every tree-population
+/// arm bypasses it. The churn arms' inserts of a present key overwrite in
+/// place; their transient key `k ^ 1` sorts next to `k`, and the keys are
+/// uniform, so those inserts land at a uniform position in the leaf and shift
+/// half of it on average.
+const LEAF_POP: usize = 24;
+const _: () = assert!(LEAF_POP < expanse_trie::types::ROOT_LEAF_CAP);
+
+/// `LEAF_POP` keys drawn as `keys("random")` draws them, and a probe stream
+/// that cycles over them in shuffled order until it is `POP` long, so a
+/// `leaf` variant divides by the same op count as its `random` twin.
+fn leaf_keys_and_probes() -> (Vec<u64>, Vec<u64>) {
+    let ks: Vec<u64> = keys("random").into_iter().take(LEAF_POP).collect();
+    let probes: Vec<u64> = ks.iter().copied().cycle().take(POP).collect();
+    (ks, shuffled(probes))
+}
+
+fn built_sync_map_leaf(_: &str) -> (SyncExpanseMap, Vec<u64>) {
+    let (ks, probes) = leaf_keys_and_probes();
+    let map = SyncExpanseMap::new();
+    for &k in &ks {
+        map.insert(k, !k);
+    }
+    // Built by inserts alone, a map promotes its root leaf to a tree only
+    // when an insert takes it past `ROOT_LEAF_CAP`.
+    assert_eq!(
+        map.len(),
+        LEAF_POP as u64,
+        "a leaf variant must measure a root leaf"
+    );
+    (map, probes)
+}
+
+fn built_sync_set_leaf(_: &str) -> (SyncExpanseSet, Vec<u64>) {
+    let (ks, probes) = leaf_keys_and_probes();
+    let set = SyncExpanseSet::new();
+    for &k in &ks {
+        set.insert(k);
+    }
+    // As for the map.
+    assert_eq!(
+        set.len(),
+        LEAF_POP as u64,
+        "a leaf variant must measure a root leaf"
+    );
+    (set, probes)
+}
+
 fn built_sync_set(dist: &str) -> (SyncExpanseSet, Vec<u64>) {
     let ks = keys(dist);
     let set = SyncExpanseSet::new();
@@ -1472,6 +1523,7 @@ fn sync_set_insert(ks: Vec<u64>) -> u64 {
 
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_map)]
+#[bench::leaf(args = ("leaf",), setup = built_sync_map_leaf)]
 fn sync_map_get(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let rd = map.reader();
@@ -1527,6 +1579,7 @@ fn sync_map_prev(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
 
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
+#[bench::leaf(args = ("leaf",), setup = built_sync_set_leaf)]
 fn sync_set_contains(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
     let (set, probes) = built;
     let rd = set.reader();
@@ -1541,14 +1594,19 @@ fn sync_set_contains(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
 
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_map)]
+#[bench::leaf(args = ("leaf",), setup = built_sync_map_leaf)]
 fn sync_map_churn(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
+    let n0 = map.len();
     let mut sink = 0u64;
     for &k in &probes {
         sink ^= map.insert(black_box(k), black_box(!k)).unwrap_or(0);
         map.insert(black_box(k ^ 1), k);
         sink ^= u64::from(map.remove(black_box(k ^ 1)).is_some());
     }
+    // Churn leaves the population as it found it, so a `leaf` variant stays
+    // at `LEAF_POP` keys, a root leaf, from its setup to here.
+    assert_eq!(map.len(), n0);
     core::mem::forget(map);
     black_box(sink)
 }
@@ -1588,14 +1646,19 @@ fn sync_map_compare_exchange(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
 
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
+#[bench::leaf(args = ("leaf",), setup = built_sync_set_leaf)]
 fn sync_set_churn(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
     let (set, probes) = built;
+    let n0 = set.len();
     let mut sink = 0u64;
     for &k in &probes {
         sink ^= u64::from(set.insert(black_box(k)));
         set.insert(black_box(k ^ 1));
         sink ^= u64::from(set.remove(black_box(k ^ 1)));
     }
+    // Churn leaves the population as it found it, so a `leaf` variant stays
+    // at `LEAF_POP` keys, a root leaf, from its setup to here.
+    assert_eq!(set.len(), n0);
     core::mem::forget(set);
     black_box(sink)
 }
