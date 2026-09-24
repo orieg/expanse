@@ -78,6 +78,15 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_ins_slot": 50_000,
     "map_remove": 50_000,
     "set_remove": 50_000,
+    # Drain/refill and oscillation (#1119): an oscillate cycle is one insert
+    # plus one remove; refill counts the drain and the refill; clear_refill
+    # counts the refill.
+    "map_oscillate": 50_000,
+    "set_oscillate": 50_000,
+    "map_refill": 100_000,
+    "set_refill": 100_000,
+    "map_clear_refill": 50_000,
+    "set_clear_refill": 50_000,
     "map_churn": 50_000,
     # Concurrent wrappers on one thread (#568): the `OCC=true` engine with
     # an uncontended mutex; same probe count as their plain twins.
@@ -116,6 +125,9 @@ BENCH_N_MAP: Dict[str, int] = {
     "strmap_insert": 50_000,
     "strmap_get": 50_000,
     "strmap_churn": 50_000,
+    "strmap_oscillate": 50_000,
+    "strmap_refill": 100_000,
+    "strmap_clear_refill": 50_000,
     # Prefix scan (#1096): entries yielded by 64 prefixes over `path_keys`;
     # `built_path_strmap` asserts the count, so it cannot drift from the arm.
     "strmap_prefix_scan": 12_547,
@@ -260,6 +272,12 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_ins_slot",
             "map_remove",
             "set_remove",
+            "map_oscillate",
+            "set_oscillate",
+            "map_refill",
+            "set_refill",
+            "map_clear_refill",
+            "set_clear_refill",
             "map_churn",
             "sync_map_insert",
             "sync_set_insert",
@@ -278,6 +296,9 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map32_insert",
             "strmap_insert",
             "strmap_churn",
+            "strmap_oscillate",
+            "strmap_refill",
+            "strmap_clear_refill",
             "bytesmap_insert",
             "bytesmap_churn",
             "sync_strmap_insert_short",
