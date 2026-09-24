@@ -1836,11 +1836,49 @@ impl Collector {
                 crate::occ_stats::record_reclaim(freed_bytes);
             }
         }
+        self.release_free_lists();
+    }
+
+    /// The freelist rows: one per stripe, or the single shared row under
+    /// the ablation.
+    fn free_list_rows(&self) -> impl Iterator<Item = &[Mutex<FreeListHead>; NUM_CLASSES]> {
         #[cfg(feature = "ablation-unstriped-freelist")]
         let rows = core::iter::once(&self.freelists);
         #[cfg(not(feature = "ablation-unstriped-freelist"))]
         let rows = self.freelists.iter().map(|stripe| &stripe.0);
-        for row in rows {
+        rows
+    }
+
+    /// Bytes on the freelists: blocks past their grace period, kept for
+    /// reuse by this collector's trees. Walks each list under its stripe's
+    /// lock, so writers popping the same class wait for the walk.
+    pub(crate) fn free_list_bytes(&self) -> usize {
+        let mut sum = 0;
+        for row in self.free_list_rows() {
+            for (class, &(bytes, _)) in CLASS_SPECS.iter().enumerate() {
+                let head = row[class].lock().expect("freelist poisoned");
+                let mut cur = head.0;
+                while !cur.is_null() {
+                    sum += bytes;
+                    // SAFETY: a freelist entry is a free block of this class
+                    // with `next` written; the lock keeps it on the list.
+                    cur = unsafe { (*cur).next };
+                }
+            }
+        }
+        sum
+    }
+
+    /// Returns every block on the freelists to the global allocator and
+    /// returns the bytes released. Each list is detached under its stripe's
+    /// lock, as `pop_freelist` and the reclaim path take it, and freed after
+    /// the lock is dropped. Only blocks past their grace period are on a
+    /// freelist, so no reader can hold one; blocks still in their grace
+    /// period stay in their bins. Concurrent writers that find a list empty
+    /// fall through to the system allocator, as on any miss.
+    pub(crate) fn release_free_lists(&self) -> usize {
+        let mut released = 0;
+        for row in self.free_list_rows() {
             for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
                 let mut head = row[class].lock().expect("freelist poisoned");
                 let mut cur = head.0;
@@ -1848,14 +1886,20 @@ impl Collector {
                 drop(head);
                 let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
                 while !cur.is_null() {
-                    // SAFETY: cur was allocated with `layout`.
+                    // SAFETY: cur was allocated with `layout`: a deferred
+                    // tree carves no slab pages (`NodeAlloc::defer_to`
+                    // asserts it), so every block reaching a freelist is a
+                    // system allocation of exactly its class's layout.
                     let next = unsafe { (*cur).next };
-                    // SAFETY: deallocating unreferenced freelist block with its original layout.
+                    // SAFETY: deallocating a detached, unreferenced freelist
+                    // block with its original layout.
                     unsafe { dealloc(cur.cast::<u8>(), layout) };
+                    released += bytes;
                     cur = next;
                 }
             }
         }
+        released
     }
 }
 

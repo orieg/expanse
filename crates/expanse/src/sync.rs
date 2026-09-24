@@ -1940,6 +1940,21 @@ impl<T: SharedTree> Shared<T> {
 }
 
 impl<T: SharedTree> Shared<T> {
+    /// Heap bytes the collector holds beyond the tree's own share: freed
+    /// blocks past their grace period on its freelists, plus retired blocks
+    /// still in their grace period. Out of line: a cold accounting path.
+    #[inline(never)]
+    fn collector_held(&self) -> usize {
+        self.collector.free_list_bytes() + self.collector.retained_bytes()
+    }
+
+    /// Returns the collector's freelists to the global allocator; the bytes
+    /// released (see `Collector::release_free_lists`).
+    #[inline(never)]
+    fn release_collector(&self) -> usize {
+        self.collector.release_free_lists()
+    }
+
     /// The tree-level version word.
     #[inline(always)]
     fn version(&self) -> &SeqVersion {
@@ -5629,6 +5644,28 @@ impl SyncExpanseSet {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// Heap bytes the set holds from the global allocator: the tree's own
+    /// [`ExpanseSet::mem_held`] (read under the writer lock, as
+    /// `with_locked` reads) plus what its epoch collector holds for it —
+    /// freed blocks past their grace period, kept on the collector's
+    /// freelists for reuse, and retired blocks still in their grace period.
+    /// Compare this, not `mem_used`, with resident memory. Writers wait for
+    /// it, so it does not belong in a hot loop.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.shared.read_locked(ExpanseSet::mem_held) + self.shared.collector_held()
+    }
+
+    /// Returns the freed blocks the set's epoch collector keeps for reuse
+    /// to the global allocator, and returns the bytes released. Only blocks
+    /// past their grace period are released — no reader can still hold one —
+    /// so it runs beside readers and writers without excluding either:
+    /// writers that find the collector's lists empty allocate from the
+    /// system, as on any miss. Blocks still in their grace period are
+    /// released by a later call, once reclaimed.
+    pub fn shrink_to_fit(&self) -> usize {
+        self.shared.release_collector()
+    }
 
     /// Runs `f` over the tree with all writers excluded — the escape
     /// hatch to the full single-threaded read API (iteration, ranges,
@@ -6161,6 +6198,29 @@ impl SyncExpanseMap {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.shared.read_locked(ExpanseMap::mem_used)
+    }
+
+    /// Heap bytes the map holds from the global allocator: the tree's own
+    /// [`ExpanseMap::mem_held`] (read under the writer lock, as
+    /// `with_locked` reads) plus what its epoch collector holds for it —
+    /// freed blocks past their grace period, kept on the collector's
+    /// freelists for reuse, and retired blocks still in their grace period.
+    /// Compare this, not `mem_used`, with resident memory. Writers wait for
+    /// it, so it does not belong in a hot loop.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.shared.read_locked(ExpanseMap::mem_held) + self.shared.collector_held()
+    }
+
+    /// Returns the freed blocks the map's epoch collector keeps for reuse
+    /// to the global allocator, and returns the bytes released. Only blocks
+    /// past their grace period are released — no reader can still hold one —
+    /// so it runs beside readers and writers without excluding either:
+    /// writers that find the collector's lists empty allocate from the
+    /// system, as on any miss. Blocks still in their grace period are
+    /// released by a later call, once reclaimed.
+    pub fn shrink_to_fit(&self) -> usize {
+        self.shared.release_collector()
     }
 
     /// Runs `f` over the tree with all writers excluded — the escape
@@ -10588,6 +10648,28 @@ impl SyncExpanseStrMap {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// Heap bytes the string map holds from the global allocator: the tree's own
+    /// [`ExpanseStrMap::mem_held`] (read under the writer lock, as
+    /// `with_locked` reads) plus what its epoch collector holds for it —
+    /// freed blocks past their grace period, kept on the collector's
+    /// freelists for reuse, and retired blocks still in their grace period.
+    /// Compare this, not `mem_used`, with resident memory. Writers wait for
+    /// it, so it does not belong in a hot loop.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.shared.read_locked(ExpanseStrMap::mem_held) + self.shared.collector_held()
+    }
+
+    /// Returns the freed blocks the string map's epoch collector keeps for reuse
+    /// to the global allocator, and returns the bytes released. Only blocks
+    /// past their grace period are released — no reader can still hold one —
+    /// so it runs beside readers and writers without excluding either:
+    /// writers that find the collector's lists empty allocate from the
+    /// system, as on any miss. Blocks still in their grace period are
+    /// released by a later call, once reclaimed.
+    pub fn shrink_to_fit(&self) -> usize {
+        self.shared.release_collector()
+    }
 
     /// Runs `f` over the map with all writers excluded — the escape hatch
     /// to the single-threaded `&self` read API.
@@ -11558,6 +11640,38 @@ mod miri_tests {
             assert!(set.remove(splitmix64(i)));
         }
         assert_eq!(set.len(), KEYS - KEYS.div_ceil(3));
+    }
+
+    /// `shrink_to_fit` frees the collector's freelist blocks while the tree
+    /// is still in use (#1135): the drop-time `drain` was the only path that
+    /// deallocated them before. Past the grace period (three advances with
+    /// no reader pinned), the blocks the removals retired are on the
+    /// freelists; releasing them must leave every later operation sound.
+    #[test]
+    fn map_shrink_to_fit_releases_collector_blocks_under_miri() {
+        let map = SyncExpanseMap::new();
+        for i in 0..KEYS {
+            assert_eq!(map.insert(splitmix64(i), i), None);
+        }
+        for i in 0..KEYS / 2 {
+            assert_eq!(map.remove(splitmix64(i)), Some(i));
+        }
+        for _ in 0..3 {
+            map.shared.collector.try_advance();
+        }
+        let held = map.mem_held();
+        let released = map.shrink_to_fit();
+        assert!(released > 0, "the removals left blocks on the freelists");
+        assert_eq!(map.mem_held(), held - released);
+        assert_eq!(map.shrink_to_fit(), 0, "nothing left to release");
+        // The tree keeps working: new nodes come from the system allocator.
+        for i in 0..KEYS / 2 {
+            assert_eq!(map.insert(splitmix64(i), !i), None);
+        }
+        for i in 0..KEYS {
+            let want = if i < KEYS / 2 { !i } else { i };
+            assert_eq!(map.get(splitmix64(i)), Some(want));
+        }
     }
 }
 

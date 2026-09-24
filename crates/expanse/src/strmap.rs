@@ -1620,7 +1620,8 @@ impl ExpanseStrMap {
     /// The map keeps freed blocks for reuse, so this pays off after a
     /// build or a burst of removals that leaves many blocks idle; it costs a
     /// walk of the allocator's pages and freelists. A no-op on a map
-    /// shared through a concurrent wrapper.
+    /// shared through a concurrent wrapper, whose freed blocks go to its
+    /// epoch collector: [`crate::sync::SyncExpanseStrMap::shrink_to_fit`] returns those.
     pub fn shrink_to_fit(&mut self) -> usize {
         self.alloc.release_free()
     }
