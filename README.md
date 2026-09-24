@@ -331,7 +331,7 @@ Expanse provides first-class support for 32-bit embedded microprocessors (`Expan
 ### 1. Rust / Cargo (64-Bit & 32-Bit)
 ```toml
 [dependencies]
-expanse-trie = "0.8.1"
+expanse-trie = "0.8.2"
 ```
 
 ```rust
@@ -487,7 +487,7 @@ gcc legacy.c -lJudy -o legacy
 ```
 
 ### 7. Windows MSVC / vcpkg / NuGet
-- **Release Bundle**: `expanse-v0.8.1-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
+- **Release Bundle**: `expanse-v0.8.2-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
 - **vcpkg**: `vcpkg install expanse` using `extra/vcpkg/`.
 - **NuGet**: Visual Studio C++ package template in `extra/nuget/`.
 
@@ -520,7 +520,7 @@ See [docs/bindings/python.md](docs/bindings/python.md) for full Python documenta
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.8.1</version>
+    <version>0.8.2</version>
 </dependency>
 ```
 
@@ -618,7 +618,7 @@ Add `expanse` to your ESP-IDF project's `main/idf_component.yml`:
 ```yaml
 dependencies:
   expanse:
-    version: "^0.8.1"
+    version: "^0.8.2"
 ```
 Or clone directly into your project's `components/` directory:
 ```bash
@@ -680,7 +680,7 @@ Two DOIs are minted. Cite the **concept DOI** for the project as a whole — it 
   title   = {{Expanse: clean-room, pure-Rust Judy arrays with a
              drop-in libjudy-compatible C ABI}},
   year    = {2026},
-  version = {0.8.1},
+  version = {0.8.2},
   doi     = {10.5281/zenodo.22152112},
   url     = {https://github.com/orieg/expanse}
 }
