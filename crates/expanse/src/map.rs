@@ -7,6 +7,7 @@
 //! leaf when its population falls one below the promotion boundary.
 
 use crate::alloc::NodeAlloc;
+#[cfg(feature = "std")]
 use crate::bits::shared_word;
 use crate::get;
 use crate::mutate;

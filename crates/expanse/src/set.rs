@@ -8,6 +8,7 @@
 //! below the promotion boundary (1-index hysteresis, as everywhere).
 
 use crate::alloc::NodeAlloc;
+#[cfg(feature = "std")]
 use crate::bits::shared_word;
 use crate::get;
 use crate::mutate;

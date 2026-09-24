@@ -1235,6 +1235,7 @@ pub(crate) mod shared_bitmap {
 /// Relaxed is enough: every value a reader loads through this module is
 /// discarded unless the version word it sampled validates afterwards, and
 /// the version protocol supplies the ordering.
+#[cfg(feature = "std")]
 pub(crate) mod shared_word {
     use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
@@ -1319,6 +1320,7 @@ mod tests {
     /// buffer exactly as `ptr::copy` does. In the Tier-1 Miri lane
     /// (`bits::`), so the atomic accesses are checked there too.
     #[test]
+    #[cfg(feature = "std")]
     fn shared_word_shifts_match_plain() {
         use super::shared_word as sw;
         const W: usize = 32;
@@ -1347,6 +1349,7 @@ mod tests {
     /// shared shift that walks the other way (lowest first for an upward
     /// move) smears one word over the range, and the comparison sees it.
     #[test]
+    #[cfg(feature = "std")]
     fn shared_word_shift_in_the_wrong_direction_is_caught() {
         use super::shared_word as sw;
         let mut plain: [u64; 8] = core::array::from_fn(|i| i as u64 + 1);
