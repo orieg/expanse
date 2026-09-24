@@ -1030,6 +1030,21 @@ fn built_path_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
         prefix_scan_entries(dist),
         "prefix-scan population drifted from its registered ops count"
     );
+    for p in &prefixes {
+        let want = strmap_prefix_sum(&mut map, p);
+        let mut cur = map.cursor_prefix(tk(p));
+        let (mut n, mut sum) = (0u64, 0u64);
+        while let Some((_, slot)) = cur.next() {
+            // SAFETY: as in `strmap_prefix_sum`.
+            sum ^= unsafe { slot.as_ptr().read() };
+            n += 1;
+        }
+        assert_eq!(
+            (n, sum),
+            want,
+            "cursor_prefix disagrees with the bounded walk"
+        );
+    }
     (map, prefixes)
 }
 
@@ -1046,6 +1061,30 @@ fn strmap_prefix_scan(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     let mut sink = 0u64;
     for p in &prefixes {
         let (n, sum) = strmap_prefix_sum(&mut map, black_box(p));
+        sink ^= n ^ sum;
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// The same 64 prefix scans through `cursor_prefix`, which ends each walk at
+// the prefix boundary itself: no per-entry `starts_with` in the caller and no
+// key built past the prefix. Ops = entries yielded, as for
+// `strmap_prefix_scan`, so the two arms read on one scale.
+#[library_benchmark]
+#[bench::paths(args = ("paths",), setup = built_path_strmap)]
+#[bench::paths_dense(args = ("paths_dense",), setup = built_path_strmap)]
+fn strmap_prefix_bounded(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, prefixes) = built;
+    let mut sink = 0u64;
+    for p in &prefixes {
+        let mut cur = map.cursor_prefix(tk(black_box(p)));
+        let (mut n, mut sum) = (0u64, 0u64);
+        while let Some((_, slot)) = cur.next() {
+            // SAFETY: as in `strmap_prefix_sum`.
+            sum ^= unsafe { slot.as_ptr().read() };
+            n += 1;
+        }
         sink ^= n ^ sum;
     }
     core::mem::forget(map);
@@ -2141,6 +2180,7 @@ library_benchmark_group!(
         strmap_clear_refill,
         strmap_refill_small,
         strmap_prefix_scan,
+        strmap_prefix_bounded,
         strmap_prefix_seek,
         strmap_cursor_scan,
         bytesmap_insert,
