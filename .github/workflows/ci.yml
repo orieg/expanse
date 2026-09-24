@@ -1432,11 +1432,24 @@ jobs:
           echo "capi artifacts present: $dir/libexpanse.so, $dir/libexpanse.a"
 
   miri:
-    name: Safety / Tier 1 Miri Fast Smoke
+    name: Safety / Tier 1 Miri Fast Smoke (${{ matrix.shard }})
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The Tier-1 filter (AGENTS.md §5), split in two so each half runs well
+    # inside the limit: unsharded it took 556-762 s of test time on main
+    # (median per-test wall times over 11 runs, docs/CI.md), five tests
+    # 65% of it. Each filter names whole modules or single tests, and every
+    # test the unsharded filter selected matches exactly one shard.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1 of 2
+            filter: "sync::miri_tests:: set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move alloc:: leaf::"
+          - shard: 2 of 2
+            filter: "map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move strmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots blobmap::tests::deferred bytesmap::tests::deferred bits:: node:: slot:: types:: occ::tests::"
     steps:
       - uses: actions/checkout@v7
 
@@ -1448,9 +1461,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants, deferred-dispose round trips, the strmap cursor's raw path stack, the OCC lock and epoch primitives)
+        env:
+          FILTER: ${{ matrix.filter }}
         run: |
-          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move sync::miri_tests:: occ::tests::
+          set -o pipefail
+          # $FILTER is word-split on purpose: one positional filter per word.
+          # shellcheck disable=SC2086
+          cargo miri test -p expanse-trie --lib -- $FILTER 2>&1 | tee tier1-miri.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' tier1-miri.log \
+            || { echo "::error::this Tier-1 Miri shard ran zero tests"; exit 1; }
       - name: Miri (concurrency diagnostic ablations — per-stripe accounting, epoch bins and freelists)
+        if: matrix.shard == '2 of 2'
         run: |
           set -o pipefail
           cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_ 2>&1 | tee ablation-miri.log
