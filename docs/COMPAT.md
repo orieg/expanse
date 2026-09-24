@@ -123,14 +123,14 @@ one that does not link, and a link error names the gap at build time.
 |---|---|---|
 | 64-bit, `std` (default) | `cargo build -p expanse-capi` | 158 |
 | 64-bit, `no_std` | `--no-default-features` | 133 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 62 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 66 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
 64-bit rows at commit `5e8147ae`, the 32-bit row re-measured each time the
 narrow surface grew: 31 for the ordered core plus `expanse_map_remove_range`,
 55 when the `expanse_sync32_*` surface landed for #573, 56 when
 `expanse_map_for_each_range` landed for #614, 62 when the reader-handle
-ordered reads landed for #900. That change also added six 64-bit symbols: the
+ordered reads landed for #900, 66 when `expanse_{map,set}_{mem_held,shrink_to_fit}` reached the 32-bit build for #1135 (62 on its parent, dabd13f8, by the same method). The #900 change also added six 64-bit symbols: the
 64-bit `std` row was re-measured then with `nm -gU` on an arm64 macOS dylib,
 145 before and 151 after, and 152 once `expanse_sync_map_mem_used` was added
 (same `nm -gU` method; 151 on its parent); the 64-bit `no_std` row is unchanged by
@@ -162,7 +162,7 @@ bidirectional range navigation:
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
 `ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
-no `get_value_slot`/`ins_slot`, no `mem_held`/`shrink_to_fit`, and their
+no `get_value_slot`/`ins_slot`, and their
 `count_range` takes a `(start, end)` pair rather than a range — so the
 corresponding C contracts have nothing to translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
 `sync` module exist only at 64-bit width.

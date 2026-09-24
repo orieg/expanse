@@ -657,3 +657,45 @@ fn for_each_range_walks_ascending_and_honours_the_stop() {
         expanse_map_free(m);
     }
 }
+
+/// The 32-bit map and set keep their node arena's tables after a drain;
+/// `_shrink_to_fit` returns exactly `_mem_held - _mem_used` (#1135).
+#[test]
+fn mem_held_and_shrink_to_fit_on_the_narrow_surface() {
+    use expanse::modern::{
+        expanse_map_mem_held, expanse_map_mem_used, expanse_map_remove, expanse_map_shrink_to_fit,
+        expanse_set_free, expanse_set_insert, expanse_set_mem_held, expanse_set_mem_used,
+        expanse_set_new, expanse_set_remove, expanse_set_shrink_to_fit,
+    };
+    // SAFETY: `m` and `s` are live handles from their constructors until the
+    // final frees; out-pointers are null.
+    unsafe {
+        assert_eq!(expanse_map_mem_held(core::ptr::null()), 0);
+        assert_eq!(expanse_map_shrink_to_fit(core::ptr::null_mut()), 0);
+        let m = expanse_map_new();
+        let s = expanse_set_new();
+        for k in 0..20_000u32 {
+            let key = k.wrapping_mul(0x9E37_79B9);
+            expanse_map_insert(m, key, k, core::ptr::null_mut());
+            expanse_set_insert(s, key);
+        }
+        for k in 0..20_000u32 {
+            let key = k.wrapping_mul(0x9E37_79B9);
+            assert!(expanse_map_remove(m, key, core::ptr::null_mut()));
+            assert!(expanse_set_remove(s, key));
+        }
+        let (held, used) = (expanse_map_mem_held(m), expanse_map_mem_used(m));
+        assert_eq!(used, 0);
+        assert!(held > 0, "a drained 32-bit map keeps its arena tables");
+        assert_eq!(expanse_map_shrink_to_fit(m), held - used);
+        assert_eq!(expanse_map_mem_held(m), expanse_map_mem_used(m));
+        assert_eq!(expanse_map_shrink_to_fit(m), 0);
+        let (held, used) = (expanse_set_mem_held(s), expanse_set_mem_used(s));
+        assert_eq!(used, 0);
+        assert!(held > 0, "a drained 32-bit set keeps its arena tables");
+        assert_eq!(expanse_set_shrink_to_fit(s), held - used);
+        assert_eq!(expanse_set_mem_held(s), expanse_set_mem_used(s));
+        expanse_map_free(m);
+        expanse_set_free(s);
+    }
+}

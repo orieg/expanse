@@ -156,10 +156,10 @@ macro_rules! container {
     };
 }
 
-/// Emits the `_mem_held` / `_shrink_to_fit` pair for a container whose
-/// 64-bit engine type exposes `mem_held` and `shrink_to_fit`. The 32-bit
-/// engine types have neither, so every expansion is width-gated and the
-/// symbols are absent from a 32-bit library (`docs/COMPAT.md`).
+/// Emits the `_mem_held` / `_shrink_to_fit` pair for a container. Both
+/// widths' engine types expose `mem_held` and `shrink_to_fit` (on the
+/// 32-bit engine they cover the node arena's tables), so the pair is part
+/// of both libraries.
 macro_rules! reclaim {
     ($rust:ty, $held:ident, $shrink:ident, $what:literal) => {
         #[doc = concat!("Heap bytes the ", $what, " holds from the system allocator.")]
@@ -170,7 +170,6 @@ macro_rules! reclaim {
         /// # Safety
         ///
         /// `h` must be null or a live handle.
-        #[cfg(target_pointer_width = "64")]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $held(h: *const $rust) -> usize {
             // SAFETY: null or live handle per contract.
@@ -186,7 +185,6 @@ macro_rules! reclaim {
         /// # Safety
         ///
         /// `h` must be null or a live handle.
-        #[cfg(target_pointer_width = "64")]
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $shrink(h: *mut $rust) -> usize {
             // SAFETY: null or live handle per contract.

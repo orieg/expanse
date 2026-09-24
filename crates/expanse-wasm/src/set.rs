@@ -44,6 +44,17 @@ impl WasmExpanseSet32 {
         self.inner.mem_used()
     }
 
+    /// Heap bytes held: `mem_used` plus the arena tables, which keep their
+    /// peak capacity after removals.
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    /// Returns the arena tables' unused capacity; the bytes released.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.inner.shrink_to_fit()
+    }
+
     pub fn clear(&mut self) {
         self.inner.clear();
     }
@@ -391,6 +402,22 @@ impl Default for WasmExpanseSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_wasm_expanse_set32_drained_keeps_tables_until_shrink_to_fit() {
+        let mut set = WasmExpanseSet32::new();
+        for k in 0..20_000u32 {
+            set.add(k.wrapping_mul(0x9E37_79B9));
+        }
+        for k in 0..20_000u32 {
+            assert!(set.remove(k.wrapping_mul(0x9E37_79B9)));
+        }
+        assert_eq!(set.mem_used(), 0);
+        let held = set.mem_held();
+        assert!(held > 0, "a drained set keeps its arena tables");
+        assert_eq!(set.shrink_to_fit(), held);
+        assert_eq!(set.mem_held(), 0);
+    }
 
     #[test]
     fn test_wasm_expanse_set32_basic() {

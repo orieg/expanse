@@ -266,6 +266,27 @@ impl ExpanseSet32 {
         self.alloc.bytes_in_use()
     }
 
+    /// Heap bytes the set holds from the global allocator: [`Self::mem_used`]
+    /// plus the node arena's slot table and free-handle stack, which keep
+    /// their peak capacity after removals. Compare this, not `mem_used`,
+    /// with resident memory.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.alloc.bytes_held()
+    }
+
+    /// Returns the arena tables' unused capacity to the global allocator:
+    /// the slots past the last live node, and the spare capacity of the
+    /// tables. Returns the bytes released; afterwards [`Self::mem_held`] is
+    /// lower by exactly that much and [`Self::mem_used`] is unchanged.
+    /// Nothing moves, so no key or value is affected. A drained set
+    /// returns everything it holds; a partly drained one only the slots
+    /// past its last live node. [`Self::clear`] returns everything too. A
+    /// no-op on a set behind the concurrent wrapper, whose table is fixed.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.alloc.shrink_to_fit()
+    }
+
     /// Smallest key `>= bound`, if any.
     #[inline]
     #[must_use]
