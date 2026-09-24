@@ -2054,6 +2054,12 @@ impl ExpanseStrMap {
     pub fn cursor_at_or_after(&mut self, key: &NulFreeStr) -> StrCursor<'_> {
         let key = key.as_bytes();
         let mut c = StrCursor::new(self);
+        // A seek records one frame per chunk of `key` and the walk rarely
+        // goes more than a level past it, so sizing the buffers from the
+        // target replaces their doubling growth with one allocation each.
+        c.key.reserve(key.len() + 2 * CHUNK);
+        c.stack.reserve(key.len() / CHUNK + 2);
+        c.subs.reserve(1);
         c.pending = c.seek(key);
         c
     }
