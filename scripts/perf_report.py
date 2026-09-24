@@ -119,6 +119,12 @@ BENCH_N_MAP: Dict[str, int] = {
     # Prefix scan (#1096): entries yielded by 64 prefixes over `path_keys`;
     # `built_path_strmap` asserts the count, so it cannot drift from the arm.
     "strmap_prefix_scan": 12_547,
+    # `paths_dense` (λ = 0.954, the suite's 1M key-sharing regime).
+    "strmap_prefix_scan/paths_dense": 12_544,
+    # Per-prefix intercept: 64 seeks, one step each.
+    "strmap_prefix_seek": 64,
+    # Unbounded cursor walk over every path key.
+    "strmap_cursor_scan": 50_000,
     "bytesmap_insert": 50_000,
     "bytesmap_get": 50_000,
     "bytesmap_churn": 50_000,
@@ -241,6 +247,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "set32_iterate",
             "set32_range",
             "strmap_prefix_scan",
+            "strmap_prefix_seek",
+            "strmap_cursor_scan",
         },
     ),
     (

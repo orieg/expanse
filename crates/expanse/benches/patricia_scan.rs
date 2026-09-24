@@ -13,8 +13,10 @@
 //!   `fast_radix_trie` reconstructs an owned key per entry — the only prefix
 //!   read those crates offer, so that cost is part of what is measured.
 //!
-//! Every arm must return the same sums before any timing; an arm that panics,
-//! loses keys or disagrees is recorded as invalid.
+//! Before any timing the subject's prefix walk is checked against the key list
+//! itself — exact key set per prefix, each key's own value, strictly ascending
+//! order — and a defect there panics. Every twin must then return the same
+//! sums; a twin that panics, loses keys or disagrees is recorded as invalid.
 //!
 //! # Workload shape
 //!
@@ -150,6 +152,51 @@ fn expanse_prefix_sum(m: &mut ExpanseStrMap, prefix: &NulFreeStr) -> u64 {
     sum
 }
 
+/// Checks the subject against the key list itself, not against a twin: for
+/// every prefix, the cursor must yield exactly the keys under it, each with
+/// its own value, in strictly ascending byte order. Returns the value sum the
+/// twins are then held to. Panics on any disagreement (§8.1) — a defect in the
+/// subject is not an invalid twin.
+fn validate_expanse_prefixes(
+    m: &mut ExpanseStrMap,
+    prefixes: &[&NulFreeStr],
+    keys: &[Vec<u8>],
+) -> u64 {
+    let mut total = 0u64;
+    for p in prefixes {
+        let pb = p.as_bytes();
+        let mut want: Vec<&[u8]> = keys
+            .iter()
+            .filter(|k| k.starts_with(pb))
+            .map(|k| &k[..])
+            .collect();
+        want.sort_unstable();
+        let mut got: Vec<Vec<u8>> = Vec::with_capacity(want.len());
+        let mut c = m.cursor_at_or_after(p);
+        while let Some((k, slot)) = c.next() {
+            if !k.starts_with(pb) {
+                break;
+            }
+            // SAFETY: as in `expanse_prefix_sum`.
+            let v = unsafe { slot.as_ptr().read() };
+            assert_eq!(v, path_val(k), "prefix scan yielded a wrong value");
+            total = total.wrapping_add(v);
+            got.push(k.to_vec());
+        }
+        assert!(
+            got.windows(2).all(|w| w[0] < w[1]),
+            "prefix scan is not strictly ascending"
+        );
+        assert!(
+            got.iter().map(|k| &k[..]).eq(want.iter().copied()),
+            "prefix scan yielded {} keys under a prefix holding {}",
+            got.len(),
+            want.len()
+        );
+    }
+    total
+}
+
 fn prefix_sums<T: Twin<Vec<u8>>>(t: &T, prefixes: &[Vec<u8>]) -> u64 {
     prefixes
         .iter()
@@ -198,9 +245,13 @@ fn prefix_row(order: &str, keys: &[Vec<u8>], rounds: usize) -> Map<String, Value
     let qp: Result<QpTrie<Vec<u8>, u64>, String> = build_twin(keys, &vals);
     let prefixes = scan_prefixes();
     let pnf = as_nulfree(&prefixes);
-    let expect = pnf
-        .iter()
-        .fold(0u64, |a, p| a.wrapping_add(expanse_prefix_sum(&mut e, p)));
+    let expect = validate_expanse_prefixes(&mut e, &pnf, keys);
+    assert_eq!(
+        expect,
+        pnf.iter()
+            .fold(0u64, |a, p| a.wrapping_add(expanse_prefix_sum(&mut e, p))),
+        "the timed prefix sum disagrees with the validated walk"
+    );
     let scanned: usize = prefixes
         .iter()
         .map(|p| keys.iter().filter(|k| k.starts_with(p)).count())
