@@ -1,31 +1,31 @@
 Package: libexpanse-dev
-Version: 0.8.1
+Version: 0.8.2
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine development files (headers, static library, man pages).
-Filename: pool/main/libexpanse-dev_0.8.1_riscv64.deb
-Size: 8213178
-SHA256: 9153611e6508a9abcb64387811a9f0e69dbb4ebdb691df110e72fa661d0aea2c
-Depends: libexpanse1 (= 0.8.1)
+Filename: pool/main/libexpanse-dev_0.8.2_riscv64.deb
+Size: 8235676
+SHA256: fed56a09a7010f6e09585540eaf7a5b75f456998c8c3e3d5ee9514865414b5e5
+Depends: libexpanse1 (= 0.8.2)
 
 Package: libjudy-compat
-Version: 0.8.1
+Version: 0.8.2
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
-Filename: pool/main/libjudy-compat_0.8.1_riscv64.deb
+Filename: pool/main/libjudy-compat_0.8.2_riscv64.deb
 Size: 7802
-SHA256: 89a9f6712c7febdc26ef8bb0ef0aefa63fbacccf89af7a7673885b3e5811047b
-Depends: libexpanse1 (= 0.8.1)
+SHA256: 377c8e2d487521febd8dd18092149965bfd2553a2e2a6adebb8b3473cd1877fd
+Depends: libexpanse1 (= 0.8.2)
 Provides: libjudy
 Conflicts: libjudy
 
 Package: libexpanse1
-Version: 0.8.1
+Version: 0.8.2
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
-Filename: pool/main/libexpanse1_0.8.1_riscv64.deb
-Size: 617410
-SHA256: b0627d4afc96debbd010aa5931958e4e439c57659442a6312640b0dc489b6782
+Filename: pool/main/libexpanse1_0.8.2_riscv64.deb
+Size: 618266
+SHA256: 54b3c7086859d059b3ced063ae2c6561d0b1190f5428dd8f1bf997ef004e2ff8
 
