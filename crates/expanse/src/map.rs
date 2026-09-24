@@ -347,12 +347,11 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
                 (false, 0)
             };
             if hit {
-                // SAFETY: in-place value swap; the writer is the one
-                // writer of the leaf.
+                // SAFETY: in-place value swap.
                 unsafe {
                     let slot = vals.add(at);
                     let old = *slot;
-                    shared_word::store::<OCC>(slot, val);
+                    slot.write(val);
                     return LeafStateInsert {
                         old: Some(old),
                         root: None,
@@ -369,11 +368,11 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
                     // offsets and the extra slot is in bounds.
                     unsafe {
                         let base = ptr.as_ptr().cast::<u64>();
-                        shared_word::shift_up::<OCC>(base, at, pop - at);
-                        shared_word::store::<OCC>(base.add(at), key);
+                        core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                        base.add(at).write(key);
                         let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
-                        shared_word::shift_up::<OCC>(v, at, pop - at);
-                        shared_word::store::<OCC>(v.add(at), val);
+                        core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
+                        v.add(at).write(val);
                     }
                     return LeafStateInsert {
                         old: None,
@@ -447,8 +446,8 @@ fn leaf_state_remove<const OCC: bool>(
                 // SAFETY: in-place shift inside class-sized buffer.
                 unsafe {
                     let nk = ptr.as_ptr().cast::<u64>();
-                    shared_word::shift_down::<OCC>(nk, at, pop - 1 - at);
-                    shared_word::shift_down::<OCC>(vals, at, pop - 1 - at);
+                    core::ptr::copy(nk.add(at + 1), nk.add(at), pop - 1 - at);
+                    core::ptr::copy(vals.add(at + 1), vals.add(at), pop - 1 - at);
                 }
                 (Some(old), Some(Root::Leaf { ptr, pop: pop - 1 }))
             } else {
@@ -1742,10 +1741,8 @@ impl MapCore {
         noting_root_rewrite!(self, m => m.insert_inner(alloc, key, val, path))
     }
 
-    /// [`Self::insert`] on a tree whose readers run concurrently: the
-    /// `OCC`-generic insert, whose stores into a live root leaf are atomic
-    /// words (#1086). A separate entry point, so the plain path's code is not
-    /// touched by the shared one.
+    /// [`Self::insert`] on a tree whose readers run concurrently (#1086):
+    /// [`Self::insert_inner_shared`].
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn insert_shared(
@@ -1755,7 +1752,7 @@ impl MapCore {
         val: u64,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        by_mode!(alloc, self.insert_dispatch(alloc, key, val, path))
+        noting_root_rewrite!(self, m => m.insert_inner_shared(alloc, key, val, path))
     }
 
     /// Single-threaded insert, bypassing OCC checks.
@@ -1844,6 +1841,244 @@ impl MapCore {
                             let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
                             core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
                             v.add(at).write(val);
+                        }
+                        self.root = Root::Leaf { ptr, pop: pop + 1 };
+                        return None;
+                    }
+                    let new = alloc.alloc_bytes(leaf_size(pop + 1));
+                    // SAFETY: copy keys and values around the insertion
+                    // point into the fresh (pop + 1)-entry leaf.
+                    unsafe {
+                        let nk = new.as_ptr().cast::<u64>();
+                        nk.copy_from_nonoverlapping(keys.as_ptr(), at);
+                        nk.add(at).write(key);
+                        nk.add(at + 1)
+                            .copy_from_nonoverlapping(keys.as_ptr().add(at), pop - at);
+                        let nv = new.as_ptr().add(leaf_values_offset(pop + 1)).cast::<u64>();
+                        nv.copy_from_nonoverlapping(vals, at);
+                        nv.add(at).write(val);
+                        nv.add(at + 1)
+                            .copy_from_nonoverlapping(vals.add(at), pop - at);
+                        alloc.free_bytes(ptr, leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        ptr: new,
+                        pop: pop + 1,
+                    };
+                    None
+                } else {
+                    // Root leaf overflow: build the level-8 trie. The build
+                    // is private until `self.root` is set; on a shared tree
+                    // the wrapper holds the tree bracket for this root-state
+                    // change (`sync::Shared::write_root_covered`) and the
+                    // shared engine builds under a scratch word — never the
+                    // tree word (a nested `begin` would make it even
+                    // mid-write), never a node's own (an upgrade inside the
+                    // build marks that node obsolete, which needs it even).
+                    let top = by_mode!(alloc, promote_leaf(alloc, keys, vals, key, val, path));
+                    // SAFETY: old root leaf no longer referenced.
+                    unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
+                    self.tree_pop = pop as u64 + 1;
+                    self.root = Root::Tree { top };
+                    None
+                }
+            }
+            Root::Tree { top } => {
+                let prefix = key >> 8;
+                // A warm path never exists on a shared tree: the shared engine
+                // clears the cache on entry and records nothing, so this bypass
+                // is structurally cold there (AGENTS.md §2.1.5); the assert is
+                // the tripwire, not the guard.
+                if path.prefix == prefix {
+                    alloc.assert_bracketed();
+                    if let Some(mut leaf) = core::ptr::NonNull::new(path.leaf) {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmapL pointer.
+                        let node = unsafe { leaf.as_mut() };
+                        let sub = (d >> 5) as usize;
+                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                            // SAFETY: value subarray holds subexpanse_count values; in-place swap.
+                            unsafe {
+                                let slot = node.values[sub].add(rank);
+                                let old = *slot;
+                                slot.write(val);
+                                return Some(old);
+                            }
+                        }
+                        let rank = node.bitmap.subexpanse_rank(d) as usize;
+                        let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                        if old_n > 0
+                            && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                        {
+                            // Fast path: spare class capacity — shift in place.
+                            // SAFETY: the subarray holds cap_class(old_n) slots.
+                            unsafe {
+                                let arr = node.values[sub];
+                                core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                                arr.add(rank).write(val);
+                            }
+                        } else {
+                            let new = alloc
+                                .alloc_bytes_plain(crate::mutate::sub_vals_size(old_n + 1))
+                                .cast::<u64>();
+                            // SAFETY: copy old_n values around the inserted rank.
+                            unsafe {
+                                if old_n > 0 {
+                                    let old = node.values[sub];
+                                    new.as_ptr().copy_from_nonoverlapping(old, rank);
+                                    new.as_ptr()
+                                        .add(rank + 1)
+                                        .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                                    alloc.free_bytes_plain(
+                                        core::ptr::NonNull::new(old.cast()).expect("values"),
+                                        crate::mutate::sub_vals_size(old_n),
+                                    );
+                                }
+                                new.as_ptr().add(rank).write(val);
+                            }
+                            node.values[sub] = new.as_ptr();
+                        }
+                        node.bitmap.set(d);
+                        path.pending_pop += 1;
+                        path.terminal_pop += 1;
+                        self.tree_pop += 1;
+                        debug_assert!(!path.edges[0].is_null());
+                        // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                        // armed only where `edges[0]` is set beside `prefix`,
+                        // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                        // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                        // `key >> 8`, so a cleared path never reaches here.
+                        unsafe {
+                            core::ptr::NonNull::new_unchecked(path.edges[0])
+                                .as_mut()
+                                .set_pop0(1, (path.terminal_pop - 1) as u64);
+                        }
+                        return None;
+                    } else if let Some(leaf1) = core::ptr::NonNull::new(path.leaf1) {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = path.terminal_pop as usize;
+                        let base = leaf1.as_ptr();
+                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
+                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
+                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                        let last = unsafe { *keys_ptr.add(cur_pop - 1) };
+                        if d > last {
+                            if cur_pop < crate::mutate::LEAF1_CAP
+                                && crate::leaf::cap_class(cur_pop + 1)
+                                    == crate::leaf::cap_class(cur_pop)
+                            {
+                                // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                unsafe {
+                                    *keys_ptr.add(cur_pop) = d;
+                                    let vals = base.cast::<u64>();
+                                    vals.add(cur_pop).write(val);
+                                    debug_assert!(!path.edges[0].is_null());
+                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                                    // `key >> 8`, so a cleared path never reaches here.
+                                    core::ptr::NonNull::new_unchecked(path.edges[0])
+                                        .as_mut()
+                                        .set_pop0(1, cur_pop as u64);
+                                }
+                                path.terminal_pop += 1;
+                                path.pending_pop += 1;
+                                self.tree_pop += 1;
+                                return None;
+                            }
+                        } else if d == last {
+                            // SAFETY: cur_pop - 1 is the existing slot for `last`.
+                            unsafe {
+                                let vals = base.cast::<u64>();
+                                let slot = vals.add(cur_pop - 1);
+                                let old = *slot;
+                                slot.write(val);
+                                return Some(old);
+                            }
+                        }
+                    }
+                }
+                path.clear();
+                // One OCC check per operation, where the runtime dispatch
+                // always sat; the shared monomorph brackets every store by the
+                // node that holds it and bumps the population atomically.
+                by_mode!(
+                    alloc,
+                    tree_insert::<false>(alloc, &mut self.tree_pop, path, top, key, val)
+                )
+                .0
+            }
+        }
+    }
+
+    /// [`Self::insert_inner`] for a shared tree: the stores into a live root
+    /// leaf are atomic words (`bits::shared_word`). A copy of the
+    /// plain body, not a generic one: making the plain body generic over the
+    /// access mode changed the plain callers' register allocation (#1086).
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    fn insert_inner_shared(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        val: u64,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        match &mut self.root {
+            Root::Empty => {
+                let ptr = alloc.alloc_bytes(leaf_size(1));
+                // SAFETY: fresh allocation: key slot then value slot.
+                unsafe {
+                    ptr.as_ptr().cast::<u64>().write(key);
+                    ptr.as_ptr()
+                        .add(leaf_values_offset(1))
+                        .cast::<u64>()
+                        .write(val);
+                }
+                self.root = Root::Leaf { ptr, pop: 1 };
+                None
+            }
+            Root::Leaf { ptr, pop } => {
+                let (ptr, pop) = (*ptr, *pop);
+                let (keys, vals) = Self::leaf_parts(ptr, pop);
+                let (hit, at) = if pop > 0 {
+                    let last = keys[pop - 1];
+                    if key > last {
+                        (false, pop)
+                    } else if key == last {
+                        (true, pop - 1)
+                    } else {
+                        match keys.binary_search(&key) {
+                            Ok(pos) => (true, pos),
+                            Err(pos) => (false, pos),
+                        }
+                    }
+                } else {
+                    (false, 0)
+                };
+                if hit {
+                    // SAFETY: in-place value swap.
+                    unsafe {
+                        let slot = vals.add(at);
+                        let old = *slot;
+                        shared_word::store::<true>(slot, val);
+                        return Some(old);
+                    }
+                }
+                if pop < ROOT_LEAF_CAP {
+                    if leaf_size(pop + 1) == leaf_size(pop) {
+                        // Spare class capacity: shift both areas in
+                        // place, no allocation and no copy of the
+                        // whole leaf.
+                        // SAFETY: same class, so the areas keep their
+                        // offsets and the extra slot is in bounds.
+                        unsafe {
+                            let base = ptr.as_ptr().cast::<u64>();
+                            shared_word::shift_up::<true>(base, at, pop - at);
+                            shared_word::store::<true>(base.add(at), key);
+                            let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
+                            shared_word::shift_up::<true>(v, at, pop - at);
+                            shared_word::store::<true>(v.add(at), val);
                         }
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
@@ -2279,7 +2514,7 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        by_mode!(alloc, self.remove_dispatch(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner_shared(alloc, key, path))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -2330,6 +2565,86 @@ impl MapCore {
                         let nk = ptr.as_ptr().cast::<u64>();
                         core::ptr::copy(nk.add(at + 1), nk.add(at), pop - 1 - at);
                         core::ptr::copy(vals.add(at + 1), vals.add(at), pop - 1 - at);
+                    }
+                    self.root = Root::Leaf { ptr, pop: pop - 1 };
+                } else {
+                    let new = alloc.alloc_bytes(leaf_size(pop - 1));
+                    // SAFETY: copy the surviving keys/values into the
+                    // smaller leaf.
+                    unsafe {
+                        let nk = new.as_ptr().cast::<u64>();
+                        nk.copy_from_nonoverlapping(keys.as_ptr(), at);
+                        nk.add(at)
+                            .copy_from_nonoverlapping(keys.as_ptr().add(at + 1), pop - 1 - at);
+                        let nv = new.as_ptr().add(leaf_values_offset(pop - 1)).cast::<u64>();
+                        nv.copy_from_nonoverlapping(vals, at);
+                        nv.add(at)
+                            .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
+                        alloc.free_bytes(ptr, leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        ptr: new,
+                        pop: pop - 1,
+                    };
+                }
+                Some(old)
+            }
+            Root::Tree { top } => {
+                // One OCC check per operation, where the runtime dispatch
+                // always sat (see `insert_inner`).
+                let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
+                if old.is_some() {
+                    if now == 0 {
+                        debug_assert!(top.is_null());
+                        // A root-state change: on a shared tree whose engine
+                        // covers the root, the tree word brackets it (a no-op
+                        // elsewhere; one load on this rare path).
+                        crate::occ::tree_begin_if::<true>(alloc);
+                        self.root = Root::Empty;
+                        crate::occ::tree_end_if::<true>(alloc);
+                    } else if now < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis twin of the root-leaf promotion; a
+                        // root-state change, as above.
+                        crate::occ::tree_begin_if::<true>(alloc);
+                        by_mode!(alloc, 1 self.condense_to_root_leaf(alloc, path));
+                        crate::occ::tree_end_if::<true>(alloc);
+                    }
+                }
+                old
+            }
+        }
+    }
+
+    /// [`Self::remove_inner`] for a shared tree; as
+    /// [`Self::insert_inner_shared`].
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    fn remove_inner_shared(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        path.clear();
+        match &mut self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (ptr, pop) = (*ptr, *pop);
+                let (keys, vals) = Self::leaf_parts(ptr, pop);
+                let at = keys.binary_search(&key).ok()?;
+                // SAFETY: in-bounds value read.
+                let old = unsafe { *vals.add(at) };
+                if pop == 1 {
+                    // SAFETY: last entry removed; free the leaf.
+                    unsafe { alloc.free_bytes(ptr, leaf_size(1)) };
+                    self.root = Root::Empty;
+                } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                    // Fast path: capacity class unchanged — shift surviving entries in-place.
+                    // SAFETY: in-place shift inside class-sized buffer.
+                    unsafe {
+                        let nk = ptr.as_ptr().cast::<u64>();
+                        shared_word::shift_down::<true>(nk, at, pop - 1 - at);
+                        shared_word::shift_down::<true>(vals, at, pop - 1 - at);
                     }
                     self.root = Root::Leaf { ptr, pop: pop - 1 };
                 } else {
