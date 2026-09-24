@@ -109,12 +109,16 @@ namespace Expanse {
         public function add(int $key): bool {}
         public function remove(int $key): bool {}
         public function contains(int $key): bool {}
+        public function memHeld(): int {}
+        public function shrinkToFit(): int {}
     }
 
     class SyncMap {
         public function set(int $key, int $value): void {}
         public function get(int $key): ?int {}
         public function delete(int $key): bool {}
+        public function memHeld(): int {}
+        public function shrinkToFit(): int {}
     }
 
     class ExpanseSet extends Set {}

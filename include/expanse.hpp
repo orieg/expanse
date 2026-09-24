@@ -1390,6 +1390,20 @@ public:
         return expanse_sync_set_len(ptr_);
     }
 
+    /// Heap bytes held from the global allocator: the tree's own share plus
+    /// the blocks its epoch collector keeps for reuse or is waiting to
+    /// reclaim. Read with writers excluded (writers wait for it).
+    [[nodiscard]] size_t mem_held() const noexcept {
+        return expanse_sync_set_mem_held(ptr_);
+    }
+
+    /// Returns the collector's freed blocks to the global allocator; returns
+    /// the bytes released, by which mem_held() then falls. Runs beside
+    /// readers and writers.
+    size_t shrink_to_fit() noexcept {
+        return expanse_sync_set_shrink_to_fit(ptr_);
+    }
+
     [[nodiscard]] bool empty() const noexcept {
         return size() == 0;
     }
@@ -1577,6 +1591,20 @@ public:
     /// Heap bytes used, read with writers excluded (writers wait for it).
     [[nodiscard]] size_t mem_used() const noexcept {
         return expanse_sync_map_mem_used(ptr_);
+    }
+
+    /// Heap bytes held from the global allocator: the tree's own share plus
+    /// the blocks its epoch collector keeps for reuse or is waiting to
+    /// reclaim. Read with writers excluded (writers wait for it).
+    [[nodiscard]] size_t mem_held() const noexcept {
+        return expanse_sync_map_mem_held(ptr_);
+    }
+
+    /// Returns the collector's freed blocks to the global allocator; returns
+    /// the bytes released, by which mem_held() then falls. Runs beside
+    /// readers and writers.
+    size_t shrink_to_fit() noexcept {
+        return expanse_sync_map_shrink_to_fit(ptr_);
     }
 
     [[nodiscard]] bool empty() const noexcept {

@@ -874,6 +874,72 @@ fn test_sync_map_mem_used() {
     }
 }
 
+/// `expanse_sync_{map,set}_mem_held` and `_shrink_to_fit`: 0 for NULL; the
+/// same figures as the Rust wrapper's; after a half drain the map holds more
+/// than it uses (its epoch collector keeps the freed blocks), and
+/// `shrink_to_fit` releases a non-zero amount by which `mem_held` then falls
+/// exactly. Blocks still in their grace period stay held, so `mem_held` is
+/// not asserted to reach `mem_used`.
+#[test]
+fn test_sync_mem_held_and_shrink_to_fit() {
+    use expanse::modern::{
+        expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_mem_held,
+        expanse_sync_map_mem_used, expanse_sync_map_new, expanse_sync_map_remove,
+        expanse_sync_map_shrink_to_fit, expanse_sync_set_free, expanse_sync_set_insert,
+        expanse_sync_set_mem_held, expanse_sync_set_new, expanse_sync_set_remove,
+        expanse_sync_set_shrink_to_fit,
+    };
+
+    // SAFETY: a null handle is a documented 0 for all four.
+    unsafe {
+        assert_eq!(expanse_sync_map_mem_held(core::ptr::null()), 0);
+        assert_eq!(expanse_sync_map_shrink_to_fit(core::ptr::null()), 0);
+        assert_eq!(expanse_sync_set_mem_held(core::ptr::null()), 0);
+        assert_eq!(expanse_sync_set_shrink_to_fit(core::ptr::null()), 0);
+    }
+
+    const N: u64 = 100_000;
+    let key = |i: u64| i.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let m = expanse_sync_map_new();
+    let s = expanse_sync_set_new();
+    // SAFETY: `m` and `s` are live until freed at the end; the wrappers'
+    // methods take `&self`; null `old_out`s.
+    unsafe {
+        for i in 0..N {
+            expanse_sync_map_insert(m, key(i), i, core::ptr::null_mut());
+            assert!(expanse_sync_set_insert(s, key(i)));
+        }
+        for i in (0..N).step_by(2) {
+            assert!(expanse_sync_map_remove(m, key(i), core::ptr::null_mut()));
+            assert!(expanse_sync_set_remove(s, key(i)));
+        }
+
+        let used = expanse_sync_map_mem_used(m);
+        let held = expanse_sync_map_mem_held(m);
+        assert_eq!(held, (*m).mem_held());
+        assert!(held > used, "map: held {held} <= used {used}");
+        let released = expanse_sync_map_shrink_to_fit(m);
+        assert!(released > 0, "map: shrink_to_fit released nothing");
+        assert_eq!(expanse_sync_map_mem_held(m), held - released);
+        assert_eq!(expanse_sync_map_mem_used(m), used);
+
+        let held = expanse_sync_set_mem_held(s);
+        assert_eq!(held, (*s).mem_held());
+        let released = expanse_sync_set_shrink_to_fit(s);
+        assert!(released > 0, "set: shrink_to_fit released nothing");
+        assert_eq!(expanse_sync_set_mem_held(s), held - released);
+
+        for i in (1..N).step_by(2) {
+            let mut v = 0;
+            assert!(expanse::modern::expanse_sync_map_get(m, key(i), &raw mut v));
+            assert_eq!(v, i);
+            assert!(expanse::modern::expanse_sync_set_contains(s, key(i)));
+        }
+        expanse_sync_map_free(m);
+        expanse_sync_set_free(s);
+    }
+}
+
 /// `expanse_{map,set,strmap}_mem_held` and `_shrink_to_fit`: 0 for NULL; a
 /// map or set drained by `remove` keeps its freed blocks, so `mem_held` stays
 /// above `mem_used`; `shrink_to_fit` returns exactly the difference, after

@@ -69,6 +69,32 @@ public sealed class ExpanseSyncSet : IDisposable
     }
 
     /// <summary>
+    /// Gets the off-heap bytes this set holds from the system allocator: its
+    /// tree's own share plus the blocks its epoch collector keeps for reuse or is
+    /// waiting to reclaim. Read with writers excluded, so writers wait for it.
+    /// </summary>
+    public nuint MemoryHeld
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return NativeMethods.expanse_sync_set_mem_held(_handle);
+        }
+    }
+
+    /// <summary>
+    /// Returns the freed blocks this set's epoch collector keeps for reuse to
+    /// the system allocator and returns the bytes released, by which
+    /// <see cref="MemoryHeld"/> then falls. Runs beside readers and writers;
+    /// blocks still in their grace period stay held until a later call.
+    /// </summary>
+    public nuint ShrinkToFit()
+    {
+        ThrowIfDisposed();
+        return NativeMethods.expanse_sync_set_shrink_to_fit(_handle);
+    }
+
+    /// <summary>
     /// Creates a lightweight lock-free reader handle bound to this concurrent set.
     /// Each querying thread should maintain its own reader handle.
     /// </summary>

@@ -587,6 +587,20 @@ bool                expanse_sync_set_insert(expanse_sync_set_t *set, uint64_t ke
 bool                expanse_sync_set_remove(expanse_sync_set_t *set, uint64_t key);
 bool                expanse_sync_set_contains(const expanse_sync_set_t *set, uint64_t key);
 uint64_t            expanse_sync_set_len(const expanse_sync_set_t *set);
+/*
+ * Held memory of a concurrent container, and its release. mem_held: heap
+ * bytes it holds from the global allocator: the tree's own share plus what
+ * its epoch collector holds for it, freed blocks past their grace period
+ * kept for reuse and retired blocks still in their grace period; 0 for NULL.
+ * Read with writers excluded, like expanse_sync_map_mem_used: not a call for
+ * a hot loop. shrink_to_fit returns the collector's freed blocks to the
+ * system allocator and returns the bytes released (0 for NULL), after which
+ * mem_held is lower by exactly that much. It runs beside readers and writers
+ * without excluding either; blocks still in their grace period stay held
+ * until a later call, so mem_held may still exceed mem_used afterwards.
+ */
+size_t              expanse_sync_set_mem_held(const expanse_sync_set_t *set);
+size_t              expanse_sync_set_shrink_to_fit(const expanse_sync_set_t *set);
 
 expanse_sync_set_reader_t *expanse_sync_set_reader_new(const expanse_sync_set_t *set);
 void                       expanse_sync_set_reader_free(expanse_sync_set_reader_t *reader);
@@ -609,6 +623,9 @@ uint64_t            expanse_sync_map_len(const expanse_sync_map_t *map);
  * no longer counted, although their allocations are still resident.
  */
 size_t              expanse_sync_map_mem_used(const expanse_sync_map_t *map);
+/* Held memory and its release, as expanse_sync_set_mem_held / _shrink_to_fit. */
+size_t              expanse_sync_map_mem_held(const expanse_sync_map_t *map);
+size_t              expanse_sync_map_shrink_to_fit(const expanse_sync_map_t *map);
 
 expanse_sync_map_reader_t *expanse_sync_map_reader_new(const expanse_sync_map_t *map);
 void                       expanse_sync_map_reader_free(expanse_sync_map_reader_t *reader);

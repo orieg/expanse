@@ -112,6 +112,8 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_sync_set_remove;
     public static final MethodHandle MH_expanse_sync_set_contains;
     public static final MethodHandle MH_expanse_sync_set_len;
+    public static final MethodHandle MH_expanse_sync_set_mem_held;
+    public static final MethodHandle MH_expanse_sync_set_shrink_to_fit;
     public static final MethodHandle MH_expanse_sync_set_reader_new;
     public static final MethodHandle MH_expanse_sync_set_reader_free;
     public static final MethodHandle MH_expanse_sync_set_reader_contains;
@@ -123,6 +125,8 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_sync_map_remove;
     public static final MethodHandle MH_expanse_sync_map_len;
     public static final MethodHandle MH_expanse_sync_map_mem_used;
+    public static final MethodHandle MH_expanse_sync_map_mem_held;
+    public static final MethodHandle MH_expanse_sync_map_shrink_to_fit;
     public static final MethodHandle MH_expanse_sync_map_reader_new;
     public static final MethodHandle MH_expanse_sync_map_reader_free;
     public static final MethodHandle MH_expanse_sync_map_reader_get;
@@ -243,6 +247,8 @@ public final class ExpanseNative {
         MH_expanse_sync_set_remove = downcall("expanse_sync_set_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
         MH_expanse_sync_set_contains = downcall("expanse_sync_set_contains", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
         MH_expanse_sync_set_len = downcall("expanse_sync_set_len", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_set_mem_held = downcall("expanse_sync_set_mem_held", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_set_shrink_to_fit = downcall("expanse_sync_set_shrink_to_fit", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_set_reader_new = downcall("expanse_sync_set_reader_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         MH_expanse_sync_set_reader_free = downcall("expanse_sync_set_reader_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         MH_expanse_sync_set_reader_contains = downcall("expanse_sync_set_reader_contains", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
@@ -254,6 +260,8 @@ public final class ExpanseNative {
         MH_expanse_sync_map_remove = downcall("expanse_sync_map_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_len = downcall("expanse_sync_map_len", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_mem_used = downcall("expanse_sync_map_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_mem_held = downcall("expanse_sync_map_mem_held", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_shrink_to_fit = downcall("expanse_sync_map_shrink_to_fit", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_reader_new = downcall("expanse_sync_map_reader_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         MH_expanse_sync_map_reader_free = downcall("expanse_sync_map_reader_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         MH_expanse_sync_map_reader_get = downcall("expanse_sync_map_reader_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));

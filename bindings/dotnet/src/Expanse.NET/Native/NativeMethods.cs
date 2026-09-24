@@ -424,6 +424,12 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_set_len")]
     public static extern ulong expanse_sync_set_len(SafeExpanseSyncSetHandle set);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_set_mem_held")]
+    public static extern nuint expanse_sync_set_mem_held(SafeExpanseSyncSetHandle set);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_set_shrink_to_fit")]
+    public static extern nuint expanse_sync_set_shrink_to_fit(SafeExpanseSyncSetHandle set);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_set_reader_new")]
     public static extern SafeExpanseSyncSetReaderHandle expanse_sync_set_reader_new(SafeExpanseSyncSetHandle set);
 
@@ -465,6 +471,12 @@ public static class NativeMethods
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_mem_used")]
     public static extern nuint expanse_sync_map_mem_used(SafeExpanseSyncMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_mem_held")]
+    public static extern nuint expanse_sync_map_mem_held(SafeExpanseSyncMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_shrink_to_fit")]
+    public static extern nuint expanse_sync_map_shrink_to_fit(SafeExpanseSyncMapHandle map);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_reader_new")]
     public static extern SafeExpanseSyncMapReaderHandle expanse_sync_map_reader_new(SafeExpanseSyncMapHandle map);

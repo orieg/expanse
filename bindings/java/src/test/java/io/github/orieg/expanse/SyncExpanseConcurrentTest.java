@@ -164,4 +164,39 @@ class SyncExpanseConcurrentTest {
         assertDoesNotThrow(set::close);
         assertDoesNotThrow(reader::close);
     }
+
+    @Test
+    @DisplayName("SyncExpanseMap/SyncExpanseSet memHeld and shrinkToFit after a half drain")
+    void memHeldAndShrinkToFit() {
+        // The epoch collector keeps the freed blocks. shrinkToFit returns those
+        // past their grace period and memHeld falls by exactly what it reports;
+        // blocks still in their grace period stay held.
+        int n = 50_000;
+        try (SyncExpanseMap map = new SyncExpanseMap(); SyncExpanseSet set = new SyncExpanseSet()) {
+            for (long k = 0; k < n; k++) {
+                map.insert(k * 0x9E3779B1L, k);
+                set.insert(k * 0x9E3779B1L);
+            }
+            for (long k = 0; k < n; k += 2) {
+                assertTrue(map.remove(k * 0x9E3779B1L));
+                assertTrue(set.remove(k * 0x9E3779B1L));
+            }
+            long mapHeld = map.memHeld();
+            assertTrue(mapHeld > 0);
+            long mapReleased = map.shrinkToFit();
+            assertTrue(mapReleased >= 0);
+            assertEquals(mapHeld - mapReleased, map.memHeld());
+
+            long setHeld = set.memHeld();
+            assertTrue(setHeld > 0);
+            long setReleased = set.shrinkToFit();
+            assertTrue(setReleased >= 0);
+            assertEquals(setHeld - setReleased, set.memHeld());
+
+            for (long k = 1; k < n; k += 2) {
+                assertEquals(OptionalLong.of(k), map.get(k * 0x9E3779B1L));
+                assertTrue(set.contains(k * 0x9E3779B1L));
+            }
+        }
+    }
 }

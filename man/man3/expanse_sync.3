@@ -2,10 +2,12 @@
 .SH NAME
 expanse_sync_set_new, expanse_sync_set_free, expanse_sync_set_insert, \
 expanse_sync_set_remove, expanse_sync_set_contains, expanse_sync_set_len, \
+expanse_sync_set_mem_held, expanse_sync_set_shrink_to_fit, \
 expanse_sync_set_reader_new, expanse_sync_set_reader_free, \
 expanse_sync_set_reader_contains, expanse_sync_map_new, \
 expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_get, \
 expanse_sync_map_remove, expanse_sync_map_len, expanse_sync_map_mem_used, \
+expanse_sync_map_mem_held, expanse_sync_map_shrink_to_fit, \
 expanse_sync_map_reader_new, expanse_sync_map_reader_free, \
 expanse_sync_map_reader_get, expanse_sync_map_reader_first, \
 expanse_sync_map_reader_last, expanse_sync_map_reader_next_at_or_after, \
@@ -40,6 +42,12 @@ expanse_sync_map_reader_prev_before \
 .br
 .BI "uint64_t            expanse_sync_set_len(const expanse_sync_set_t *"
 .BI "set" ");"
+.br
+.BI "size_t              expanse_sync_set_mem_held("
+.BI "    const expanse_sync_set_t *" set ");"
+.br
+.BI "size_t              expanse_sync_set_shrink_to_fit("
+.BI "    const expanse_sync_set_t *" set ");"
 .PP
 .BI "expanse_sync_set_reader_t *expanse_sync_set_reader_new("
 .BI "    const expanse_sync_set_t *" set ");"
@@ -72,6 +80,12 @@ expanse_sync_map_reader_prev_before \
 .br
 .BI "size_t              expanse_sync_map_mem_used(const expanse_sync_map_t *"
 .BI "map" ");"
+.br
+.BI "size_t              expanse_sync_map_mem_held("
+.BI "    const expanse_sync_map_t *" map ");"
+.br
+.BI "size_t              expanse_sync_map_shrink_to_fit("
+.BI "    const expanse_sync_map_t *" map ");"
 .PP
 .BI "expanse_sync_map_reader_t *expanse_sync_map_reader_new("
 .BI "    const expanse_sync_map_t *" map ");"
@@ -183,6 +197,32 @@ It reads with writers excluded: it quiesces writers and takes the writer
 mutex, so writers wait for it, and it does not belong in a hot loop.
 Nodes retired to the epoch collector but not yet reclaimed are no longer
 counted, although their allocations are still resident.
+.PP
+.B expanse_sync_map_mem_held
+and
+.B expanse_sync_set_mem_held
+return the heap bytes the container holds from the global allocator: the
+tree's own share plus what its epoch collector holds for it \(em freed
+blocks past their grace period, kept for reuse, and retired blocks still in
+their grace period \(em and 0 for a NULL handle.
+They read with writers excluded, as
+.B expanse_sync_map_mem_used
+does.
+.PP
+.B expanse_sync_map_shrink_to_fit
+and
+.B expanse_sync_set_shrink_to_fit
+return the collector's freed blocks to the global allocator and return the
+bytes released (0 for a NULL handle), after which
+.B mem_held
+is lower by exactly that much.
+They run beside readers and writers without excluding either: only blocks
+past their grace period are released, and no reader can still hold one.
+Blocks still in their grace period stay held until a later call, so
+.B mem_held
+may still exceed
+.B expanse_sync_map_mem_used
+afterwards.
 .SH EXAMPLES
 .nf
 #include <stdio.h>

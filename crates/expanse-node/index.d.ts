@@ -521,6 +521,16 @@ export class SyncExpanseMap {
   size(): bigint;
   isEmpty(): boolean;
   memUsed(): bigint;
+  /**
+   * Heap bytes held from the global allocator: the tree's own share plus
+   * the blocks its epoch collector keeps for reuse or is waiting to reclaim.
+   */
+  memHeld(): bigint;
+  /**
+   * Returns the collector's freed blocks to the global allocator and returns
+   * the bytes released; memHeld() falls by exactly that much.
+   */
+  shrinkToFit(): bigint;
   has(key: KeyInput): boolean;
   set(key: KeyInput, value: KeyInput): bigint | null;
   get(key: KeyInput): bigint | null;
@@ -546,6 +556,16 @@ export class SyncExpanseSet {
 
   size(): bigint;
   isEmpty(): boolean;
+  /**
+   * Heap bytes held from the global allocator: the tree's own share plus
+   * the blocks its epoch collector keeps for reuse or is waiting to reclaim.
+   */
+  memHeld(): bigint;
+  /**
+   * Returns the collector's freed blocks to the global allocator and returns
+   * the bytes released; memHeld() falls by exactly that much.
+   */
+  shrinkToFit(): bigint;
   has(key: KeyInput): boolean;
   add(key: KeyInput): boolean;
   remove(key: KeyInput): boolean;

@@ -221,6 +221,39 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
         $this->assertTrue($map->delete(42));
     }
 
+    /**
+     * After a half drain, shrinkToFit() on a concurrent container releases
+     * the collector's freed blocks and memHeld() falls by exactly that much;
+     * blocks still in their grace period stay held, so memHeld() is not
+     * asserted to reach any used figure. (The pure-PHP fallback holds and
+     * releases 0.)
+     */
+    public function testSyncMemHeldAndShrinkToFit()
+    {
+        $n = 50000;
+        $map = new SyncMap();
+        $set = new SyncSet();
+        for ($k = 0; $k < $n; $k++) {
+            $map->set($k * 0x9E3779B1, $k);
+            $set->add($k * 0x9E3779B1);
+        }
+        for ($k = 0; $k < $n; $k += 2) {
+            $this->assertTrue($map->delete($k * 0x9E3779B1));
+            $this->assertTrue($set->remove($k * 0x9E3779B1));
+        }
+        foreach ([$map, $set] as $c) {
+            $held = $c->memHeld();
+            $this->assertTrue($held >= 0);
+            $released = $c->shrinkToFit();
+            $this->assertTrue($released >= 0);
+            $this->assertEquals($held - $released, $c->memHeld());
+        }
+        for ($k = 1; $k < $n; $k += 2) {
+            $this->assertEquals($k, $map->get($k * 0x9E3779B1));
+            $this->assertTrue($set->contains($k * 0x9E3779B1));
+        }
+    }
+
     public function testJudyCompat()
     {
         $j1 = new Judy(Judy::BITSET);

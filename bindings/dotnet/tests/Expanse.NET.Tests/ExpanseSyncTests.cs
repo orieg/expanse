@@ -58,6 +58,44 @@ public class ExpanseSyncTests
     }
 
     [Fact]
+    public void MemoryHeldAndShrinkToFitAfterHalfDrain()
+    {
+        // The epoch collector keeps the freed blocks. ShrinkToFit returns those
+        // past their grace period and MemoryHeld falls by exactly what it
+        // reports; blocks still in their grace period stay held.
+        const ulong n = 50000;
+        using var map = new ExpanseSyncMap();
+        using var set = new ExpanseSyncSet();
+        for (ulong k = 0; k < n; k++)
+        {
+            map.Set(k * 0x9E3779B1UL, k);
+            set.Add(k * 0x9E3779B1UL);
+        }
+        for (ulong k = 0; k < n; k += 2)
+        {
+            Assert.True(map.Remove(k * 0x9E3779B1UL));
+            Assert.True(set.Remove(k * 0x9E3779B1UL));
+        }
+
+        nuint mapHeld = map.MemoryHeld;
+        Assert.True(mapHeld > 0);
+        nuint mapReleased = map.ShrinkToFit();
+        Assert.Equal(mapHeld - mapReleased, map.MemoryHeld);
+
+        nuint setHeld = set.MemoryHeld;
+        Assert.True(setHeld > 0);
+        nuint setReleased = set.ShrinkToFit();
+        Assert.Equal(setHeld - setReleased, set.MemoryHeld);
+
+        for (ulong k = 1; k < n; k += 2)
+        {
+            Assert.True(map.TryGet(k * 0x9E3779B1UL, out ulong v));
+            Assert.Equal(k, v);
+            Assert.True(set.Contains(k * 0x9E3779B1UL));
+        }
+    }
+
+    [Fact]
     public void MapReaderKeepsMapAliveAcrossGarbageCollection()
     {
         // A reader borrows the map's native storage. Before the fix the reader held no

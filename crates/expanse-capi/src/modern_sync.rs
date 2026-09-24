@@ -99,6 +99,34 @@ pub unsafe extern "C" fn expanse_sync_set_len(set: *const SyncExpanseSet) -> u64
     unsafe { set.as_ref() }.map_or(0, SyncExpanseSet::len)
 }
 
+/// Heap bytes the set holds from the global allocator: its tree's own share
+/// plus the blocks its epoch collector holds for reuse or is waiting to
+/// reclaim ([`SyncExpanseSet::mem_held`]); 0 for a null handle. Writers wait
+/// for it.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_set_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_set_mem_held(set: *const SyncExpanseSet) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { set.as_ref() }.map_or(0, SyncExpanseSet::mem_held)
+}
+
+/// Returns the freed blocks the set's epoch collector keeps for reuse to the
+/// global allocator and returns the bytes released
+/// ([`SyncExpanseSet::shrink_to_fit`]); 0 for a null handle. Runs beside
+/// readers and writers without excluding either.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_set_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_set_shrink_to_fit(set: *const SyncExpanseSet) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { set.as_ref() }.map_or(0, SyncExpanseSet::shrink_to_fit)
+}
+
 /// Registers a reader handle for this thread. Free it before the set.
 ///
 /// # Safety
@@ -258,6 +286,34 @@ pub unsafe extern "C" fn expanse_sync_map_len(map: *const SyncExpanseMap) -> u64
 pub unsafe extern "C" fn expanse_sync_map_mem_used(map: *const SyncExpanseMap) -> usize {
     // SAFETY: null or live handle per contract.
     unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::mem_used)
+}
+
+/// Heap bytes the map holds from the global allocator: its tree's own share
+/// plus the blocks its epoch collector holds for reuse or is waiting to
+/// reclaim ([`SyncExpanseMap::mem_held`]); 0 for a null handle, as
+/// [`expanse_sync_map_mem_used`]. Writers wait for it.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_mem_held(map: *const SyncExpanseMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::mem_held)
+}
+
+/// Returns the freed blocks the map's epoch collector keeps for reuse to the
+/// global allocator and returns the bytes released
+/// ([`SyncExpanseMap::shrink_to_fit`]); 0 for a null handle. Runs beside
+/// readers and writers without excluding either.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_shrink_to_fit(map: *const SyncExpanseMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::shrink_to_fit)
 }
 
 /// Registers a reader handle for this thread. Free it before the map.
