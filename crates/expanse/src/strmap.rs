@@ -494,8 +494,27 @@ fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
     (chunk, rest.len() < CHUNK)
 }
 
-/// The byte content of a terminal chunk (bytes before the NUL).
-fn terminal_bytes(chunk: u64) -> impl Iterator<Item = u8> {
+/// Appends the byte content of a terminal chunk (the bytes before its NUL).
+///
+/// Keys are NUL-free and [`chunk_at`] zero-pads, so every byte after a
+/// terminal chunk's first NUL is also zero and the content length is
+/// `CHUNK - trailing_zeros / 8`. That turns a per-byte loop into one fixed
+/// 8-byte append and a truncate.
+///
+/// Out of line on purpose: inlined into `StrCursor::next` it added about four
+/// instructions to every step, terminal or not, on the `strmap_cursor_scan`
+/// Callgrind arm, which outweighed the call it saves on terminal entries.
+#[inline(never)]
+fn push_terminal(out: &mut Vec<u8>, chunk: u64) {
+    let len = out.len() + CHUNK - (chunk.trailing_zeros() / 8) as usize;
+    out.extend_from_slice(&chunk.to_be_bytes());
+    out.truncate(len);
+}
+
+/// The byte-scan definition of a terminal chunk's content, retained as the
+/// parity oracle for [`push_terminal`].
+#[cfg(test)]
+fn terminal_bytes_scan(chunk: u64) -> impl Iterator<Item = u8> {
     chunk.to_be_bytes().into_iter().take_while(|&b| b != 0)
 }
 
@@ -733,7 +752,7 @@ impl StrNode {
                 n.map.last().expect("non-empty node")
             };
             if is_terminal(chunk) {
-                out.extend(terminal_bytes(chunk));
+                push_terminal(out, chunk);
                 return n.map.value_slot_pathless(chunk).expect("present chunk");
             }
             out.extend_from_slice(&chunk.to_be_bytes());
@@ -763,7 +782,7 @@ impl StrNode {
     ) -> Option<NonNull<u64>> {
         let (chunk, v) = cursor?;
         if is_terminal(chunk) {
-            out.extend(terminal_bytes(chunk));
+            push_terminal(out, chunk);
             Some(self.map.value_slot_pathless(chunk).expect("present chunk"))
         } else if is_suffix_ptr(v) {
             let sfx = unpack_suffix(v);
@@ -1242,7 +1261,7 @@ impl<'a> StrCursor<'a> {
     ) -> Option<NonNull<u64>> {
         loop {
             if is_terminal(chunk) {
-                self.key.extend(terminal_bytes(chunk));
+                push_terminal(&mut self.key, chunk);
                 // SAFETY: `node` is a live node on the path just walked, and
                 // the chunk came from its own map, so the slot is present.
                 return unsafe { &mut *node }.map.value_slot_pathless(chunk);
@@ -3412,6 +3431,44 @@ mod tests {
             rng ^= rng >> 7;
             rng ^= rng << 17;
             assert_eq!(is_terminal(rng), is_terminal_scan(rng), "random {rng:#x}");
+        }
+    }
+
+    /// [`push_terminal`] appends what the byte scan it replaced appends, for
+    /// every terminal chunk a NUL-free key can produce: each content length
+    /// 0..8 with every byte value in every content position, and a random
+    /// sweep of NUL-free contents.
+    #[test]
+    fn push_terminal_matches_the_byte_scan() {
+        let check = |chunk: u64| {
+            let mut got = b"prefix".to_vec();
+            push_terminal(&mut got, chunk);
+            let mut want = b"prefix".to_vec();
+            want.extend(terminal_bytes_scan(chunk));
+            assert_eq!(got, want, "chunk {chunk:#018x}");
+        };
+        for n in 0..CHUNK {
+            for b in 1u8..=255 {
+                for pos in 0..n {
+                    let mut c = [0x41u8; CHUNK];
+                    c[n..].fill(0);
+                    c[pos] = b;
+                    check(u64::from_be_bytes(c));
+                }
+            }
+            let mut c = [0x7Fu8; CHUNK];
+            c[n..].fill(0);
+            check(u64::from_be_bytes(c));
+        }
+        let mut rng = 0x9E37_79B9_7F4A_7C15u64;
+        for _ in 0..if cfg!(miri) { 500 } else { 100_000 } {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            let n = (rng % CHUNK as u64) as usize;
+            let mut c = rng.to_be_bytes().map(|b| b | 1);
+            c[n..].fill(0);
+            check(u64::from_be_bytes(c));
         }
     }
 
