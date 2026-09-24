@@ -1,31 +1,31 @@
+Package: libexpanse-dev
+Version: 0.8.1
+Architecture: arm64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine development files (headers, static library, man pages).
+Filename: pool/main/libexpanse-dev_0.8.1_arm64.deb
+Size: 7520434
+SHA256: e6dc315fc3aa1403748bd4c5a7e6f010410b56be896ca93b49f831f7ece4953c
+Depends: libexpanse1 (= 0.8.1)
+
 Package: libjudy-compat
-Version: 0.8.0
+Version: 0.8.1
 Architecture: arm64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
-Filename: pool/main/libjudy-compat_0.8.0_arm64.deb
-Size: 7790
-SHA256: c3bbd3a85a74e8a1ae646883cc8d0c1a24835b83d9bb1795b219e58c1700a2db
-Depends: libexpanse1 (= 0.8.0)
+Filename: pool/main/libjudy-compat_0.8.1_arm64.deb
+Size: 7788
+SHA256: 36dbf0178c32a97a996ad43932332bad7dbf021d400157fb1ca0500101414ebe
+Depends: libexpanse1 (= 0.8.1)
 Provides: libjudy
 Conflicts: libjudy
 
 Package: libexpanse1
-Version: 0.8.0
+Version: 0.8.1
 Architecture: arm64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
-Filename: pool/main/libexpanse1_0.8.0_arm64.deb
-Size: 521506
-SHA256: 5e1893013392f9dda1313286fb8d63a1579fcd92544473c22a7182ecbf21e522
-
-Package: libexpanse-dev
-Version: 0.8.0
-Architecture: arm64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine development files (headers, static library, man pages).
-Filename: pool/main/libexpanse-dev_0.8.0_arm64.deb
-Size: 7520388
-SHA256: c6820ac3da36f573b2509c3488330eb2630d620c954d20e44749b2243f258703
-Depends: libexpanse1 (= 0.8.0)
+Filename: pool/main/libexpanse1_0.8.1_arm64.deb
+Size: 523756
+SHA256: bfe1cea9ce4701feffe5bcaf563aef5c541fd1a027978614c5ebe4347132a9dd
 
