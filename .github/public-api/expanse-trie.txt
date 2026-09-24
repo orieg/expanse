@@ -1966,11 +1966,13 @@ pub fn expanse_trie::sync::SyncExpanseMap::get(&self, expanse_trie::types::Key) 
 pub fn expanse_trie::sync::SyncExpanseMap::insert(&self, expanse_trie::types::Key, u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseMap::len(&self) -> u64
+pub fn expanse_trie::sync::SyncExpanseMap::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseMap::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseMap::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedMapReader
 pub fn expanse_trie::sync::SyncExpanseMap::reader(&self) -> expanse_trie::sync::MapReader<'_>
 pub fn expanse_trie::sync::SyncExpanseMap::remove(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseMap::shrink_to_fit(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::map::ExpanseMap) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseMap
 pub fn expanse_trie::sync::SyncExpanseMap::default() -> Self
@@ -1988,9 +1990,11 @@ pub fn expanse_trie::sync::SyncExpanseSet::contains(&self, expanse_trie::types::
 pub fn expanse_trie::sync::SyncExpanseSet::insert(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::len(&self) -> u64
+pub fn expanse_trie::sync::SyncExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseSet::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseSet::reader(&self) -> expanse_trie::sync::SetReader<'_>
 pub fn expanse_trie::sync::SyncExpanseSet::remove(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::SyncExpanseSet::shrink_to_fit(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseSet::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::set::ExpanseSet) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseSet
 pub fn expanse_trie::sync::SyncExpanseSet::default() -> Self
@@ -2009,9 +2013,11 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::get(&self, &expanse_trie::strmap::
 pub fn expanse_trie::sync::SyncExpanseStrMap::insert(&self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::len(&self) -> u64
+pub fn expanse_trie::sync::SyncExpanseStrMap::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseStrMap::reader(&self) -> expanse_trie::sync::StrReader<'_>
 pub fn expanse_trie::sync::SyncExpanseStrMap::remove(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseStrMap::shrink_to_fit(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::strmap::ExpanseStrMap) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked_mut<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::strmap::ExpanseStrMap) -> R) -> R
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
