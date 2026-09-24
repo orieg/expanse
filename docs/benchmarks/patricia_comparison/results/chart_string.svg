@@ -111,33 +111,33 @@
   <text x="150.0" y="346" class="t-axis-label" text-anchor="middle">35 B</text>
   <text x="240.0" y="346" class="t-axis-label" text-anchor="middle">128 B</text>
   <text x="330.0" y="346" class="t-axis-label" text-anchor="middle">240 B</text>
-  <path d="M60.0,290.0 L150.0,282.9 L240.0,264.8 L330.0,250.8" class="ln-patricia" fill="none"/>
-  <line x1="60.0" y1="290.2" x2="60.0" y2="289.7" class="axis"/>
-  <circle cx="60.0" cy="290.0" r="3.2" class="b-patricia"/>
-  <line x1="150.0" y1="283.2" x2="150.0" y2="282.8" class="axis"/>
-  <circle cx="150.0" cy="282.9" r="3.2" class="b-patricia"/>
-  <line x1="240.0" y1="265.0" x2="240.0" y2="264.7" class="axis"/>
-  <circle cx="240.0" cy="264.8" r="3.2" class="b-patricia"/>
-  <line x1="330.0" y1="250.8" x2="330.0" y2="250.7" class="axis"/>
-  <circle cx="330.0" cy="250.8" r="3.2" class="b-patricia"/>
-  <path d="M60.0,234.4 L150.0,226.8 L240.0,213.0 L330.0,198.3" class="ln-radix" fill="none"/>
-  <line x1="60.0" y1="234.5" x2="60.0" y2="234.2" class="axis"/>
-  <circle cx="60.0" cy="234.4" r="3.2" class="b-radix"/>
-  <line x1="150.0" y1="227.0" x2="150.0" y2="226.7" class="axis"/>
-  <circle cx="150.0" cy="226.8" r="3.2" class="b-radix"/>
-  <line x1="240.0" y1="213.1" x2="240.0" y2="212.9" class="axis"/>
-  <circle cx="240.0" cy="213.0" r="3.2" class="b-radix"/>
-  <line x1="330.0" y1="198.5" x2="330.0" y2="198.2" class="axis"/>
-  <circle cx="330.0" cy="198.3" r="3.2" class="b-radix"/>
-  <path d="M60.0,227.0 L150.0,219.0 L240.0,199.5 L330.0,182.6" class="ln-qp" fill="none"/>
-  <line x1="60.0" y1="227.2" x2="60.0" y2="226.8" class="axis"/>
-  <circle cx="60.0" cy="227.0" r="3.2" class="b-qp"/>
-  <line x1="150.0" y1="219.1" x2="150.0" y2="218.9" class="axis"/>
-  <circle cx="150.0" cy="219.0" r="3.2" class="b-qp"/>
-  <line x1="240.0" y1="199.6" x2="240.0" y2="199.4" class="axis"/>
-  <circle cx="240.0" cy="199.5" r="3.2" class="b-qp"/>
-  <line x1="330.0" y1="182.7" x2="330.0" y2="182.5" class="axis"/>
-  <circle cx="330.0" cy="182.6" r="3.2" class="b-qp"/>
+  <path d="M60.0,290.4 L150.0,284.3 L240.0,264.2 L330.0,250.4" class="ln-patricia" fill="none"/>
+  <line x1="60.0" y1="290.7" x2="60.0" y2="290.2" class="axis"/>
+  <circle cx="60.0" cy="290.4" r="3.2" class="b-patricia"/>
+  <line x1="150.0" y1="284.4" x2="150.0" y2="284.2" class="axis"/>
+  <circle cx="150.0" cy="284.3" r="3.2" class="b-patricia"/>
+  <line x1="240.0" y1="264.4" x2="240.0" y2="264.0" class="axis"/>
+  <circle cx="240.0" cy="264.2" r="3.2" class="b-patricia"/>
+  <line x1="330.0" y1="250.5" x2="330.0" y2="250.2" class="axis"/>
+  <circle cx="330.0" cy="250.4" r="3.2" class="b-patricia"/>
+  <path d="M60.0,235.4 L150.0,227.5 L240.0,206.8 L330.0,197.0" class="ln-radix" fill="none"/>
+  <line x1="60.0" y1="235.7" x2="60.0" y2="235.1" class="axis"/>
+  <circle cx="60.0" cy="235.4" r="3.2" class="b-radix"/>
+  <line x1="150.0" y1="227.6" x2="150.0" y2="227.3" class="axis"/>
+  <circle cx="150.0" cy="227.5" r="3.2" class="b-radix"/>
+  <line x1="240.0" y1="207.1" x2="240.0" y2="206.6" class="axis"/>
+  <circle cx="240.0" cy="206.8" r="3.2" class="b-radix"/>
+  <line x1="330.0" y1="197.3" x2="330.0" y2="196.8" class="axis"/>
+  <circle cx="330.0" cy="197.0" r="3.2" class="b-radix"/>
+  <path d="M60.0,227.2 L150.0,218.4 L240.0,198.6 L330.0,181.8" class="ln-qp" fill="none"/>
+  <line x1="60.0" y1="227.4" x2="60.0" y2="226.8" class="axis"/>
+  <circle cx="60.0" cy="227.2" r="3.2" class="b-qp"/>
+  <line x1="150.0" y1="218.5" x2="150.0" y2="218.3" class="axis"/>
+  <circle cx="150.0" cy="218.4" r="3.2" class="b-qp"/>
+  <line x1="240.0" y1="198.8" x2="240.0" y2="198.5" class="axis"/>
+  <circle cx="240.0" cy="198.6" r="3.2" class="b-qp"/>
+  <line x1="330.0" y1="182.1" x2="330.0" y2="181.6" class="axis"/>
+  <circle cx="330.0" cy="181.8" r="3.2" class="b-qp"/>
   <text x="380" y="100" class="t-bar-label">n = 100,000</text>
   <line x1="380" y1="330.0" x2="650" y2="330.0" class="grid"/>
   <text x="374" y="333.0" class="t-axis-label" text-anchor="end">0.1</text>
@@ -149,33 +149,33 @@
   <text x="470.0" y="346" class="t-axis-label" text-anchor="middle">35 B</text>
   <text x="560.0" y="346" class="t-axis-label" text-anchor="middle">128 B</text>
   <text x="650.0" y="346" class="t-axis-label" text-anchor="middle">240 B</text>
-  <path d="M380.0,295.4 L470.0,288.9 L560.0,274.7 L650.0,263.8" class="ln-patricia" fill="none"/>
-  <line x1="380.0" y1="295.7" x2="380.0" y2="295.1" class="axis"/>
-  <circle cx="380.0" cy="295.4" r="3.2" class="b-patricia"/>
-  <line x1="470.0" y1="289.1" x2="470.0" y2="288.8" class="axis"/>
-  <circle cx="470.0" cy="288.9" r="3.2" class="b-patricia"/>
-  <line x1="560.0" y1="274.8" x2="560.0" y2="274.6" class="axis"/>
-  <circle cx="560.0" cy="274.7" r="3.2" class="b-patricia"/>
-  <line x1="650.0" y1="263.9" x2="650.0" y2="263.6" class="axis"/>
-  <circle cx="650.0" cy="263.8" r="3.2" class="b-patricia"/>
-  <path d="M380.0,236.5 L470.0,229.8 L560.0,217.7 L650.0,206.9" class="ln-radix" fill="none"/>
-  <line x1="380.0" y1="236.7" x2="380.0" y2="236.3" class="axis"/>
-  <circle cx="380.0" cy="236.5" r="3.2" class="b-radix"/>
-  <line x1="470.0" y1="229.9" x2="470.0" y2="229.6" class="axis"/>
-  <circle cx="470.0" cy="229.8" r="3.2" class="b-radix"/>
-  <line x1="560.0" y1="218.0" x2="560.0" y2="217.6" class="axis"/>
-  <circle cx="560.0" cy="217.7" r="3.2" class="b-radix"/>
-  <line x1="650.0" y1="207.0" x2="650.0" y2="206.8" class="axis"/>
-  <circle cx="650.0" cy="206.9" r="3.2" class="b-radix"/>
-  <path d="M380.0,235.8 L470.0,232.2 L560.0,225.1 L650.0,218.3" class="ln-qp" fill="none"/>
-  <line x1="380.0" y1="236.5" x2="380.0" y2="235.2" class="axis"/>
-  <circle cx="380.0" cy="235.8" r="3.2" class="b-qp"/>
-  <line x1="470.0" y1="233.0" x2="470.0" y2="231.6" class="axis"/>
+  <path d="M380.0,295.1 L470.0,290.1 L560.0,274.5 L650.0,263.4" class="ln-patricia" fill="none"/>
+  <line x1="380.0" y1="295.5" x2="380.0" y2="294.9" class="axis"/>
+  <circle cx="380.0" cy="295.1" r="3.2" class="b-patricia"/>
+  <line x1="470.0" y1="290.4" x2="470.0" y2="289.9" class="axis"/>
+  <circle cx="470.0" cy="290.1" r="3.2" class="b-patricia"/>
+  <line x1="560.0" y1="274.7" x2="560.0" y2="274.3" class="axis"/>
+  <circle cx="560.0" cy="274.5" r="3.2" class="b-patricia"/>
+  <line x1="650.0" y1="263.6" x2="650.0" y2="263.3" class="axis"/>
+  <circle cx="650.0" cy="263.4" r="3.2" class="b-patricia"/>
+  <path d="M380.0,236.3 L470.0,229.7 L560.0,214.0 L650.0,206.1" class="ln-radix" fill="none"/>
+  <line x1="380.0" y1="236.6" x2="380.0" y2="236.1" class="axis"/>
+  <circle cx="380.0" cy="236.3" r="3.2" class="b-radix"/>
+  <line x1="470.0" y1="229.8" x2="470.0" y2="229.5" class="axis"/>
+  <circle cx="470.0" cy="229.7" r="3.2" class="b-radix"/>
+  <line x1="560.0" y1="214.1" x2="560.0" y2="213.9" class="axis"/>
+  <circle cx="560.0" cy="214.0" r="3.2" class="b-radix"/>
+  <line x1="650.0" y1="206.9" x2="650.0" y2="205.9" class="axis"/>
+  <circle cx="650.0" cy="206.1" r="3.2" class="b-radix"/>
+  <path d="M380.0,236.6 L470.0,232.2 L560.0,225.1 L650.0,217.9" class="ln-qp" fill="none"/>
+  <line x1="380.0" y1="237.2" x2="380.0" y2="236.0" class="axis"/>
+  <circle cx="380.0" cy="236.6" r="3.2" class="b-qp"/>
+  <line x1="470.0" y1="232.9" x2="470.0" y2="231.5" class="axis"/>
   <circle cx="470.0" cy="232.2" r="3.2" class="b-qp"/>
-  <line x1="560.0" y1="225.5" x2="560.0" y2="224.9" class="axis"/>
+  <line x1="560.0" y1="225.3" x2="560.0" y2="224.9" class="axis"/>
   <circle cx="560.0" cy="225.1" r="3.2" class="b-qp"/>
-  <line x1="650.0" y1="218.4" x2="650.0" y2="218.2" class="axis"/>
-  <circle cx="650.0" cy="218.3" r="3.2" class="b-qp"/>
+  <line x1="650.0" y1="218.1" x2="650.0" y2="217.8" class="axis"/>
+  <circle cx="650.0" cy="217.9" r="3.2" class="b-qp"/>
   <text x="700" y="100" class="t-bar-label">n = 1,000,000</text>
   <line x1="700" y1="330.0" x2="970" y2="330.0" class="grid"/>
   <text x="694" y="333.0" class="t-axis-label" text-anchor="end">0.1</text>
@@ -187,32 +187,32 @@
   <text x="790.0" y="346" class="t-axis-label" text-anchor="middle">35 B</text>
   <text x="880.0" y="346" class="t-axis-label" text-anchor="middle">128 B</text>
   <text x="970.0" y="346" class="t-axis-label" text-anchor="middle">240 B</text>
-  <path d="M700.0,308.7 L790.0,285.0 L880.0,284.0 L970.0,275.6" class="ln-patricia" fill="none"/>
-  <line x1="700.0" y1="308.8" x2="700.0" y2="308.6" class="axis"/>
-  <circle cx="700.0" cy="308.7" r="3.2" class="b-patricia"/>
-  <line x1="790.0" y1="285.1" x2="790.0" y2="284.9" class="axis"/>
-  <circle cx="790.0" cy="285.0" r="3.2" class="b-patricia"/>
-  <line x1="880.0" y1="284.1" x2="880.0" y2="283.8" class="axis"/>
-  <circle cx="880.0" cy="284.0" r="3.2" class="b-patricia"/>
-  <line x1="970.0" y1="275.6" x2="970.0" y2="275.6" class="axis"/>
-  <circle cx="970.0" cy="275.6" r="3.2" class="b-patricia"/>
-  <path d="M700.0,260.2 L790.0,235.4 L880.0,237.5 L970.0,229.9" class="ln-radix" fill="none"/>
-  <line x1="700.0" y1="260.2" x2="700.0" y2="260.1" class="axis"/>
-  <circle cx="700.0" cy="260.2" r="3.2" class="b-radix"/>
-  <line x1="790.0" y1="235.5" x2="790.0" y2="235.3" class="axis"/>
-  <circle cx="790.0" cy="235.4" r="3.2" class="b-radix"/>
-  <line x1="880.0" y1="237.6" x2="880.0" y2="237.4" class="axis"/>
-  <circle cx="880.0" cy="237.5" r="3.2" class="b-radix"/>
-  <line x1="970.0" y1="230.0" x2="970.0" y2="229.9" class="axis"/>
-  <circle cx="970.0" cy="229.9" r="3.2" class="b-radix"/>
-  <path d="M700.0,257.7 L790.0,234.3 L880.0,235.8 L970.0,228.0" class="ln-qp" fill="none"/>
-  <line x1="700.0" y1="258.0" x2="700.0" y2="257.7" class="axis"/>
-  <circle cx="700.0" cy="257.7" r="3.2" class="b-qp"/>
-  <line x1="790.0" y1="234.4" x2="790.0" y2="234.1" class="axis"/>
+  <path d="M700.0,308.0 L790.0,285.3 L880.0,283.8 L970.0,276.2" class="ln-patricia" fill="none"/>
+  <line x1="700.0" y1="308.1" x2="700.0" y2="307.9" class="axis"/>
+  <circle cx="700.0" cy="308.0" r="3.2" class="b-patricia"/>
+  <line x1="790.0" y1="285.4" x2="790.0" y2="285.2" class="axis"/>
+  <circle cx="790.0" cy="285.3" r="3.2" class="b-patricia"/>
+  <line x1="880.0" y1="283.8" x2="880.0" y2="283.7" class="axis"/>
+  <circle cx="880.0" cy="283.8" r="3.2" class="b-patricia"/>
+  <line x1="970.0" y1="276.2" x2="970.0" y2="276.2" class="axis"/>
+  <circle cx="970.0" cy="276.2" r="3.2" class="b-patricia"/>
+  <path d="M700.0,259.5 L790.0,235.5 L880.0,236.7 L970.0,230.5" class="ln-radix" fill="none"/>
+  <line x1="700.0" y1="259.6" x2="700.0" y2="259.5" class="axis"/>
+  <circle cx="700.0" cy="259.5" r="3.2" class="b-radix"/>
+  <line x1="790.0" y1="235.6" x2="790.0" y2="235.4" class="axis"/>
+  <circle cx="790.0" cy="235.5" r="3.2" class="b-radix"/>
+  <line x1="880.0" y1="236.8" x2="880.0" y2="236.6" class="axis"/>
+  <circle cx="880.0" cy="236.7" r="3.2" class="b-radix"/>
+  <line x1="970.0" y1="230.6" x2="970.0" y2="230.4" class="axis"/>
+  <circle cx="970.0" cy="230.5" r="3.2" class="b-radix"/>
+  <path d="M700.0,257.6 L790.0,234.3 L880.0,235.7 L970.0,228.7" class="ln-qp" fill="none"/>
+  <line x1="700.0" y1="257.8" x2="700.0" y2="257.5" class="axis"/>
+  <circle cx="700.0" cy="257.6" r="3.2" class="b-qp"/>
+  <line x1="790.0" y1="234.5" x2="790.0" y2="234.2" class="axis"/>
   <circle cx="790.0" cy="234.3" r="3.2" class="b-qp"/>
-  <line x1="880.0" y1="235.9" x2="880.0" y2="235.6" class="axis"/>
-  <circle cx="880.0" cy="235.8" r="3.2" class="b-qp"/>
-  <line x1="970.0" y1="228.0" x2="970.0" y2="227.9" class="axis"/>
-  <circle cx="970.0" cy="228.0" r="3.2" class="b-qp"/>
+  <line x1="880.0" y1="235.8" x2="880.0" y2="235.6" class="axis"/>
+  <circle cx="880.0" cy="235.7" r="3.2" class="b-qp"/>
+  <line x1="970.0" y1="228.8" x2="970.0" y2="228.7" class="axis"/>
+  <circle cx="970.0" cy="228.7" r="3.2" class="b-qp"/>
   <text x="24" y="384" class="t-note">x axis: shared-prefix length in bytes (key = prefix + 12 hex digits).</text>
 </svg>
