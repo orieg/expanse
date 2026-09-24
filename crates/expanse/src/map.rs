@@ -1495,9 +1495,10 @@ impl MapCore {
     /// Whether the root is a level-8 trie (#568 PR 3): on a shared tree the
     /// wrapper brackets a root-leaf-state operation with the tree word
     /// itself, since every store then is a root-state write, and leaves a
-    /// tree-state operation to the engine's per-node brackets.
+    /// tree-state operation to the engine's per-node brackets. `StrCursor`
+    /// also reads it to step a root-leaf level positionally rather than build
+    /// a sub-map cursor for it.
     #[inline(always)]
-    #[cfg(feature = "std")]
     pub(crate) fn root_is_tree(&self) -> bool {
         matches!(self.root, Root::Tree { .. })
     }

@@ -1168,7 +1168,8 @@ impl<'a> StrCursor<'a> {
     /// The next entry after `frame.chunk` in the level `frame` records, which
     /// sat at depth `stack.len()` before it was popped: streamed from that
     /// depth's sub-map cursor if built, a positional `next_after` on the
-    /// level's first advance, and a newly built cursor on its second.
+    /// level's first advance or on a root-leaf level, and a newly built cursor
+    /// on a trie level's second advance.
     fn sibling(&mut self, frame: &StrFrame) -> Option<(u64, u64)> {
         let depth = self.stack.len();
         // Every frame deeper than `depth` has been popped, so their cursors
@@ -1185,7 +1186,12 @@ impl<'a> StrCursor<'a> {
         // it reads only entries after those already emitted, which are the
         // only slots a caller can have written through.
         let node: &StrNode = unsafe { &*frame.node };
-        if !frame.advanced {
+        // A root-leaf level holds at most `ROOT_LEAF_CAP` entries, where a
+        // positional step is a binary search of that array; a cursor built for
+        // it would cost more than the steps left in the level, and on the
+        // two-entry child nodes of a dense path set it is built only to report
+        // that the level is exhausted.
+        if !frame.advanced || !node.map.root_is_tree() {
             return node.map.next_after(frame.chunk);
         }
         let start = frame.chunk.checked_add(1)?;
