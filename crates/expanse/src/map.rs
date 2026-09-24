@@ -74,6 +74,94 @@ const _: () = {
     assert!(core::mem::offset_of!(RootTreeLayout, top) == 8);
 };
 
+/// A string node's sub-map root, read by readers while the node's lock
+/// holder stores it (#1086, class 1): the three words of `Root`, and the
+/// population word beside it, as atomics. Word 1 carries a pointer in both
+/// variants that use it (the leaf's allocation, the top edge's word 0) and
+/// is always accessed as an `AtomicPtr`; the others as `AtomicU64`.
+///
+/// The tag is stored last with `Release` and loaded with `Acquire`, so a
+/// reader that sees a variant's tag sees the words that variant wrote
+/// before it: an empty root leaves words 1 and 2 uninitialised, and without
+/// the pairing a relaxed reader could load them. Every value read here is
+/// still discarded unless the node's cover word validates afterwards.
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+mod root_word {
+    use super::{ROOT_EMPTY, ROOT_LEAF, ROOT_TREE, Root};
+    use core::sync::atomic::{
+        AtomicPtr, AtomicU64,
+        Ordering::{Acquire, Relaxed, Release},
+    };
+
+    /// # Safety
+    /// `r` points to a live `Root`, with write permission (a pointer from
+    /// the node, never from `&Root`): every load forms an atomic reference.
+    #[inline(always)]
+    pub(super) unsafe fn tag(r: *mut Root) -> u64 {
+        // SAFETY: caller contract; the tag is word 0.
+        unsafe { AtomicU64::from_ptr(r.cast::<u64>()).load(Acquire) }
+    }
+
+    /// Word 1: the leaf's allocation or the top edge's word 0.
+    ///
+    /// # Safety
+    /// As [`tag`], and the caller loaded a tag that is not `ROOT_EMPTY`.
+    #[inline(always)]
+    pub(super) unsafe fn ptr(r: *mut Root) -> *mut u8 {
+        // SAFETY: caller contract; word 1, 8-aligned inside `Root`.
+        unsafe { AtomicPtr::from_ptr(r.cast::<u64>().add(1).cast::<*mut u8>()).load(Relaxed) }
+    }
+
+    /// Word 2: the leaf's population or the top edge's aux word.
+    ///
+    /// # Safety
+    /// As [`ptr`].
+    #[inline(always)]
+    pub(super) unsafe fn third(r: *mut Root) -> u64 {
+        // SAFETY: caller contract; word 2.
+        unsafe { AtomicU64::from_ptr(r.cast::<u64>().add(2)).load(Relaxed) }
+    }
+
+    /// Stores `root` at `r`, its tag last.
+    ///
+    /// # Safety
+    /// As [`tag`], and the caller holds the lock that makes it the root's
+    /// one writer.
+    #[inline(always)]
+    pub(super) unsafe fn store(r: *mut Root, root: Root) {
+        let w = r.cast::<u64>();
+        let (t, words) = match root {
+            Root::Empty => (ROOT_EMPTY, None),
+            Root::Leaf { ptr, pop } => (ROOT_LEAF, Some((ptr.as_ptr(), pop as u64))),
+            Root::Tree { top } => (ROOT_TREE, Some((top.node_ptr(), top.aux_word()))),
+        };
+        // SAFETY: caller contract; words 1 and 2, then word 0.
+        unsafe {
+            if let Some((p, x)) = words {
+                AtomicPtr::from_ptr(w.add(1).cast::<*mut u8>()).store(p, Relaxed);
+                AtomicU64::from_ptr(w.add(2)).store(x, Relaxed);
+            }
+            AtomicU64::from_ptr(w).store(t, Release);
+        }
+    }
+
+    /// # Safety
+    /// `p` points to a live core's `tree_pop`, with write permission.
+    #[inline(always)]
+    pub(super) unsafe fn tree_pop(p: *const u64) -> u64 {
+        // SAFETY: caller contract.
+        unsafe { AtomicU64::from_ptr(p.cast_mut()).load(Relaxed) }
+    }
+
+    /// # Safety
+    /// As [`tree_pop`], and the caller is the one writer.
+    #[inline(always)]
+    pub(super) unsafe fn store_tree_pop(p: *mut u64, v: u64) {
+        // SAFETY: caller contract.
+        unsafe { AtomicU64::from_ptr(p).store(v, Relaxed) }
+    }
+}
+
 /// The map engine core: root organization plus every walk and mutation,
 /// with **no owned allocator and no owned insert-path cache** — both are
 /// passed in per call (issue #363 Step A).
@@ -1571,15 +1659,15 @@ impl MapCore {
         // SAFETY: caller contract; every read stays inside the 24-byte
         // `Root` at the offsets the layout asserts above pin.
         unsafe {
-            let r = (&raw const (*this).root).cast::<u64>();
-            match r.read() {
+            let r = (&raw const (*this).root).cast_mut();
+            match root_word::tag(r) {
                 ROOT_EMPTY => RootSnapshot::Empty,
                 ROOT_LEAF => RootSnapshot::Leaf {
-                    ptr: r.add(1).cast::<*const u8>().read(),
-                    pop: r.add(2).read() as usize,
+                    ptr: root_word::ptr(r).cast_const(),
+                    pop: root_word::third(r) as usize,
                 },
                 _ => RootSnapshot::Tree {
-                    top: Edge::from_words(r.add(1).cast::<*mut u8>().read(), r.add(2).read()),
+                    top: Edge::from_words(root_word::ptr(r), root_word::third(r)),
                 },
             }
         }
@@ -1617,14 +1705,14 @@ impl MapCore {
                 &mut crate::mutate_map::InsertPathMap::empty(),
             );
             if let Some(pop) = o.tree_pop {
-                (&raw mut (*this).tree_pop).write(pop);
+                root_word::store_tree_pop(&raw mut (*this).tree_pop, pop);
             }
             if let Some(root) = o.root {
                 #[cfg(feature = "occ-stats")]
                 if root_fingerprint_of(&rp.read()) != root_fingerprint_of(&root) {
                     crate::occ_stats::note_root_rewrite();
                 }
-                rp.write(root);
+                root_word::store(rp, root);
             }
             o.old
         }
@@ -1653,7 +1741,7 @@ impl MapCore {
                 if root_fingerprint_of(&rp.read()) != root_fingerprint_of(&root) {
                     crate::occ_stats::note_root_rewrite();
                 }
-                rp.write(root);
+                root_word::store(rp, root);
             }
             old
         }
@@ -1669,7 +1757,7 @@ impl MapCore {
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) unsafe fn root_is_tree_of(this: *const Self) -> bool {
         // SAFETY: caller contract; the tag word heads `Root`.
-        unsafe { (&raw const (*this).root).cast::<u64>().read() == ROOT_TREE }
+        unsafe { root_word::tag((&raw const (*this).root).cast_mut()) == ROOT_TREE }
     }
 
     /// The entry count, through a raw pointer (see
@@ -1683,11 +1771,11 @@ impl MapCore {
     pub(crate) unsafe fn len_of(this: *const Self) -> u64 {
         // SAFETY: caller contract; offsets as in `occ_snapshot_of`.
         unsafe {
-            let r = (&raw const (*this).root).cast::<u64>();
-            match r.read() {
+            let r = (&raw const (*this).root).cast_mut();
+            match root_word::tag(r) {
                 ROOT_EMPTY => 0,
-                ROOT_LEAF => r.add(2).read(),
-                _ => (&raw const (*this).tree_pop).read(),
+                ROOT_LEAF => root_word::third(r),
+                _ => root_word::tree_pop(&raw const (*this).tree_pop),
             }
         }
     }
@@ -1705,7 +1793,7 @@ impl MapCore {
         // layout asserts pin.
         unsafe {
             let r = &raw mut (*this).root;
-            if r.cast::<u64>().read() == ROOT_TREE {
+            if root_word::tag(r) == ROOT_TREE {
                 r.cast::<u8>()
                     .add(core::mem::offset_of!(RootTreeLayout, top))
                     .cast::<Edge>()

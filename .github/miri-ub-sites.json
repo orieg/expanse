@@ -194,7 +194,10 @@
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "map::MapCore::insert_leaf_state_at"
+      "frame": [
+        "node::BranchHeader::find_at",
+        "occ::version_try_lock_expect"
+      ]
     },
     {
       "test": "str_two_writers",
@@ -211,9 +214,8 @@
     {
       "test": "str_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "map::MapCore::insert_leaf_state_at"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "str_reader_writer",
