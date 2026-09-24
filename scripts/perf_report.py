@@ -77,6 +77,7 @@ BENCH_N_MAP: Dict[str, int] = {
     "set_insert": 50_000,
     "map_ins_slot": 50_000,
     "map_remove": 50_000,
+    "set_remove": 50_000,
     "map_churn": 50_000,
     # Concurrent wrappers on one thread (#568): the `OCC=true` engine with
     # an uncontended mutex; same probe count as their plain twins.
@@ -250,6 +251,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "set_insert",
             "map_ins_slot",
             "map_remove",
+            "set_remove",
             "map_churn",
             "sync_map_insert",
             "sync_set_insert",

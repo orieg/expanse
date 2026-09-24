@@ -1616,6 +1616,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `set_contains` | `random` | 50,000 |
 | `cost` | `set_contains_batch` | `random` | 50,000 |
 | `cost` | `set_insert` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf` | 50,000 |
+| `cost` | `set_remove` | `random` | 50,000 |
 | `cost` | `strmap_churn` | `routes` | 50,000 |
 | `cost` | `strmap_get` | `routes` | 50,000 |
 | `cost` | `strmap_get_short` | `short` | 50,000 |
