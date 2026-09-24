@@ -128,6 +128,8 @@ BENCH_N_MAP: Dict[str, int] = {
     "strmap_oscillate": 50_000,
     "strmap_refill": 100_000,
     "strmap_clear_refill": 50_000,
+    # 50 drain-and-refill cycles of 1,000 keys.
+    "strmap_refill_small": 100_000,
     # Prefix scan (#1096): entries yielded by 64 prefixes over `path_keys`;
     # `built_path_strmap` asserts the count, so it cannot drift from the arm.
     "strmap_prefix_scan": 12_547,
@@ -299,6 +301,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "strmap_oscillate",
             "strmap_refill",
             "strmap_clear_refill",
+            "strmap_refill_small",
             "bytesmap_insert",
             "bytesmap_churn",
             "sync_strmap_insert_short",

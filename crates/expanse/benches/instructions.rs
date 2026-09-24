@@ -1154,6 +1154,36 @@ fn strmap_clear_refill(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(n)
 }
 
+/// The first 1,000 keys of `str_keys` (18 slab pages at 1,000 keys, above a
+/// small retention threshold): the smallest tree a release-on-empty
+/// threshold still releases, drained and refilled 50 times (#1119).
+fn small_strmap(_dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let mut ks = str_keys("routes");
+    ks.truncate(1_000);
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = small_strmap)]
+fn strmap_refill_small(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for _ in 0..50 {
+        for k in &probes {
+            sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
+        }
+        for (i, k) in probes.iter().enumerate() {
+            map.insert(black_box(tk(k)), black_box(i as u64));
+        }
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = str_keys)]
 fn bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
@@ -2046,6 +2076,7 @@ library_benchmark_group!(
         strmap_oscillate,
         strmap_refill,
         strmap_clear_refill,
+        strmap_refill_small,
         strmap_prefix_scan,
         strmap_prefix_seek,
         strmap_cursor_scan,
