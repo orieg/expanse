@@ -550,6 +550,40 @@ impl Arena {
         self.bytes
     }
 
+    /// Bytes this arena holds from the global allocator: live nodes
+    /// ([`Self::bytes_in_use`]), retired nodes awaiting reclamation, and the
+    /// capacity of the slot table, the free-handle stack and the pending
+    /// list. The tables keep their peak capacity after removals.
+    pub(crate) fn bytes_held(&self) -> usize {
+        self.bytes
+            + self.pending_bytes
+            + self.slots.capacity() * core::mem::size_of::<Option<NodeBox>>()
+            + self.free.capacity() * core::mem::size_of::<u32>()
+            + self.pending.capacity() * core::mem::size_of::<Retired>()
+    }
+
+    /// Returns the tables' unused capacity to the global allocator: trailing
+    /// empty slots are dropped (no live handle refers to an empty slot, so
+    /// nothing moves), their handles leave the free stack, and the three
+    /// vectors shrink to their length. Returns the bytes released, by the
+    /// rule [`Self::bytes_held`] counts them. A no-op on a fixed arena,
+    /// whose table must never reallocate under concurrent readers.
+    pub(crate) fn shrink_to_fit(&mut self) -> usize {
+        if self.fixed {
+            return 0;
+        }
+        let before = self.bytes_held();
+        while matches!(self.slots.last(), Some(None)) {
+            self.slots.pop();
+        }
+        let len = self.slots.len() as u32;
+        self.free.retain(|&h| h < len);
+        self.slots.shrink_to_fit();
+        self.free.shrink_to_fit();
+        self.pending.shrink_to_fit();
+        before - self.bytes_held()
+    }
+
     /// Number of live node allocations (leak diagnostics in tests).
     #[cfg(test)]
     #[inline]

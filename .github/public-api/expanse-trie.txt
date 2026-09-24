@@ -785,6 +785,7 @@ pub fn expanse_trie::map32::ExpanseMap32::iter(&self) -> expanse_trie::map32::Ma
 pub fn expanse_trie::map32::ExpanseMap32::iter_rev(&self) -> expanse_trie::map32::MapRangeRev32<'_>
 pub fn expanse_trie::map32::ExpanseMap32::last(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
 pub fn expanse_trie::map32::ExpanseMap32::len(&self) -> usize
+pub fn expanse_trie::map32::ExpanseMap32::mem_held(&self) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::mem_used(&self) -> usize
 pub const fn expanse_trie::map32::ExpanseMap32::new() -> Self
 pub fn expanse_trie::map32::ExpanseMap32::next(&self, expanse_trie::types32::Key32) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
@@ -798,6 +799,7 @@ pub fn expanse_trie::map32::ExpanseMap32::range_rev(&self, core::ops::range::Ran
 pub fn expanse_trie::map32::ExpanseMap32::remove(&mut self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Value32>
 pub fn expanse_trie::map32::ExpanseMap32::remove_range<F: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>(&mut self, core::ops::range::RangeInclusive<expanse_trie::types32::Key32>, F) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::scan_filtered<P, F>(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32, P, F) where P: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> bool, F: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32)
+pub fn expanse_trie::map32::ExpanseMap32::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::try_for_each_range<F>(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32, F) -> bool where F: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> bool
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::cursor(&self) -> expanse_trie::cursor32::MapCursor32<'_>
@@ -1450,6 +1452,7 @@ pub fn expanse_trie::set32::ExpanseSet32::iter(&self) -> expanse_trie::set32::Se
 pub fn expanse_trie::set32::ExpanseSet32::iter_rev(&self) -> expanse_trie::set32::SetRangeRev32<'_>
 pub fn expanse_trie::set32::ExpanseSet32::last(&self) -> core::option::Option<expanse_trie::types32::Key32>
 pub fn expanse_trie::set32::ExpanseSet32::len(&self) -> usize
+pub fn expanse_trie::set32::ExpanseSet32::mem_held(&self) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::mem_used(&self) -> usize
 pub const fn expanse_trie::set32::ExpanseSet32::new() -> Self
 pub fn expanse_trie::set32::ExpanseSet32::next(&self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Key32>
@@ -1462,6 +1465,7 @@ pub fn expanse_trie::set32::ExpanseSet32::range(&self, core::ops::range::RangeIn
 pub fn expanse_trie::set32::ExpanseSet32::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types32::Key32>) -> expanse_trie::set32::SetRangeRev32<'_>
 pub fn expanse_trie::set32::ExpanseSet32::remove(&mut self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::set32::ExpanseSet32::remove_range<F: core::ops::function::FnMut(expanse_trie::types32::Key32)>(&mut self, core::ops::range::RangeInclusive<expanse_trie::types32::Key32>, F) -> usize
+pub fn expanse_trie::set32::ExpanseSet32::shrink_to_fit(&mut self) -> usize
 impl expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::cursor(&self) -> expanse_trie::cursor32::SetCursor32<'_>
 pub fn expanse_trie::set32::ExpanseSet32::cursor_from(&self, expanse_trie::types32::Key32) -> expanse_trie::cursor32::SetCursor32<'_>
@@ -2921,6 +2925,7 @@ pub fn expanse_trie::map32::ExpanseMap32::iter(&self) -> expanse_trie::map32::Ma
 pub fn expanse_trie::map32::ExpanseMap32::iter_rev(&self) -> expanse_trie::map32::MapRangeRev32<'_>
 pub fn expanse_trie::map32::ExpanseMap32::last(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
 pub fn expanse_trie::map32::ExpanseMap32::len(&self) -> usize
+pub fn expanse_trie::map32::ExpanseMap32::mem_held(&self) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::mem_used(&self) -> usize
 pub const fn expanse_trie::map32::ExpanseMap32::new() -> Self
 pub fn expanse_trie::map32::ExpanseMap32::next(&self, expanse_trie::types32::Key32) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
@@ -2934,6 +2939,7 @@ pub fn expanse_trie::map32::ExpanseMap32::range_rev(&self, core::ops::range::Ran
 pub fn expanse_trie::map32::ExpanseMap32::remove(&mut self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Value32>
 pub fn expanse_trie::map32::ExpanseMap32::remove_range<F: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>(&mut self, core::ops::range::RangeInclusive<expanse_trie::types32::Key32>, F) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::scan_filtered<P, F>(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32, P, F) where P: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> bool, F: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32)
+pub fn expanse_trie::map32::ExpanseMap32::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::try_for_each_range<F>(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32, F) -> bool where F: core::ops::function::FnMut(expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> bool
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::cursor(&self) -> expanse_trie::cursor32::MapCursor32<'_>
@@ -3051,6 +3057,7 @@ pub fn expanse_trie::set32::ExpanseSet32::iter(&self) -> expanse_trie::set32::Se
 pub fn expanse_trie::set32::ExpanseSet32::iter_rev(&self) -> expanse_trie::set32::SetRangeRev32<'_>
 pub fn expanse_trie::set32::ExpanseSet32::last(&self) -> core::option::Option<expanse_trie::types32::Key32>
 pub fn expanse_trie::set32::ExpanseSet32::len(&self) -> usize
+pub fn expanse_trie::set32::ExpanseSet32::mem_held(&self) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::mem_used(&self) -> usize
 pub const fn expanse_trie::set32::ExpanseSet32::new() -> Self
 pub fn expanse_trie::set32::ExpanseSet32::next(&self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Key32>
@@ -3063,6 +3070,7 @@ pub fn expanse_trie::set32::ExpanseSet32::range(&self, core::ops::range::RangeIn
 pub fn expanse_trie::set32::ExpanseSet32::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types32::Key32>) -> expanse_trie::set32::SetRangeRev32<'_>
 pub fn expanse_trie::set32::ExpanseSet32::remove(&mut self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::set32::ExpanseSet32::remove_range<F: core::ops::function::FnMut(expanse_trie::types32::Key32)>(&mut self, core::ops::range::RangeInclusive<expanse_trie::types32::Key32>, F) -> usize
+pub fn expanse_trie::set32::ExpanseSet32::shrink_to_fit(&mut self) -> usize
 impl expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::cursor(&self) -> expanse_trie::cursor32::SetCursor32<'_>
 pub fn expanse_trie::set32::ExpanseSet32::cursor_from(&self, expanse_trie::types32::Key32) -> expanse_trie::cursor32::SetCursor32<'_>
