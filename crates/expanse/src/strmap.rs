@@ -1214,15 +1214,27 @@ impl<'a> StrCursor<'a> {
     /// its sub-map cursor slot; every level below starts fresh.
     fn descend_from(
         &mut self,
+        node: *mut StrNode,
+        (chunk, v): (u64, u64),
+        advanced: bool,
+    ) -> Option<NonNull<u64>> {
+        let key_len = self.key.len();
+        self.push_frame(node, chunk, key_len, advanced);
+        self.finish_descent(node, chunk, v)
+    }
+
+    /// Completes a descent whose frame for `(chunk, v)` at `node` is already
+    /// on the stack: appends that level's key bytes and, while the entry is a
+    /// child node, pushes a fresh frame for each level below taking its
+    /// `first`, until an entry that *is* a value is reached.
+    #[inline(always)]
+    fn finish_descent(
+        &mut self,
         mut node: *mut StrNode,
-        mut entry: (u64, u64),
-        mut advanced: bool,
+        mut chunk: u64,
+        mut v: u64,
     ) -> Option<NonNull<u64>> {
         loop {
-            let (chunk, v) = entry;
-            let key_len = self.key.len();
-            self.push_frame(node, chunk, key_len, advanced);
-            advanced = false;
             if is_terminal(chunk) {
                 self.key.extend(terminal_bytes(chunk));
                 // SAFETY: `node` is a live node on the path just walked, and
@@ -1242,7 +1254,9 @@ impl<'a> StrCursor<'a> {
             }
             node = unpack_child(v);
             // SAFETY: untagged continuation value, a live child node.
-            entry = unsafe { &*node }.map.first()?;
+            (chunk, v) = unsafe { &*node }.map.first()?;
+            let key_len = self.key.len();
+            self.push_frame(node, chunk, key_len, false);
         }
     }
 
@@ -1279,6 +1293,30 @@ impl<'a> StrCursor<'a> {
             };
             let slot = self.descend(root, first);
             return self.emit(slot);
+        }
+        // The deepest level streams from its live sub-map cursor: its next
+        // entry replaces the top frame in place, with no pop, no push and no
+        // unwind. A live cursor at the top frame's depth is that frame's own,
+        // since `sibling` drops a level's cursor before any other frame can
+        // reach its depth.
+        let depth = self.stack.len().wrapping_sub(1);
+        if self.live > 0 && self.subs[self.live - 1].0 == depth {
+            let next = self.subs[self.live - 1].1.next();
+            let top = &mut self.stack[depth];
+            let (node, key_len) = (top.node, top.key_len);
+            match next {
+                Some((chunk, v)) => {
+                    top.chunk = chunk;
+                    self.key.truncate(key_len);
+                    let slot = self.finish_descent(node, chunk, v);
+                    return self.emit(slot);
+                }
+                None => {
+                    // Exhausted: abandon the level and unwind from its parent.
+                    self.stack.pop();
+                    self.key.truncate(key_len);
+                }
+            }
         }
         // Unwind to the nearest level with an unexplored sibling, dropping the
         // key bytes each abandoned level contributed.
