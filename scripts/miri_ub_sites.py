@@ -28,23 +28,32 @@ used: it runs seeds in parallel and reports whichever fails first by wall
 clock, so the reported site would vary between runs of identical code.
 
 A manifest entry expects either `ub` — Miri reports undefined behaviour whose
-message contains the entry's `error` and whose innermost frame contains one of
-its `frame` strings — or `clean`: every seed in the range passes. `clean` is an observation at that
-seed budget, not a proof; an entry's optional `note` says which it is. `frame`
-may list several:
-a race report's innermost frame is whichever access Miri caught second, and the
-schedule decides which side that is, so a race site names both.
+message contains the entry's `error` — or `clean`: every seed in the range
+passes. `clean` is an observation at that seed budget, not a proof; an entry's
+optional `note` says which it is. A `ub` entry also records `frame`, the
+innermost frame last observed (it may list several: a race report's innermost
+frame is whichever access Miri caught second, and the schedule decides which
+side that is).
+
+The frame is recorded, not gated. Which seed fails first, and at which access,
+follows Miri's schedule, and any change to the code Miri interprets can move
+it: an allocator change on main moved a set race to another function with no
+change to the set. A moved frame is reported as `moved`, a notice, so that the
+record can be refreshed; it does not fail the run.
 
 Verdicts fail closed (AGENTS.md §5 "String-Gated Inverted Assertions", §8.1):
   - an expected site that reports nothing is a mismatch, "stopped reproducing":
     a fix flips its entry to `clean` by an explicit edit, never by a schedule
     change or a toolchain bump;
-  - a different message or frame is a mismatch: a different site surfaced;
+  - a different message is a mismatch: a different kind of undefined
+    behaviour surfaced;
+  - the same message at another innermost frame is `moved`: reported, not a
+    failure (see above);
   - a run with neither UB nor a passing test (a build error, a filter that
     matched nothing, a failed assertion) is could-not-check, never clean.
 
-Exit: 0 every entry as the manifest says; 1 a mismatch; 2 could-not-check or
-an invalid manifest.
+Exit: 0 every entry as the manifest says (a `moved` frame included); 1 a
+mismatch; 2 could-not-check or an invalid manifest.
 
 Usage:
   python3 scripts/miri_ub_sites.py --check                       # every entry
@@ -118,7 +127,7 @@ def classify(rc: int, output: str) -> Observation:
 
 
 def judge(entry: Entry, obs: Observation) -> Tuple[str, str]:
-    """(`ok` | `mismatch` | `could-not-check`, reason)."""
+    """(`ok` | `moved` | `mismatch` | `could-not-check`, reason)."""
     if obs.kind == "error":
         return "could-not-check", obs.detail
     if entry.expect == "clean":
@@ -134,7 +143,7 @@ def judge(entry: Entry, obs: Observation) -> Tuple[str, str]:
         return "mismatch", f"a different UB surfaced: `{obs.message}` (expected `{entry.error}`)"
     if not any(f in obs.frame for f in entry.frames):
         want = " or ".join(f"`{f}`" for f in entry.frames)
-        return "mismatch", f"the UB moved: innermost frame `{obs.frame}` (expected {want})"
+        return "moved", f"innermost frame `{obs.frame}` (recorded {want}); refresh the record"
     return "ok", f"{obs.message} @ {obs.frame}"
 
 
@@ -319,6 +328,8 @@ def main_run(args: argparse.Namespace) -> int:
         if status == "mismatch":
             worst = max(worst, 1)
             print(f"::error::{e.test} ({e.check}): {reason}")
+        elif status == "moved":
+            print(f"::notice::{e.test} ({e.check}): {reason}")
         elif status == "could-not-check":
             worst = 2
             print(f"::error::{e.test} ({e.check}) could not be checked: {reason}")
@@ -371,10 +382,13 @@ def self_test() -> int:
     check("stopped says flip", "flip the entry" in judge(site, classify(0, clean))[1], True)
     check("other message", judge(site, classify(1, alias))[0], "mismatch")
     moved = race.replace("MapCore::insert_inner", "MapCore::occ_snapshot")
-    check("frame moved", judge(site, classify(1, moved))[0], "mismatch")
+    # A moved frame is a notice, not a failure: the schedule decides it.
+    check("frame moved", judge(site, classify(1, moved))[0], "moved")
     other_side = race.replace("MapCore::insert_inner", "MapCore::root_is_tree")
     check("either side of a race", judge(either, classify(1, other_side))[0], "ok")
-    check("neither side", judge(either, classify(1, moved))[0], "mismatch")
+    check("neither side", judge(either, classify(1, moved))[0], "moved")
+    # The failing contract is unchanged: another kind of UB still fails.
+    check("moved never hides another message", judge(site, classify(1, alias))[0], "mismatch")
     check("clean stays clean", judge(fixed, classify(0, clean))[0], "ok")
     check("clean regressed", judge(fixed, classify(1, race))[0], "mismatch")
     check("error never ok (ub)", judge(site, classify(101, build))[0], "could-not-check")
