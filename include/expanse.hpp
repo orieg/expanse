@@ -170,6 +170,18 @@ public:
         return expanse_set_mem_used(ptr_);
     }
 
+    // Heap bytes held from the system allocator: mem_used() plus freed
+    // blocks kept for reuse and unused slab space.
+    [[nodiscard]] size_t mem_held() const noexcept {
+        return expanse_set_mem_held(ptr_);
+    }
+
+    // Returns retained freed blocks to the system allocator; returns the
+    // bytes released. Nothing moves and mem_used() is unchanged.
+    size_t shrink_to_fit() noexcept {
+        return expanse_set_shrink_to_fit(ptr_);
+    }
+
     void clear() noexcept {
         expanse_set_clear(ptr_);
     }
@@ -444,6 +456,18 @@ public:
 
     [[nodiscard]] size_t mem_used() const noexcept {
         return expanse_map_mem_used(ptr_);
+    }
+
+    // Heap bytes held from the system allocator: mem_used() plus freed
+    // blocks kept for reuse and unused slab space.
+    [[nodiscard]] size_t mem_held() const noexcept {
+        return expanse_map_mem_held(ptr_);
+    }
+
+    // Returns retained freed blocks to the system allocator; returns the
+    // bytes released. Nothing moves and mem_used() is unchanged.
+    size_t shrink_to_fit() noexcept {
+        return expanse_map_shrink_to_fit(ptr_);
     }
 
     void clear() noexcept {
@@ -770,6 +794,18 @@ public:
 
     [[nodiscard]] size_t mem_used() const noexcept {
         return expanse_strmap_mem_used(ptr_);
+    }
+
+    // Heap bytes held from the system allocator: mem_used() plus freed
+    // blocks kept for reuse and unused slab space.
+    [[nodiscard]] size_t mem_held() const noexcept {
+        return expanse_strmap_mem_held(ptr_);
+    }
+
+    // Returns retained freed blocks to the system allocator; returns the
+    // bytes released. Nothing moves and mem_used() is unchanged.
+    size_t shrink_to_fit() noexcept {
+        return expanse_strmap_shrink_to_fit(ptr_);
     }
 
     void clear() noexcept {

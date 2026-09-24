@@ -46,6 +46,8 @@ module Expanse
     extern "int expanse_set_contains(void*, unsigned long long)"
     extern "unsigned long long expanse_set_len(void*)"
     extern "size_t expanse_set_mem_used(void*)"
+    extern "size_t expanse_set_mem_held(void*)"
+    extern "size_t expanse_set_shrink_to_fit(void*)"
     extern "void expanse_set_clear(void*)"
     extern "int expanse_set_first(void*, void*)"
     extern "int expanse_set_last(void*, void*)"
@@ -63,6 +65,8 @@ module Expanse
     extern "int expanse_map_remove(void*, unsigned long long, void*)"
     extern "unsigned long long expanse_map_len(void*)"
     extern "size_t expanse_map_mem_used(void*)"
+    extern "size_t expanse_map_mem_held(void*)"
+    extern "size_t expanse_map_shrink_to_fit(void*)"
     extern "void expanse_map_clear(void*)"
     extern "int expanse_map_first(void*, void*, void*)"
     extern "int expanse_map_last(void*, void*, void*)"
@@ -77,6 +81,8 @@ module Expanse
     extern "int expanse_strmap_remove(void*, const char*, void*)"
     extern "unsigned long long expanse_strmap_len(void*)"
     extern "void expanse_strmap_clear(void*)"
+    extern "size_t expanse_strmap_mem_held(void*)"
+    extern "size_t expanse_strmap_shrink_to_fit(void*)"
 
     # BytesMap
     extern "void* expanse_bytesmap_new(void)"
@@ -144,6 +150,18 @@ module Expanse
     # from `expanse_set_mem_used`; excludes the Ruby wrapper object itself).
     def mem_used
       Native.expanse_set_mem_used(@ptr)
+    end
+
+    # Bytes of native heap the set holds from the system allocator: `mem_used`
+    # plus freed blocks kept for reuse and unused slab space.
+    def mem_held
+      Native.expanse_set_mem_held(@ptr)
+    end
+
+    # Returns retained freed blocks to the system allocator; returns the bytes
+    # released. Nothing moves and `mem_used` is unchanged.
+    def shrink_to_fit
+      Native.expanse_set_shrink_to_fit(@ptr)
     end
 
     def clear
@@ -253,6 +271,18 @@ module Expanse
       Native.expanse_map_mem_used(@ptr)
     end
 
+    # Bytes of native heap the map holds from the system allocator: `mem_used`
+    # plus freed blocks kept for reuse and unused slab space.
+    def mem_held
+      Native.expanse_map_mem_held(@ptr)
+    end
+
+    # Returns retained freed blocks to the system allocator; returns the bytes
+    # released. Nothing moves and `mem_used` is unchanged.
+    def shrink_to_fit
+      Native.expanse_map_shrink_to_fit(@ptr)
+    end
+
     def clear
       Native.expanse_map_clear(@ptr)
       self
@@ -292,6 +322,18 @@ module Expanse
 
     def self.finalize(ptr)
       proc { Native.expanse_strmap_free(ptr) if ptr && !ptr.null? }
+    end
+
+    # Bytes of native heap the string map holds from the system allocator:
+    # its live nodes plus freed blocks kept for reuse and unused slab space.
+    def mem_held
+      Native.expanse_strmap_mem_held(@ptr)
+    end
+
+    # Returns retained freed blocks to the system allocator; returns the bytes
+    # released. Nothing moves and no key or value is affected.
+    def shrink_to_fit
+      Native.expanse_strmap_shrink_to_fit(@ptr)
     end
 
     def []=(key, val)

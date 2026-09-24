@@ -38,6 +38,26 @@ class ExpanseMapTest {
     }
 
     @Test
+    @DisplayName("A drained map keeps freed blocks until shrinkToFit returns them")
+    void shrinkToFitReturnsRetainedBlocks() {
+        try (ExpanseMap map = new ExpanseMap()) {
+            for (long i = 0; i < 20_000; i++) {
+                map.put(i * 7, i);
+            }
+            assertTrue(map.memHeld() >= map.memUsed());
+            for (long i = 0; i < 20_000; i++) {
+                assertTrue(map.remove(i * 7));
+            }
+            assertEquals(0, map.memUsed());
+            long held = map.memHeld();
+            assertTrue(held > 0, "a drained map keeps its freed blocks");
+            assertEquals(held, map.shrinkToFit());
+            assertEquals(map.memUsed(), map.memHeld());
+            assertEquals(0, map.shrinkToFit());
+        }
+    }
+
+    @Test
     @DisplayName("Basic map operations: put, get, remove, putAndGetOld, getOrDefault")
     void basicOperations() {
         try (ExpanseMap map = new ExpanseMap()) {

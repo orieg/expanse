@@ -17,4 +17,6 @@ interface StrMapInterface extends Countable, ArrayAccess, IteratorAggregate
     public function count(): int;
     public function clear(): void;
     public function memUsed(): int;
+    public function memHeld(): int;
+    public function shrinkToFit(): int;
 }

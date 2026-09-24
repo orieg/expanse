@@ -651,6 +651,47 @@ void test_sync_map() {
     std::cout << "[PASS] test_sync_map" << std::endl;
 }
 
+// A map or set drained by erase keeps its freed blocks; shrink_to_fit()
+// returns exactly mem_held() - mem_used(), after which the two agree.
+template <typename C>
+void check_shrink(C& c, bool retains) {
+    const size_t held = c.mem_held();
+    const size_t used = c.mem_used();
+    assert(held >= used);
+    if (retains) {
+        assert(used == 0 && held > 0);
+    }
+    assert(c.shrink_to_fit() == held - used);
+    assert(c.mem_held() == c.mem_used());
+    assert(c.mem_used() == used);
+    assert(c.shrink_to_fit() == 0);
+}
+
+void test_shrink_to_fit() {
+    constexpr uint64_t n = 20000;
+    expanse::map<uint64_t, uint64_t> m;
+    expanse::set s;
+    expanse::str_map<uint64_t> sm;
+    std::vector<std::string> keys;
+    keys.reserve(n);
+    for (uint64_t k = 0; k < n; ++k) {
+        keys.push_back("key/" + std::to_string(k));
+        m.insert(k * 7, k);
+        s.insert(k * 7);
+        sm.insert(keys.back(), k);
+    }
+    for (uint64_t k = 0; k < n; ++k) {
+        assert(m.erase(k * 7));
+        assert(s.erase(k * 7));
+        assert(sm.erase(keys[k]));
+    }
+    check_shrink(m, true);
+    check_shrink(s, true);
+    check_shrink(sm, false);
+
+    std::cout << "[PASS] test_shrink_to_fit" << std::endl;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << "Running Expanse C++20 Header Unit Tests" << std::endl;
@@ -665,6 +706,7 @@ int main() {
     test_blob_map();
     test_sync_set();
     test_sync_map();
+    test_shrink_to_fit();
 
     std::cout << "========================================" << std::endl;
     std::cout << "All C++20 unit tests passed successfully!" << std::endl;

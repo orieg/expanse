@@ -527,6 +527,32 @@ def test_sync_map_mem_used():
     assert sm.mem_used() == m.mem_used()
 
 
+def test_mem_held_and_shrink_to_fit():
+    """A map or set drained by remove keeps its freed blocks; shrink_to_fit()
+    returns exactly mem_held() - mem_used(), after which the two agree."""
+    n = 20000
+    m = ExpanseMap()
+    s = ExpanseSet()
+    sm = ExpanseStrMap()
+    for k in range(n):
+        m[k * 7] = k
+        s.insert(k * 7)
+        sm[f"key/{k:08d}"] = k
+    for c in (m, s, sm):
+        assert c.mem_held() >= c.mem_used()
+    for k in range(n):
+        assert m.remove(k * 7) == k
+        assert s.remove(k * 7) is True
+        assert sm.remove(f"key/{k:08d}") == k
+    for c, retains in ((m, True), (s, True), (sm, False)):
+        held, used = c.mem_held(), c.mem_used()
+        if retains:
+            assert used == 0 and held > 0
+        assert c.shrink_to_fit() == held - used
+        assert c.mem_held() == c.mem_used() == used
+        assert c.shrink_to_fit() == 0
+
+
 def test_sync_remove_returns_value_not_keyerror():
     """SyncExpanseMap.remove -> Optional[int]; SyncExpanseSet.remove -> bool (mirror non-sync)."""
     sm = SyncExpanseMap()

@@ -20,6 +20,8 @@ class FFIDriver
     bool     expanse_set_contains(const expanse_set_t *set, uint64_t key);
     uint64_t expanse_set_len(const expanse_set_t *set);
     size_t   expanse_set_mem_used(const expanse_set_t *set);
+    size_t   expanse_set_mem_held(const expanse_set_t *set);
+    size_t   expanse_set_shrink_to_fit(expanse_set_t *set);
     void     expanse_set_clear(expanse_set_t *set);
     bool expanse_set_first(const expanse_set_t *set, uint64_t *key_out);
     bool expanse_set_last(const expanse_set_t *set, uint64_t *key_out);
@@ -37,6 +39,8 @@ class FFIDriver
     bool     expanse_map_remove(expanse_map_t *map, uint64_t key, uint64_t *old_out);
     uint64_t expanse_map_len(const expanse_map_t *map);
     size_t   expanse_map_mem_used(const expanse_map_t *map);
+    size_t   expanse_map_mem_held(const expanse_map_t *map);
+    size_t   expanse_map_shrink_to_fit(expanse_map_t *map);
     void     expanse_map_clear(expanse_map_t *map);
     bool expanse_map_first(const expanse_map_t *map, uint64_t *key_out, uint64_t *value_out);
     bool expanse_map_last(const expanse_map_t *map, uint64_t *key_out, uint64_t *value_out);
@@ -54,6 +58,8 @@ class FFIDriver
     bool     expanse_strmap_remove(expanse_strmap_t *map, const char *key, uint64_t *old_out);
     uint64_t expanse_strmap_len(const expanse_strmap_t *map);
     size_t   expanse_strmap_mem_used(const expanse_strmap_t *map);
+    size_t   expanse_strmap_mem_held(const expanse_strmap_t *map);
+    size_t   expanse_strmap_shrink_to_fit(expanse_strmap_t *map);
     void     expanse_strmap_clear(expanse_strmap_t *map);
 
     typedef struct expanse_bytesmap expanse_bytesmap_t;

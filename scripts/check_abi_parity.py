@@ -101,7 +101,7 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     # Identity
     "expanse_version": "lib.rs",
 
-    # Set (17 functions)
+    # Set (20 functions)
     "expanse_set_new": "set.rs",
     "expanse_set_free": "set.rs",
     "expanse_set_insert": "set.rs",
@@ -109,6 +109,8 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_set_contains": "set.rs",
     "expanse_set_len": "set.rs",
     "expanse_set_mem_used": "set.rs",
+    "expanse_set_mem_held": "set.rs",
+    "expanse_set_shrink_to_fit": "set.rs",
     "expanse_set_clear": "set.rs",
     "expanse_set_first": "set.rs",
     "expanse_set_last": "set.rs",
@@ -121,7 +123,7 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_set_by_count": "set.rs",
     "expanse_set_contains_batch": "set.rs",
 
-    # Map (20 functions)
+    # Map (22 functions)
     "expanse_map_new": "map.rs",
     "expanse_map_free": "map.rs",
     "expanse_map_insert": "map.rs",
@@ -130,6 +132,8 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_map_remove": "map.rs",
     "expanse_map_len": "map.rs",
     "expanse_map_mem_used": "map.rs",
+    "expanse_map_mem_held": "map.rs",
+    "expanse_map_shrink_to_fit": "map.rs",
     "expanse_map_clear": "map.rs",
     "expanse_map_slot": "map.rs",
     "expanse_map_ins_slot": "map.rs",
@@ -155,7 +159,7 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_bytesmap_mem_used": "bytesmap.rs",
     "expanse_bytesmap_clear": "bytesmap.rs",
 
-    # StrMap (16 functions)
+    # StrMap (18 functions)
     "expanse_strmap_new": "strmap.rs",
     "expanse_strmap_free": "strmap.rs",
     "expanse_strmap_insert": "strmap.rs",
@@ -165,6 +169,8 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_strmap_ins_slot": "strmap.rs",
     "expanse_strmap_len": "strmap.rs",
     "expanse_strmap_mem_used": "strmap.rs",
+    "expanse_strmap_mem_held": "strmap.rs",
+    "expanse_strmap_shrink_to_fit": "strmap.rs",
     "expanse_strmap_clear": "strmap.rs",
     "expanse_strmap_first": "strmap.rs",
     "expanse_strmap_last": "strmap.rs",
@@ -230,7 +236,7 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     # Identity
     "expanse_version": "lib.rs",
 
-    # Set (17 functions)
+    # Set (20 functions)
     "expanse_set_new": "set.rs",
     "expanse_set_free": "set.rs",
     "expanse_set_insert": "set.rs",
@@ -238,6 +244,8 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_set_contains": "set.rs",
     "expanse_set_len": "set.rs",
     "expanse_set_mem_used": "set.rs",
+    "expanse_set_mem_held": "set.rs",
+    "expanse_set_shrink_to_fit": "set.rs",
     "expanse_set_clear": "set.rs",
     "expanse_set_first": "set.rs",
     "expanse_set_last": "set.rs",
@@ -250,7 +258,7 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_set_by_count": "set.rs",
     "expanse_set_contains_batch": "set.rs",
 
-    # Map (20 functions)
+    # Map (22 functions)
     "expanse_map_new": "map.rs",
     "expanse_map_free": "map.rs",
     "expanse_map_insert": "map.rs",
@@ -259,6 +267,8 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_map_remove": "map.rs",
     "expanse_map_len": "map.rs",
     "expanse_map_mem_used": "map.rs",
+    "expanse_map_mem_held": "map.rs",
+    "expanse_map_shrink_to_fit": "map.rs",
     "expanse_map_clear": "map.rs",
     "expanse_map_slot": "map.rs",
     "expanse_map_ins_slot": "map.rs",
@@ -284,7 +294,7 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_bytesmap_mem_used": "bytesmap.rs",
     "expanse_bytesmap_clear": "bytesmap.rs",
 
-    # StrMap (16 functions)
+    # StrMap (18 functions)
     "expanse_strmap_new": "strmap.rs",
     "expanse_strmap_free": "strmap.rs",
     "expanse_strmap_insert": "strmap.rs",
@@ -294,6 +304,8 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_strmap_ins_slot": "strmap.rs",
     "expanse_strmap_len": "strmap.rs",
     "expanse_strmap_mem_used": "strmap.rs",
+    "expanse_strmap_mem_held": "strmap.rs",
+    "expanse_strmap_shrink_to_fit": "strmap.rs",
     "expanse_strmap_clear": "strmap.rs",
     "expanse_strmap_first": "strmap.rs",
     "expanse_strmap_last": "strmap.rs",

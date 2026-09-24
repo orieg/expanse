@@ -121,8 +121,8 @@ one that does not link, and a link error names the gap at build time.
 
 | Configuration | Cargo invocation | Exported C symbols |
 |---|---|---|
-| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 152 |
-| 64-bit, `no_std` | `--no-default-features` | 127 |
+| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 158 |
+| 64-bit, `no_std` | `--no-default-features` | 133 |
 | 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 62 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
@@ -134,7 +134,12 @@ ordered reads landed for #900. That change also added six 64-bit symbols: the
 64-bit `std` row was re-measured then with `nm -gU` on an arm64 macOS dylib,
 145 before and 151 after, and 152 once `expanse_sync_map_mem_used` was added
 (same `nm -gU` method; 151 on its parent); the 64-bit `no_std` row is unchanged by
-construction, because the concurrent entry points compile only with `std`.
+construction, because the concurrent entry points compile only with `std`. The
+six `expanse_{map,set,strmap}_{mem_held,shrink_to_fit}` entry points took both
+64-bit rows up by six: 158 with `nm -gU` on an arm64 macOS dylib, and 133 with
+`llvm-nm --defined-only --extern-only` on the `x86_64-unknown-none` staticlib
+built with `--features embedded-panic-handler`, both on the branch that added
+them, off `dc5cbad2`.
 Reproduce with the invocations above; the 32-bit row needs
 `--features embedded-panic-handler`, as the CI job does.)
 
@@ -157,9 +162,9 @@ bidirectional range navigation:
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
 `ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
-no `get_value_slot`/`ins_slot`, and their `count_range` takes a `(start, end)`
-pair rather than a range — so the corresponding C contracts have nothing to
-translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
+no `get_value_slot`/`ins_slot`, no `mem_held`/`shrink_to_fit`, and their
+`count_range` takes a `(start, end)` pair rather than a range — so the
+corresponding C contracts have nothing to translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
 `sync` module exist only at 64-bit width.
 
 The reverse gap also exists. Two batched range entry points are declared in a
