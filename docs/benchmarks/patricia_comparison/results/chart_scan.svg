@@ -110,73 +110,73 @@
   <text x="800.0" y="570" class="t-axis-label" text-anchor="middle">10× slower</text>
   <text x="24" y="120" class="t-bar-label">full traversal · sequential</text>
   <text x="34" y="136" class="t-axis-label">patricia_tree</text>
-  <rect x="450.1" y="128" width="149.9" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="449.7" y1="132.5" x2="450.4" y2="132.5" class="axis"/>
-  <text x="990" y="136" class="t-val-accent" text-anchor="end">5.62× faster</text>
+  <rect x="449.1" y="128" width="150.9" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="448.7" y1="132.5" x2="449.3" y2="132.5" class="axis"/>
+  <text x="990" y="136" class="t-val-accent" text-anchor="end">5.68× faster</text>
   <text x="34" y="151" class="t-axis-label">qp-trie</text>
-  <rect x="568.9" y="143" width="31.1" height="10" rx="1.5" class="b-qp"/>
-  <line x1="568.4" y1="147.5" x2="569.4" y2="147.5" class="axis"/>
-  <text x="990" y="151" class="t-val-accent" text-anchor="end">1.43× faster</text>
+  <rect x="568.4" y="143" width="31.6" height="10" rx="1.5" class="b-qp"/>
+  <line x1="567.6" y1="147.5" x2="568.8" y2="147.5" class="axis"/>
+  <text x="990" y="151" class="t-val-accent" text-anchor="end">1.44× faster</text>
   <text x="24" y="178" class="t-bar-label">full traversal · clustered</text>
   <text x="34" y="194" class="t-axis-label">patricia_tree</text>
   <rect x="451.5" y="186" width="148.5" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="451.1" y1="190.5" x2="451.9" y2="190.5" class="axis"/>
+  <line x1="451.0" y1="190.5" x2="451.9" y2="190.5" class="axis"/>
   <text x="990" y="194" class="t-val-accent" text-anchor="end">5.53× faster</text>
   <text x="34" y="209" class="t-axis-label">qp-trie</text>
-  <rect x="568.2" y="201" width="31.8" height="10" rx="1.5" class="b-qp"/>
-  <line x1="567.5" y1="205.5" x2="569.2" y2="205.5" class="axis"/>
-  <text x="990" y="209" class="t-val-accent" text-anchor="end">1.44× faster</text>
+  <rect x="568.8" y="201" width="31.2" height="10" rx="1.5" class="b-qp"/>
+  <line x1="568.1" y1="205.5" x2="569.6" y2="205.5" class="axis"/>
+  <text x="990" y="209" class="t-val-accent" text-anchor="end">1.43× faster</text>
   <text x="24" y="236" class="t-bar-label">full traversal · uniform_random</text>
   <text x="34" y="252" class="t-axis-label">patricia_tree</text>
-  <rect x="353.6" y="244" width="246.4" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="352.8" y1="248.5" x2="354.3" y2="248.5" class="axis"/>
-  <text x="990" y="252" class="t-val-accent" text-anchor="end">17.1× faster</text>
+  <rect x="352.7" y="244" width="247.3" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="351.9" y1="248.5" x2="353.7" y2="248.5" class="axis"/>
+  <text x="990" y="252" class="t-val-accent" text-anchor="end">17.2× faster</text>
   <text x="34" y="267" class="t-axis-label">qp-trie</text>
-  <rect x="474.1" y="259" width="125.9" height="10" rx="1.5" class="b-qp"/>
-  <line x1="473.6" y1="263.5" x2="474.5" y2="263.5" class="axis"/>
-  <text x="990" y="267" class="t-val-accent" text-anchor="end">4.26× faster</text>
+  <rect x="474.7" y="259" width="125.3" height="10" rx="1.5" class="b-qp"/>
+  <line x1="474.5" y1="263.5" x2="474.9" y2="263.5" class="axis"/>
+  <text x="990" y="267" class="t-val-accent" text-anchor="end">4.23× faster</text>
   <text x="24" y="294" class="t-bar-label">full traversal · sparse_stride</text>
   <text x="34" y="310" class="t-axis-label">patricia_tree</text>
-  <rect x="551.8" y="302" width="48.2" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="551.5" y1="306.5" x2="552.1" y2="306.5" class="axis"/>
-  <text x="990" y="310" class="t-val-accent" text-anchor="end">1.74× faster</text>
+  <rect x="551.6" y="302" width="48.4" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="551.2" y1="306.5" x2="551.8" y2="306.5" class="axis"/>
+  <text x="990" y="310" class="t-val-accent" text-anchor="end">1.75× faster</text>
   <text x="34" y="325" class="t-axis-label">qp-trie</text>
-  <rect x="600.0" y="317" width="70.2" height="10" rx="1.5" class="b-qp"/>
-  <line x1="669.9" y1="321.5" x2="670.6" y2="321.5" class="axis"/>
+  <rect x="600.0" y="317" width="70.0" height="10" rx="1.5" class="b-qp"/>
+  <line x1="669.7" y1="321.5" x2="670.4" y2="321.5" class="axis"/>
   <text x="990" y="325" class="t-val-loss" text-anchor="end">2.24× slower</text>
   <text x="24" y="352" class="t-bar-label">full traversal · zipfian</text>
   <text x="34" y="368" class="t-axis-label">patricia_tree</text>
-  <rect x="396.1" y="360" width="203.9" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="395.6" y1="364.5" x2="396.7" y2="364.5" class="axis"/>
-  <text x="990" y="368" class="t-val-accent" text-anchor="end">10.5× faster</text>
+  <rect x="396.5" y="360" width="203.5" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="396.0" y1="364.5" x2="397.0" y2="364.5" class="axis"/>
+  <text x="990" y="368" class="t-val-accent" text-anchor="end">10.4× faster</text>
   <text x="34" y="383" class="t-axis-label">qp-trie</text>
-  <rect x="546.4" y="375" width="53.6" height="10" rx="1.5" class="b-qp"/>
-  <line x1="546.0" y1="379.5" x2="546.8" y2="379.5" class="axis"/>
-  <text x="990" y="383" class="t-val-accent" text-anchor="end">1.85× faster</text>
+  <rect x="548.0" y="375" width="52.0" height="10" rx="1.5" class="b-qp"/>
+  <line x1="547.5" y1="379.5" x2="548.5" y2="379.5" class="axis"/>
+  <text x="990" y="383" class="t-val-accent" text-anchor="end">1.82× faster</text>
   <text x="24" y="410" class="t-bar-label">prefix scan · paths, generator build (n = 1,000,000)</text>
   <text x="34" y="426" class="t-axis-label">patricia_tree</text>
-  <rect x="600.0" y="418" width="46.6" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="646.2" y1="422.5" x2="646.8" y2="422.5" class="axis"/>
-  <text x="990" y="426" class="t-val-loss" text-anchor="end">1.71× slower</text>
+  <rect x="584.1" y="418" width="15.9" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="583.8" y1="422.5" x2="584.4" y2="422.5" class="axis"/>
+  <text x="990" y="426" class="t-val-accent" text-anchor="end">1.2× faster</text>
   <text x="34" y="441" class="t-axis-label">fast_radix_trie</text>
-  <rect x="600.0" y="433" width="82.6" height="10" rx="1.5" class="b-radix"/>
-  <line x1="682.3" y1="437.5" x2="682.9" y2="437.5" class="axis"/>
-  <text x="990" y="441" class="t-val-loss" text-anchor="end">2.59× slower</text>
+  <rect x="600.0" y="433" width="20.5" height="10" rx="1.5" class="b-radix"/>
+  <line x1="620.2" y1="437.5" x2="620.8" y2="437.5" class="axis"/>
+  <text x="990" y="441" class="t-val-loss" text-anchor="end">1.27× slower</text>
   <text x="34" y="456" class="t-axis-label">qp-trie</text>
-  <rect x="600.0" y="448" width="140.5" height="10" rx="1.5" class="b-qp"/>
-  <line x1="740.2" y1="452.5" x2="740.7" y2="452.5" class="axis"/>
-  <text x="990" y="456" class="t-val-loss" text-anchor="end">5.04× slower</text>
+  <rect x="600.0" y="448" width="78.6" height="10" rx="1.5" class="b-qp"/>
+  <line x1="678.3" y1="452.5" x2="678.9" y2="452.5" class="axis"/>
+  <text x="990" y="456" class="t-val-loss" text-anchor="end">2.47× slower</text>
   <text x="24" y="483" class="t-bar-label">prefix scan · paths, sorted build (n = 1,000,000)</text>
   <text x="34" y="499" class="t-axis-label">patricia_tree</text>
-  <rect x="600.0" y="491" width="122.9" height="10" rx="1.5" class="b-patricia"/>
-  <line x1="722.6" y1="495.5" x2="723.2" y2="495.5" class="axis"/>
-  <text x="990" y="499" class="t-val-loss" text-anchor="end">4.12× slower</text>
+  <rect x="600.0" y="491" width="24.7" height="10" rx="1.5" class="b-patricia"/>
+  <line x1="624.6" y1="495.5" x2="624.9" y2="495.5" class="axis"/>
+  <text x="990" y="499" class="t-val-loss" text-anchor="end">1.33× slower</text>
   <text x="34" y="514" class="t-axis-label">fast_radix_trie</text>
-  <rect x="600.0" y="506" width="127.8" height="10" rx="1.5" class="b-radix"/>
-  <line x1="727.4" y1="510.5" x2="728.1" y2="510.5" class="axis"/>
-  <text x="990" y="514" class="t-val-loss" text-anchor="end">4.35× slower</text>
+  <rect x="600.0" y="506" width="32.2" height="10" rx="1.5" class="b-radix"/>
+  <line x1="631.9" y1="510.5" x2="632.5" y2="510.5" class="axis"/>
+  <text x="990" y="514" class="t-val-loss" text-anchor="end">1.45× slower</text>
   <text x="34" y="529" class="t-axis-label">qp-trie</text>
-  <rect x="600.0" y="521" width="142.4" height="10" rx="1.5" class="b-qp"/>
-  <line x1="742.0" y1="525.5" x2="742.8" y2="525.5" class="axis"/>
-  <text x="990" y="529" class="t-val-loss" text-anchor="end">5.15× slower</text>
+  <rect x="600.0" y="521" width="45.6" height="10" rx="1.5" class="b-qp"/>
+  <line x1="645.2" y1="525.5" x2="646.0" y2="525.5" class="axis"/>
+  <text x="990" y="529" class="t-val-loss" text-anchor="end">1.69× slower</text>
 </svg>
