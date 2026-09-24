@@ -1693,6 +1693,7 @@ impl expanse_trie::strmap::ExpanseStrMap
 pub fn expanse_trie::strmap::ExpanseStrMap::clear(&mut self) -> u64
 pub fn expanse_trie::strmap::ExpanseStrMap::cursor(&mut self) -> expanse_trie::strmap::StrCursor<'_>
 pub fn expanse_trie::strmap::ExpanseStrMap::cursor_at_or_after(&mut self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::strmap::StrCursor<'_>
+pub fn expanse_trie::strmap::ExpanseStrMap::cursor_prefix(&mut self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::strmap::StrPrefixCursor<'_>
 pub fn expanse_trie::strmap::ExpanseStrMap::first(&mut self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::strmap::ExpanseStrMap::get_value_slot(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
@@ -1783,6 +1784,16 @@ impl<'a> core::marker::Unpin for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::StrCursor<'a>
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::StrCursor<'a>
+pub struct expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> expanse_trie::strmap::StrPrefixCursor<'a>
+pub fn expanse_trie::strmap::StrPrefixCursor<'a>::next(&mut self) -> core::option::Option<(&[u8], core::ptr::non_null::NonNull<u64>)>
+impl<'a> core::marker::Freeze for expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> !core::marker::Send for expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> !core::marker::Sync for expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> core::marker::Unpin for expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::StrPrefixCursor<'a>
 pub mod expanse_trie::sync
 pub enum expanse_trie::sync::SyncBlobView<'g>
 pub expanse_trie::sync::SyncBlobView::Arena(&'g [u8])

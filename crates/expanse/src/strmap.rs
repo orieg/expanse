@@ -1087,7 +1087,7 @@ impl StrNode {
 /// `advanced` makes advancing within a level incremental too (#1096). The
 /// first advance of a level is a positional `next_after`, one descent of the
 /// level's sub-map; the second builds a sub-map cursor just past the current
-/// chunk in [`StrCursor::subs`], and every later advance streams it instead of
+/// chunk in [`Walk::subs`], and every later advance streams it instead of
 /// re-descending from the sub-map root. A level advanced only once — the
 /// one-entry sub-maps under a distinct key — never builds one.
 struct StrFrame {
@@ -1128,6 +1128,47 @@ struct StrFrame {
 /// `tests::cursor_walks_the_documented_example`, which the ASan and Miri
 /// lanes both run, so the example is enforced rather than merely written.
 pub struct StrCursor<'a> {
+    walk: Walk<'a, false>,
+}
+
+impl<'a> StrCursor<'a> {
+    /// Advances to the next entry in byte-lexicographic order.
+    ///
+    /// The returned key borrows the cursor's own buffer and is valid until the
+    /// next call; copy it if it must outlive that. The slot follows the
+    /// surrounding surface's contract and stays valid until the map is
+    /// structurally mutated, which the cursor's borrow prevents.
+    #[inline]
+    #[allow(clippy::should_implement_trait)] // lending: the key borrows `self`
+    pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
+        self.walk.next()
+    }
+}
+
+/// An ordered cursor over the keys of an [`ExpanseStrMap`] that start with a
+/// prefix, from [`ExpanseStrMap::cursor_prefix`]. It walks as [`StrCursor`]
+/// does and ends at the prefix boundary by itself, so a caller needs no
+/// per-key comparison.
+pub struct StrPrefixCursor<'a> {
+    walk: Walk<'a, true>,
+}
+
+impl<'a> StrPrefixCursor<'a> {
+    /// Advances to the next entry under the prefix, in byte-lexicographic
+    /// order; `None` once past it.
+    ///
+    /// The key and slot follow [`StrCursor::next`]'s contract.
+    #[inline]
+    #[allow(clippy::should_implement_trait)] // lending: the key borrows `self`
+    pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
+        self.walk.next()
+    }
+}
+
+/// The walk behind both cursors. `BOUNDED` compiles the prefix-bound checks
+/// in; [`StrCursor`] instantiates it without them, so an unbounded walk pays
+/// nothing for them.
+struct Walk<'a, const BOUNDED: bool> {
     /// The path from the root to the entry last emitted. Empty before the
     /// first `next` and after the walk is exhausted.
     stack: Vec<StrFrame>,
@@ -1152,11 +1193,20 @@ pub struct StrCursor<'a> {
     /// instead of advancing, so `cursor_at_or_after(k)` yields `k` itself when
     /// `k` is present — the same inclusive sense as `next_at_or_after`.
     pending: Option<NonNull<u64>>,
+    /// The prefix bound of a [`cursor_prefix`](ExpanseStrMap::cursor_prefix)
+    /// walk. An entry produced by advancing the level at depth `bound_depth`
+    /// is in range iff its chunk masked by `bound_mask` equals `bound_want`;
+    /// one produced by advancing a shallower level is not, since that level's
+    /// chunk is a whole chunk of the prefix. Deeper levels sit under a chunk
+    /// already checked. Read only when `BOUNDED`.
+    bound_depth: usize,
+    bound_mask: u64,
+    bound_want: u64,
     /// Held for the borrow, and to keep the root reachable.
     map: &'a mut ExpanseStrMap,
 }
 
-impl<'a> StrCursor<'a> {
+impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
     fn new(map: &'a mut ExpanseStrMap) -> Self {
         Self {
             stack: Vec::new(),
@@ -1166,8 +1216,20 @@ impl<'a> StrCursor<'a> {
             done: false,
             started: false,
             pending: None,
+            bound_depth: 0,
+            bound_mask: 0,
+            bound_want: 0,
             map,
         }
+    }
+
+    /// Whether an entry with `chunk` produced by advancing the level at `depth`
+    /// lies past the cursor's prefix bound. Always `false` when unbounded.
+    #[inline(always)]
+    fn past_bound(&self, depth: usize, chunk: u64) -> bool {
+        BOUNDED
+            && depth <= self.bound_depth
+            && (depth < self.bound_depth || chunk & self.bound_mask != self.bound_want)
     }
 
     /// Pushes a frame at depth `stack.len()`. A live cursor is dropped from
@@ -1291,8 +1353,7 @@ impl<'a> StrCursor<'a> {
     /// next call; copy it if it must outlive that. The slot follows the
     /// surrounding surface's contract and stays valid until the map is
     /// structurally mutated, which the cursor's borrow prevents.
-    #[allow(clippy::should_implement_trait)] // lending: the key borrows `self`
-    pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
+    fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
         if self.done {
             return None;
         }
@@ -1327,6 +1388,12 @@ impl<'a> StrCursor<'a> {
         let depth = self.stack.len().wrapping_sub(1);
         if self.live > 0 && self.subs[self.live - 1].0 == depth {
             let next = self.subs[self.live - 1].1.next();
+            if let Some((chunk, _)) = next
+                && self.past_bound(depth, chunk)
+            {
+                self.done = true;
+                return None;
+            }
             let top = &mut self.stack[depth];
             let (node, key_len) = (top.node, top.key_len);
             match next {
@@ -1346,8 +1413,16 @@ impl<'a> StrCursor<'a> {
         // Unwind to the nearest level with an unexplored sibling, dropping the
         // key bytes each abandoned level contributed.
         while let Some(frame) = self.stack.pop() {
+            // A level above the bound holds a whole chunk of the prefix, so
+            // none of its siblings is in range.
+            if BOUNDED && self.stack.len() < self.bound_depth {
+                break;
+            }
             self.key.truncate(frame.key_len);
             if let Some(entry) = self.sibling(&frame) {
+                if self.past_bound(self.stack.len(), entry.0) {
+                    break;
+                }
                 let slot = self.descend_from(frame.node, entry, true);
                 return self.emit(slot);
             }
@@ -2101,7 +2176,9 @@ impl ExpanseStrMap {
     /// and for callers that genuinely jump around.
     #[must_use]
     pub fn cursor(&mut self) -> StrCursor<'_> {
-        StrCursor::new(self)
+        StrCursor {
+            walk: Walk::new(self),
+        }
     }
 
     /// An ordered cursor positioned at the first key `>= key`, inclusive.
@@ -2110,8 +2187,15 @@ impl ExpanseStrMap {
     /// subsequent element is a step along the path it recorded.
     #[must_use]
     pub fn cursor_at_or_after(&mut self, key: &NulFreeStr) -> StrCursor<'_> {
-        let key = key.as_bytes();
-        let mut c = StrCursor::new(self);
+        StrCursor {
+            walk: self.walk_at_or_after(key.as_bytes()),
+        }
+    }
+
+    /// The seek behind [`cursor_at_or_after`](Self::cursor_at_or_after) and
+    /// [`cursor_prefix`](Self::cursor_prefix).
+    fn walk_at_or_after<const BOUNDED: bool>(&mut self, key: &[u8]) -> Walk<'_, BOUNDED> {
+        let mut c = Walk::new(self);
         // A seek records one frame per chunk of `key` and the walk rarely
         // goes more than a level past it, so sizing the buffers from the
         // target replaces their doubling growth with one allocation each.
@@ -2120,6 +2204,35 @@ impl ExpanseStrMap {
         c.subs.reserve(1);
         c.pending = c.seek(key);
         c
+    }
+
+    /// An ordered cursor over exactly the keys that start with `prefix`, in
+    /// byte-lexicographic order.
+    ///
+    /// One seek, as [`cursor_at_or_after`](Self::cursor_at_or_after) does, and
+    /// then the walk ends at the first key past the prefix by itself: a step
+    /// that advances a level above the prefix's last chunk ends it, and a step
+    /// at that chunk's level compares that one chunk under a mask. No key is
+    /// compared with the prefix byte by byte, and the key past the prefix is
+    /// never built.
+    #[must_use]
+    pub fn cursor_prefix(&mut self, prefix: &NulFreeStr) -> StrPrefixCursor<'_> {
+        let p = prefix.as_bytes();
+        let mut c = self.walk_at_or_after::<true>(p);
+        let rem = p.len() % CHUNK;
+        c.bound_depth = p.len() / CHUNK;
+        if rem > 0 {
+            c.bound_mask = !0u64 << (64 - 8 * rem);
+            c.bound_want = chunk_at(p, p.len() - rem).0 & c.bound_mask;
+        }
+        // The entry the seek positioned on can come from a level above the
+        // bound — a suffix leaf holds the whole tail of a key — so it gets the
+        // one full comparison.
+        if c.pending.is_some() && !c.key.starts_with(p) {
+            c.pending = None;
+            c.done = true;
+        }
+        StrPrefixCursor { walk: c }
     }
 
     /// Smallest entry with key `>= key`: `(key bytes, value slot)`
@@ -3432,6 +3545,83 @@ mod tests {
             rng ^= rng >> 7;
             rng ^= rng << 17;
             assert_eq!(is_terminal(rng), is_terminal_scan(rng), "random {rng:#x}");
+        }
+    }
+
+    /// `cursor_prefix` yields exactly the keys that start with the prefix, in
+    /// order, with their own slots: checked against a sorted model over keys
+    /// that share long prefixes (so some sit in suffix leaves above the
+    /// bound's depth and some deep under it), for prefixes of every length
+    /// through three chunks, prefixes that are keys, absent prefixes,
+    /// prefixes longer than any key, and the empty prefix.
+    #[test]
+    fn cursor_prefix_matches_a_filtered_model() {
+        let mut keys: Vec<Vec<u8>> = Vec::new();
+        let n = if cfg!(miri) { 60 } else { 600 };
+        let mut rng = 0xC0FF_EE00_1234_5678u64;
+        for i in 0..n {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            let stem = [
+                "a",
+                "ab",
+                "abcdefg",
+                "abcdefgh",
+                "abcdefghij",
+                "abcdefghijklmnop",
+                "b",
+            ];
+            let mut k = stem[i % stem.len()].as_bytes().to_vec();
+            let tail = (rng % 5) as usize;
+            for j in 0..tail {
+                k.push(b"0123456789xyz"[((rng >> (8 * j)) % 13) as usize]);
+            }
+            keys.push(k);
+        }
+        keys.sort();
+        keys.dedup();
+        let mut m = ExpanseStrMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        let mut prefixes: Vec<Vec<u8>> = vec![
+            Vec::new(),
+            b"zz".to_vec(),
+            b"abcdefghijklmnopqrstuvwxyz".to_vec(),
+        ];
+        for k in keys.iter().step_by(7) {
+            for l in 0..=k.len() {
+                prefixes.push(k[..l].to_vec());
+            }
+            let mut past = k.clone();
+            past.push(b'~');
+            prefixes.push(past);
+        }
+        let full = "abcdefghijklmnopqrstuvwxy".as_bytes();
+        for l in 0..=full.len() {
+            prefixes.push(full[..l].to_vec());
+        }
+        for p in &prefixes {
+            let want: Vec<(Vec<u8>, u64)> = keys
+                .iter()
+                .enumerate()
+                .filter(|(_, k)| k.starts_with(p))
+                .map(|(i, k)| (k.clone(), i as u64))
+                .collect();
+            let mut got: Vec<(Vec<u8>, u64)> = Vec::new();
+            let mut c = m.cursor_prefix(tk(p));
+            while let Some((k, slot)) = c.next() {
+                // SAFETY: slot is live until the next structural mutation;
+                // this walk performs none.
+                got.push((k.to_vec(), unsafe { *slot.as_ptr() }));
+            }
+            assert_eq!(
+                c.next().map(|(k, _)| k.to_vec()),
+                None,
+                "cursor restarted after None"
+            );
+            assert_eq!(got, want, "prefix {:?}", String::from_utf8_lossy(p));
         }
     }
 
