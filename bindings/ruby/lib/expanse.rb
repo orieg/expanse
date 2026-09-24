@@ -4,7 +4,7 @@ require "fiddle"
 require "fiddle/import"
 
 module Expanse
-  VERSION = "0.8.1"
+  VERSION = "0.8.2"
 
   module Native
     extend Fiddle::Importer
