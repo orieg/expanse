@@ -847,16 +847,38 @@ fn strmap_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
-/// Shared-prefix path keys for the prefix-scan arm: the
-/// `docs/benchmarks/patricia_comparison/` string workload at this file's
-/// population — `https://example.com/api/v2/objects/` plus 12 hex digits of a
-/// 48-bit id drawn from that suite's `STRING_SEED`, first-seen order.
-fn path_keys(_dist: &str) -> Vec<Vec<u8>> {
+/// Shared-prefix path keys for the prefix-scan arms:
+/// `https://example.com/api/v2/objects/` plus 12 hex digits of a 48-bit id,
+/// first-seen order, drawn from the `docs/benchmarks/patricia_comparison/`
+/// suite's `STRING_SEED`.
+///
+/// - `paths`: uniform ids — that suite's string workload at this file's
+///   population. Bytes 32..40 of a key hold the id's top 20 bits, so at
+///   `POP = 50_000` the expected keys per 20-bit bucket is λ = 0.048, and 4.7%
+///   of keys share a bucket and sit under a child node.
+/// - `paths_dense`: the top 20 bits are restricted to every 20th bucket, which
+///   puts λ at 0.954 — the suite's 1M cell, where 61.5% of keys sit under a
+///   child node. The terminal-chunk path that dominates the 1M cells is nearly
+///   absent from `paths`; this arm exercises it at the same population.
+fn path_keys(dist: &str) -> Vec<Vec<u8>> {
+    let dense = match dist {
+        "paths" => false,
+        "paths_dense" => true,
+        other => panic!("unknown path-key distribution {other}"),
+    };
     let mut rng = XorShift(0x5A71_C1A0_0000_0001);
     let mut seen = std::collections::HashSet::with_capacity(POP);
     let mut out = Vec::with_capacity(POP);
     while out.len() < POP {
-        let id = rng.next() & 0xFFFF_FFFF_FFFF;
+        let r = rng.next();
+        let id = if dense {
+            // 52,428 buckets × stride 20 stays below 2^20 and spans every
+            // leading hex digit, so all 64 scan prefixes stay populated.
+            let bucket = (r >> 28) % 52_428 * 20;
+            (bucket << 28) | (r & 0xFFF_FFFF)
+        } else {
+            r & 0xFFFF_FFFF_FFFF
+        };
         if seen.insert(id) {
             out.push(format!("https://example.com/api/v2/objects/{id:012x}").into_bytes());
         }
@@ -872,10 +894,16 @@ fn scan_prefixes() -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Entries the 64 prefixes yield over `path_keys` — the ops count
-/// `scripts/perf_report.py` divides by. `built_path_strmap` asserts it, so the
-/// registered count cannot drift from the generator.
-const PREFIX_SCAN_ENTRIES: u64 = 12_547;
+/// Entries the 64 prefixes yield over `path_keys` — the ops counts
+/// `scripts/perf_report.py` divides by. `built_path_strmap` asserts them, so a
+/// registered count cannot drift from its generator.
+fn prefix_scan_entries(dist: &str) -> u64 {
+    match dist {
+        "paths" => 12_547,
+        "paths_dense" => 12_544,
+        other => panic!("unknown path-key distribution {other}"),
+    }
+}
 
 /// Sums the values of every key under `prefix`: one seek, then cursor steps
 /// until the first key outside the prefix. Returns (entries, value sum).
@@ -909,7 +937,8 @@ fn built_path_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
         .map(|p| strmap_prefix_sum(&mut map, p).0)
         .sum();
     assert_eq!(
-        entries, PREFIX_SCAN_ENTRIES,
+        entries,
+        prefix_scan_entries(dist),
         "prefix-scan population drifted from its registered ops count"
     );
     (map, prefixes)
@@ -919,8 +948,10 @@ fn built_path_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
 // 64 seeks with `cursor_at_or_after` and a bounded cursor walk each, over the
 // suite's shared-prefix path keys. Ops = entries yielded, so the report reads
 // instructions per scanned entry; the 64 seeks are part of that figure.
+// `paths_dense` is the same walk in the 1M cell's key-sharing regime.
 #[library_benchmark]
 #[bench::paths(args = ("paths",), setup = built_path_strmap)]
+#[bench::paths_dense(args = ("paths_dense",), setup = built_path_strmap)]
 fn strmap_prefix_scan(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     let (mut map, prefixes) = built;
     let mut sink = 0u64;
@@ -928,6 +959,48 @@ fn strmap_prefix_scan(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
         let (n, sum) = strmap_prefix_sum(&mut map, black_box(p));
         sink ^= n ^ sum;
     }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// The fixed per-prefix cost of `strmap_prefix_scan` on its own: 64 seeks,
+// each followed by the one step that yields the first entry. Ops = seeks, so
+// the report reads instructions per prefix — the intercept of the prefix-scan
+// cells, which the per-entry figure of `strmap_prefix_scan` folds in.
+#[library_benchmark]
+#[bench::paths(args = ("paths",), setup = built_path_strmap)]
+#[bench::paths_dense(args = ("paths_dense",), setup = built_path_strmap)]
+fn strmap_prefix_seek(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, prefixes) = built;
+    let mut sink = 0u64;
+    for p in &prefixes {
+        let mut cur = map.cursor_at_or_after(tk(black_box(p)));
+        if let Some((k, slot)) = cur.next() {
+            // SAFETY: `slot` is the map's live value word, valid until the
+            // next structural mutation, which the cursor's borrow rules out.
+            sink ^= k.len() as u64 ^ unsafe { slot.as_ptr().read() };
+        }
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// An unbounded cursor walk over every key of the path-key maps: the per-entry
+// cost of `StrCursor::next` with no seek and no prefix compare. Ops = POP.
+#[library_benchmark]
+#[bench::paths(args = ("paths",), setup = built_path_strmap)]
+#[bench::paths_dense(args = ("paths_dense",), setup = built_path_strmap)]
+fn strmap_cursor_scan(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    let mut cur = map.cursor();
+    while let Some((k, slot)) = cur.next() {
+        // SAFETY: as in `strmap_prefix_seek`.
+        sink ^= k.len() as u64 ^ unsafe { slot.as_ptr().read() };
+        n += 1;
+    }
+    drop(cur);
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
     core::mem::forget(map);
     black_box(sink)
 }
@@ -1833,6 +1906,8 @@ library_benchmark_group!(
         strmap_get,
         strmap_churn,
         strmap_prefix_scan,
+        strmap_prefix_seek,
+        strmap_cursor_scan,
         bytesmap_insert,
         bytesmap_get,
         bytesmap_churn,
