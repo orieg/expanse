@@ -98,6 +98,23 @@ impl ExpanseMap {
         BigInt::from(self.inner.mem_used() as u64)
     }
 
+    // abi-parity: expanse_map_mem_held
+    /// Heap bytes the map holds from the system allocator: `memUsed()`
+    /// plus freed blocks kept for reuse and unused slab space.
+    #[napi]
+    pub fn mem_held(&self) -> BigInt {
+        BigInt::from(self.inner.mem_held() as u64)
+    }
+
+    // abi-parity: expanse_map_shrink_to_fit
+    /// Returns the freed blocks the map retains to the system allocator
+    /// and returns the bytes released. Nothing moves and `memUsed()` is
+    /// unchanged; `clear()` also returns them.
+    #[napi]
+    pub fn shrink_to_fit(&mut self) -> BigInt {
+        BigInt::from(self.inner.shrink_to_fit() as u64)
+    }
+
     // abi-parity: expanse_map_first
     /// Smallest entry `(key, value)` in the map, or `null` if empty.
     #[napi]

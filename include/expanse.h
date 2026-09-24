@@ -113,6 +113,18 @@ bool expanse_set_prev_before(const expanse_set_t *set, expanse_word_t key, expan
 uint64_t expanse_set_count_below(const expanse_set_t *set, uint64_t key);
 uint64_t expanse_set_count_range(const expanse_set_t *set, uint64_t lo, uint64_t hi);
 bool     expanse_set_by_count(const expanse_set_t *set, uint64_t n, uint64_t *key_out);
+
+/*
+ * Held memory. mem_held: heap bytes the set holds from the system
+ * allocator -- mem_used plus freed blocks kept for reuse and
+ * unused slab space (0 for NULL). A set keeps freed blocks after removals;
+ * shrink_to_fit returns them to the system allocator and returns the bytes
+ * released (0 for NULL), after which mem_held is lower by exactly that
+ * much and mem_used is unchanged. Nothing moves: no key, value or value
+ * pointer is invalidated. clear() and free() also return them.
+ */
+size_t   expanse_set_mem_held(const expanse_set_t *set);
+size_t   expanse_set_shrink_to_fit(expanse_set_t *set);
 #endif /* EXPANSE_WIDE_SURFACE */
 
 
@@ -413,6 +425,18 @@ uint64_t expanse_map_count_below(const expanse_map_t *map, uint64_t key);
 uint64_t expanse_map_count_range(const expanse_map_t *map, uint64_t lo, uint64_t hi);
 bool     expanse_map_by_count(const expanse_map_t *map, uint64_t n,
                               expanse_word_t *key_out, expanse_word_t *value_out);
+
+/*
+ * Held memory. mem_held: heap bytes the map holds from the system
+ * allocator -- mem_used plus freed blocks kept for reuse and
+ * unused slab space (0 for NULL). A map keeps freed blocks after removals;
+ * shrink_to_fit returns them to the system allocator and returns the bytes
+ * released (0 for NULL), after which mem_held is lower by exactly that
+ * much and mem_used is unchanged. Nothing moves: no key, value or value
+ * pointer is invalidated. clear() and free() also return them.
+ */
+size_t   expanse_map_mem_held(const expanse_map_t *map);
+size_t   expanse_map_shrink_to_fit(expanse_map_t *map);
 #endif /* EXPANSE_WIDE_SURFACE */
 
 
@@ -453,6 +477,9 @@ uint64_t *expanse_strmap_ins_slot(expanse_strmap_t *map, const char *key);
 uint64_t expanse_strmap_len(const expanse_strmap_t *map);
 size_t   expanse_strmap_mem_used(const expanse_strmap_t *map);
 void     expanse_strmap_clear(expanse_strmap_t *map);
+/* Held memory and its release, as expanse_map_mem_held / _shrink_to_fit. */
+size_t   expanse_strmap_mem_held(const expanse_strmap_t *map);
+size_t   expanse_strmap_shrink_to_fit(expanse_strmap_t *map);
 
 /*
  * Ordered string navigation. The found key (NUL-terminated) is written to

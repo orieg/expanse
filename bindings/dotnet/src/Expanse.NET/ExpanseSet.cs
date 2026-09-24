@@ -150,6 +150,30 @@ public sealed class ExpanseSet : IDisposable, IEnumerable<ulong>, IReadOnlyColle
     }
 
     /// <summary>
+    /// Gets the off-heap bytes this set holds from the system allocator:
+    /// <see cref="MemoryUsed"/> plus freed blocks kept for reuse and unused slab space.
+    /// </summary>
+    public nuint MemoryHeld
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return NativeMethods.expanse_set_mem_held(_handle);
+        }
+    }
+
+    /// <summary>
+    /// Returns the freed blocks this set retains to the system allocator and
+    /// returns the bytes released. Nothing moves and <see cref="MemoryUsed"/> is
+    /// unchanged; <see cref="Clear"/> also returns them.
+    /// </summary>
+    public nuint ShrinkToFit()
+    {
+        ThrowIfDisposed();
+        return NativeMethods.expanse_set_shrink_to_fit(_handle);
+    }
+
+    /// <summary>
     /// Removes all keys from this set, freeing off-heap nodes.
     /// </summary>
     public void Clear()

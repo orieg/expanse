@@ -156,6 +156,45 @@ macro_rules! container {
     };
 }
 
+/// Emits the `_mem_held` / `_shrink_to_fit` pair for a container whose
+/// 64-bit engine type exposes `mem_held` and `shrink_to_fit`. The 32-bit
+/// engine types have neither, so every expansion is width-gated and the
+/// symbols are absent from a 32-bit library (`docs/COMPAT.md`).
+macro_rules! reclaim {
+    ($rust:ty, $held:ident, $shrink:ident, $what:literal) => {
+        #[doc = concat!("Heap bytes the ", $what, " holds from the system allocator.")]
+        ///
+        /// The `_mem_used` figure plus the freed blocks kept for reuse and
+        /// unused slab space; 0 for a null handle.
+        ///
+        /// # Safety
+        ///
+        /// `h` must be null or a live handle.
+        #[cfg(target_pointer_width = "64")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $held(h: *const $rust) -> usize {
+            // SAFETY: null or live handle per contract.
+            unsafe { h.as_ref() }.map_or(0, <$rust>::mem_held)
+        }
+
+        #[doc = concat!("Returns the freed blocks the ", $what, " retains to the system allocator.")]
+        ///
+        /// Returns the bytes released (0 for a null handle); `_mem_held` is
+        /// then lower by that much and `_mem_used` is unchanged. Nothing
+        /// moves: no key, value or value pointer is affected.
+        ///
+        /// # Safety
+        ///
+        /// `h` must be null or a live handle.
+        #[cfg(target_pointer_width = "64")]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $shrink(h: *mut $rust) -> usize {
+            // SAFETY: null or live handle per contract.
+            unsafe { h.as_mut() }.map_or(0, <$rust>::shrink_to_fit)
+        }
+    };
+}
+
 // The byte-string, string and concurrent containers exist only on 64-bit
 // targets, so their entry points live in a width-gated child module
 // rather than behind ~40 individual attributes (#558).
@@ -176,6 +215,13 @@ container!(
     expanse_set_len,
     expanse_set_mem_used,
     expanse_set_clear,
+    "set"
+);
+
+reclaim!(
+    ExpanseSet,
+    expanse_set_mem_held,
+    expanse_set_shrink_to_fit,
     "set"
 );
 
@@ -393,6 +439,13 @@ container!(
     expanse_map_len,
     expanse_map_mem_used,
     expanse_map_clear,
+    "map"
+);
+
+reclaim!(
+    ExpanseMap,
+    expanse_map_mem_held,
+    expanse_map_shrink_to_fit,
     "map"
 );
 

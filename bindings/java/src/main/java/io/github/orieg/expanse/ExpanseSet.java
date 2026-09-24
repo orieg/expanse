@@ -198,6 +198,37 @@ public final class ExpanseSet implements AutoCloseable, LongPredicate {
     }
 
     /**
+     * Returns the off-heap bytes this set holds from the system allocator:
+     * {@link #memUsed()} plus freed blocks kept for reuse and unused slab space.
+     *
+     * @return bytes of native heap memory held
+     */
+    public long memHeld() {
+        checkOpen();
+        try {
+            return (long) ExpanseNative.MH_expanse_set_mem_held.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Returns the freed blocks this set retains to the system allocator.
+     * Nothing moves and {@link #memUsed()} is unchanged; {@link #clear()}
+     * also returns them.
+     *
+     * @return bytes released
+     */
+    public long shrinkToFit() {
+        checkOpen();
+        try {
+            return (long) ExpanseNative.MH_expanse_set_shrink_to_fit.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
      * Removes all keys from this set, freeing off-heap nodes.
      */
     public void clear() {

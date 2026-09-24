@@ -164,6 +164,13 @@ container!(
     "string map"
 );
 
+reclaim!(
+    ExpanseStrMap,
+    expanse_strmap_mem_held,
+    expanse_strmap_shrink_to_fit,
+    "string map"
+);
+
 /// Stores `key -> value`. Returns true when the key is new; when it
 /// replaced an existing entry, writes the old value through `old_out`
 /// (if non-null) and returns false.

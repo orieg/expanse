@@ -94,6 +94,41 @@ class TestExpanse < Minitest::Test
     assert_equal 2, strmap.size
   end
 
+  # A map or set drained by delete keeps its freed blocks; shrink_to_fit
+  # returns exactly mem_held - mem_used, after which the two agree.
+  def test_mem_held_and_shrink_to_fit
+    n = 20_000
+    map = Expanse::Map.new
+    set = Expanse::Set.new
+    n.times do |k|
+      map[k * 7] = k
+      set.add(k * 7)
+    end
+    [map, set].each { |c| assert_operator c.mem_held, :>=, c.mem_used }
+    n.times do |k|
+      map.delete(k * 7)
+      set.delete(k * 7)
+    end
+    [map, set].each do |c|
+      assert_equal 0, c.mem_used
+      held = c.mem_held
+      assert_operator held, :>, 0
+      assert_equal held, c.shrink_to_fit
+      assert_equal c.mem_used, c.mem_held
+      assert_equal 0, c.shrink_to_fit
+    end
+
+    strmap = Expanse::StrMap.new
+    n.times { |k| strmap[format("key/%08d", k)] = k }
+    n.times { |k| strmap.delete(format("key/%08d", k)) }
+    assert_equal 0, strmap.size
+    held = strmap.mem_held
+    released = strmap.shrink_to_fit
+    assert_operator released, :<=, held
+    assert_equal held - released, strmap.mem_held
+    assert_equal 0, strmap.shrink_to_fit
+  end
+
   def test_bytesmap
     bytesmap = Expanse::BytesMap.new
     assert_equal 0, bytesmap.size

@@ -277,6 +277,32 @@ if (!class_exists(Map::class)) {
             return count($this->data) * 16;
         }
 
+        /** Bytes held from the system allocator: memUsed() plus freed blocks kept for reuse. */
+        public function memHeld(): int
+        {
+            if ($this->native !== null) {
+                return (int) $this->native->memHeld();
+            }
+            if ($this->handle !== null) {
+                $ffi = FFIDriver::getFFI();
+                return (int) $ffi->expanse_map_mem_held($this->handle);
+            }
+            return $this->memUsed();
+        }
+
+        /** Returns retained freed blocks to the system allocator; returns the bytes released. */
+        public function shrinkToFit(): int
+        {
+            if ($this->native !== null) {
+                return (int) $this->native->shrinkToFit();
+            }
+            if ($this->handle !== null) {
+                $ffi = FFIDriver::getFFI();
+                return (int) $ffi->expanse_map_shrink_to_fit($this->handle);
+            }
+            return 0;
+        }
+
         public function getIterator(): Traversable
         {
             $pairs = [];

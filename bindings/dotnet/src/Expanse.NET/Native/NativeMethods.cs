@@ -48,6 +48,12 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_set_mem_used")]
     public static extern nuint expanse_set_mem_used(SafeExpanseSetHandle set);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_set_mem_held")]
+    public static extern nuint expanse_set_mem_held(SafeExpanseSetHandle set);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_set_shrink_to_fit")]
+    public static extern nuint expanse_set_shrink_to_fit(SafeExpanseSetHandle set);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_set_clear")]
     public static extern void expanse_set_clear(SafeExpanseSetHandle set);
 
@@ -126,6 +132,12 @@ public static class NativeMethods
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_mem_used")]
     public static extern nuint expanse_map_mem_used(SafeExpanseMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_mem_held")]
+    public static extern nuint expanse_map_mem_held(SafeExpanseMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_shrink_to_fit")]
+    public static extern nuint expanse_map_shrink_to_fit(SafeExpanseMapHandle map);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_clear")]
     public static extern void expanse_map_clear(SafeExpanseMapHandle map);
@@ -256,6 +268,12 @@ public static class NativeMethods
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_mem_used")]
     public static extern nuint expanse_strmap_mem_used(SafeExpanseStrMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_mem_held")]
+    public static extern nuint expanse_strmap_mem_held(SafeExpanseStrMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_shrink_to_fit")]
+    public static extern nuint expanse_strmap_shrink_to_fit(SafeExpanseStrMapHandle map);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_clear")]
     public static extern void expanse_strmap_clear(SafeExpanseStrMapHandle map);

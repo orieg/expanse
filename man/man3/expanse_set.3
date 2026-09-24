@@ -2,7 +2,8 @@
 .SH NAME
 expanse_set_new, expanse_set_free, expanse_set_insert, \
 expanse_set_remove, expanse_set_contains, expanse_set_len, \
-expanse_set_mem_used, expanse_set_clear, expanse_set_first, \
+expanse_set_mem_used, expanse_set_mem_held, expanse_set_shrink_to_fit, \
+expanse_set_clear, expanse_set_first, \
 expanse_set_last, expanse_set_next_at_or_after, \
 expanse_set_next_after, expanse_set_prev_at_or_before, \
 expanse_set_prev_before, expanse_set_count_below, \
@@ -28,6 +29,10 @@ expanse_set_contains_batch \
 .BI "uint64_t expanse_set_len(const expanse_set_t *" set ");"
 .br
 .BI "size_t   expanse_set_mem_used(const expanse_set_t *" set ");"
+.br
+.BI "size_t   expanse_set_mem_held(const expanse_set_t *" set ");"
+.br
+.BI "size_t   expanse_set_shrink_to_fit(expanse_set_t *" set ");"
 .PP
 .BI "bool expanse_set_first(const expanse_set_t *" "set" ", uint64_t *"
 .BI "key_out" ");"
@@ -80,6 +85,7 @@ Clear Container	expanse_set_clear
 Insert / Remove / Test	expanse_set_insert, expanse_set_remove,
 expanse_set_contains
 Size & Byte Accounting	expanse_set_len, expanse_set_mem_used
+Held Memory	expanse_set_mem_held, expanse_set_shrink_to_fit
 First / Last Key	expanse_set_first, expanse_set_last
 Forward Iteration	expanse_set_next_after, expanse_set_next_at_or_after
 Reverse Iteration	expanse_set_prev_before, expanse_set_prev_at_or_before
@@ -167,6 +173,19 @@ Returns the total number of keys stored in the set.
 .TP
 .BI "size_t expanse_set_mem_used(const expanse_set_t *" set ");"
 Returns the byte-exact heap memory currently consumed by the set.
+.TP
+.BI "size_t expanse_set_mem_held(const expanse_set_t *" set ");"
+Returns the heap bytes the set holds from the system allocator:
+\fBexpanse_set_mem_used\fR() plus the freed blocks it keeps for reuse
+and unused slab space. 0 for NULL. \fB64-bit surface only.\fR
+.TP
+.BI "size_t expanse_set_shrink_to_fit(expanse_set_t *" set ");"
+Returns the freed blocks the set retains after removals to the system
+allocator and returns the bytes released (0 for NULL). Afterwards
+\fBexpanse_set_mem_held\fR() is lower by exactly that amount and
+\fBexpanse_set_mem_used\fR() is unchanged. Nothing moves: no key, value
+or value pointer is affected. \fBexpanse_set_clear\fR() and
+\fBexpanse_set_free\fR() also return them. \fB64-bit surface only.\fR
 .SS Ordered Navigation
 .TP
 .BI "bool expanse_set_first(const expanse_set_t *" "set" ", uint64_t *"

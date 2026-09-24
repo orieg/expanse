@@ -91,6 +91,20 @@ impl PhpExpanseSet {
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
     }
+
+    /// Returns the bytes the set holds from the system allocator: `memUsed()`
+    /// plus freed blocks kept for reuse and unused slab space.
+    #[php(name = "memHeld")]
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    /// Returns the freed blocks the set retains to the system allocator and
+    /// returns the bytes released. Nothing moves; `memUsed()` is unchanged.
+    #[php(name = "shrinkToFit")]
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.inner.shrink_to_fit()
+    }
 }
 
 /// Native Expanse Map (`Expanse\ExpanseMap`)
@@ -179,6 +193,20 @@ impl PhpExpanseMap {
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
     }
+
+    /// Returns the bytes the map holds from the system allocator: `memUsed()`
+    /// plus freed blocks kept for reuse and unused slab space.
+    #[php(name = "memHeld")]
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    /// Returns the freed blocks the map retains to the system allocator and
+    /// returns the bytes released. Nothing moves; `memUsed()` is unchanged.
+    #[php(name = "shrinkToFit")]
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.inner.shrink_to_fit()
+    }
 }
 
 /// Native Expanse String Map (`Expanse\ExpanseStrMap`)
@@ -257,6 +285,20 @@ impl PhpExpanseStrMap {
     #[php(name = "memUsed")]
     pub fn mem_used(&self) -> usize {
         self.inner.mem_used()
+    }
+
+    /// Returns the bytes the string map holds from the system allocator: `memUsed()`
+    /// plus freed blocks kept for reuse and unused slab space.
+    #[php(name = "memHeld")]
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    /// Returns the freed blocks the string map retains to the system allocator and
+    /// returns the bytes released. Nothing moves; `memUsed()` is unchanged.
+    #[php(name = "shrinkToFit")]
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.inner.shrink_to_fit()
     }
 }
 

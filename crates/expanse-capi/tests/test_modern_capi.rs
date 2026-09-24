@@ -873,3 +873,94 @@ fn test_sync_map_mem_used() {
         expanse::modern::expanse_map_free(plain);
     }
 }
+
+/// `expanse_{map,set,strmap}_mem_held` and `_shrink_to_fit`: 0 for NULL; a
+/// map or set drained by `remove` keeps its freed blocks, so `mem_held` stays
+/// above `mem_used`; `shrink_to_fit` returns exactly the difference, after
+/// which `mem_held == mem_used` (0 for an empty tree) and a second call
+/// releases nothing.
+#[test]
+fn test_mem_held_and_shrink_to_fit() {
+    use expanse::modern::{
+        expanse_map_mem_held, expanse_map_mem_used, expanse_map_remove, expanse_map_shrink_to_fit,
+        expanse_set_mem_held, expanse_set_mem_used, expanse_set_remove, expanse_set_shrink_to_fit,
+        expanse_strmap_free, expanse_strmap_insert, expanse_strmap_len, expanse_strmap_mem_held,
+        expanse_strmap_mem_used, expanse_strmap_new, expanse_strmap_remove,
+        expanse_strmap_shrink_to_fit,
+    };
+    use std::ffi::CString;
+
+    // SAFETY: null handles are a documented 0 for every entry point.
+    unsafe {
+        assert_eq!(expanse_map_mem_held(core::ptr::null()), 0);
+        assert_eq!(expanse_map_shrink_to_fit(core::ptr::null_mut()), 0);
+        assert_eq!(expanse_set_mem_held(core::ptr::null()), 0);
+        assert_eq!(expanse_set_shrink_to_fit(core::ptr::null_mut()), 0);
+        assert_eq!(expanse_strmap_mem_held(core::ptr::null()), 0);
+        assert_eq!(expanse_strmap_shrink_to_fit(core::ptr::null_mut()), 0);
+    }
+
+    const N: u64 = 20_000;
+    let m = expanse_map_new();
+    // SAFETY: `m` is live until freed at the end; null `old_out`s.
+    unsafe {
+        for k in 0..N {
+            expanse_map_insert(m, k * 7, k, core::ptr::null_mut());
+        }
+        assert!(expanse_map_mem_held(m) >= expanse_map_mem_used(m));
+        for k in 0..N {
+            assert!(expanse_map_remove(m, k * 7, core::ptr::null_mut()));
+        }
+        assert_eq!(expanse_map_mem_used(m), 0);
+        let held = expanse_map_mem_held(m);
+        assert!(held > 0, "a drained map keeps its freed blocks");
+        assert_eq!(expanse_map_shrink_to_fit(m), held);
+        assert_eq!(expanse_map_mem_held(m), expanse_map_mem_used(m));
+        assert_eq!(expanse_map_mem_held(m), 0);
+        assert_eq!(expanse_map_shrink_to_fit(m), 0);
+        expanse_map_free(m);
+    }
+
+    let s = expanse_set_new();
+    // SAFETY: `s` is live until freed at the end.
+    unsafe {
+        for k in 0..N {
+            expanse_set_insert(s, k * 7);
+        }
+        assert!(expanse_set_mem_held(s) >= expanse_set_mem_used(s));
+        for k in 0..N {
+            assert!(expanse_set_remove(s, k * 7));
+        }
+        assert_eq!(expanse_set_mem_used(s), 0);
+        let held = expanse_set_mem_held(s);
+        assert!(held > 0, "a drained set keeps its freed blocks");
+        assert_eq!(expanse_set_shrink_to_fit(s), held);
+        assert_eq!(expanse_set_mem_held(s), expanse_set_mem_used(s));
+        assert_eq!(expanse_set_mem_held(s), 0);
+        assert_eq!(expanse_set_shrink_to_fit(s), 0);
+        expanse_set_free(s);
+    }
+
+    let keys: Vec<CString> = (0..N)
+        .map(|k| CString::new(format!("key/{k:08}")).unwrap())
+        .collect();
+    let sm = expanse_strmap_new();
+    // SAFETY: `sm` is live until freed at the end; every key is a valid
+    // NUL-terminated C string; null `old_out`s.
+    unsafe {
+        for (v, k) in keys.iter().enumerate() {
+            expanse_strmap_insert(sm, k.as_ptr(), v as u64, core::ptr::null_mut());
+        }
+        assert!(expanse_strmap_mem_held(sm) >= expanse_strmap_mem_used(sm));
+        for k in &keys {
+            assert!(expanse_strmap_remove(sm, k.as_ptr(), core::ptr::null_mut()));
+        }
+        assert_eq!(expanse_strmap_len(sm), 0);
+        let (held, used) = (expanse_strmap_mem_held(sm), expanse_strmap_mem_used(sm));
+        assert_eq!(expanse_strmap_shrink_to_fit(sm), held - used);
+        assert_eq!(expanse_strmap_mem_held(sm), expanse_strmap_mem_used(sm));
+        assert_eq!(expanse_strmap_mem_used(sm), used);
+        assert_eq!(expanse_strmap_shrink_to_fit(sm), 0);
+        expanse_strmap_free(sm);
+    }
+}

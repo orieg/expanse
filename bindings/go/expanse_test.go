@@ -2,6 +2,7 @@ package expanse
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"testing"
 )
@@ -612,4 +613,60 @@ func TestBlobMapCompaction(t *testing.T) {
 	if memAfter == 0 {
 		t.Fatalf("memory after compact should be > 0")
 	}
+}
+
+// TestShrinkToFit: a map or set drained by removal keeps its freed blocks;
+// ShrinkToFit returns exactly MemoryHeld - MemoryUsed, after which the two
+// agree and a second call releases nothing.
+func TestShrinkToFit(t *testing.T) {
+	const n = 20000
+	check := func(name string, held, used, shrink func() uint64, wantRetained bool) {
+		t.Helper()
+		h, u := held(), used()
+		if h < u {
+			t.Fatalf("%s: MemoryHeld %d < MemoryUsed %d", name, h, u)
+		}
+		if wantRetained && h == u {
+			t.Fatalf("%s: drained container retained nothing (held %d)", name, h)
+		}
+		if got := shrink(); got != h-u {
+			t.Fatalf("%s: ShrinkToFit released %d, want %d", name, got, h-u)
+		}
+		if held() != used() || used() != u {
+			t.Fatalf("%s: after ShrinkToFit held %d used %d (was used %d)", name, held(), used(), u)
+		}
+		if got := shrink(); got != 0 {
+			t.Fatalf("%s: second ShrinkToFit released %d", name, got)
+		}
+	}
+
+	m := NewMap()
+	defer m.Free()
+	for k := uint64(0); k < n; k++ {
+		m.Set(k*7, k)
+	}
+	for k := uint64(0); k < n; k++ {
+		m.Delete(k * 7)
+	}
+	check("map", m.MemoryHeld, m.MemoryUsed, m.ShrinkToFit, true)
+
+	s := NewSet()
+	defer s.Free()
+	for k := uint64(0); k < n; k++ {
+		s.Add(k * 7)
+	}
+	for k := uint64(0); k < n; k++ {
+		s.Remove(k * 7)
+	}
+	check("set", s.MemoryHeld, s.MemoryUsed, s.ShrinkToFit, true)
+
+	sm := NewStrMap()
+	defer sm.Free()
+	for k := 0; k < n; k++ {
+		sm.Set(fmt.Sprintf("key/%08d", k), uint64(k))
+	}
+	for k := 0; k < n; k++ {
+		sm.Delete(fmt.Sprintf("key/%08d", k))
+	}
+	check("strmap", sm.MemoryHeld, sm.MemoryUsed, sm.ShrinkToFit, false)
 }

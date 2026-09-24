@@ -84,6 +84,38 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
     }
 
     /**
+     * memHeld()/shrinkToFit() hold the same contract on every driver:
+     * shrinkToFit() releases exactly memHeld() - memUsed(), after which the
+     * two agree and a second call releases nothing. (The pure-PHP fallback
+     * holds nothing beyond memUsed(), so it releases 0.)
+     */
+    public function testMemHeldAndShrinkToFit()
+    {
+        $n = 20000;
+        $map = new Map();
+        $set = new Set();
+        $str = new StrMap();
+        for ($k = 0; $k < $n; $k++) {
+            $map->set($k * 7, $k);
+            $set->add($k * 7);
+            $str->set(sprintf('key/%08d', $k), $k);
+        }
+        for ($k = 0; $k < $n; $k++) {
+            $this->assertTrue($map->delete($k * 7));
+            $this->assertTrue($set->remove($k * 7));
+            $this->assertTrue($str->delete(sprintf('key/%08d', $k)));
+        }
+        foreach ([$map, $set, $str] as $c) {
+            $held = $c->memHeld();
+            $used = $c->memUsed();
+            $this->assertTrue($held >= $used, "memHeld $held < memUsed $used");
+            $this->assertEquals($held - $used, $c->shrinkToFit());
+            $this->assertEquals($c->memUsed(), $c->memHeld());
+            $this->assertEquals(0, $c->shrinkToFit());
+        }
+    }
+
+    /**
      * The three StrMap backends -- native extension, \FFI, and the pure-PHP
      * array -- must agree about a key carrying an embedded NUL. They did not:
      * the \FFI driver passes the key as a char*, which the C ABI reads with

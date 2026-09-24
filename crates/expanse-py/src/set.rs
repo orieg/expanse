@@ -116,6 +116,21 @@ impl ExpanseSet {
         self.inner.mem_used()
     }
 
+    // abi-parity: expanse_set_mem_held
+    /// Heap bytes the set holds from the system allocator: `mem_used()`
+    /// plus freed blocks kept for reuse and unused slab space.
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    // abi-parity: expanse_set_shrink_to_fit
+    /// Returns the freed blocks the set retains to the system allocator
+    /// and returns the bytes released. Nothing moves and `mem_used()` is
+    /// unchanged; `clear()` also returns them.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.inner.shrink_to_fit()
+    }
+
     /// Total node allocations performed by the trie engine.
     pub fn total_node_allocs(&self) -> usize {
         self.inner.total_node_allocs()
