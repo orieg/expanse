@@ -528,8 +528,9 @@ def test_sync_map_mem_used():
 
 
 def test_mem_held_and_shrink_to_fit():
-    """A map or set drained by remove keeps its freed blocks; shrink_to_fit()
-    returns exactly mem_held() - mem_used(), after which the two agree."""
+    """A map, set or string map drained by remove keeps its freed blocks;
+    shrink_to_fit() returns exactly mem_held() - mem_used(), after which the
+    two agree."""
     n = 20000
     m = ExpanseMap()
     s = ExpanseSet()
@@ -544,7 +545,7 @@ def test_mem_held_and_shrink_to_fit():
         assert m.remove(k * 7) == k
         assert s.remove(k * 7) is True
         assert sm.remove(f"key/{k:08d}") == k
-    for c, retains in ((m, True), (s, True), (sm, False)):
+    for c, retains in ((m, True), (s, True), (sm, True)):
         held, used = c.mem_held(), c.mem_used()
         if retains:
             assert used == 0 and held > 0

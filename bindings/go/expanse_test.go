@@ -615,7 +615,7 @@ func TestBlobMapCompaction(t *testing.T) {
 	}
 }
 
-// TestShrinkToFit: a map or set drained by removal keeps its freed blocks;
+// TestShrinkToFit: a map, set or string map drained by removal keeps its freed blocks;
 // ShrinkToFit returns exactly MemoryHeld - MemoryUsed, after which the two
 // agree and a second call releases nothing.
 func TestShrinkToFit(t *testing.T) {
@@ -668,5 +668,5 @@ func TestShrinkToFit(t *testing.T) {
 	for k := 0; k < n; k++ {
 		sm.Delete(fmt.Sprintf("key/%08d", k))
 	}
-	check("strmap", sm.MemoryHeld, sm.MemoryUsed, sm.ShrinkToFit, false)
+	check("strmap", sm.MemoryHeld, sm.MemoryUsed, sm.ShrinkToFit, true)
 }

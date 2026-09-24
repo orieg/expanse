@@ -651,7 +651,7 @@ void test_sync_map() {
     std::cout << "[PASS] test_sync_map" << std::endl;
 }
 
-// A map or set drained by erase keeps its freed blocks; shrink_to_fit()
+// A map, set or string map drained by erase keeps its freed blocks; shrink_to_fit()
 // returns exactly mem_held() - mem_used(), after which the two agree.
 template <typename C>
 void check_shrink(C& c, bool retains) {
@@ -687,7 +687,7 @@ void test_shrink_to_fit() {
     }
     check_shrink(m, true);
     check_shrink(s, true);
-    check_shrink(sm, false);
+    check_shrink(sm, true);
 
     std::cout << "[PASS] test_shrink_to_fit" << std::endl;
 }

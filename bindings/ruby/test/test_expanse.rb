@@ -94,8 +94,9 @@ class TestExpanse < Minitest::Test
     assert_equal 2, strmap.size
   end
 
-  # A map or set drained by delete keeps its freed blocks; shrink_to_fit
-  # returns exactly mem_held - mem_used, after which the two agree.
+  # A map, set or string map drained by delete keeps its freed blocks;
+  # shrink_to_fit returns exactly mem_held - mem_used, after which the two
+  # agree.
   def test_mem_held_and_shrink_to_fit
     n = 20_000
     map = Expanse::Map.new
@@ -122,10 +123,12 @@ class TestExpanse < Minitest::Test
     n.times { |k| strmap[format("key/%08d", k)] = k }
     n.times { |k| strmap.delete(format("key/%08d", k)) }
     assert_equal 0, strmap.size
+    # StrMap exposes no mem_used; an empty string map uses nothing, so a
+    # drained one releases everything it holds.
     held = strmap.mem_held
-    released = strmap.shrink_to_fit
-    assert_operator released, :<=, held
-    assert_equal held - released, strmap.mem_held
+    assert_operator held, :>, 0
+    assert_equal held, strmap.shrink_to_fit
+    assert_equal 0, strmap.mem_held
     assert_equal 0, strmap.shrink_to_fit
   end
 

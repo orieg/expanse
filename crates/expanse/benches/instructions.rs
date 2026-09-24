@@ -1154,9 +1154,9 @@ fn strmap_clear_refill(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(n)
 }
 
-/// The first 1,000 keys of `str_keys` (18 slab pages at 1,000 keys, above a
-/// small retention threshold): the smallest tree a release-on-empty
-/// threshold still releases, drained and refilled 50 times (#1119).
+/// The first 1,000 keys of `str_keys` (18 slab pages), drained and refilled
+/// 50 times: a tree of a few pages that empties repeatedly, where returning
+/// its blocks on every empty and carving them again would show (#1119).
 fn small_strmap(_dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
     let mut ks = str_keys("routes");
     ks.truncate(1_000);

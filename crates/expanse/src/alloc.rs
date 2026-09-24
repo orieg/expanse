@@ -2058,12 +2058,21 @@ mod tests {
         // The kept page's free blocks are still served, then everything goes.
         let again = a.alloc_bytes(64);
         assert_eq!(a.bytes_held(), SLAB_PAGE_SIZE, "reuse, not a new page");
-        // SAFETY: both blocks came from `alloc_bytes(64)` and are freed once.
+        // A system-class block on its freelist too, so the release with
+        // nothing live (the drop-style path) frees both kinds.
+        let big = a.alloc_bytes(300);
+        // SAFETY: every block came from `alloc_bytes` with the size it is
+        // freed with, and each is freed once.
         unsafe {
+            a.free_bytes(big, 300);
             a.free_bytes(again, 64);
             a.free_bytes(blocks[n - 1], 64);
         }
-        assert_eq!(a.release_free(), SLAB_PAGE_SIZE);
+        assert_eq!(a.bytes_in_use(), 0);
+        assert_eq!(
+            a.release_free(),
+            SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN)
+        );
         assert_eq!(a.bytes_held(), 0);
         assert_eq!(a.bytes_in_use(), 0);
     }

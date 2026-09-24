@@ -386,7 +386,7 @@ test('memHeld / shrinkToFit return the blocks a drained container keeps', () => 
     assert.ok(set.remove(k * 7n));
     assert.ok(strMap.delete(`key/${String(k).padStart(8, '0')}`));
   }
-  for (const [c, retains] of [[map, true], [set, true], [strMap, false]]) {
+  for (const [c, retains] of [[map, true], [set, true], [strMap, true]]) {
     const held = c.memHeld();
     const used = c.memUsed();
     if (retains) {

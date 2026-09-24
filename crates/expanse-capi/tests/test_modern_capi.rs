@@ -957,6 +957,9 @@ fn test_mem_held_and_shrink_to_fit() {
         }
         assert_eq!(expanse_strmap_len(sm), 0);
         let (held, used) = (expanse_strmap_mem_held(sm), expanse_strmap_mem_used(sm));
+        // A drained string map keeps its freed blocks, as the map and set do.
+        assert_eq!(used, 0);
+        assert!(held > 0, "a drained string map keeps its freed blocks");
         assert_eq!(expanse_strmap_shrink_to_fit(sm), held - used);
         assert_eq!(expanse_strmap_mem_held(sm), expanse_strmap_mem_used(sm));
         assert_eq!(expanse_strmap_mem_used(sm), used);

@@ -5,8 +5,8 @@
 //! returns them, so a cleared tree holds no more heap than a new one. A tree
 //! drained by `remove` keeps them for the next insert, and `shrink_to_fit`
 //! returns them; the rustdoc of `remove` sends callers there.
-//! (`ExpanseStrMap` returns them on its last `remove`; its twin is
-//! `tests/test_strmap_drain_release.rs`.)
+//! `ExpanseStrMap` behaves the same; its twin is
+//! `tests/test_strmap_drain_release.rs`.
 //!
 //! A counting global allocator records the bytes live through it on this
 //! thread only; the assertions are on those bytes, never on RSS. Each case's
