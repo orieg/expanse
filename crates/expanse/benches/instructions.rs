@@ -346,6 +346,95 @@ fn set_remove(built: (ExpanseSet, Vec<u64>)) -> u64 {
     black_box(removed)
 }
 
+// Drain-and-refill and empty-tree oscillation (#1119): the workloads where
+// a tree returns its allocator's blocks when it empties and has to carve
+// them again on the next insert. `*_oscillate` inserts and removes one key
+// at a time from empty, so the tree empties on every cycle; `*_refill`
+// drains the built tree by `remove` and inserts every key again;
+// `*_clear_refill` does the same through `clear`. Leaked, so the drop is
+// outside the arm and only the cycle is measured.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = keys)]
+fn map_oscillate(ks: Vec<u64>) -> u64 {
+    let mut map = ExpanseMap::new();
+    let mut sink = 0u64;
+    for &k in &ks {
+        map.insert(black_box(k), black_box(k));
+        sink ^= map.remove(black_box(k)).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = keys)]
+fn set_oscillate(ks: Vec<u64>) -> u64 {
+    let mut set = ExpanseSet::new();
+    let mut sink = 0u64;
+    for &k in &ks {
+        set.insert(black_box(k));
+        sink += u64::from(set.remove(black_box(k)));
+    }
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+fn map_refill(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink ^= map.remove(black_box(k)).unwrap_or(0);
+    }
+    for &k in &probes {
+        map.insert(black_box(k), black_box(k));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+fn set_refill(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (mut set, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink += u64::from(set.remove(black_box(k)));
+    }
+    for &k in &probes {
+        set.insert(black_box(k));
+    }
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+fn map_clear_refill(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (mut map, probes) = built;
+    map.clear();
+    for &k in &probes {
+        map.insert(black_box(k), black_box(k));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+fn set_clear_refill(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (mut set, probes) = built;
+    set.clear();
+    for &k in &probes {
+        set.insert(black_box(k));
+    }
+    let n = set.len();
+    core::mem::forget(set);
+    black_box(n)
+}
+
 // Snapshot by deep copy (#1103): `Clone` rebuilds by ordered iteration, so
 // an arm measures iteration plus an ascending insert per key. The original
 // is built in `setup`, and both it and the copy are leaked (see `map_get`).
@@ -1017,6 +1106,79 @@ fn strmap_churn(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
         sink ^= map.insert(black_box(tk(k)), black_box(7)).unwrap_or(0);
         sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
         map.insert(black_box(tk(k)), black_box(9));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// The string-map twins of `map_oscillate`, `map_refill` and
+// `map_clear_refill` (#1119).
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn strmap_oscillate(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseStrMap::new();
+    let mut sink = 0u64;
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(tk(k)), black_box(i as u64));
+        sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_strmap)]
+fn strmap_refill(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
+    }
+    for (i, k) in probes.iter().enumerate() {
+        map.insert(black_box(tk(k)), black_box(i as u64));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_strmap)]
+fn strmap_clear_refill(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    map.clear();
+    for (i, k) in probes.iter().enumerate() {
+        map.insert(black_box(tk(k)), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+/// The first 1,000 keys of `str_keys` (18 slab pages at 1,000 keys, above a
+/// small retention threshold): the smallest tree a release-on-empty
+/// threshold still releases, drained and refilled 50 times (#1119).
+fn small_strmap(_dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let mut ks = str_keys("routes");
+    ks.truncate(1_000);
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = small_strmap)]
+fn strmap_refill_small(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for _ in 0..50 {
+        for k in &probes {
+            sink ^= map.remove(black_box(tk(k))).unwrap_or(0);
+        }
+        for (i, k) in probes.iter().enumerate() {
+            map.insert(black_box(tk(k)), black_box(i as u64));
+        }
     }
     core::mem::forget(map);
     black_box(sink)
@@ -1884,6 +2046,12 @@ library_benchmark_group!(
         map_churn,
         map_remove,
         set_remove,
+        map_oscillate,
+        set_oscillate,
+        map_refill,
+        set_refill,
+        map_clear_refill,
+        set_clear_refill,
         map_iterate,
         map_clone,
         set_clone,
@@ -1905,6 +2073,10 @@ library_benchmark_group!(
         strmap_insert,
         strmap_get,
         strmap_churn,
+        strmap_oscillate,
+        strmap_refill,
+        strmap_clear_refill,
+        strmap_refill_small,
         strmap_prefix_scan,
         strmap_prefix_seek,
         strmap_cursor_scan,

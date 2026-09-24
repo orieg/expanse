@@ -1599,6 +1599,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map32_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
 | `cost` | `map32_remove` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `map_churn` | `random` | 50,000 |
+| `cost` | `map_clear_refill` | `random` | 50,000 |
 | `cost` | `map_clone` | `sequential`, `random` | 50,000 |
 | `cost` | `map_get` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf` | 50,000 |
 | `cost` | `map_get_batch` | `random` | 50,000 |
@@ -1606,24 +1607,33 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map_insert` | `sequential`, `random`, `clustered`, `small`, `dense_leaf`, `linear_leaf` | 50,000 |
 | `cost` | `map_iterate` | `random` | 50,000 |
 | `cost` | `map_nav` | `random`, `sequential`, `clustered` | 50,000 |
+| `cost` | `map_oscillate` | `random` | 50,000 |
 | `cost` | `map_prev` | `random`, `sequential`, `clustered` | 50,000 |
+| `cost` | `map_refill` | `random` | 100,000 |
 | `cost` | `map_remove` | `random` | 50,000 |
 | `cost` | `set32_insert` | `sensor_timestamps` | 10,000 |
 | `cost` | `set32_iterate` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `set32_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
 | `cost` | `set32_remove` | `sequential`, `clustered`, `random` | 2,000 |
+| `cost` | `set_clear_refill` | `random` | 50,000 |
 | `cost` | `set_clone` | `sequential`, `random` | 50,000 |
 | `cost` | `set_contains` | `random` | 50,000 |
 | `cost` | `set_contains_batch` | `random` | 50,000 |
 | `cost` | `set_insert` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf` | 50,000 |
+| `cost` | `set_oscillate` | `random` | 50,000 |
+| `cost` | `set_refill` | `random` | 100,000 |
 | `cost` | `set_remove` | `random` | 50,000 |
 | `cost` | `strmap_churn` | `routes` | 50,000 |
+| `cost` | `strmap_clear_refill` | `routes` | 50,000 |
 | `cost` | `strmap_cursor_scan` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `strmap_get` | `routes` | 50,000 |
 | `cost` | `strmap_get_short` | `short` | 50,000 |
 | `cost` | `strmap_insert` | `routes` | 50,000 |
+| `cost` | `strmap_oscillate` | `routes` | 50,000 |
 | `cost` | `strmap_prefix_scan` | `paths`, `paths_dense` | `paths` 12,547, `paths_dense` 12,544 |
 | `cost` | `strmap_prefix_seek` | `paths`, `paths_dense` | 64 |
+| `cost` | `strmap_refill` | `routes` | 100,000 |
+| `cost` | `strmap_refill_small` | `routes` | 100,000 |
 | `cost` | `sync_blobmap_churn` | `random` | 50,000 |
 | `cost` | `sync_blobmap_get` | `random` | 50,000 |
 | `cost` | `sync_blobmap_insert` | `random` | 50,000 |
