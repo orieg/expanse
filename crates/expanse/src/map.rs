@@ -3395,8 +3395,7 @@ impl ExpanseMap {
     /// The blocks a removal frees stay with the map for reuse, including
     /// after the last key is removed; call [`Self::shrink_to_fit`] (or
     /// [`Self::clear`]) to return them to the system allocator after a
-    /// drain. `ExpanseStrMap::remove` differs: it returns them when it takes
-    /// the last key.
+    /// drain.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> Option<u64> {
         self.core.remove(&self.alloc, key, self.path.get_mut())
