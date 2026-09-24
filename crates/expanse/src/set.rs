@@ -327,7 +327,8 @@ impl ExpanseSet {
     /// plus the freed blocks its allocator keeps on per-tree freelists for
     /// reuse and the unused part of the slab pages small nodes are carved
     /// from. Those blocks go back to the system only when the set is
-    /// dropped, so `malloc_trim` cannot recover them; this is the figure to
+    /// dropped or cleared, or on [`Self::shrink_to_fit`], so `malloc_trim`
+    /// cannot recover them before then; this is the figure to
     /// compare with resident memory. The system allocator's own
     /// per-allocation overhead (chunk headers, size-class rounding) is
     /// allocator-specific and not included; the `allocator_overhead`
@@ -916,6 +917,11 @@ impl ExpanseSet {
     }
 
     /// Removes `key`; returns `true` if it was present.
+    ///
+    /// The blocks a removal frees stay with the set for reuse, including
+    /// after the last key is removed; call [`Self::shrink_to_fit`] (or
+    /// [`Self::clear`]) to return them to the system allocator after a
+    /// drain.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
         noting_root_rewrite!(self, t => t.remove_inner(key))
@@ -1094,13 +1100,26 @@ impl ExpanseSet {
         }
     }
 
-    /// Removes every key.
+    /// Removes every key, and returns the blocks the set's allocator kept
+    /// for reuse to the system allocator, so the set holds what a new one
+    /// does ([`Self::mem_held`] is 0). It keeps no capacity: a set refilled
+    /// after `clear` starts cold. Not on a set shared through a concurrent
+    /// wrapper, whose blocks belong to its collector.
     pub fn clear(&mut self) {
+        self.clear_entries();
+        self.alloc.release_free();
+    }
+
+    /// [`Self::clear`] without the release, for `Drop`, where a release
+    /// would only walk the blocks the allocator's own `Drop` frees.
+    fn clear_entries(&mut self) {
         by_mode!(self.alloc, 1 self.clear_dispatch());
         debug_assert_eq!(self.alloc.bytes_in_use(), 0);
     }
 
-    /// Single-threaded clear, bypassing OCC checks.
+    /// Single-threaded clear, bypassing OCC checks. Unlike [`Self::clear`]
+    /// it keeps the allocator's freed blocks: the C ABI's `*FreeArray`
+    /// drops the tree straight after, which returns them anyway.
     #[doc(hidden)]
     #[inline(always)]
     pub fn clear_plain(&mut self) {
@@ -2299,7 +2318,7 @@ impl Default for ExpanseSet {
 
 impl Drop for ExpanseSet {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_entries();
     }
 }
 
