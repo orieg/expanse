@@ -36,10 +36,11 @@
 //!    a reader, or an optimistic writer descending to its lock point, makes
 //!    plain loads that race with a covered writer's plain stores: a node's
 //!    edges, header fields and value arrays, and a string node's sub-map
-//!    root (every wrapper publishes its own root as
-//!    atomics in `TreeHead`; node bitmaps are atomic on every shared path,
-//!    `bits::shared_bitmap`, and so are the map's and set's root-leaf keys
-//!    and values, `bits::shared_word`). Every such
+//!    root leaf (every wrapper publishes its own
+//!    root as atomics in `TreeHead`; node bitmaps are atomic on every shared
+//!    path, `bits::shared_bitmap`, and so are the map's and set's root-leaf
+//!    keys and values, `bits::shared_word`, and a string node's sub-map
+//!    root, `map::root_word`). Every such
 //!    value is discarded unless validation proves no writer overlapped. That
 //!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
 //!    design), and it is sound at the protocol level — `SeqVersion` uses
