@@ -20,6 +20,8 @@ var (
 	expanse_set_contains          func(set uintptr, key uint64) bool
 	expanse_set_len               func(set uintptr) uint64
 	expanse_set_mem_used          func(set uintptr) uintptr
+	expanse_set_mem_held          func(set uintptr) uintptr
+	expanse_set_shrink_to_fit     func(set uintptr) uintptr
 	expanse_set_clear             func(set uintptr)
 	expanse_set_first             func(set uintptr, keyOut *uint64) bool
 	expanse_set_last              func(set uintptr, keyOut *uint64) bool
@@ -43,6 +45,8 @@ var (
 	expanse_map_remove            func(mapPtr uintptr, key uint64, oldOut *uint64) bool
 	expanse_map_len               func(mapPtr uintptr) uint64
 	expanse_map_mem_used          func(mapPtr uintptr) uintptr
+	expanse_map_mem_held          func(mapPtr uintptr) uintptr
+	expanse_map_shrink_to_fit     func(mapPtr uintptr) uintptr
 	expanse_map_clear             func(mapPtr uintptr)
 	expanse_map_slot              func(mapPtr uintptr, key uint64) *uint64
 	expanse_map_ins_slot          func(mapPtr uintptr, key uint64) *uint64
@@ -82,6 +86,8 @@ var (
 	expanse_strmap_ins_slot             func(mapPtr uintptr, key unsafe.Pointer) *uint64
 	expanse_strmap_len                  func(mapPtr uintptr) uint64
 	expanse_strmap_mem_used             func(mapPtr uintptr) uintptr
+	expanse_strmap_mem_held             func(mapPtr uintptr) uintptr
+	expanse_strmap_shrink_to_fit        func(mapPtr uintptr) uintptr
 	expanse_strmap_clear                func(mapPtr uintptr)
 	expanse_strmap_first                func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
 	expanse_strmap_last                 func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
@@ -193,6 +199,8 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_set_contains, "expanse_set_contains"},
 		{&expanse_set_len, "expanse_set_len"},
 		{&expanse_set_mem_used, "expanse_set_mem_used"},
+		{&expanse_set_mem_held, "expanse_set_mem_held"},
+		{&expanse_set_shrink_to_fit, "expanse_set_shrink_to_fit"},
 		{&expanse_set_clear, "expanse_set_clear"},
 		{&expanse_set_first, "expanse_set_first"},
 		{&expanse_set_last, "expanse_set_last"},
@@ -214,6 +222,8 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_map_remove, "expanse_map_remove"},
 		{&expanse_map_len, "expanse_map_len"},
 		{&expanse_map_mem_used, "expanse_map_mem_used"},
+		{&expanse_map_mem_held, "expanse_map_mem_held"},
+		{&expanse_map_shrink_to_fit, "expanse_map_shrink_to_fit"},
 		{&expanse_map_clear, "expanse_map_clear"},
 		{&expanse_map_slot, "expanse_map_slot"},
 		{&expanse_map_ins_slot, "expanse_map_ins_slot"},
@@ -249,6 +259,8 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_strmap_ins_slot, "expanse_strmap_ins_slot"},
 		{&expanse_strmap_len, "expanse_strmap_len"},
 		{&expanse_strmap_mem_used, "expanse_strmap_mem_used"},
+		{&expanse_strmap_mem_held, "expanse_strmap_mem_held"},
+		{&expanse_strmap_shrink_to_fit, "expanse_strmap_shrink_to_fit"},
 		{&expanse_strmap_clear, "expanse_strmap_clear"},
 		{&expanse_strmap_first, "expanse_strmap_first"},
 		{&expanse_strmap_last, "expanse_strmap_last"},

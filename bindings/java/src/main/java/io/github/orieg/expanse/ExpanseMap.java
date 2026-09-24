@@ -354,6 +354,37 @@ public final class ExpanseMap implements AutoCloseable {
     }
 
     /**
+     * Returns the off-heap bytes this map holds from the system allocator:
+     * {@link #memUsed()} plus freed blocks kept for reuse and unused slab space.
+     *
+     * @return bytes of native heap memory held
+     */
+    public long memHeld() {
+        checkOpen();
+        try {
+            return (long) ExpanseNative.MH_expanse_map_mem_held.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Returns the freed blocks this map retains to the system allocator.
+     * Nothing moves and {@link #memUsed()} is unchanged; {@link #clear()}
+     * also returns them.
+     *
+     * @return bytes released
+     */
+    public long shrinkToFit() {
+        checkOpen();
+        try {
+            return (long) ExpanseNative.MH_expanse_map_shrink_to_fit.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
      * Removes all key-value mappings from this map.
      */
     public void clear() {

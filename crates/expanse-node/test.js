@@ -367,6 +367,39 @@ test('SyncExpanseMap memUsed grows with the population', () => {
   assert.ok(syncMap.memUsed() > empty);
 });
 
+test('memHeld / shrinkToFit return the blocks a drained container keeps', () => {
+  const n = 20000n;
+  const map = new ExpanseMap();
+  const set = new ExpanseSet();
+  const strMap = new ExpanseStrMap();
+  for (let k = 0n; k < n; k++) {
+    map.set(k * 7n, k);
+    set.add(k * 7n);
+    strMap.set(`key/${String(k).padStart(8, '0')}`, k);
+  }
+  for (const c of [map, set, strMap]) {
+    assert.strictEqual(typeof c.memHeld(), 'bigint');
+    assert.ok(c.memHeld() >= c.memUsed());
+  }
+  for (let k = 0n; k < n; k++) {
+    assert.ok(map.delete(k * 7n));
+    assert.ok(set.remove(k * 7n));
+    assert.ok(strMap.delete(`key/${String(k).padStart(8, '0')}`));
+  }
+  for (const [c, retains] of [[map, true], [set, true], [strMap, false]]) {
+    const held = c.memHeld();
+    const used = c.memUsed();
+    if (retains) {
+      assert.strictEqual(used, 0n);
+      assert.ok(held > 0n);
+    }
+    assert.strictEqual(c.shrinkToFit(), held - used);
+    assert.strictEqual(c.memHeld(), c.memUsed());
+    assert.strictEqual(c.memUsed(), used);
+    assert.strictEqual(c.shrinkToFit(), 0n);
+  }
+});
+
 test('SyncExpanseMap ordered reads at the ends of the key space', () => {
   const top = 2n ** 64n - 1n;
   const syncMap = new SyncExpanseMap();

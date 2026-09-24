@@ -78,6 +78,20 @@ func (m *StrMap) MemoryUsed() uint64 {
 	return uint64(expanse_strmap_mem_used(m.ptr))
 }
 
+// MemoryHeld returns the heap bytes held from the system allocator:
+// MemoryUsed plus freed blocks kept for reuse and unused slab space.
+func (m *StrMap) MemoryHeld() uint64 {
+	defer runtime.KeepAlive(m)
+	return uint64(expanse_strmap_mem_held(m.ptr))
+}
+
+// ShrinkToFit returns retained freed blocks to the system allocator and
+// returns the bytes released. Nothing moves and MemoryUsed is unchanged.
+func (m *StrMap) ShrinkToFit() uint64 {
+	defer runtime.KeepAlive(m)
+	return uint64(expanse_strmap_shrink_to_fit(m.ptr))
+}
+
 func (m *StrMap) Clear() {
 	defer runtime.KeepAlive(m)
 	expanse_strmap_clear(m.ptr)

@@ -22,6 +22,8 @@ namespace Expanse {
         public function select(int $index): ?int {}
         public function countRange(int $start, int $end): int {}
         public function memUsed(): int {}
+        public function memHeld(): int {}
+        public function shrinkToFit(): int {}
         public function union(Set $other): Set {}
         public function intersect(Set $other): Set {}
         public function diff(Set $other): Set {}
@@ -43,6 +45,8 @@ namespace Expanse {
         public function select(int $index): ?array {}
         public function countRange(int $start, int $end): int {}
         public function memUsed(): int {}
+        public function memHeld(): int {}
+        public function shrinkToFit(): int {}
         public function getIterator(): Traversable {}
         public function offsetExists(mixed $offset): bool {}
         public function offsetGet(mixed $offset): mixed {}
@@ -58,6 +62,8 @@ namespace Expanse {
         public function count(): int {}
         public function clear(): void {}
         public function memUsed(): int {}
+        public function memHeld(): int {}
+        public function shrinkToFit(): int {}
         public function getIterator(): Traversable {}
         public function offsetExists(mixed $offset): bool {}
         public function offsetGet(mixed $offset): mixed {}

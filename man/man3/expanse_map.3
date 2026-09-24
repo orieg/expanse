@@ -3,7 +3,8 @@
 expanse_map_new, expanse_map_free, expanse_map_clear, expanse_map_insert, \
 expanse_map_get, expanse_map_remove, expanse_map_remove_range, \
 expanse_map_for_each_range, \
-expanse_map_len, expanse_map_mem_used, \
+expanse_map_len, expanse_map_mem_used, expanse_map_mem_held, \
+expanse_map_shrink_to_fit, \
 expanse_map_slot, expanse_map_ins_slot, expanse_map_first, \
 expanse_map_last, expanse_map_next_at_or_after, expanse_map_next_after, \
 expanse_map_prev_at_or_before, expanse_map_prev_before, \
@@ -41,6 +42,10 @@ expanse_map_get_batch \
 .BI "uint64_t expanse_map_len(const expanse_map_t *" map ");"
 .br
 .BI "size_t   expanse_map_mem_used(const expanse_map_t *" map ");"
+.br
+.BI "size_t   expanse_map_mem_held(const expanse_map_t *" map ");"
+.br
+.BI "size_t   expanse_map_shrink_to_fit(expanse_map_t *" map ");"
 .PP
 .BI "uint64_t *expanse_map_slot(expanse_map_t *" map ", uint64_t " key ");"
 .br
@@ -103,6 +108,7 @@ Clear Container	expanse_map_clear
 Insert / Get / Delete	expanse_map_insert, expanse_map_get, expanse_map_remove
 Direct Slot Pointer	expanse_map_slot, expanse_map_ins_slot
 Size & Byte Accounting	expanse_map_len, expanse_map_mem_used
+Held Memory	expanse_map_mem_held, expanse_map_shrink_to_fit
 First / Last Entry	expanse_map_first, expanse_map_last
 Forward Navigation	expanse_map_next_after, expanse_map_next_at_or_after
 Reverse Navigation	expanse_map_prev_before, expanse_map_prev_at_or_before
@@ -161,6 +167,20 @@ Frees the map and all internal nodes. Passing NULL is a no-op.
 .TP
 .BI "void expanse_map_clear(expanse_map_t *" map ");"
 Removes all key-value pairs from the map.
+.SS Held Memory
+.TP
+.BI "size_t expanse_map_mem_held(const expanse_map_t *" map ");"
+Returns the heap bytes the map holds from the system allocator:
+\fBexpanse_map_mem_used\fR() plus the freed blocks it keeps for reuse
+and unused slab space. 0 for NULL. \fB64-bit surface only.\fR
+.TP
+.BI "size_t expanse_map_shrink_to_fit(expanse_map_t *" map ");"
+Returns the freed blocks the map retains after removals to the system
+allocator and returns the bytes released (0 for NULL). Afterwards
+\fBexpanse_map_mem_held\fR() is lower by exactly that amount and
+\fBexpanse_map_mem_used\fR() is unchanged. Nothing moves: no key, value
+or value pointer is affected. \fBexpanse_map_clear\fR() and
+\fBexpanse_map_free\fR() also return them. \fB64-bit surface only.\fR
 .SS Mutations & Queries
 .TP
 .BI "bool expanse_map_insert(expanse_map_t *" map ", uint64_t " key ","

@@ -141,6 +141,21 @@ impl ExpanseStrMap {
         self.inner.mem_used()
     }
 
+    // abi-parity: expanse_strmap_mem_held
+    /// Heap bytes the string map holds from the system allocator: `mem_used()`
+    /// plus freed blocks kept for reuse and unused slab space.
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    // abi-parity: expanse_strmap_shrink_to_fit
+    /// Returns the freed blocks the string map retains to the system allocator
+    /// and returns the bytes released. Nothing moves and `mem_used()` is
+    /// unchanged; `clear()` also returns them.
+    pub fn shrink_to_fit(&mut self) -> usize {
+        self.inner.shrink_to_fit()
+    }
+
     // abi-parity: expanse_strmap_first, expanse_strmap_first_ex
     /// Smallest entry `(key, value)` in byte-lexicographical order.
     ///

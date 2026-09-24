@@ -3,7 +3,8 @@
 expanse_strmap_new, expanse_strmap_free, expanse_strmap_clear, \
 expanse_strmap_insert, expanse_strmap_get, expanse_strmap_remove, \
 expanse_strmap_slot, expanse_strmap_ins_slot, expanse_strmap_len, \
-expanse_strmap_mem_used, expanse_strmap_first, expanse_strmap_last, \
+expanse_strmap_mem_used, expanse_strmap_mem_held, \
+expanse_strmap_shrink_to_fit, expanse_strmap_first, expanse_strmap_last, \
 expanse_strmap_next_at_or_after, expanse_strmap_next_after, \
 expanse_strmap_prev_at_or_before, expanse_strmap_prev_before, \
 expanse_strmap_first_ex, expanse_strmap_last_ex, \
@@ -40,6 +41,10 @@ expanse_strmap_prev_at_or_before_ex, expanse_strmap_prev_before_ex \
 .BI "uint64_t expanse_strmap_len(const expanse_strmap_t *" map ");"
 .br
 .BI "size_t   expanse_strmap_mem_used(const expanse_strmap_t *" map ");"
+.br
+.BI "size_t   expanse_strmap_mem_held(const expanse_strmap_t *" map ");"
+.br
+.BI "size_t   expanse_strmap_shrink_to_fit(expanse_strmap_t *" map ");"
 .PP
 .BI "bool expanse_strmap_first(expanse_strmap_t *" map ", char *" key_out ","
 .BI "                          size_t " buf_len ", uint64_t *" value_out ");"
@@ -104,6 +109,20 @@ C strings (\fBconst char *\fR) to 64-bit integer values (\fBuint64_t\fR),
 representing a modernized, clean-room equivalent of JudySL.
 .PP
 Keys are sorted in unsigned byte-lexicographical order.
+.SS Held Memory
+.TP
+.BI "size_t expanse_strmap_mem_held(const expanse_strmap_t *" map ");"
+Returns the heap bytes the map holds from the system allocator:
+\fBexpanse_strmap_mem_used\fR() plus the freed blocks it keeps for reuse
+and unused slab space. 0 for NULL. \fB64-bit surface only.\fR
+.TP
+.BI "size_t expanse_strmap_shrink_to_fit(expanse_strmap_t *" map ");"
+Returns the freed blocks the map retains after removals to the system
+allocator and returns the bytes released (0 for NULL). Afterwards
+\fBexpanse_strmap_mem_held\fR() is lower by exactly that amount and
+\fBexpanse_strmap_mem_used\fR() is unchanged. Nothing moves: no key, value
+or value pointer is affected. \fBexpanse_strmap_clear\fR() and
+\fBexpanse_strmap_free\fR() also return them. \fB64-bit surface only.\fR
 .SH EXAMPLES
 .nf
 #include <stdio.h>

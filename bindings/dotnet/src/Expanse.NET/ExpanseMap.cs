@@ -221,6 +221,30 @@ public sealed class ExpanseMap : IDisposable, IEnumerable<KeyValuePair<ulong, ul
     }
 
     /// <summary>
+    /// Gets the off-heap bytes this map holds from the system allocator:
+    /// <see cref="MemoryUsed"/> plus freed blocks kept for reuse and unused slab space.
+    /// </summary>
+    public nuint MemoryHeld
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return NativeMethods.expanse_map_mem_held(_handle);
+        }
+    }
+
+    /// <summary>
+    /// Returns the freed blocks this map retains to the system allocator and
+    /// returns the bytes released. Nothing moves and <see cref="MemoryUsed"/> is
+    /// unchanged; <see cref="Clear"/> also returns them.
+    /// </summary>
+    public nuint ShrinkToFit()
+    {
+        ThrowIfDisposed();
+        return NativeMethods.expanse_map_shrink_to_fit(_handle);
+    }
+
+    /// <summary>
     /// Removes all entries from this map, freeing off-heap nodes.
     /// </summary>
     public void Clear()

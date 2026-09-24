@@ -42,6 +42,20 @@ func (s *Set) MemoryUsed() uint64 {
 	return uint64(expanse_set_mem_used(s.ptr))
 }
 
+// MemoryHeld returns the heap bytes held from the system allocator:
+// MemoryUsed plus freed blocks kept for reuse and unused slab space.
+func (s *Set) MemoryHeld() uint64 {
+	defer runtime.KeepAlive(s)
+	return uint64(expanse_set_mem_held(s.ptr))
+}
+
+// ShrinkToFit returns retained freed blocks to the system allocator and
+// returns the bytes released. Nothing moves and MemoryUsed is unchanged.
+func (s *Set) ShrinkToFit() uint64 {
+	defer runtime.KeepAlive(s)
+	return uint64(expanse_set_shrink_to_fit(s.ptr))
+}
+
 func (s *Set) Clear() {
 	defer runtime.KeepAlive(s)
 	expanse_set_clear(s.ptr)

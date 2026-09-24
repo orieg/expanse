@@ -100,6 +100,18 @@ export class ExpanseSet {
   memUsed(): bigint;
 
   /**
+   * Returns heap bytes held from the system allocator: memUsed() plus
+   * freed blocks kept for reuse and unused slab space.
+   */
+  memHeld(): bigint;
+
+  /**
+   * Returns retained freed blocks to the system allocator and returns the
+   * bytes released. Nothing moves; memUsed() is unchanged.
+   */
+  shrinkToFit(): bigint;
+
+  /**
    * Returns the smallest element in the set, or null if empty.
    */
   first(): bigint | null;
@@ -195,6 +207,18 @@ export class ExpanseMap {
    * Returns heap bytes used by trie node allocations.
    */
   memUsed(): bigint;
+
+  /**
+   * Returns heap bytes held from the system allocator: memUsed() plus
+   * freed blocks kept for reuse and unused slab space.
+   */
+  memHeld(): bigint;
+
+  /**
+   * Returns retained freed blocks to the system allocator and returns the
+   * bytes released. Nothing moves; memUsed() is unchanged.
+   */
+  shrinkToFit(): bigint;
 
   /**
    * Smallest entry (key, value) in the map, or null if empty.
@@ -297,6 +321,18 @@ export class ExpanseStrMap {
    * Heap bytes used by the prefix trie.
    */
   memUsed(): bigint;
+
+  /**
+   * Returns heap bytes held from the system allocator: memUsed() plus
+   * freed blocks kept for reuse and unused slab space.
+   */
+  memHeld(): bigint;
+
+  /**
+   * Returns retained freed blocks to the system allocator and returns the
+   * bytes released. Nothing moves; memUsed() is unchanged.
+   */
+  shrinkToFit(): bigint;
 
   /**
    * Smallest entry in byte-lexicographical order, or null if empty.

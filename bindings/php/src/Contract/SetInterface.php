@@ -22,4 +22,6 @@ interface SetInterface extends Countable, IteratorAggregate
     public function select(int $index): ?int;
     public function countRange(int $start, int $end): int;
     public function memUsed(): int;
+    public function memHeld(): int;
+    public function shrinkToFit(): int;
 }
