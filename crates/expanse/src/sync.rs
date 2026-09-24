@@ -11642,6 +11642,10 @@ mod miri_tests {
         assert_eq!(set.len(), KEYS - KEYS.div_ceil(3));
     }
 
+    /// Past the root-leaf capacity (31), so the tree holds nodes to free;
+    /// small, because the Tier-1 lane runs close to its time limit.
+    const SHRINK_KEYS: u64 = 64;
+
     /// `shrink_to_fit` frees the collector's freelist blocks while the tree
     /// is still in use (#1135): the drop-time `drain` was the only path that
     /// deallocated them before. Past the grace period (three advances with
@@ -11650,10 +11654,10 @@ mod miri_tests {
     #[test]
     fn map_shrink_to_fit_releases_collector_blocks_under_miri() {
         let map = SyncExpanseMap::new();
-        for i in 0..KEYS {
+        for i in 0..SHRINK_KEYS {
             assert_eq!(map.insert(splitmix64(i), i), None);
         }
-        for i in 0..KEYS / 2 {
+        for i in 0..SHRINK_KEYS / 2 {
             assert_eq!(map.remove(splitmix64(i)), Some(i));
         }
         for _ in 0..3 {
@@ -11665,11 +11669,11 @@ mod miri_tests {
         assert_eq!(map.mem_held(), held - released);
         assert_eq!(map.shrink_to_fit(), 0, "nothing left to release");
         // The tree keeps working: new nodes come from the system allocator.
-        for i in 0..KEYS / 2 {
+        for i in 0..SHRINK_KEYS / 2 {
             assert_eq!(map.insert(splitmix64(i), !i), None);
         }
-        for i in 0..KEYS {
-            let want = if i < KEYS / 2 { !i } else { i };
+        for i in 0..SHRINK_KEYS {
+            let want = if i < SHRINK_KEYS / 2 { !i } else { i };
             assert_eq!(map.get(splitmix64(i)), Some(want));
         }
     }
