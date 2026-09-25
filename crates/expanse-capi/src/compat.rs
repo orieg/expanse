@@ -372,12 +372,13 @@ unsafe fn map_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseMap {
     }
 }
 
-/// JudyL handles are always treated as mutable internally: the C contract
-/// returns writable value slots even from `Pcvoid_t` entry points.
+/// JudyL handles are treated as shared references for read paths: the C contract
+/// returns writable value slots even from `Pcvoid_t` entry points, but read-only
+/// queries must not mutate internal state or create concurrent `&mut` aliasing.
 #[inline(always)]
-unsafe fn map_handle<'a>(parray: *const c_void) -> Option<&'a mut ExpanseMap> {
+unsafe fn map_handle<'a>(parray: *const c_void) -> Option<&'a ExpanseMap> {
     // SAFETY: null or a handle produced by these entry points.
-    unsafe { parray.cast_mut().cast::<ExpanseMap>().as_mut() }
+    unsafe { parray.cast::<ExpanseMap>().as_ref() }
 }
 
 fn slot_ptr(slot: Option<NonNull<u64>>) -> *mut c_void {
@@ -446,8 +447,8 @@ pub unsafe extern "C" fn JudyLGet(
         if parray.is_null() {
             return null_mut();
         }
-        let map = &mut *parray.cast_mut().cast::<ExpanseMap>();
-        match map.get_value_slot(index as u64) {
+        let map = &*parray.cast::<ExpanseMap>();
+        match map.get_slot_ptr(index as u64) {
             Some(p) => p.as_ptr().cast(),
             None => null_mut(),
         }
@@ -492,7 +493,7 @@ pub unsafe extern "C" fn JudyLByCount(
         match map.by_count(nth as u64 - 1) {
             Some((k, _)) => {
                 *pindex = k as Word;
-                slot_ptr(map.get_value_slot(k))
+                slot_ptr(map.get_slot_ptr(k))
             }
             None => null_mut(),
         }
@@ -520,7 +521,7 @@ macro_rules! judyl_nav {
                 match map.$method(*pindex as u64) {
                     Some((k, _)) => {
                         *pindex = k as Word;
-                        slot_ptr(map.get_value_slot(k))
+                        slot_ptr(map.get_slot_ptr(k))
                     }
                     None => null_mut(),
                 }
@@ -689,10 +690,11 @@ unsafe fn strmap_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseStr
     }
 }
 
-unsafe fn strmap_handle<'a>(parray: *const c_void) -> Option<&'a mut ExpanseStrMap> {
+unsafe fn strmap_handle<'a>(parray: *const c_void) -> Option<&'a ExpanseStrMap> {
     // SAFETY: null or a handle produced by these entry points; the C
-    // contract returns writable slots even from Pcvoid_t entry points.
-    unsafe { parray.cast_mut().cast::<ExpanseStrMap>().as_mut() }
+    // contract returns writable slots even from Pcvoid_t entry points,
+    // but read paths do not mutate map state.
+    unsafe { parray.cast::<ExpanseStrMap>().as_ref() }
 }
 
 /// Inserts `index` (value slot zero-initialized if new) and returns a
@@ -764,7 +766,7 @@ pub unsafe extern "C" fn JudySLGet(
             return null_mut();
         }
         strmap_handle(parray).map_or(null_mut(), |m| {
-            slot_ptr(m.get_value_slot(cstr_bytes(index)))
+            slot_ptr(m.get_slot_ptr(cstr_bytes(index)))
         })
     }
 }
@@ -902,15 +904,15 @@ pub unsafe extern "C" fn JudyHSGet(
     length: Word,
 ) -> *mut c_void {
     // SAFETY: forwarded C contract (the C surface hands out writable
-    // slots even from Pcvoid_t entry points).
+    // slots even from Pcvoid_t entry points, without mutating map state).
     unsafe {
-        let Some(map) = parray.cast_mut().cast::<ExpanseBytesMap>().as_mut() else {
+        let Some(map) = parray.cast::<ExpanseBytesMap>().as_ref() else {
             return null_mut();
         };
         let Some(key) = hs_key(index, length) else {
             return null_mut();
         };
-        map.get_value_slot(key)
+        map.get_slot_ptr(key)
             .map_or(null_mut(), |p| p.as_ptr().cast())
     }
 }

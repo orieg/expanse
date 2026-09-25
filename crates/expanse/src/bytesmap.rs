@@ -841,17 +841,36 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     }
 
     /// Returns a **writable pointer to `key`'s value slot**, or `None`
+    /// if absent. Valid until the next structural mutation.
+    ///
+    /// Takes `&self` to allow read-only lookups without requiring a mutable borrow.
+    #[must_use]
+    pub fn get_slot_ptr(&self, key: &[u8]) -> Option<NonNull<u64>> {
+        let bucket = self.bucket_of(key)?;
+        // SAFETY: bucket is a live Box<Bucket> owned by this map.
+        // We obtain the raw entry buffer pointer without creating an intermediate
+        // reference covering the value word (.1), ensuring the returned pointer
+        // carries unrestricted write provenance under Miri's aliasing models.
+        let b_ptr = bucket.as_ptr();
+        let (len, entries) = unsafe { ((*b_ptr).len(), (*b_ptr).as_mut_ptr()) };
+        for i in 0..len {
+            let entry = unsafe { entries.add(i) };
+            // SAFETY: project key without borrowing the value slot
+            let k: &[u8] = unsafe { &(*entry).0 };
+            if k == key {
+                let val_ptr = unsafe { &raw mut (*entry).1 };
+                return NonNull::new(val_ptr);
+            }
+        }
+        None
+    }
+
+    /// Returns a **writable pointer to `key`'s value slot**, or `None`
     /// if absent — the compat `JudyHSGet` convention. Valid until the
     /// next structural mutation.
     #[must_use]
     pub fn get_value_slot(&mut self, key: &[u8]) -> Option<NonNull<u64>> {
-        let mut bucket = self.bucket_of(key)?;
-        // SAFETY: live bucket owned by this map; the slot pointer stays
-        // valid until the bucket vector next mutates.
-        unsafe { bucket.as_mut() }
-            .iter_mut()
-            .find(|(k, _)| &**k == key)
-            .map(|(_, v)| NonNull::from(v))
+        self.get_slot_ptr(key)
     }
 
     fn insert_slot_inner(&mut self, key: &[u8], init_val: u64) -> (NonNull<u64>, Option<u64>) {
@@ -1000,13 +1019,27 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
     /// Visits every entry in unspecified order.
     pub fn for_each(&self, mut f: impl FnMut(&[u8], u64)) {
+        self.try_for_each(|k, v| {
+            f(k, v);
+            true
+        });
+    }
+
+    /// Visits entries in unspecified order until `f` returns `false`.
+    /// Returns the number of entries visited.
+    pub fn try_for_each(&self, mut f: impl FnMut(&[u8], u64) -> bool) -> usize {
+        let mut count = 0;
         for (_, word) in self.map.iter() {
             // SAFETY: every trie value is a live bucket owned by this map.
             let bucket = unsafe { &*(word as *const Bucket) };
             for (k, v) in bucket {
-                f(k, *v);
+                count += 1;
+                if !f(k, *v) {
+                    return count;
+                }
             }
         }
+        count
     }
 
     /// Removes every key and releases all memory.

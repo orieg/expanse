@@ -54,6 +54,12 @@ impl ExpanseBytesMap {
         Ok(self.inner.contains_key(&k))
     }
 
+    // abi-parity: expanse_bytesmap_contains
+    /// Returns True if key exists in the map.
+    pub fn contains(&self, key: &Bound<'_, PyAny>) -> PyResult<bool> {
+        self.__contains__(key)
+    }
+
     /// Returns True if key exists in the map.
     pub fn contains_key(&self, key: &Bound<'_, PyAny>) -> PyResult<bool> {
         self.__contains__(key)
@@ -150,6 +156,26 @@ impl ExpanseBytesMap {
             values.push(v);
         });
         ExpanseBytesMapValueIter { values, index: 0 }
+    }
+
+    // abi-parity: expanse_bytesmap_for_each
+    /// Iterates over all (key, value) pairs with a Python callback.
+    pub fn for_each(&self, callback: &Bound<'_, PyAny>) -> PyResult<()> {
+        let mut err = None;
+        self.inner.for_each(|k, v| {
+            if err.is_none() {
+                let py = callback.py();
+                let py_bytes = PyBytes::new(py, k);
+                if let Err(e) = callback.call1((py_bytes, v)) {
+                    err = Some(e);
+                }
+            }
+        });
+        if let Some(e) = err {
+            Err(e)
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns an iterator of `(key, value)` pairs.

@@ -70,6 +70,17 @@ typedef uint64_t expanse_word_t;
 #define EXPANSE_WIDE_SURFACE 1
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define EXPANSE_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#define EXPANSE_NONNULL(...) __attribute__((nonnull(__VA_ARGS__)))
+#elif defined(_MSC_VER)
+#define EXPANSE_DEPRECATED(msg) __declspec(deprecated(msg))
+#define EXPANSE_NONNULL(...)
+#else
+#define EXPANSE_DEPRECATED(msg)
+#define EXPANSE_NONNULL(...)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -113,6 +124,7 @@ bool expanse_set_prev_before(const expanse_set_t *set, expanse_word_t key, expan
 uint64_t expanse_set_count_below(const expanse_set_t *set, uint64_t key);
 uint64_t expanse_set_count_range(const expanse_set_t *set, uint64_t lo, uint64_t hi);
 bool     expanse_set_by_count(const expanse_set_t *set, uint64_t n, uint64_t *key_out);
+bool     expanse_set_validate(const expanse_set_t *set);
 
 #endif /* EXPANSE_WIDE_SURFACE */
 
@@ -151,8 +163,9 @@ void           expanse_map_free(expanse_map_t *map);
  * returns true when the key is new.
  */
 bool     expanse_map_insert(expanse_map_t *map, expanse_word_t key,
-                            expanse_word_t value, expanse_word_t *old_out);
+                            expanse_word_t value, expanse_word_t *old_out) EXPANSE_NONNULL(1);
 bool     expanse_map_get(const expanse_map_t *map, expanse_word_t key, expanse_word_t *value_out);
+bool     expanse_map_contains(const expanse_map_t *map, expanse_word_t key);
 bool     expanse_map_remove(expanse_map_t *map, expanse_word_t key, expanse_word_t *old_out);
 uint64_t expanse_map_len(const expanse_map_t *map);
 size_t   expanse_map_mem_used(const expanse_map_t *map);
@@ -427,6 +440,8 @@ uint64_t expanse_map_count_below(const expanse_map_t *map, uint64_t key);
 uint64_t expanse_map_count_range(const expanse_map_t *map, uint64_t lo, uint64_t hi);
 bool     expanse_map_by_count(const expanse_map_t *map, uint64_t n,
                               expanse_word_t *key_out, expanse_word_t *value_out);
+bool     expanse_map_validate(const expanse_map_t *map);
+bool     expanse_map_validate_explain(const expanse_map_t *map, char *err_buf, size_t err_len);
 
 #endif /* EXPANSE_WIDE_SURFACE */
 
@@ -450,20 +465,25 @@ size_t   expanse_map_shrink_to_fit(expanse_map_t *map);
 
 typedef struct expanse_bytesmap expanse_bytesmap_t;
 
+/* Callback function type for expanse_bytesmap_for_each. Return false to stop traversal. */
+typedef bool (*expanse_bytesmap_iter_fn)(const void *key, size_t key_len, uint64_t value, void *user_ctx);
+
 expanse_bytesmap_t *expanse_bytesmap_new(void);
 void                expanse_bytesmap_free(expanse_bytesmap_t *map);
 
 bool     expanse_bytesmap_insert(expanse_bytesmap_t *map, const void *key, size_t len,
-                                 uint64_t value, uint64_t *old_out);
+                                 uint64_t value, uint64_t *old_out) EXPANSE_NONNULL(1);
 bool     expanse_bytesmap_get(const expanse_bytesmap_t *map, const void *key, size_t len,
                               uint64_t *value_out);
+bool     expanse_bytesmap_contains(const expanse_bytesmap_t *map, const void *key, size_t len);
 bool     expanse_bytesmap_remove(expanse_bytesmap_t *map, const void *key, size_t len,
                                  uint64_t *old_out);
-uint64_t *expanse_bytesmap_slot(expanse_bytesmap_t *map, const void *key, size_t len);
+uint64_t *expanse_bytesmap_slot(const expanse_bytesmap_t *map, const void *key, size_t len);
 uint64_t *expanse_bytesmap_ins_slot(expanse_bytesmap_t *map, const void *key, size_t len);
 uint64_t expanse_bytesmap_len(const expanse_bytesmap_t *map);
 size_t   expanse_bytesmap_mem_used(const expanse_bytesmap_t *map);
 void     expanse_bytesmap_clear(expanse_bytesmap_t *map);
+size_t   expanse_bytesmap_for_each(const expanse_bytesmap_t *map, expanse_bytesmap_iter_fn callback, void *user_ctx);
 
 /* ---- expanse_strmap_t: ordered C-string -> uint64_t map (cf. JudySL) - */
 
@@ -473,10 +493,11 @@ expanse_strmap_t *expanse_strmap_new(void);
 void              expanse_strmap_free(expanse_strmap_t *map);
 
 bool     expanse_strmap_insert(expanse_strmap_t *map, const char *key, uint64_t value,
-                               uint64_t *old_out);
+                               uint64_t *old_out) EXPANSE_NONNULL(1);
 bool     expanse_strmap_get(const expanse_strmap_t *map, const char *key, uint64_t *value_out);
+bool     expanse_strmap_contains(const expanse_strmap_t *map, const char *key);
 bool     expanse_strmap_remove(expanse_strmap_t *map, const char *key, uint64_t *old_out);
-uint64_t *expanse_strmap_slot(expanse_strmap_t *map, const char *key);
+uint64_t *expanse_strmap_slot(const expanse_strmap_t *map, const char *key);
 uint64_t *expanse_strmap_ins_slot(expanse_strmap_t *map, const char *key);
 uint64_t expanse_strmap_len(const expanse_strmap_t *map);
 size_t   expanse_strmap_mem_used(const expanse_strmap_t *map);
@@ -490,17 +511,23 @@ size_t   expanse_strmap_shrink_to_fit(expanse_strmap_t *map);
  * `key_out` (up to `buf_len` bytes including NUL). Returns false if no key
  * is found or if `buf_len` is insufficient.
  */
-bool expanse_strmap_first(expanse_strmap_t *map, char *key_out, size_t buf_len,
+EXPANSE_DEPRECATED("use expanse_strmap_first_ex to distinguish truncation from absent key")
+bool expanse_strmap_first(const expanse_strmap_t *map, char *key_out, size_t buf_len,
                           uint64_t *value_out);
-bool expanse_strmap_last(expanse_strmap_t *map, char *key_out, size_t buf_len,
+EXPANSE_DEPRECATED("use expanse_strmap_last_ex to distinguish truncation from absent key")
+bool expanse_strmap_last(const expanse_strmap_t *map, char *key_out, size_t buf_len,
                          uint64_t *value_out);
-bool expanse_strmap_next_at_or_after(expanse_strmap_t *map, const char *key,
+EXPANSE_DEPRECATED("use expanse_strmap_next_at_or_after_ex to distinguish truncation from absent key")
+bool expanse_strmap_next_at_or_after(const expanse_strmap_t *map, const char *key,
                                      char *key_out, size_t buf_len, uint64_t *value_out);
-bool expanse_strmap_next_after(expanse_strmap_t *map, const char *key,
+EXPANSE_DEPRECATED("use expanse_strmap_next_after_ex to distinguish truncation from absent key")
+bool expanse_strmap_next_after(const expanse_strmap_t *map, const char *key,
                                char *key_out, size_t buf_len, uint64_t *value_out);
-bool expanse_strmap_prev_at_or_before(expanse_strmap_t *map, const char *key,
+EXPANSE_DEPRECATED("use expanse_strmap_prev_at_or_before_ex to distinguish truncation from absent key")
+bool expanse_strmap_prev_at_or_before(const expanse_strmap_t *map, const char *key,
                                       char *key_out, size_t buf_len, uint64_t *value_out);
-bool expanse_strmap_prev_before(expanse_strmap_t *map, const char *key,
+EXPANSE_DEPRECATED("use expanse_strmap_prev_before_ex to distinguish truncation from absent key")
+bool expanse_strmap_prev_before(const expanse_strmap_t *map, const char *key,
                                 char *key_out, size_t buf_len, uint64_t *value_out);
 
 /*
@@ -525,23 +552,24 @@ typedef enum {
     EXPANSE_STR_NAV_NOT_FOUND = 1,
     EXPANSE_STR_NAV_BUFFER_TOO_SMALL = 2
 } expanse_str_nav_status;
+typedef expanse_str_nav_status expanse_str_nav_status_t;
 
-expanse_str_nav_status expanse_strmap_first_ex(expanse_strmap_t *map,
+expanse_str_nav_status expanse_strmap_first_ex(const expanse_strmap_t *map,
                                                char *key_out, size_t buf_len,
                                                size_t *required_len, uint64_t *value_out);
-expanse_str_nav_status expanse_strmap_last_ex(expanse_strmap_t *map,
+expanse_str_nav_status expanse_strmap_last_ex(const expanse_strmap_t *map,
                                               char *key_out, size_t buf_len,
                                               size_t *required_len, uint64_t *value_out);
-expanse_str_nav_status expanse_strmap_next_at_or_after_ex(expanse_strmap_t *map, const char *key,
+expanse_str_nav_status expanse_strmap_next_at_or_after_ex(const expanse_strmap_t *map, const char *key,
                                                           char *key_out, size_t buf_len,
                                                           size_t *required_len, uint64_t *value_out);
-expanse_str_nav_status expanse_strmap_next_after_ex(expanse_strmap_t *map, const char *key,
+expanse_str_nav_status expanse_strmap_next_after_ex(const expanse_strmap_t *map, const char *key,
                                                     char *key_out, size_t buf_len,
                                                     size_t *required_len, uint64_t *value_out);
-expanse_str_nav_status expanse_strmap_prev_at_or_before_ex(expanse_strmap_t *map, const char *key,
+expanse_str_nav_status expanse_strmap_prev_at_or_before_ex(const expanse_strmap_t *map, const char *key,
                                                            char *key_out, size_t buf_len,
                                                            size_t *required_len, uint64_t *value_out);
-expanse_str_nav_status expanse_strmap_prev_before_ex(expanse_strmap_t *map, const char *key,
+expanse_str_nav_status expanse_strmap_prev_before_ex(const expanse_strmap_t *map, const char *key,
                                                      char *key_out, size_t buf_len,
                                                      size_t *required_len, uint64_t *value_out);
 
@@ -660,13 +688,16 @@ bool expanse_sync_map_reader_prev_before(const expanse_sync_map_reader_t *reader
 /* ---- ExpanseBlobMap: polymorphic large-value map with inline/arena backing ---- */
 
 typedef struct ExpanseBlobMap ExpanseBlobMap;
+typedef struct ExpanseBlobMap expanse_blob_map_t;
 
 /*
  * A zero-copy view of a stored payload.
  *
  * INVALIDATION CONTRACT (same spirit as the JudyL value-slot contract):
  * `ptr` borrows directly into the map's inline slot memory or arena slab and
- * stays valid ONLY until the next structural mutation of that map. Any
+ * stays valid ONLY until the next structural mutation of that map. For
+ * compressed inline payloads, `ptr` is NULL and callers use
+ * `expanse_blob_map_get_into` to decompress into a destination buffer. Any
  * expanse_blob_map_insert / _remove / _clear / _compact / _free invalidates
  * every previously returned ExpanseBlobView.ptr — reading through it afterwards
  * is undefined behavior. Copy the bytes out before mutating if you need them to
@@ -679,6 +710,8 @@ typedef struct {
     uint32_t       hot_meta;
     bool           is_inline;
 } ExpanseBlobView;
+
+typedef ExpanseBlobView expanse_blob_view_t;
 
 /*
  * Scan callbacks. Both must return normally: throwing a C++ exception through
@@ -733,6 +766,7 @@ uint64_t expanse_blob_map_len(const ExpanseBlobMap *map);
 size_t   expanse_blob_map_mem_used(const ExpanseBlobMap *map);
 void     expanse_blob_map_clear(ExpanseBlobMap *map);
 bool     expanse_blob_map_contains_key(const ExpanseBlobMap *map, uint64_t key);
+bool     expanse_blob_map_contains(const ExpanseBlobMap *map, uint64_t key);
 
 #endif /* EXPANSE_WIDE_SURFACE */
 

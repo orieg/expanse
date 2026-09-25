@@ -36,6 +36,7 @@ impl ExpanseBytesMap {
         self.inner.is_empty()
     }
 
+    // abi-parity: expanse_bytesmap_contains
     /// Membership test `has(key)`. Returns `true` if `key` exists in the map.
     #[napi]
     pub fn has(&self, key: BytesInput) -> bool {
@@ -102,6 +103,7 @@ impl ExpanseBytesMap {
         values
     }
 
+    // abi-parity: expanse_bytesmap_for_each
     /// Returns an array of all `{ key, value }` entries.
     #[napi]
     pub fn entries(&self) -> Vec<BytesMapEntry> {

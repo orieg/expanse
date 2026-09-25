@@ -9,7 +9,8 @@ expanse_map_slot, expanse_map_ins_slot, expanse_map_first, \
 expanse_map_last, expanse_map_next_at_or_after, expanse_map_next_after, \
 expanse_map_prev_at_or_before, expanse_map_prev_before, \
 expanse_map_count_below, expanse_map_count_range, expanse_map_by_count, \
-expanse_map_get_batch \
+expanse_map_get_batch, expanse_map_contains, expanse_map_validate, \
+expanse_map_validate_explain \
 \- dynamic ordered 64-bit integer-to-integer map
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -19,12 +20,21 @@ expanse_map_get_batch \
 .BI "void           expanse_map_free(expanse_map_t *" map ");"
 .br
 .BI "void           expanse_map_clear(expanse_map_t *" map ");"
+.br
+.BI "bool     expanse_map_validate(const expanse_map_t *" map ");"
+.br
+.BI "bool     expanse_map_validate_explain(const expanse_map_t *" map ","
+.BI "                                      char *" err_buf ","
+.BI "                                      size_t " err_len ");"
 .PP
 .BI "bool     expanse_map_insert(expanse_map_t *" map ", uint64_t " key ","
 .BI "                            uint64_t " value ", uint64_t *" old_out ");"
 .br
 .BI "bool     expanse_map_get(const expanse_map_t *" map ", uint64_t " key ","
 .BI "                         uint64_t *" value_out ");"
+.br
+.BI "bool     expanse_map_contains(const expanse_map_t *" map ","
+.BI "                              uint64_t " key ");"
 .br
 .BI "bool     expanse_map_remove(expanse_map_t *" map ", uint64_t " key ","
 .BI "                            uint64_t *" old_out ");"
@@ -105,7 +115,10 @@ re-traversal.
 --------------------------------------------------------------------------
 Create / Destroy	expanse_map_new, expanse_map_free
 Clear Container	expanse_map_clear
-Insert / Get / Delete	expanse_map_insert, expanse_map_get, expanse_map_remove
+Validate Invariants	expanse_map_validate,
+			expanse_map_validate_explain
+Insert / Get / Delete	expanse_map_insert, expanse_map_get,
+			expanse_map_contains, expanse_map_remove
 Direct Slot Pointer	expanse_map_slot, expanse_map_ins_slot
 Size & Byte Accounting	expanse_map_len, expanse_map_mem_used
 Held Memory	expanse_map_mem_held, expanse_map_shrink_to_fit
@@ -167,6 +180,15 @@ Frees the map and all internal nodes. Passing NULL is a no-op.
 .TP
 .BI "void expanse_map_clear(expanse_map_t *" map ");"
 Removes all key-value pairs from the map.
+.TP
+.BI "bool expanse_map_validate(const expanse_map_t *" map ");"
+Validates internal structural invariants of the map. Returns \fBtrue\fR
+if all invariants hold, \fBfalse\fR if any corruption is detected.
+.TP
+.BI "bool expanse_map_validate_explain(const expanse_map_t *" map ","
+.BI "                                  char *" err_buf ", size_t " err_len ");"
+Validates internal structural invariants. If invalid and \fIerr_buf\fR is
+non-NULL, writes an explanation into \fIerr_buf\fR.
 .SS Held Memory
 .TP
 .BI "size_t expanse_map_mem_held(const expanse_map_t *" map ");"
@@ -192,6 +214,9 @@ Stores \fIkey\fR -> \fIvalue\fR. If \fIkey\fR existed, writes previous value to
 .BI "                     uint64_t *" value_out ");"
 Looks up \fIkey\fR. On success, writes value to \fIvalue_out\fR (if non-NULL)
 and returns \fBtrue\fR; returns \fBfalse\fR if absent.
+.TP
+.BI "bool expanse_map_contains(const expanse_map_t *" map ", uint64_t " key ");"
+Returns \fBtrue\fR if \fIkey\fR exists in the map, \fBfalse\fR otherwise.
 .TP
 .BI "bool expanse_map_remove(expanse_map_t *" map ", uint64_t " key ","
 .BI "                        uint64_t *" old_out ");"

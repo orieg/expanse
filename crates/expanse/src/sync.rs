@@ -10499,7 +10499,7 @@ impl SyncExpanseStrMap {
         Self::from_map(ExpanseStrMap::new())
     }
 
-    fn from_map(mut src: ExpanseStrMap) -> Self {
+    fn from_map(src: ExpanseStrMap) -> Self {
         let collector = Arc::new(Collector::new());
         let mut map = ExpanseStrMap::new();
         map.defer_to(Arc::clone(&collector));

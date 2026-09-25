@@ -8,7 +8,7 @@ expanse_set_last, expanse_set_next_at_or_after, \
 expanse_set_next_after, expanse_set_prev_at_or_before, \
 expanse_set_prev_before, expanse_set_count_below, \
 expanse_set_count_range, expanse_set_by_count, \
-expanse_set_contains_batch \
+expanse_set_contains_batch, expanse_set_validate \
 \- dynamic ordered 64-bit sparse integer set
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -18,6 +18,8 @@ expanse_set_contains_batch \
 .BI "void           expanse_set_free(expanse_set_t *" set ");"
 .br
 .BI "void           expanse_set_clear(expanse_set_t *" set ");"
+.br
+.BI "bool           expanse_set_validate(const expanse_set_t *" set ");"
 .PP
 .BI "bool     expanse_set_insert(expanse_set_t *" set ", uint64_t " key ");"
 .br
@@ -82,6 +84,7 @@ large sparse populations.
 --------------------------------------------------------------------------
 Create / Destroy	expanse_set_new, expanse_set_free
 Clear Container	expanse_set_clear
+Validate Invariants	expanse_set_validate
 Insert / Remove / Test	expanse_set_insert, expanse_set_remove,
 expanse_set_contains
 Size & Byte Accounting	expanse_set_len, expanse_set_mem_used
@@ -155,6 +158,10 @@ Frees all memory associated with the set. Passing NULL is a no-op.
 .BI "void expanse_set_clear(expanse_set_t *" set ");"
 Removes all keys from the set, resetting it to empty without releasing the
 handle.
+.TP
+.BI "bool expanse_set_validate(const expanse_set_t *" set ");"
+Validates internal structural invariants of the set. Returns \fBtrue\fR
+if all invariants hold, \fBfalse\fR if any corruption is detected.
 .SS Mutations & Queries
 .TP
 .BI "bool expanse_set_insert(expanse_set_t *" set ", uint64_t " key ");"

@@ -260,6 +260,22 @@ pub unsafe extern "C" fn expanse_set_contains(set: *const ExpanseSet, key: CWord
     unsafe { (*set).contains(key) }
 }
 
+/// Defensively validates the internal structural invariants of an `ExpanseSet`.
+/// Returns true if valid (or empty/null); false if corruption is detected.
+///
+/// # Safety
+///
+/// `set` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_set_validate(set: *const ExpanseSet) -> bool {
+    if set.is_null() {
+        return true;
+    }
+    // SAFETY: set is non-null and points to a live ExpanseSet per contract.
+    unsafe { (*set).validate_defensive().is_ok() }
+}
+
 /// Generates a set navigation entry point returning `bool` + `key_out`.
 macro_rules! set_nav {
     ($name:ident, $method:ident, $doc:literal) => {
@@ -499,6 +515,76 @@ pub unsafe extern "C" fn expanse_map_get(
     true
 }
 
+/// Returns true if `key` is present in `map`.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_map_contains(
+    map: *const ExpanseMap,
+    key: CWord,
+) -> bool {
+    // SAFETY: null or live handle per contract.
+    if map.is_null() {
+        return false;
+    }
+    // SAFETY: map is non-null and points to a live ExpanseMap per contract.
+    unsafe { (*map).contains_key(key) }
+}
+
+/// Defensively validates the internal structural invariants of an `ExpanseMap`.
+/// Returns true if valid (or empty/null); false if corruption is detected.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_map_validate(map: *const ExpanseMap) -> bool {
+    if map.is_null() {
+        return true;
+    }
+    // SAFETY: map is non-null and points to a live ExpanseMap per contract.
+    unsafe { (*map).validate_defensive().is_ok() }
+}
+
+/// Defensively validates the internal structural invariants of an `ExpanseMap`.
+/// Returns true if valid (or empty/null).
+/// If corruption is detected and `buf` is non-null with `buf_len > 0`, copies the
+/// diagnostic error string (NUL-terminated) into `buf`.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `buf` must be null or writable for `buf_len` bytes.
+#[cfg(target_pointer_width = "64")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_map_validate_explain(
+    map: *const ExpanseMap,
+    buf: *mut c_char,
+    buf_len: usize,
+) -> bool {
+    if map.is_null() {
+        return true;
+    }
+    // SAFETY: map is non-null and points to a live ExpanseMap per contract.
+    match unsafe { (*map).validate_defensive() } {
+        Ok(()) => true,
+        Err(err) => {
+            if !buf.is_null() && buf_len > 0 {
+                let bytes = err.as_bytes();
+                let copy_len = bytes.len().min(buf_len - 1);
+                // SAFETY: buf is non-null and valid for buf_len bytes per contract.
+                unsafe {
+                    core::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), buf, copy_len);
+                    *buf.add(copy_len) = 0;
+                }
+            }
+            false
+        }
+    }
+}
+
 /// Look up a batch of `count` keys in `keys`. For each key found, writes the value into `out_values`
 /// and true into `out_found` (when non-NULL). Returns the count of found keys.
 ///
@@ -522,6 +608,15 @@ pub unsafe extern "C" fn expanse_map_get_batch(
         || count == 0
         || count > (isize::MAX as usize / core::mem::size_of::<CWord>())
     {
+        if !out_values.is_null()
+            && count > 0
+            && count <= (isize::MAX as usize / core::mem::size_of::<CWord>())
+        {
+            // SAFETY: out_values is non-null and valid for count elements per contract.
+            unsafe {
+                core::ptr::write_bytes(out_values, 0, count);
+            }
+        }
         if !out_found.is_null()
             && count > 0
             && count <= (isize::MAX as usize / core::mem::size_of::<bool>())
@@ -666,8 +761,8 @@ pub unsafe extern "C" fn expanse_map_for_each_range(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_slot(map: *mut ExpanseMap, key: CWord) -> *mut CWord {
     // SAFETY: null or live handle per contract.
-    unsafe { map.as_mut() }
-        .and_then(|m| m.get_value_slot(key))
+    unsafe { map.as_ref() }
+        .and_then(|m| m.get_slot_ptr(key))
         .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
 }
 

@@ -60,6 +60,12 @@ impl ExpanseBlobMap {
         self.inner.contains_key(key)
     }
 
+    // abi-parity: expanse_blob_map_contains
+    /// Returns True if key exists in the map.
+    pub fn contains(&self, key: u64) -> bool {
+        self.inner.contains_key(key)
+    }
+
     // abi-parity: expanse_blob_map_contains_key
     /// Returns True if key exists in the map.
     pub fn contains_key(&self, key: u64) -> bool {

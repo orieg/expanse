@@ -42,7 +42,7 @@ impl ExpanseBlobMap {
         self.inner.is_empty()
     }
 
-    // abi-parity: expanse_blob_map_contains_key
+    // abi-parity: expanse_blob_map_contains_key, expanse_blob_map_contains
     /// Membership test `has(key)`. Returns `true` if `key` exists in the map.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {

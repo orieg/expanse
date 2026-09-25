@@ -122,6 +122,7 @@ void test_set() {
     s3.clear();
     assert(s3.empty());
     assert(s3.size() == 0);
+    assert(s3.validate());
 
     std::cout << "[PASS] test_set" << std::endl;
 }
@@ -221,6 +222,10 @@ void test_map() {
     assert(status_map.get(42) == Status::Active);
     status_map[42] = Status::Suspended;
     assert(status_map.get(42) == Status::Suspended);
+
+    assert(m2.validate());
+    char err[256] = {0};
+    assert(m2.validate_explain(err, sizeof(err)));
 
     std::cout << "[PASS] test_map" << std::endl;
 }
@@ -412,6 +417,35 @@ void test_bytes_map() {
     bm2.clear();
     assert(bm2.empty());
 
+    // Test for_each
+    bm2.insert(std::string_view("alpha"), 10);
+    bm2.insert(std::string_view("beta"), 20);
+    std::vector<std::string> collected_keys;
+    bm2.for_each([&collected_keys](std::span<const std::byte> k, uint64_t) {
+        std::string s(reinterpret_cast<const char*>(k.data()), k.size());
+        collected_keys.push_back(s);
+        return true;
+    });
+    assert(collected_keys.size() == 2);
+
+    // Early termination on false
+    size_t count = 0;
+    bm2.for_each([&count](std::span<const std::byte>, uint64_t) {
+        count++;
+        return false;
+    });
+    assert(count == 1);
+
+    // Exception rethrow
+    try {
+        bm2.for_each([](std::span<const std::byte>, uint64_t) -> bool {
+            throw std::runtime_error("for_each exception");
+        });
+        assert(false);
+    } catch (const std::runtime_error& e) {
+        assert(std::string_view(e.what()) == "for_each exception");
+    }
+
     std::cout << "[PASS] test_bytes_map" << std::endl;
 }
 
@@ -528,6 +562,42 @@ void test_blob_map() {
 
     bm2.clear();
     assert(bm2.empty());
+
+    // Test compressed inline payload: 14-byte numeric string compresses to <= 8 bytes inline
+    std::string_view ts_str = "20260829125825";
+    assert(bm2.insert(100, ts_str));
+    // Zero-copy get() returns nullopt for compressed inline as view.ptr == nullptr
+    auto v100 = bm2.get(100);
+    assert(!v100.has_value());
+    // get_into successfully decompresses into caller-supplied buffer
+    uint8_t buf[32];
+    size_t out_len = 0;
+    uint32_t out_meta = 0;
+    assert(bm2.get_into(100, std::span<uint8_t>(buf, sizeof(buf)), &out_len, &out_meta));
+    assert(out_len == 14);
+    assert(std::string_view(reinterpret_cast<const char*>(buf), out_len) == ts_str);
+
+    // Regular uncompressed payload supports zero-copy blob_view copy and move
+    std::string_view uncompressed_str = "hello_uncompressed";
+    assert(bm2.insert(101, uncompressed_str));
+    auto v101 = bm2.get(101);
+    assert(v101.has_value());
+    assert(v101->as_string_view() == uncompressed_str);
+    auto v101_copy = *v101;
+    assert(v101_copy.as_string_view() == uncompressed_str);
+    auto v101_move = std::move(v101_copy);
+    assert(v101_move.as_string_view() == uncompressed_str);
+
+    // Test scan_filtered exception propagation
+    try {
+        bm2.scan_filtered(1, 200, [](uint64_t, uint32_t) { return true; },
+            [](uint64_t, expanse::blob_view) -> bool {
+                throw std::runtime_error("scan exception");
+            });
+        assert(false);
+    } catch (const std::runtime_error& e) {
+        assert(std::string_view(e.what()) == "scan exception");
+    }
 
     std::cout << "[PASS] test_blob_map" << std::endl;
 }

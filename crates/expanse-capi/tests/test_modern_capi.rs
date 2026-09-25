@@ -1033,3 +1033,118 @@ fn test_mem_held_and_shrink_to_fit() {
         expanse_strmap_free(sm);
     }
 }
+
+#[test]
+fn test_expert_review_new_wide_surface_symbols() {
+    use expanse::modern::{
+        expanse_set_new, expanse_set_free, expanse_set_insert, expanse_set_validate,
+        expanse_map_new, expanse_map_free, expanse_map_insert, expanse_map_contains,
+        expanse_map_validate, expanse_map_validate_explain,
+        expanse_bytesmap_new, expanse_bytesmap_free, expanse_bytesmap_insert,
+        expanse_bytesmap_contains, expanse_bytesmap_for_each,
+        expanse_strmap_new, expanse_strmap_free, expanse_strmap_insert,
+        expanse_strmap_contains,
+    };
+    use expanse::blobmap::{
+        expanse_blob_map_new, expanse_blob_map_free, expanse_blob_map_insert,
+        expanse_blob_map_contains,
+    };
+
+    unsafe {
+        // 1. expanse_set_validate
+        assert!(expanse_set_validate(core::ptr::null()));
+        let set = expanse_set_new();
+        assert!(expanse_set_validate(set));
+        expanse_set_insert(set, 100);
+        assert!(expanse_set_validate(set));
+        expanse_set_free(set);
+
+        // 2. expanse_map_contains, expanse_map_validate, expanse_map_validate_explain
+        assert!(!expanse_map_contains(core::ptr::null(), 42));
+        assert!(expanse_map_validate(core::ptr::null()));
+        assert!(expanse_map_validate_explain(core::ptr::null(), core::ptr::null_mut(), 0));
+
+        let map = expanse_map_new();
+        assert!(expanse_map_validate(map));
+        let mut buf = [0u8; 64];
+        assert!(expanse_map_validate_explain(map, buf.as_mut_ptr().cast(), buf.len()));
+        assert_eq!(CStr::from_ptr(buf.as_ptr().cast()).to_str().unwrap(), "");
+
+        assert!(!expanse_map_contains(map, 42));
+        expanse_map_insert(map, 42, 999, core::ptr::null_mut());
+        assert!(expanse_map_contains(map, 42));
+        assert!(!expanse_map_contains(map, 43));
+        assert!(expanse_map_validate(map));
+        expanse_map_free(map);
+
+        // 3. expanse_bytesmap_contains, expanse_bytesmap_for_each
+        assert!(!expanse_bytesmap_contains(core::ptr::null(), core::ptr::null(), 0));
+        assert_eq!(expanse_bytesmap_for_each(core::ptr::null(), None, core::ptr::null_mut()), 0);
+
+        let bmap = expanse_bytesmap_new();
+        let k1 = b"apple";
+        let k2 = b"banana";
+        let k3 = b"cherry";
+        expanse_bytesmap_insert(bmap, k1.as_ptr().cast(), k1.len(), 10, core::ptr::null_mut());
+        expanse_bytesmap_insert(bmap, k2.as_ptr().cast(), k2.len(), 20, core::ptr::null_mut());
+        expanse_bytesmap_insert(bmap, k3.as_ptr().cast(), k3.len(), 30, core::ptr::null_mut());
+
+        assert!(expanse_bytesmap_contains(bmap, k1.as_ptr().cast(), k1.len()));
+        assert!(expanse_bytesmap_contains(bmap, k2.as_ptr().cast(), k2.len()));
+        assert!(expanse_bytesmap_contains(bmap, k3.as_ptr().cast(), k3.len()));
+        assert!(!expanse_bytesmap_contains(bmap, b"orange".as_ptr().cast(), 6));
+
+        // Test for_each visiting all entries
+        unsafe extern "C" fn count_cb(
+            _key: *const c_void,
+            _len: usize,
+            _val: u64,
+            user_data: *mut c_void,
+        ) -> bool {
+            let count = unsafe { &mut *user_data.cast::<usize>() };
+            *count += 1;
+            true
+        }
+        let mut count = 0usize;
+        let visited = expanse_bytesmap_for_each(bmap, Some(count_cb), (&raw mut count).cast());
+        assert_eq!(visited, 3);
+        assert_eq!(count, 3);
+
+        // Test for_each early break
+        unsafe extern "C" fn break_cb(
+            _key: *const c_void,
+            _len: usize,
+            _val: u64,
+            user_data: *mut c_void,
+        ) -> bool {
+            let count = unsafe { &mut *user_data.cast::<usize>() };
+            *count += 1;
+            false // stop immediately after 1
+        }
+        let mut break_count = 0usize;
+        let break_visited = expanse_bytesmap_for_each(bmap, Some(break_cb), (&raw mut break_count).cast());
+        assert_eq!(break_visited, 1);
+        assert_eq!(break_count, 1);
+
+        expanse_bytesmap_free(bmap);
+
+        // 4. expanse_strmap_contains
+        assert!(!expanse_strmap_contains(core::ptr::null(), core::ptr::null()));
+        let smap = expanse_strmap_new();
+        let s_key = c"greeting";
+        assert!(!expanse_strmap_contains(smap, s_key.as_ptr()));
+        expanse_strmap_insert(smap, s_key.as_ptr(), 1234, core::ptr::null_mut());
+        assert!(expanse_strmap_contains(smap, s_key.as_ptr()));
+        assert!(!expanse_strmap_contains(smap, c"farewell".as_ptr()));
+        expanse_strmap_free(smap);
+
+        // 5. expanse_blob_map_contains
+        assert!(!expanse_blob_map_contains(core::ptr::null(), 77));
+        let blob_map = expanse_blob_map_new(0);
+        assert!(!expanse_blob_map_contains(blob_map, 77));
+        expanse_blob_map_insert(blob_map, 77, b"payload".as_ptr().cast(), 7, 0);
+        assert!(expanse_blob_map_contains(blob_map, 77));
+        assert!(!expanse_blob_map_contains(blob_map, 78));
+        expanse_blob_map_free(blob_map);
+    }
+}

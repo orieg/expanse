@@ -782,13 +782,13 @@ impl StrNode {
     /// # Safety
     ///
     /// `v` must be a continuation child pointer produced by `Box::into_raw`.
-    unsafe fn child_mut<'a>(v: u64) -> &'a mut StrNode {
+    unsafe fn child<'a>(v: u64) -> &'a StrNode {
         // SAFETY: per contract, `v` is a live Box<StrNode> pointer.
-        unsafe { &mut *unpack_child(v) }
+        unsafe { &*unpack_child(v) }
     }
 
     /// Largest entry in this subtree; appends its key bytes to `out`.
-    fn max_entry(&mut self, out: &mut Vec<u8>) -> NonNull<u64> {
+    fn max_entry(&self, out: &mut Vec<u8>) -> NonNull<u64> {
         self.extreme_entry(out, false)
     }
 
@@ -799,13 +799,12 @@ impl StrNode {
     /// down the deepest chain in the tree by construction. The two
     /// directions differ only in which end of each node they take, so
     /// they share a walk.
-    fn extreme_entry(&mut self, out: &mut Vec<u8>, min: bool) -> NonNull<u64> {
-        let mut node: *mut StrNode = &raw mut *self;
+    fn extreme_entry(&self, out: &mut Vec<u8>, min: bool) -> NonNull<u64> {
+        let mut node: *const StrNode = self;
         loop {
             // SAFETY: `self` on the first turn, then continuation values,
-            // which are live child nodes; the descent never revisits one,
-            // so the borrow is unique.
-            let n = unsafe { &mut *node };
+            // which are live child nodes; the descent never revisits one.
+            let n = unsafe { &*node };
             let (chunk, v) = if min {
                 n.map.first().expect("non-empty node")
             } else {
@@ -813,7 +812,7 @@ impl StrNode {
             };
             if is_terminal(chunk) {
                 push_terminal(out, chunk);
-                return n.map.value_slot_pathless(chunk).expect("present chunk");
+                return n.map.get_slot_ptr(chunk).expect("present chunk");
             }
             out.extend_from_slice(&chunk.to_be_bytes());
             if is_suffix_ptr(v) {
@@ -835,7 +834,7 @@ impl StrNode {
     /// cursor means this node had nothing in the requested direction,
     /// which is what makes the caller backtrack.
     fn take_from(
-        &mut self,
+        &self,
         cursor: Option<(u64, u64)>,
         out: &mut Vec<u8>,
         min: bool,
@@ -843,7 +842,7 @@ impl StrNode {
         let (chunk, v) = cursor?;
         if is_terminal(chunk) {
             push_terminal(out, chunk);
-            Some(self.map.value_slot_pathless(chunk).expect("present chunk"))
+            Some(self.map.get_slot_ptr(chunk).expect("present chunk"))
         } else if is_suffix_ptr(v) {
             let sfx = unpack_suffix(v);
             out.extend_from_slice(&chunk.to_be_bytes());
@@ -854,7 +853,7 @@ impl StrNode {
         } else {
             out.extend_from_slice(&chunk.to_be_bytes());
             // SAFETY: continuation values are child pointers.
-            Some(unsafe { Self::child_mut(v) }.extreme_entry(out, min))
+            Some(unsafe { Self::child(v) }.extreme_entry(out, min))
         }
     }
 
@@ -866,20 +865,19 @@ impl StrNode {
     /// the stack has to carry both the node to resume at and the `out`
     /// length to truncate back to.
     fn next_at_or_after(
-        &mut self,
+        &self,
         key: &[u8],
         off: usize,
         out: &mut Vec<u8>,
     ) -> Option<NonNull<u64>> {
         // (node to resume at, its target chunk, `out` length on entry)
-        let mut stack: Vec<(*mut StrNode, u64, usize)> = Vec::new();
-        let mut node: *mut StrNode = &raw mut *self;
+        let mut stack: Vec<(*const StrNode, u64, usize)> = Vec::new();
+        let mut node: *const StrNode = self;
         let mut off = off;
 
         loop {
-            // SAFETY: `self`, then continuation values — all live nodes,
-            // uniquely borrowed because the descent never revisits one.
-            let n = unsafe { &mut *node };
+            // SAFETY: `self`, then continuation values — all live nodes.
+            let n = unsafe { &*node };
             let (target, _) = chunk_at(key, off);
             let cursor = n.map.next_at_or_after(target);
             if let Some((chunk, v)) = cursor
@@ -923,9 +921,8 @@ impl StrNode {
             loop {
                 let (parent, parent_target, mark) = stack.pop()?;
                 out.truncate(mark);
-                // SAFETY: recorded during the descent; still live, and
-                // the child borrow taken from it has ended.
-                let p = unsafe { &mut *parent };
+                // SAFETY: recorded during the descent; still live.
+                let p = unsafe { &*parent };
                 let sibling = p.map.next_after(parent_target);
                 if let Some(slot) = p.take_from(sibling, out, true) {
                     return Some(slot);
@@ -940,19 +937,19 @@ impl StrNode {
     /// The mirror of `next_at_or_after`, with the same explicit
     /// backtracking and the same reason for it.
     fn prev_at_or_before(
-        &mut self,
+        &self,
         key: &[u8],
         off: usize,
         exclusive: bool,
         out: &mut Vec<u8>,
     ) -> Option<NonNull<u64>> {
-        let mut stack: Vec<(*mut StrNode, u64, usize)> = Vec::new();
-        let mut node: *mut StrNode = &raw mut *self;
+        let mut stack: Vec<(*const StrNode, u64, usize)> = Vec::new();
+        let mut node: *const StrNode = self;
         let mut off = off;
 
         loop {
             // SAFETY: as in `next_at_or_after`.
-            let n = unsafe { &mut *node };
+            let n = unsafe { &*node };
             let (target, target_terminal) = chunk_at(key, off);
             // Exact continuation first: deeper entries share this chunk
             // and all sort above anything below it in this node.
@@ -1005,7 +1002,7 @@ impl StrNode {
                 let (parent, parent_target, mark) = stack.pop()?;
                 out.truncate(mark);
                 // SAFETY: as in `next_at_or_after`.
-                let p = unsafe { &mut *parent };
+                let p = unsafe { &*parent };
                 // The descent branch is only taken for a non-terminal
                 // target, whose own subtree was just exhausted — so the
                 // resume point is strictly below it, never at it.
@@ -2156,13 +2153,20 @@ impl ExpanseStrMap {
     /// `JudySLGet`), or `None` if absent.
     #[must_use]
     pub fn get_value_slot(&mut self, key: &NulFreeStr) -> Option<NonNull<u64>> {
+        self.get_slot_ptr(key)
+    }
+
+    /// Returns a writable pointer to `key`'s value slot (compat:
+    /// `JudySLGet`), or `None` if absent. Takes shared `&self`.
+    #[must_use]
+    pub fn get_slot_ptr(&self, key: &NulFreeStr) -> Option<NonNull<u64>> {
         let key = key.as_bytes();
-        let mut node = self.root.as_deref_mut()?;
+        let mut node = self.root.as_deref()?;
         let mut off = 0;
         loop {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
-                return node.map.value_slot_pathless(chunk);
+                return node.map.get_slot_ptr(chunk);
             }
             let v = node.map.get(chunk)?;
             if is_suffix_ptr(v) {
@@ -2180,9 +2184,16 @@ impl ExpanseStrMap {
                 return None;
             }
             // SAFETY: continuation values are child pointers.
-            node = unsafe { StrNode::child_mut(v) };
+            node = unsafe { StrNode::child(v) };
             off += CHUNK;
         }
+    }
+
+    /// Returns `true` if `key` is present in the map.
+    #[inline(always)]
+    #[must_use]
+    pub fn contains_key(&self, key: &NulFreeStr) -> bool {
+        self.get(key).is_some()
     }
 
     /// Removes `key`; returns its value if it was present.
@@ -2297,9 +2308,9 @@ impl ExpanseStrMap {
 
     /// Smallest entry with key `>= key`: `(key bytes, value slot)`
     /// (compat: `JudySLFirst`).
-    pub fn next_at_or_after(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
+    pub fn next_at_or_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
         let key = key.as_bytes();
-        let root = self.root.as_deref_mut()?;
+        let root = self.root.as_deref()?;
         let mut out = Vec::with_capacity(key.len() + CHUNK);
         let slot = root.next_at_or_after(key, 0, &mut out)?;
         Some((out, slot))
@@ -2307,7 +2318,7 @@ impl ExpanseStrMap {
 
     /// Smallest entry with key `> key` (compat: `JudySLNext`). The
     /// immediate successor of a NUL-free string is itself + `0x01`.
-    pub fn next_after(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
+    pub fn next_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
         let mut succ = Vec::with_capacity(key.len() + 1);
         succ.extend_from_slice(key.as_bytes());
         succ.push(1);
@@ -2318,32 +2329,32 @@ impl ExpanseStrMap {
     }
 
     /// Largest entry with key `<= key` (compat: `JudySLLast`).
-    pub fn prev_at_or_before(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
+    pub fn prev_at_or_before(&self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
         let key = key.as_bytes();
-        let root = self.root.as_deref_mut()?;
+        let root = self.root.as_deref()?;
         let mut out = Vec::with_capacity(key.len() + CHUNK);
         let slot = root.prev_at_or_before(key, 0, false, &mut out)?;
         Some((out, slot))
     }
 
     /// Largest entry with key `< key` (compat: `JudySLPrev`).
-    pub fn prev_before(&mut self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
+    pub fn prev_before(&self, key: &NulFreeStr) -> Option<(Vec<u8>, NonNull<u64>)> {
         let key = key.as_bytes();
-        let root = self.root.as_deref_mut()?;
+        let root = self.root.as_deref()?;
         let mut out = Vec::with_capacity(key.len() + CHUNK);
         let slot = root.prev_at_or_before(key, 0, true, &mut out)?;
         Some((out, slot))
     }
 
     /// Smallest entry.
-    pub fn first(&mut self) -> Option<(Vec<u8>, NonNull<u64>)> {
+    pub fn first(&self) -> Option<(Vec<u8>, NonNull<u64>)> {
         // SAFETY: the empty key contains no NUL.
         self.next_at_or_after(unsafe { NulFreeStr::new_unchecked(&[]) })
     }
 
     /// Largest entry.
-    pub fn last(&mut self) -> Option<(Vec<u8>, NonNull<u64>)> {
-        let root = self.root.as_deref_mut()?;
+    pub fn last(&self) -> Option<(Vec<u8>, NonNull<u64>)> {
+        let root = self.root.as_deref()?;
         let mut out = Vec::new();
         let slot = root.max_entry(&mut out);
         Some((out, slot))

@@ -122,12 +122,14 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_set_count_range": "set.rs",
     "expanse_set_by_count": "set.rs",
     "expanse_set_contains_batch": "set.rs",
+    "expanse_set_validate": "set.rs",
 
-    # Map (22 functions)
+    # Map (25 functions)
     "expanse_map_new": "map.rs",
     "expanse_map_free": "map.rs",
     "expanse_map_insert": "map.rs",
     "expanse_map_get": "map.rs",
+    "expanse_map_contains": "map.rs",
     "expanse_map_get_batch": "map.rs",
     "expanse_map_remove": "map.rs",
     "expanse_map_len": "map.rs",
@@ -135,6 +137,8 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_map_mem_held": "map.rs",
     "expanse_map_shrink_to_fit": "map.rs",
     "expanse_map_clear": "map.rs",
+    "expanse_map_validate": "map.rs",
+    "expanse_map_validate_explain": "map.rs",
     "expanse_map_slot": "map.rs",
     "expanse_map_ins_slot": "map.rs",
     "expanse_map_first": "map.rs",
@@ -147,23 +151,26 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_map_count_range": "map.rs",
     "expanse_map_by_count": "map.rs",
 
-    # BytesMap (10 functions)
+    # BytesMap (12 functions)
     "expanse_bytesmap_new": "bytesmap.rs",
     "expanse_bytesmap_free": "bytesmap.rs",
     "expanse_bytesmap_insert": "bytesmap.rs",
     "expanse_bytesmap_get": "bytesmap.rs",
+    "expanse_bytesmap_contains": "bytesmap.rs",
     "expanse_bytesmap_remove": "bytesmap.rs",
     "expanse_bytesmap_slot": "bytesmap.rs",
     "expanse_bytesmap_ins_slot": "bytesmap.rs",
     "expanse_bytesmap_len": "bytesmap.rs",
     "expanse_bytesmap_mem_used": "bytesmap.rs",
     "expanse_bytesmap_clear": "bytesmap.rs",
+    "expanse_bytesmap_for_each": "bytesmap.rs",
 
-    # StrMap (18 functions)
+    # StrMap (19 functions)
     "expanse_strmap_new": "strmap.rs",
     "expanse_strmap_free": "strmap.rs",
     "expanse_strmap_insert": "strmap.rs",
     "expanse_strmap_get": "strmap.rs",
+    "expanse_strmap_contains": "strmap.rs",
     "expanse_strmap_remove": "strmap.rs",
     "expanse_strmap_slot": "strmap.rs",
     "expanse_strmap_ins_slot": "strmap.rs",
@@ -220,7 +227,7 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_sync_map_reader_prev_at_or_before": "sync.rs",
     "expanse_sync_map_reader_prev_before": "sync.rs",
 
-    # BlobMap (11 functions)
+    # BlobMap (12 functions)
     "expanse_blob_map_new": "blobmap.rs",
     "expanse_blob_map_free": "blobmap.rs",
     "expanse_blob_map_insert": "blobmap.rs",
@@ -233,6 +240,7 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_blob_map_mem_used": "blobmap.rs",
     "expanse_blob_map_clear": "blobmap.rs",
     "expanse_blob_map_contains_key": "blobmap.rs",
+    "expanse_blob_map_contains": "blobmap.rs",
 }
 
 # Node.js N-API: C ABI symbol -> file under crates/expanse-node/src carrying its marker.
@@ -261,12 +269,14 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_set_count_range": "set.rs",
     "expanse_set_by_count": "set.rs",
     "expanse_set_contains_batch": "set.rs",
+    "expanse_set_validate": "set.rs",
 
-    # Map (22 functions)
+    # Map (25 functions)
     "expanse_map_new": "map.rs",
     "expanse_map_free": "map.rs",
     "expanse_map_insert": "map.rs",
     "expanse_map_get": "map.rs",
+    "expanse_map_contains": "map.rs",
     "expanse_map_get_batch": "map.rs",
     "expanse_map_remove": "map.rs",
     "expanse_map_len": "map.rs",
@@ -274,6 +284,8 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_map_mem_held": "map.rs",
     "expanse_map_shrink_to_fit": "map.rs",
     "expanse_map_clear": "map.rs",
+    "expanse_map_validate": "map.rs",
+    "expanse_map_validate_explain": "map.rs",
     "expanse_map_slot": "map.rs",
     "expanse_map_ins_slot": "map.rs",
     "expanse_map_first": "map.rs",
@@ -286,23 +298,26 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_map_count_range": "map.rs",
     "expanse_map_by_count": "map.rs",
 
-    # BytesMap (10 functions)
+    # BytesMap (12 functions)
     "expanse_bytesmap_new": "bytesmap.rs",
     "expanse_bytesmap_free": "bytesmap.rs",
     "expanse_bytesmap_insert": "bytesmap.rs",
     "expanse_bytesmap_get": "bytesmap.rs",
+    "expanse_bytesmap_contains": "bytesmap.rs",
     "expanse_bytesmap_remove": "bytesmap.rs",
     "expanse_bytesmap_slot": "bytesmap.rs",
     "expanse_bytesmap_ins_slot": "bytesmap.rs",
     "expanse_bytesmap_len": "bytesmap.rs",
     "expanse_bytesmap_mem_used": "bytesmap.rs",
     "expanse_bytesmap_clear": "bytesmap.rs",
+    "expanse_bytesmap_for_each": "bytesmap.rs",
 
-    # StrMap (18 functions)
+    # StrMap (19 functions)
     "expanse_strmap_new": "strmap.rs",
     "expanse_strmap_free": "strmap.rs",
     "expanse_strmap_insert": "strmap.rs",
     "expanse_strmap_get": "strmap.rs",
+    "expanse_strmap_contains": "strmap.rs",
     "expanse_strmap_remove": "strmap.rs",
     "expanse_strmap_slot": "strmap.rs",
     "expanse_strmap_ins_slot": "strmap.rs",
@@ -359,7 +374,7 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_sync_map_reader_prev_at_or_before": "sync.rs",
     "expanse_sync_map_reader_prev_before": "sync.rs",
 
-    # BlobMap (11 functions)
+    # BlobMap (12 functions)
     "expanse_blob_map_new": "blobmap.rs",
     "expanse_blob_map_free": "blobmap.rs",
     "expanse_blob_map_insert": "blobmap.rs",
@@ -372,6 +387,7 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_blob_map_mem_used": "blobmap.rs",
     "expanse_blob_map_clear": "blobmap.rs",
     "expanse_blob_map_contains_key": "blobmap.rs",
+    "expanse_blob_map_contains": "blobmap.rs",
 }
 
 
@@ -436,11 +452,14 @@ def parse_c_header(header_path: Path) -> List[CSymbol]:
             sig = sig_buffer[: sig_buffer.index(";") + 1].strip()
             sig_buffer = ""
 
+            clean_sig = re.sub(r'EXPANSE_DEPRECATED\([^)]*\)\s*', '', sig)
+            clean_sig = re.sub(r'\s*EXPANSE_NONNULL\([^)]*\)', '', clean_sig)
+
             # Check if this is a function declaration:
             # (return_type) (expanse_...) (args)
             match = re.match(
                 r"^((?:const\s+)?[\w\s\*]+?)\s*\b(expanse_[a-z0-9_]+)\s*\((.*)\)\s*;$",
-                sig,
+                clean_sig,
             )
             if match:
                 ret_type = match.group(1).strip()
