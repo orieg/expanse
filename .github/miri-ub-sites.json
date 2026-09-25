@@ -190,6 +190,24 @@
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
+      "test": "map_fold_reader_counter",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; the fold's pop0 updates are plain read-modify-writes (node.rs Edge::set_pop0_at) made while optimistic readers run, so this is an observation at this budget, not evidence the class is absent (#1144)"
+    },
+    {
+      "test": "map_fold_reader_counter",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_fold_reader_counter",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
       "test": "set_tree_two_writers",
       "check": "race",
       "expect": "ub",
