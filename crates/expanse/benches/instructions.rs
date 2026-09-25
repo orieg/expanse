@@ -28,9 +28,9 @@
 //! | `group` | 2 |
 //! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083) |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000) |
 //! | `hit_rate` | 100% |
-//! | `miss_gen_method` | None |
+//! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
 //! | `measured_region` | Clean (setup in setup) |
 //! | `arm_symmetry` | Internal trie paths |
@@ -122,7 +122,36 @@ fn keys(dist: &str) -> Vec<u64> {
                 }
             }
         }
+        // Uniform keys confined to one top byte (#1144): every key shares
+        // `digit(key, 8)`, so the concurrent map's per-top-digit dirty mask
+        // has one bit for the whole population.
+        "one_top_byte" => out.extend((0..POP).map(|_| ONE_TOP_BYTE | (rng.next() >> 8))),
         other => panic!("unknown distribution {other}"),
+    }
+    out
+}
+
+/// The top byte every `one_top_byte` key carries.
+const ONE_TOP_BYTE: u64 = 0xA5 << 56;
+
+/// `POP` keys absent from `keys(dist)`, drawn from the same distribution
+/// (§8.6 miss shape): `sequential` continues past the population, the others
+/// draw from a second seed and reject present keys. A write of one of these
+/// lands where a write of a new population key would.
+fn fresh_keys(dist: &str) -> Vec<u64> {
+    let present: std::collections::HashSet<u64> = keys(dist).into_iter().collect();
+    let mut rng = XorShift(0x5EED_F2E5_0000_0002);
+    let mut out = Vec::with_capacity(POP);
+    while out.len() < POP {
+        let k = match dist {
+            "sequential" => (POP + out.len()) as u64,
+            "random" => rng.next(),
+            "one_top_byte" => ONE_TOP_BYTE | (rng.next() >> 8),
+            other => panic!("no fresh-key generator for {other}"),
+        };
+        if !present.contains(&k) {
+            out.push(k);
+        }
     }
     out
 }
@@ -511,6 +540,61 @@ fn map_prev(built: (ExpanseMap, Vec<u64>)) -> u64 {
     }
     // Leaked — see `map_get`.
     core::mem::forget(map);
+    black_box(sink)
+}
+
+// A full forward scan through the stateful cursor (#1142): one `next` per
+// entry, the path kept between steps. The single-threaded reference for a
+// concurrent batch cursor; no other arm covers `MapCursor`.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::clustered(args = ("clustered",), setup = built_map)]
+fn map_cursor_scan(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, _probes) = built;
+    let mut sink = 0u64;
+    let mut n = 0usize;
+    let mut cur = map.cursor();
+    while let Some((k, v)) = cur.next() {
+        sink ^= k ^ v;
+        n += 1;
+    }
+    assert_eq!(n, POP, "the scan visits every entry once");
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Rank from each present key (#1144): `nav::count_below` sums sibling
+// `pop0` down the descent. The §6 prerequisite for any change to the
+// concurrent count path; `one_top_byte` is that issue's worst case for the
+// concurrent fold and is measured here on the plain engine as its control.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::one_top_byte(args = ("one_top_byte",), setup = built_map)]
+fn map_count_below(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink = sink.wrapping_add(map.count_below(black_box(k)));
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+#[bench::sequential(args = ("sequential",), setup = built_set)]
+#[bench::one_top_byte(args = ("one_top_byte",), setup = built_set)]
+fn set_count_below(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink = sink.wrapping_add(set.count_below(black_box(k)));
+    }
+    core::mem::forget(set);
     black_box(sink)
 }
 
@@ -1616,6 +1700,113 @@ fn sync_map_prev(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// A full ascending scan through the optimistic ordered reads (#1142): one
+// `next_after` per entry, each a pin, a version sample and a descent from the
+// root. The per-element baseline a concurrent batch cursor is predicted
+// against; `map_cursor_scan` is its single-threaded twin.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+#[bench::sequential(args = ("sequential",), setup = built_sync_map)]
+#[bench::clustered(args = ("clustered",), setup = built_sync_map)]
+fn sync_map_next_after_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, _probes) = built;
+    let rd = map.reader();
+    let mut sink = 0u64;
+    let mut n = 0usize;
+    let mut at = rd.first();
+    while let Some((k, v)) = at {
+        sink ^= k ^ v;
+        n += 1;
+        at = rd.next_after(black_box(k));
+    }
+    assert_eq!(n, POP, "the scan visits every entry once");
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// ---- Concurrent counts under a writer (#1144) -----------------------------
+//
+// Counts on the concurrent map go through `with_locked`, which folds the
+// ancestor `pop0` an optimistic writer left stale (the subtrees under the
+// top digits marked dirty since the last fold). Three arms over one probe
+// stream and one stream of absent keys:
+//
+// - `sync_map_count_locked`: `count_below` through `with_locked` per probe,
+//   no writes, so the dirty mask stays clean after setup's fold;
+// - `sync_map_write_twin`: insert an absent key and remove it, per probe;
+// - `sync_map_count_after_write`: insert it, count, remove it.
+//
+// Callgrind counts are additive, so the combined arm minus its two twins is
+// the fold's cost (each count refolds the digits the previous step's remove
+// and this step's insert marked). `one_top_byte` puts every key under one
+// top digit, the issue's worst case. `COUNT_OPS` steps per arm, over the
+// 50k-key map.
+
+/// Steps per concurrent count arm. Each `one_top_byte` count after a write
+/// refolds the whole tree, so a full `POP` pass would dominate the job; the
+/// three arms share this one stream, which keeps the subtraction exact.
+const COUNT_OPS: usize = 1_000;
+
+fn built_sync_map_count(dist: &str) -> (SyncExpanseMap, Vec<u64>, Vec<u64>) {
+    let (map, mut probes) = built_sync_map(dist);
+    let mut fresh = fresh_keys(dist);
+    probes.truncate(COUNT_OPS);
+    fresh.truncate(COUNT_OPS);
+    // Setup ends with a fold, so every arm starts from a clean mask.
+    assert_eq!(map.with_locked(|m| m.len()), POP as u64);
+    (map, probes, fresh)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map_count)]
+#[bench::sequential(args = ("sequential",), setup = built_sync_map_count)]
+#[bench::one_top_byte(args = ("one_top_byte",), setup = built_sync_map_count)]
+fn sync_map_count_locked(built: (SyncExpanseMap, Vec<u64>, Vec<u64>)) -> u64 {
+    let (map, probes, _fresh) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        sink = sink.wrapping_add(map.with_locked(|m| m.count_below(black_box(k))));
+    }
+    // Leaked — see `sync_map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map_count)]
+#[bench::sequential(args = ("sequential",), setup = built_sync_map_count)]
+#[bench::one_top_byte(args = ("one_top_byte",), setup = built_sync_map_count)]
+fn sync_map_write_twin(built: (SyncExpanseMap, Vec<u64>, Vec<u64>)) -> u64 {
+    let (map, _probes, fresh) = built;
+    let mut sink = 0u64;
+    for &f in &fresh {
+        sink ^= map.insert(black_box(f), f).unwrap_or(0);
+        sink ^= map.remove(black_box(f)).unwrap_or(0);
+    }
+    assert_eq!(map.len(), POP as u64);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map_count)]
+#[bench::sequential(args = ("sequential",), setup = built_sync_map_count)]
+#[bench::one_top_byte(args = ("one_top_byte",), setup = built_sync_map_count)]
+fn sync_map_count_after_write(built: (SyncExpanseMap, Vec<u64>, Vec<u64>)) -> u64 {
+    let (map, probes, fresh) = built;
+    let mut sink = 0u64;
+    for (&k, &f) in probes.iter().zip(&fresh) {
+        sink ^= map.insert(black_box(f), f).unwrap_or(0);
+        sink = sink.wrapping_add(map.with_locked(|m| m.count_below(black_box(k))));
+        sink ^= map.remove(black_box(f)).unwrap_or(0);
+    }
+    assert_eq!(map.len(), POP as u64);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
 #[bench::leaf(args = ("leaf",), setup = built_sync_set_leaf)]
@@ -2159,6 +2350,9 @@ library_benchmark_group!(
         set_clone,
         map_nav,
         map_prev,
+        map_cursor_scan,
+        map_count_below,
+        set_count_below,
         set32_insert,
         map32_insert,
         map32_get,
@@ -2191,6 +2385,10 @@ library_benchmark_group!(
         sync_map_get,
         sync_map_prev_locked,
         sync_map_prev,
+        sync_map_next_after_scan,
+        sync_map_count_locked,
+        sync_map_write_twin,
+        sync_map_count_after_write,
         sync_set_contains,
         sync_map_churn,
         sync_map_remove,
