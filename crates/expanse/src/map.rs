@@ -567,6 +567,196 @@ fn leaf_state_remove<const OCC: bool>(
     }
 }
 
+/// [`leaf_state_insert`] for a string node's cover holder, whose readers
+/// load the root leaf while it stores (#1086): the stores into a live leaf
+/// are atomic words (`bits::shared_word`). A copy rather than the generic
+/// body's `OCC = true` instance, because `by_mode!` compiles that instance
+/// into plain callers and changing it moved their code generation.
+///
+/// The insert of `key → val` into `root`, which is empty or a root leaf, as
+/// a value: it allocates, frees and writes the leaf's heap areas, and returns
+/// the root to store rather than storing it. One body for the owner's
+/// `&mut MapCore` path and for a string node's cover holder, which stores
+/// through a raw pointer because readers copy the core meanwhile (#1086).
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+#[inline(always)]
+fn leaf_state_insert_shared(
+    root: Root,
+    alloc: &NodeAlloc,
+    key: Key,
+    val: u64,
+    path: &mut crate::mutate_map::InsertPathMap,
+) -> LeafStateInsert {
+    match root {
+        Root::Empty => {
+            let ptr = alloc.alloc_bytes_dispatch::<true>(leaf_size(1));
+            // SAFETY: fresh allocation: key slot then value slot.
+            unsafe {
+                ptr.as_ptr().cast::<u64>().write(key);
+                ptr.as_ptr()
+                    .add(leaf_values_offset(1))
+                    .cast::<u64>()
+                    .write(val);
+            }
+            LeafStateInsert {
+                old: None,
+                root: Some(Root::Leaf { ptr, pop: 1 }),
+                tree_pop: None,
+            }
+        }
+        Root::Leaf { ptr, pop } => {
+            let (keys, vals) = MapCore::leaf_parts(ptr, pop);
+            let (hit, at) = if pop > 0 {
+                let last = keys[pop - 1];
+                if key > last {
+                    (false, pop)
+                } else if key == last {
+                    (true, pop - 1)
+                } else {
+                    match keys.binary_search(&key) {
+                        Ok(pos) => (true, pos),
+                        Err(pos) => (false, pos),
+                    }
+                }
+            } else {
+                (false, 0)
+            };
+            if hit {
+                // SAFETY: in-place value swap.
+                unsafe {
+                    let slot = vals.add(at);
+                    let old = *slot;
+                    shared_word::store::<true>(slot, val);
+                    return LeafStateInsert {
+                        old: Some(old),
+                        root: None,
+                        tree_pop: None,
+                    };
+                }
+            }
+            if pop < ROOT_LEAF_CAP {
+                if leaf_size(pop + 1) == leaf_size(pop) {
+                    // Spare class capacity: shift both areas in
+                    // place, no allocation and no copy of the
+                    // whole leaf.
+                    // SAFETY: same class, so the areas keep their
+                    // offsets and the extra slot is in bounds.
+                    unsafe {
+                        let base = ptr.as_ptr().cast::<u64>();
+                        shared_word::shift_up::<true>(base, at, pop - at);
+                        shared_word::store::<true>(base.add(at), key);
+                        let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
+                        shared_word::shift_up::<true>(v, at, pop - at);
+                        shared_word::store::<true>(v.add(at), val);
+                    }
+                    return LeafStateInsert {
+                        old: None,
+                        root: Some(Root::Leaf { ptr, pop: pop + 1 }),
+                        tree_pop: None,
+                    };
+                }
+                let new = alloc.alloc_bytes_dispatch::<true>(leaf_size(pop + 1));
+                // SAFETY: copy keys and values around the insertion
+                // point into the fresh (pop + 1)-entry leaf.
+                unsafe {
+                    let nk = new.as_ptr().cast::<u64>();
+                    nk.copy_from_nonoverlapping(keys.as_ptr(), at);
+                    nk.add(at).write(key);
+                    nk.add(at + 1)
+                        .copy_from_nonoverlapping(keys.as_ptr().add(at), pop - at);
+                    let nv = new.as_ptr().add(leaf_values_offset(pop + 1)).cast::<u64>();
+                    nv.copy_from_nonoverlapping(vals, at);
+                    nv.add(at).write(val);
+                    nv.add(at + 1)
+                        .copy_from_nonoverlapping(vals.add(at), pop - at);
+                    alloc.free_bytes_dispatch::<true>(ptr, leaf_size(pop));
+                }
+                LeafStateInsert {
+                    old: None,
+                    root: Some(Root::Leaf {
+                        ptr: new,
+                        pop: pop + 1,
+                    }),
+                    tree_pop: None,
+                }
+            } else {
+                let top = promote_leaf::<true, true>(alloc, keys, vals, key, val, path);
+                // SAFETY: old root leaf no longer referenced.
+                unsafe { alloc.free_bytes_dispatch::<true>(ptr, leaf_size(pop)) };
+                LeafStateInsert {
+                    old: None,
+                    root: Some(Root::Tree { top }),
+                    tree_pop: Some(pop as u64 + 1),
+                }
+            }
+        }
+        Root::Tree { .. } => unreachable!("leaf_state_insert on a tree root"),
+    }
+}
+
+/// [`leaf_state_remove`] for a string node's cover holder; as
+/// [`leaf_state_insert_shared`].
+///
+/// The removal of `key` from `root`, which is empty or a root leaf, as a
+/// value: the value removed, and the root to store (`None`: unchanged). The
+/// twin of [`leaf_state_insert`].
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+#[inline(always)]
+fn leaf_state_remove_shared(
+    root: Root,
+    alloc: &NodeAlloc,
+    key: Key,
+) -> (Option<u64>, Option<Root>) {
+    match root {
+        Root::Empty => (None, None),
+        Root::Leaf { ptr, pop } => {
+            let (keys, vals) = MapCore::leaf_parts(ptr, pop);
+            let Ok(at) = keys.binary_search(&key) else {
+                return (None, None);
+            };
+            // SAFETY: in-bounds value read.
+            let old = unsafe { *vals.add(at) };
+            if pop == 1 {
+                // SAFETY: last entry removed; free the leaf.
+                unsafe { alloc.free_bytes_dispatch::<true>(ptr, leaf_size(1)) };
+                (Some(old), Some(Root::Empty))
+            } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                // Fast path: capacity class unchanged — shift surviving entries in-place.
+                // SAFETY: in-place shift inside class-sized buffer.
+                unsafe {
+                    let nk = ptr.as_ptr().cast::<u64>();
+                    shared_word::shift_down::<true>(nk, at, pop - 1 - at);
+                    shared_word::shift_down::<true>(vals, at, pop - 1 - at);
+                }
+                (Some(old), Some(Root::Leaf { ptr, pop: pop - 1 }))
+            } else {
+                let new = alloc.alloc_bytes_dispatch::<true>(leaf_size(pop - 1));
+                // SAFETY: copy the surviving keys/values into the
+                // smaller leaf.
+                unsafe {
+                    let nk = new.as_ptr().cast::<u64>();
+                    nk.copy_from_nonoverlapping(keys.as_ptr(), at);
+                    nk.add(at)
+                        .copy_from_nonoverlapping(keys.as_ptr().add(at + 1), pop - 1 - at);
+                    let nv = new.as_ptr().add(leaf_values_offset(pop - 1)).cast::<u64>();
+                    nv.copy_from_nonoverlapping(vals, at);
+                    nv.add(at)
+                        .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
+                    alloc.free_bytes_dispatch::<true>(ptr, leaf_size(pop));
+                }
+                (
+                    Some(old),
+                    Some(Root::Leaf {
+                        ptr: new,
+                        pop: pop - 1,
+                    }),
+                )
+            }
+        }
+        Root::Tree { .. } => unreachable!("leaf_state_remove on a tree root"),
+    }
+}
+
 /// The root-leaf promotion, per sharing mode (see `set::promote_leaf`).
 #[inline(always)]
 fn promote_leaf<const OCC: bool, const NESTED: bool>(
@@ -1697,7 +1887,7 @@ impl MapCore {
         // through field projections, never borrowed.
         unsafe {
             let rp = &raw mut (*this).root;
-            let o = leaf_state_insert::<true, true>(
+            let o = leaf_state_insert_shared(
                 rp.read(),
                 alloc,
                 key,
@@ -1735,7 +1925,7 @@ impl MapCore {
         // SAFETY: as in `insert_leaf_state_at`.
         unsafe {
             let rp = &raw mut (*this).root;
-            let (old, root) = leaf_state_remove::<true>(rp.read(), alloc, key);
+            let (old, root) = leaf_state_remove_shared(rp.read(), alloc, key);
             if let Some(root) = root {
                 #[cfg(feature = "occ-stats")]
                 if root_fingerprint_of(&rp.read()) != root_fingerprint_of(&root) {

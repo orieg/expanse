@@ -322,13 +322,12 @@ Models 1–8 exercise the gate primitives; model 9 the `sync` functions above th
 
 *Where the races are.* Every location a reader or optimistic writer loads while a writer may store to it:
 
-- a string node's sub-map root-leaf keys and values, which its lock holder shifts in place (`map::leaf_state_insert` / `leaf_state_remove`);
 - branch headers (`BranchHeader::find_at` copies 16 bytes) and edges in branches, `BranchB` subarrays and `BranchU` (read by value, 16 bytes);
 - value arrays of leaves and bitmap leaves (`u64`);
 - packed 1–7-byte leaf keys, searched by `leaf::search` with byte, unaligned `u16`/`u32` loads, and 128-bit SIMD (`bits::search_16_u8`, `search_8_u16`, `search_4_u32`);
 - the string map's suffix value word read by `ExpanseStrMap::get_validated`.
 
-Already atomic: version words, published roots (`PublishedRoot`), bitmap words (`bits::shared_bitmap`), the bytes map's bucket value words (`bytesmap::entry_value_atomic`), the map's and set's root-leaf keys and values (`bits::shared_word`), and a string node's sub-map root words (`map::root_word`, the tag stored last with `Release` and loaded with `Acquire`, since an empty root leaves the other two words uninitialised). The census's `map_leaf_*`, `set_leaf_*` and `str_reader_writer` `race` entries are clean, and reverting any one converted access the workloads reach brings the race back at seed 0. Each writer-side store to a listed location is the other half of its race.
+Already atomic: version words, published roots (`PublishedRoot`), bitmap words (`bits::shared_bitmap`), the bytes map's bucket value words (`bytesmap::entry_value_atomic`), the map's and set's root-leaf keys and values (`bits::shared_word`), a string node's sub-map root-leaf keys and values as its lock holder shifts them (`map::leaf_state_insert_shared` / `leaf_state_remove_shared`), and a string node's sub-map root words (`map::root_word`, the tag stored last with `Release` and loaded with `Acquire`, since an empty root leaves the other two words uninitialised). The census's `map_leaf_*`, `set_leaf_*` and `str_reader_writer` `race` entries are clean, and reverting any one converted access the workloads reach brings the race back at seed 0. Each writer-side store to a listed location is the other half of its race.
 
 *Decisions.*
 

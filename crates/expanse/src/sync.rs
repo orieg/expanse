@@ -35,8 +35,7 @@
 //! 1. **Racing optimistic loads.** Between `sample` and a failed `validate`,
 //!    a reader, or an optimistic writer descending to its lock point, makes
 //!    plain loads that race with a covered writer's plain stores: a node's
-//!    edges, header fields and value arrays, and a string node's sub-map
-//!    root leaf (every wrapper publishes its own
+//!    edges, header fields and value arrays (every wrapper publishes its own
 //!    root as atomics in `TreeHead`; node bitmaps are atomic on every shared
 //!    path, `bits::shared_bitmap`, and so are the map's and set's root-leaf
 //!    keys and values, `bits::shared_word`, and a string node's sub-map
@@ -12146,6 +12145,40 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(map.len(), KEYS);
+    }
+
+    /// `map_leaf_churn_reader_writer` for the string map: the keys share one
+    /// string node, so its lock holder overwrites, removes and reinserts in
+    /// that node's sub-map root leaf, shifting it in place, under a reader.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_leaf_churn_reader_writer() {
+        let map = SyncExpanseStrMap::new();
+        for i in 0..CHURN_KEYS {
+            map.insert(nf(&str_key(0, i)), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..CHURN_KEYS {
+                    let k = str_key(0, i);
+                    assert_eq!(map.insert(nf(&k), i + 100), Some(i));
+                    assert_eq!(map.remove(nf(&k)), Some(i + 100));
+                    assert_eq!(map.insert(nf(&k), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..CHURN_KEYS {
+                        if let Some(v) = map.get(nf(&str_key(0, i))) {
+                            assert!(v == i || v == i + 100);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), CHURN_KEYS);
     }
 
     // --- SyncExpanseBytesMap ----------------------------------------------
