@@ -7,11 +7,15 @@
 //!   a traversal, not an ordered scan; the other three are ordered;
 //! - **prefix scan** over shared-prefix string keys: for 64 fixed two-hex-digit
 //!   extensions of the shared prefix (about 1/256 of the keys each), sum the
-//!   values of every key under it. `ExpanseStrMap` seeks once with
-//!   `cursor_at_or_after` and steps a cursor that borrows its keys; the twins
-//!   use their public prefix read, which on `patricia_tree` and
-//!   `fast_radix_trie` reconstructs an owned key per entry — the only prefix
-//!   read those crates offer, so that cost is part of what is measured.
+//!   values of every key under it. `ExpanseStrMap` uses `cursor_prefix`, which
+//!   seeks once and ends at the prefix boundary itself, stepping a cursor that
+//!   borrows its keys; the twins use their public prefix read, which on
+//!   `patricia_tree` and `fast_radix_trie` reconstructs an owned key per entry
+//!   — the only prefix read those crates offer, so that cost is part of what
+//!   is measured. An `expanse_unbounded` arm on a separately built map keeps
+//!   the earlier walk (`cursor_at_or_after` plus a `starts_with` per key), so
+//!   the cell also carries the two Expanse surfaces' ratio from the same
+//!   rounds.
 //!
 //! Before any timing the subject's prefix walk is checked against the key list
 //! itself — exact key set per prefix, each key's own value, strictly ascending
@@ -31,7 +35,7 @@
 //! | `miss_gen_method` | None |
 //! | `value_dereference` | Every visited value summed; the sum reaches `black_box` |
 //! | `measured_region` | Scan passes only; builds and validation outside the window; one discarded warm-up pass per arm |
-//! | `arm_symmetry` | Identical keys, values and build order; arms built separately; arm order rotates per round; the two twins without a borrowing prefix read pay an owned key per entry (disclosed) |
+//! | `arm_symmetry` | Identical keys, values and build order; arms built separately; arm order rotates per round; the two twins without a borrowing prefix read pay an owned key per entry (disclosed); prefix cells add `expanse_unbounded`, the earlier Expanse walk, on its own map |
 //! | `statistics` | Median per arm + geometric-mean Expanse/twin ratio with BCa 95% CI on per-round log ratios |
 //! | `verdict` | **PENDING** `[unmeasured]`: no committed run yet. |
 
@@ -138,6 +142,19 @@ fn scan_prefixes() -> Vec<Vec<u8>> {
 }
 
 fn expanse_prefix_sum(m: &mut ExpanseStrMap, prefix: &NulFreeStr) -> u64 {
+    let mut c = m.cursor_prefix(prefix);
+    let mut sum = 0u64;
+    while let Some((_, slot)) = c.next() {
+        // SAFETY: the slot points at a live value word of the map, valid until
+        // the next structural mutation, which the cursor's borrow of `m` rules out.
+        sum = sum.wrapping_add(unsafe { slot.as_ptr().read() });
+    }
+    sum
+}
+
+/// The walk `cursor_prefix` replaced: seek with `cursor_at_or_after`, then
+/// compare every key with the prefix and stop at the first that differs.
+fn expanse_unbounded_sum(m: &mut ExpanseStrMap, prefix: &NulFreeStr) -> u64 {
     let p = prefix.as_bytes();
     let mut c = m.cursor_at_or_after(prefix);
     let mut sum = 0u64;
@@ -172,11 +189,12 @@ fn validate_expanse_prefixes(
             .collect();
         want.sort_unstable();
         let mut got: Vec<Vec<u8>> = Vec::with_capacity(want.len());
-        let mut c = m.cursor_at_or_after(p);
+        let mut c = m.cursor_prefix(p);
         while let Some((k, slot)) = c.next() {
-            if !k.starts_with(pb) {
-                break;
-            }
+            assert!(
+                k.starts_with(pb),
+                "cursor_prefix yielded a key outside the prefix"
+            );
             // SAFETY: as in `expanse_prefix_sum`.
             let v = unsafe { slot.as_ptr().read() };
             assert_eq!(v, path_val(k), "prefix scan yielded a wrong value");
@@ -245,12 +263,19 @@ fn prefix_row(order: &str, keys: &[Vec<u8>], rounds: usize) -> Map<String, Value
     let qp: Result<QpTrie<Vec<u8>, u64>, String> = build_twin(keys, &vals);
     let prefixes = scan_prefixes();
     let pnf = as_nulfree(&prefixes);
+    let mut eu = build_expanse_str(&nf, &vals);
     let expect = validate_expanse_prefixes(&mut e, &pnf, keys);
     assert_eq!(
         expect,
         pnf.iter()
             .fold(0u64, |a, p| a.wrapping_add(expanse_prefix_sum(&mut e, p))),
         "the timed prefix sum disagrees with the validated walk"
+    );
+    assert_eq!(
+        expect,
+        pnf.iter().fold(0u64, |a, p| a
+            .wrapping_add(expanse_unbounded_sum(&mut eu, p))),
+        "the unbounded walk disagrees with cursor_prefix"
     );
     let scanned: usize = prefixes
         .iter()
@@ -275,8 +300,24 @@ fn prefix_row(order: &str, keys: &[Vec<u8>], rounds: usize) -> Map<String, Value
     push_prefix_twin(&mut arms, &mut invalid, &pt, &prefixes, expect);
     push_prefix_twin(&mut arms, &mut invalid, &rx, &prefixes, expect);
     push_prefix_twin(&mut arms, &mut invalid, &qp, &prefixes, expect);
+    arms.push(Arm {
+        name: "expanse_unbounded".into(),
+        ops: SCAN_PREFIXES,
+        pass: Box::new(|r| {
+            let start = Instant::now();
+            for _ in 0..r {
+                let mut s = 0u64;
+                for p in &pnf {
+                    s = s.wrapping_add(expanse_unbounded_sum(&mut eu, p));
+                }
+                black_box(s);
+            }
+            start.elapsed()
+        }),
+    });
     let mut row = run_cell(arms, &invalid, rounds, true);
     row.insert("operation".into(), json!("prefix_scan"));
+    row.insert("expanse_surface".into(), json!("cursor_prefix"));
     row.insert("distribution".into(), json!("prefixed_path"));
     row.insert("prefix_len".into(), json!(SCAN_PREFIX_LEN));
     row.insert("order".into(), json!(order));

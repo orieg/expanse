@@ -160,6 +160,20 @@ on that harness's half-split `clustered` set. P5 is narrowed to the harnesses
 whose key sets the envelope covers. The half-split cells carry no validity
 prediction; their status is reported as measured. No other prediction changed.
 
+**Amendment A2 (2026-09-24, after the reference-host runs at `c9f1600d` and
+`668c28d7`; refs #1096).** The prefix-scan cells change the Expanse surface
+they time. The subject arm uses `ExpanseStrMap::cursor_prefix`, which ends each
+walk at the prefix boundary without a per-key comparison. Before, it used
+`cursor_at_or_after` with a `starts_with` per yielded key. The twins still use
+their own prefix reads, so the Expanse arm now does what `iter_prefix` does
+(§8.3). The earlier walk stays in the same cells as an `expanse_unbounded` arm
+on its own map, so the effect of the surface change is measured in the same
+rounds and not inferred across runs. Every row records `expanse_surface`. The
+prefix scan carries no directional prediction (above), so no prediction
+changes, and cells from runs before this amendment are not comparable with
+later ones on the Expanse arm. The §4 *Scans* item describes the subject arm
+as before A2.
+
 **No directional prediction:**
 - Any `fast_radix_trie` or `qp-trie` timing. The envelope gives them 3–8
   dependent node loads, the same range as Expanse, so nothing derived separates
