@@ -8,14 +8,16 @@
 //! leaf is nothing but payload.
 //!
 //! - Set flavor: `[keys: L × pop]` — nothing else.
-//! - Map flavor: `[values: u64 × pop][keys: L × pop]` in one allocation.
-//!   Values first keeps them 8-aligned for free (allocations are
-//!   cache-line aligned) with no padding arithmetic.
+//! - Map flavor: `[values: u64 × cap][keys: L × cap]` in one allocation.
+//!   Values first keeps them 8-aligned for free (raw allocations are
+//!   `RAW_ALIGN` = 16 aligned) with no padding arithmetic.
 //!
-//! Search is a scan over the packed keys; population caps (set by the
-//! Phase 6 conversion ladder) keep leaves at a handful of cache lines, and
-//! the Phase 8 bench pass decides whether a SIMD/binary variant earns its
-//! complexity over this baseline.
+//! Both areas are sized by `cap_class(pop)`, not `pop`, so an insert or
+//! removal that stays inside a capacity class shifts in place. Search is
+//! per key width (`search_fixed`, `lower_bound_fixed`): a 128-bit SIMD
+//! or 64-bit-load kernel at the populations whose capacity class covers the
+//! bytes that load reads, unrolled compares at `pop <= 4`, and binary
+//! search otherwise.
 
 use crate::types::Key;
 
