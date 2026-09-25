@@ -107,8 +107,8 @@ graph TD
 | Job | Name | Role |
 |---|---|---|
 | `test-python` | Bindings / Python Fast Smoke (Py3.12) | PyO3 binding smoke. |
-| `test-node` | Bindings / Node.js (matrix) | napi-rs addon across OS × Node versions. |
-| `test-php` | Bindings / PHP (matrix) | FFI binding across OS × PHP versions. |
+| `test-node` | Bindings / Node.js (matrix) | napi-rs addon: Node 20, 22 and 24 on Linux, Node 24 only on macOS and Windows. |
+| `test-php` | Bindings / PHP (matrix) | FFI binding: PHP 8.2, 8.3 and 8.4 on Linux, PHP 8.4 only on macOS and Windows. |
 | `test-dotnet` | Bindings / .NET (matrix) | P/Invoke binding tests. |
 | `pack-dotnet` | Bindings / .NET NuGet Package | Packs the `Orieg.Expanse` `.nupkg`. |
 | `test-java` | Bindings / Java 22+ Panama (matrix) | Project Panama FFM binding tests. |
@@ -168,10 +168,11 @@ Turnaround stays low for non-code and localized PRs without losing required-chec
 - `integrations/**` is C++ outside the cargo workspace, built by exactly one job (`test-rocksdb-memtable`) and already covered by the `integrations` filter, so it is not part of `rust-src`.
 - A PR touching only `docs/**`, `*.md` or `website/**` matches no Rust job and skips the Rust matrix entirely — but it does run `docs-lint`, which is unconditional, so a docs-only PR is never a zero-check PR. (This held before #671 and holds again with the quantifier in place; between the two it did not, and #776 is the worked example — 7 files, no Rust, 69 jobs, 0 skipped.)
 - Known residual: `check_bench_suites.py` also asserts the generated table in `docs/BENCHMARKING.md`, but `lint` is not gated on `docs/**`, so a docs-only edit to that table is checked by the next PR that touches `rust-src` or `tooling` rather than by its own.
-- **The fast lane and the runner budget.** GitHub-hosted runners are capped per account, not per repository: every repository on the account shares one pool of concurrent jobs, and one of five for macOS ([Actions limits](https://docs.github.com/en/actions/reference/limits)). A full run of this workflow is ~72 jobs, 13 of them macOS, so each run fills the pool and queues every other repository's jobs behind it. Three rules keep that down:
+- **The fast lane and the runner budget.** GitHub-hosted runners are capped per account, not per repository: every repository on the account shares one pool of concurrent jobs, and one of five for macOS ([Actions limits](https://docs.github.com/en/actions/reference/limits)). A full run of this workflow is ~72 jobs, 13 of them macOS, so each run fills the pool and queues every other repository's jobs behind it. Four rules keep that down:
   - *Slow lanes wait for the fast lane.* `lint` and `docs-lint` (which carries the `orieg/discipline` gates) run first; `fast-lane` succeeds only when both passed (`lint` may skip), and every other job needs it. A run that fails lint or discipline takes three runners, not seventy.
   - *A draft pull request runs the fast lane only.* `ci-gate` fails on a draft, naming the reason, so a draft never shows a green required context; `ready_for_review` is among the `pull_request` trigger types and starts the full run. Open a pull request as a draft while iterating.
   - *A push to `main` runs the fast lane only.* `main` accepts only an up-to-date pull request whose head passed this workflow, so the squash commit is a tree that was already verified. The full matrix runs on `main` on the daily `schedule` and on `workflow_dispatch` (`gh workflow run ci.yml --ref main`), whose concurrency group carries the event name so it never shares a group with the push run of the same commit.
+  - *Version axes run on Linux.* `test-node` and `test-php` test every supported version on Linux and the newest on macOS and Windows.
   `check_gate_floor.py` checks the fast lane's outcome in `ci-gate`: on a push it and every gated job must have skipped; on a draft the gate fails; on any other event it must have succeeded, or the gate fails because no slow lane ran. A gated job is judged by its own `if:` only when the fast lane succeeded.
 - The `CI Gate / All Checks Passed` rollup satisfies branch protection once its dependencies conclude (skipped jobs count as passing), so PRs never deadlock in "Pending" behind a filtered-out check.
 
@@ -366,7 +367,7 @@ Runs on `main` use a unique key (`github.run_id`, or the event name plus `github
 
 **New-project setup checklist:**
 - [ ] Define `concurrency` with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
-- [ ] Gate the slow jobs behind a fast lane (§3, *The fast lane and the runner budget*).
+- [ ] Gate the slow jobs behind a fast lane, and keep macOS/Windows legs off version axes (§3, *The fast lane and the runner budget*).
 - [ ] Create a `detect-changes` job with `dorny/paths-filter@v4`.
 - [ ] Gate downstream jobs on `needs: [detect-changes]` + `if: needs.detect-changes.outputs.<subsystem> == 'true'`.
 - [ ] Create a `ci-gate` rollup evaluating `${{ toJson(needs) }}`, with a completeness self-check.

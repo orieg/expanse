@@ -2235,6 +2235,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [20, 22, 24]
+        # Every supported version on Linux; the newest only on macOS and
+        # Windows. The version axis exercises the N-API surface, which is the
+        # same on all three OSes, and macOS legs draw on a 5-job account-wide
+        # cap -- nine legs here held all of it on every run.
+        exclude:
+          - { os: macos-latest, node-version: 20 }
+          - { os: macos-latest, node-version: 22 }
+          - { os: windows-latest, node-version: 20 }
+          - { os: windows-latest, node-version: 22 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -2268,6 +2277,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         php-version: ['8.2', '8.3', '8.4']
+        # Every supported version on Linux; the newest only on macOS and
+        # Windows, for the reason given on `test-node`'s matrix.
+        exclude:
+          - { os: macos-latest, php-version: '8.2' }
+          - { os: macos-latest, php-version: '8.3' }
+          - { os: windows-latest, php-version: '8.2' }
+          - { os: windows-latest, php-version: '8.3' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
