@@ -12048,7 +12048,10 @@ mod miri_ub_sites {
             map.insert(splitmix64(i), i);
         }
         // Setup's own writes leave digits dirty; fold them before the reader starts.
-        assert_eq!(map.with_locked(|m| m.count_range(0..=u64::MAX)), TREE_PREFILL);
+        assert_eq!(
+            map.with_locked(|m| m.count_range(0..=u64::MAX)),
+            TREE_PREFILL
+        );
         let done = AtomicBool::new(false);
         thread::scope(|s| {
             s.spawn(|| {
