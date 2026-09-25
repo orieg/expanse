@@ -19,7 +19,9 @@
     "  kind       callgrind = needs valgrind + iai-callgrind-runner on the host,",
     "             checked before anything runs; wallclock = criterion / custom-main;",
     "             counters = needs a usable PMU (`perf stat`), checked by opening a",
-    "             real counter before anything runs. The kind drives the workflow's",
+    "             real counter before anything runs; census = a deterministic",
+    "             byte count (`mem_used()` / `mem_held()`), no timing and no host",
+    "             requirement. The kind drives the workflow's",
     "             preflight and the Instrument column of the docs table, so a suite",
     "             cannot be labelled with an instrument it does not use.",
     "  runner     builtin = handled by a named branch of the workflow's case",
@@ -849,6 +851,15 @@
       "reason": "needs both `third_party/hot` and `third_party/masstree` submodules initialised and an x86-64 host with AVX2 and BMI2 (the crate also builds the HOT shim, and both arms are bound to `-march=haswell`). Each cell runs in its own process on a fresh Masstree thread slot because Masstree's pools and RCU limbo are per thread and outlive every table. It is driven by `docs/benchmarks/masstree_comparison/run.sh`, which runs the validation gate first and takes the host-wide benchmark lock, not by `cargo bench`. Every cell keeps writers + readers <= 16 inside the P-core pin; the health cells come from a separate occ-stats build.",
       "summary": "Masstree vs SyncExpanseMap / SyncExpanseStrMap: writer throughput as writer count scales, reader throughput alongside, and the Expanse protocol's restart/fallback shares \u2014 the second route to the write-concurrency loss.",
       "suite": "masstree_comparison"
+    },
+    {
+      "name": "remove_retention",
+      "available": false,
+      "kind": "census",
+      "runner": "builtin",
+      "reason": "a deterministic `mem_used()` census from an example, not a `[[bench]]` target: it needs no bare-metal host and reproduces to the byte on any 64-bit machine. Run `cargo run --release -p expanse-trie --example remove_retention -- --json <path>` (`docs/benchmarks/remove_retention/README.md`).",
+      "summary": "Bytes a tree keeps after removals against a fresh build of the surviving keys (R), and `mem_held()` after `shrink_to_fit()`, over random, sequential, sparse and clustered keys and three removal orders.",
+      "suite": "remove_retention"
     }
   ]
 }

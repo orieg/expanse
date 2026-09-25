@@ -43,7 +43,7 @@ BEGIN = "BEGIN GENERATED: bench-suites"
 END = "END GENERATED: bench-suites"
 
 REQUIRED_FIELDS = ("name", "available", "kind", "runner", "summary")
-KINDS = ("callgrind", "wallclock", "counters", "fuel")
+KINDS = ("callgrind", "wallclock", "counters", "fuel", "census")
 RUNNERS = ("builtin", "generic")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 SUITE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -159,6 +159,7 @@ def render_docs_table(manifest: dict) -> list[str]:
         instrument = {
             "callgrind": "Callgrind",
             "counters": "`perf stat`",
+            "census": "byte census",
         }.get(s["kind"], "wall-clock")
         out.append(f"| {name} | {instrument} | {s['summary']} |")
 
@@ -232,7 +233,8 @@ def render_index(manifest: dict, root: Path) -> list[str]:
 
     def instrument(entries: list[dict]) -> str:
         kinds = sorted({e["kind"] for e in entries})
-        label = {"callgrind": "Callgrind", "counters": "`perf stat`", "fuel": "wasm fuel"}
+        label = {"callgrind": "Callgrind", "counters": "`perf stat`", "fuel": "wasm fuel",
+                 "census": "byte census"}
         return " + ".join(label.get(k, "wall-clock") for k in kinds)
 
     for suite in sorted(by_suite):
