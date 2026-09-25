@@ -52,7 +52,7 @@ graph TD
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:
-   - GitHub Actions executes `.github/workflows/release.yml`: the gate requires a full `ci.yml` run on the tagged commit — one whose `fast-lane` job succeeded, since a push to `main` runs the fast lane only (`docs/CI.md` §3) — and when none exists it dispatches `ci.yml` on the tag and waits for it (`scripts/release_ci_gate.py`); core artifacts then build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, Maven Central, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**.
+   - GitHub Actions executes `.github/workflows/release.yml`: the gate requires a full `ci.yml` run on the tagged commit — one whose `fast-lane` job succeeded, since a push to `main` that lands an already-verified tree runs the fast lane only (`docs/CI.md` §3) — and when none exists it dispatches `ci.yml` on the tag and waits for it (`scripts/release_ci_gate.py`); core artifacts then build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, Maven Central, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**.
 
 ---
 

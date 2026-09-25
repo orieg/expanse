@@ -1,7 +1,8 @@
 name: CI
 
 on:
-  # A push to main runs the fast lane only; see the `fast-lane` job.
+  # A push to main runs the fast lane only when it lands a tree CI already
+  # passed in full; see the `fast-lane` job and `push-verified`.
   push:
     branches: [main]
   pull_request:
@@ -48,6 +49,7 @@ jobs:
     permissions:
       contents: read
       actions: write # force-cancel this pull request's superseded runs
+      pull-requests: read # push-verified: the pull request a merge commit came from
     outputs:
       rust-src: ${{ steps.filter.outputs.rust-src }}
       # Which `ci.yml` job definitions this diff touched. Replaces
@@ -72,11 +74,20 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       integrations: ${{ steps.filter.outputs.integrations }}
       esp-component: ${{ steps.filter.outputs.esp-component }}
+      # Push only: 'true' when the pushed tree is the merged pull request's
+      # head tree and that head passed a full run (scripts/push_tree_verified.py).
+      push-verified: ${{ steps.pushtree.outputs.push-verified }}
     steps:
       - uses: actions/checkout@v7
         with:
           # `ci_job_diff.py` reads the workflow at the base revision.
           fetch-depth: 0
+      - name: Did CI already pass this exact tree in full?
+        id: pushtree
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/push_tree_verified.py --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
       - name: Cancel this pull request's superseded runs
         if: github.event_name == 'pull_request'
         env:
@@ -758,6 +769,7 @@ jobs:
           python3 scripts/discipline_replay.py --self-test
           python3 scripts/release_ci_gate.py --self-test
           python3 scripts/ci_supersede.py --self-test
+          python3 scripts/push_tree_verified.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts
@@ -782,10 +794,13 @@ jobs:
   #   - a draft pull request: fast lane only, and ci-gate fails the run so a
   #     draft never shows a green required context (check_gate_floor.py);
   #     `ready_for_review` starts the full run;
-  #   - a push to main: `main` only accepts an up-to-date pull request whose
-  #     head passed this workflow, so the merge re-verified an identical tree.
-  #     The full matrix runs on main on the daily `schedule` instead, and on
-  #     demand through `workflow_dispatch`;
+  #   - a push to main that lands a tree CI already passed in full: the
+  #     merged pull request's head tree, whose latest full run succeeded
+  #     (`push-verified`, scripts/push_tree_verified.py). The ruleset does not
+  #     require a pull request to be up to date, so a merge behind main lands
+  #     a tree no run built, and that push runs every lane. The full matrix
+  #     also runs on main on the daily `schedule`, and on demand through
+  #     `workflow_dispatch`;
   #   - a run whose lint or docs-lint failed.
   # `lint` may be skipped (a docs-only change matches none of its filters);
   # docs-lint is unconditional, so it must have succeeded. `!cancelled()` is
@@ -796,7 +811,7 @@ jobs:
   fast-lane:
     name: Core / Fast Lane Passed
     needs: [detect-changes, lint, docs-lint]
-    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && needs.docs-lint.result == 'success' && github.event_name != 'push' && !github.event.pull_request.draft }}  # discipline:allow(ci-integrity)
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && needs.docs-lint.result == 'success' && (github.event_name != 'push' || !(needs.detect-changes.outputs.push-verified == 'true')) && !github.event.pull_request.draft }}  # discipline:allow(ci-integrity)
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

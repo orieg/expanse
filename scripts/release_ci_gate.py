@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Release gate: the released commit must have passed a FULL `ci.yml` run.
 
-A push to `main` runs `ci.yml`'s fast lane only (lint, docs-lint): its
+A push to `main` that lands a tree CI already passed in full runs `ci.yml`'s
+fast lane only (lint, docs-lint; `push_tree_verified.py`): its
 `CI Gate / All Checks Passed` check succeeds although no test, Miri, sanitizer,
-Callgrind or binding job ran (docs/CI.md section 3). The release gate therefore
+Callgrind or binding job ran on that commit (docs/CI.md section 3). The release gate therefore
 cannot read that check-run. It reads the commit's `ci.yml` runs instead and
 classifies each one:
 
@@ -61,7 +62,7 @@ def decide(classified: list[tuple[dict, str]]) -> tuple[str, str]:
         partial = len(classified)
         return "dispatch", (
             f"no full ci.yml run on this commit ({partial} run(s), none of them full: "
-            "a push to main runs the fast lane only)"
+            "a push to main whose tree already passed runs the fast lane only)"
         )
     run, cls = max(candidates, key=lambda rc: (rc[0].get("created_at") or "", rc[0].get("id") or 0))
     ident = f"run {run.get('id')} ({run.get('event')}, attempt {run.get('run_attempt', 1)})"

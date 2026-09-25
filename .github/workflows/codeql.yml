@@ -5,10 +5,11 @@ name: CodeQL
 # commit included. Here a pull request analyses only the languages whose
 # files it changes, and the daily schedule and a manual dispatch analyse all
 # of them on `main`, so a language a PR skips is still analysed there. Pushes
-# to `main` do not trigger an analysis: `main` only accepts an up-to-date pull
-# request, so a merge analysed a tree its pull request already did, and nine
-# analyses per merge held hosted runners the account shares across every
-# repository (docs/CI.md). The categories match default setup's (`/language:<lang>`), which
+# to `main` do not trigger an analysis: nine analyses per merge held hosted
+# runners the account shares across every repository (docs/CI.md), and code
+# scanning is not a merge gate, so `main` is analysed once a day instead of at
+# every merge -- including a merge that landed a tree its pull request's own
+# analysis did not see. The categories match default setup's (`/language:<lang>`), which
 # keeps existing alerts tracked across the switch.
 #
 # Not a required check: the ruleset requires only `CI Gate / All Checks

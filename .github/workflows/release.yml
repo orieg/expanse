@@ -21,9 +21,9 @@ permissions:
 jobs:
   # Gate: only publish artifacts for a commit that passed a FULL ci.yml run,
   # and whose manifests are in version lockstep with the tag. A push to main
-  # runs ci.yml's fast lane only, and its `CI Gate / All Checks Passed`
-  # check-run succeeds with no test having run, so that check-run alone is not
-  # evidence (docs/CI.md section 3). release_ci_gate.py reads the commit's
+  # that lands a tree CI already passed in full runs ci.yml's fast lane only,
+  # and its `CI Gate / All Checks Passed` check-run succeeds with no test
+  # having run, so that check-run alone is not evidence (docs/CI.md section 3). release_ci_gate.py reads the commit's
   # ci.yml runs instead, and dispatches a full one on this ref when none exists.
   release-gate:
     name: Release Gate / Verify CI + Version Lockstep
