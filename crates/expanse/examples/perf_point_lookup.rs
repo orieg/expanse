@@ -36,7 +36,7 @@
 //!
 //! | Variable | Default | Meaning |
 //! |---|---|---|
-//! | `EXPANSE_PERF_ARM` | `map_get` | `map_get`, `set_contains`, `strmap_get` (`short` strings) or `strmap_get_counter` |
+//! | `EXPANSE_PERF_ARM` | `map_get` | `map_get`, `set_contains`, `strmap_get` (`short` strings), `strmap_get_counter`, or `strmap_prefix_scan` / `strmap_prefix_scan_sorted` (the `patricia_comparison` prefix scan, generator or sorted build) |
 //! | `EXPANSE_PERF_PHASE` | `probe` | `probe` or `build` |
 //! | `EXPANSE_PERF_POP` | `1000000` | keys inserted |
 //! | `EXPANSE_PERF_HIT_PCT` | `100` | percent of probes that are present keys |
@@ -49,7 +49,7 @@
 //! | `workload_id` | `example_perf_point_lookup` |
 //! | `group` | 5 |
 //! | `population` | 1M (configurable via `EXPANSE_PERF_POP`); the string arms draw the suites' `short` (mean 12.0 B) and `counter` (12 B) shapes |
-//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
+//! | `insertion_order` | both — the lookup arms insert in generator draw order (the shuffle in this file is applied to the probe stream, not to the build); the prefix-scan arms insert in generator order (`strmap_prefix_scan`) or sorted (`strmap_prefix_scan_sorted`) |
 //! | `probes_and_reuse` | 1M distinct per pass, reuse 1.0 |
 //! | `hit_rate` | 100% default (configurable via `EXPANSE_PERF_HIT_PCT`) |
 //! | `miss_gen_method` | Independent PRNG + membership rejection; the string arms continue the shape's own generator past the population and reject on membership (§8.6) |
@@ -74,6 +74,11 @@
 //! for (`AGENTS.md` section 8.1).
 //!
 //! Run: `EXPANSE_PERF_PHASE=probe ./target/release/examples/perf_point_lookup`
+
+#[path = "../benches/art_common/mod.rs"]
+mod art_common;
+#[path = "../benches/patricia_common/mod.rs"]
+mod patricia_common;
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
@@ -256,6 +261,9 @@ fn main() {
 
     let keys = build_keys(pop);
     let mut sink = 0u64;
+    // Operations one pass performs, echoed for the driver to normalise by:
+    // the probe count for the lookup arms, the entries yielded for a scan.
+    let mut ops = pop;
 
     match arm.as_str() {
         "map_get" => {
@@ -336,10 +344,65 @@ fn main() {
             core::mem::forget(probes);
             core::mem::forget(str_keys);
         }
+        // The `patricia_comparison` prefix-scan cell (#1096) for counters: the
+        // suite's path keys (35-byte shared prefix, 12 hex digits of a 48-bit
+        // id, `STRING_SEED`), built in generator or sorted order, and its 64
+        // prefixes each walked with `cursor_prefix`. The two builds hold the
+        // same key set and the same node census, so a counter difference
+        // between them is attributable to where the build placed the nodes.
+        arm @ ("strmap_prefix_scan" | "strmap_prefix_scan_sorted") => {
+            assert!(
+                hit_pct == 100,
+                "EXPANSE_PERF_HIT_PCT={hit_pct}: a prefix scan has no hit rate; pass 100"
+            );
+            let mut path_keys = patricia_common::gen_paths(pop, 35, patricia_common::STRING_SEED);
+            if arm == "strmap_prefix_scan_sorted" {
+                path_keys.sort();
+            }
+            let mut map = ExpanseStrMap::new();
+            for k in &path_keys {
+                map.insert(tk(k), patricia_common::path_val(k));
+            }
+            let prefixes: Vec<Vec<u8>> = (0..64usize)
+                .map(|i| {
+                    let mut p = patricia_common::path_prefix(35);
+                    p.extend_from_slice(format!("{:02x}", (i * 4) as u8).as_bytes());
+                    p
+                })
+                .collect();
+            let scan = |map: &mut ExpanseStrMap, sink: &mut u64| {
+                let mut n = 0usize;
+                for p in &prefixes {
+                    let mut c = map.cursor_prefix(tk(black_box(p)));
+                    while let Some((_, slot)) = c.next() {
+                        // SAFETY: the slot is a live value word of the map,
+                        // valid until the next structural mutation, which the
+                        // cursor's borrow of `map` rules out.
+                        *sink = sink.wrapping_add(unsafe { slot.as_ptr().read() });
+                        n += 1;
+                    }
+                }
+                n
+            };
+            // Both phases walk once to count the entries, so the build phase
+            // does identical work up to the measured passes.
+            let mut count_sink = 0u64;
+            ops = scan(&mut map, &mut count_sink);
+            sink ^= map.len() ^ count_sink;
+            if run_probe {
+                for _ in 0..passes {
+                    let n = scan(&mut map, &mut sink);
+                    assert_eq!(n, ops, "a prefix pass yielded a different entry count");
+                }
+            }
+            core::mem::forget(map);
+            core::mem::forget(path_keys);
+        }
         other => {
             panic!(
                 "EXPANSE_PERF_ARM={other} is not recognised: use `map_get`, `set_contains`, \
-                 `strmap_get` or `strmap_get_counter`"
+                 `strmap_get`, `strmap_get_counter`, `strmap_prefix_scan` or \
+                 `strmap_prefix_scan_sorted`"
             )
         }
     }
@@ -349,5 +412,7 @@ fn main() {
     // dead-code-elimination candidate (methodology rule 14). The line also
     // echoes the resolved workload shape, so the driver records what ran
     // rather than what it meant to ask for.
-    println!("arm={arm} phase={phase} pop={pop} hit_pct={hit_pct} passes={passes} checksum={sink}");
+    println!(
+        "arm={arm} phase={phase} pop={pop} hit_pct={hit_pct} passes={passes} ops={ops} checksum={sink}"
+    );
 }

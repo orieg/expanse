@@ -602,6 +602,19 @@ def run_cell(
     return phases
 
 
+def echoed_ops(shape: str, default: int) -> int:
+    """The `ops=` field of the workload's echo line, or `default` if absent.
+
+    A lookup arm performs one probe per key, so its count is the population; a
+    scan arm yields as many entries as its prefixes cover, which only the
+    workload knows.
+    """
+    for field in shape.split():
+        if field.startswith("ops="):
+            return int(field[len("ops="):])
+    return default
+
+
 def attributed(phases: dict[str, list[dict]], event: str, pmu: str | None = None) -> list[float]:
     """Per-run `probe - build` for one event on one PMU, over the paired runs."""
     out: list[float] = []
@@ -916,7 +929,10 @@ def main() -> int:
                             "id": cell_id(arm, pop, hit_pct),
                             "arm": arm,
                             "population": pop,
-                            "distinct_probes": pop,
+                            # Operations per pass as the workload echoes them:
+                            # the probe count for a lookup arm, the entries
+                            # yielded for a scan arm.
+                            "distinct_probes": echoed_ops(phases["probe"][0]["shape"], pop),
                             "hit_pct": hit_pct,
                             "passes": args.passes,
                             "reuse_factor": args.passes,
@@ -967,6 +983,12 @@ def self_test() -> int:
         "<not supported>,,cycle_activity.stalls_l3_miss,0,0.00,,\n"
     )
     parsed = parse_perf_csv(csv)
+    # A scan arm's echo carries its own operation count; a lookup arm's does
+    # not, and falls back to the population. The echo lines are the workload's.
+    assert echoed_ops(
+        "arm=strmap_prefix_scan phase=probe pop=1000 hit_pct=100 passes=1 ops=247 checksum=9", 1000
+    ) == 247
+    assert echoed_ops("arm=map_get phase=probe pop=1000 hit_pct=100 passes=1 checksum=9", 1000) == 1000
     assert parsed["cycles"]["value"] == 1234567.0, parsed
     assert parsed["cycles"]["pct_running"] == 100.0, parsed
     assert parsed["instructions"]["pct_running"] == 52.31, parsed
