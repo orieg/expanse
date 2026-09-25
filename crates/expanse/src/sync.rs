@@ -12059,6 +12059,50 @@ mod miri_ub_sites {
         assert_eq!(map.len(), TREE_PREFILL + TREE_KEYS);
     }
 
+    /// The count fold (#1144) under an optimistic reader, isolated from any
+    /// write: the counter thread marks a top digit dirty without mutating the
+    /// tree, then counts through `with_locked`, which quiesces the writers
+    /// (there are none) and refolds that digit's subtree, storing branch
+    /// `pop0` words while the reader loads them. The only concurrent stores
+    /// are the fold's.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_fold_reader_counter() {
+        let map = SyncExpanseMap::new();
+        for i in 0..TREE_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        // Setup's own writes leave digits dirty; fold them before the reader starts.
+        assert_eq!(
+            map.with_locked(|m| m.count_range(0..=u64::MAX)),
+            TREE_PREFILL
+        );
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_KEYS {
+                    let d = digit(splitmix64(i % TREE_PREFILL), 8);
+                    map.shared.dirty_digits.mark_digit(d);
+                    // The positive control: the count below folds.
+                    assert!(map.shared.dirty_digits.is_digit_dirty(d));
+                    assert_eq!(
+                        map.with_locked(|m| m.count_range(0..=u64::MAX)),
+                        TREE_PREFILL
+                    );
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..TREE_PREFILL {
+                        assert_eq!(map.get(splitmix64(i)), Some(i));
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), TREE_PREFILL);
+    }
+
     // --- SyncExpanseSet ---------------------------------------------------
 
     #[test]
