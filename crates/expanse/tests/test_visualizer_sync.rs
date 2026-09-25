@@ -802,6 +802,7 @@ fn test_every_data_section_has_provenance() {
         "stock_vs_expanse",
         "modern_architecture",
         "embedded_32bit_benchmarks",
+        "depth_census",
     ] {
         assert!(
             data.get(section).is_some(),
@@ -1474,9 +1475,87 @@ fn test_modern_architecture_matches_source() {
         .collect();
     assert_eq!(
         tags,
-        vec!["0x00..=0x07", "0x10", "0x12", "0xFE", "0xFF"],
+        vec![
+            "0x00..=0x07",
+            "0x10",
+            "0x12",
+            "0x20",
+            "0x22..=0x23",
+            "0x28..=0x2E",
+            "0xFE",
+            "0xFF"
+        ],
         "value_slot tags must match SlotTag in crates/expanse/src/slot.rs"
     );
+    // Each published tag range decodes to the family its mode names, and
+    // every byte that decodes to something other than RawWord is published.
+    {
+        use expanse_trie::slot::SlotTag;
+        let parse = |t: &str| {
+            u8::from_str_radix(t.trim().trim_start_matches("0x"), 16)
+                .unwrap_or_else(|e| panic!("bad tag {t:?}: {e}"))
+        };
+        let mut covered = [false; 256];
+        for m in ma["value_slot"]["modes"]
+            .as_array()
+            .expect("value_slot.modes")
+        {
+            let (tag, mode) = (s(m, "tag"), s(m, "mode"));
+            let (lo, hi) = match tag.split_once("..=") {
+                Some((a, b)) => (parse(a), parse(b)),
+                None => (parse(tag), parse(tag)),
+            };
+            for b in lo..=hi {
+                covered[b as usize] = true;
+                let decoded = SlotTag::from_u8(b);
+                let family_ok = match mode {
+                    "Inline Payload" => decoded.is_raw_inline(),
+                    "ArenaMeta" => decoded == SlotTag::ArenaMeta,
+                    "External" => decoded == SlotTag::External,
+                    "Tombstone" => decoded == SlotTag::Tombstone,
+                    "Raw Word" => decoded == SlotTag::RawWord,
+                    m if m.starts_with("Compressed") => {
+                        decoded.is_compressed_inline()
+                            && format!("{decoded:?}").starts_with(
+                                m.split("..")
+                                    .next()
+                                    .unwrap()
+                                    .trim_end_matches(char::is_numeric),
+                            )
+                    }
+                    other => panic!("unknown value_slot mode {other:?}"),
+                };
+                assert!(
+                    family_ok,
+                    "value_slot mode {mode:?} publishes tag {b:#04x}, which SlotTag::from_u8 \
+                     decodes as {decoded:?}"
+                );
+            }
+        }
+        for b in 0..=255u8 {
+            if SlotTag::from_u8(b) != SlotTag::RawWord {
+                assert!(
+                    covered[b as usize],
+                    "SlotTag::from_u8({b:#04x}) = {:?} is missing from value_slot.modes",
+                    SlotTag::from_u8(b)
+                );
+            }
+        }
+    }
+    // Reserved tags are published as reserved, not as working encodings.
+    for m in ma["value_slot"]["modes"]
+        .as_array()
+        .expect("value_slot.modes")
+    {
+        if matches!(s(m, "mode"), "External" | "Tombstone") {
+            assert!(
+                s(m, "alloc").contains("reserved and unused"),
+                "{} is reserved and unused (slot.rs); got {:?}",
+                s(m, "mode"),
+                s(m, "alloc")
+            );
+        }
+    }
     let modes: Vec<&str> = ma["value_slot"]["modes"]
         .as_array()
         .expect("value_slot.modes")
@@ -1623,6 +1702,7 @@ fn test_html_embedded_datasets_match_json() {
             "EMBEDDED_32BIT_BENCHMARKS_DATA",
             "embedded_32bit_benchmarks",
         ),
+        ("DEPTH_CENSUS", "depth_census"),
     ] {
         let embedded = extract_embedded_literal(&html, var);
         assert_eq!(
@@ -1645,6 +1725,7 @@ fn test_live_loader_covers_every_dataset() {
         "YCSB_BENCHMARKS_DATA",
         "LARGE_VALUE_BENCHMARKS_DATA",
         "EMBEDDED_32BIT_BENCHMARKS_DATA",
+        "DEPTH_CENSUS",
     ] {
         // `const` would make checkLiveDataSource()'s reassignment throw.
         assert!(
@@ -1660,6 +1741,7 @@ fn test_live_loader_covers_every_dataset() {
         "liveData.ycsb_benchmarks",
         "liveData.large_value_benchmarks",
         "liveData.embedded_32bit_benchmarks",
+        "liveData.depth_census",
     ] {
         assert!(
             html.contains(key),
@@ -1974,4 +2056,361 @@ fn test_cache_columns_claimed_only_if_cache_sim_enabled() {
          Either pass --cache-sim=yes in a Callgrind harness or drop the claim.",
         hits.join("\n  ")
     );
+}
+
+/// `1st`, `2nd`, `3rd`, `4th`, ..., `193rd`: the ladder rows name the child
+/// that triggers a promotion, derived from the capacity constant.
+fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+/// The one line of the visualizer's `LADDER_SPEC` whose `type` is `ty`.
+fn ladder_row<'a>(html: &'a str, ty: &str) -> &'a str {
+    let start = html
+        .find("const LADDER_SPEC = [")
+        .expect("docs/architecture_visualizer.html must declare `const LADDER_SPEC = [`");
+    let end = start
+        + html[start..]
+            .find("\n  ];")
+            .expect("LADDER_SPEC must close with `  ];`");
+    let needle = format!("type: \"{ty}\"");
+    let mut rows = html[start..end].lines().filter(|l| l.contains(&needle));
+    let row = rows
+        .next()
+        .unwrap_or_else(|| panic!("LADDER_SPEC has no row with {needle}"));
+    assert!(
+        rows.next().is_none(),
+        "LADDER_SPEC has two rows with {needle}"
+    );
+    row
+}
+
+/// The node ladder the visualizer publishes -- capacities, hysteresis floors
+/// and node sizes -- is derived from the engine's constants and `size_of`,
+/// not from the substrings the check above accepts ("192" anywhere in the
+/// page passed it while the page said BranchU was 2048 B above 180 children).
+#[test]
+fn test_html_ladder_matches_engine() {
+    use core::mem::size_of;
+    use expanse_trie::leaf::cap_class;
+    use expanse_trie::node::{
+        BranchB, BranchHeader, BranchL3, BranchL7, BranchU, LeafBitmap1, LeafBitmapL,
+    };
+    use expanse_trie::types::IMMED_PAYLOAD_BYTES;
+
+    let html = load_html();
+    let edge = size_of::<Edge>();
+    let header = size_of::<BranchHeader>();
+    // A map immediate keeps its keys in the edge's aux bytes: the edge minus
+    // word 0 and the one-byte tag (node.rs pins aux at 8, tag at 15).
+    let aux = edge - size_of::<u64>() - 1;
+    let t = BITMAP_TO_UNCOMPRESSED_THRESHOLD;
+
+    let expect = |ty: &str, parts: &[String]| {
+        let row = ladder_row(&html, ty);
+        for part in parts {
+            assert!(
+                row.contains(part.as_str()),
+                "LADDER_SPEC row {ty:?} must contain {part:?} (derived from the engine \
+                 constants and size_of), got:\n  {}",
+                row.trim()
+            );
+        }
+    };
+
+    expect(
+        "Immediate (Set)",
+        &[
+            format!("1..{IMMED_PAYLOAD_BYTES} keys ({IMMED_PAYLOAD_BYTES} / kb)"),
+            format!("{edge} B edge, 0 B heap"),
+        ],
+    );
+    expect(
+        "Immediate (Map)",
+        &[
+            format!("1..{aux} keys ({aux} / kb)"),
+            format!("{edge} B edge; 2+ keys add a value array"),
+        ],
+    );
+    expect(
+        "Root-Level Leaf",
+        &[
+            format!("1..{ROOT_LEAF_CAP} keys"),
+            format!(
+                "Set {}..{} B / Map {}..{} B",
+                8 * cap_class(1),
+                8 * cap_class(ROOT_LEAF_CAP),
+                16 * cap_class(1),
+                16 * cap_class(ROOT_LEAF_CAP)
+            ),
+            format!("Level-8 tree (pop = {})", ROOT_LEAF_CAP + 1),
+        ],
+    );
+    expect(
+        "Linear Leaf 1",
+        &[
+            format!(
+                "Set {}..{LEAF1_CAP} / Map {}..{LEAF1_CAP} keys (stays down to {IMMED_PAYLOAD_BYTES} / {aux})",
+                IMMED_PAYLOAD_BYTES + 1,
+                aux + 1
+            ),
+            format!("LeafBitmap1 / LeafBitmapL (pop = {})", LEAF1_CAP + 1),
+        ],
+    );
+    expect(
+        "Linear Leaf 2..7",
+        &[
+            format!("(immediate cap + 1)..{LEAF_CAP} keys"),
+            format!("Branch (pop = {})", LEAF_CAP + 1),
+        ],
+    );
+    expect(
+        "Bitmap Leaf (B1/L)",
+        &[
+            format!(
+                "{}..{BRANCH_FANOUT} keys (stays down to {LEAFB1_DOWN})",
+                LEAF1_CAP + 1
+            ),
+            format!(
+                "Set {} B / Map {} B + value subarrays",
+                size_of::<LeafBitmap1>(),
+                size_of::<LeafBitmapL>()
+            ),
+            format!("LinearLeaf (pop ≤ {})", LEAFB1_DOWN - 1),
+        ],
+    );
+    expect(
+        "Branch L3",
+        &[
+            format!("1..{BRANCH_L3_CAP} children"),
+            format!(
+                "{} B ({header} B header + {BRANCH_L3_CAP} edges)",
+                size_of::<BranchL3>()
+            ),
+            format!("BranchL7 ({} child)", ordinal(BRANCH_L3_CAP + 1)),
+        ],
+    );
+    expect(
+        "Branch L7",
+        &[
+            format!(
+                "{}..{BRANCH_L7_CAP} children (stays down to {BRANCH_L3_CAP})",
+                BRANCH_L3_CAP + 1
+            ),
+            format!(
+                "{} B ({header} B header + {BRANCH_L7_CAP} edges)",
+                size_of::<BranchL7>()
+            ),
+            format!("BranchB ({} child)", ordinal(BRANCH_L7_CAP + 1)),
+            format!("BranchL3 (num ≤ {})", BRANCH_L3_CAP - 1),
+        ],
+    );
+    expect(
+        "Branch B",
+        &[
+            format!(
+                "{}..{t} children (stays down to {})",
+                BRANCH_L7_CAP + 1,
+                BRANCHB_TO_L7_DOWN + 1
+            ),
+            format!("{} B node + child edge subarrays", size_of::<BranchB>()),
+            format!("BranchU ({} child)", ordinal(t + 1)),
+            format!("BranchL7 (num ≤ {BRANCHB_TO_L7_DOWN})"),
+        ],
+    );
+    expect(
+        "Branch U",
+        &[
+            format!(
+                "{}..{BRANCH_FANOUT} children (stays down to {})",
+                t + 1,
+                BRANCHU_TO_B_DOWN + 1
+            ),
+            format!(
+                "{} B ({} B header + {BRANCH_FANOUT} x {edge} B edges)",
+                size_of::<BranchU>(),
+                size_of::<BranchU>() - BRANCH_FANOUT * edge
+            ),
+            format!("BranchB (num ≤ {BRANCHU_TO_B_DOWN})"),
+        ],
+    );
+
+    // The DAG badges and the node inspector repeat the same facts.
+    for part in [
+        format!("Fanout {}..{t}", BRANCH_L7_CAP + 1),
+        format!("Fanout > {t}"),
+        format!("{} B flat table", size_of::<BranchU>()),
+        format!(
+            "{} Bytes (64 B header line + {BRANCH_FANOUT} x {edge}-byte Edges)",
+            size_of::<BranchU>()
+        ),
+        format!("{} B node (two cache lines", size_of::<BranchB>()),
+        format!(
+            "Set: LeafBitmap1, {} B (one line); Map: LeafBitmapL, {} B (two lines)",
+            size_of::<LeafBitmap1>(),
+            size_of::<LeafBitmapL>()
+        ),
+        "offset 15: tag (8 bits".to_string(),
+        format!("{edge}-byte Edge: pointer/immediate word + {aux}-byte aux + 8-bit type tag"),
+    ] {
+        assert!(
+            html.contains(&part),
+            "docs/architecture_visualizer.html must contain {part:?} (derived from the \
+             engine constants and size_of)"
+        );
+    }
+    assert_eq!(
+        edge - 1,
+        15,
+        "the inspector's `offset 15: tag` assumes a 16-byte Edge with the tag last"
+    );
+}
+
+/// Descriptions the engine contradicts. Each entry names what the code
+/// actually does; a phrase is allowed back only when the code changes to
+/// make it true.
+#[test]
+fn test_html_has_no_contradicted_descriptions() {
+    let html = load_html();
+    let json = fs::read_to_string(repo_root().join("docs").join("visualizer_data.json"))
+        .expect("read docs/visualizer_data.json");
+
+    // ISA names the page may only use if crates/expanse/src uses them.
+    let src_dir = repo_root().join("crates").join("expanse").join("src");
+    let mut src = String::new();
+    for entry in fs::read_dir(&src_dir).expect("read crates/expanse/src") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().is_some_and(|e| e == "rs") {
+            src.push_str(&fs::read_to_string(&path).expect("read source file"));
+        }
+    }
+    let src_lower = src.to_lowercase();
+    for (term, needle) in [("AVX2", "avx2"), ("_pext_u64", "_pext_u64")] {
+        if !src_lower.contains(needle) {
+            assert!(
+                !html.contains(term),
+                "docs/architecture_visualizer.html names {term:?}, which crates/expanse/src \
+                 never uses (the kernels are SSE2 / NEON; BMI2 appears only as PDEP in select)"
+            );
+        }
+    }
+
+    for (phrase, why) in [
+        (
+            "3-bit",
+            "the edge tag is a full byte at offset 15 (node.rs)",
+        ),
+        (
+            "tag() & 0x07",
+            "dispatch matches the whole tag byte; leaf tags run 0x05..0x0B",
+        ),
+        (
+            "2048 B",
+            "BranchU is 4160 B: a 64 B header line + 256 x 16 B edges",
+        ),
+        (
+            "8..180",
+            "BranchB holds up to BITMAP_TO_UNCOMPRESSED_THRESHOLD = 192 children",
+        ),
+        ("> 180", "BranchB converts to BranchU on the 193rd child"),
+        (
+            "8 Levels",
+            "depth follows the key spread; see the engine census",
+        ),
+        (
+            "8-level trie depth",
+            "depth follows the key spread; see the engine census",
+        ),
+        (
+            "mark-compact",
+            "compact_with_index is a two-phase copy into a fresh arena",
+        ),
+        (
+            "seq.load(Release)",
+            "a load cannot have Release ordering; validate() fences then loads",
+        ),
+        (
+            "entire trie snapshot",
+            "readers validate per node, hand over hand",
+        ),
+    ] {
+        assert!(
+            !html.contains(phrase),
+            "docs/architecture_visualizer.html contains {phrase:?}: {why}"
+        );
+    }
+    // AGENTS.md section 2.2: the protocol is blocking optimistic lock
+    // coupling, never lock-free or wait-free.
+    for text in [html.to_lowercase(), json.to_lowercase()] {
+        for phrase in [
+            "wait-free",
+            "lock-free &",
+            "lock-free read",
+            "lock-free traversal",
+            "zero cas",
+        ] {
+            assert!(
+                !text.contains(phrase),
+                "the visualizer describes the read path as {phrase:?}; AGENTS.md section 2.2: \
+                 readers spin on an odd version and fall back to the writer mutex after \
+                 MAX_RETRIES"
+            );
+        }
+    }
+}
+
+/// The depth census is recomputed from the engine: for each population and
+/// distribution, the slot levels that hold at least one branch node.
+#[test]
+fn test_depth_census_matches_engine() {
+    let data = load_json();
+    let census = &data["depth_census"];
+    assert_eq!(
+        s(census, "flavor"),
+        "set",
+        "the census is taken on ExpanseSet"
+    );
+    let rows = census["rows"].as_array().expect("depth_census.rows");
+    let pops: Vec<u64> = rows
+        .iter()
+        .map(|r| r["pop"].as_u64().expect("pop"))
+        .collect();
+    assert_eq!(
+        pops,
+        vec![1_000, 10_000, 100_000, 1_000_000],
+        "the census publishes the populations the depth cards show"
+    );
+    for row in rows {
+        let pop = row["pop"].as_u64().expect("pop") as usize;
+        for dist in ["random", "sequential", "clustered"] {
+            let mut set = ExpanseSet::new();
+            for k in budget_keys(dist, pop) {
+                set.insert(k);
+            }
+            let hist = set.stats().branch_depth_histogram;
+            let engine: Vec<u64> = (1..hist.len())
+                .rev()
+                .filter(|&level| hist[level] > 0)
+                .map(|level| level as u64)
+                .collect();
+            let published: Vec<u64> = row[dist]
+                .as_array()
+                .unwrap_or_else(|| panic!("depth_census pop {pop} has no {dist} list"))
+                .iter()
+                .map(|v| v.as_u64().expect("level"))
+                .collect();
+            assert_eq!(
+                published, engine,
+                "depth_census pop {pop} {dist}: published branch slot levels {published:?}, \
+                 the engine builds branches at {engine:?} (ExpanseStats::branch_depth_histogram)"
+            );
+        }
+    }
 }
