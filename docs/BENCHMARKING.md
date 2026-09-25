@@ -1424,6 +1424,18 @@ reported `<not supported>`. A host where `perf` is absent, or where the kernel
 refuses to open a counter, stops the run with the cause and the fix named — it
 never produces a report that reads as complete.
 
+Availability alone does not make an event trustworthy inside the set. `perf`
+can return a count of 0 at 100% running, with no `<not counted>` marker, for
+an event it programmed beside others: on the reference host's P-cores
+`cycle_activity.stalls_l3_miss` does so once five or more other
+general-purpose-counter events share the PMU, whatever the order. So after the
+per-event probe the driver counts the whole available set once over the same
+probe, and an event that counted on its own but reads exactly 0 together is
+moved to the unavailable list with both counts named; count it in a smaller
+`--events` set. During the sweep, a counter whose raw count is 0 in every run of
+both phases is reported as not counted, with no point and no interval, never as
+a measured 0.
+
 The driver only ever counts a process it starts itself. That is the per-process
 path, which `kernel.perf_event_paranoid = 1` permits; the stricter gate governs
 system-wide counting, which this does not do, so a refused counter and a raised

@@ -430,6 +430,63 @@ def _pin_failed(pin: list[str], pmu: str | None, bad: list[str]) -> Preflight:
     )
 
 
+def coscheduled_zeros(
+    alone: dict[str, float], together: dict[str, dict], pmu: str | None
+) -> list[str]:
+    """Events that counted on their own but read exactly 0 counted together.
+
+    `alone` maps each event to its standalone count over the probe; `together`
+    is the parsed CSV of one run counting all of them. Only a non-zero
+    standalone count makes a joint 0 evidence of a defect: an event that reads
+    0 on its own too gives no signal either way and is left alone.
+    """
+    out = []
+    for event, solo in alone.items():
+        row = row_for(together, event, pmu)
+        value = None if row is None else row.get("value")
+        if solo > 0 and value is not None and float(value) == 0.0:
+            out.append(event)
+    return out
+
+
+def zero_in_every_run(phases: dict[str, list[dict]], event: str, pmu: str | None = None) -> bool:
+    """Whether the raw count was exactly 0 in every run of both phases.
+
+    Over a whole process, a hardware event that counted nothing in any run is
+    a counter that did not count, not a measurement of zero: the build phase
+    alone runs the full construction. Reported as not counted, never as 0.
+    """
+    seen = []
+    for phase in phases.values():
+        for r in phase:
+            row = row_for(r["counters"], event, pmu)
+            if row is None or row.get("value") is None:
+                return False
+            seen.append(float(row["value"]))
+    return bool(seen) and all(v == 0.0 for v in seen)
+
+
+def counter_stat(
+    phases: dict[str, list[dict]], event: str, pmu: str | None, samples: list[float]
+) -> dict:
+    """The summary one counter publishes for one cell.
+
+    A counter whose raw count was 0 in every run of both phases publishes no
+    point and no interval: it is reported as not counted (AGENTS.md section
+    8.1), never as a measured 0 with a degenerate interval.
+    """
+    if zero_in_every_run(phases, event, pmu):
+        return {
+            "n": len(samples),
+            "point": None,
+            "ci_lower": None,
+            "ci_upper": None,
+            "ci_method": None,
+            "status": "not counted: raw count 0 in every run of both phases",
+        }
+    return summarise(samples)
+
+
 def preflight(
     root: Path, events: list[str], pmu_override: str
 ) -> tuple[str | None, str, list[str], list[str], list[dict[str, str]]]:
@@ -488,6 +545,7 @@ def preflight(
     # globally unavailable because a sibling PMU said `<not supported>`.
     available: list[str] = []
     unavailable: list[dict[str, str]] = []
+    alone: dict[str, float] = {}
     for event in events:
         rc, csv_text, _out, err = run_perf([event], [str(workload)], probe_env, pin=pin)
         parsed = parse_perf_csv(csv_text)
@@ -499,6 +557,7 @@ def preflight(
                 if bad:
                     raise _pin_failed(pin, pmu, bad)
             available.append(event)
+            alone[event] = float(entry["value"])
             continue
         if rc != 0:
             reason = "perf refused the event (unknown on this microarchitecture)"
@@ -534,6 +593,38 @@ def preflight(
                 "perf_stderr": err.strip()[:200],
             }
         )
+    # The co-scheduling check. An event can count on its own and still read 0
+    # once the whole set shares the PMU: on the reference host's P-cores
+    # `cycle_activity.stalls_l3_miss` reads exactly 0, at 100% running and with
+    # no `<not counted>` marker, as soon as five or more other general-purpose
+    # counter events are programmed beside it, whatever the order. perf reports
+    # that 0 as a count, so nothing downstream could tell it from a real one.
+    # Counting the set once over the same probe and comparing each event with
+    # its own standalone count is what can.
+    if len(available) > 1:
+        rc, csv_text, _out, err = run_perf(available, [str(workload)], probe_env, pin=pin)
+        together = parse_perf_csv(csv_text)
+        if rc != 0:
+            raise Preflight(
+                f"perf exited {rc} counting the available set together "
+                f"({', '.join(available)}) although each event opened on its own. "
+                f"No counters were collected.\n  stderr: {err.strip()[:300]}"
+            )
+        for event in coscheduled_zeros(alone, together, pmu):
+            available.remove(event)
+            unavailable.append(
+                {
+                    "event": event,
+                    "pmu": str(pmu) if pmu else "(single core PMU)",
+                    "reason": (
+                        f"reads 0 when counted together with the rest of this event set"
+                        f"{f' on `{pmu}`' if pmu else ''}, although counted alone over the same "
+                        f"probe it read {alone[event]:,.0f}; perf reports that 0 as a count, so it "
+                        "is withheld rather than published. Count it in a smaller `--events` set"
+                    ),
+                    "perf_stderr": err.strip()[:200],
+                }
+            )
     if not available:
         where = f" on the `{pmu}` PMU" if pmu else ""
         raise Preflight(
@@ -805,6 +896,115 @@ def _git_commit(root: Path) -> str:
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
 
+# The default event set counted together on the reference host (i9-12900F,
+# cpu_core, `taskset -c 0-15`, perf 6.8.12), transcribed from `perf stat -x,`
+# over `EXPANSE_PERF_ARM=strmap_prefix_scan EXPANSE_PERF_POP=1000000
+# EXPANSE_PERF_PASSES=20`. `cycle_activity.stalls_l3_miss` reads 0 at 100%
+# running with no `<not counted>` marker, while `mem_load_retired.l3_miss`
+# counts in the same run; counted alone the stall event read 344,272,019.
+_COSCHEDULED_ZERO_CSV = (
+    "# started on Fri Sep 25 12:35:33 2026\n"
+    "\n"
+    "<not counted>,,cpu_atom/cycles/,0,0.00,,\n"
+    "2390535771,,cpu_core/cycles/,490736250,100.00,,\n"
+    "<not counted>,,cpu_atom/instructions/,0,0.00,,\n"
+    "4924971125,,cpu_core/instructions/,490736250,100.00,2.06,insn per cycle\n"
+    "<not supported>,,cpu_atom/L1-dcache-load-misses/,0,100.00,,\n"
+    "23212302,,cpu_core/L1-dcache-load-misses/,490736250,100.00,,\n"
+    "<not counted>,,cpu_atom/LLC-load-misses/,0,0.00,,\n"
+    "1713438,,cpu_core/LLC-load-misses/,490736250,100.00,,\n"
+    "<not counted>,,cpu_atom/dTLB-load-misses/,0,0.00,,\n"
+    "5598287,,cpu_core/dTLB-load-misses/,490736250,100.00,,\n"
+    "<not counted>,,cpu_atom/branch-misses/,0,0.00,,\n"
+    "5644711,,cpu_core/branch-misses/,490736250,100.00,,\n"
+    "0,,cpu_core/cycle_activity.stalls_l3_miss/,490736250,100.00,,\n"
+    "1563848,,cpu_core/mem_load_retired.l3_miss/,490736250,100.00,,\n"
+    "<not counted>,,cpu_atom/br_misp_retired.all_branches/,0,0.00,,\n"
+    "5644711,,cpu_core/br_misp_retired.all_branches/,490736250,100.00,,\n"
+)
+
+
+def _self_test_coscheduled_zero() -> None:
+    """`preflight` withholds an event that counts alone and reads 0 in the set.
+
+    Drives `preflight` itself, with `run_perf` and the host probes stubbed, so
+    the test fails if the call site stops making the check -- not only if the
+    helper changes (a helper-level assertion stays green when its caller drops
+    the call).
+    """
+    solo = {
+        e: row
+        for e, row in (
+            ("cycles", 2390535771), ("instructions", 4924971125),
+            ("L1-dcache-load-misses", 23212302), ("LLC-load-misses", 1713438),
+            ("dTLB-load-misses", 5598287), ("branch-misses", 5644711),
+            ("cycle_activity.stalls_l3_miss", 344272019),
+            ("mem_load_retired.l3_miss", 1551203), ("br_misp_retired.all_branches", 5644711),
+        )
+    }
+
+    def fake_run_perf(events, cmd, env, pin=None):
+        if len(events) == 1:
+            e = events[0]
+            csv = (f"<not counted>,,cpu_atom/{e}/,0,0.00,,\n"
+                   f"{solo[e]},,cpu_core/{e}/,1000000,100.00,,\n")
+            return 0, csv, "", ""
+        return 0, _COSCHEDULED_ZERO_CSV, "", ""
+
+    g = globals()
+    saved = {k: g[k] for k in ("run_perf", "pin_for", "paranoid_level")}
+    saved_system, saved_which = platform.system, shutil.which
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / WORKLOAD_REL).parent.mkdir(parents=True)
+        (root / WORKLOAD_REL).write_text("")
+        try:
+            g["run_perf"] = fake_run_perf
+            g["pin_for"] = lambda pmu: ["taskset", "-c", "0-15"]
+            g["paranoid_level"] = lambda: "1"
+            platform.system = lambda: "Linux"
+            shutil.which = lambda name: f"/usr/bin/{name}"
+            pmu, _why, _pin, available, unavailable = preflight(
+                root, list(DEFAULT_EVENTS), "cpu_core"
+            )
+        finally:
+            g.update(saved)
+            platform.system, shutil.which = saved_system, saved_which
+    assert pmu == "cpu_core", pmu
+    withheld = {u["event"]: u for u in unavailable}
+    assert set(withheld) == {"cycle_activity.stalls_l3_miss"}, withheld
+    assert "reads 0 when counted together" in withheld["cycle_activity.stalls_l3_miss"]["reason"]
+    assert "344,272,019" in withheld["cycle_activity.stalls_l3_miss"]["reason"]
+    assert "cycle_activity.stalls_l3_miss" not in available, available
+    assert len(available) == len(DEFAULT_EVENTS) - 1, available
+
+    # The helper's own boundary: a joint 0 is evidence only against a non-zero
+    # standalone count; an event that also reads 0 alone gives no signal.
+    together = parse_perf_csv(_COSCHEDULED_ZERO_CSV)
+    assert coscheduled_zeros({"cycle_activity.stalls_l3_miss": 0.0}, together, "cpu_core") == []
+    assert coscheduled_zeros({"cycles": 5.0}, together, "cpu_core") == []
+
+
+def _self_test_zero_in_every_run() -> None:
+    """A raw count of 0 in every run of both phases is not counted, not 0."""
+    def run(v):
+        return {"counters": {"cycle_activity.stalls_l3_miss": {"value": v, "pct_running": 100.0}}}
+    dead = {"build": [run(0.0)] * 3, "probe": [run(0.0)] * 3}
+    live = {"build": [run(0.0)] * 3, "probe": [run(0.0), run(0.0), run(7.0)]}
+    assert zero_in_every_run(dead, "cycle_activity.stalls_l3_miss")
+    assert not zero_in_every_run(live, "cycle_activity.stalls_l3_miss")
+    stat = counter_stat(dead, "cycle_activity.stalls_l3_miss", None, [0.0, 0.0, 0.0])
+    assert stat["point"] is None and stat["ci_lower"] is None, stat
+    assert stat["status"].startswith("not counted"), stat
+    kept = counter_stat(live, "cycle_activity.stalls_l3_miss", None, [0.0, 0.0, 7.0])
+    assert kept["status"] != stat["status"], kept
+    # The rendered cell shows the status, not a 0 and not an interval.
+    rendered = "\n".join(render({"counters_unavailable": [], "cells": [{
+        "id": "a/pop=1/hit=100", "distinct_probes": 1, "passes": 1, "hit_pct": 100,
+        "counters": {"cycle_activity.stalls_l3_miss": {**stat, "min_pct_running": 100.0}},
+    }]}))
+    assert "not counted: raw count 0" in rendered and "| 0 |" not in rendered, rendered
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(
@@ -905,7 +1105,7 @@ def main() -> int:
                     counters = {}
                     for event in available:
                         samples = attributed(phases, event, pmu)
-                        stat = summarise(samples)
+                        stat = counter_stat(phases, event, pmu, samples)
                         stat["min_pct_running"] = min_pct_running(phases, event, pmu)
                         stat["pmu"] = pmu
                         stat["perf_event_name"] = perf_event_name(phases, event, pmu)
@@ -1146,6 +1346,9 @@ def self_test() -> int:
 
     empty = "\n".join(render({"counters_unavailable": [], "cells": []}))
     assert "Every requested counter was available" in empty, empty
+
+    _self_test_coscheduled_zero()
+    _self_test_zero_in_every_run()
 
     assert MIN_RUNS >= 3, "BCa needs a jackknife"
     assert set(VENDOR_EVENTS) <= set(DEFAULT_EVENTS)
