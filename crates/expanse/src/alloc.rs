@@ -1002,7 +1002,13 @@ impl NodeAlloc {
             // but pinned readers may — reclamation waits out the grace
             // period. The alignment travels with the pointer, because the
             // collector frees it later and elsewhere.
-            d.collector.retire(ptr, bytes, align);
+            // SAFETY: this function's contract makes `ptr` an unfreed
+            // `alloc_raw(bytes, align)` block that nothing uses after this
+            // call; a deferred tree allocates only from the global allocator
+            // or the collector's freelists (`defer_to` asserts no slab pages),
+            // both with exactly `(bytes, align)`. The caller has unlinked it,
+            // so only readers pinned before the unlink can still hold it.
+            unsafe { d.collector.retire(ptr, bytes, align) };
             return;
         }
 

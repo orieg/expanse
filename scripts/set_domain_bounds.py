@@ -15,7 +15,7 @@ def escape_encode_bytes(data: bytes) -> bytes:
     """Order-preserving escape encoding for arbitrary byte slices into ExpanseStrMap.
 
     In ExpanseStrMap (strmap.rs:218, 233), 8-byte chunks terminate when a 0x00
-    byte is encountered. In release builds, strmap.rs:673 debug_assert! is
+    byte is encountered. In release builds, strmap.rs:685 debug_assert! is
     compiled out, so embedded 0x00 bytes silently truncate the key.
 
     To support arbitrary byte slices (including 16-byte binary UUIDs, where
