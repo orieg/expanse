@@ -253,6 +253,26 @@ Ratio = `cursor_prefix` ns ÷ `cursor_at_or_after` + per-key `starts_with` ns, b
 | 1,000,000 | generator | 161,445 | 173,789 | 0.9263 [0.9229, 0.9293] |
 | 1,000,000 | sorted | 57,177 | 71,336 | 0.7989 [0.7947, 0.8017] |
 
+### Diagnostic D1: the 1M prefix scan's build-order gap (workload: example_perf_point_lookup)
+
+Pre-registered in `METHODOLOGY.md` Amendment A3. Counts per yielded entry, `probe − build` over 10 paired runs on the `cpu_core` PMU, BCa 95% interval over the runs (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), c3e54ec2).
+
+| Counter | generator build | sorted build |
+|---|---|---|
+| `cycles` | 158.4357 [158.0697, 159.0592] | 72.7027 [72.5676, 72.8163] |
+| `instructions` | 284.9464 [284.9418, 284.9496] | 284.7763 [284.7621, 284.7821] |
+| `L1-dcache-load-misses` | 1.9109 [1.9092, 1.9129] | 0.2349 [0.2306, 0.2379] |
+| `LLC-load-misses` | 0.2507 [0.2486, 0.2529] | -0.0000 [-0.0012, 0.0004] |
+| `dTLB-load-misses` | 0.8203 [0.8193, 0.8216] | 0.0097 [0.0093, 0.0101] |
+| `branch-misses` | 0.4877 [0.4871, 0.4884] | 0.4923 [0.4915, 0.4931] |
+| `cycle_activity.stalls_l3_miss` | 0.0000 [0.0000, 0.0000] | 0.0000 [0.0000, 0.0000] |
+| `mem_load_retired.l3_miss` | 0.2360 [0.2340, 0.2380] | -0.0000 [-0.0010, 0.0003] |
+
+- **D1a** instructions per entry differ by 0.06% — **PASS** (tolerance 2%).
+- **D1b** generator interval above the sorted one for `mem_load_retired.l3_miss`, `dTLB-load-misses` — **PASS**.
+- **D1c** **NOT EVALUABLE** in the pre-registered run: `cycle_activity.stalls_l3_miss` read 0 in both builds inside the driver's default event set, while `mem_load_retired.l3_miss` counted in the same runs.
+- *Post hoc, not the pre-registered verdict:* counting only `cycles`, `instructions` and `cycle_activity.stalls_l3_miss`, same arms and parameters (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), c3e54ec2): L3-miss stalls 52.5390 [52.1232, 53.0671] vs 0.0359 [0.0102, 0.0705] cycles per entry, 61.1% of the cycle gap. `INTERMEDIATE`: the event set was changed after the pre-registered run read zero.
+
 ### Live heap (workload: patricia_memory)
 
 Requested / usable bytes per key (`malloc_usable_size`); exact counts. Usable size excludes the allocator's per-chunk header, so neither column is the full resident footprint of small nodes. Orders: `u64` generator / shuffled, paths generator / sorted.

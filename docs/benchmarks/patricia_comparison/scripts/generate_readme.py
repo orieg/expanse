@@ -230,6 +230,86 @@ def surface_table(scan: dict) -> list[str]:
     return lines + [""]
 
 
+def d1_section() -> list[str]:
+    """Diagnostic D1 (METHODOLOGY.md Amendment A3), derived from its counter artifacts.
+
+    Rendered only when the pre-registered artifact exists. Every verdict below is
+    computed here from the per-entry counts and their intervals; none is stamped.
+    """
+    pre_path = RESULTS / "counters_prefix_scan_d1.json"
+    if not pre_path.exists():
+        return []
+    sup_path = RESULTS / "counters_prefix_scan_d1_stalls.json"
+
+    def per_entry(doc: dict) -> dict:
+        out = {}
+        for c in doc["cells"]:
+            n = c["distinct_probes"] * c["passes"]
+            out[c["arm"]] = {e: {"point": st["point"] / n,
+                                 "lo": None if st["ci_lower"] is None else st["ci_lower"] / n,
+                                 "hi": None if st["ci_upper"] is None else st["ci_upper"] / n,
+                                 "method": st.get("ci_method")}
+                             for e, st in c["counters"].items()}
+        return out
+
+    pre_doc = json.loads(pre_path.read_text())
+    pre = per_entry(pre_doc)
+    gen, srt = pre["strmap_prefix_scan"], pre["strmap_prefix_scan_sorted"]
+    prov = pre_doc["provenance"]
+    tag = f"(measured: {prov['host_description']}, {prov['commit'][:8]})"
+
+    def cell(v: dict) -> str:
+        if v["lo"] is None:
+            return f"{v['point']:.4f}"
+        return f"{v['point']:.4f} [{v['lo']:.4f}, {v['hi']:.4f}]"
+
+    lines = ["### Diagnostic D1: the 1M prefix scan's build-order gap (workload: example_perf_point_lookup)", "",
+             "Pre-registered in `METHODOLOGY.md` Amendment A3. Counts per yielded entry, `probe − build` over "
+             f"{pre_doc['cells'][0]['counters']['cycles']['n']} paired runs on the "
+             f"`{pre_doc['pmu']['selected']}` PMU, BCa 95% interval over the runs {tag}.", "",
+             "| Counter | generator build | sorted build |", "|---|---|---|"]
+    for e in gen:
+        if e == "br_misp_retired.all_branches":
+            continue
+        lines.append(f"| `{e}` | {cell(gen[e])} | {cell(srt[e])} |")
+    lines.append("")
+
+    d1a = abs(gen["instructions"]["point"] - srt["instructions"]["point"]) / srt["instructions"]["point"]
+    above = [e for e in ("mem_load_retired.l3_miss", "dTLB-load-misses")
+             if gen[e]["lo"] is not None and srt[e]["hi"] is not None and gen[e]["lo"] > srt[e]["hi"]]
+    st_g, st_s = gen["cycle_activity.stalls_l3_miss"], srt["cycle_activity.stalls_l3_miss"]
+    d1c_dead = st_g["point"] == 0 and st_s["point"] == 0
+    lines += [
+        f"- **D1a** instructions per entry differ by {d1a * 100:.2f}% — "
+        + ("**PASS** (tolerance 2%)." if d1a <= 0.02 else "**FALSIFIED** (tolerance 2%)."),
+        "- **D1b** generator interval above the sorted one for "
+        + (", ".join(f"`{e}`" for e in above) + " — **PASS**." if above else "neither counter — **FALSIFIED**."),
+    ]
+    if d1c_dead:
+        lines.append("- **D1c** **NOT EVALUABLE** in the pre-registered run: `cycle_activity.stalls_l3_miss` "
+                     "read 0 in both builds inside the driver's default event set, while "
+                     "`mem_load_retired.l3_miss` counted in the same runs.")
+    else:
+        share = (st_g["point"] - st_s["point"]) / (gen["cycles"]["point"] - srt["cycles"]["point"])
+        lines.append(f"- **D1c** L3-miss stalls carry {share * 100:.1f}% of the cycle gap — "
+                     + ("**PASS** (at least 50%)." if share >= 0.5 else "**FALSIFIED** (at least 50%)."))
+    if sup_path.exists():
+        sup_doc = json.loads(sup_path.read_text())
+        sup = per_entry(sup_doc)
+        g, s_ = sup["strmap_prefix_scan"], sup["strmap_prefix_scan_sorted"]
+        share = ((g["cycle_activity.stalls_l3_miss"]["point"] - s_["cycle_activity.stalls_l3_miss"]["point"])
+                 / (g["cycles"]["point"] - s_["cycles"]["point"]))
+        stag = f"(measured: {sup_doc['provenance']['host_description']}, {sup_doc['provenance']['commit'][:8]})"
+        lines += [
+            f"- *Post hoc, not the pre-registered verdict:* counting only `cycles`, `instructions` and "
+            f"`cycle_activity.stalls_l3_miss`, same arms and parameters {stag}: L3-miss stalls "
+            f"{cell(g['cycle_activity.stalls_l3_miss'])} vs {cell(s_['cycle_activity.stalls_l3_miss'])} "
+            f"cycles per entry, {share * 100:.1f}% of the cycle gap. `INTERMEDIATE`: the event set was "
+            f"changed after the pre-registered run read zero.",
+        ]
+    return lines + [""]
+
+
 def memory_table(mem: dict) -> list[str]:
     arms = ("expanse",) + TWINS
     lines = ["### Live heap (workload: patricia_memory)", "",
@@ -323,6 +403,7 @@ def render() -> str:
                      lambda r: f"{r['operation']} {r['distribution']} / {r['order']}",
                      lambda t: [f"ratio_expanse_over_{t}"]),
         *surface_table(scan),
+        *d1_section(),
         *memory_table(mem),
     ]
     return "\n".join(md).rstrip() + "\n"
