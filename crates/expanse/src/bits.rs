@@ -1224,10 +1224,12 @@ pub(crate) mod shared_bitmap {
         }
     }
 
-    /// [`Bitmap256::prev_set`].
+    /// [`Bitmap256::prev_set`]. Only the concurrent map's ordered reads call
+    /// it, so it exists with them.
     ///
     /// # Safety
     /// As [`word`].
+    #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) unsafe fn prev_set<const OCC: bool>(p: *const Bitmap256, from: u8) -> Option<u8> {
         if !OCC {
