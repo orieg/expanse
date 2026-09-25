@@ -174,24 +174,38 @@
       "check": "race",
       "expect": "ub",
       "error": "Data race detected",
-      "frame": "bits::shared_bitmap::store_word",
-      "note": "the ordered walks in sync_nav read BranchB and bitmap-leaf bitmaps through Bitmap256's &self methods (next_set, prev_set, subexpanse_rank; the seed-0 race's read is bits.rs subexpanse_rank) where the point reads use bits::shared_bitmap (#1142)"
+      "frame": "sync::SyncExpanseMap::olc_insert_map",
+      "note": "the seqlock race the point-read workload map_tree_reader_writer records at the same frame: a writer's plain store racing a reader's plain load (#1086 class 1); the ordered walks' bitmap reads go through bits::shared_bitmap"
     },
     {
       "test": "map_ordered_tree_reader_writer",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "which is strongly protected",
-      "frame": "bits::shared_bitmap::store_word",
-      "note": "the ordered walks in sync_nav read BranchB and bitmap-leaf bitmaps through Bitmap256's &self methods (next_set, prev_set, subexpanse_rank; the seed-0 race's read is bits.rs subexpanse_rank) where the point reads use bits::shared_bitmap (#1142)"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_ordered_tree_reader_writer",
       "check": "alias-tb",
-      "expect": "ub",
-      "error": "is forbidden",
-      "frame": "bits::shared_bitmap::store_word",
-      "note": "the ordered walks in sync_nav read BranchB and bitmap-leaf bitmaps through Bitmap256's &self methods (next_set, prev_set, subexpanse_rank; the seed-0 race's read is bits.rs subexpanse_rank) where the point reads use bits::shared_bitmap (#1142)"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_fold_reader_counter",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; the fold's pop0 updates are plain read-modify-writes (node.rs Edge::set_pop0_at) made while optimistic readers run, so this is an observation at this budget, not evidence the class is absent (#1144)"
+    },
+    {
+      "test": "map_fold_reader_counter",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_fold_reader_counter",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "set_tree_two_writers",

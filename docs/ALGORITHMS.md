@@ -14,12 +14,12 @@ Every lookup, mutation, and navigation operation proceeds through a 4-stage pipe
 [ Incoming 64-bit Key & Level ]
                │
                ▼
-   [ 1. Tag & Pointer Decode ] ── (3-bit tag in Edge word 1, OCC SeqLock acquire fence)
+   [ 1. Tag & Pointer Decode ] ── (1-byte tag in Edge word 1, OCC SeqLock acquire fence)
                │
       ┌────────┴────────────────────────┬────────────────────────┐
       ▼                                 ▼                        ▼
 [ Immediate Node ]             [ Linear / Bitmap Leaf ]   [ Branch Node (L3/L7/B/U) ]
-(1 key in set, 1-7 in map)     (pop 2..256 keys)          (Multi-level 256-ary trie)
+(15/kb keys set, 7/kb map)     (pop 2..256 keys)          (Multi-level 256-ary trie)
       │                                 │                        │
       │                                 │                        ▼
       │                                 │             [ Prefix & Decode Check ]
@@ -28,14 +28,14 @@ Every lookup, mutation, and navigation operation proceeds through a 4-stage pipe
       │                                 └────────────────────────┘
       ▼
 [ 2. Leaf Search / Mutation Kernel ]
-  • pop <= 2: Branchless scalar comparison sum: pos = (k0 < needle) + (k1 < needle)
-  • pop 3..16: 128-bit SIMD vector compare (_mm_cmplt_epi8 / NEON movemask) + POPCNT
-  • pop 17..32: O(log N) binary probe with unrolled bounds
-  • pop 33..256: 256-bit Bitmap rank & select (Hardware POPCNT / SWAR)
+  • SSE2 lower bound (x86-64 only): kb=1 pop 5..8 and 13..16, kb=2 pop 5..8, kb=4 pop 3..4
+  • pop <= 4 otherwise: unrolled compare sum: pos = (k0 < needle) + ... + (k3 < needle)
+  • every other population: plain binary-search loop
+  • bitmap leaf (level 1, above 25 keys): 256-bit bitmap rank (POPCNT / SWAR)
       │
       ▼
 [ 3. Value Return / Shift Mutation ]
-  • Lookup: Direct memory pointer dereference (0.60x vs stock Judy)
+  • Lookup: Direct memory pointer dereference
   • Insert: Monotonic append fast-path (k > last_key -> pos = pop, 0-byte shift)
   • OCC Validate: Atomic release fence & version match check
 ```
@@ -44,19 +44,19 @@ Every lookup, mutation, and navigation operation proceeds through a 4-stage pipe
 
 ## 2. Node Form Compression Ladder & Algorithm Census
 
-Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis** to eliminate allocation thrashing during insert/delete oscillations:
+Expanse uses an adaptive least-compressed-form ladder with hysteresis bands to avoid allocation thrashing during insert/delete oscillations. Each branch form demotes one index below the population at which it was promoted into; the level-1 bitmap leaf's band is wider (promotes above 25 keys, demotes below 21). Constants: `crates/expanse/src/types.rs`; node sizes: the compile-time asserts in `crates/expanse/src/node.rs`. The leaf rows give the insert-side `lower_bound_fixed` gates (`crates/expanse/src/leaf.rs`); a lookup (`search_fixed`) additionally takes an equality kernel at exactly pop 16 or 8 for 1-byte keys (SSE2, or NEON on AArch64), pop 8 for 2-byte keys and pop 4 for 4-byte keys (SSE2 only). Off x86-64 every lower-bound kernel is a scalar loop.
 
-| Node Type | Capacity Threshold | Search Algorithm | Hardware Acceleration | Memory Overhead |
+| Node Type | Capacity Threshold | Search Algorithm | Hardware Acceleration | Node Size |
 |---|---|---|---|---|
-| **Immediate (Set)** | 1 key | Inlined in 16-byte Edge | Zero heap allocation, register-resident | **0 B** |
-| **Immediate (Map)** | 1–7 keys (`7 / key_bytes`) | Inlined keys in aux bytes | Zero heap allocation | **0 B** |
-| **Linear Leaf 1** | 2..25 keys (level 1) | Branchless $\le 2$ / SIMD $\le 16$ / Binary probe | `_mm_cmplt_epi8` + `POPCNT` | Size-class allocated |
-| **Linear Leaf $2\dots 7$** | 2..32 keys (levels $2\dots 7$) | Branchless $\le 2$ / SIMD $\le 16$ / Binary probe | `_mm_cmplt_epi16` / `_mm_cmplt_epi32` | Size-class allocated |
-| **Bitmap Leaf 1** | 26..256 keys | 256-bit Bitmap Rank & Select | Hardware `POPCNT` / BMI2 `PEXT` | **0.07–0.36 B/key** (set; a map adds its 8-byte value per key) |
-| **BranchL3** | 1..3 child expanses | 8-byte SWAR byte search | Zero branch scan (`find_byte_8`) | 32 B header + 3 edges |
-| **BranchL7** | 4..7 child expanses | 16-byte SIMD byte search | `find_byte_16_sse2` / NEON | 64 B header + 7 edges |
-| **BranchB** | 8..180 child expanses | 256-bit Bitmap digit rank | Hardware `POPCNT` subarray rank | 64 B header + packed edges |
-| **BranchU** | 181..256 child expanses | Direct array indexing | $O(1)$ flat pointer load | 2048 B flat table |
+| **Immediate (Set)** | 1..15/`key_bytes` keys (`ImmedType::max_count`) | Keys inlined in the 16-byte Edge | Zero heap allocation | **0 B** |
+| **Immediate (Map)** | 1..7/`key_bytes` keys (`map_immed_max`) | Keys inlined in aux bytes | One key: value in the edge, no allocation; two or more: a separate value array | 0 B (one key); value array otherwise |
+| **Linear Leaf 1** | up to 25 keys (level 1, `LEAF1_CAP`) | SSE2 lower bound at pop 5..8 and 13..16 / unrolled compare sum at pop ≤ 4 / binary-search loop otherwise | SSE2 `_mm_cmplt_epi8` + `movemask` (x86-64 only) | Size-class allocated (`cap_class`) |
+| **Linear Leaf $2\dots 7$** | up to 32 keys (levels $2\dots 7$, `LEAF_CAP`) | SSE2 lower bound for 2-byte keys at pop 5..8 and 4-byte keys at pop 3..4 / unrolled compare sum at pop ≤ 4 / binary-search loop otherwise | SSE2 `_mm_cmplt_epi16` / `_mm_cmplt_epi32` (x86-64 only); 3-, 5-, 6- and 7-byte keys have no vector kernel | Size-class allocated (`cap_class`) |
+| **Bitmap Leaf 1** | 26..256 keys; demotes below 21 (`LEAFB1_DOWN`) | 256-bit bitmap rank & select | `POPCNT` (runtime-dispatched on x86-64); select via BMI2 `PDEP` where fast, else a 2 KB lookup table | 64 B (`LeafBitmap1`); 128 B (`LeafBitmapL`) plus value subarrays |
+| **BranchL3** | 1..3 child expanses | 16-bit presence filter, then scalar compares | none (≤ 3 digits) | 64 B: 16-byte header + 3 edges |
+| **BranchL7** | 4..7 child expanses; demotes to L3 below 3 | 16-bit presence filter, then 8-byte digit search (`find_byte_8`) | SSE2 (x86-64) / NEON (AArch64) byte compare; scalar elsewhere | 128 B: 16-byte header + 7 edges |
+| **BranchB** | 8..192 child expanses; demotes to L7 below 7 | 256-bit bitmap digit rank | `POPCNT` subexpanse rank | 128 B node (bitmap, 8 subarray pointers, rank cache) plus edge subarrays |
+| **BranchU** | 193..256 child expanses; demotes to B below 192 | Direct array indexing | $O(1)$ flat edge load | 4,160 B: a 64-byte version line + 256 × 16-byte edges |
 
 ---
 
@@ -65,13 +65,13 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
 ### 3.1 Point Lookup (`get` / `locate_slot`)
 1. **Root Read**: Read owning 16-byte `Edge`. If `SyncExpanseMap`, acquire seqlock read version.
 2. **Tag Dispatch**:
-   - `EdgeTag::Immed`: Compare low key bytes directly against embedded payload. Latency: **~4.2 ns**.
+   - `EdgeTag::Immed`: Compare low key bytes directly against embedded payload.
    - `EdgeTag::Leaf*`: Offset into key slice.
-     - For $\text{pop} \le 2$: branchless scalar arithmetic `(k0 < needle) as usize + (k1 < needle) as usize`.
-     - For $\text{pop} \in [13, 16]$ ($KB = 1$): 128-bit vector compare (`_mm_cmpeq_epi8` / `_mm_cmplt_epi8` with `0x80` unsigned-to-signed bias) + `_mm_movemask_epi8` + `POPCNT` in 4 instructions with zero branches.
-     - For $KB = 2, \text{pop} = 8$: 128-bit vector compare (`_mm_cmpeq_epi16`).
-     - For $KB = 4, \text{pop} = 4$: 128-bit vector compare (`_mm_cmpeq_epi32`).
-     - For remaining populations: $O(\log N)$ binary probe with unrolled midpoint steps.
+     - For $KB = 1$, $\text{pop} = 16$ or $8$: byte-equality vector compare (`_mm_cmpeq_epi8` + `_mm_movemask_epi8` on x86-64, `vceqq_u8` / `vceq_u8` on AArch64).
+     - For $KB = 2, \text{pop} = 8$: 128-bit vector compare (`_mm_cmpeq_epi16`), x86-64 only.
+     - For $KB = 4, \text{pop} = 4$: 128-bit vector compare (`_mm_cmpeq_epi32`), x86-64 only.
+     - For other $\text{pop} \le 4$: unrolled equality compares.
+     - Otherwise: `lower_bound_fixed` (the SSE2 lower-bound kernels of §2 at their gated populations, with a `0x80` unsigned-to-signed bias for bytes; a plain binary-search loop everywhere else) followed by one equality check.
    - `EdgeTag::Branch*`: Decode digit at current level (`key >> (8 * (level - 1)) & 0xFF`), scan branch digits, and descend.
    > **Dispatch Structure & Tag Space Findings**: Two attempts to add structure to tag dispatch measured worse in instruction counts, at costs scaling with the number of arms added: the hot-first prefilter at +4% to +9%, and seven `BranchL3` level-specialised tags at +26% to +44% across 15 arms. The cost falls on every operation that decodes a tag — inserts, churn, `strmap`, and `bytesmap` regressed too, though none could benefit from a constant digit shift. The intended saving was ALU and load latency, which was never quantified; the measured instruction cost is large. On the available evidence, adding arms to tag dispatch is not worth the arithmetic it removes.
 3. **OCC Read Validation**: If concurrent mode, verify seqlock version matches without write-lock bit.
@@ -79,16 +79,16 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
 ### 3.2 Key Mutation (`insert` / `mutate_map`)
 1. **Root Leaf Monotonic Fast-Path** ($\text{pop} \le 31$): If inserting into `ExpanseSet` or `ExpanseMap` root leaf and $`key > \text{last\_key}`$, bypass binary search and set $\text{pos} = \text{pop}$ in a single $O(1)$ scalar compare.
 2. **Linear Leaf Monotonic Append Fast-Path**: If inserting into a linear leaf and $`k > \text{last\_key}`$, bypass binary search and set $\text{pos} = \text{pop}$.
-3. **Multi-Level Sequential Run Bypass** ($\text{pop} > 31$): If inserting contiguous keys sharing the upper 56 bits ($key \gg 8 == \text{path.prefix}$), bypass all 8 branch levels and digit decodes. Directly execute 1 bit test/set in the active terminal `LeafBitmap1`/`LeafBitmapL` and increment ancestor edge $pop0$ counts in ~15 instructions with zero branch mispredicts.
+3. **Multi-Level Sequential Run Bypass** ($\text{pop} > 31$): If inserting contiguous keys sharing the upper 56 bits ($key \gg 8 == \text{path.prefix}$), bypass all 8 branch levels and digit decodes. Directly execute 1 bit test/set in the active terminal `LeafBitmap1`/`LeafBitmapL` and increment ancestor edge $pop0$ counts.
 4. **Class-Crossing Check**:
    - If $`\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})`$, shift keys in place (`core::ptr::copy`).
    - If class is exceeded, allocate next class from slab allocator and realloc-insert.
    - If population exceeds leaf capacity ($\text{pop} > 25$ or $\text{pop} > 32$), upgrade to `LeafBitmap1` or cascade into a `BranchL3`.
 5. **Bitmap Subarray Growth (Class-Crossing, Both Widths)**: A bitmap node keeps its payload in eight rank-ordered subarrays, one per 32-digit subexpanse — child edges for `BranchB`/`BranchB32`, values for `LeafBitmapL`/`LeafBitmapL_32`. Each subarray is allocated at $`\text{cap\_class}(\text{pop})`$ slots with the live entries occupying $[0, \text{pop})$ and the trailing spare slots holding filler (`0` for a value, a null edge for a child). An insert into an already-populated subexpanse therefore takes the same two paths as a linear leaf: if $`\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})`$, shift the tail right one slot and store in place, allocating nothing; only a class crossing allocates a wider subarray, copies, and retires the old one. Removal is the mirror image, compacting in place and resetting the vacated tail slot.
 
-   Because $`\text{cap\_class}`$ rounds to multiples of four from three to sixteen and coarsens to $`\{24, 32\}`$ above that (#826), at least three of every four sequential inserts into a bitmap subexpanse touch no allocator at all, and more than that in the coarsened tail. The 64-bit engine has done this for its bitmap-leaf value subarrays since [#577](https://github.com/orieg/expanse/issues/577); `trie32` was doing a full copy-on-write per key at both of its sites until [#615](https://github.com/orieg/expanse/issues/615). The consequence for every reader is that a subarray's `len()` is its **allocation length, never its population**: population is read from the node's own bitmap popcount (`LeafBitmapL_32`) or `pop_counts[sub]` (`BranchB32`), and every access is by a bitmap-derived rank, which is $< \text{pop}$ by construction.
+   Because $`\text{cap\_class}`$ rounds to multiples of four from three to sixteen and coarsens to $`\{24, 32\}`$ above that (#826), above four entries at least three of every four sequential inserts into a bitmap subexpanse touch no allocator at all, and above sixteen seven of every eight. The 64-bit engine has done this for its bitmap-leaf value subarrays since [#577](https://github.com/orieg/expanse/issues/577); `trie32` was doing a full copy-on-write per key at both of its sites until [#615](https://github.com/orieg/expanse/issues/615). The consequence for every reader is that a subarray's `len()` is its **allocation length, never its population**: population is read from the node's own bitmap popcount (`LeafBitmapL_32`) or `pop_counts[sub]` (`BranchB32`), and every access is by a bitmap-derived rank, which is $< \text{pop}$ by construction.
 
-   The trade is spare capacity: at most three unused slots per subexpanse, so at most 24 bytes per subexpanse for 8-byte `Edge32` children and 12 for 4-byte values. Dense and sequential key shapes fill their subarrays and pay nothing measurable; sparse shapes, whose subexpanses hold one to three entries, pay the most (see the density table in [DATABASE.md](DATABASE.md)).
+   The trade is spare capacity: up to three unused slots per subexpanse while it holds 16 entries or fewer, and up to seven in the coarsened 24/32 tail, so at most 56 bytes per subexpanse for 8-byte `Edge32` children and 28 for 4-byte values. Dense and sequential key shapes fill their subarrays and pay nothing measurable; sparse shapes, whose subexpanses hold one to three entries, pay the most (see the density table in [DATABASE.md](DATABASE.md)).
 
 **What reaches the flat insert walk.** The root-leaf handling behind step 1 and the cache in step 3 are the two ways an insert never runs `mutate_map::map_insert_with_path_flat` (map) or `mutate::insert_with_path_flat` (set) at all, which is what a per-arm cost prediction has to count rather than counting keys. A `MapCore` whose root is still a leaf — up to `ROOT_LEAF_CAP` keys — inserts into the leaf array directly; the key that crosses that capacity promotes the root and every later insert descends. Above it, the insert-path cache (`InsertPathMap`, step 3) completes an insert inside the cached terminal whenever the new key shares the previous key's upper 56 bits, so a workload whose keys arrive in prefix order reaches the walk far less often than one whose keys scatter. Two caller classes never take the cache: the pathless entry points (`insert_pathless`, `ins_slot_pathless`, `remove_pathless`), which `ExpanseStrMap`'s per-chunk sub-maps use and which pass a fresh empty path whose sentinel prefix matches no key, and any deferred (shared) tree, which dispatches through `by_mode!` to the OCC walk instead. `ExpanseBytesMap` holds an `ExpanseMap` and so does use the cache, though its keys are 64-bit hashes and rarely share a prefix.
 
@@ -283,15 +283,16 @@ Stage B replaces the single writer mutex with optimistic lock coupling (OLC) ove
 
 ## 4. Microarchitecture Acceleration (`x86-64-v3` vs `v1`)
 
-When compiled with `x86-64-v3` (AVX2, BMI2, POPCNT), Expanse replaces runtime dispatch branches with native single-instruction primitives:
+The SSE2 leaf and branch kernels are part of the x86-64 baseline: they run on every x86-64 build, `x86-64-v1` included, and no kernel in the crate is written for AVX2. The point-lookup walk and the set-algebra kernels already dispatch at run time to `#[target_feature(enable = "popcnt")]` clones (`bits::popcnt_rt`, `get.rs`), and `Bitmap256::select` to BMI2 `PDEP` (`bits::bmi2_rt`). What compiling for `x86-64-v3` (AVX2, BMI1/BMI2, LZCNT, POPCNT, MOVBE, FMA) changes is the code outside those clones: the compiler may emit the v3 instructions for portable code — for example `popcnt` for the `count_ones` of a movemask in the leaf kernels, and for `Bitmap256::count` on paths that are not runtime-dispatched — instead of their `x86-64-v1` sequences.
 
-* `Bitmap256::count` / `Bitmap256::subexpanse_rank`: Lowers from a 12-instruction SWAR bit sequence to a single `popcnt` instruction.
-* `leaf::search_fixed` & `lower_bound_fixed`: Lowers from scalar loop branches to vector `pcmpgtb` + `pmovmskb` + `popcnt` (`_mm_cmpeq_epi8`, `_mm_cmplt_epi8`).
-* **Measured Benchmark Speedup**:
-  - `map_get/linear_leaf`: **-8.76% instructions (-9.79% cycles)**.
-  - `map_remove/random`: **-42.60% instructions (-34.94% cycles)**.
-  - `map_churn/random`: **-30.70% instructions (-24.62% cycles)**.
-  - `map_get/random`: **-12.11% instructions (-13.25% cycles)**.
+Instruction deltas, v1 → v3 *(measured: deterministic Callgrind counts, `crates/expanse/benches/instructions.rs` at POP = 50,000; [`docs/visualizer_data.json`](visualizer_data.json) → `benchmarks`, `v3_delta`)*:
+
+- `map_get/linear_leaf`: **−8.69%** instructions.
+- `map_remove/random`: **−42.55%** instructions.
+- `map_churn/random`: **−29.63%** instructions.
+- `map_get/random`: **−12.11%** instructions.
+
+No cycle count is recorded for these arms, and which v3 instructions account for each delta is unmeasured.
 
 > Hardware ISA guarantees and per-architecture codegen for these kernels (SSE2/NEON/POPCNT/Zbb) are cited against primary sources in [`docs/HARDWARE.md`](HARDWARE.md).
 
@@ -301,7 +302,7 @@ When compiled with `x86-64-v3` (AVX2, BMI2, POPCNT), Expanse replaces runtime di
 
 The finding and its consequence are stated in §3.1 ("Dispatch Structure & Tag Space Findings"). The per-arm figures are here so a future proposal can be sized against them.
 
-**Hot-first prefilter** — one branch added ahead of the match table:
+**Hot-first prefilter** — one branch added ahead of the match table *(measured: deterministic Callgrind counts, `instruction-counts` CI job on [#433](https://github.com/orieg/expanse/pull/433), head `56f9b533` against its `main` base; figures recorded in the PR)*:
 
 | arm | delta |
 |---|---:|
@@ -312,7 +313,7 @@ The finding and its consequence are stated in §3.1 ("Dispatch Structure & Tag S
 | `map_get/linear_leaf` | +5.11% |
 | `map_get/dense_leaf` | +4.38% |
 
-**`BranchL3` level-specialised tags** — seven tags (`0x82..=0x88`), one branch form only:
+**`BranchL3` level-specialised tags** — seven tags (`0x82..=0x88`), one branch form only *(measured: deterministic Callgrind counts, `instruction-counts` CI job on [#441](https://github.com/orieg/expanse/pull/441), head `7385a35b` against its `main` base; figures recorded in the PR)*:
 
 | arm | head | base | delta |
 |---|---:|---:|---:|
@@ -329,7 +330,7 @@ Two points the numbers carry that the summary does not:
 
 **Cost scales with arms added.** One branch cost 4–9%; seven tags cost 26–44%. #403's Step 2 proposes 21 tags across ~10 files. #441 was deliberately scoped to a single branch form as a cheap probe, and cost one PR rather than ten files to establish this.
 
-**The mechanism is wrong for its target.** The saving was ALU and load latency on the descent — largely hidden behind the descent latency of the random-lookup arm, whose measured loss vs stock is 1.031× (BCa 95% CI [1.024, 1.038]). The "~5 dependent DRAM misses per random lookup" reading once given here is **refuted**: a counter run records 0.042 LLC misses per probe against 2.74 branch mispredicts per probe. The cost is instructions on every arm, including the cache-resident ones the engine already wins. [#430](https://github.com/orieg/expanse/issues/430) targets the same weak arm by overlapping those misses across independent lookups; it does not touch the tag space and cannot incur this cost class.
+**The mechanism is wrong for its target.** The saving was ALU and load latency on the descent — largely hidden behind the descent latency of the random-lookup arm, whose measured loss vs stock is 1.031× (BCa 95% CI [1.024, 1.038]). The "~5 dependent DRAM misses per random lookup" reading once given here is **refuted**: a counter run records 0.042 LLC misses per probe against 2.74 branch mispredicts per probe *(measured: reference host, `cpu_core` PMU, `map_get` at 1M keys and 50% hit, `point_lookup_counters` in [run 33207874958](https://github.com/orieg/expanse/actions/runs/33207874958) at `5f0dd3d5`; point estimates with no interval, from a diagnostic harness that gates nothing — not a §8.4 claim)*. The cost is instructions on every arm, including the cache-resident ones the engine already wins. [#430](https://github.com/orieg/expanse/issues/430) targets the same weak arm by overlapping those misses across independent lookups; it does not touch the tag space and cannot incur this cost class.
 
 ## 4c. Batched descent — overlapping misses across independent lookups
 
@@ -361,7 +362,7 @@ The earlier form ran fixed groups of 8 to completion, so a group could not advan
 
 Two things follow, and neither is a speed claim.
 
-First, a *level* is not a *miss*. A `BranchB` level issues two dependent loads — the node, then the subexpanse subarray — inside one lane visit, and those two do not overlap with each other. Chain length in levels is therefore a lower bound on dependent loads per descent, which is why 3.61 levels is consistent with [BENCHMARKING.md](BENCHMARKING.md)'s attribution of the random-lookup gap to roughly five dependent misses. Splitting the `BranchB` hop across two lane visits would overlap that pair as well; it is not done here.
+First, a *level* is not a *miss*. A `BranchB` level issues two dependent loads — the node, then the subexpanse subarray — inside one lane visit, and those two do not overlap with each other. Chain length in levels is therefore a lower bound on dependent loads per descent. That is a count of dependent loads, not of DRAM misses: the counter run cited in §4b records 0.042 LLC misses per random probe, so the refuted "roughly five dependent misses" reading does not follow from it. Splitting the `BranchB` hop across two lane visits would overlap that pair as well; it is not done here.
 
 Second, the refill is worth about 11% more lanes in flight at every width on this population, because chain lengths are tightly concentrated (only two distinct values) and the per-group form loses the difference between them. On a 100,000-key population, where essentially every chain is exactly 3 levels, the two forms are within 0.5% of each other — the refill earns nothing there.
 
@@ -395,7 +396,7 @@ The interactive tool in [`docs/architecture_visualizer.html`](architecture_visua
    - **Active Execution Pipeline & Algorithm Trace**: Dynamically steps through the exact algorithmic flow (e.g. *SeqLock acquire fence* $\rightarrow$ *Sequential Run Bypass* $\rightarrow$ *SIMD vector scan* $\rightarrow$ *POPCNT rank* $\rightarrow$ *Release fence*).
    - **Hardware Impact HUD**: Real-time instruction cost, memory overhead, cache line touches (64 B / 128 B), and hardware acceleration speedup percentages.
 2. **📊 Benchmark Intelligence & Memory Census** (`#bench`):
-   - **Deterministic Callgrind Explorer**: Full filterable dataset of all 22 benchmark arms (50,000 operations per test, retired instructions, L1 cache hit counts, RAM traffic, and `x86-64-v3` deltas).
+   - **Deterministic Callgrind Explorer**: Filterable dataset of the 22 published `instructions.rs` arms (50,000 operations per test, retired instructions, L1 cache hit counts, RAM traffic, and `x86-64-v3` deltas).
    - **Deterministic Memory Budget Matrix**: Byte-per-key density across 1K, 100K, and 1M key bands.
    - **Node Capacity & Lifecycle Specs**: Precise fanout and promotion ceilings.
 
@@ -408,7 +409,7 @@ To prevent divergence between Rust code and the visualizer:
   - When opened offline via `file://`, it uses the embedded CI-verified fallback dataset.
 * **Automated CI Enforcement**:
   - The integration test [`crates/expanse/tests/test_visualizer_sync.rs`](../crates/expanse/tests/test_visualizer_sync.rs) runs on every push/PR across Linux, macOS, and Windows.
-  - It asserts that `ROOT_LEAF_CAP`, `BRANCH_L3_CAP`, `BRANCH_L7_CAP`, `BITMAP_TO_UNCOMPRESSED_THRESHOLD`, `MAX_LEVEL`, and all 22 Callgrind benchmark function names in `instructions.rs` match bit-for-bit between the Rust compiler, `docs/visualizer_data.json`, and `docs/architecture_visualizer.html`.
+  - It pins the ladder constants (`ROOT_LEAF_CAP`, `BRANCH_L3_CAP`, `BRANCH_L7_CAP`, `BRANCHB_TO_L7_DOWN`, `BITMAP_TO_UNCOMPRESSED_THRESHOLD`, `LEAF1_CAP`, `LEAFB1_DOWN`, `LEAF_CAP`, `MAX_LEVEL`, …) to their values, checks by substring (`contains`) that nine benchmark function names (`map_insert`, `set_insert`, `map_ins_slot`, `map_get`, `set_contains`, `map_churn`, `map_remove`, `map_iterate`, `map_nav`) appear in `instructions.rs`, `docs/visualizer_data.json` and `docs/architecture_visualizer.html`, and checks that every `benchmarks` row id in the JSON (22 today) is an arm of `instructions.rs`.
 
 ### 6.3 Instructions for Modifying or Extending the Visualizer
 If you add a new node type, adjust promotion thresholds, or add benchmark arms:

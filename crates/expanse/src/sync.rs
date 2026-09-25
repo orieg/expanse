@@ -1161,6 +1161,29 @@ impl DirtyDigits {
     }
 }
 
+/// Test-only census of the work [`fold_branch_pop0`] does: one tick per edge
+/// it visits, on the calling thread. What pins the string wrapper's insert
+/// path to folding nothing (#1162) — a count, where a wall clock could not
+/// tell a linear load from a quadratic one on a shared host.
+#[cfg(test)]
+pub(crate) mod fold_edges {
+    use core::cell::Cell;
+
+    std::thread_local! {
+        static EDGES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    #[inline(always)]
+    pub(crate) fn bump() {
+        EDGES.with(|c| c.set(c.get() + 1));
+    }
+
+    /// Edges folded on this thread since it started.
+    pub(crate) fn get() -> u64 {
+        EDGES.with(Cell::get)
+    }
+}
+
 /// Lazily computes and updates branch `pop0` counts across the subtree rooted at `edge`.
 ///
 /// Under OLC concurrent mutations, writers update leaf `pop0` counts directly under the
@@ -1175,6 +1198,8 @@ impl DirtyDigits {
 /// Must be called under quiescence / exclusive writer lock so no concurrent mutations or reads
 /// race with the updates. `edge` must be non-null and point to an EBR-live `Edge`.
 pub(crate) unsafe fn fold_branch_pop0(edge: *mut Edge, level: u8) -> u64 {
+    #[cfg(test)]
+    fold_edges::bump();
     if edge.is_null() {
         return 0;
     }
@@ -9016,6 +9041,16 @@ impl SyncExpanseMap {
 
 /// A per-thread reader handle for [`SyncExpanseMap`].
 ///
+/// Besides `get`, the handle has the ordered reads `first`, `last`,
+/// `next_at_or_after`, `next_after`, `prev_at_or_before` and `prev_before`,
+/// as [`OwnedMapReader`] and [`DetachedMapReader`] do. None excludes writers.
+/// Each call validates the nodes it depends on, retries when a concurrent
+/// write overlaps, and after a bounded number of attempts answers under the
+/// writer lock, so each call is linearizable on its own. A sequence of calls
+/// is not a snapshot: a scan built from `first` and `next_after` returns keys
+/// in strictly ascending order and sees every key present for the whole scan,
+/// and may or may not see keys inserted or removed while it runs.
+///
 /// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
 /// [`Reader`], whose single epoch slot two threads pinning at once would
 /// clear under each other. Sharing one by reference does not compile:
@@ -9160,46 +9195,40 @@ impl DetachedMapReader {
     }
 
     // The ordered reads of `map_reader_ordered_reads!`, taking the map at call
-    // time; the same `map` requirement as `get` applies to each. Hidden for
-    // the same reason (`docs/benchmarks/concurrency/METHODOLOGY.md` §12).
+    // time, with the same contract; the `map` requirement of `get` applies to
+    // each.
 
     /// Smallest entry, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn first(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
         map_next_with(map, &self.reader, 0)
     }
 
     /// Largest entry, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn last(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
         map_prev_with(map, &self.reader, u64::MAX)
     }
 
     /// Smallest entry with key `>= key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn next_at_or_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_next_with(map, &self.reader, key)
     }
 
     /// Smallest entry with key `> key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn next_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_next_with(map, &self.reader, key.checked_add(1)?)
     }
 
     /// Largest entry with key `<= key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn prev_at_or_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_prev_with(map, &self.reader, key)
     }
 
     /// Largest entry with key `< key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn prev_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_prev_with(map, &self.reader, key.checked_sub(1)?)
@@ -9239,47 +9268,48 @@ fn map_prev_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<(u64
 }
 
 /// The ordered reads on a map reader handle, over `map_next_with` and
-/// `map_prev_with`. Hidden while their soundness gates and measurements
-/// (`docs/benchmarks/concurrency/METHODOLOGY.md` §12) are outstanding.
+/// `map_prev_with` (#900, `docs/benchmarks/concurrency/METHODOLOGY.md` §12).
+///
+/// Each call is one optimistic read that does not exclude writers: it walks
+/// the tree validating every node it depends on, retries when a concurrent
+/// write overlaps, and after `MAX_RETRIES` attempts answers under the writer
+/// lock. Each call is linearizable on its own (the history checker in
+/// `tests/linearizability.rs` runs them); a sequence of calls is not a
+/// snapshot, so a scan built from them sees each key present throughout it,
+/// and may or may not see keys inserted or removed while it runs.
 macro_rules! map_reader_ordered_reads {
     ($($map:ident).+) => {
         /// Smallest entry, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn first(&self) -> Option<(u64, u64)> {
             map_next_with(&self.$($map).+, &self.reader, 0)
         }
 
         /// Largest entry, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn last(&self) -> Option<(u64, u64)> {
             map_prev_with(&self.$($map).+, &self.reader, u64::MAX)
         }
 
         /// Smallest entry with key `>= key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
             map_next_with(&self.$($map).+, &self.reader, key)
         }
 
         /// Smallest entry with key `> key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn next_after(&self, key: Key) -> Option<(u64, u64)> {
             map_next_with(&self.$($map).+, &self.reader, key.checked_add(1)?)
         }
 
         /// Largest entry with key `<= key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
             map_prev_with(&self.$($map).+, &self.reader, key)
         }
 
         /// Largest entry with key `< key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn prev_before(&self, key: Key) -> Option<(u64, u64)> {
             map_prev_with(&self.$($map).+, &self.reader, key.checked_sub(1)?)
@@ -12032,6 +12062,50 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(map.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
+    /// The count fold (#1144) under an optimistic reader, isolated from any
+    /// write: the counter thread marks a top digit dirty without mutating the
+    /// tree, then counts through `with_locked`, which quiesces the writers
+    /// (there are none) and refolds that digit's subtree, storing branch
+    /// `pop0` words while the reader loads them. The only concurrent stores
+    /// are the fold's.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_fold_reader_counter() {
+        let map = SyncExpanseMap::new();
+        for i in 0..TREE_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        // Setup's own writes leave digits dirty; fold them before the reader starts.
+        assert_eq!(
+            map.with_locked(|m| m.count_range(0..=u64::MAX)),
+            TREE_PREFILL
+        );
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_KEYS {
+                    let d = digit(splitmix64(i % TREE_PREFILL), 8);
+                    map.shared.dirty_digits.mark_digit(d);
+                    // The positive control: the count below folds.
+                    assert!(map.shared.dirty_digits.is_digit_dirty(d));
+                    assert_eq!(
+                        map.with_locked(|m| m.count_range(0..=u64::MAX)),
+                        TREE_PREFILL
+                    );
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..TREE_PREFILL {
+                        assert_eq!(map.get(splitmix64(i)), Some(i));
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), TREE_PREFILL);
     }
 
     // --- SyncExpanseSet ---------------------------------------------------

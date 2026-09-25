@@ -19,10 +19,10 @@ When storing arbitrary-sized payloads (strings, JSON documents, protocol buffers
 3. **Severe Cache Thrashing During Range Scans**: Evaluating simple filtering predicates (TTL expiration, soft-deletion tombstones, tenant partitioning) forces the CPU to chase pointers and load cold DRAM cache lines for every candidate entry.
 
 This design introduces a unified, zero-copy, cache-conscious large-value architecture for Expanse across four complementary pillars:
-1. **Polymorphic 64-bit Value Slots (`ValueSlot`)**: Packing $\le 7$-byte values directly inline with zero heap allocation, and packing 32-bit hot metadata (TTL, flags, tenant ID) alongside a 24-bit arena locator into a single 64-bit word.
-2. **Hot/Cold Columnar Metadata-Predicate Range Filtering**: Executing predicate filters directly over contiguous leaf value arrays without dereferencing cold payload cache lines. The `$82\%$ DRAM-traffic reduction` / `$\gt 15\times$ selective-scan` figures are **design targets gated on the wide-offset arena** — measured on the shipped 16 MiB-ceiling arena the columnar advantage is ~1.3–1.4× (the working set stays L3-resident, so payloads are never cache-cold); see §10.3.
-3. **Chunked Slab/Arena Backing (`BlobArena` / `ExpanseBlobMap`)**: Append-only 2 MiB/16 MiB chunk allocation with generation counters, ABA safety, and incremental in-place compaction.
-4. **Zero-Copy `mmap` / Shared-Memory IPC**: Base-relative offset encoding enabling cross-process multi-reader access with zero serialization overhead and zero memory duplication.
+1. **Polymorphic 64-bit Value Slots (`ValueSlot`)**: Packing $\le 7$-byte values directly inline with zero heap allocation, and packing 24-bit hot metadata (TTL, flags, tenant ID) alongside a 32-bit arena locator into a single 64-bit word (`ArenaMeta`, `crates/expanse/src/slot.rs`).
+2. **Hot/Cold Columnar Metadata-Predicate Range Filtering**: Executing predicate filters directly over contiguous leaf value arrays without dereferencing cold payload cache lines. The `$82\%$ DRAM-traffic reduction` / `$\gt 15\times$ selective-scan` figures are the §5.4 traffic model, not measurements. Measured over a 260 MiB (8.7× LLC) arena against the post-#355 control, the columnar scan is **10.7× at σ=0.001 and 6.37× at σ=0.05** (§10.3, commit `4f2f3a18`), so the `>10× at σ≤0.05` target is met at σ=0.001 only; the earlier ~1.3–1.4× ceiling was measured when a 16 MiB arena ceiling kept the working set L3-resident (§10.3, commit `43b46f38`).
+3. **Chunked Slab/Arena Backing (`BlobArena` / `ExpanseBlobMap`)**: Append-only chunk allocation (chunk size configurable, default `DEFAULT_CHUNK_SIZE` = 2 MiB, clamped to `[4096, ArenaChunk::MAX_CHUNK_CAPACITY]` = 1 GiB; total arena capped by `MAX_ARENA_CAPACITY` = 1 GiB) with generation counters, ABA safety, and caller-invoked compaction (`compact()`).
+4. **Zero-Copy `mmap` / Shared-Memory IPC** *(design target, not implemented — §7)*: a base-relative offset encoding would enable cross-process multi-reader access without serialization or memory duplication.
 5. **C ABI Drop-In Compatibility**: Seamless coexistence with classic `JudyL` functions (`JudyLGet`, `JudyLIns`) returning `*mut Word`.
 
 ### Implementation status (as of commit 6c63826a)
@@ -51,7 +51,7 @@ pub struct ExpanseMap { /* ... */ }
 
 When an application associates variable-length values with 64-bit keys:
 - **Small Payloads (1–7 bytes)**: Storing a 4-byte IPv4 address, a 6-byte MAC address, or a short string requires heap allocation (`Box<[u8]>` or `malloc`), incurring 16 bytes of allocator tracking, a 64-bit pointer slot in the leaf, and an extra pointer dereference.
-- **Medium/Large Payloads (8 bytes – 16 MiB)**: Payloads allocated via standard allocators are scattered across the heap. During sequential range iteration, CPU hardware prefetchers cannot anticipate the scattered pointer targets.
+- **Medium/Large Payloads (8 bytes up to `chunk_size − 8`)**: Payloads allocated via standard allocators are scattered across the heap. During sequential range iteration, CPU hardware prefetchers cannot anticipate the scattered pointer targets.
 
 ```
 Standard Pointer Model (Scattered Dereferencing):
@@ -84,166 +84,7 @@ Under the conventional architecture, even if $`95\%`$ of keys are expired or del
 
 To resolve this bottleneck without widening the trie's 16-byte `Edge` or altering leaf structures, the 64-bit value slot itself is formatted as a polymorphic tagged union: `ValueSlot`.
 
-```
-========================================================================================
-64-Bit Value Slot Bit Layouts
-========================================================================================
-
-1. Inline Mode (<= 7 bytes payload):
-+-------------------------------------------------------------------+-------------------+
-| Payload Byte 6 | Byte 5 | Byte 4 | Byte 3 | Byte 2 | Byte 1 | Byte 0 | Tag (0x00..=0x07) |
-| [63:56]        | [55:48]| [47:40]| [39:32]| [31:24]| [23:16]| [15:8] | [7:0]             |
-+-------------------------------------------------------------------+-------------------+
-  - Tag encodes payload length (0 to 7 bytes).
-  - Zero heap allocations, zero pointer dereferences.
-
-2. Arena Mode (Hot Metadata + 32-bit Arena Locator) — **SHIPPED (`ArenaMeta`)**:
-+------------------------------------+------------------------------------------+-------------------+
-| Hot Metadata (TTL / Flags / Tenant)| Arena Locator (32 bits, 16-byte units)   | Tag (0x10)        |
-| [63:40] (24 bits)                  | [39:8] (32 bits)                         | [7:0]             |
-+------------------------------------+------------------------------------------+-------------------+
-  - 24-bit Hot Metadata: directly filterable without payload dereference (`ARENA_META_MAX = 0x00FF_FFFF`).
-  - 32-bit Arena Locator: flat global address in 16-byte units addressing up to 64 GiB (`ARENA_ALIGN = 16`).
-  - Sole arena encoding for `ExpanseBlobMap` (`CompactInSlot` layout, #282/#285, #287).
-
-3. Raw Scalar / Unmanaged Word (Classic JudyL Compatibility):
-+---------------------------------------------------------------------------------------------------+
-| Uninterpreted 64-bit User Word / Raw Virtual Pointer (Tag bits arbitrary)                         |
-| [63:0]                                                                                            |
-+---------------------------------------------------------------------------------------------------+
-```
-
-### 3.1 Tag Discriminants
-
-The least significant byte (`bits [7:0]`) serves as the discriminant tag:
-
-```rust
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum SlotTag {
-    /// Inline payload of 0 bytes (empty value).
-    Inline0 = 0x00,
-    /// Inline payload of 1 byte (in bits [15:8]).
-    Inline1 = 0x01,
-    /// Inline payload of 2 bytes (in bits [23:8]).
-    Inline2 = 0x02,
-    /// Inline payload of 3 bytes (in bits [31:8]).
-    Inline3 = 0x03,
-    /// Inline payload of 4 bytes (in bits [39:8]).
-    Inline4 = 0x04,
-    /// Inline payload of 5 bytes (in bits [47:8]).
-    Inline5 = 0x05,
-    /// Inline payload of 6 bytes (in bits [55:8]).
-    Inline6 = 0x06,
-    /// Inline payload of 7 bytes (in bits [63:8]).
-    Inline7 = 0x07,
-
-    /// Backed by BlobArena: 24-bit hot metadata + 32-bit arena locator (16-byte units).
-    ArenaMeta = 0x10,
-    /// Off-heap / External memory reference (reserved).
-    External = 0x12,
-
-    /// Soft-deleted tombstone marker.
-    Tombstone = 0xFE,
-    /// Raw uninterpreted 64-bit word (unmanaged).
-    RawWord = 0xFF,
-}
-```
-
-### 3.2 Rust Struct Definition and Bit-Twiddling
-
-```rust
-/// A 64-bit polymorphic value slot packed directly into an Expanse leaf node.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct ValueSlot(pub u64);
-
-impl ValueSlot {
-    pub const TAG_MASK: u64 = 0xFF;
-    pub const ARENA_META_MASK: u64 = 0x00FF_FFFF;
-    pub const ARENA_META_MAX: u32 = 0x00FF_FFFF;
-
-    /// Creates an inline value slot from a byte slice (len <= 7).
-    #[inline(always)]
-    pub fn new_inline(bytes: &[u8]) -> Option<Self> {
-        let len = bytes.len();
-        if len > 7 {
-            return None;
-        }
-        let mut raw = len as u64; // Tag is Inline0..Inline7
-        for (i, &b) in bytes.iter().enumerate() {
-            raw |= (b as u64) << (8 * (i + 1));
-        }
-        Some(Self(raw))
-    }
-
-    /// Creates an arena-backed value slot with 24-bit hot metadata and 32-bit locator.
-    #[inline(always)]
-    pub fn new_arena_meta(meta: u32, locator: u32) -> Option<Self> {
-        if meta > Self::ARENA_META_MAX {
-            return None;
-        }
-        let raw = (SlotTag::ArenaMeta as u64)
-            | ((locator as u64) << 8)
-            | ((meta as u64) << 40);
-        Some(Self(raw))
-    }
-
-    /// Returns the slot tag.
-    #[inline(always)]
-    pub fn tag(self) -> SlotTag {
-        match (self.0 & Self::TAG_MASK) as u8 {
-            0x00 => SlotTag::Inline0,
-            0x01 => SlotTag::Inline1,
-            0x02 => SlotTag::Inline2,
-            0x03 => SlotTag::Inline3,
-            0x04 => SlotTag::Inline4,
-            0x05 => SlotTag::Inline5,
-            0x06 => SlotTag::Inline6,
-            0x07 => SlotTag::Inline7,
-            0x10 => SlotTag::ArenaMeta,
-            0x12 => SlotTag::External,
-            0xFE => SlotTag::Tombstone,
-            _ => SlotTag::RawWord,
-        }
-    }
-
-    /// Extracts inline payload into a fixed 7-byte buffer.
-    #[inline(always)]
-    pub fn inline_payload(self) -> ([u8; 7], usize) {
-        let len = (self.0 & Self::TAG_MASK) as usize;
-        let mut buf = [0u8; 7];
-        let val = self.0 >> 8;
-        for i in 0..len.min(7) {
-            buf[i] = ((val >> (8 * i)) & 0xFF) as u8;
-        }
-        (buf, len)
-    }
-
-    /// Extracts 24-bit hot metadata word (bits [63:40]).
-    #[inline(always)]
-    pub fn arena_meta_meta(self) -> u32 {
-        ((self.0 >> 40) & Self::ARENA_META_MASK) as u32
-    }
-
-    /// Extracts 32-bit arena locator (bits [39:8]).
-    #[inline(always)]
-    pub fn arena_meta_locator(self) -> u32 {
-        (self.0 >> 8) as u32
-    }
-
-    /// Raw uninterpreted integer conversion.
-    #[inline(always)]
-    pub fn to_raw(self) -> u64 {
-        self.0
-    }
-
-    #[inline(always)]
-    pub fn from_raw(raw: u64) -> Self {
-        Self(raw)
-    }
-}
-```
+The encoding is specified, and its constants gated, in [`docs/ARCHITECTURE.md` §10.5](../ARCHITECTURE.md#105-valueslot--the-8-byte-polymorphic-value-word) (`crates/expanse/src/slot.rs`, checked by `crates/expanse/tests/test_encoding_reference_sync.rs`). In summary: the low byte is the tag; `Inline0`..`Inline7` (`0x00`..`0x07`) carry up to 7 payload bytes in bits 63:8; `ArenaMeta` (`0x10`) carries 24-bit hot metadata in bits 63:40 and a 32-bit arena locator (16-byte units, 64 GiB envelope) in bits 39:8; every unlisted byte decodes as `RawWord`, which is what keeps classic `JudyL` words uninterpreted (§4.1). This document does not restate the tag table, so it cannot drift from the gated one.
 
 ---
 
@@ -262,9 +103,9 @@ A core invariant of Expanse is clean-room, 100% C ABI parity with classic `libju
         +--------------------------+                             +--------------------------+
         | Legacy JudyL Interface   |                             | Modern Blob Interface    |
         | (Judy.h)                 |                             | (expanse.h)              |
-        | - JudyLIns() -> *mut Word|                             | - expanse_blob_insert()  |
-        | - JudyLGet() -> *mut Word|                             | - expanse_blob_get()     |
-        | (Uninterpreted raw u64)  |                             | - expanse_blob_scan()    |
+        | - JudyLIns() -> *mut Word|                             | - expanse_blob_map_insert|
+        | - JudyLGet() -> *mut Word|                             | - expanse_blob_map_get   |
+        | (Uninterpreted raw u64)  |                             | - ..._scan_filtered      |
         +------------+-------------+                             +------------+-------------+
                      |                                                         |
                      |                 +-----------------------+               |
@@ -293,7 +134,7 @@ JLI(PValue, PJLArray, Index);
 - Raw values written by legacy C callers are stored verbatim.
 - No discriminant tagging is enforced on legacy `JudyL` calls; `ValueSlot::from_raw(*slot)` defaults to `SlotTag::RawWord` if the tag does not match known tag ranges.
 
-### 4.2 Modern `expanse_blob_*` C API
+### 4.2 Modern `expanse_blob_map_*` C API
 
 For C consumers requiring automatic inline packing, arena management, and predicate filtering:
 
@@ -401,55 +242,31 @@ During a range scan `scan_filtered(from..=to, predicate, callback)`:
                                     +--------------------+
 ```
 
-### 5.3 SIMD/SWAR Vectorization Kernels
+### 5.3 Vectorized predicate kernels *(design, not implemented)*
 
-When evaluating range bounds on 32-bit timestamps:
+The shipped `ExpanseBlobMap::scan_filtered` (`crates/expanse/src/blobmap.rs`) evaluates the caller's predicate as a scalar closure, once per entry of the key-ordered range walk; no SIMD or SWAR predicate kernel exists. A vectorized kernel over a leaf's contiguous value words is a design option. For a range predicate on the metadata field:
 
 ```math
 \text{Predicate}(V) = (V_{\text{meta}} \ge T_{\text{min}}) \land (V_{\text{meta}} \le T_{\text{max}})
 ```
 
-Using AVX2 / NEON vector intrinsics, 4–8 slots are unpacked and filtered in parallel:
+it has to reproduce the scalar extraction exactly — the field is bits 63:40, and only `ArenaMeta` slots carry it (inline slots report `0`, ARCHITECTURE.md §10.5):
 
 ```rust
-// Conceptual SIMD Predicate Kernel (AVX2 / SSE4.2 / NEON)
-#[inline(always)]
-pub unsafe fn filter_leaf_slots_avx2(
-    slots: &[u64; 4],
-    min_meta: u32,
-    max_meta: u32,
-) -> u32 {
-    #[cfg(target_arch = "x86_64")]
-    {
-        use core::arch::x86_64::*;
-        // Load 4 x 64-bit slots into 256-bit register
-        // SAFETY: slots is 32-byte aligned in cache line
-        let vslots = unsafe { _mm256_loadu_si256(slots.as_ptr().cast()) };
-        // Shift right 32 bits to extract hot metadata
-        let vmeta = unsafe { _mm256_srli_epi64(vslots, 32) };
-        let vmin = unsafe { _mm256_set1_epi64x(min_meta as i64) };
-        let vmax = unsafe { _mm256_set1_epi64x(max_meta as i64) };
-
-        // Compare: vmin <= vmeta <= vmax
-        let cmp_ge = unsafe { _mm256_cmpgt_epi64(vmeta, vmin) };
-        let cmp_le = unsafe { _mm256_cmpgt_epi64(vmax, vmeta) };
-        let match_mask = unsafe { _mm256_and_si256(cmp_ge, cmp_le) };
-
-        // Extract bitmask of passing slots
-        unsafe { _mm256_movemask_pd(_mm256_castsi256_pd(match_mask)) as u32 }
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        // Portable SWAR fallback
-        let mut mask = 0u32;
-        for (i, &slot) in slots.iter().enumerate() {
-            let meta = (slot >> 32) as u32;
-            if meta >= min_meta && meta <= max_meta {
-                mask |= 1 << i;
-            }
+// Reference semantics a vectorized kernel must match (design sketch).
+fn filter_leaf_slots(slots: &[u64], min_meta: u32, max_meta: u32) -> u32 {
+    let mut mask = 0u32;
+    for (i, &slot) in slots.iter().enumerate() {
+        let meta = if slot & 0xFF == 0x10 {
+            ((slot >> 40) & 0x00FF_FFFF) as u32 // ArenaMeta hot metadata
+        } else {
+            0 // inline and other slots carry no metadata field
+        };
+        if (min_meta..=max_meta).contains(&meta) {
+            mask |= 1 << i;
         }
-        mask
     }
+    mask
 }
 ```
 
@@ -1026,38 +843,26 @@ Every arena payload is prefixed with an 8-byte packed header:
 #[repr(C, packed)]
 pub struct BlobRecordHeader {
     /// Payload length in bytes. The field is a `u32`, but the real limit is the
-    /// per-payload bound `chunk_size − 8` under the live 16 MiB arena ceiling —
-    /// not 4 GiB.
+    /// per-payload bound `chunk_size − 8` (chunks are at most 1 GiB,
+    /// `ArenaChunk::MAX_CHUNK_CAPACITY`) — not 4 GiB.
     pub len: u32,
     /// Generation counter for ABA protection and compaction validation.
     pub generation: u32,
 }
 ```
 
-- **Bump Allocation**: Sub-nanosecond allocation cost (single atomic fetch-add or thread-local bump pointer).
+- **Bump Allocation**: a payload is placed by advancing the active chunk's cursor under `&mut self` (`BlobArena::alloc_blob`); no per-payload allocator call. Its cost is not separately measured.
 - **Zero Allocator Metadata**: No malloc tracking headers; overhead is strictly the 8-byte `BlobRecordHeader`.
 - **16-Byte Alignment**: Enables vector load/store instructions on payload buffers.
 
 ### 6.3 Garbage Collection & Compaction Algorithm
 
-Because blobs are append-allocated, updates and deletions generate dead space in older chunks.
+Because blobs are append-allocated, updates and deletions generate dead space in older chunks. Nothing reclaims it automatically: there is no fragmentation threshold, and compaction runs only when the caller invokes `ExpanseBlobMap::compact()` (or `expanse_blob_map_compact`).
 
-```
-Compaction Trigger Condition:
-                  Total Allocated Bytes - Active Live Bytes
-Fragmentation =  -------------------------------------------  > 35%
-                            Total Allocated Bytes
-```
-
-#### In-Place Compaction Walk:
-1. Allocate a fresh, contiguous consolidation chunk.
-2. Traverse the `ExpanseMap` index sequentially via `iter_slots_mut()`.
-3. For each `ValueSlot` with tag `SlotTag::ArenaShort` or `SlotTag::ArenaLong`:
-   - Read active payload from old chunk.
-   - Copy payload into new chunk at `new_offset`.
-   - Increment record generation: `header.generation += 1`.
-   - Update `ValueSlot` in the trie leaf in-place: `slot.set_arena_offset(new_offset)`.
-4. Release/unmap old fragmented chunks back to the OS via `munmap` / `madvise(MADV_DONTNEED)`.
+#### Compaction (`BlobArena::compact_with_index`):
+1. Build a fresh arena with the same chunk size and capacity cap, stamped with the next arena generation (skipping 0, so zeroed bytes never match a live generation).
+2. Collect every `ArenaMeta` entry of the index, copy each live payload into the fresh arena, and rewrite its `ValueSlot` with the new locator. Inline slots are untouched.
+3. Install the new chunk set and dispose of the old chunks: dropped (freed through the global allocator) on a plain map, retired through the epoch collector on a shared one, so pinned readers keep reading the old bytes. No `munmap` or `madvise` is involved; chunks are ordinary heap allocations (§6.1).
 
 ```rust
 pub struct BlobArena {
@@ -1121,39 +926,40 @@ both handed to one epoch `Collector` at construction (`BlobArena::defer_to`).
 
 ---
 
-## 7. Zero-Copy `mmap` & Shared-Memory IPC
+## 7. Zero-Copy `mmap` & Shared-Memory IPC — *design target, not implemented*
+
+> **Status.** Nothing in this section exists in code. Trie nodes and arena chunks are addressed by absolute in-process pointers; there is no relative-offset type, no `shm_open`/`mmap` path, and `ExpanseBlobMap::load_from_file` reads the whole image and rebuilds the index (§1 status table; `docs/DATABASE.md` §6).
 
 ### 7.1 Relocatable Base-Relative Offset Architecture
 
 A fatal limitation of absolute 64-bit pointers is that a memory region mapped via `mmap` across multiple processes may be placed at different virtual addresses due to Address Space Layout Randomization (ASLR).
 
-Expanse solves this through **Base-Relative Addressing**:
-- All pointers between trie nodes, leaves, and arena chunks are stored as **relative offsets** ($u32$ or $u48$) from the base address of the mapped region ($P_{\text{base}}$).
-- Physical address resolution:
+The design would address this with **base-relative addressing**:
+- Pointers between trie nodes, leaves and arena chunks would be stored as **relative offsets** ($u32$ or $u48$) from the base address of the mapped region ($P_{\text{base}}$).
+- Address resolution would be:
 
   $`P_{\text{target}} = P_{\text{base}} + \text{offset}`$
 
-```
-========================================================================================
-Shared-Memory / File Image Binary Format
-========================================================================================
+**The image format that does ship** is not position-independent and is not mapped: `ExpanseBlobMap::save_to_writer` / `save_to_file` write, and `from_bytes_slice` / `load_from_file` parse, the layout below (`crates/expanse/src/blobmap.rs`, `BlobMapFileHeader`). All integers are little-endian. There is no checksum and no root-edge offset: the index is stored as a flat `(key, raw_slot)` list and rebuilt on load.
 
+```
+========================================================================================
+ExpanseBlobMap image (EXPANSE_FORMAT_VERSION = 2)
+========================================================================================
 +--------------------------------------------------------------------------------------+
-| File Header (64 Bytes)                                                               |
-| - Magic: "EXPANSE\0" (8B)       - Format Version: u32 (4B)   - Flags: u32 (4B)       |
-|   (format version is 2 since #518; a mismatch is UnsupportedFormatVersion, see COMPAT.md)  |
-| - Root Edge Offset: u64 (8B)    - Total File Size: u64 (8B)  - Entry Count: u64 (8B) |
-| - Chunk Table Offset: u64 (8B)  - Checksum / Blake3: [u8; 16] (16B)                  |
+| Header (64 bytes)                                                                    |
+|  magic "EXPANSE\0" [u8; 8] | version u32 | flags u32 (reserved, 0)                   |
+|  entry_count u64 | index_offset u64 (= 64) | arena_offset u64 | total_size u64         |
+|  chunk_size u64 | chunk_count u64                                                    |
 +--------------------------------------------------------------------------------------+
-| Trie Index Segment                                                                   |
-| - Level-8 / Intermediate Branch Nodes                                                |
-| - Linear / Bitmap Leaves with packed ValueSlots                                      |
+| Index section: entry_count × (key u64, raw ValueSlot u64), in key order              |
 +--------------------------------------------------------------------------------------+
-| Blob Arena Chunk Table & Payload Slabs                                               |
-| - Chunk 0: [BlobHeader | Payload] [BlobHeader | Payload] ...                         |
-| - Chunk 1: [BlobHeader | Payload] ...                                                |
+| Arena section, per chunk: capacity u64 | cursor u64 | generation u32 | pad u32        |
+|   then the chunk's `cursor` bytes of records, zero-padded to a 16-byte multiple      |
 +--------------------------------------------------------------------------------------+
 ```
+
+A different `version` is refused with `ArenaError::UnsupportedFormatVersion`; bad magic, size or chunk geometry is `CorruptedHeader` (`docs/COMPAT.md`).
 
 ### 7.2 Multi-Process Shared-Memory Reader Flow
 
@@ -1167,142 +973,26 @@ Shared-Memory / File Image Binary Format
                 |                                                  v
                 v                                        Zero-Copy ExpanseBlobMap
        Expanse Mutex / Writes                            Read Point & Range Queries
-       OCC Version Updates ----------------------------> Lock-Free Optimistic Walk
+       OCC Version Updates ----------------------------> Optimistic Validated Walk
 ```
 
-- **Zero Serialization**: Workers read structured data directly from shared memory without JSON, Protobuf, or Cap'n Proto decoding.
-- **Zero RAM Duplication**: 100 worker processes share a single 32 GB cache in RAM.
+- **Zero serialization** *(target)*: workers would read structured data directly from shared memory without JSON, Protobuf, or Cap'n Proto decoding.
+- **No RAM duplication** *(target)*: every worker process would map the same physical pages instead of holding its own copy.
 
 ---
 
-## 8. Complete Reference Types & API Signatures
+## 8. Reference Types & API Signatures
 
-```rust
-// crates/expanse/src/blobmap.rs
+The shipped types live in `crates/expanse/src/blobmap.rs`, and their rustdoc is the reference; this section lists the public surface without restating bodies, which is where the earlier copy drifted.
 
-use crate::map::ExpanseMap;
-use crate::types::Key;
-use core::ptr::NonNull;
-
-/// A typed view of a retrieved value payload.
-pub enum BlobView<'a> {
-    /// Inlined value (<= 7 bytes) borrowing from internal stack buffer.
-    Inline(&'a [u8]),
-    /// Arena-allocated value borrowing directly from arena slab.
-    Arena(&'a [u8]),
-}
-
-impl<'a> BlobView<'a> {
-    #[inline(always)]
-    pub fn as_bytes(&self) -> &'a [u8] {
-        match self {
-            BlobView::Inline(slice) => slice,
-            BlobView::Arena(slice) => slice,
-        }
-    }
-
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.as_bytes().len()
-    }
-
-    #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-/// High-level map from 64-bit keys to arbitrary-length byte blobs.
-pub struct ExpanseBlobMap {
-    index: ExpanseMap,
-    arena: BlobArena,
-}
-
-impl ExpanseBlobMap {
-    /// Creates a new blob map with default 2 MiB arena slabs.
-    pub fn new() -> Self {
-        Self::with_chunk_size(2 * 1024 * 1024)
-    }
-
-    /// Creates a new blob map with custom chunk size.
-    pub fn with_chunk_size(chunk_size: usize) -> Self {
-        Self {
-            index: ExpanseMap::new(),
-            arena: BlobArena::new(chunk_size),
-        }
-    }
-
-    /// Inserts a key-blob pair with 32-bit hot metadata.
-    pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
-        if data.len() <= 7 {
-            let slot = ValueSlot::new_inline(data)
-                .expect("len <= 7 validated");
-            self.index.insert(key, slot.to_raw());
-            Ok(())
-        } else {
-            let offset = self.arena.alloc_blob(data)?;
-            let slot = ValueSlot::new_arena_short(hot_meta, offset)
-                .ok_or(ArenaError::OffsetOverflow)?;
-            self.index.insert(key, slot.to_raw());
-            Ok(())
-        }
-    }
-
-    /// Point lookup returning a zero-copy BlobView.
-    pub fn get<'a>(&'a self, key: Key) -> Option<(BlobView<'a>, u32)> {
-        let raw_slot = self.index.get(key)?;
-        let slot = ValueSlot::from_raw(raw_slot);
-        match slot.tag() {
-            SlotTag::Inline0 | SlotTag::Inline1 | SlotTag::Inline2 |
-            SlotTag::Inline3 | SlotTag::Inline4 | SlotTag::Inline5 |
-            SlotTag::Inline6 | SlotTag::Inline7 => {
-                let (buf, len) = slot.inline_payload();
-                // Inlined view
-                Some((BlobView::Inline(&buf[..len]), 0))
-            }
-            SlotTag::ArenaShort => {
-                let offset = slot.arena_offset();
-                let meta = slot.hot_meta();
-                let slice = self.arena.get_blob_slice(offset)?;
-                Some((BlobView::Arena(slice), meta))
-            }
-            _ => None,
-        }
-    }
-
-    /// Executes a range scan with a predicate evaluated against hot metadata
-    /// before dereferencing cold payload cache lines.
-    pub fn scan_filtered<P, F>(
-        &self,
-        range: core::ops::RangeInclusive<Key>,
-        mut predicate: P,
-        mut callback: F,
-    ) where
-        P: FnMut(Key, u32) -> bool,
-        F: FnMut(Key, BlobView<'_>, u32) -> bool,
-    {
-        for (key, raw_slot) in self.index.range(range) {
-            let slot = ValueSlot::from_raw(raw_slot);
-            let meta = slot.hot_meta();
-            // Evaluate predicate directly from leaf value slot
-            if predicate(key, meta) {
-                if let Some((view, _)) = self.get(key) {
-                    if !callback(key, view, meta) {
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Runs in-place garbage collection and compaction.
-    pub fn compact(&mut self) -> Result<CompactionStats, ArenaError> {
-        self.arena.compact_with_index(&mut self.index)
-    }
-}
-```
-
----
+- `pub enum BlobView<'a> { Inline(&'a [u8]), Arena(&'a [u8]), CompressedInline { buf: [u8; 16], len: u8 } }`, with `as_bytes`, `len`, `is_empty`.
+- `pub struct ExpanseBlobMap` (index `ExpanseMap` + `BlobArena`):
+  - `new()`, `with_chunk_size(chunk_size: usize)`, `with_chunk_size_and_max_capacity(chunk_size: usize, max_capacity: usize)`
+  - `insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError>` — `hot_meta` above 24 bits is `ArenaError::MetaOverflow`, and it is ignored for inline payloads
+  - `get(&self, key: Key) -> Option<(BlobView<'_>, u32)>`, `contains_key`, `remove(&mut self, key: Key) -> bool`, `len`, `is_empty`, `mem_used`, `clear`
+  - `scan_filtered<P, F>(&self, range: RangeInclusive<Key>, predicate: P, callback: F)` with `P: FnMut(Key, u32) -> bool`, `F: FnMut(Key, BlobView<'_>, u32) -> bool` — resolves each match from the slot the range walk holds (#355)
+  - `compact(&mut self) -> Result<CompactionStats, ArenaError>` (§6.3)
+  - `save_to_writer`, `save_to_file`, `from_bytes_slice`, `load_from_file` (§7.1)
 
 ## 9. Phased Implementation Roadmap & Acceptance Gates
 
@@ -1343,7 +1033,7 @@ Per Expanse development rules, development proceeds in strict sequential phases 
                                             v
 +---------------------------------------------------------------------------------------+
 | PHASE E: C ABI Extensions & Drop-In Verification                                      |
-| - Export `expanse_blob_*` symbols in `crates/expanse-capi` & `include/expanse.h`      |
+| - Export `expanse_blob_map_*` symbols in `crates/expanse-capi` & `include/expanse.h`  |
 | - Differential oracle validation vs stock JudyL                                       |
 | - Gate: All 13 CI status checks green; zero instruction regression on Callgrind       |
 +---------------------------------------------------------------------------------------+
@@ -1355,7 +1045,7 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 
 ### 10.1 Invariant Validation Rules
 1. **Bit Packing Soundness**: For every byte sequence $B$ with $|B| \le 7$, `ValueSlot::new_inline(B).unwrap().inline_payload() == B`.
-2. **Tag Non-Collision**: Inline tags `0x00..=0x07` are strictly disjoint from `ArenaShort (0x10)` and `RawWord (0xFF)`.
+2. **Tag Non-Collision**: Inline tags `0x00..=0x07` are strictly disjoint from `ArenaMeta (0x10)` and `RawWord (0xFF)`.
 3. **C ABI Non-Interference**: Uninterpreted writes via `*JudyLIns(...) = val` preserve raw 64-bit patterns unmodified.
 4. **OCC Reader Safety**: Readers traversing `BlobArena` during compaction never read uninitialized memory; generational checks detect stale offsets.
 

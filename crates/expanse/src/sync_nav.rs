@@ -26,7 +26,7 @@
 //! Terminal payloads (linear leaves, immediates, bitmap leaves, a `BranchB`
 //! subarray) carry no version and are covered by the branch whose slot points
 //! at them, or by the tree version for the top edge (`docs/ARCHITECTURE.md`
-//! §4.2). A search backtracks at most once below a branch with a live digit on
+//! §4.1). A search backtracks at most once below a branch with a live digit on
 //! the searched side, so a consistent read holds at most ℓ + 5 branch
 //! versions for a backtrack at level ℓ, 13 at most
 //! (`scripts/olc_bounds.py::ordered_read_set_branches`). A read that needs more
@@ -444,7 +444,9 @@ unsafe fn next_in<const MAP: bool>(
             let d = digit(suffix, bl);
             let here = Holder::Node(vp, nsnap);
             // SAFETY: live node; bitmap loads are validated before use.
-            let mut cur = unsafe { (*node).bitmap.next_set(d) };
+            let mut cur = unsafe {
+                crate::bits::shared_bitmap::next_set::<true>(&raw const (*node).bitmap, d)
+            };
             while let Some(bd) = cur {
                 let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: as above.
@@ -459,7 +461,12 @@ unsafe fn next_in<const MAP: bool>(
                     None
                 } else {
                     // SAFETY: as above.
-                    unsafe { (*node).bitmap.next_set(bd + 1) }
+                    unsafe {
+                        crate::bits::shared_bitmap::next_set::<true>(
+                            &raw const (*node).bitmap,
+                            bd + 1,
+                        )
+                    }
                 };
             }
             Ok(None)
@@ -663,7 +670,9 @@ unsafe fn prev_in<const MAP: bool>(
             let d = digit(suffix, bl);
             let here = Holder::Node(vp, nsnap);
             // SAFETY: live node; bitmap loads are validated before use.
-            let mut cur = unsafe { (*node).bitmap.prev_set(d) };
+            let mut cur = unsafe {
+                crate::bits::shared_bitmap::prev_set::<true>(&raw const (*node).bitmap, d)
+            };
             while let Some(bd) = cur {
                 let rem = if bd == d {
                     key_low(suffix, bl - 1)
@@ -682,7 +691,12 @@ unsafe fn prev_in<const MAP: bool>(
                     None
                 } else {
                     // SAFETY: as above.
-                    unsafe { (*node).bitmap.prev_set(bd - 1) }
+                    unsafe {
+                        crate::bits::shared_bitmap::prev_set::<true>(
+                            &raw const (*node).bitmap,
+                            bd - 1,
+                        )
+                    }
                 };
             }
             Ok(None)
@@ -750,7 +764,8 @@ unsafe fn branch_b_child(node: *const BranchB, bd: u8, here: Holder<'_>) -> Resu
     // SAFETY: live node per contract.
     let (rank, sub) = unsafe {
         (
-            (*node).bitmap.subexpanse_rank(bd) as usize,
+            crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, bd)
+                as usize,
             (*node).subarrays[(bd >> 5) as usize],
         )
     };
@@ -790,9 +805,9 @@ unsafe fn bitmap_leaf<const MAP: bool>(
         // SAFETY: live leaf; loads validated before the value deref.
         let Some(d) = (unsafe {
             if forward {
-                (*node).bitmap.next_set(from)
+                crate::bits::shared_bitmap::next_set::<true>(&raw const (*node).bitmap, from)
             } else {
-                (*node).bitmap.prev_set(from)
+                crate::bits::shared_bitmap::prev_set::<true>(&raw const (*node).bitmap, from)
             }
         }) else {
             return Ok(None);
@@ -800,7 +815,8 @@ unsafe fn bitmap_leaf<const MAP: bool>(
         // SAFETY: as above.
         let (rank, vals) = unsafe {
             (
-                (*node).bitmap.subexpanse_rank(d) as usize,
+                crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d)
+                    as usize,
                 (*node).values[(d >> 5) as usize],
             )
         };
@@ -818,9 +834,9 @@ unsafe fn bitmap_leaf<const MAP: bool>(
         // SAFETY: live leaf; covered by the holder's final validation.
         let d = unsafe {
             if forward {
-                (*node).bitmap.next_set(from)
+                crate::bits::shared_bitmap::next_set::<true>(&raw const (*node).bitmap, from)
             } else {
-                (*node).bitmap.prev_set(from)
+                crate::bits::shared_bitmap::prev_set::<true>(&raw const (*node).bitmap, from)
             }
         };
         Ok(d.map(|d| (d, 0)))

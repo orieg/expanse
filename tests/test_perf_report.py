@@ -18,13 +18,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from perf_report import (
-    BENCH_N_MAP,
     categorize_benchmarks,
     check_regressions,
     format_ins_per_op,
     format_n,
     get_bench_n,
-    normalize_bench_name,
+    ops_entry,
     parse,
     parse_bytes_32,
     parse_bytes_64,
@@ -195,9 +194,19 @@ def test_bench_n_mapping_and_formatting():
     assert get_bench_n("map_insert/random") == 50_000
     assert get_bench_n("set32_insert/sensor_timestamps") == 10_000
 
-    # Smoke mode N counts
-    assert get_bench_n("map_get/random", is_smoke=True) == 10_000
-    assert get_bench_n("map_insert/sequential", is_smoke=True) == 10_000
+    # Each harness's arms take that harness's counts (#981): the origin
+    # `(bench target, group)` parse_full records selects them.
+    trie_smoke = ("smoke_instructions", "smoke_cost")
+    capi_smoke = ("smoke_instructions", "smoke_capi_cost")
+    assert get_bench_n("map_get/random", trie_smoke) == 10_000
+    assert get_bench_n("map_insert/sequential", trie_smoke) == 10_000
+    assert get_bench_n("strmap_get/routes", trie_smoke) == 10_000
+    assert get_bench_n("strmap_get/routes", ("instructions", "cost")) == 50_000
+    assert get_bench_n("judyl_get/random", capi_smoke) == 10_000
+    assert get_bench_n("judysl_get/routes", capi_smoke) == 10_000
+    assert get_bench_n("judyl_get_expanse_dl/random", ("vs_stock", "vs_stock")) == 30_000
+    assert get_bench_n("judysl_insert_stock/clustered", ("vs_stock", "vs_stock")) == 30_000
+    assert get_bench_n("judyl_get_stock/random_big", ("vs_stock", "vs_stock")) == 1_500_000
 
     # Formatting of N
     assert format_n(50_000) == "50k"
@@ -396,9 +405,13 @@ def test_rust_benchmark_sources_coverage():
         REPO_ROOT / "crates" / "expanse" / "benches" / "instructions.rs",
         REPO_ROOT / "crates" / "expanse" / "benches" / "smoke_instructions.rs",
         REPO_ROOT / "crates" / "expanse-capi" / "benches" / "vs_stock.rs",
+        REPO_ROOT / "crates" / "expanse-capi" / "benches" / "smoke_instructions.rs",
     ]
+    from check_bench_shapes import parse_iai_groups
 
     discovered_benches = set()
+    # (fn, origin) per harness: the origin decides which ops table applies.
+    discovered_arms: set[tuple[str, tuple[str, str]]] = set()
     # One unambiguous alternative per attribute or `//` comment line, so a
     # failed match cannot backtrack exponentially (CodeQL py/redos).
     fn_pattern = re.compile(
@@ -408,9 +421,11 @@ def test_rust_benchmark_sources_coverage():
     for path in harness_files:
         if path.exists():
             content = path.read_text(encoding="utf-8")
+            groups = parse_iai_groups(content)
             for m in fn_pattern.finditer(content):
                 fn_name = m.group(1)
                 discovered_benches.add(fn_name)
+                discovered_arms.add((fn_name, (path.stem, groups.get(fn_name, ""))))
 
     # Every `#[library_benchmark]` in the harnesses is found, including one
     # whose attributes are interleaved with `//` comment lines.
@@ -422,13 +437,15 @@ def test_rust_benchmark_sources_coverage():
     )
     assert "judyl_get_expanse" in discovered_benches
 
-    for bench in discovered_benches:
-        # Each benchmark has an explicit N entry: a guessed N (the digit
-        # fallback once read 32 out of `map32_range`) is not a mapping.
-        assert normalize_bench_name(bench) in BENCH_N_MAP, f"Benchmark {bench} has no BENCH_N_MAP entry"
-        n = get_bench_n(bench)
+    for bench, origin in sorted(discovered_arms):
+        # Each benchmark has an explicit N entry in its own harness's table: a
+        # guessed N (the digit fallback once read 32 out of `map32_range`) is
+        # not a mapping, and neither is another harness's count (#981).
+        assert ops_entry(bench, origin) is not None, f"Benchmark {bench} in {origin} has no ops entry"
+        n = get_bench_n(bench, origin)
         assert n > 1, f"Benchmark {bench} has missing or unmapped N operations (got {n})"
 
+    for bench in discovered_benches:
         # Assert each benchmark maps to a primary category (not uncategorized)
         cats = categorize_benchmarks([bench])
         cat_ids = [c[0] for c in cats]

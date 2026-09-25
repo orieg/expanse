@@ -387,8 +387,8 @@ impl core::fmt::Debug for Edge {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BranchHeader {
-    /// Phase 7 OCC version counter (odd = mutation in progress). Plain for
-    /// now; becomes atomic when the concurrent read protocol lands.
+    /// OCC version counter (odd = mutation in progress). A plain `u32` in the
+    /// layout; once published it is stored through `occ::version_cell`'s atomic view.
     pub version: u32,
     /// Number of populated child edges.
     pub num: u8,

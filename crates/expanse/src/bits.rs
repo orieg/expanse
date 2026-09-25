@@ -1223,6 +1223,35 @@ pub(crate) mod shared_bitmap {
             bits = unsafe { word(p, w) };
         }
     }
+
+    /// [`Bitmap256::prev_set`]. Only the concurrent map's ordered reads call
+    /// it, so it exists with them.
+    ///
+    /// # Safety
+    /// As [`word`].
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) unsafe fn prev_set<const OCC: bool>(p: *const Bitmap256, from: u8) -> Option<u8> {
+        if !OCC {
+            // SAFETY: forwarded; the unshared path keeps the inherent method.
+            return unsafe { (*p).prev_set(from) };
+        }
+        let mut w = (from >> 6) as usize;
+        let keep = 63 - (from & 63);
+        // SAFETY: forwarded.
+        let mut bits = (unsafe { word(p, w) } << keep) >> keep;
+        loop {
+            if bits != 0 {
+                return Some(((w as u32 * 64) + 63 - bits.leading_zeros()) as u8);
+            }
+            if w == 0 {
+                return None;
+            }
+            w -= 1;
+            // SAFETY: forwarded.
+            bits = unsafe { word(p, w) };
+        }
+    }
 }
 
 /// Word loads, stores and in-place shifts of node memory that a shared
@@ -1478,6 +1507,7 @@ mod tests {
                         "test_and_rank_with_sub {i}"
                     );
                     assert_eq!(sb::next_set::<true>(p, i), b.next_set(i), "next_set {i}");
+                    assert_eq!(sb::prev_set::<true>(p, i), b.prev_set(i), "prev_set {i}");
                 }
             }
             // The writes: set and clear every index on a copy, both ways.

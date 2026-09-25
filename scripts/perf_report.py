@@ -47,8 +47,10 @@ BENCH_SUITES = Path(__file__).resolve().parent.parent / ".github" / "bench-suite
 METRICS = ["Instructions", "Estimated Cycles", "L1 Hits", "LL Hits", "RAM Hits"]
 NOISE_PCT = 0.1
 
-# Default operations count (N) for each benchmark in deterministic instruction sweeps.
-# POP = 50,000 in full benches, POP = 10,000 in smoke benches.
+# Operations count (N) per arm, which `Ins / Op` divides by. These entries
+# describe arms of the harnesses no `HARNESS_BENCH_N_MAP` scope claims:
+# `instructions.rs` (POP = 50,000), `search_instructions.rs` and
+# `leaf_cap_cascaded.rs`. An arm of a scoped harness never reads this map.
 BENCH_N_MAP: Dict[str, int] = {
     # Point Queries & Lookups
     "map_get": 50_000,
@@ -166,6 +168,9 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_strmap_insert": 50_000,
     "sync_strmap_remove": 50_000,
     "sync_strmap_churn": 50_000,
+    # Ascending UUIDv4 strings through the string wrapper (#1162): one pass
+    # over `uuid_keys_sorted` (UUID_POP = 20,000).
+    "sync_strmap_insert_sorted": 20_000,
     "sync_bytesmap_insert": 50_000,
     "sync_bytesmap_remove": 50_000,
     "sync_bytesmap_churn": 50_000,
@@ -187,14 +192,6 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_bytesmap_overwrite": 50_000,
     "sync_blobmap_get": 50_000,
     "sync_blobmap_overwrite": 50_000,
-    # C ABI vs Stock Judy
-    "judyl_insert": 50_000,
-    "judyl_get": 50_000,
-    "judyl_churn": 50_000,
-    "judy1_set": 50_000,
-    "judy1_test": 50_000,
-    "judysl_insert": 10_000,
-    "judysl_get": 10_000,
     # Search suite (`search_instructions.rs`): one arm is one whole set-algebra
     # call over a prepared pair, so N = 1 is the ops count and `Ins / Op` reads
     # as instructions per operation. Declared, not left to the fallback in
@@ -216,13 +213,62 @@ BENCH_N_MAP: Dict[str, int] = {
     "roaring_wand": 1,
 }
 
-SMOKE_BENCH_N_MAP: Dict[str, int] = {
-    "map_get": 10_000,
-    "set_contains": 10_000,
-    "map_insert": 10_000,
-    "set_insert": 10_000,
-    "map_ins_slot": 10_000,
-    "map_churn": 10_000,
+# Operations counts scoped to one harness (#981). An arm's name does not
+# identify its harness: `map_get` is 50,000 probes in `instructions.rs` and
+# 10,000 in the trie smoke harness, so a map keyed by arm name alone divided
+# every harness by whichever population its key happened to describe.
+#
+# A scope is the `<bench target>::<group>` prefix iai-callgrind prints ahead
+# of each arm (`parse_full` records it in `origins`), or `<bench target>` alone
+# when one count table serves every group of that target. The group is needed
+# where a target names two harnesses: both `smoke_instructions.rs` files build
+# the bench target `smoke_instructions`, told apart by their groups.
+#
+# A scoped harness is closed: an arm missing from its scope is unregistered
+# (a named `::notice::` here, an error in `scripts/check_bench_shapes.py`) and
+# never falls through to `BENCH_N_MAP`, which is how the defect arose.
+HARNESS_BENCH_N_MAP: Dict[str, Dict[str, int]] = {
+    # `crates/expanse-capi/benches/vs_stock.rs`: `POP = 30_000`; every arm is
+    # one pass over `keys(dist)` or its shuffled probe stream, and
+    # `str_keys(dist)` derives from `keys(dist)`, so the `judysl_*` arms run
+    # `POP` too. `random_big` runs `POP_BIG = 1_500_000`. Churn counts one per
+    # probe (an upsert, a fresh insert and its delete), as `map_churn` does.
+    "vs_stock": {
+        "judyl_insert": 30_000,
+        "judyl_get": 30_000,
+        "judyl_get/random_big": 1_500_000,
+        "judyl_churn": 30_000,
+        "judy1_set": 30_000,
+        "judy1_test": 30_000,
+        "judysl_insert": 30_000,
+        "judysl_get": 30_000,
+    },
+    # `crates/expanse/benches/smoke_instructions.rs`: `POP = 10_000`, one pass
+    # over `keys(dist)`, `str_keys` or the shuffled probe stream per arm.
+    "smoke_instructions::smoke_cost": {
+        "map_get": 10_000,
+        "set_contains": 10_000,
+        "map_insert": 10_000,
+        "set_insert": 10_000,
+        "map_ins_slot": 10_000,
+        "map_churn": 10_000,
+        "strmap_insert": 10_000,
+        "strmap_get": 10_000,
+        "strmap_churn": 10_000,
+        "bytesmap_insert": 10_000,
+        "bytesmap_get": 10_000,
+        "bytesmap_churn": 10_000,
+    },
+    # `crates/expanse-capi/benches/smoke_instructions.rs`: `POP = 10_000`, one
+    # pass over `keys(dist)`, `str_keys` or the shuffled probe stream per arm.
+    "smoke_instructions::smoke_capi_cost": {
+        "judyl_insert": 10_000,
+        "judyl_get": 10_000,
+        "judy1_set": 10_000,
+        "judy1_test": 10_000,
+        "judysl_insert": 10_000,
+        "judysl_get": 10_000,
+    },
 }
 
 # Subsystem categories for structured reporting
@@ -330,6 +376,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_strmap_insert",
             "sync_strmap_remove",
             "sync_strmap_churn",
+            "sync_strmap_insert_sorted",
             "sync_bytesmap_insert",
             "sync_bytesmap_remove",
             "sync_bytesmap_churn",
@@ -1507,19 +1554,66 @@ def normalize_bench_name(bench_name: str) -> str:
     return base_name
 
 
-def get_bench_n(bench_name: str, is_smoke: bool = False) -> int:
-    """Returns the operations count N for a benchmark name (e.g. 'map_get/random' -> 50000)."""
+def ops_candidates(bench_name: str) -> list[str]:
+    """Keys an arm's ops count may be registered under, most specific first.
+
+    A per-distribution entry (`map32_range/random`) wins over its arm's; the
+    suffixed twins of one family (`judyl_get_stock/random_big`) resolve through
+    the normalised name, with and without the distribution.
+    """
     clean_name = normalize_bench_name(bench_name)
+    base_name, _, arg = bench_name.partition("/")
+    out: list[str] = []
+    for key in (
+        bench_name,
+        f"{clean_name}/{arg}" if arg else clean_name,
+        clean_name,
+        base_name,
+    ):
+        if key not in out:
+            out.append(key)
+    return out
+
+
+def harness_scope(origin: tuple[str, str] | None) -> str | None:
+    """The `HARNESS_BENCH_N_MAP` scope an arm's origin falls under, if any."""
+    if not origin:
+        return None
+    target, group = origin
+    for scope in (f"{target}::{group}", target):
+        if scope in HARNESS_BENCH_N_MAP:
+            return scope
+    return None
+
+
+def ops_entry(
+    bench_name: str, origin: tuple[str, str] | None = None
+) -> tuple[str | None, str] | None:
+    """`(scope, key)` of the ops entry an arm resolves to, or None.
+
+    `scope` is None for a `BENCH_N_MAP` entry. An arm of a scoped harness is
+    looked up in its scope only (#981).
+    """
+    scope = harness_scope(origin)
+    table = HARNESS_BENCH_N_MAP[scope] if scope else BENCH_N_MAP
+    for key in ops_candidates(bench_name):
+        if key in table:
+            return scope, key
+    return None
+
+
+def get_bench_n(bench_name: str, origin: tuple[str, str] | None = None) -> int:
+    """Returns the operations count N for one arm (e.g. 'map_get/random' -> 50000).
+
+    `origin` is the arm's `(bench target, group)` from `parse_full`. It decides
+    which harness's counts apply: the same arm name runs different populations
+    in different harnesses (#981).
+    """
+    entry = ops_entry(bench_name, origin)
+    if entry is not None:
+        scope, key = entry
+        return (HARNESS_BENCH_N_MAP[scope] if scope else BENCH_N_MAP)[key]
     base_name = bench_name.split("/")[0]
-    if is_smoke and clean_name in SMOKE_BENCH_N_MAP:
-        return SMOKE_BENCH_N_MAP[clean_name]
-    # A per-distribution entry (`map32_range/random`) wins over its arm's.
-    if bench_name in BENCH_N_MAP:
-        return BENCH_N_MAP[bench_name]
-    if clean_name in BENCH_N_MAP:
-        return BENCH_N_MAP[clean_name]
-    if base_name in BENCH_N_MAP:
-        return BENCH_N_MAP[base_name]
     # An explicit count suffix on the arm name ('foo_10k'), anchored to the end:
     # an unanchored digit search read N = 32 out of `map32_range`.
     match = re.search(r"_(\d+[km]?)$", base_name.lower())
@@ -1534,10 +1628,13 @@ def get_bench_n(bench_name: str, is_smoke: bool = False) -> int:
     # Fail-open with a named notice (§8.11.5): the report still renders, but an
     # unregistered arm no longer passes as "one operation per invocation". A
     # genuinely one-op arm is declared with an explicit `1` above.
+    scope = harness_scope(origin)
     print(
-        f"::notice::perf_report: no ops entry for '{bench_name}' — `Ins / Op` "
-        "shows the raw count (N = 1). Register it in BENCH_N_MAP or "
-        "SMOKE_BENCH_N_MAP; scripts/check_bench_shapes.py fails on this.",
+        f"::notice::perf_report: no ops entry for '{bench_name}'"
+        + (f" in harness '{'::'.join(origin)}'" if origin else "")
+        + " — `Ins / Op` shows the raw count (N = 1). Register it in "
+        + (f"HARNESS_BENCH_N_MAP['{scope}']" if scope else "BENCH_N_MAP")
+        + "; scripts/check_bench_shapes.py fails on this.",
         file=sys.stderr,
     )
     return 1
@@ -1822,7 +1919,6 @@ def render_bytes_32_table(rows: list[dict[str, Any]], raw_fallback: str | None) 
 
 def render_cache_simulation(
     head: dict[str, dict[str, int]],
-    is_smoke: bool = False,
 ) -> list[str]:
     """Renders Section 4: Callgrind-Modeled Memory Hierarchy Simulation table."""
     lines = [
@@ -2090,7 +2186,6 @@ def render(
     bytes32_table: str | None = None,
     head_to_head: str | None = None,
     bindings_status: str | None = None,
-    is_smoke: bool = False,
     has_violation: bool = False,
     is_allowed_override: bool = False,
     base_requested: bool = False,
@@ -2292,7 +2387,7 @@ def render(
                 metrics = head[name]
                 ins = metrics.get("Instructions", 0)
                 cyc = metrics.get("Estimated Cycles", 0)
-                n = get_bench_n(name, is_smoke=is_smoke)
+                n = get_bench_n(name, (origins or {}).get(name))
                 b = base.get(name)
 
                 if not b or "Instructions" not in b:
@@ -2335,7 +2430,7 @@ def render(
                 metrics = head[name]
                 ins = metrics.get("Instructions", 0)
                 cyc = metrics.get("Estimated Cycles", 0)
-                n = get_bench_n(name, is_smoke=is_smoke)
+                n = get_bench_n(name, (origins or {}).get(name))
                 ins_op_str = format_ins_per_op(ins, n, bold=False)
                 lines.append(f"| `{name}` | {ins:,} | {ins_op_str} | {cyc:,} |")
             lines.append("")
@@ -2407,7 +2502,7 @@ def render(
         lines.append("")
 
     # Section 4: Callgrind-Modeled Memory Hierarchy Simulation
-    lines.extend(render_cache_simulation(head, is_smoke=is_smoke))
+    lines.extend(render_cache_simulation(head))
     lines.append("---")
     lines.append("")
 
@@ -2513,6 +2608,69 @@ SELF_TEST_ARMS = {
         }
     ]
 }
+
+
+def _self_arm(header: str, ins: int) -> str:
+    """One iai-callgrind arm block, as `parse_full` reads it."""
+    return (
+        f"{header}\n"
+        f"  Instructions:              {ins}|{ins}            (No change)\n"
+        f"  Estimated Cycles:          {2 * ins}|{2 * ins}            (No change)\n"
+    )
+
+
+def _self_test_harness_scoped_ops() -> None:
+    """`Ins / Op` divides each arm by its own harness's ops count (#981).
+
+    The motivating defect: the ops maps were keyed by arm name alone, so the
+    trie smoke harness's `strmap_get` (10,000 probes) was divided by the
+    50,000 that `instructions.rs`'s arm of the same name runs, and every
+    `vs_stock` arm (30,000) by the same 50,000. One arm name, two harnesses,
+    two counts: each rendered row must carry its own harness's.
+    """
+    import contextlib
+    import io
+
+    full, full_origins = parse_full(
+        _self_arm('instructions::cost::strmap_get routes:"routes"', 1_000_000)
+    )
+    smoke, smoke_origins = parse_full(
+        _self_arm('smoke_instructions::smoke_cost::strmap_get routes:"routes"', 1_000_000)
+        + _self_arm('smoke_instructions::smoke_capi_cost::judyl_get random:"random"', 1_000_000)
+    )
+    stock, stock_origins = parse_full(
+        _self_arm('vs_stock::vs_stock::judyl_get_expanse random:"random"', 1_500_000)
+        + _self_arm('vs_stock::vs_stock::judyl_get_stock random_big:"random_big"', 3_000_000)
+    )
+
+    def row(out: str, name: str) -> str:
+        return next(l for l in out.splitlines() if l.startswith(f"| `{name}` |"))
+
+    out_full = render(head=full, base=None, bytes_table=None, base_ref="main", origins=full_origins)
+    out_smoke = render(head=smoke, base=None, bytes_table=None, base_ref="main", origins=smoke_origins)
+    out_stock = render(head=stock, base=None, bytes_table=None, base_ref="main", origins=stock_origins)
+    # One arm name in two harnesses, each divided by its own population.
+    assert "| 20.0 (50k) |" in row(out_full, "strmap_get/routes"), out_full
+    assert "| 100.0 (10k) |" in row(out_smoke, "strmap_get/routes"), out_smoke
+    # The two smoke harnesses share a bench target; their groups tell them apart.
+    assert "| 100.0 (10k) |" in row(out_smoke, "judyl_get/random"), out_smoke
+    assert "| 50.0 (30k) |" in row(out_stock, "judyl_get_expanse/random"), out_stock
+    # A per-distribution entry inside a scope wins over the arm's, and the
+    # suffixed twin resolves through the normalised name.
+    assert "| 2.0 (1.5M) |" in row(out_stock, "judyl_get_stock/random_big"), out_stock
+
+    # A scoped harness is closed: an arm it does not register falls through to
+    # the named notice, never to the same-named `BENCH_N_MAP` entry that
+    # describes another harness.
+    assert "map_get_batch" in BENCH_N_MAP
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        n = get_bench_n("map_get_batch/random", ("smoke_instructions", "smoke_cost"))
+    assert n == 1, n
+    assert "::notice::" in err.getvalue(), err.getvalue()
+    assert "smoke_instructions::smoke_cost" in err.getvalue(), err.getvalue()
+    # An arm with no known origin keeps reading `BENCH_N_MAP`.
+    assert get_bench_n("strmap_get/routes") == 50_000
 
 
 def self_test() -> int:
@@ -3241,6 +3399,8 @@ def self_test() -> int:
     assert format_ins_per_op(1_303_484, 1) == "—"
     assert format_ins_per_op(1_000_000, 50_000) == "20.0 (50k)"
     assert "(1)" not in out, out
+    # ... and each arm is divided by its own harness's count (#981).
+    _self_test_harness_scoped_ops()
 
     # 13. Done-when 4: a run whose arms are all new says so rather than
     #     reporting 0 Regressions.
@@ -3386,7 +3546,6 @@ def main() -> int:
     ap.add_argument("--v3", help="bench output for x86-64-v3")
     ap.add_argument("--head-to-head", help="head-to-head comparison markdown report (bench_report.py)")
     ap.add_argument("--bindings-status", help="summary status chip for bindings invariants")
-    ap.add_argument("--smoke", action="store_true", help="indicate smoke benchmark run (POP = 10,000)")
     ap.add_argument("--fail-on-regression", action="store_true", help="fail if regressions exceed threshold")
     ap.add_argument("--max-regression-pct", type=float, default=1.5, help="maximum single-benchmark regression pct allowed")
     ap.add_argument("--allow-regression", action="store_true", help="override/approve intentional regressions")
@@ -3550,7 +3709,6 @@ def main() -> int:
         stale_citations=stale_citations,
     )
 
-    is_smoke = args.smoke or "smoke" in args.head.lower()
     is_allowed_override = allowed and bool(reg_messages) and not has_violation
 
     rendered = render(
@@ -3563,7 +3721,6 @@ def main() -> int:
         bytes32_table=read(args.bytes32),
         head_to_head=read(args.head_to_head),
         bindings_status=args.bindings_status,
-        is_smoke=is_smoke,
         has_violation=has_violation,
         is_allowed_override=is_allowed_override,
         base_requested=base_requested,

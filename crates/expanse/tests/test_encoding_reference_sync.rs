@@ -16,6 +16,9 @@
 //! - `<!-- ENCODING-CONSTANTS -->`: every row's value must equal the value
 //!   computed from the public API, and its `path:line` citation must
 //!   resolve to a line that still mentions the symbol.
+//! - Every `path:line` in §10's prose must resolve, and must land on a line
+//!   (or, for a `path:first`–`last` range, a line of the range) that
+//!   mentions an identifier from the code span before it on its line.
 //! - `<!-- ENCODING-TABLE edge_type|tag32|slot_tag|slot_tag32 -->`: every
 //!   listed byte must decode to the named variant (compared against the
 //!   compiled `Debug` name, so a rename fails), and the listed byte set
@@ -476,6 +479,157 @@ fn test_encoding_prose_citations_resolve() {
         "expected section 10 to carry at least 50 source citations, found {checked} -- the \
          scanner or the section has changed shape"
     );
+}
+
+/// Inline code spans of one markdown line, in order.
+fn code_spans(line: &str) -> Vec<(usize, usize, &str)> {
+    let mut spans = Vec::new();
+    let mut rest = 0;
+    while let Some(open) = line[rest..].find('`').map(|i| rest + i) {
+        let Some(close) = line[open + 1..].find('`').map(|i| open + 1 + i) else {
+            break;
+        };
+        spans.push((open, close + 1, &line[open + 1..close]));
+        rest = close + 1;
+    }
+    spans
+}
+
+/// A `crates/…/*.rs:N` span, as (path, line).
+fn as_citation(span: &str) -> Option<(&str, usize)> {
+    let (rel, lineno) = span.rsplit_once(':')?;
+    if !rel.starts_with("crates/") || !rel.ends_with(".rs") {
+        return None;
+    }
+    Some((rel, lineno.parse().ok()?))
+}
+
+/// Checks every `path:line` (or `path:first`–`last`) citation in `prose`
+/// against the code span before it on the same line: some line of the cited
+/// range must mention one of that span's identifiers. Fenced code blocks are
+/// skipped. Returns the number of citations checked and the failures.
+fn prose_citation_problems(prose: &str) -> (usize, Vec<String>) {
+    let mut checked = 0usize;
+    let mut problems = Vec::new();
+    let mut in_fence = false;
+    for line in prose.lines() {
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        let spans = code_spans(line);
+        let mut symbol: Option<&str> = None;
+        for (i, &(_, end, text)) in spans.iter().enumerate() {
+            let Some((rel, first)) = as_citation(text) else {
+                let is_range_end = i > 0
+                    && text.chars().all(|c| c.is_ascii_digit())
+                    && as_citation(spans[i - 1].2).is_some();
+                if !is_range_end && !symbol_identifiers(text).is_empty() {
+                    symbol = Some(text);
+                }
+                continue;
+            };
+            // `path:first`–`last`: the next span is the range end.
+            let last = spans
+                .get(i + 1)
+                .filter(|&&(start, _, next)| {
+                    matches!(line[end..start].trim(), "–" | "-")
+                        && next.chars().all(|c| c.is_ascii_digit())
+                })
+                .and_then(|&(_, _, next)| next.parse::<usize>().ok())
+                .unwrap_or(first);
+            checked += 1;
+            let Some(symbol) = symbol else {
+                problems.push(format!(
+                    "{rel}:{first} has no code span naming its symbol before it on its line"
+                ));
+                continue;
+            };
+            let Ok(text) = fs::read_to_string(repo_root().join(rel)) else {
+                problems.push(format!("{rel}:{first} names a file that does not exist"));
+                continue;
+            };
+            let lines: Vec<&str> = text.lines().collect();
+            if first == 0 || last < first || last > lines.len() {
+                problems.push(format!(
+                    "{rel}:{first}-{last} is outside the file ({} lines)",
+                    lines.len()
+                ));
+                continue;
+            }
+            let idents = symbol_identifiers(symbol);
+            let hit = lines[first - 1..last]
+                .iter()
+                .any(|l| idents.iter().any(|id| l.contains(id.as_str())));
+            if !hit {
+                problems.push(format!(
+                    "{rel}:{first}-{last} is cited for `{symbol}`, but no line of it mentions any \
+                     of {idents:?}"
+                ));
+            }
+        }
+    }
+    (checked, problems)
+}
+
+/// §10's prose citations name their symbol. Every `path:line` follows the
+/// code span that names what it cites, and the cited line — or a line of a
+/// cited range — must mention an identifier from that span, so a citation
+/// that has drifted onto an unrelated line fails here rather than merely
+/// resolving to *some* line (`test_encoding_prose_citations_resolve`). §10.8's
+/// table is checked row by row in `test_encoding_citations_resolve`.
+#[test]
+fn test_encoding_prose_citations_name_their_symbol() {
+    let md = architecture_md();
+    let section = md
+        .split_once("## 10. Bit-level encoding reference")
+        .expect("docs/ARCHITECTURE.md must contain section 10")
+        .1;
+    let prose = section
+        .split_once("<!-- ENCODING-CONSTANTS -->")
+        .expect("section 10 must carry the ENCODING-CONSTANTS table")
+        .0;
+    let (checked, problems) = prose_citation_problems(prose);
+    assert!(
+        problems.is_empty(),
+        "docs/ARCHITECTURE.md section 10 has citations that do not name their symbol; re-point \
+         each at the line that declares it:\n  {}",
+        problems.join("\n  ")
+    );
+    assert!(
+        checked >= 50,
+        "expected section 10's prose to carry at least 50 source citations, found {checked} -- \
+         the scanner or the section has changed shape"
+    );
+}
+
+/// The scanner above fails on a drifted citation, a range that misses its
+/// symbol, and a citation with no symbol before it, and passes the same
+/// citations pointed at the right lines. Line 62 of `node.rs` declares
+/// `Edge`; line 47 declares `Word0`.
+#[test]
+fn test_prose_citation_scanner_negative_controls() {
+    let node = "crates/expanse/src/node.rs";
+    let good = format!("`Edge` is declared at `{node}:62`; `union Word0` (`{node}:47`–`48`).");
+    let (checked, problems) = prose_citation_problems(&good);
+    assert_eq!((checked, problems), (2, Vec::<String>::new()));
+
+    for bad in [
+        format!("`Edge` is declared at `{node}:47`."),
+        format!("`BranchB` sits at `{node}:60`–`63`."),
+        format!("Declared at `{node}:62`."),
+    ] {
+        let (checked, problems) = prose_citation_problems(&bad);
+        assert_eq!(checked, 1, "{bad}");
+        assert_eq!(problems.len(), 1, "the scanner must reject: {bad}");
+    }
+
+    // A fenced block is not prose.
+    let fenced = format!("```\n`Edge` at `{node}:47`\n```");
+    assert_eq!(prose_citation_problems(&fenced).0, 0);
 }
 
 // ---------------------------------------------------------------------------

@@ -420,7 +420,12 @@ fn dispose_key(key: Box<[u8]>, defer: Option<&Arc<Collector>>) {
         Some(c) if !key.is_empty() => {
             let len = key.len();
             let buf = Box::into_raw(key).cast::<u8>();
-            c.retire(NonNull::new(buf).expect("non-null key buffer"), len, 1);
+            // SAFETY: `buf` is the non-empty `Box<[u8]>`'s own allocation,
+            // `Layout::array::<u8>(len)` = `(len, 1)`, and `into_raw` gave up
+            // its only owner, so it is retired once. The caller unlinked the
+            // bucket holding it, so only readers pinned before that can
+            // still be comparing these bytes.
+            unsafe { c.retire(NonNull::new(buf).expect("non-null key buffer"), len, 1) };
         }
         _ => drop(key),
     }
@@ -481,17 +486,30 @@ pub(crate) fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Ar
             let cap = vec.capacity();
             if cap > 0 {
                 let buf = vec.as_mut_ptr().cast::<u8>();
+                // SAFETY: the vector was moved out by value, so `buf` carries
+                // its buffer's provenance; that buffer is
+                // `Layout::array::<Entry>(cap)` from the global allocator, and
+                // the `ManuallyDrop` never frees it, so it is retired once.
+                // The bucket was unlinked by the caller.
+                unsafe {
+                    c.retire(
+                        NonNull::new(buf).expect("non-null bucket buffer"),
+                        cap * size_of::<Entry>(),
+                        align_of::<Entry>(),
+                    );
+                }
+            }
+            // SAFETY: `ptr` is the shell's `Box<Bucket>` allocation
+            // (`Layout::new::<Bucket>()`), unlinked by the caller and owned
+            // here alone; its contents were moved out above without a
+            // `Drop`, so it is retired once and never used again.
+            unsafe {
                 c.retire(
-                    NonNull::new(buf).expect("non-null bucket buffer"),
-                    cap * size_of::<Entry>(),
-                    align_of::<Entry>(),
+                    NonNull::new(ptr.cast::<u8>()).expect("non-null bucket shell"),
+                    size_of::<Bucket>(),
+                    align_of::<Bucket>(),
                 );
             }
-            c.retire(
-                NonNull::new(ptr.cast::<u8>()).expect("non-null bucket shell"),
-                size_of::<Bucket>(),
-                align_of::<Bucket>(),
-            );
         }
     }
 }
