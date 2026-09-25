@@ -26,8 +26,8 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf |
-//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exception: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported |
 //! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000) |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
@@ -2114,6 +2114,62 @@ fn sync_strmap_churn(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+// ---- Ascending UUID text keys through the string wrapper (#1162) ---------
+//
+// The reported workload: canonical lowercase UUIDv4 strings, sorted, inserted
+// in order through `SyncExpanseStrMap::insert` on one thread. Ascending order
+// makes the engine's optimistic insert fall back to the exclusive path
+// repeatedly (linear branches filling one digit at a time, prefix splits),
+// and that path used to refold the whole dirty root sub-map on each fallback:
+// a per-insert cost that grows with the population. `UUID_POP` is smaller
+// than `POP` because the arm is also run against the base commit, where the
+// load is quadratic.
+
+/// Population of the ascending-UUID arm.
+const UUID_POP: usize = 20_000;
+
+/// `UUID_POP` distinct canonical UUIDv4 strings from a SplitMix64 stream,
+/// sorted ascending. NUL-free by construction.
+fn uuid_keys_sorted(_dist: &str) -> Vec<Vec<u8>> {
+    fn splitmix64(mut z: u64) -> u64 {
+        z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    let mut out: Vec<Vec<u8>> = (0..UUID_POP as u64)
+        .map(|i| {
+            let hi = (splitmix64(i << 1) & 0xFFFF_FFFF_FFFF_0FFF) | 0x4000;
+            let lo = (splitmix64((i << 1) | 1) & 0x3FFF_FFFF_FFFF_FFFF) | (1 << 63);
+            format!(
+                "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                hi >> 32,
+                (hi >> 16) & 0xFFFF,
+                hi & 0xFFFF,
+                lo >> 48,
+                lo & 0xFFFF_FFFF_FFFF
+            )
+            .into_bytes()
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    assert_eq!(out.len(), UUID_POP, "uuid_keys_sorted drew a duplicate");
+    out
+}
+
+#[library_benchmark]
+#[bench::uuid(args = ("uuid",), setup = uuid_keys_sorted)]
+fn sync_strmap_insert_sorted(ks: Vec<Vec<u8>>) -> u64 {
+    let map = SyncExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(tk(k)), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = str_keys)]
 fn sync_bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
@@ -2402,6 +2458,7 @@ library_benchmark_group!(
         sync_strmap_insert,
         sync_strmap_remove,
         sync_strmap_churn,
+        sync_strmap_insert_sorted,
         sync_bytesmap_insert,
         sync_bytesmap_remove,
         sync_bytesmap_churn,
