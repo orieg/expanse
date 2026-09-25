@@ -10,7 +10,7 @@ losses) is [`METHODOLOGY.md`](METHODOLOGY.md).
 | 0 | Step 0a census on `main`, the no-go gate | measured; gate met (§1) |
 | 1 | Bound functions, `scripts/condense_bounds.py` | committed; self-test in the `lint` job and `scripts/gate.sh` |
 | 2 | Pre-registration, `METHODOLOGY.md` | committed; frozen once merged |
-| 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | Callgrind arms of METHODOLOGY §7.2–§7.4 in `crates/expanse/benches/instructions.rs`; engine change and gate evaluation not started |
+| 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | arms in `crates/expanse/benches/instructions.rs`; engine change behind the feature (off by default); G-mem measured (§2); G-ins, G-thrash and CI's half of G-valid not yet measured |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/step0a_retention.json`.
 Single-threaded and deterministic: any 64-bit host reproduces every byte at the
@@ -113,5 +113,99 @@ What the table shows, and does not:
 
 ## 2. Phase 3 results
 
-Not run. The gates, the arms and the predictions they are evaluated against
-are fixed in [`METHODOLOGY.md`](METHODOLOGY.md) §5–§8.
+The gates, arms and predictions are fixed in [`METHODOLOGY.md`](METHODOLOGY.md)
+§5–§8 and are not restated here. Nothing is promoted; the feature stays off by
+default.
+
+**Build under test.** `subtree-condense` (the `H1` arm, threshold
+`LEAF_CAP - 1`) and `subtree-condense-wide` (the `wide` arm, `LEAF_CAP - 8`),
+`crates/expanse/src/condense.rs`, against `main` at the commit the phase 3
+branch is based on.
+
+### 2.1 G-mem
+
+The Step 0a grid, unchanged, on `main` and on each arm (measured: Apple M1,
+macOS, rustc 1.98.1; `main` at `86adbf15`, both arms at `1e2b31df`;
+workload: example_remove_retention; artifacts
+[`results/phase3_retention_main.json`](results/phase3_retention_main.json),
+[`results/phase3_retention_h1.json`](results/phase3_retention_h1.json),
+[`results/phase3_retention_wide.json`](results/phase3_retention_wide.json).
+Exact byte counts with no interval. `main` was built from the tree of #1192's head, identical to `86adbf15`'s. The `main` run reproduces every cell's
+`used_drained` of `results/step0a_retention.json` to the byte, and every
+cell's fresh build reads the same bytes in all three builds.)
+
+Columns: R per build, and each arm's drained `mem_used()` divided by
+`main`'s for the same cell (the "no cell worse than main by more than 1%"
+clause). Cells where all three builds read R = 1.000 and the same drained bytes
+are the 22 rows of `r64_range`, `r56_range` and the nine sequential, sparse and
+clustered cells, in both flavours; they are in the artifacts and omitted
+here.
+
+| Cell | Flavour | `main` R | `H1` R | `H1` ÷ `main` | `wide` R | `wide` ÷ `main` |
+|---|---|---|---|---|---|---|
+| `headline` | set | 3.297 | **1.001** | 0.3035 | **1.046** | 0.3174 |
+| `headline` | map | 1.700 | **1.000** | 0.5883 | **1.013** | 0.5958 |
+| `r64_sorted` | set | 3.297 | 1.001 | 0.3035 | 1.046 | 0.3174 |
+| `r64_sorted` | map | 1.700 | 1.000 | 0.5883 | 1.013 | 0.5958 |
+| `r64_2m_to_1m` | set | 1.915 | 1.000 | 0.5223 | 1.045 | 0.5457 |
+| `r64_2m_to_1m` | map | 1.251 | 1.000 | 0.7992 | 1.011 | 0.8082 |
+| `r64_4m_to_1m` | set | 3.309 | 1.000 | 0.3023 | 1.048 | 0.3166 |
+| `r64_4m_to_1m` | map | 1.739 | 1.000 | 0.5750 | 1.014 | 0.5830 |
+| `r64_to_2m` | set | 1.706 | 1.087 | 0.6372 | **1.586** | 0.9297 |
+| `r64_to_2m` | map | 1.328 | 1.062 | 0.8000 | **1.274** | 0.9597 |
+| `r64_to_320k` | set | 2.991 | 1.027 | 0.3433 | 1.027 | 0.3433 |
+| `r64_to_320k` | map | 1.695 | 1.006 | 0.5932 | 1.006 | 0.5932 |
+| `r64_1m_to_312k` | set | 1.029 | 1.029 | 0.9995 | 1.029 | 0.9995 |
+| `r64_1m_to_312k` | map | 1.006 | 1.006 | 0.9998 | 1.006 | 0.9998 |
+| `r62` | set | 1.005 | 1.005 | 1.0000 | 1.005 | 1.0000 |
+| `r62` | map | 1.222 | 1.222 | 1.0000 | 1.222 | 1.0000 |
+| `r56` | set | 3.769 | 1.000 | 0.2654 | 1.056 | 0.2802 |
+| `r56` | map | 1.806 | 1.000 | 0.5538 | 1.015 | 0.5623 |
+| `r56_sorted` | set | 3.769 | 1.000 | 0.2654 | 1.056 | 0.2802 |
+| `r56_sorted` | map | 1.806 | 1.000 | 0.5538 | 1.015 | 0.5623 |
+
+**Verdicts, against the locked falsifier (one run decides):**
+
+- `H1`: **G-mem met.** Headline R 1.001 (set) and 1.000 (map), at most 1.10;
+  highest cell R 1.222 (`r62` map, unchanged from `main`), at most 1.25; no
+  cell's drained bytes above `main`'s (highest ratio 1.0000).
+- `wide`: **G-mem not met.** The headline clause holds (1.046 / 1.013), and
+  no cell is worse than `main`, but `r64_to_2m` reads R 1.586 (set) and
+  1.274 (map), above the 1.25 ceiling. This is the loss §8 predicted (1.511 /
+  1.290). `wide` is therefore not promotable, whatever the other gates read.
+
+Against the §8 predictions (derived, `condense_bounds.py`): headline `H1`
+1.000 / 1.000 predicted, 1.001 / 1.000 measured; `wide` 1.048 / 1.013
+predicted, 1.046 / 1.013 measured; `r64_to_2m` `H1` 1.068 / 1.091 predicted,
+1.087 / 1.062 measured. `r62` map is unchanged at 1.222, as predicted.
+
+**Recorded, not gated.** The `worst_l3_16_1` model shape (METHODOLOGY §4)
+reads 368 B drained under both arms against 288 B on `main`: the drain passes
+an evaluation point where the packed leaf is the smaller form, and the leaf it
+builds is then drained as a leaf to 17 keys, where the branch `main` keeps is
+smaller. The byte rule decides at the evaluation point only. No grid cell
+shows this (every arm-to-`main` ratio is at most 1.0000), but it is a shape
+where an arm holds more than `main`.
+
+`mem_held()` after `shrink_to_fit()` over the fresh build's `mem_used()`, on
+the headline cell (reported, not gated, METHODOLOGY §8): `main` 8.218 (set) /
+4.440 (map), `H1` 2.132 / 1.256, `wide` 3.969 / 2.539. On `r64_to_2m` it is
+higher under `H1` than on `main` (2.839 against 2.811 for the set, 2.425
+against 2.196 for the map); the cause is not measured.
+
+### 2.2 G-ins, G-thrash, G-valid
+
+- **G-ins, G-thrash: not measured.** Both are measured by the
+  `instruction-counts` and `callgrind-smoke` jobs with the feature on. Those
+  jobs build the benches with default features, and a draft pull request runs
+  only the fast lane, so no CI run has measured either arm yet. The base-side
+  counts for the new arms come from the arms' own pull request.
+- **G-valid: partly evaluated.** Local, with the feature on (`PROPTEST_CASES=500`):
+  `cargo test -p expanse-trie --features subtree-condense,diag-entry` and the
+  same with `subtree-condense-wide`, 646 passed and 0 failed each, including
+  the proptest model suites, the validator on every drained tree, and
+  `tests/test_subtree_condense.rs`. The CI Tier-1 Miri filter and the ASan job
+  run with default features only, so their feature-on half has not run.
+  Verdict withheld until it does.
+
+**Promotion:** none. `wide` fails G-mem; `H1` has three gates outstanding.
