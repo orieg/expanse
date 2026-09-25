@@ -967,7 +967,7 @@
     <h1>
       <span>Expanse Engine · Architecture & Benchmark Intelligence</span>
       <span class="badge-pill green">Callgrind & Code Verified</span>
-      <span class="badge-pill purple">Rust 2024 / AVX2</span>
+      <span class="badge-pill purple">Rust 2024 / SSE2 · NEON · POPCNT</span>
     </h1>
     <div class="subtitle">Real-time mapping of digital trie architecture, SIMD vector execution flow, and deterministic Callgrind instruction measurements</div>
   </div>
@@ -1001,7 +1001,7 @@
       <div>
         <strong style="color:var(--text-bright); font-size:13px;">Two-Clocks Measurement Model (Modeled vs. Measured)</strong>
         <p style="color:var(--text-muted); font-size:12px; margin-top:2px; line-height:1.45;">
-          This interactive DAG simulates the <strong>structural execution pipeline</strong> (active trie depth, algorithm branch paths, and theoretical instruction ceilings) derived from <code class="code-tag">crates/expanse/src/mutate.rs</code>. Exact cycle and instruction measurements in the Benchmark tab are recorded independently via Valgrind/Callgrind harnesses (<code class="code-tag">crates/expanse/benches/instructions.rs</code>) on dedicated quiet hardware. Modeled estimates guide structural understanding; Callgrind counts are deterministic empirical truth.
+          This interactive DAG simulates the <strong>structural execution pipeline</strong> (node forms and algorithm branch paths from <code class="code-tag">crates/expanse/src</code>; branch levels and bytes per key only where the engine census and memory budget, both recomputed by <code class="code-tag">test_visualizer_sync.rs</code>, have the cell). Exact cycle and instruction measurements in the Benchmark tab are recorded independently via Valgrind/Callgrind harnesses (<code class="code-tag">crates/expanse/benches/instructions.rs</code>) on dedicated quiet hardware. Modeled estimates guide structural understanding; Callgrind counts are deterministic empirical truth.
         </p>
       </div>
     </div>
@@ -1051,29 +1051,29 @@
 
         <div class="form-group">
           <div style="display:flex; justify-content:space-between; align-items:center;">
-            <label for="pop-slider" style="margin-bottom:0;">Tree / Expanse Population</label>
-            <span id="pop-val" style="color:#38bdf8; font-weight:700; font-family:ui-monospace, monospace; font-size:13px;">18 keys</span>
+            <label for="pop-slider" style="margin-bottom:0;" title="Up to 256: keys held in one expanse below a branch (a whole set of 31 keys or fewer is a root leaf). 1,000 and above: a whole tree.">Keys in One Expanse / Tree Population</label>
+            <span id="pop-val" style="color:#38bdf8; font-weight:700; font-family:ui-monospace, monospace; font-size:13px;">16 keys</span>
           </div>
-          <div style="font-size:10px; color:var(--text-muted); margin-bottom:4px; margin-top:2px;" id="pop-regime-desc">Linear Leaf SIMD Band (128-bit AVX2/NEON probe)</div>
+          <div style="font-size:10px; color:var(--text-muted); margin-bottom:4px; margin-top:2px;" id="pop-regime-desc">Linear leaf, 1-byte keys: one 16-byte SSE2 / NEON compare</div>
           <input type="range" id="pop-slider" min="0" max="15" step="1" value="3">
           <div class="milestone-chips" id="milestone-chips-container">
             <button type="button" class="chip-btn" data-idx="0" onclick="setPopIndex(0)">1 (Immed)</button>
-            <button type="button" class="chip-btn active" data-idx="3" onclick="setPopIndex(3)">18 (SIMD)</button>
+            <button type="button" class="chip-btn active" data-idx="3" onclick="setPopIndex(3)">16 (SIMD)</button>
             <button type="button" class="chip-btn" data-idx="5" onclick="setPopIndex(5)">31 (RootLeaf)</button>
             <button type="button" class="chip-btn" data-idx="6" onclick="setPopIndex(6)">32 (JPM Root)</button>
-            <button type="button" class="chip-btn" data-idx="9" onclick="setPopIndex(9)">192 (BranchU)</button>
+            <button type="button" class="chip-btn" data-idx="9" onclick="setPopIndex(9)">192 (B max)</button>
             <button type="button" class="chip-btn" data-idx="10" onclick="setPopIndex(10)">256 (Full)</button>
-            <button type="button" class="chip-btn" data-idx="11" onclick="setPopIndex(11)">1K (2-Lvl)</button>
-            <button type="button" class="chip-btn" data-idx="13" onclick="setPopIndex(13)">100K (5-Lvl)</button>
-            <button type="button" class="chip-btn" data-idx="14" onclick="setPopIndex(14)">1M (8-Lvl)</button>
-            <button type="button" class="chip-btn" data-idx="15" onclick="setPopIndex(15)">10M (8-Lvl Dense)</button>
+            <button type="button" class="chip-btn" data-idx="11" onclick="setPopIndex(11)">1K</button>
+            <button type="button" class="chip-btn" data-idx="13" onclick="setPopIndex(13)">100K</button>
+            <button type="button" class="chip-btn" data-idx="14" onclick="setPopIndex(14)">1M</button>
+            <button type="button" class="chip-btn" data-idx="15" onclick="setPopIndex(15)">10M</button>
           </div>
         </div>
 
         <div class="form-group">
           <label for="arch-select">Instruction Set Architecture</label>
           <select id="arch-select">
-            <option value="v3" selected>x86-64-v3 (AVX2, BMI2, POPCNT)</option>
+            <option value="v3" selected>x86-64-v3 (POPCNT, BMI2 select)</option>
             <option value="v1">x86-64-v1 (Baseline / SWAR)</option>
             <option value="neon">AArch64 (NEON Vector)</option>
             <option value="rv32">RISC-V 32-Bit (RV32IMAC - 4-Level)</option>
@@ -1082,39 +1082,32 @@
           </select>
         </div>
 
-        <div class="toggle-row">
-          <span class="toggle-label">Show Baseline Contrast (Stock Judy)</span>
-          <label class="switch">
-            <input type="checkbox" id="comp-toggle" checked>
-            <span class="slider"></span>
-          </label>
-        </div>
       </div>
 
       <div class="card">
         <div class="card-title">
-          <span>📈 Measured Cost & Hardware Impact</span>
+          <span>📈 Engine Census & Structural Model</span>
         </div>
         <div class="metrics-grid">
           <div class="metric-box">
-            <div class="metric-label" title="Structural model, not a measurement — see the Callgrind Deterministic Benchmark Dataset in the Benchmarks view for measured instruction counts.">Instructions / Op (modeled)</div>
-            <div class="metric-val blue" id="metric-instr">~14 instrs</div>
-            <div class="metric-sub win" id="metric-instr-delta">-46% vs stock</div>
+            <div class="metric-label" title="Slot levels holding at least one branch node (ExpanseStats::branch_depth_histogram, set flavor), recomputed from the engine by test_visualizer_sync.rs. No path passes more branch nodes than this. Measured instruction counts are in the Benchmarks view.">Branch Levels (engine census)</div>
+            <div class="metric-val blue" id="metric-instr">—</div>
+            <div class="metric-sub" id="metric-instr-delta">—</div>
           </div>
           <div class="metric-box">
-            <div class="metric-label" title="Structural model, not a measurement — see the Deterministic Memory Budget Matrix in the Benchmarks view for measured bytes/key.">Memory Overhead (modeled)</div>
-            <div class="metric-val purple" id="metric-mem">8.6 B/k</div>
-            <div class="metric-sub" id="metric-mem-delta">0 B heap</div>
+            <div class="metric-label" title="Deterministic mem_used() / len from the Memory Budget Matrix (crates/expanse/examples/bytes_per_key.rs), shown only where that matrix has the selected distribution and population.">Bytes / Key (memory budget)</div>
+            <div class="metric-val purple" id="metric-mem">—</div>
+            <div class="metric-sub" id="metric-mem-delta">—</div>
           </div>
           <div class="metric-box">
-            <div class="metric-label">Cache Lines Touched</div>
-            <div class="metric-val orange" id="metric-cache">1 line (64B)</div>
-            <div class="metric-sub" id="metric-cache-sub">Zero L2 stall</div>
+            <div class="metric-label" title="Structural model, not a measurement: the node forms a lookup reads, not a cache-simulator count.">Cache Lines Touched (modeled)</div>
+            <div class="metric-val orange" id="metric-cache">—</div>
+            <div class="metric-sub" id="metric-cache-sub">modeled, not measured</div>
           </div>
           <div class="metric-box">
-            <div class="metric-label">Hardware Acceleration</div>
-            <div class="metric-val" id="metric-hw-acc">-12.1% v3</div>
-            <div class="metric-sub" id="metric-hw-sub">AVX2 + POPCNT</div>
+            <div class="metric-label">ISA Kernels Used</div>
+            <div class="metric-val" id="metric-hw-acc">—</div>
+            <div class="metric-sub" id="metric-hw-sub">—</div>
           </div>
         </div>
       </div>
@@ -1123,14 +1116,6 @@
     <!-- Main DAG & Pipeline -->
     <div>
       <div class="card">
-        <div id="comp-banner" class="comparison-banner">
-          <div>
-            <span class="comp-title">⚖️ Expanse Modern vs Stock Judy Baseline</span>
-            <div class="comp-stat" id="comp-desc">Sequential Run Bypass eliminates 8 levels of tree descent (~80 instructions saved).</div>
-          </div>
-          <span class="badge-pill green" id="comp-win-badge">1.7x Advantage</span>
-        </div>
-
         <!-- Structural Hierarchy & Routing DAG -->
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <div style="font-size:13px; font-weight:600; color:var(--text-bright);">🌲 Structural Hierarchy & Component Routing DAG</div>
@@ -1158,7 +1143,7 @@
           <!-- Top JAP Node -->
           <div class="dag-node active" id="node-jap" style="top: 15px; left: calc(50% - 87px);" onclick="inspectNode('jap')">
             <div class="dag-node-title"><span>Judy Array Pointer</span> <span class="step-badge highlight">JAP</span></div>
-            <div class="dag-node-desc">16-byte Edge: pointer/immediate + 3-bit type tag.</div>
+            <div class="dag-node-desc">16-byte Edge: pointer/immediate word + 7-byte aux + 8-bit type tag.</div>
           </div>
 
           <!-- Split: Root Leaf vs Tree Root JPM -->
@@ -1169,7 +1154,7 @@
 
           <div class="dag-node" id="node-jpm" style="top: 100px; left: 62%;" onclick="inspectNode('jpm')">
             <div class="dag-node-title"><span>JPM / Tree Root</span> <span class="step-badge">Pop ≥ 32</span></div>
-            <div class="dag-node-desc">Total population + OCC sequence counter + top branch.</div>
+            <div class="dag-node-desc">Top edge + tree population; the Sync wrappers add a tree version word.</div>
           </div>
 
           <!-- Top Level-8 Branch -->
@@ -1181,33 +1166,33 @@
           <!-- Interior Branches -->
           <div class="dag-node" id="node-branch-l" style="top: 270px; left: 32%;" onclick="inspectNode('branch_l')">
             <div class="dag-node-title"><span>Branch L3/L7</span> <span class="step-badge">Fanout 1..7</span></div>
-            <div class="dag-node-desc">SWAR / SIMD 16-byte digit scan with packed JPs.</div>
+            <div class="dag-node-desc">L3: 3 byte compares. L7: presence filter + 8-byte SSE2 / NEON compare.</div>
           </div>
 
           <div class="dag-node" id="node-branch-b" style="top: 270px; left: 56%;" onclick="inspectNode('branch_b')">
-            <div class="dag-node-title"><span>Bitmap Branch B</span> <span class="step-badge" id="badge-branch-b">Fanout 8..180</span></div>
+            <div class="dag-node-title"><span>Bitmap Branch B</span> <span class="step-badge" id="badge-branch-b">Fanout 8..192</span></div>
             <div class="dag-node-desc">256-bit bitmap + 8 subarray pointers (POPCNT).</div>
           </div>
 
           <div class="dag-node" id="node-branch-u" style="top: 270px; left: 80%;" onclick="inspectNode('branch_u')">
-            <div class="dag-node-title"><span>Branch U</span> <span class="step-badge">Fanout > 180</span></div>
-            <div class="dag-node-desc">2048 B flat table. Direct O(1) array index.</div>
+            <div class="dag-node-title"><span>Branch U</span> <span class="step-badge">Fanout > 192</span></div>
+            <div class="dag-node-desc">4160 B flat table. Direct O(1) array index.</div>
           </div>
 
           <!-- Terminal Leaves -->
           <div class="dag-node" id="node-leaf-immed" style="top: 360px; left: 2%;" onclick="inspectNode('immed')">
-            <div class="dag-node-title"><span>Immediate</span> <span class="step-badge green">Pop 1..7</span></div>
-            <div class="dag-node-desc">0 B heap: payload inlined in pointer.</div>
+            <div class="dag-node-title"><span>Immediate</span> <span class="step-badge green">Pop 1..15</span></div>
+            <div class="dag-node-desc">Keys inside the edge; a map with ≥ 2 keys allocates its values.</div>
           </div>
 
           <div class="dag-node" id="node-leaf-linear" style="top: 360px; left: 26%;" onclick="inspectNode('linear_leaf')">
-            <div class="dag-node-title"><span>Linear Leaf</span> <span class="step-badge purple">Pop 2..25</span></div>
-            <div class="dag-node-desc">128-bit SIMD vector scan (AVX2/NEON).</div>
+            <div class="dag-node-title"><span>Linear Leaf</span> <span class="step-badge purple">Pop ≤ 25 / 32</span></div>
+            <div class="dag-node-desc">Unrolled, SSE2 / NEON or binary search by key width and pop.</div>
           </div>
 
           <div class="dag-node" id="node-leaf-bitmap" style="top: 360px; left: 50%;" onclick="inspectNode('bitmap_leaf')">
-            <div class="dag-node-title"><span>Bitmap Leaf</span> <span class="step-badge orange">Pop 26..256</span></div>
-            <div class="dag-node-desc">256-bit bitmask + 8 value subarrays.</div>
+            <div class="dag-node-title"><span>Bitmap Leaf</span> <span class="step-badge orange">Pop 21..256</span></div>
+            <div class="dag-node-desc">256-bit bitmask; the map form adds 8 value subarrays.</div>
           </div>
 
           <div class="dag-node" id="node-leaf-full" style="top: 360px; left: 74%;" onclick="inspectNode('full_expanse')">
@@ -1249,7 +1234,7 @@
               <span class="step-badge purple">POPCNT Rank Acceleration</span>
             </div>
             <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
-              Each 256-ary branch/leaf splits 256 keys into 8 32-bit subexpanses. Hardware POPCNT computes the array slot index: <code class="code-tag">slot = _mm_popcnt_u64(sub_bitmap & mask)</code>.
+              Each 256-ary branch/leaf splits 256 keys into 8 32-bit subexpanses. A population count over the digit's 32-bit subexpanse word gives the array slot index: <code class="code-tag">slot = (sub_word & below).count_ones()</code> (<code class="code-tag">Bitmap256::subexpanse_rank</code>; POPCNT where the target has it, a SWAR sequence otherwise).
             </div>
             <div class="subarray-grid">
               <div class="subarray-box"><strong>Sub 0</strong><br>Bits 0..31</div>
@@ -1269,33 +1254,27 @@
           <!-- Population Regime & Depth Comparison Matrix -->
           <div style="margin-top:16px;">
             <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">
-              Multi-Level Trie Scaling: 1K vs 10K vs 100K vs 1M vs 10M Keys
+              Branch Levels by Population and Distribution (engine census)
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px; line-height:1.45;">
+              Depth depends on how keys spread, not on N alone: a branch exists only where an expanse holds more keys than a leaf takes (<code class="code-tag">LEAF_CAP</code> = 32), and a narrow pointer skips every level whose digit all keys below it share. Each card lists the slot levels that hold a branch node in an <code class="code-tag">ExpanseSet</code> built from the memory-budget key generators (<code class="code-tag">ExpanseStats::branch_depth_histogram</code>); no lookup passes more branch nodes than that. Recomputed from the engine by <code class="code-tag">test_visualizer_sync.rs</code>.
             </div>
             <div class="depth-compare-grid">
-              <div class="depth-card" id="depth-card-1k">
+              <div class="depth-card" id="depth-card-1k" data-pop="1000">
                 <div style="font-size:12px; font-weight:700; color:var(--accent);">1,000 Keys</div>
-                <div style="font-size:10px; color:#10b981; font-weight:600; margin:2px 0;">2 Levels (d8 → d7 → Leaf)</div>
-                <div style="font-size:11px; color:var(--text-muted);">Root JPM dispatches Digit 8 to Level 7 Branch. Subarray edges directly point to terminal Bitmap/Linear Leaves.</div>
+                <div class="depth-census" style="font-size:11px; color:var(--text-muted);"></div>
               </div>
-              <div class="depth-card" id="depth-card-10k">
+              <div class="depth-card" id="depth-card-10k" data-pop="10000">
                 <div style="font-size:12px; font-weight:700; color:var(--accent);">10,000 Keys</div>
-                <div style="font-size:10px; color:#3b82f6; font-weight:600; margin:2px 0;">3 Levels (d8 → d7 → d6 → Leaf)</div>
-                <div style="font-size:11px; color:var(--text-muted);">Level 7 branch subarray pointers descend into Level 6 branches before terminating at leaves.</div>
+                <div class="depth-census" style="font-size:11px; color:var(--text-muted);"></div>
               </div>
-              <div class="depth-card" id="depth-card-100k">
+              <div class="depth-card" id="depth-card-100k" data-pop="100000">
                 <div style="font-size:12px; font-weight:700; color:var(--accent);">100,000 Keys</div>
-                <div style="font-size:10px; color:#a855f7; font-weight:600; margin:2px 0;">5 Levels (d8 → d7 → d6 → d5 → d4)</div>
-                <div style="font-size:11px; color:var(--text-muted);">Cascading intermediate branches. Memory stays compact at 0.36 B/k (set) and 8.56 B/k (map).</div>
+                <div class="depth-census" style="font-size:11px; color:var(--text-muted);"></div>
               </div>
-              <div class="depth-card" id="depth-card-1m">
+              <div class="depth-card" id="depth-card-1m" data-pop="1000000">
                 <div style="font-size:12px; font-weight:700; color:var(--accent);">1,000,000 Keys</div>
-                <div style="font-size:10px; color:#f97316; font-weight:600; margin:2px 0;">8 Levels (Full 64-bit Depth)</div>
-                <div style="font-size:11px; color:var(--text-muted);">Full 8-level trie depth. Sequential Run Bypass skips all 8 levels directly to LeafB1 on monotonic streams.</div>
-              </div>
-              <div class="depth-card" id="depth-card-10m">
-                <div style="font-size:12px; font-weight:700; color:var(--accent);">10,000,000 Keys</div>
-                <div style="font-size:10px; color:#ec4899; font-weight:600; margin:2px 0;">8 Levels (Dense Fanout / L3–DRAM Boundary)</div>
-                <div style="font-size:11px; color:var(--text-muted);">Dense multi-million scale trie spanning 64-bit address space. L3 cache / DRAM boundary.</div>
+                <div class="depth-census" style="font-size:11px; color:var(--text-muted);"></div>
               </div>
             </div>
           </div>
@@ -1322,7 +1301,7 @@
         <div style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;">⚡ Inline Payload (0..7 Bytes)</div>
         <div style="font-family:ui-monospace, monospace; font-size:11px; color:#38bdf8; margin:4px 0;">[payload_byte_6..0 (56b) | tag (8b)]</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Small strings and byte payloads (UUIDs, status codes, short IDs) are stored <strong>directly inside the 64-bit leaf slot</strong> with 0 heap allocation. Measured 7-byte-payload lookup: <strong>5.68 ns vs 29.00 ns for <code>BTreeMap&lt;u64, Vec&lt;u8&gt;&gt;</code> (5.10×)</strong> — <a href="https://github.com/orieg/expanse/blob/main/docs/design/large-values.md" style="color:var(--accent);">docs/design/large-values.md</a> §10.3.
+          Small strings and byte payloads (UUIDs, status codes, short IDs) are stored <strong>directly inside the 64-bit leaf slot</strong> with 0 heap allocation. Measured 7-byte-payload lookup: <strong>5.68 ns vs 29.00 ns for <code>BTreeMap&lt;u64, Vec&lt;u8&gt;&gt;</code> (5.11×)</strong> (workload: workload_large_values; measured: reference host i9-12900F, commit 695b98d; <code>benches/large_values.rs</code> <code>inline_vs_heap_small_blobs</code>, point estimates without an interval — <code>large_value_benchmarks.inlining_speedups</code> in <code>docs/visualizer_data.json</code>; <a href="https://github.com/orieg/expanse/blob/main/docs/design/large-values.md" style="color:var(--accent);">docs/design/large-values.md</a> §10.3). Payloads of 8..14 bytes that fit a codec (integers below 2<sup>56</sup>, 8–9 alphanumerics, 8–14 decimal digits) also stay in the slot under the <code>Compressed*</code> tags (<code>codec.rs</code>) when their hot metadata is 0.
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
@@ -1336,14 +1315,14 @@
         <div style="font-size:11px; font-weight:700; color:#a855f7; text-transform:uppercase;">📦 Chunked Slab Arena (<code>BlobArena</code>)</div>
         <div style="font-family:ui-monospace, monospace; font-size:11px; color:#a855f7; margin:4px 0;">BlobRecordHeader { len: u32, generation: u32 }</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Bump-allocated slabs with 16-byte alignment and 8-byte generation headers, plus a single-pass in-place mark-compact GC that relocates live records and rewrites their trie value slots (compaction pause times: 72–371 µs with BCa 95% CIs across 5k–20k entries, <code>results/baseline_large_values.json</code>).
+          Bump-allocated slabs with 16-byte alignment and 8-byte generation headers, plus a two-phase copying compaction (<code>compact_with_index</code>): every live record is first copied into a fresh arena with a bumped generation, and only once all copies succeed are the trie value slots rewritten, so a failed relocation leaves arena and index untouched (compaction pause times: 72–371 µs with BCa 95% CIs across 5k–20k entries, <code>results/baseline_large_values.json</code>).
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
         <div style="font-size:11px; font-weight:700; color:#f97316; text-transform:uppercase;">🔒 Multi-Writer Optimistic Lock Coupling (<code>SyncExpanseMap</code>)</div>
         <div style="font-family:ui-monospace, monospace; font-size:11px; color:#f97316; margin:4px 0;">Stage B Multi-Writer OLC + Zero-Sharing Path + EBR</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Zero reader locking on uncontended paths, hand-over-hand optimistic lock coupling for concurrent writers on disjoint expanses (Phases 4A, 4D, 4C: in-place mutations, BranchB subarray growth, and concurrent leaf capacity expansion with speculative abort recycling), and Epoch-Based Memory Reclamation.
+          Blocking optimistic lock coupling, not lock-free: a reader samples the tree version (spinning while it is odd), then reads each branch under that node's own version word, validating hand over hand; after 64 failed attempts (<code>MAX_RETRIES</code>) it takes the writer mutex. Hand-over-hand optimistic lock coupling for concurrent writers on disjoint expanses (Phases 4A, 4D, 4C: in-place mutations, BranchB subarray growth, and concurrent leaf capacity expansion with speculative abort recycling), and Epoch-Based Memory Reclamation.
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
@@ -1392,7 +1371,7 @@
             <th>Distribution / Scope</th>
             <th class="num">Population</th>
             <th class="num">libexpanse .so (v1)</th>
-            <th class="num">libexpanse .so (v3 AVX2)</th>
+            <th class="num">libexpanse .so (x86-64-v3 build)</th>
             <th class="num">Stock libjudy</th>
             <th class="num">Ratio (.so)</th>
             <th class="num">v1 → v3 Delta</th>
@@ -1437,7 +1416,7 @@
             <th>Flavor</th>
             <th class="num">Instructions (v1)</th>
             <th class="num">Instr / Op</th>
-            <th class="num">x86-64-v3 (AVX2/BMI2)</th>
+            <th class="num">x86-64-v3 build</th>
             <th class="num">Hardware Delta</th>
             <th class="num">L1 Hits</th>
             <th class="num">RAM Hits</th>
@@ -1609,26 +1588,26 @@
 <!-- Permanent Architecture & Invariant Deep Dive Footer -->
 <div class="card" style="max-width: 1480px; margin: 20px auto 0 auto;">
   <div class="card-title">
-    <span>⚙️ Under The Hood: Why 256-ary Digital Radix Tries Outperform Search Trees</span>
-    <span style="font-size:11px; color:var(--text-muted); font-family:ui-monospace, monospace;">AVX2 Bitmaps • POPCNT • In-Pointer Immediate Leaves</span>
+    <span>⚙️ Under The Hood: How the 256-ary Digital Trie Resolves a Key</span>
+    <span style="font-size:11px; color:var(--text-muted); font-family:ui-monospace, monospace;">Bitmaps + POPCNT • SSE2/NEON Byte Compares • In-Edge Immediates</span>
   </div>
   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:14px; margin-top:8px;">
     <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
-      <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px;">1. Zero Heap Overhead for Small Populations (0 B)</div>
+      <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px;">1. Immediates: Keys Inside the Edge</div>
       <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
-        For 1–7 keys in Map (or 1–15 keys in Set), Expanse encodes key bytes and values directly inside the <strong>16-byte Edge pointer</strong> (tagged pointer). Zero allocations, zero heap indirection, and 100% cache-resident.
+        An immediate edge packs key bytes into the <strong>16-byte Edge</strong> itself: up to 15 payload bytes, so <code class="code-tag">15 / kb</code> keys of <code class="code-tag">kb</code> bytes in a set (<code class="code-tag">ImmedType::max_count</code>). A map keeps its keys in the 7-byte aux field, <code class="code-tag">7 / kb</code> of them (<code class="code-tag">map_immed_max</code>): one key keeps its value in word 0 with no allocation, and two or more point word 0 at an allocated value array.
       </div>
     </div>
     <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
-      <div style="font-size:12px; font-weight:700; color:var(--accent-green); margin-bottom:4px;">2. Single-Cycle Bitmask Rank (POPCNT / BMI2)</div>
+      <div style="font-size:12px; font-weight:700; color:var(--accent-green); margin-bottom:4px;">2. Bitmask Rank (POPCNT)</div>
       <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
-        Bitmap leaves compress 256 key positions into eight 32-bit subexpanses. Value slot offsets are computed in <strong>1 single CPU instruction</strong> (<code class="code-tag">POPCNT</code>) by counting set bits below the query digit, eliminating binary search tree pointer chasing.
+        Bitmap nodes split 256 digit positions into eight 32-bit subexpanses. A value or child slot is the population count of the digit's subexpanse word masked below the digit (<code class="code-tag">Bitmap256::subexpanse_rank</code>): one load, a mask and a <code class="code-tag">POPCNT</code> where the target has it. BMI2 <code class="code-tag">PDEP</code> is used only for <code class="code-tag">select</code> (the k-th set bit), behind a runtime CPUID check.
       </div>
     </div>
     <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
-      <div style="font-size:12px; font-weight:700; color:var(--accent-purple); margin-bottom:4px;">3. SIMD 128-bit Vectorized Linear Scan</div>
+      <div style="font-size:12px; font-weight:700; color:var(--accent-purple); margin-bottom:4px;">3. Linear-Leaf Search by Key Width and Population</div>
       <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
-        In <code class="code-tag">LEAF_LINEAR</code> (8–25 keys), keys are scanned using 128-bit vector instructions (<code class="code-tag">_mm_cmplt_epi8</code> / <code class="code-tag">vdupq_n_u8</code>) in 2 instructions without branches, outperforming binary search at small scales.
+        <code class="code-tag">leaf.rs</code> picks the kernel from the key width and the population: up to 4 keys, unrolled scalar compares; an 8- or 16-byte SSE2 compare for 1-byte keys at 5..8 and 13..16 keys, 2-byte keys at 5..8 and 4-byte keys at 3..4; binary search everywhere else. On x86-64 every band is SSE2; on AArch64 NEON covers the 1-byte equality searches at exactly 8 and 16 keys, and the other bands run a short scalar loop. The 16-byte lower bound biases both operands by 0x80 and uses <code class="code-tag">_mm_cmplt_epi8</code> + <code class="code-tag">_mm_movemask_epi8</code> + a popcount.
       </div>
     </div>
   </div>
@@ -1741,7 +1720,7 @@
       "v3_delta": "-2.93%",
       "l1_hits": 13069387,
       "ram_hits": 667,
-      "algo": "Sequential Run Bypass skips 8 levels of branch descent"
+      "algo": "Cached insert path goes straight to the level-1 leaf when key >> 8 matches its prefix"
     },
     {
       "id": "map_insert/sequential",
@@ -1783,7 +1762,7 @@
       "v3_delta": "-4.80%",
       "l1_hits": 62581102,
       "ram_hits": 21855,
-      "algo": "Full 8-level digital trie routing with 16-byte edge tags"
+      "algo": "Digital trie descent over 16-byte tagged edges; branch levels follow the key spread"
     },
     {
       "id": "set_insert/clustered",
@@ -2259,17 +2238,29 @@
     }
   ];
 
+  let DEPTH_CENSUS = {
+    "flavor": "set",
+    "metric": "slot levels holding at least one branch node (ExpanseStats::branch_depth_histogram)",
+    "rows": [
+      { "pop": 1000, "random": [8], "sequential": [8, 7], "clustered": [8] },
+      { "pop": 10000, "random": [8, 7], "sequential": [8, 7], "clustered": [8, 7] },
+      { "pop": 100000, "random": [8, 7], "sequential": [8, 7, 2], "clustered": [8, 7] },
+      { "pop": 1000000, "random": [8, 7, 6], "sequential": [8, 7, 2], "clustered": [8, 7, 6] }
+    ]
+  };
+
   const LADDER_SPEC = [
-    { type: "Immediate (Set/Map)", cap: "1..7 keys", size: "16 B (inlined)", search: "Direct u64 equality in word 0", promo: "LinearLeaf (pop > cap)", demote: "Edge::NULL (pop = 0)" },
-    { type: "Root-Level Leaf", cap: "1..31 keys", size: "Class-sized (16B..512B)", search: "Monotonic append O(1) / Binary search", promo: "BranchL3 Tree (pop = 32)", demote: "Edge::NULL (pop = 0)" },
-    { type: "Linear Leaf 1", cap: "2..25 keys", size: "Class-sized: size_map(1, pop)", search: "128-bit SIMD vector scan (AVX2/NEON)", promo: "LeafBitmap1 (pop = 26)", demote: "Immediate / NULL" },
-    { type: "Linear Leaf 2..7", cap: "2..32 keys", size: "Class-sized: size_map(kb, pop)", search: "Key suffix + decode prefix match", promo: "BranchL3 on overflow", demote: "LinearLeaf shrink" },
-    { type: "Bitmap Leaf (B1/L)", cap: "26..256 keys", size: "32 B / 96 B + 8 subarrays", search: "256-bit Bitmap POPCNT rank", promo: "FullExpanse (Set, pop = 256)", demote: "LinearLeaf (pop ≤ 20)" },
-    { type: "Full Expanse (Set)", cap: "256 keys", size: "0 B (NULL ptr, pop0=255)", search: "Unconditional true (always present)", promo: "Terminal density state", demote: "BitmapLeaf (pop < 256)" },
-    { type: "Branch L3", cap: "1..3 children", size: "16 B header + 3 Edges (64 B)", search: "Direct 1-instruction byte compare / SWAR", promo: "BranchL7 (num = 3)", demote: "LinearLeaf / NULL" },
-    { type: "Branch L7", cap: "4..7 children", size: "16 B header + 7 Edges (128 B)", search: "16-bit presence bloom filter + SSE2 vector scan", promo: "BranchB (num = 7)", demote: "BranchL3 (num ≤ 3)" },
-    { type: "Branch B", cap: "8..180 children", size: "64 B node + child arrays", search: "Bitmap256 subexpanse rank + POPCNT", promo: "BranchU (fanout > 180)", demote: "BranchL7 (num ≤ 6)" },
-    { type: "Branch U", cap: "181..256 children", size: "2048 B flat table", search: "Direct array index edges[d] (O(1))", promo: "Max fanout branch", demote: "BranchB (fanout ≤ 160)" }
+    { type: "Immediate (Set)", cap: "1..15 keys (15 / kb)", size: "16 B edge, 0 B heap", search: "Compare the key bytes packed in the edge", promo: "LinearLeaf (pop > 15 / kb)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Immediate (Map)", cap: "1..7 keys (7 / kb)", size: "16 B edge; 2+ keys add a value array", search: "Compare the key bytes packed in aux", promo: "LinearLeaf (pop > 7 / kb)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Root-Level Leaf", cap: "1..31 keys", size: "Set 8..256 B / Map 16..512 B (class-sized)", search: "Monotonic append / binary search", promo: "Level-8 tree (pop = 32)", demote: "Empty root (pop = 0)" },
+    { type: "Linear Leaf 1", cap: "Set 16..25 / Map 8..25 keys (stays down to 15 / 7)",size: "Class-sized: size_set / size_map(1, pop)", search: "Unrolled (pop ≤ 4), SSE2 / NEON (pop 5..8, 13..16), binary search", promo: "LeafBitmap1 / LeafBitmapL (pop = 26)", demote: "Immediate (pop fits immediate)" },
+    { type: "Linear Leaf 2..7", cap: "(immediate cap + 1)..32 keys",size: "Class-sized: size_set / size_map(kb, pop)", search: "Unrolled (pop ≤ 4), SSE2 bands for kb 2 and 4, binary search", promo: "Branch (pop = 33)", demote: "Immediate (pop fits immediate)" },
+    { type: "Bitmap Leaf (B1/L)", cap: "26..256 keys (stays down to 21)", size: "Set 64 B / Map 128 B + value subarrays", search: "Bitmap256 subexpanse rank (POPCNT)", promo: "FullExpanse (Set, pop = 256)", demote: "LinearLeaf (pop ≤ 20)" },
+    { type: "Full Expanse (Set)", cap: "256 keys", size: "0 B (edge tag only)", search: "Always present", promo: "Terminal density state", demote: "LeafBitmap1 (pop = 255)" },
+    { type: "Branch L3", cap: "1..3 children", size: "64 B (16 B header + 3 edges)", search: "Up to 3 byte compares", promo: "BranchL7 (4th child)", demote: "LinearLeaf / NULL" },
+    { type: "Branch L7", cap: "4..7 children (stays down to 3)", size: "128 B (16 B header + 7 edges)", search: "16-bit presence filter + 8-byte SSE2 / NEON compare", promo: "BranchB (8th child)", demote: "BranchL3 (num ≤ 2)" },
+    { type: "Branch B", cap: "8..192 children (stays down to 7)", size: "128 B node + child edge subarrays", search: "Bitmap256 subexpanse rank (POPCNT)", promo: "BranchU (193rd child)", demote: "BranchL7 (num ≤ 6)" },
+    { type: "Branch U", cap: "193..256 children (stays down to 192)", size: "4160 B (64 B header + 256 x 16 B edges)", search: "Direct index edges[d]", promo: "Largest branch form", demote: "BranchB (num ≤ 191)" }
   ];
 
   const NODE_DETAILS = {
@@ -2277,11 +2268,11 @@
       title: "Judy Array Pointer (JAP / Edge)",
       tag: "16-Byte Edge",
       subtitle: "The atomic building block of Expanse. Tagged pointer encoding structural form & pop0.",
-      size: "16 Bytes (aligned to 16B)",
-      layout: "word 0: pointer or payload; word 1: tag (3b) + pop0 (8/16b) + decode aux (32b)",
-      cap: "References any node or inlines 1..7 keys",
+      size: "16 Bytes (8-byte aligned)",
+      layout: "offset 0: word 0 (child pointer or immediate key bytes, 8 B); offset 8: aux (7 B: low L bytes pop0, high bytes decode digits); offset 15: tag (8 bits, types::EdgeTag)",
+      cap: "References any node, or inlines up to 15 / kb set keys or 7 / kb map keys",
       level: "Levels 1..=8",
-      algo: "Narrow-pointer decode validation + tag dispatch.",
+      algo: "Narrow-pointer decode validation + dispatch on the full tag byte (`match edge.tag_byte()`).",
       promo: "Direct child address dereference or unpacked inline keys.",
       demote: "Zeroed to Edge::NULL upon deletion."
     },
@@ -2289,35 +2280,35 @@
       title: "Root-Level Trie Entry",
       tag: "ExpanseSet / ExpanseMap root",
       subtitle: "Root entry point dynamically routing to inline leaf or level-8 branch hierarchy.",
-      size: "8 Bytes on Stack (Single Pointer)",
-      layout: "Root pointer -> Root-Level Leaf (pop <= 31) or Top Branch (pop >= 32)",
-      cap: "0 to 2^64-1 keys",
+      size: "24 B `Root` enum (tag word + 16 B variant) inside ExpanseSet / ExpanseMap",
+      layout: "Root::Empty | Root::Leaf { ptr, pop } (pop <= 31) | Root::Tree { top: Edge } (pop >= 32)",
+      cap: "0 to 2^64 keys",
       level: "Entry Point",
-      algo: "Optimistic reader seqlock validation covering entire trie snapshot.",
+      algo: "Plain tree: tag dispatch on the Root variant. Sync wrappers: the reader samples the tree version word and validates its root snapshot against it, then validates each branch under that node's own version, hand over hand.",
       promo: "Transitions from Root Leaf to Multi-Level Trie at pop = 32.",
       demote: "Reverts to inline leaf as population falls below threshold."
     },
     root_leaf: {
       title: "Root-Level Leaf (Small Population)",
       tag: "LeafRoot (pop <= 31)",
-      subtitle: "Dense flat array for sets with <= 31 keys, completely avoiding tree traversal.",
-      size: "Class-sized: 16B to 512B",
+      subtitle: "Flat sorted array for up to 31 keys, with no tree to traverse.",
+      size: "Class-sized: Set 8 B to 256 B (8 x cap_class(pop)); Map 16 B to 512 B (16 x cap_class(pop))",
       layout: "Continuous sorted array of full 64-bit keys (Set) or keys + values (Map)",
       cap: "1..31 Keys",
       level: "Root",
       algo: "Monotonic insertion O(1) append or binary search lookup.",
-      promo: "Cascade promotes into full multi-tier trie (BranchL3) at pop = 32.",
+      promo: "The 32nd key builds a level-8 tree.",
       demote: "Demotes to Edge::NULL when empty."
     },
     branch_top: {
       title: "Top-Level Branch (Level 8)",
       tag: "BranchL3 / BranchL7 / BranchB / BranchU",
       subtitle: "Level-8 root router decoding the most-significant byte of 64-bit keys.",
-      size: "64B (BranchL3) to 2048B (BranchU)",
+      size: "64 B (BranchL3) to 4160 B (BranchU)",
       layout: "Header + child Edge array",
       cap: "Fanout 1..256",
       level: "Level 8",
-      algo: "Key digit extraction `(key >> 56) & 0xFF` with SWAR / SIMD digit matching.",
+      algo: "Key digit extraction `(key >> 56) & 0xFF`, then the form's own search (byte compares, presence filter + 8-byte compare, bitmap rank, or direct index).",
       promo: "Upgrades from BranchL3 -> BranchL7 -> BranchB -> BranchU as fanout grows.",
       demote: "Shrinks with 1-index hysteresis on deletions."
     },
@@ -2329,31 +2320,31 @@
       layout: "BranchHeader (version [u32], num [u8], level [u8], presence [u16 bloom], digits[8]) + child Edges array",
       cap: "L3: 1..3 children; L7: 4..7 children",
       level: "Levels 2..=8",
-      algo: "BranchL3: direct byte compare / SWAR scan. BranchL7: 16-bit presence filter + SSE2 128-bit vector scan.",
-      promo: "BranchL3 promotes to BranchL7 at num=3. BranchL7 promotes to BranchB at num=7.",
-      demote: "BranchL7 demotes to BranchL3 when children <= 3."
+      algo: "BranchL3: up to 3 byte compares. BranchL7: 16-bit presence filter, then one 8-byte compare of digits[8] (SSE2 `_mm_loadl_epi64` + `_mm_cmpeq_epi8` / NEON `vceq_u8`, bits::find_byte_8).",
+      promo: "A full BranchL3 (3 children) becomes a BranchL7 on the 4th child; a full BranchL7 (7) becomes a BranchB on the 8th.",
+      demote: "BranchL7 demotes to BranchL3 when children fall to 2 or fewer (num < BRANCH_L3_CAP)."
     },
     branch_b: {
       title: "Branch B (Bitmap Branch)",
       tag: "EdgeTag::BranchB",
       subtitle: "Bitmap-indexed branch router for medium fanout densities.",
-      size: "64B node (256-bit Bitmap256 + 8 subarray pointers) + child edges",
-      layout: "Bitmap256, pop_counts[8], subarrays[8] (capacity class sized)",
+      size: "128 B node (two cache lines: Bitmap256, 8 subarray pointers, pop_counts, version) + child edge subarrays",
+      layout: "Bitmap256, subarrays[8], pop_counts[8], version, level (subarrays capacity-class sized)",
       cap: "8..192 child expanses",
       level: "Levels 2..=8",
-      algo: "Hardware POPCNT rank indexing into 8 subexpanse child edge arrays.",
-      promo: "Upgrades to BranchU when fanout > 192 (BITMAP_TO_UNCOMPRESSED_THRESHOLD / BRANCHB_UP).",
+      algo: "POPCNT subexpanse rank indexing into 8 child edge subarrays.",
+      promo: "Upgrades to BranchU on the 193rd child (count + 1 > BITMAP_TO_UNCOMPRESSED_THRESHOLD = 192).",
       demote: "Demotes to BranchL7 when fanout <= 6 (BRANCHB_TO_L7_DOWN hysteresis: 7 up / 6 down)."
     },
     branch_u: {
       title: "Branch U (Uncompressed Branch)",
       tag: "EdgeTag::BranchU",
       subtitle: "Flat 256-entry array for high-density branch fanouts.",
-      size: "2048 Bytes (256 x 16-byte Edges)",
-      layout: "Flat continuous array of 256 child Edge descriptors",
-      cap: "193..256 child expanses",
+      size: "4160 Bytes (64 B header line + 256 x 16-byte Edges)",
+      layout: "Header line (OCC version) + flat array of 256 child Edge descriptors",
+      cap: "193..256 child expanses (stays down to 192)",
       level: "Levels 2..=8",
-      algo: "Direct array index `edges[digit]` (O(1)). Zero branch mispredicts.",
+      algo: "Direct array index `edges[digit]` (O(1)).",
       promo: "Maximum fanout form for digital trie routing.",
       demote: "Demotes to BranchB when fanout <= 191 (BRANCHU_TO_B_DOWN hysteresis: 192 up / 191 down)."
     },
@@ -2361,37 +2352,37 @@
       title: "Immediate Edge (Set/Map)",
       tag: "EdgeTag::ImmedSet / ImmedMap",
       subtitle: "Key and payload packed directly inside the 16-byte Edge descriptor.",
-      size: "0 Bytes on Heap (Register resident)",
-      layout: "Word 0: payload / key; Word 1: Tag + Aux bytes",
-      cap: "1 Key (Set) / 1..7 Keys (Map narrow)",
+      size: "Set: 0 B heap. Map: 0 B for 1 key; 2+ keys allocate a value array",
+      layout: "Set: key bytes across word 0 + aux (15 B). Map: key bytes in aux (7 B); word 0 holds the value (1 key) or a value-array pointer (2+ keys)",
+      cap: "Set 1..15 / kb keys; Map 1..7 / kb keys (kb = key bytes at the edge's level)",
       level: "Levels 1..=7",
-      algo: "Zero memory dereference. Direct CPU register compare.",
-      promo: "Promotes to LinearLeaf on second key insertion.",
+      algo: "Key compare against the edge's own bytes; a multi-key map reads its value from the array.",
+      promo: "Promotes to a LinearLeaf when a key beyond the immediate capacity arrives.",
       demote: "Becomes Edge::NULL on key removal."
     },
     linear_leaf: {
       title: "Linear Leaf (Levels 1..=7)",
       tag: "EdgeTag::Leaf1..Leaf7",
-      subtitle: "Packed key bytes with SIMD-accelerated linear searching.",
+      subtitle: "Packed sorted key bytes; the search kernel is chosen by key width and population.",
       size: "Class-sized: size_map(kb, pop) / size_set(kb, pop)",
       layout: "Sorted parallel key byte array + value array",
-      cap: "2..25 keys (Level 1) / 2..32 keys (Levels 2..7)",
+      cap: "Above the immediate capacity, up to 25 keys (Level 1, LEAF1_CAP) / 32 keys (Levels 2..7, LEAF_CAP)",
       level: "Levels 1..=7",
-      algo: "Branchless scalar compare for pop <= 2. 128-bit SIMD vector scan `_mm_cmplt_epi8` + `_mm_movemask_epi8` + `POPCNT` for pop <= 16. Binary search for pop > 16.",
-      promo: "Level 1 promotes to LeafBitmap1 / LeafBitmapL at pop = 26.",
-      demote: "Demotes to Immediate at pop = 1."
+      algo: "leaf.rs search_fixed / lower_bound_fixed: unrolled scalar compares for pop <= 4; an 8- or 16-byte SSE2 compare for 1-byte keys at pop 5..8 and 13..16, 2-byte keys at 5..8, 4-byte keys at 3..4 (on AArch64, NEON only for the 1-byte equality search at exactly 8 and 16 keys); binary search otherwise.",
+      promo: "Level 1 promotes to LeafBitmap1 / LeafBitmapL on the 26th key; levels 2..7 cascade into a branch on the 33rd.",
+      demote: "Demotes to an Immediate once the population fits the immediate capacity."
     },
     bitmap_leaf: {
       title: "Bitmap Leaf (LeafBitmap1 / LeafBitmapL)",
       tag: "EdgeTag::LeafB1",
       subtitle: "High-density 256-bit bitmask leaf with subexpanse value arrays.",
-      size: "Set: 32B node; Map: 96B node + 8 value subarrays",
-      layout: "Bitmap256 (4x u64 words) + 8 value subarray pointers",
-      cap: "22..256 keys",
+      size: "Set: LeafBitmap1, 64 B (one line); Map: LeafBitmapL, 128 B (two lines) + 8 value subarrays",
+      layout: "Bitmap256 (4x u64 words) + version; the map form adds 8 value subarray pointers",
+      cap: "26..256 keys on entry; stays down to 21",
       level: "Level 1 (Terminal byte 0x00..0xFF)",
-      algo: "Hardware POPCNT rank indexing + BMI2 `_pext_u64` acceleration. 0.07–0.36 B/key dense storage.",
+      algo: "Membership is one bit test; a map's value slot is the POPCNT subexpanse rank. BMI2 PDEP is used only by select (k-th key), not by rank.",
       promo: "Set promotes to FullExpanse at pop = 256.",
-      demote: "Demotes to LinearLeaf1 at pop <= 21 (LEAFB1_DOWN: 25 up / 21 down, 4-index hysteresis band)."
+      demote: "Demotes to LinearLeaf1 when the population falls below LEAFB1_DOWN = 21 (to 20 or fewer); it enters on the 26th key (LEAF1_CAP = 25)."
     },
     full_expanse: {
       title: "Full Expanse (Set only)",
@@ -3049,7 +3040,7 @@
       title: "Top-Level Branch 32-Bit (Level 4)",
       tag: "BranchL2_32 / BranchL6_32 / BranchB_32",
       subtitle: "Level-4 root router decoding the most-significant byte of 32-bit keys.",
-      size: "32B (BranchL2_32 = 1 cache line) to 1024B",
+      size: "32 B (BranchL2_32 = 1 cache line) to 2080 B (BranchU32)",
       layout: "Header + 32-bit child Edge32 array",
       cap: "Fanout 1..256",
       level: "Level 4",
@@ -3067,19 +3058,19 @@
       level: "Levels 2..=4",
       algo: "Direct byte comparison across 32-bit word.",
       promo: "BranchL2_32 promotes to BranchL6_32 at num=2. BranchL6_32 promotes to BranchB_32 at num=6.",
-      demote: "BranchL6_32 demotes to BranchL2_32 when children <= 2."
+      demote: "BranchL6_32 demotes to BranchL2_32 when children fall to 1 (BRANCH_L6_DOWN_32)."
     },
     branch_b: {
       title: "Bitmap Branch B 32-Bit",
       tag: "BranchB_32",
       subtitle: "256-bit bitmap + 8 subarray pointers to compact Edge32 arrays.",
-      size: "32B header + dynamically allocated child Edge32 arrays",
-      layout: "256-bit presence bitmap (4x u64) + 8 subexpanse pointers",
-      cap: "Fanout 7..180",
+      size: "96 B node (BranchB32) + dynamically allocated child Edge32 arrays",
+      layout: "256-bit presence bitmap + 8 subexpanse pointers",
+      cap: "Fanout 7..192",
       level: "Levels 2..=4",
-      algo: "Hardware POPCNT rank indexing on 32-bit subexpanses.",
-      promo: "Promotes to uncompressed branch when fanout exceeds 180.",
-      demote: "Demotes to BranchL6_32 when population drops below 7."
+      algo: "Population-count rank indexing on 32-bit subexpanses.",
+      promo: "Promotes to BranchU32 (2080 B) on the 193rd child (BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 = 192); BranchU32 demotes back at 190 or fewer (BRANCH_U_DOWN_32).",
+      demote: "Demotes to BranchL6_32 when children fall to 5 or fewer (BRANCH_B_DOWN_32)."
     },
     node_leaf_immed: {
       title: "Immediate Edge32 Storage",
@@ -3400,23 +3391,26 @@
   // 5. REALTIME WORKLOAD SIMULATION & PIPELINE TRACE
   // ===================================================================
 
+  // Populations up to 256 describe the keys held in one expanse below a
+  // branch (the whole set is a root leaf while it has <= ROOT_LEAF_CAP keys);
+  // 1,000 and above describe a whole tree, read from DEPTH_CENSUS.
   const POP_MILESTONES = [
-    { pop: 1, label: "1 key", desc: "Immediate In-Pointer (0 B heap, inlined in 16-byte Edge)", tag: "IMMED" },
-    { pop: 2, label: "2 keys", desc: "Pair Branchless probe in leaf (pos = (k0 < n) + (k1 < n))", tag: "BRANCHLESS" },
-    { pop: 7, label: "7 keys", desc: "Immediate Max Capacity Ceiling (15 payload bytes)", tag: "IMMED_MAX" },
-    { pop: 18, label: "18 keys", desc: "Linear Leaf SIMD Band (128-bit AVX2/NEON vector probe)", tag: "SIMD_LEAF" },
-    { pop: 25, label: "25 keys", desc: "Linear Leaf Capacity Ceiling (LEAF_LINEAR_CAP = 25)", tag: "LINEAR_CAP" },
-    { pop: 31, label: "31 keys", desc: "Root Leaf Capacity Ceiling (ROOT_LEAF_CAP = 31, 0 interior branches)", tag: "ROOT_LEAF_CAP" },
-    { pop: 32, label: "32 keys", desc: "JPM Tree Root Promotion (Root Leaf -> JPM + Level 8 Branch)", tag: "TREE_PROMO" },
-    { pop: 64, label: "64 keys", desc: "Bitmap Leaf (256-bit bitmask + POPCNT) under BranchL3 (fanout 1..3)", tag: "BRANCH_L3" },
-    { pop: 128, label: "128 keys", desc: "Bitmap Leaf Subexpanse under BranchL7 (fanout 4..7)", tag: "BRANCH_L7" },
-    { pop: 192, label: "192 keys", desc: "BranchB -> BranchU Promotion Threshold (fanout > 180 slots to child leaves)", tag: "BRANCH_U" },
-    { pop: 256, label: "256 keys", desc: "Full Expanse Saturation (256 keys saturated / 0 B child pointer for Set)", tag: "FULL_EXPANSE" },
-    { pop: 1000, label: "1,000 keys", desc: "2-Level Digital Trie (Root JPM -> Level 8 -> Level 7 -> Leaves)", tag: "TRIE_2LVL" },
-    { pop: 10000, label: "10,000 keys", desc: "3-Level Digital Trie (Dynamic BranchL3/BranchB routing)", tag: "TRIE_3LVL" },
-    { pop: 100000, label: "100,000 keys", desc: "4–5 Level Digital Trie (0.36 B/k clustered set, 8.56 B/k map)", tag: "TRIE_5LVL" },
-    { pop: 1000000, label: "1,000,000 keys", desc: "6–8 Level Digital Trie (Sequential Bypass skips 8 branch levels)", tag: "TRIE_8LVL" },
-    { pop: 10000000, label: "10,000,000 keys", desc: "10M Keys Dense Scale (8-level digital trie, dense branch fanout, L3 cache / DRAM boundary)", tag: "TRIE_10M" }
+    { pop: 1, label: "1 key", desc: "One key in an expanse: an immediate edge (a set keeps the key bytes in the edge; a map keeps the value in word 0, no allocation)", tag: "IMMED" },
+    { pop: 2, label: "2 keys", desc: "Two keys: still an immediate wherever they fit (15 / kb set keys, 7 / kb map keys); a map now allocates a 2-entry value array", tag: "IMMED_2" },
+    { pop: 7, label: "7 keys", desc: "Map immediate ceiling at level 1 (7 aux bytes / 1-byte keys); a set immediate holds up to 15 there", tag: "IMMED_MAX" },
+    { pop: 16, label: "16 keys", desc: "Linear leaf, 1-byte keys: one 16-byte SSE2 / NEON compare", tag: "SIMD_LEAF" },
+    { pop: 25, label: "25 keys", desc: "Level-1 linear leaf ceiling (LEAF1_CAP = 25): binary search", tag: "LINEAR_CAP" },
+    { pop: 31, label: "31 keys", desc: "Root leaf ceiling (ROOT_LEAF_CAP = 31): no tree yet", tag: "ROOT_LEAF_CAP" },
+    { pop: 32, label: "32 keys", desc: "The 32nd key builds the level-8 tree", tag: "TREE_PROMO" },
+    { pop: 64, label: "64 keys", desc: "64 keys in one level-1 expanse: a bitmap leaf (entered on the 26th key)", tag: "BITMAP_64" },
+    { pop: 128, label: "128 keys", desc: "128 keys in one level-1 expanse: a bitmap leaf", tag: "BITMAP_128" },
+    { pop: 192, label: "192 keys", desc: "192 is also BranchB's ceiling: a branch converts to BranchU on its 193rd child", tag: "BRANCH_B_MAX" },
+    { pop: 256, label: "256 keys", desc: "All 256 keys of a level-1 expanse: a FullExpanse edge in a set (no node)", tag: "FULL_EXPANSE" },
+    { pop: 1000, label: "1,000 keys", desc: "1,000 keys: branch levels from the engine census", tag: "TRIE_1K" },
+    { pop: 10000, label: "10,000 keys", desc: "10,000 keys: branch levels from the engine census", tag: "TRIE_10K" },
+    { pop: 100000, label: "100,000 keys", desc: "100,000 keys: branch levels from the engine census", tag: "TRIE_100K" },
+    { pop: 1000000, label: "1,000,000 keys", desc: "1,000,000 keys: branch levels from the engine census", tag: "TRIE_1M" },
+    { pop: 10000000, label: "10,000,000 keys", desc: "10,000,000 keys: outside the engine census and the memory budget", tag: "TRIE_10M" }
   ];
 
   const opSelect = document.getElementById('op-select');
@@ -3425,7 +3419,6 @@
   const popSlider = document.getElementById('pop-slider');
   const popVal = document.getElementById('pop-val');
   const archSelect = document.getElementById('arch-select');
-  const compToggle = document.getElementById('comp-toggle');
 
   const metricInstr = document.getElementById('metric-instr');
   const metricInstrDelta = document.getElementById('metric-instr-delta');
@@ -3433,14 +3426,38 @@
   const metricMemDelta = document.getElementById('metric-mem-delta');
   const metricCache = document.getElementById('metric-cache');
   const metricHwAcc = document.getElementById('metric-hw-acc');
+  const metricHwSub = document.getElementById('metric-hw-sub');
   const flowPipeline = document.getElementById('flow-pipeline');
-  const compBanner = document.getElementById('comp-banner');
-  const compDesc = document.getElementById('comp-desc');
-  const compWinBadge = document.getElementById('comp-win-badge');
 
   function setPopIndex(idx) {
     popSlider.value = idx;
     update();
+  }
+
+  // Fills the depth cards from DEPTH_CENSUS (docs/visualizer_data.json
+  // `depth_census`, recomputed from the engine by test_visualizer_sync.rs).
+  function renderDepthCensus() {
+    document.querySelectorAll('.depth-card[data-pop]').forEach(card => {
+      const pop = parseInt(card.getAttribute('data-pop'), 10);
+      const row = (DEPTH_CENSUS.rows || []).find(r => r.pop === pop);
+      const out = card.querySelector('.depth-census');
+      if (!out) return;
+      if (!row) {
+        out.textContent = "Not in the engine census.";
+        return;
+      }
+      out.innerHTML = ["random", "sequential", "clustered"].map(d => {
+        const lv = row[d] || [];
+        return `<div><strong>${d}</strong>: levels ${lv.join(", ")} (${lv.length} branch level${lv.length === 1 ? "" : "s"})</div>`;
+      }).join('');
+    });
+  }
+
+  // The census row for (pop, dist), or null where the census has none.
+  function censusLevels(pop, dist) {
+    const d = dist === "dense" ? "clustered" : dist;
+    const row = (DEPTH_CENSUS.rows || []).find(r => r.pop === pop);
+    return row && Array.isArray(row[d]) ? row[d] : null;
   }
 
   function update() {
@@ -3451,7 +3468,6 @@
     const milestone = POP_MILESTONES[milestoneIdx];
     const pop = milestone.pop;
     const arch = archSelect.value;
-    const showComp = compToggle.checked;
 
     popVal.textContent = milestone.label;
     const popDescEl = document.getElementById('pop-regime-desc');
@@ -3462,111 +3478,62 @@
       btn.classList.toggle('active', parseInt(btn.getAttribute('data-idx'), 10) === milestoneIdx);
     });
 
-    compBanner.style.display = showComp ? 'flex' : 'none';
-
     let steps = [];
-    let instr = 0;
-    let baselineInstr = 0;
-    let mem = "8.6 B/k";
-    let cache = "1 line (64B)";
-    let hwAcc = "x86-64-v3 (AVX2/BMI2)";
-
     const is32Bit = arch === "rv32" || arch === "cortex_m" || arch === "esp32";
+    const isImmediate = pop === 1 || pop === 2 || pop === 7;
+    const isLinearLeaf = pop === 16 || pop === 25;
+    const isRootLeaf = pop === 31 || dist === "small";
 
-    // 1. Calculate active trie depth
-    let activeDepth = 0;
-    if (pop <= 31 || dist === "small") activeDepth = 0;
-    else if (is32Bit) {
-      if (dist === "clustered") activeDepth = pop <= 256 ? 1 : (pop <= 10000 ? 2 : 3);
-      else if (pop <= 256) activeDepth = 1;
-      else if (pop <= 1000) activeDepth = 2;
-      else if (pop <= 10000) activeDepth = 3;
-      else activeDepth = 4;
-    } else {
-      if (dist === "clustered") activeDepth = pop <= 256 ? 1 : (pop <= 10000 ? 2 : (pop <= 100000 ? 3 : 5));
-      else if (pop <= 256) activeDepth = 1;
-      else if (pop <= 1000) activeDepth = 2;
-      else if (pop <= 10000) activeDepth = 3;
-      else if (pop <= 100000) activeDepth = 5;
-      else activeDepth = 8;
-    }
+    // 1. Branch levels: engine census where it has the cell, else unknown.
+    let branchLevels = null;
+    if (isRootLeaf) branchLevels = [];
+    else if (!is32Bit && pop >= 32) branchLevels = censusLevels(pop, dist);
+    const activeDepth = branchLevels ? branchLevels.length : null;
 
-    // 2. Multi-level sequential run bypass check
+    // 2. Cached sequential insert path
     const isSequentialBypass = (op === "insert" || op === "ins_slot") && dist === "sequential" && pop > 31;
 
-    // 3. Memory overhead per key estimation
-    if (is32Bit) {
-      if (flavor === "set") {
-        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
-        else if (pop <= 31) mem = "0.50 B/k";
-        else if (dist === "sequential") mem = "0.07 B/k";
-        else if (dist === "clustered") mem = "0.51 B/k";
-        else if (pop === 256) mem = "0.00 B (JP_FULL)";
-        else mem = "0.63 B/k";
-      } else if (flavor === "map") {
-        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
-        else if (pop <= 31) mem = "4.20 B/k";
-        else if (dist === "sequential") mem = "8.03 B/k";
-        else if (dist === "clustered") mem = "8.03 B/k";
-        else if (pop === 256) mem = "4.00 B/k";
-        else mem = "12.40 B/k";
-      } else {
-        mem = pop <= 31 ? "8.0 B/k" : "16.0 B/k";
-      }
-    } else {
-      if (flavor === "set") {
-        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
-        else if (pop <= 31) mem = "0.50 B/k";
-        else if (dist === "sequential") mem = "0.07 B/k";
-        else if (dist === "clustered") mem = "0.36 B/k";
-        else if (pop === 256) mem = "0.00 B (JP_FULL)";
-        else mem = "1.24 B/k";
-      } else if (flavor === "map") {
-        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
-        else if (pop <= 31) mem = "8.57 B/k";
-        else if (dist === "sequential") mem = "8.56 B/k";
-        else if (dist === "clustered") mem = "8.86 B/k";
-        else if (pop === 256) mem = "8.00 B/k";
-        else mem = pop >= 10000000 ? "24.80 B/k" : "24.52 B/k";
-      } else {
-        mem = pop <= 31 ? "18.2 B/k" : (pop >= 1000000 ? "32.4 B/k" : "26.1 B/k");
+    // 3. Bytes per key: only where the memory budget has the cell.
+    const memDist = { random: "Random Uniform (64-bit)", sequential: "Sequential (0..N)", clustered: "Clustered (256-key runs)", dense: "Clustered (256-key runs)" }[dist];
+    const memPop = { 1000: "1k", 100000: "100k", 1000000: "1m" }[pop];
+    let mem = "—";
+    let memSub = "no memory-budget cell for this selection";
+    if (!is32Bit && (flavor === "set" || flavor === "map") && memDist && memPop) {
+      const row = MEMORY_DATA.find(r => r.dist === memDist);
+      const v = row ? row[`${flavor}_${memPop}`] : undefined;
+      if (typeof v === "number") {
+        mem = `${v.toFixed(2)} B/k`;
+        memSub = `memory budget: ${memDist}, N = ${pop.toLocaleString()}`;
       }
     }
 
-    // 4. Cache lines touched
-    if (is32Bit) {
-      if (pop === 1 || pop === 7) cache = "0 lines (L1 register)";
-      else if (pop <= 31 || isSequentialBypass || dist === "sequential") cache = "1 line (32B)";
-      else if (pop <= 256) cache = "1 line (32B)";
-      else if (pop <= 10000) cache = "2 lines (64B)";
-      else cache = "3-4 lines (96-128B SRAM)";
-    } else {
-      if (pop === 1 || pop === 7) cache = "0 lines (L1 register)";
-      else if (pop <= 31 || isSequentialBypass || dist === "sequential") cache = "1 line (64B)";
-      else if (pop <= 256) cache = "1 line (64B)";
-      else if (pop <= 10000) cache = "2 lines (128B)";
-      else if (pop <= 100000) cache = "3 lines (192B)";
-      else if (pop <= 1000000) cache = "4 lines (256B)";
-      else cache = "6-8 lines (L3 / DRAM)";
-    }
+    // 4. Nodes on the lookup path (bounded by the census)
+    let cache;
+    if (isImmediate) cache = "edge in parent";
+    else if (isRootLeaf) cache = "root leaf only";
+    else if (isLinearLeaf || pop <= 256) cache = "1 leaf node";
+    else if (activeDepth === null) cache = "not in census";
+    else cache = `≤ ${activeDepth} branch + leaf`;
 
-    // 5. Hardware acceleration profile
-    if (arch === "v3") hwAcc = "x86-64-v3 (AVX2/BMI2)";
-    else if (arch === "neon") hwAcc = "AArch64 NEON";
-    else if (arch === "rv32") hwAcc = "Bare-Metal RV32IMAC";
-    else if (arch === "cortex_m") hwAcc = "Cortex-M7 (32B Line)";
-    else if (arch === "esp32") hwAcc = "ESP32 SRAM (Edge32)";
-    else hwAcc = "x86-64-v1 Baseline";
+    // 5. ISA kernels the engine uses on the selected target
+    let hwAcc;
+    let hwSub;
+    if (arch === "v3") { hwAcc = "SSE2 · POPCNT · BMI2"; hwSub = "BMI2 PDEP for select only, behind a runtime CPUID check"; }
+    else if (arch === "neon") { hwAcc = "NEON"; hwSub = "byte-compare kernels; popcount lowers to CNT + ADDV"; }
+    else if (arch === "rv32") { hwAcc = "RV32IMAC"; hwSub = "32-bit engine (trie32), scalar"; }
+    else if (arch === "cortex_m") { hwAcc = "Cortex-M"; hwSub = "32-bit engine (trie32), scalar"; }
+    else if (arch === "esp32") { hwAcc = "ESP32"; hwSub = "32-bit engine (trie32), scalar"; }
+    else { hwAcc = "SSE2"; hwSub = "SWAR popcount where no POPCNT is dispatched"; }
 
     // 6. Build execution pipeline trace steps
-    // Step A: Root Tag extraction or OCC acquire
+    // Step A: root dispatch or version sample
     if (op === "sync_read") {
       steps.push({
-        badge: "OCC ACQUIRE",
+        badge: "VERSION SAMPLE",
         badgeClass: "highlight",
-        title: "Atomic SeqLock Version Guard",
-        desc: "Reads root OCC sequence counter with acquire fence (`seq.load(Acquire)`). Spins if active writer (`version & 1 == 1`).",
-        algo: "Atomic SeqLock Acquire Fence (version load)"
+        title: "Tree Version Sample",
+        desc: "Samples the tree version word (`Acquire` load), spinning while it is odd (a writer holds it), then copies the root snapshot by value.",
+        algo: "SeqVersion::sample (occ.rs)"
       });
     } else if (op === "sync_write") {
       steps.push({
@@ -3581,146 +3548,119 @@
         badge: "SLOT LOCATE",
         badgeClass: "highlight",
         title: "Key Slot Address Resolution",
-        desc: "Decodes 3-bit tagged pointer and traverses trie to find mutable `*mut u64` address without value duplication.",
-        algo: "Tagged Pointer Tag Extraction (`edge.tag() & 0x07`)"
+        desc: "Walks the trie to the key's value slot and returns its `*mut u64` address.",
+        algo: "Dispatch on the full 8-bit tag byte (`match edge.tag_byte()`)"
       });
     } else {
       steps.push({
         badge: "ROOT",
         badgeClass: "highlight",
-        title: "Root Edge Pointer Tag Extraction",
-        desc: "Extracts 3-bit structural tag from 16-byte Edge. Validates OCC sequence counter version bracket.",
-        algo: "Tagged Pointer Tag Extraction (`edge.tag() & 0x07`)"
+        title: "Root Dispatch",
+        desc: "Reads the `Root` variant: a root leaf, or the level-8 top edge. Every edge is then dispatched on its full 8-bit tag byte (offset 15 of the 16-byte Edge).",
+        algo: "Dispatch on the full 8-bit tag byte (`match edge.tag_byte()`)"
       });
     }
 
     // Step B: Traversal / Bypass / Leaf Lookup
     if (isSequentialBypass) {
+      const skipped = activeDepth === null ? "the" : `the ${activeDepth}`;
       steps.push({
-        badge: "MULTI-LEVEL BYPASS",
+        badge: "CACHED PATH",
         badgeClass: "green",
-        title: "Sequential Run Bypass (InsertPath Cursor)",
-        desc: `High 56-bit prefix match (\`key >> 8 == path.prefix\`). Bypasses all ${activeDepth} levels of digital trie branch descent directly to active LeafB1!`,
-        algo: "Direct 1-Bit Test/Set + Unrolled Ancestor Edge pop0 Increment (~15 instrs)"
+        title: "Sequential Insert Path Cache",
+        desc: `When \`key >> 8\` matches the cached path prefix, the insert goes straight to the cached level-1 leaf, skipping ${skipped} branch level(s) above it.`,
+        algo: "Cached insert path (path.prefix / path.leaf, mutate.rs)"
       });
-      instr = 15;
-      baselineInstr = pop >= 100000 ? 112 : 98;
-      compDesc.textContent = `Expanse Sequential Bypass: 15 instrs vs Stock Judy ${baselineInstr} instrs (bypassing all ${activeDepth} branch levels).`;
-      compWinBadge.textContent = "6.5x Advantage";
-    } else if (pop === 1 || pop === 7) {
+    } else if (isImmediate) {
       steps.push({
         badge: "IMMEDIATE",
         badgeClass: "green",
-        title: "Immediate In-Pointer Storage",
-        desc: "Key and payload stored directly in the 16-byte Edge structure. Zero heap allocation.",
-        algo: "Zero-Deref Scalar Compare (u64 equality in word 0)"
+        title: "Immediate Edge",
+        desc: flavor === "map"
+          ? "Keys live in the edge's 7-byte aux field inside the parent node. One key keeps its value in word 0; two or more read it from the allocated value array."
+          : "Key bytes live in the 16-byte edge inside the parent node (up to 15 payload bytes): no leaf node to read.",
+        algo: "Compare against the key bytes in the edge"
       });
-      instr = op === "insert" ? 8 : 4;
-      baselineInstr = 14;
-      compDesc.textContent = "Immediate edge: Register-resident payload beats stock Judy indirect pointer traversal.";
-      compWinBadge.textContent = "3.5x Advantage";
-    } else if (pop <= 31 || dist === "small") {
+    } else if (isRootLeaf) {
       if (op === "insert" && (dist === "sequential" || dist === "clustered" || dist === "small")) {
         steps.push({
           badge: "FAST PATH",
           badgeClass: "green",
           title: "Monotonic Append Detection (Root Leaf)",
-          desc: "Evaluates `key > last_key` in a single scalar compare. Bypasses binary search entirely on monotonic root leaf streams.",
-          algo: "Monotonic Append O(1) Check + 0-byte shift elision"
+          desc: "Compares the key with the last root-leaf key; a larger key is appended without a search.",
+          algo: "`key > last` check, else binary search (set.rs insert)"
         });
-        instr = 6;
-        baselineInstr = 24;
-        compDesc.textContent = "Root Leaf Monotonic Append: Single scalar probe eliminates binary search and class realloc.";
-        compWinBadge.textContent = "4.0x Advantage";
       } else if (op === "remove") {
         steps.push({
           badge: "ROOT LEAF DELETE",
           badgeClass: "orange",
-          title: "Root Leaf Key Deletion & Condense",
-          desc: "Locates key via binary search and condenses root leaf array in-place. Zero heap deallocation.",
-          algo: "In-Place Array Shift (`ptr::copy`)"
+          title: "Root Leaf Key Deletion",
+          desc: "Locates the key and shifts the sorted root array down; the allocation is reused while the capacity class does not change.",
+          algo: "In-place array shift (`ptr::copy`)"
         });
-        instr = 12;
-        baselineInstr = 28;
-        compDesc.textContent = "Root Leaf Removal: Fast in-place contiguous shift with zero heap fragmentation.";
-        compWinBadge.textContent = "2.3x Advantage";
       } else if (op === "nav") {
         steps.push({
           badge: "ROOT LEAF NAV",
           badgeClass: "purple",
           title: "Flat Key Index Navigation",
-          desc: "Computes rank / next key directly from sorted root array using scalar index arithmetic.",
-          algo: "O(1) Direct Array Indexing"
+          desc: "Computes rank / next key from the sorted root array by index arithmetic.",
+          algo: "Direct array indexing"
         });
-        instr = 8;
-        baselineInstr = 20;
-        compDesc.textContent = "Root Leaf Navigation: Direct index arithmetic eliminates branch and bitmap decoding.";
-        compWinBadge.textContent = "2.5x Advantage";
       } else {
         steps.push({
           badge: "ROOT LEAF",
           badgeClass: "highlight",
-          title: "Root-Level Leaf Binary Search",
-          desc: "Searches flat parallel key array directly without descending multi-level branch nodes.",
-          algo: pop <= 2 ? "Branchless: pos = (k0 < needle) + (k1 < needle)" : "O(log N) binary search probe"
+          title: "Root-Level Leaf Search",
+          desc: "Searches the sorted array of full 64-bit keys directly; there is no branch to descend.",
+          algo: "Unrolled compares for pop ≤ 4, then a search over the sorted array (set.rs contains)"
         });
-        instr = pop <= 2 ? 6 : 14;
-        baselineInstr = 26;
-        compDesc.textContent = "Root Leaf: Flat array eliminates interior branch pointer dereferences.";
-        compWinBadge.textContent = "1.8x Advantage";
       }
-    } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
+    } else if (isLinearLeaf) {
+      let algo;
+      if (pop === 16) {
+        algo = arch === "neon"
+          ? "NEON `vceqq_u8` over 16 bytes (bits::search_16_u8)"
+          : (is32Bit ? "32-bit engine: scalar leaf search" : "SSE2 `_mm_cmpeq_epi8` + `_mm_movemask_epi8` over 16 bytes (bits::search_16_u8)");
+      } else {
+        algo = "Binary search (no kernel band at 25 keys; leaf.rs lower_bound_fixed)";
+      }
       steps.push({
-        badge: "SIMD VECTOR SCAN",
+        badge: "LINEAR LEAF",
         badgeClass: "purple",
-        title: "128-Bit SIMD Linear Leaf Search",
-        desc: "Evaluates 16 keys in parallel using 128-bit vector comparisons with unsigned-to-signed bias translation.",
-        algo: arch === "v3" ? "_mm_cmpeq_epi8 / _mm_cmplt_epi8 + _mm_movemask_epi8 + popcnt (AVX2/SSE2, 4 instrs)" : (arch === "neon" ? "vceqq_u8 / vcltq_u8 + vpaddq_u8 (AArch64 NEON)" : "lower_bound_fixed binary search loop")
+        title: "Linear Leaf Search (1-byte keys)",
+        desc: "leaf.rs picks the kernel by key width and population: unrolled compares up to 4 keys, an 8- or 16-byte SSE2 compare at fixed bands (on AArch64, NEON for the 1-byte equality search at exactly 8 and 16 keys), binary search otherwise.",
+        algo
       });
-      instr = arch === "v3" ? 6 : (arch === "neon" ? 7 : 14);
-      baselineInstr = 22;
-      compDesc.textContent = "128-bit SIMD Leaf Scan: Evaluates entire 16-element leaf in 4 instructions with zero branches.";
-      compWinBadge.textContent = "3.6x Advantage";
     } else if (pop <= 256) {
-      if (pop >= 192 && pop < 256) {
-        steps.push({
-          badge: "BRANCH U",
-          badgeClass: "highlight",
-          title: "BranchU Uncompressed Dispatch (Fanout > 180)",
-          desc: "Fanout exceeds 180 child pointers. Direct O(1) array index (2048 B table) to child Bitmap Leaf.",
-          algo: "Direct Slot Indexing (`branch.edges[digit8]`)"
-        });
-      }
       steps.push({
         badge: pop === 256 ? "FULL EXPANSE" : "BITMAP LEAF",
         badgeClass: pop === 256 ? "green" : "orange",
-        title: pop === 256 ? "Full Expanse Saturation (256 Keys)" : "Bitmap256 Subexpanse Lookup",
-        desc: pop === 256 ? (flavor === "set" ? "All 256 keys in the 8-bit subrange are present (0 B child pointer JP_FULL in Set)." : "All 256 keys present with flat 2048 B value array in Map.") : "256-bit membership bitset across 4x u64 words. Subexpanse rank indexing for value array.",
-        algo: pop === 256 ? "O(1) Implicit Presence Check" : (arch === "v3" ? "Hardware POPCNT + _pext_u64 (x86-64-v3)" : "Bitmap256::subexpanse_rank (SWAR 12-instr)")
+        title: pop === 256 ? "Full Expanse (256 Keys)" : "Bitmap256 Leaf Lookup",
+        desc: pop === 256
+          ? (flavor === "set"
+            ? "All 256 final bytes present: a FullExpanse edge, with no node behind it."
+            : "All 256 keys present: a LeafBitmapL (128 B) whose 8 value subarrays are full (8 x 32 x 8 B = 2,048 B of values).")
+          : "Membership is one bit of the 256-bit bitmap; a map's value slot is the population count of the digit's 32-bit subexpanse word below the digit.",
+        algo: pop === 256 && flavor === "set" ? "Tag check, no memory read beyond the edge" : "Bitmap256::test_and_subexpanse_rank (POPCNT where available)"
       });
-      instr = pop === 256 ? 4 : (arch === "v3" ? 8 : 18);
-      baselineInstr = 28;
-      compDesc.textContent = pop >= 192 ? "BranchU / Dense Expanse: O(1) table indexing eliminates bitmap search overhead." : "Bitmap256 Leaf: Hardware POPCNT rank acceleration achieves sub-nanosecond bitmask indexing.";
-      compWinBadge.textContent = pop === 256 ? "7.0x Advantage" : "3.5x Advantage";
     } else {
+      const levelsText = branchLevels
+        ? `Slot levels holding a branch for ${dist === "dense" ? "clustered" : dist} keys at N = ${pop.toLocaleString()}: ${branchLevels.join(", ")}. A narrow pointer skips the levels between them.`
+        : "No engine census for this selection; depth depends on how the keys spread, not on N alone.";
       steps.push({
-        badge: `TRIE DEPTH ${activeDepth}`,
+        badge: activeDepth === null ? "BRANCH DESCENT" : `BRANCH LEVELS ${activeDepth}`,
         badgeClass: "highlight",
-        title: `Multi-Level Digital Trie Traversal (${activeDepth} Levels)`,
-        desc: `Descending ${activeDepth} levels of branch nodes (JPM -> Level 8 -> Levels ${9 - activeDepth}..2 -> Terminal Expanse).`,
-        algo: dist === "clustered" ? "Narrow Pointer Prefix Skip + Shared Subexpanse (0.36 B/k)" : "find_byte_16_sse2 / Bitmap256::rank"
+        title: activeDepth === null ? "Branch Descent" : `Branch Descent (${activeDepth} branch level${activeDepth === 1 ? "" : "s"}, engine census)`,
+        desc: levelsText,
+        algo: "BranchL3 byte compares · BranchL7 presence filter + find_byte_8 · Bitmap256 rank · BranchU direct index"
       });
       steps.push({
         badge: "TERMINAL LEAF",
         badgeClass: "orange",
-        title: "Terminal Bitmap / Linear Expanse",
-        desc: "Final digit resolution in terminal leaf expanse.",
-        algo: "Bitmap256 subexpanse rank + value slot dereference"
+        title: "Terminal Leaf",
+        desc: "The remaining key bytes resolve in an immediate, a linear leaf, or a level-1 bitmap leaf.",
+        algo: "Linear-leaf search or Bitmap256 bit test + rank"
       });
-      instr = activeDepth * 4 + 10;
-      baselineInstr = activeDepth * 12 + 14;
-      compDesc.textContent = `Multi-level Branch Traversal (${activeDepth} levels): SWAR/SIMD branch scanning minimizes memory stalls.`;
-      compWinBadge.textContent = "1.8x Advantage";
     }
 
     // Step C: Operation Finish (Mutation / Slot deref / Nav / OCC release)
@@ -3729,51 +3669,41 @@
         badge: "LADDER MUTATE",
         badgeClass: "green",
         title: "Leaf Ladder Climb & Ancestor Increment",
-        desc: "Inserts key into leaf, dynamically promotes node form if capacity threshold is exceeded, and bumps POP0 ancestor counts.",
-        algo: "In-Place Class Realloc + bump_pop0 Ancestor Loop + OCC version bump"
+        desc: "Inserts key into leaf, promotes the node form when a capacity threshold is crossed, and bumps the pop0 counts of the ancestors.",
+        algo: "In-place shift while the capacity class holds + bump_pop0 ancestor loop"
       });
-      instr += 14;
-      baselineInstr += 24;
     } else if (op === "remove") {
       steps.push({
-        badge: "EPOCH DEFER",
+        badge: "DEMOTE / RETIRE",
         badgeClass: "orange",
-        title: "Hysteresis Demotion & Epoch Deferral",
-        desc: "Shrinks leaf capacity, checks demotion thresholds (e.g. Bitmap -> Linear -> Immed), and defers node freeing via Epoch Allocator.",
-        algo: "occ::epochs::defer_free() (zero reader stall)"
+        title: "Hysteresis Demotion & Node Retirement",
+        desc: "Shrinks the leaf, checks the demotion thresholds (e.g. bitmap leaf to linear leaf at 20 keys or fewer, linear leaf to immediate), and frees the old node: at once in a plain tree, through the epoch collector in a shared one.",
+        algo: "Plain: free. Shared: occ::Collector::retire"
       });
-      instr += 12;
-      baselineInstr += 22;
     } else if (op === "ins_slot") {
       steps.push({
-        badge: "ZERO-COPY WRITE",
+        badge: "SLOT WRITE",
         badgeClass: "green",
         title: "Direct Mutable Slot Write",
-        desc: "Caller writes value directly into returned `*mut u64` address with 1 CPU instruction, eliminating map value lookup overhead.",
-        algo: "Direct Pointer Write (`*slot = value`)"
+        desc: "The caller writes the value through the returned `*mut u64`, which stays valid until the next structural mutation.",
+        algo: "Direct pointer write (`*slot = value`)"
       });
-      instr += 2;
-      baselineInstr += 8;
     } else if (op === "nav") {
       steps.push({
         badge: "BIT NAVIGATION",
         badgeClass: "purple",
         title: "Bitwise Cursor Advancement",
-        desc: "Extracts next active key using hardware bit scanning (`_tzcnt_u64`) and advances cursor to next non-empty subexpanse.",
-        algo: "Hardware Bit Scan (`_tzcnt_u64(sub_bitmap & mask)`)"
+        desc: "Finds the next present digit by a bit scan of the masked bitmap word and advances to the next non-empty subexpanse.",
+        algo: "Bit scan (`trailing_zeros` of the masked bitmap word)"
       });
-      instr += 4;
-      baselineInstr += 10;
     } else if (op === "sync_read") {
       steps.push({
         badge: "OCC VALIDATE",
         badgeClass: "highlight",
-        title: "OCC Version Validation",
-        desc: "Verifies root sequence counter has not changed during lock-free traversal (`seq.load(Release) == version_start`). Retries if torn.",
-        algo: "Atomic SeqLock Release Fence Validation"
+        title: "Per-Node Validation, Then Fallback",
+        desc: "Each branch is read under its own version word (sampled even before the reads, re-validated after), and the root snapshot is validated against the tree version. A failed validation restarts the walk; after 64 attempts (MAX_RETRIES) the read takes the writer mutex. Blocking, not lock-free.",
+        algo: "SeqVersion::validate: Acquire fence + Relaxed load == snapshot"
       });
-      instr += 4;
-      baselineInstr += 12;
     } else if (op === "sync_write") {
       steps.push({
         badge: "OLC COMMIT & CENSUS",
@@ -3782,16 +3712,17 @@
         desc: "Performs leaf mutation or expansion under parent node lock, releases lock with version increment (version + 2), and flags sharded dirty digit for lazy census rollup at quiescence.",
         algo: "Parent Version Release (version + 2) + Sharded Dirty Digit Flag"
       });
-      instr += 14;
-      baselineInstr += 45;
     }
 
-    const winPct = Math.round(((baselineInstr - instr) / baselineInstr) * 100);
-    metricInstr.textContent = `~${instr} instrs`;
-    metricInstrDelta.textContent = `-${winPct}% vs baseline (${baselineInstr} instrs)`;
+    metricInstr.textContent = isImmediate || isLinearLeaf || (pop <= 256 && !isRootLeaf) ? "—" : (activeDepth === null ? "—" : String(activeDepth));
+    metricInstrDelta.textContent = isRootLeaf
+      ? "root leaf: no branch"
+      : (activeDepth === null || pop < 1000 ? "census covers whole trees of 1K..1M keys" : `census: levels ${branchLevels.join(", ")}`);
     metricMem.textContent = mem;
+    if (metricMemDelta) metricMemDelta.textContent = memSub;
     metricCache.textContent = cache;
     metricHwAcc.textContent = hwAcc;
+    if (metricHwSub) metricHwSub.textContent = hwSub;
 
     // Render pipeline
     flowPipeline.innerHTML = steps.map((s, idx) => `
@@ -3819,17 +3750,7 @@
     if (topBadge) topBadge.textContent = is32Bit ? "Level 4" : "Level 8";
 
     if (branchBBadge) {
-      if (is32Bit) {
-        if (pop >= 10000) branchBBadge.textContent = "Levels 3..2";
-        else if (pop >= 1000) branchBBadge.textContent = "Level 3";
-        else branchBBadge.textContent = "Fanout 8..180";
-      } else {
-        if (pop >= 1000000) branchBBadge.textContent = "Levels 7..2";
-        else if (pop >= 100000) branchBBadge.textContent = "Levels 7..4";
-        else if (pop >= 10000) branchBBadge.textContent = "Levels 7..6";
-        else if (pop >= 1000) branchBBadge.textContent = "Level 7";
-        else branchBBadge.textContent = "Fanout 8..180";
-      }
+      branchBBadge.textContent = is32Bit ? "Fanout 7..192" : "Fanout 8..192";
     }
 
     if (japNode) {
@@ -3837,13 +3758,16 @@
       if (japDesc) {
         japDesc.textContent = is32Bit
           ? "8-byte Edge32: 32-bit pointer/immediate + 8-bit tag discriminant."
-          : "16-byte Edge: pointer/immediate + 3-bit type tag.";
+          : "16-byte Edge: pointer/immediate word + 7-byte aux + 8-bit type tag.";
       }
     }
 
-    if (pop === 1 || pop === 7) {
+    if (isImmediate) {
       const immed = document.getElementById('node-leaf-immed');
       if (immed) immed.classList.add('active-green');
+    } else if (isLinearLeaf) {
+      const ll = document.getElementById('node-leaf-linear');
+      if (ll) ll.classList.add('active-purple');
     } else if (pop <= 31) {
       const rl = document.getElementById('node-root-leaf');
       if (rl) rl.classList.add('active-green');
@@ -3856,20 +3780,16 @@
       if (isSequentialBypass) {
         const bl = document.getElementById('node-leaf-bitmap');
         if (bl) bl.classList.add('active-green');
-      } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
+      } else if (dist === "linear_leaf") {
         const bl = document.getElementById('node-branch-l');
         const ll = document.getElementById('node-leaf-linear');
         if (bl) bl.classList.add('active-purple');
         if (ll) ll.classList.add('active-purple');
       } else if (pop === 256) {
-        const bu = document.getElementById('node-branch-u');
         const fe = document.getElementById('node-leaf-full');
-        if (bu) bu.classList.add('active');
         if (fe) fe.classList.add('active-green');
-      } else if (pop >= 192 && pop < 1000) {
-        const bu = document.getElementById('node-branch-u');
+      } else if (pop <= 256) {
         const bl = document.getElementById('node-leaf-bitmap');
-        if (bu) bu.classList.add('active');
         if (bl) bl.classList.add('active-green');
       } else {
         const bb = document.getElementById('node-branch-b');
@@ -3882,14 +3802,17 @@
     // Dynamic 64-bit Digit Strip & Subarray Architecture update
     const trieDepthBadge = document.getElementById('trie-depth-badge');
     if (trieDepthBadge) {
-      if (pop <= 31) {
-        trieDepthBadge.textContent = "Pop ≤ 31: Flat 0-Level Leaf";
+      if (isRootLeaf) {
+        trieDepthBadge.textContent = "Pop ≤ 31: root leaf, no branch";
         trieDepthBadge.className = "step-badge green";
+      } else if (!branchLevels || pop < 1000) {
+        trieDepthBadge.textContent = "Branch levels: not in the engine census";
+        trieDepthBadge.className = "step-badge";
       } else if (isSequentialBypass) {
-        trieDepthBadge.textContent = `Active Depth: 1-Hop Bypass (skips ${activeDepth} levels)`;
+        trieDepthBadge.textContent = `Cached insert path skips ${activeDepth} branch level${activeDepth === 1 ? "" : "s"}`;
         trieDepthBadge.className = "step-badge green";
       } else {
-        trieDepthBadge.textContent = `Active Depth: ${activeDepth} Levels (d8..d${9 - activeDepth})`;
+        trieDepthBadge.textContent = `Census: branches at slot levels ${branchLevels.join(", ")}`;
         trieDepthBadge.className = "step-badge highlight";
       }
     }
@@ -3897,33 +3820,34 @@
     const digitStrip = document.getElementById('digit-strip');
     if (digitStrip) {
       const digits = [
-        { d: 8, bits: "63..56", role: "Top JPM Router" },
-        { d: 7, bits: "55..48", role: "Level 7 Branch" },
-        { d: 6, bits: "47..40", role: "Level 6 Branch" },
-        { d: 5, bits: "39..32", role: "Level 5 Branch" },
-        { d: 4, bits: "31..24", role: "Level 4 Branch" },
-        { d: 3, bits: "23..16", role: "Level 3 Branch" },
-        { d: 2, bits: "15..8", role: "Level 2 Branch" },
-        { d: 1, bits: "7..0", role: "Level 1 Leaf" },
+        { d: 8, bits: "63..56", role: "Top edge slot" },
+        { d: 7, bits: "55..48", role: "Level 7" },
+        { d: 6, bits: "47..40", role: "Level 6" },
+        { d: 5, bits: "39..32", role: "Level 5" },
+        { d: 4, bits: "31..24", role: "Level 4" },
+        { d: 3, bits: "23..16", role: "Level 3" },
+        { d: 2, bits: "15..8", role: "Level 2" },
+        { d: 1, bits: "7..0", role: "Level 1" },
       ];
+      const censusKnown = !isRootLeaf && branchLevels && pop >= 1000;
 
       digitStrip.innerHTML = digits.map((item, idx) => {
         let isActive = false;
         let isBypassCol = false;
-        if (pop <= 31) {
-          isActive = true; // All bytes in flat root leaf
-        } else if (isSequentialBypass) {
-          if (idx < 7) isBypassCol = true;
-          else isActive = true;
-        } else {
-          if (idx < activeDepth - 1) isActive = true; // branch levels
-          else if (idx === 7) isActive = true; // terminal leaf
-          else if (activeDepth >= 8) isActive = true;
-        }
-
         let roleText = item.role;
-        if (isBypassCol) roleText = "⚡ Bypassed";
-        else if (pop <= 31) roleText = "Root Leaf";
+        if (isRootLeaf) {
+          isActive = true; // All bytes in flat root leaf
+          roleText = "Root Leaf";
+        } else if (isSequentialBypass) {
+          if (idx < 7) { isBypassCol = true; roleText = "Cached path"; }
+          else isActive = true;
+        } else if (censusKnown) {
+          isActive = branchLevels.includes(item.d);
+          roleText = isActive ? "Branch (census)" : "No branch";
+        } else if (item.d === 1) {
+          isActive = true;
+          roleText = "Level 1 Leaf";
+        }
 
         return `
           <div class="digit-col ${isBypassCol ? 'bypass' : (isActive ? 'active' : '')}">
@@ -3937,12 +3861,12 @@
 
     const subarrayExp = document.getElementById('subarray-explanation');
     if (subarrayExp) {
-      if (pop <= 31) {
+      if (isRootLeaf) {
         subarrayExp.innerHTML = `<strong>Root Leaf Mode:</strong> Keys are stored in a contiguous sorted 64-bit array (up to 31 keys). No bitmaps or subarrays are allocated.`;
       } else if (flavor === "set") {
-        subarrayExp.innerHTML = `<strong>Set Flavor (Judy1):</strong> <strong>0 B heap overhead</strong> after BitmapLeaf! The 256-bit bitmap directly stores membership. In interior branches (<code class="code-tag">BranchB</code>), each of the 8 subexpanses points to a dynamically sized array of <strong>child Edges</strong> that descend into deeper branch levels (${activeDepth > 2 ? `Levels 7..${9 - activeDepth}` : 'Level 7'}) or terminal leaves.`;
+        subarrayExp.innerHTML = `<strong>Set Flavor (Judy1):</strong> a level-1 <code class="code-tag">LeafBitmap1</code> is one 64-byte line whose 256-bit bitmap is the membership itself; it has no subarrays. In interior branches (<code class="code-tag">BranchB</code>), each of the 8 subexpanses points to a capacity-class-sized array of <strong>child Edges</strong>.`;
       } else if (flavor === "map") {
-        subarrayExp.innerHTML = `<strong>Map Flavor (JudyL):</strong> In <code class="code-tag">BitmapLeaf</code>, each populated subexpanse points to a class-allocated array of <strong>64-bit values</strong> (<code class="code-tag">u64</code>). In <code class="code-tag">BranchB</code>, each populated subexpanse points to an array of <strong>child Edges</strong> (${activeDepth > 2 ? `descending Levels 7..${9 - activeDepth}` : 'descending Level 7'}). POPCNT calculates the exact value/edge index in 1 CPU instruction.`;
+        subarrayExp.innerHTML = `<strong>Map Flavor (JudyL):</strong> In <code class="code-tag">LeafBitmapL</code>, each populated subexpanse points to a class-allocated array of <strong>64-bit values</strong> (<code class="code-tag">u64</code>). In <code class="code-tag">BranchB</code>, each populated subexpanse points to an array of <strong>child Edges</strong>. The value or edge index is the population count of the digit's subexpanse word below the digit.`;
       } else {
         subarrayExp.innerHTML = `<strong>BytesMap Flavor (JudyHS/SL):</strong> Arbitrary-length byte slices are dispatched digit-by-digit across digital trie levels with hash collision chains for identical prefixes. Dynamic string slot allocation with 0-copy slice indexing.`;
       }
@@ -3962,9 +3886,6 @@
     } else if (pop === 1000000) {
       const c = document.getElementById('depth-card-1m');
       if (c) c.classList.add('highlight');
-    } else if (pop === 10000000) {
-      const c = document.getElementById('depth-card-10m');
-      if (c) c.classList.add('highlight');
     }
 
     drawHierarchyConnections();
@@ -3975,7 +3896,6 @@
   distSelect.addEventListener('change', update);
   popSlider.addEventListener('input', update);
   archSelect.addEventListener('change', update);
-  compToggle.addEventListener('change', update);
 
   // Dual-mode data loader: Attempts dynamic fetch on HTTP/HTTPS, falls back to embedded dataset
   async function checkLiveDataSource() {
@@ -3998,6 +3918,12 @@
               if (liveData.memory_budget) {
                 MEMORY_DATA = liveData.memory_budget;
                 renderMemoryTable();
+                update();
+              }
+              if (liveData.depth_census) {
+                DEPTH_CENSUS = liveData.depth_census;
+                renderDepthCensus();
+                update();
               }
               if (liveData.embedded_32bit_benchmarks) {
                 EMBEDDED_32BIT_BENCHMARKS_DATA = liveData.embedded_32bit_benchmarks;
@@ -4020,6 +3946,7 @@
       }
     }
   }
+  renderDepthCensus();
   checkLiveDataSource();
 
   // Initialize
