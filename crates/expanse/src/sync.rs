@@ -1161,6 +1161,29 @@ impl DirtyDigits {
     }
 }
 
+/// Test-only census of the work [`fold_branch_pop0`] does: one tick per edge
+/// it visits, on the calling thread. What pins the string wrapper's insert
+/// path to folding nothing (#1162) — a count, where a wall clock could not
+/// tell a linear load from a quadratic one on a shared host.
+#[cfg(test)]
+pub(crate) mod fold_edges {
+    use core::cell::Cell;
+
+    std::thread_local! {
+        static EDGES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    #[inline(always)]
+    pub(crate) fn bump() {
+        EDGES.with(|c| c.set(c.get() + 1));
+    }
+
+    /// Edges folded on this thread since it started.
+    pub(crate) fn get() -> u64 {
+        EDGES.with(Cell::get)
+    }
+}
+
 /// Lazily computes and updates branch `pop0` counts across the subtree rooted at `edge`.
 ///
 /// Under OLC concurrent mutations, writers update leaf `pop0` counts directly under the
@@ -1175,6 +1198,8 @@ impl DirtyDigits {
 /// Must be called under quiescence / exclusive writer lock so no concurrent mutations or reads
 /// race with the updates. `edge` must be non-null and point to an EBR-live `Edge`.
 pub(crate) unsafe fn fold_branch_pop0(edge: *mut Edge, level: u8) -> u64 {
+    #[cfg(test)]
+    fold_edges::bump();
     if edge.is_null() {
         return 0;
     }

@@ -293,8 +293,12 @@ fn pack_child(p: *mut StrNode) -> u64 {
 /// in `Shared::tree_pop` instead). The map wrapper re-syncs one field at
 /// quiescence; the string map has one field per node, so each node
 /// records that it is stale in `dirty`, and the exclusive path restores
-/// the population from a census fold before it reads or changes it
-/// ([`StrNode::resync_if_dirty`]). A dirty node is always in tree state:
+/// the population from a census fold before it decides from it — a
+/// removal, which condenses from it, and a prune, which tests it for
+/// empty ([`StrNode::resync_if_dirty`]). An exclusive insert only adds one
+/// to the stale count and leaves the node dirty, since the fold recounts
+/// from the leaves whatever was added (Refs #1162). A dirty node is always
+/// in tree state:
 /// leaf-state sub-maps are only ever mutated under the cover, which keeps
 /// their population exact, and an optimistic writer never empties or
 /// condenses a tree. The flag sits in the padding the cover word's
@@ -739,9 +743,11 @@ impl StrNode {
 
     /// Exclusive path: restores this node's sub-map population from a
     /// census fold if optimistic writers left it stale (see the type
-    /// docs). Called before the exclusive path reads or changes that
-    /// population; a no-op on a clean node, which is every node of a map
-    /// that has never had concurrent writers.
+    /// docs). Called before the exclusive path decides from that
+    /// population (a removal, a prune), never on an insert; a no-op on a
+    /// clean node, which is every node of a map that has never had
+    /// concurrent writers. The fold walks the whole sub-map, so a caller
+    /// on a per-insert path would make a load quadratic (#1162).
     #[cfg(feature = "std")]
     #[inline(always)]
     fn resync_if_dirty(&mut self) {
@@ -1798,7 +1804,8 @@ impl ExpanseStrMap {
         defer: DeferHandle<'_>,
     ) -> *mut StrNode {
         let child_raw = Self::build_split_child::<SHARED>(old, alloc);
-        resync::<SHARED>(node);
+        // An insert over the suffix's own entry: no re-sync (see
+        // `insert_impl`).
         covered::<SHARED, _>(node, alloc, |m| {
             m.insert_pathless_dispatch::<SHARED, SHARED>(alloc, chunk, pack_child(child_raw))
         });
@@ -1827,8 +1834,17 @@ impl ExpanseStrMap {
 
     /// [`Self::insert`] for one sharing mode. `SHARED` is the deferred twin
     /// (Refs #929): every sub-map mutation runs inside its node's cover
-    /// bracket and after a census re-sync; the unshared instantiation is
-    /// the plain path with nothing added.
+    /// bracket; the unshared instantiation is the plain path with nothing
+    /// added.
+    ///
+    /// No census re-sync (Refs #1162): an insert only adds to a sub-map's
+    /// population and never decides from it, so on a node optimistic
+    /// writers left dirty it adds one to the stale count and leaves the node
+    /// dirty. The next exclusive operation that does decide from the count
+    /// (a removal or a prune) folds it exact from the leaves, whatever was
+    /// added in between. Re-syncing here refolded the whole sub-map on
+    /// every insert that reached this path, which made an ascending load
+    /// through `SyncExpanseStrMap` quadratic.
     fn insert_impl<const SHARED: bool>(
         &mut self,
         key: &NulFreeStr,
@@ -1848,7 +1864,6 @@ impl ExpanseStrMap {
         loop {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
-                resync::<SHARED>(node);
                 let prev = covered::<SHARED, _>(node, alloc, |m| {
                     m.insert_pathless_dispatch::<SHARED, SHARED>(alloc, chunk, val)
                 });
@@ -1860,7 +1875,6 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
-                    resync::<SHARED>(node);
                     covered::<SHARED, _>(node, alloc, |m| {
                         m.insert_pathless_dispatch::<SHARED, SHARED>(
                             alloc,
@@ -1945,7 +1959,9 @@ impl ExpanseStrMap {
                 // Increment B (#813): $O(1)$ len check before and after ins_slot_pathless
                 // eliminates redundant contains_key lookup. The `v == 0` sentinel
                 // MUST NOT be used here, as 0 is a valid terminal value.
-                resync::<SHARED>(node);
+                // On a dirty node the count is stale, but the insert adds
+                // exactly one to it when the key is new, so the comparison
+                // holds without a re-sync (see `insert_impl`).
                 let len_before = node.map.len();
                 let slot = covered::<SHARED, _>(node, alloc, |m| {
                     m.ins_slot_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
@@ -1958,7 +1974,6 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], 0, SuffixArena::of(alloc));
-                    resync::<SHARED>(node);
                     covered::<SHARED, _>(node, alloc, |m| {
                         m.insert_pathless_dispatch::<SHARED, SHARED>(
                             alloc,
@@ -4571,6 +4586,154 @@ mod tests {
             assert_eq!(inner.len(), keep as u64);
         });
         assert_eq!(m.len(), keep as u64);
+    }
+
+    /// Refs #1162: an exclusive insert into a sub-map optimistic writers left
+    /// dirty folds nothing. An insert only adds to the sub-map's population
+    /// and never decides from it, so the deferred twin leaves the node dirty
+    /// and the stale count one higher; the next exclusive path that decides
+    /// from the count (a removal, a prune) folds it exact from the leaves.
+    /// Before #1162 every such insert refolded the whole sub-map, which made
+    /// an ascending load quadratic. Covers all four insert sites of the
+    /// deferred twin — `insert` and `ins_slot`, each on a terminal chunk and
+    /// on a new suffix — and then pins that a removal still folds and still
+    /// condenses from the exact count.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[test]
+    fn deferred_olc_exclusive_insert_into_dirty_sub_map_folds_nothing() {
+        use crate::set::ROOT_LEAF_CAP;
+        use crate::sync::{SyncExpanseStrMap, fold_edges};
+        let m = SyncExpanseStrMap::new();
+        // Optimistic inserts past a root leaf: the root sub-map is a tree and
+        // dirty (as in the test above).
+        let base: Vec<Vec<u8>> = (0..ROOT_LEAF_CAP + 10)
+            .map(|i| format!("d{i:04}").into_bytes())
+            .collect();
+        for (i, k) in base.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        // Exclusive inserts of new root-level chunks: `x…` keys are shorter
+        // than a chunk (terminal), `y…_suffix` keys publish a suffix.
+        let extra = 8usize;
+        let term: Vec<Vec<u8>> = (0..extra)
+            .map(|i| format!("x{i:04}").into_bytes())
+            .collect();
+        let sfx: Vec<Vec<u8>> = (0..extra)
+            .map(|i| format!("y{i:06}_suffix").into_bytes())
+            .collect();
+        let before = fold_edges::get();
+        m.with_locked_mut(|inner| {
+            let dirty = inner.root.as_deref().expect("root present").dirty;
+            assert_eq!(
+                dirty, 1,
+                "precondition: the optimistic inserts left the root dirty"
+            );
+            for i in 0..extra / 2 {
+                assert_eq!(inner.insert(tk(&term[i]), 100 + i as u64), None);
+                assert_eq!(inner.insert(tk(&sfx[i]), 200 + i as u64), None);
+            }
+            for i in extra / 2..extra {
+                // SAFETY: a fresh slot, valid until the next mutation; written
+                // at once.
+                unsafe {
+                    *inner.ins_slot(tk(&term[i])).as_ptr() = 100 + i as u64;
+                    *inner.ins_slot(tk(&sfx[i])).as_ptr() = 200 + i as u64;
+                }
+            }
+        });
+        let folded = fold_edges::get() - before;
+        assert_eq!(
+            folded,
+            0,
+            "{} exclusive inserts into a dirty sub-map folded {folded} edges",
+            2 * extra
+        );
+        m.with_locked(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert_eq!(root.dirty, 1, "an exclusive insert leaves the node dirty");
+        });
+        let total = (base.len() + 2 * extra) as u64;
+        assert_eq!(m.len(), total);
+        for i in 0..extra {
+            assert_eq!(m.get(tk(&term[i])), Some(100 + i as u64));
+            assert_eq!(m.get(tk(&sfx[i])), Some(200 + i as u64));
+        }
+        // A removal decides from the count, so it folds first, and the count
+        // it folds is exact whatever the inserts above added to the stale one.
+        let before = fold_edges::get();
+        let keep = ROOT_LEAF_CAP - 5;
+        let mut all: Vec<&Vec<u8>> = base.iter().chain(&term).chain(&sfx).collect();
+        m.with_locked_mut(|inner| {
+            for k in all.drain(keep..) {
+                assert!(inner.remove(tk(k)).is_some());
+            }
+        });
+        assert!(
+            fold_edges::get() - before > 0,
+            "the removal re-synced the dirty sub-map"
+        );
+        m.with_locked(|inner| {
+            let root = inner.root.as_deref().expect("root present");
+            assert_eq!(root.dirty, 0, "the re-sync cleared the flag");
+            assert_eq!(root.map.len(), keep as u64);
+            assert!(
+                !root.map.root_is_tree(),
+                "condensed to a root leaf from the exact count"
+            );
+        });
+        for k in &all {
+            assert!(m.get(tk(k)).is_some());
+        }
+        assert_eq!(m.len(), keep as u64);
+    }
+
+    /// Refs #1162: the reported workload. Ascending UUIDv4 text keys through
+    /// `SyncExpanseStrMap::insert` on one thread take the exclusive path
+    /// whenever the engine's optimistic insert falls back (a linear branch
+    /// filling, a prefix split), and before #1162 each of those refolded the
+    /// dirty root sub-map, the whole population: an O(N) insert and a
+    /// quadratic load. A load of inserts alone now folds nothing.
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[test]
+    fn sync_ascending_uuid_load_folds_nothing() {
+        use crate::sync::{SyncExpanseStrMap, fold_edges};
+        fn splitmix64(mut z: u64) -> u64 {
+            z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+        let n: u64 = if cfg!(miri) { 2_000 } else { 20_000 };
+        let mut keys: Vec<Vec<u8>> = (0..n)
+            .map(|i| {
+                let hi = (splitmix64(i << 1) & 0xFFFF_FFFF_FFFF_0FFF) | 0x4000;
+                let lo = (splitmix64((i << 1) | 1) & 0x3FFF_FFFF_FFFF_FFFF) | (1 << 63);
+                format!(
+                    "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
+                    hi >> 32,
+                    (hi >> 16) & 0xFFFF,
+                    hi & 0xFFFF,
+                    lo >> 48,
+                    lo & 0xFFFF_FFFF_FFFF
+                )
+                .into_bytes()
+            })
+            .collect();
+        keys.sort();
+        let m = SyncExpanseStrMap::new();
+        let before = fold_edges::get();
+        for (i, k) in keys.iter().enumerate() {
+            m.insert(tk(k), i as u64);
+        }
+        let folded = fold_edges::get() - before;
+        assert_eq!(
+            folded, 0,
+            "an insert-only load of {n} keys folded {folded} edges"
+        );
+        assert_eq!(m.len(), n);
+        for (i, k) in keys.iter().enumerate().step_by(97) {
+            assert_eq!(m.get(tk(k)), Some(i as u64));
+        }
     }
 
     /// #929: the continuation transitions with the meta-trie root's

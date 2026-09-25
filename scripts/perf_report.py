@@ -168,6 +168,9 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_strmap_insert": 50_000,
     "sync_strmap_remove": 50_000,
     "sync_strmap_churn": 50_000,
+    # Ascending UUIDv4 strings through the string wrapper (#1162): one pass
+    # over `uuid_keys_sorted` (UUID_POP = 20,000).
+    "sync_strmap_insert_sorted": 20_000,
     "sync_bytesmap_insert": 50_000,
     "sync_bytesmap_remove": 50_000,
     "sync_bytesmap_churn": 50_000,
@@ -373,6 +376,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_strmap_insert",
             "sync_strmap_remove",
             "sync_strmap_churn",
+            "sync_strmap_insert_sorted",
             "sync_bytesmap_insert",
             "sync_bytesmap_remove",
             "sync_bytesmap_churn",
