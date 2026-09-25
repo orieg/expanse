@@ -18,6 +18,11 @@ This is the floor under that. It asserts:
   3. For every job, `skipped` matches its `if:` evaluating false under the
      filter outputs that were actually observed. A job that skipped while its
      own gate says it should have run is the silent-narrowing case.
+  4. The fast lane decided the slow lanes: on a push to main it did not run
+     and neither did they; on a draft pull request it did not run, and the
+     gate FAILS so a draft never shows a green required context; on any other
+     event it succeeded, or no slow lane ran and the gate fails. A slow lane
+     is judged by its own `if:` only when the fast lane succeeded.
 
 Fails closed: an unparseable input, an unknown `if:` term, or a missing job is
 an error, not a pass.
@@ -36,8 +41,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_ci_filters import (  # noqa: E402
+    FAST_LANE_JOB,
     UNCONDITIONAL_JOBS,
     evaluate_if,
+    gated_jobs,
     load_ci,
 )
 
@@ -49,9 +56,38 @@ def _as_bool(value) -> bool:
     return str(value).strip().lower() == "true"
 
 
-def check_floor(jobs, statuses, outputs, *, is_pull_request=True, notices=None) -> list[str]:
+def check_fast_lane_result(jobs, statuses, *, event_name, draft) -> tuple[bool, list[str]]:
+    """Whether the slow lanes were released, and what is wrong with that."""
+    if FAST_LANE_JOB not in jobs:
+        return True, []
+    result = (statuses.get(FAST_LANE_JOB) or {}).get("result")
+    if event_name == "push":
+        if result not in (None, "skipped"):
+            return True, [f"{FAST_LANE_JOB!r} ran on a push to main (result {result!r}); "
+                          "a push runs the fast lane only"]
+        return False, []
+    if draft:
+        errs = ["draft pull request: only the fast lane (lint, docs-lint) ran -- mark it "
+                "ready for review to run the full matrix"]
+        if result not in (None, "skipped"):
+            errs.append(f"{FAST_LANE_JOB!r} ran on a draft pull request (result {result!r})")
+        return result == "success", errs
+    if result != "success":
+        return False, [f"{FAST_LANE_JOB!r} result is {result!r}, so no slow lane ran -- it "
+                       "needs lint to pass or skip and docs-lint to pass"]
+    return True, []
+
+
+def check_floor(jobs, statuses, outputs, *, is_pull_request=True, event_name=None,
+                draft=False, notices=None) -> list[str]:
     errs: list[str] = []
     notices = notices if notices is not None else []
+    if event_name is None:
+        event_name = "pull_request" if is_pull_request else "push"
+    released, fl_errs = check_fast_lane_result(jobs, statuses, event_name=event_name,
+                                               draft=draft)
+    errs += fl_errs
+    gated = gated_jobs(jobs)
 
     dc = statuses.get("detect-changes")
     if dc is None:
@@ -96,6 +132,13 @@ def check_floor(jobs, statuses, outputs, *, is_pull_request=True, notices=None) 
         if st is None:
             continue  # not in ci-gate's needs; check_ci_gate.py owns that
         result = st.get("result")
+        if name == FAST_LANE_JOB:
+            continue  # judged by check_fast_lane_result
+        if name in gated and not released:
+            if result not in (None, "skipped"):
+                errs.append(f"{name!r} ran with result {result!r} although "
+                            f"{FAST_LANE_JOB!r} did not release the slow lanes")
+            continue
         if name in UNCONDITIONAL_JOBS:
             if result == "skipped":
                 errs.append(f"{name!r} is unconditional but was skipped")
@@ -216,6 +259,39 @@ def self_test() -> int:
     errs = check_floor(push_jobs, push_statuses, {"rust-src": "false"}, is_pull_request=False)
     check("push fallback is honoured", any("was skipped" in e for e in errs), True)
 
+    # The fast lane. Each event class it separates, and the fail-closed cases.
+    fl = {
+        "detect-changes": {}, "docs-lint": {}, "ci-gate": {"if": "always()"},
+        FAST_LANE_JOB: {"if": "!cancelled()"},
+        "miri": {"needs": ["detect-changes", FAST_LANE_JOB],
+                 "if": "needs.detect-changes.outputs.rust-src == 'true' "
+                       "|| github.event_name != 'pull_request'"},
+    }
+    out = {"rust-src": "true"}
+
+    def st(fast, miri):
+        return {"detect-changes": {"result": "success"}, "docs-lint": {"result": "success"},
+                FAST_LANE_JOB: {"result": fast}, "miri": {"result": miri}}
+
+    check("ready PR, fast lane passed, slow lane ran",
+          check_floor(fl, st("success", "success"), out), [])
+    check("ready PR, fast lane passed, slow lane skipped under a true gate is caught",
+          any("was skipped" in e for e in check_floor(fl, st("success", "skipped"), out)), True)
+    check("ready PR, fast lane skipped fails closed",
+          any(FAST_LANE_JOB in e for e in check_floor(fl, st("skipped", "skipped"), out)), True)
+    check("push: fast lane and slow lanes skipped passes",
+          check_floor(fl, st("skipped", "skipped"), out, event_name="push"), [])
+    check("push: a slow lane that ran is caught",
+          len(check_floor(fl, st("skipped", "success"), out, event_name="push")) >= 1, True)
+    check("push: the fast lane running is caught",
+          len(check_floor(fl, st("success", "success"), out, event_name="push")) >= 1, True)
+    draft_errs = check_floor(fl, st("skipped", "skipped"), out, draft=True)
+    check("draft fails the gate, by name", any("draft" in e for e in draft_errs), True)
+    check("draft fails with that one reason", len(draft_errs), 1)
+    check("schedule: fast lane passed, slow lane ran",
+          check_floor(fl, st("success", "success"), {"rust-src": "false"},
+                      is_pull_request=False, event_name="schedule"), [])
+
     if failures:
         for f in failures:
             print(f"::error::check_gate_floor self-test: {f}")
@@ -230,6 +306,8 @@ def main() -> int:
     ap.add_argument("--statuses", help="JSON of the `needs` context")
     ap.add_argument("--outputs", help="JSON of detect-changes outputs")
     ap.add_argument("--event-name", default="pull_request")
+    ap.add_argument("--draft", default="false",
+                    help="github.event.pull_request.draft ('true'/'false'; empty is false)")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
@@ -248,6 +326,8 @@ def main() -> int:
     errs = check_floor(
         jobs, statuses, outputs,
         is_pull_request=(args.event_name == "pull_request"),
+        event_name=args.event_name,
+        draft=_as_bool(args.draft),
         notices=notices,
     )
     for n in notices:

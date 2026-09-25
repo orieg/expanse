@@ -412,6 +412,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
   - No force-push, no deletion, no bypass actors.
   - **Signed commits** (`required_signatures`). Bring a PR branch up to date by rebasing locally and pushing it with `--force-with-lease`; `gh pr update-branch --rebase` rewrites the branch server-side into unsigned commits, and the PR stays `BLOCKED` behind a green gate.
   - Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`.
+  - **Open a pull request as a draft while iterating** (`gh pr create --draft`), and mark it ready (`gh pr ready`) when the change is complete. Hosted runners are shared by every repository on the account, and a draft runs only lint and discipline; `CI Gate / All Checks Passed` fails on a draft by design, and marking it ready starts the full run (`docs/CI.md` §3, *The fast lane and the runner budget*).
 - **Workflow dispatch refs** (`gh workflow run … -f ref=`) take a branch, a tag or a full 40-character SHA; an abbreviated SHA fails at checkout.
 - **Commit messages are held to the §8.21 claim audit.** A saving or a cause is stated in a commit body only once it is measured, with the run that measured it.
 - **`Closes #N` only when the PR fully resolves the issue.** GitHub ignores prose qualifiers — `Closes #564's terminology half` closed #564. Partial or follow-up work uses `Refs #N`; closing is the maintainer's action.

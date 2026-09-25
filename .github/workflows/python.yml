@@ -1,10 +1,16 @@
 name: Python CI & Wheels
 
 on:
+  # Tags only, plus the daily schedule below. On a push to main this workflow
+  # ran the OS x Python test matrix, which `test-python` in ci.yml (Linux, one
+  # interpreter) does not replace -- so that matrix now runs on main once a
+  # day instead of on every merge, where its eight legs held hosted runners
+  # the account shares across every repository (docs/CI.md).
   push:
-    branches: [main]
     tags:
       - 'v*'
+  schedule:
+    - cron: "11 7 * * *"
   # Single-anchor releases (#313): PyPI publishes only after the canonical
   # GitHub Release exists — never straight off a tag push. A tag push still
   # builds wheels/sdist as artifacts (pre-validation), but does not publish.

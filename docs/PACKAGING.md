@@ -17,7 +17,7 @@ The pipeline is **anchor-first** (#313): the **GitHub Release is the canonical a
 graph TD
     A[1. Synchronize Versions via scripts/bump_version.py] --> C[2. Commit & Create Git Tag 'vX.Y.Z']
     C --> D[3. Push Tag to GitHub: git push origin vX.Y.Z]
-    D --> E[Phase 1: release-gate - polls CI Gate rollup + version lockstep]
+    D --> E[Phase 1: release-gate - full CI run on the commit + version lockstep]
 
     E --> F[build-release-artifacts: multi-arch C ABI + .deb/.rpm]
     E --> G[build-npm: platform addons]
@@ -52,7 +52,7 @@ graph TD
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:
-   - GitHub Actions executes `.github/workflows/release.yml`: the gate polls the tagged commit's CI rollup, core artifacts build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, Maven Central, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**.
+   - GitHub Actions executes `.github/workflows/release.yml`: the gate requires a full `ci.yml` run on the tagged commit — one whose `fast-lane` job succeeded, since a push to `main` runs the fast lane only (`docs/CI.md` §3) — and when none exists it dispatches `ci.yml` on the tag and waits for it (`scripts/release_ci_gate.py`); core artifacts then build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, Maven Central, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**.
 
 ---
 
