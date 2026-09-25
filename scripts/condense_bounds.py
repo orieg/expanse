@@ -541,12 +541,15 @@ ENGINE_BODIES = (
     ("alloc.rs", "accounted_size", "(bytes+(align-1))&!(align-1)"),
 )
 
-# The remove-path demotions `drained_form` models, one site per file.
+# The remove-path demotions `drained_form` models: one site in each remove
+# walk. Each file has two walks, the plain one (`remove` / `map_remove`) and
+# the shared tree's copy (`remove_occ` / `map_remove_occ`, #1086), and both
+# must carry the demotion.
 ENGINE_DEMOTIONS = (
-    ("mutate.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN"),
-    ("mutate.rs", "num < BRANCH_L3_CAP"),
-    ("mutate_map.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN"),
-    ("mutate_map.rs", "num < BRANCH_L3_CAP"),
+    ("mutate.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN", 2),
+    ("mutate.rs", "num < BRANCH_L3_CAP", 2),
+    ("mutate_map.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN", 2),
+    ("mutate_map.rs", "num < BRANCH_L3_CAP", 2),
 )
 
 
@@ -610,10 +613,12 @@ def engine_source_problems(texts: dict[str, str]) -> list[str]:
         got = _fn_body(texts[fname], fn)
         if got != want:
             problems.append(f"{fname}: `fn {fn}` body is {got!r}, model mirrors {want!r}")
-    for fname, needle in ENGINE_DEMOTIONS:
+    for fname, needle, want in ENGINE_DEMOTIONS:
         n = _strip_comments(texts[fname]).count(needle)
-        if n != 1:
-            problems.append(f"{fname}: `{needle}` appears {n} times outside comments, model expects 1")
+        if n != want:
+            problems.append(
+                f"{fname}: `{needle}` appears {n} times outside comments, model expects {want}"
+            )
     return problems
 
 

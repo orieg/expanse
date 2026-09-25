@@ -437,6 +437,32 @@ fn dispose_key(key: Box<[u8]>, _defer: Option<&()>) {
     drop(key);
 }
 
+/// Publishes a bucket pointer into its trie value slot. The shared instance
+/// stores it as an atomic word, the size and kind readers load it as
+/// (#1086); a reader dereferences the bucket only after the walk validated
+/// the word, so the bucket's initialising stores happen before its reads
+/// through the version word. The plain instance is the plain store it
+/// always was.
+///
+/// # Safety
+///
+/// `slot` is the live value slot `ins_slot` handed out, valid until the next
+/// structural mutation.
+#[inline(always)]
+unsafe fn publish_bucket_word<const SHARED: bool>(slot: NonNull<u64>, word: u64) {
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    if SHARED {
+        // SAFETY: caller contract; an 8-aligned value word.
+        unsafe {
+            core::sync::atomic::AtomicU64::from_ptr(slot.as_ptr())
+                .store(word, core::sync::atomic::Ordering::Relaxed);
+        }
+        return;
+    }
+    // SAFETY: caller contract.
+    unsafe { *slot.as_ptr() = word };
+}
+
 /// Disposes an unlinked bucket. `own_keys` says whether the entries'
 /// key buffers still belong to this bucket (dispose of them too) or
 /// were moved by value into a replacement bucket (leave them alone —
@@ -894,9 +920,23 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         self.get_slot_ptr(key)
     }
 
-    fn insert_slot_inner(&mut self, key: &[u8], init_val: u64) -> (NonNull<u64>, Option<u64>) {
+    fn insert_slot_inner<const SHARED: bool>(
+        &mut self,
+        key: &[u8],
+        init_val: u64,
+    ) -> (NonNull<u64>, Option<u64>) {
         let defer = self.defer_handle();
         let h = self.hasher.hash_one(key);
+        // A shared map's root leaf is loaded by readers while this stores
+        // to it, so the shared instance takes the engine's shared entry
+        // (#1086); the plain instance compiles as before.
+        #[cfg(all(target_pointer_width = "64", feature = "std"))]
+        let slot = if SHARED {
+            self.map.ins_slot_shared(h)
+        } else {
+            self.map.ins_slot(h)
+        };
+        #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
         let slot = self.map.ins_slot(h);
         // SAFETY: `ins_slot` hands out the live (zero-initialized when
         // fresh) value slot for `h`; 0 is never a published bucket
@@ -911,7 +951,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             let raw = Box::into_raw(Box::new(bucket));
             // SAFETY: the slot stays valid until the next structural
             // trie mutation; none happens between `ins_slot` and here.
-            unsafe { *slot.as_ptr() = raw as u64 };
+            unsafe { publish_bucket_word::<SHARED>(slot, raw as u64) };
             self.len += 1;
             self.extra_bytes += BUCKET_OVERHEAD + key.len() + ENTRY_OVERHEAD;
             // SAFETY: freshly allocated above; entry 0 exists.
@@ -947,7 +987,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         // Publish the replacement — the single word store that unlinks
         // the old bucket — then retire the old allocation.
         // SAFETY: slot valid as above.
-        unsafe { *slot.as_ptr() = raw as u64 };
+        unsafe { publish_bucket_word::<SHARED>(slot, raw as u64) };
         dispose_bucket(old, false, defer.as_ref());
         self.len += 1;
         self.extra_bytes += key.len() + ENTRY_OVERHEAD;
@@ -961,13 +1001,43 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// the compat `JudyHSIns` contract. Valid until the next structural
     /// mutation.
     pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
-        self.insert_slot_inner(key, 0).0
+        self.insert_slot_inner::<false>(key, 0).0
     }
 
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
     pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
-        let (slot, prev) = self.insert_slot_inner(key, val);
+        let (slot, prev) = self.insert_slot_inner::<false>(key, val);
+        if prev.is_some() {
+            // The one in-place value mutation of a published bucket on
+            // this path. It is a `&mut self` method, so no other writer
+            // is running; the concurrent wrapper's optimistic *readers*
+            // are not excluded by that, and they load this word through
+            // [`entry_value_atomic`], so the store goes through the same
+            // view (#929). Relaxed, and the same instruction as a plain
+            // store; the wrapper's version bracket is the release.
+            #[cfg(all(target_pointer_width = "64", feature = "std"))]
+            // SAFETY: the slot is the live value word of an entry in an
+            // existing bucket, 8-aligned, and valid until the next
+            // structural mutation, which this call does not perform.
+            unsafe {
+                core::sync::atomic::AtomicU64::from_ptr(slot.as_ptr())
+                    .store(val, core::sync::atomic::Ordering::Relaxed);
+            }
+            #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
+            // SAFETY: slot points to live entry within the existing bucket.
+            unsafe {
+                *slot.as_ptr() = val
+            };
+        }
+        prev
+    }
+
+    /// [`Self::insert`] for the concurrent wrapper (#1086); see
+    /// [`Self::remove_shared`].
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn insert_shared(&mut self, key: &[u8], val: u64) -> Option<u64> {
+        let (slot, prev) = self.insert_slot_inner::<true>(key, val);
         if prev.is_some() {
             // The one in-place value mutation of a published bucket on
             // this path. It is a `&mut self` method, so no other writer
@@ -995,6 +1065,17 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
+        self.remove_impl::<false>(key)
+    }
+
+    /// [`Self::remove`] for the concurrent wrapper (#1086): the engine's
+    /// shared entries, whose root-leaf stores are atomic words.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn remove_shared(&mut self, key: &[u8]) -> Option<u64> {
+        self.remove_impl::<true>(key)
+    }
+
+    fn remove_impl<const SHARED: bool>(&mut self, key: &[u8]) -> Option<u64> {
         let defer = self.defer_handle();
         let h = self.hasher.hash_one(key);
         let word = self.map.get(h)?;
@@ -1008,6 +1089,13 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         if old_len == 1 {
             // Unlink the bucket from the trie first, then dispose of it
             // together with its one remaining key.
+            #[cfg(all(target_pointer_width = "64", feature = "std"))]
+            if SHARED {
+                self.map.remove_shared(h);
+            } else {
+                self.map.remove(h);
+            }
+            #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
             self.map.remove(h);
             dispose_bucket(old, true, defer.as_ref());
             self.extra_bytes = self.extra_bytes.saturating_sub(BUCKET_OVERHEAD);
@@ -1028,6 +1116,13 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             let raw = Box::into_raw(Box::new(repl));
             // Publish the replacement through the engine (bracketed when
             // shared) — this unlinks the old bucket — then retire it.
+            #[cfg(all(target_pointer_width = "64", feature = "std"))]
+            let prev = if SHARED {
+                self.map.insert_shared(h, raw as u64)
+            } else {
+                self.map.insert(h, raw as u64)
+            };
+            #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
             let prev = self.map.insert(h, raw as u64);
             debug_assert_eq!(prev, Some(word), "bucket word moved mid-remove");
             dispose_bucket(old, false, defer.as_ref());

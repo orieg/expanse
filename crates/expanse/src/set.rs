@@ -201,8 +201,15 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
     key: Key,
 ) -> (bool, u64) {
     // SAFETY: trie maintained/owned by this set's engine.
-    let removed =
-        unsafe { mutate::remove::<OCC, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree) };
+    // A shared tree's removal is the raw-pointer copy (#1086), chosen here
+    // rather than inside the plain body, which serves every plain tree.
+    let removed = unsafe {
+        if OCC {
+            mutate::remove_occ::<OCC, NESTED>(alloc, &raw mut *top, key, 8, crate::occ::Cover::Tree)
+        } else {
+            mutate::remove::<OCC, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree)
+        }
+    };
     let now = if !removed {
         u64::MAX
     } else {
@@ -524,6 +531,22 @@ impl ExpanseSet {
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
+        // One test, then a body with no shared code in it: an unshared set
+        // runs the plain body alone, and a shared one the out-of-line body
+        // that dispatches on the sharing mode. Inlined beside the shared
+        // arms, the plain path's code moved with every change to them
+        // (#1086, AGENTS.md §2.1 invariant 5).
+        #[cfg(feature = "std")]
+        if self.alloc.occ_enabled() {
+            return self.insert_deferred(key);
+        }
+        noting_root_rewrite!(self, t => t.insert_inner_plain(key))
+    }
+
+    /// [`Self::insert`] on a set whose allocator defers to a collector.
+    #[cfg(feature = "std")]
+    #[inline(never)]
+    fn insert_deferred(&mut self, key: Key) -> bool {
         noting_root_rewrite!(self, t => t.insert_inner(key))
     }
 
@@ -542,6 +565,7 @@ impl ExpanseSet {
         noting_root_rewrite!(self, t => t.insert_inner_shared(key))
     }
 
+    #[cfg(feature = "std")]
     #[inline(always)]
     fn insert_inner(&mut self, key: Key) -> bool {
         match &mut self.root {
@@ -1120,6 +1144,18 @@ impl ExpanseSet {
     /// drain.
     #[inline(always)]
     pub fn remove(&mut self, key: Key) -> bool {
+        // As `insert`: the plain body alone on an unshared set.
+        #[cfg(feature = "std")]
+        if self.alloc.occ_enabled() {
+            return self.remove_deferred(key);
+        }
+        noting_root_rewrite!(self, t => t.remove_inner_plain(key))
+    }
+
+    /// [`Self::remove`] on a set whose allocator defers to a collector.
+    #[cfg(feature = "std")]
+    #[inline(never)]
+    fn remove_deferred(&mut self, key: Key) -> bool {
         noting_root_rewrite!(self, t => t.remove_inner(key))
     }
 
@@ -1146,6 +1182,7 @@ impl ExpanseSet {
         noting_root_rewrite!(self, t => t.remove_inner_shared(key))
     }
 
+    #[cfg(feature = "std")]
     #[inline(always)]
     fn remove_inner(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();

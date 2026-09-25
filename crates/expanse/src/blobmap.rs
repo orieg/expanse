@@ -1108,11 +1108,20 @@ impl BlobArena {
 
         // Phase 2: every relocation succeeded — apply the index rewrites.
         for (key, raw) in rewrites {
-            if let Some(mut slot_ptr) = index.get_value_slot(key) {
+            if let Some(slot_ptr) = index.get_value_slot(key) {
                 // SAFETY: slot_ptr points to the live slot of key in the index,
                 // valid until the next structural mutation (none happens here).
                 unsafe {
-                    *slot_ptr.as_mut() = raw;
+                    // A shared map's readers load this word concurrently
+                    // (#1086): an atomic store, the same instruction as a
+                    // plain one, and no `&mut` over the published word.
+                    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+                    core::sync::atomic::AtomicU64::from_ptr(slot_ptr.as_ptr())
+                        .store(raw, core::sync::atomic::Ordering::Relaxed);
+                    #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
+                    {
+                        *slot_ptr.as_ptr() = raw;
+                    }
                 }
             }
         }
@@ -1429,6 +1438,16 @@ impl ExpanseBlobMap {
         }
     }
 
+    /// [`Self::insert_slot`] for the concurrent wrapper (#1086): the index's
+    /// shared entry, whose root-leaf stores are atomic words.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn insert_slot_shared(&mut self, key: Key, slot: ValueSlot) {
+        if let Some(old_raw) = self.index.insert_shared(key, slot.to_raw()) {
+            let old = ValueSlot::from_raw(old_raw);
+            self.arena.record_deleted_slot(old);
+        }
+    }
+
     #[inline(always)]
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     #[allow(dead_code)]
@@ -1515,6 +1534,36 @@ impl ExpanseBlobMap {
         Ok(())
     }
 
+    /// [`Self::insert`] for the concurrent wrapper; see [`Self::insert_slot_shared`].
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn insert_shared(
+        &mut self,
+        key: Key,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> Result<(), ArenaError> {
+        let slot = if data.len() <= 7 {
+            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
+        } else if hot_meta == 0
+            && let Some(slot) = crate::codec::try_compress_inline(data)
+        {
+            slot
+        } else {
+            // Validate the metadata envelope *before* allocating arena bytes, so a
+            // rejected insert leaves no orphaned payload behind.
+            if hot_meta > ValueSlot::ARENA_META_MAX {
+                return Err(ArenaError::MetaOverflow);
+            }
+            let global = self.arena.alloc_blob(data)?;
+            slot_from_global(global, hot_meta)?
+        };
+
+        if let Some(old_raw) = self.index.insert_shared(key, slot.to_raw()) {
+            self.arena.record_deleted_slot(ValueSlot::from_raw(old_raw));
+        }
+        Ok(())
+    }
+
     /// Point lookup returning a zero-copy [`BlobView`] and the 32-bit hot metadata word.
     ///
     /// Inline (`<= 7` byte raw or compressed) payloads do not store metadata; their returned
@@ -1568,6 +1617,17 @@ impl ExpanseBlobMap {
     /// Removes a key from the map, returning `true` if the key was present.
     pub fn remove(&mut self, key: Key) -> bool {
         if let Some(raw_val) = self.index.remove(key) {
+            self.arena.record_deleted_slot(ValueSlot::from_raw(raw_val));
+            true
+        } else {
+            false
+        }
+    }
+
+    /// [`Self::remove`] for the concurrent wrapper; see [`Self::insert_slot_shared`].
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn remove_shared(&mut self, key: Key) -> bool {
+        if let Some(raw_val) = self.index.remove_shared(key) {
             self.arena.record_deleted_slot(ValueSlot::from_raw(raw_val));
             true
         } else {
