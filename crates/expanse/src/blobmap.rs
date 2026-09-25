@@ -456,7 +456,11 @@ impl ArenaChunk {
         let ptr = self.ptr;
         let capacity = self.capacity;
         core::mem::forget(self);
-        collector.retire(ptr, capacity, 16);
+        // SAFETY: `ptr` is this chunk's own allocation, made by the global
+        // allocator with `(capacity, 16)`; `forget` gave up the only owner, so
+        // it is retired once. The caller unlinked the chunk from the published
+        // table, so only readers pinned before that can still hold it.
+        unsafe { collector.retire(ptr, capacity, 16) };
     }
 }
 
@@ -875,7 +879,13 @@ impl BlobArena {
                 // SAFETY: `old` was published by this arena; its `len` header
                 // field is immutable, giving back the exact allocation size.
                 let bytes = table_bytes(unsafe { (*old.as_ptr()).len });
-                collector.retire(old.cast::<u8>(), bytes, core::mem::align_of::<ChunkTable>());
+                // SAFETY: `old` was allocated by the global allocator with
+                // `(table_bytes(len), align_of::<ChunkTable>())` when it was
+                // published; the swap above unlinked it, so no new reader can
+                // load it, and this is the only thread that got it back.
+                unsafe {
+                    collector.retire(old.cast::<u8>(), bytes, core::mem::align_of::<ChunkTable>());
+                }
             }
         }
     }

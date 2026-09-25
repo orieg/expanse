@@ -1144,7 +1144,7 @@ impl expanse_trie::occ::Collector
 pub fn expanse_trie::occ::Collector::new() -> Self
 pub fn expanse_trie::occ::Collector::register(&alloc::sync::Arc<Self>) -> expanse_trie::occ::Reader
 pub fn expanse_trie::occ::Collector::retained_bytes(&self) -> usize
-pub fn expanse_trie::occ::Collector::retire(&self, core::ptr::non_null::NonNull<u8>, usize, usize)
+pub unsafe fn expanse_trie::occ::Collector::retire(&self, core::ptr::non_null::NonNull<u8>, usize, usize)
 pub fn expanse_trie::occ::Collector::try_advance(&self)
 impl core::default::Default for expanse_trie::occ::Collector
 pub fn expanse_trie::occ::Collector::default() -> Self

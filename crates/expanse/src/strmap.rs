@@ -363,11 +363,16 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>, arena: SuffixAren
         // SAFETY: unlinked, last owner, and `layout` is by construction the
         // one this block was allocated with.
         None => unsafe { core_alloc::alloc::dealloc(ptr.cast::<u8>(), layout) },
-        Some(c) => c.retire(
-            NonNull::new(ptr.cast::<u8>()).expect("non-null suffix"),
-            layout.size(),
-            layout.align(),
-        ),
+        // SAFETY: unlinked, last owner, and `layout` is by construction the
+        // one this block was allocated with from the global allocator; the
+        // collector takes it once and only pinned readers still hold it.
+        Some(c) => unsafe {
+            c.retire(
+                NonNull::new(ptr.cast::<u8>()).expect("non-null suffix"),
+                layout.size(),
+                layout.align(),
+            )
+        },
     }
     #[cfg(all(not(feature = "std"), not(feature = "packed-suffix")))]
     {
@@ -424,11 +429,18 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
             // Retire the shell raw — no `Drop` to run: the map interior
             // was cleared above, and any continuation words it held are
             // the caller's to dispose.
-            c.retire(
-                NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
-                size_of::<StrNode>(),
-                align_of::<StrNode>(),
-            );
+            // SAFETY: `ptr` is the shell's `Box<StrNode>` allocation
+            // (`Layout::new::<StrNode>()`, from `Box::into_raw` at
+            // publication), unlinked by the caller and owned here alone, so
+            // it is retired once; it was marked obsolete above, and only
+            // readers pinned before the unlink can still load it.
+            unsafe {
+                c.retire(
+                    NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
+                    size_of::<StrNode>(),
+                    align_of::<StrNode>(),
+                );
+            }
         }
     }
     #[cfg(not(feature = "std"))]

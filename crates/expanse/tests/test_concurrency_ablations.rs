@@ -197,7 +197,9 @@ fn test_striped_epoch_bins_multi_writer() {
                 // SAFETY: layout has non-zero size (64) and valid alignment (16).
                 let raw = unsafe { std::alloc::alloc_zeroed(layout) };
                 let ptr = core::ptr::NonNull::new(raw).unwrap();
-                c.retire(ptr, 64, 16);
+                // SAFETY: `ptr` is a fresh `(64, 16)` global allocation that
+                // was never published and is not used again.
+                unsafe { c.retire(ptr, 64, 16) };
                 c.try_advance();
             }
         }));
@@ -230,7 +232,9 @@ fn test_striped_epoch_single_thread_lifecycle() {
     // SAFETY: non-zero size (64) and valid alignment (16).
     let raw = unsafe { std::alloc::alloc_zeroed(layout) };
     let ptr = core::ptr::NonNull::new(raw).unwrap();
-    collector.retire(ptr, 64, 16);
+    // SAFETY: `ptr` is a fresh `(64, 16)` global allocation that was never
+    // published and is not used again.
+    unsafe { collector.retire(ptr, 64, 16) };
     assert_eq!(collector.retained_bytes(), 64);
 
     // Advance attempts under pin must not reclaim the block

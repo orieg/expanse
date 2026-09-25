@@ -1626,7 +1626,68 @@ impl Collector {
     }
 
     /// Queues an allocation for deferred freeing (writer side).
-    pub fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
+    ///
+    /// Ownership of the allocation passes to the collector. Once every reader
+    /// pinned when it was retired has unpinned, a later [`try_advance`] (or
+    /// the collector's drop) either returns it to the global allocator with
+    /// `Layout::from_size_align(bytes, align)` or, when `(bytes, align)` is a
+    /// node size class, keeps it on a freelist and hands it out again as a
+    /// node of a tree that defers to this collector.
+    ///
+    /// # Safety
+    ///
+    /// The caller guarantees all of the following:
+    ///
+    /// - **Provenance and layout.** `ptr` was returned by the global
+    ///   allocator (`std::alloc::alloc`, `alloc_zeroed` or `realloc`, or an
+    ///   owner such as `Box` or `Vec` that allocates through it) for a
+    ///   layout of exactly `bytes` bytes aligned to `align`: `bytes` is
+    ///   non-zero, `align` is the alignment it was allocated with, and
+    ///   `ptr` carries the provenance of that whole allocation (it is the
+    ///   pointer the allocator returned, not one derived from a borrow).
+    /// - **Retired once.** The allocation has not been freed, and is not
+    ///   retired, freed or otherwise released again by anyone, through this
+    ///   collector or any other path.
+    /// - **Unreachable before the call.** No new reader can obtain `ptr`
+    ///   once this call begins: every shared location that published it has
+    ///   already been overwritten or unlinked.
+    /// - **No use after the grace period.** After the call, the allocation
+    ///   is accessed only by a thread that obtained `ptr` while pinned on a
+    ///   [`Reader`] registered with *this* collector, only while that reader
+    ///   stays pinned without interruption (dropping any [`Pin`] of a reader
+    ///   unpins it; see [`Reader::pin`]), and never to free, retire or
+    ///   reuse it. No reference or pointer to it is used after that pin
+    ///   ends. The retiring thread is bound by the same rule.
+    ///
+    /// Retiring a pointer the global allocator did not return, as below, is
+    /// the undefined behaviour this contract rules out, and safe code cannot
+    /// express it:
+    ///
+    /// ```compile_fail,E0133
+    /// let c = std::sync::Arc::new(expanse_trie::occ::Collector::new());
+    /// c.retire(core::ptr::NonNull::dangling(), 64, 64);
+    /// ```
+    ///
+    /// A sound retirement hands over a fresh allocation with its own layout:
+    ///
+    /// ```
+    /// use std::alloc::{alloc_zeroed, Layout};
+    /// use std::ptr::NonNull;
+    /// use std::sync::Arc;
+    ///
+    /// let c = Arc::new(expanse_trie::occ::Collector::new());
+    /// let layout = Layout::from_size_align(64, 16).unwrap();
+    /// // SAFETY: `layout` has non-zero size.
+    /// let ptr = NonNull::new(unsafe { alloc_zeroed(layout) }).unwrap();
+    /// // SAFETY: `ptr` came from the global allocator with `(64, 16)`, was
+    /// // never published and is not used again: the collector owns it.
+    /// unsafe { c.retire(ptr, 64, 16) };
+    /// assert_eq!(c.retained_bytes(), 64);
+    /// drop(c); // frees it
+    /// ```
+    ///
+    /// [`try_advance`]: Collector::try_advance
+    pub unsafe fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         crate::occ_stats::bump(crate::occ_stats::Stat::Retired);
         // S4 store-buffer pairing with `try_advance` / `Reader::pin` (ARCHITECTURE.md §4.2):
         // the retire-side epoch load is preceded by a SeqCst fence, ensuring that a retirer
@@ -2144,7 +2205,8 @@ mod tests {
         let c = Arc::new(Collector::new());
         let reader = c.register();
         let pin = reader.pin();
-        c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+        // SAFETY: a fresh `(64, TEST_ALIGN)` global allocation, never published.
+        unsafe { c.retire(alloc_test_block(64), 64, TEST_ALIGN) };
         // A reader pinned at the current epoch permits one advance (it
         // only stalls once it lags), but its pin still precedes the
         // retirement's grace period: the block retired at its epoch
@@ -2187,8 +2249,10 @@ mod tests {
         let reader = c.register();
         let pin = reader.pin();
 
-        c.retire(alloc_test_block(64), 64, TEST_ALIGN);
-        c.retire(alloc_test_block(128), 128, TEST_ALIGN);
+        // SAFETY: a fresh `(64, TEST_ALIGN)` global allocation, never published.
+        unsafe { c.retire(alloc_test_block(64), 64, TEST_ALIGN) };
+        // SAFETY: a fresh `(128, TEST_ALIGN)` global allocation, never published.
+        unsafe { c.retire(alloc_test_block(128), 128, TEST_ALIGN) };
         assert_eq!(c.retained_bytes(), 192);
 
         // One advance is allowed while pinned at epoch 0 (advances to epoch 1)
@@ -2196,7 +2260,8 @@ mod tests {
         assert_eq!(c.retained_bytes(), 192);
 
         // Subsequent advance refused because reader is lagging at epoch 0
-        c.retire(alloc_test_block(256), 256, TEST_ALIGN);
+        // SAFETY: a fresh `(256, TEST_ALIGN)` global allocation, never published.
+        unsafe { c.retire(alloc_test_block(256), 256, TEST_ALIGN) };
         assert_eq!(c.retained_bytes(), 448);
         c.try_advance();
         assert_eq!(c.retained_bytes(), 448);
@@ -2443,7 +2508,8 @@ mod tests {
             set_writer_slot(stripe);
             // SAFETY: non-zero size and a valid power-of-two alignment.
             let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
-            c.retire(ptr, 64, 16);
+            // SAFETY: `ptr` is a fresh `(64, 16)` global allocation, never published.
+            unsafe { c.retire(ptr, 64, 16) };
             assert_eq!(c.retained_bytes[stripe].0.load(Ordering::Relaxed), 64);
         }
         let all = 64 * NUM_EPOCH_STRIPES;
@@ -2478,7 +2544,8 @@ mod tests {
             set_writer_slot(stripe);
             // SAFETY: non-zero size and a valid power-of-two alignment.
             let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
-            c.retire(ptr, 64, 16);
+            // SAFETY: `ptr` is a fresh `(64, 16)` global allocation, never published.
+            unsafe { c.retire(ptr, 64, 16) };
         }
         assert_eq!(c.retained_bytes(), 64 * NUM_EPOCH_STRIPES);
         c.drain();
@@ -2728,7 +2795,9 @@ mod tests {
         set_writer_slot(home);
         // SAFETY: non-zero size and a valid power-of-two alignment.
         let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
-        c.retire(ptr, bytes, align);
+        // SAFETY: `ptr` is a fresh `(bytes, align)` global allocation, never
+        // published; the test takes it back only through `pop_freelist`.
+        unsafe { c.retire(ptr, bytes, align) };
         // No reader is registered, so these advances reclaim the block.
         for _ in 0..BINS {
             c.try_advance();
@@ -2756,7 +2825,8 @@ mod tests {
             // SAFETY: `layout` has non-zero size and valid alignment.
             let ptr2 = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
             set_writer_slot(0);
-            c.retire(ptr2, bytes, align);
+            // SAFETY: `ptr2` is a fresh `(bytes, align)` global allocation, never published.
+            unsafe { c.retire(ptr2, bytes, align) };
             for _ in 0..BINS {
                 c.try_advance();
             }
@@ -3448,7 +3518,9 @@ mod loom_tests {
                 // SAFETY: nonzero test allocation.
                 let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
                 rw1.store(false, Ordering::Release);
-                cw1.retire(ptr, 64, 16);
+                // SAFETY: `ptr` is a fresh `(64, 16)` global allocation that
+                // no reader dereferences; the model only tracks its reclamation.
+                unsafe { cw1.retire(ptr, 64, 16) };
             });
 
             let cw2 = Arc::clone(&c);
@@ -3495,7 +3567,8 @@ mod loom_tests {
             let layout = Layout::from_size_align(64, 16).unwrap();
             // SAFETY: non-zero size and a valid power-of-two alignment.
             let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
-            c.retire(ptr, 64, 16);
+            // SAFETY: `ptr` is a fresh `(64, 16)` global allocation, never published.
+            unsafe { c.retire(ptr, 64, 16) };
         })
     }
 
