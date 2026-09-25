@@ -1548,10 +1548,10 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 
 | Group | Benchmark | Arms | `N` per arm |
 |---|---|---|---:|
-| `smoke_capi_cost` | `judy1_set` | `sequential`, `random`, `clustered` | 50,000 |
-| `smoke_capi_cost` | `judy1_test` | `sequential`, `random`, `clustered` | 50,000 |
-| `smoke_capi_cost` | `judyl_get` | `sequential`, `random`, `clustered` | 50,000 |
-| `smoke_capi_cost` | `judyl_insert` | `sequential`, `random`, `clustered` | 50,000 |
+| `smoke_capi_cost` | `judy1_set` | `sequential`, `random`, `clustered` | 10,000 |
+| `smoke_capi_cost` | `judy1_test` | `sequential`, `random`, `clustered` | 10,000 |
+| `smoke_capi_cost` | `judyl_get` | `sequential`, `random`, `clustered` | 10,000 |
+| `smoke_capi_cost` | `judyl_insert` | `sequential`, `random`, `clustered` | 10,000 |
 | `smoke_capi_cost` | `judysl_get` | `routes` | 10,000 |
 | `smoke_capi_cost` | `judysl_insert` | `routes` | 10,000 |
 
@@ -1559,27 +1559,27 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 
 | Group | Benchmark | Arms | `N` per arm |
 |---|---|---|---:|
-| `vs_stock` | `judy1_set_expanse` | `random`, `clustered` | 50,000 |
-| `vs_stock` | `judy1_set_expanse_dl` | `random`, `clustered` | 50,000 |
-| `vs_stock` | `judy1_set_stock` | `random`, `clustered` | 50,000 |
-| `vs_stock` | `judy1_test_expanse` | `random` | 50,000 |
-| `vs_stock` | `judy1_test_expanse_dl` | `random` | 50,000 |
-| `vs_stock` | `judy1_test_stock` | `random` | 50,000 |
-| `vs_stock` | `judyl_churn_expanse` | `random` | 50,000 |
-| `vs_stock` | `judyl_churn_expanse_dl` | `random` | 50,000 |
-| `vs_stock` | `judyl_churn_stock` | `random` | 50,000 |
-| `vs_stock` | `judyl_get_expanse` | `sequential`, `random`, `clustered`, `random_big` | 50,000 |
-| `vs_stock` | `judyl_get_expanse_dl` | `sequential`, `random`, `clustered`, `random_big` | 50,000 |
-| `vs_stock` | `judyl_get_stock` | `sequential`, `random`, `clustered`, `random_big` | 50,000 |
-| `vs_stock` | `judyl_insert_expanse` | `sequential`, `random`, `clustered` | 50,000 |
-| `vs_stock` | `judyl_insert_expanse_dl` | `sequential`, `random`, `clustered` | 50,000 |
-| `vs_stock` | `judyl_insert_stock` | `sequential`, `random`, `clustered` | 50,000 |
-| `vs_stock` | `judysl_get_expanse` | `sequential`, `random`, `clustered` | 10,000 |
-| `vs_stock` | `judysl_get_expanse_dl` | `sequential`, `random`, `clustered` | 10,000 |
-| `vs_stock` | `judysl_get_stock` | `sequential`, `random`, `clustered` | 10,000 |
-| `vs_stock` | `judysl_insert_expanse` | `sequential`, `random`, `clustered` | 10,000 |
-| `vs_stock` | `judysl_insert_expanse_dl` | `sequential`, `random`, `clustered` | 10,000 |
-| `vs_stock` | `judysl_insert_stock` | `sequential`, `random`, `clustered` | 10,000 |
+| `vs_stock` | `judy1_set_expanse` | `random`, `clustered` | 30,000 |
+| `vs_stock` | `judy1_set_expanse_dl` | `random`, `clustered` | 30,000 |
+| `vs_stock` | `judy1_set_stock` | `random`, `clustered` | 30,000 |
+| `vs_stock` | `judy1_test_expanse` | `random` | 30,000 |
+| `vs_stock` | `judy1_test_expanse_dl` | `random` | 30,000 |
+| `vs_stock` | `judy1_test_stock` | `random` | 30,000 |
+| `vs_stock` | `judyl_churn_expanse` | `random` | 30,000 |
+| `vs_stock` | `judyl_churn_expanse_dl` | `random` | 30,000 |
+| `vs_stock` | `judyl_churn_stock` | `random` | 30,000 |
+| `vs_stock` | `judyl_get_expanse` | `sequential`, `random`, `clustered`, `random_big` | `sequential` 30,000, `random` 30,000, `clustered` 30,000, `random_big` 1,500,000 |
+| `vs_stock` | `judyl_get_expanse_dl` | `sequential`, `random`, `clustered`, `random_big` | `sequential` 30,000, `random` 30,000, `clustered` 30,000, `random_big` 1,500,000 |
+| `vs_stock` | `judyl_get_stock` | `sequential`, `random`, `clustered`, `random_big` | `sequential` 30,000, `random` 30,000, `clustered` 30,000, `random_big` 1,500,000 |
+| `vs_stock` | `judyl_insert_expanse` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judyl_insert_expanse_dl` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judyl_insert_stock` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judysl_get_expanse` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judysl_get_expanse_dl` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judysl_get_stock` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judysl_insert_expanse` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judysl_insert_expanse_dl` | `sequential`, `random`, `clustered` | 30,000 |
+| `vs_stock` | `judysl_insert_stock` | `sequential`, `random`, `clustered` | 30,000 |
 
 #### [`crates/expanse/benches/instructions.rs`](../crates/expanse/benches/instructions.rs)
 
@@ -1708,18 +1708,18 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 
 | Group | Benchmark | Arms | `N` per arm |
 |---|---|---|---:|
-| `smoke_cost` | `bytesmap_churn` | `routes` | 50,000 |
-| `smoke_cost` | `bytesmap_get` | `routes` | 50,000 |
-| `smoke_cost` | `bytesmap_insert` | `routes` | 50,000 |
+| `smoke_cost` | `bytesmap_churn` | `routes` | 10,000 |
+| `smoke_cost` | `bytesmap_get` | `routes` | 10,000 |
+| `smoke_cost` | `bytesmap_insert` | `routes` | 10,000 |
 | `smoke_cost` | `map_churn` | `random` | 10,000 |
 | `smoke_cost` | `map_get` | `sequential`, `random`, `clustered` | 10,000 |
 | `smoke_cost` | `map_ins_slot` | `random` | 10,000 |
 | `smoke_cost` | `map_insert` | `sequential`, `random`, `clustered` | 10,000 |
 | `smoke_cost` | `set_contains` | `sequential`, `random`, `clustered` | 10,000 |
 | `smoke_cost` | `set_insert` | `sequential`, `random`, `clustered` | 10,000 |
-| `smoke_cost` | `strmap_churn` | `routes` | 50,000 |
-| `smoke_cost` | `strmap_get` | `routes` | 50,000 |
-| `smoke_cost` | `strmap_insert` | `routes` | 50,000 |
+| `smoke_cost` | `strmap_churn` | `routes` | 10,000 |
+| `smoke_cost` | `strmap_get` | `routes` | 10,000 |
+| `smoke_cost` | `strmap_insert` | `routes` | 10,000 |
 
 #### Timed harnesses with no statically listed arms
 

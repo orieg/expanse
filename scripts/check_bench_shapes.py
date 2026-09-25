@@ -502,21 +502,26 @@ def load_perf_report(repo_root: Path):
     return module
 
 
-def registered_ops_key(pr, bench_name: str, is_smoke: bool) -> Optional[str]:
-    """The ops-map key `get_bench_n` would resolve, or None if it falls through.
+def registered_ops_key(
+    pr, bench_name: str, origin: Tuple[str, str]
+) -> Optional[Tuple[Optional[str], str]]:
+    """The `(scope, key)` ops entry `get_bench_n` would resolve, or None.
 
-    Mirrors `get_bench_n`'s lookup order over the same maps; falling through is
-    what the report turns into `N = 1`, which reads as "one operation per
+    `origin` is the `(bench target, group)` iai-callgrind prints ahead of the
+    arm: the target is the harness file's stem, the group its
+    `library_benchmark_group!` name. It selects the harness's own count table
+    (#981). Delegated to `perf_report.ops_entry` rather than mirrored, so the
+    check cannot disagree with the lookup the report divides by. None is what
+    the report turns into `N = 1`, which reads as "one operation per
     invocation" whether or not anyone meant it.
     """
-    clean_name = pr.normalize_bench_name(bench_name)
-    base_name = bench_name.split("/")[0]
-    if is_smoke and clean_name in pr.SMOKE_BENCH_N_MAP:
-        return clean_name
-    for key in (bench_name, clean_name, base_name):
-        if key in pr.BENCH_N_MAP:
-            return key
-    return None
+    return pr.ops_entry(bench_name, origin)
+
+
+def ops_entry_name(entry: Tuple[Optional[str], str]) -> str:
+    """How an ops entry is spelled in `perf_report.py`."""
+    scope, key = entry
+    return f"HARNESS_BENCH_N_MAP['{scope}']['{key}']" if scope else f"BENCH_N_MAP['{key}']"
 
 
 def collect_arm_inventory(
@@ -546,23 +551,24 @@ def collect_arm_inventory(
                 other_rows.append({"harness": relpath, "reason": reason})
             continue
 
-        is_smoke = path.name == "smoke_instructions.rs"
         groups = parse_iai_groups(source)
         for fn, fn_arms in sorted(arms.items()):
+            origin = (path.stem, groups.get(fn, ""))
             for arm in fn_arms or [""]:
                 bench_name = f"{fn}/{arm}" if arm else fn
-                key = registered_ops_key(pr, bench_name, is_smoke)
+                key = registered_ops_key(pr, bench_name, origin)
                 if key is None:
+                    scope = pr.harness_scope(origin)
+                    table = f"HARNESS_BENCH_N_MAP['{scope}']" if scope else "BENCH_N_MAP"
                     errors.append(
                         f"{relpath}: arm '{bench_name}' has no ops entry, so "
                         "`perf_report.py` reports its raw count as `Ins / Op` "
-                        "(N = 1). Register it in BENCH_N_MAP (or "
-                        "SMOKE_BENCH_N_MAP), with an explicit `1` when one "
-                        "invocation really is one operation"
+                        f"(N = 1). Register it in {table}, with an explicit "
+                        "`1` when one invocation really is one operation"
                     )
                     continue
                 used_keys.add(key)
-                n = pr.get_bench_n(bench_name, is_smoke=is_smoke)
+                n = pr.get_bench_n(bench_name, origin)
                 arm_rows.append(
                     {
                         "harness": relpath,
@@ -570,16 +576,18 @@ def collect_arm_inventory(
                         "fn": fn,
                         "arm": arm or "(single)",
                         "n": f"{n:,}",
-                        "ops_key": key,
+                        "ops_key": ops_entry_name(key),
                     }
                 )
 
-    declared = set(pr.BENCH_N_MAP) | set(pr.SMOKE_BENCH_N_MAP)
-    for key in sorted(declared - used_keys):
+    declared = {(None, k) for k in pr.BENCH_N_MAP} | {
+        (scope, k) for scope, table in pr.HARNESS_BENCH_N_MAP.items() for k in table
+    }
+    for key in sorted(declared - used_keys, key=lambda e: (e[0] or "", e[1])):
         errors.append(
-            f"scripts/perf_report.py: ops entry '{key}' matches no arm in any "
-            "harness — a renamed or deleted arm leaves its count behind, and "
-            "the next arm to take that name inherits it silently"
+            f"scripts/perf_report.py: ops entry {ops_entry_name(key)} matches "
+            "no arm in any harness — a renamed or deleted arm leaves its count "
+            "behind, and the next arm to take that name inherits it silently"
         )
     return arm_rows, other_rows, errors
 
@@ -904,29 +912,40 @@ library_benchmark_group!(
     assert arms == {"map_insert": ["sequential", "random"], "lone_arm": []}, arms
     assert parse_iai_groups(iai_src) == {"map_insert": "cost", "lone_arm": "cost"}
 
-    class _StubReport:
-        BENCH_N_MAP = {"map_insert": 50_000, "map_insert/random": 1_007}
-        SMOKE_BENCH_N_MAP = {"map_insert": 10_000}
-
-        @staticmethod
-        def normalize_bench_name(name: str) -> str:
-            base = name.split("/")[0]
-            for suffix in ("_expanse_dl", "_expanse", "_stock"):
-                if base.endswith(suffix):
-                    return base[: -len(suffix)]
-            return base
-
-    stub = _StubReport()
+    # The real resolver over stand-in tables: the check delegates to
+    # `perf_report.ops_entry`, so testing a copy of it would test nothing.
+    pr = load_perf_report(get_repo_root())
+    pr.BENCH_N_MAP = {"map_insert": 50_000, "map_insert/random": 1_007, "map_get": 50_000}
+    pr.HARNESS_BENCH_N_MAP = {
+        "smoke_instructions::smoke_cost": {"map_insert": 10_000},
+        "vs_stock": {"judyl_get": 30_000, "judyl_get/random_big": 1_500_000},
+    }
+    full = ("instructions", "cost")
+    smoke = ("smoke_instructions", "smoke_cost")
     # A per-distribution entry wins over the arm's, as in `get_bench_n`.
-    assert registered_ops_key(stub, "map_insert/random", False) == "map_insert/random"
-    assert registered_ops_key(stub, "map_insert/sequential", False) == "map_insert"
+    assert registered_ops_key(pr, "map_insert/random", full) == (None, "map_insert/random")
+    assert registered_ops_key(pr, "map_insert/sequential", full) == (None, "map_insert")
     # The suffixed twins of one family resolve through the normalised name.
-    assert registered_ops_key(stub, "map_insert_stock/random", False) == "map_insert"
-    # The smoke map is consulted first only for a smoke harness.
-    assert registered_ops_key(stub, "map_insert/random", True) == "map_insert"
+    assert registered_ops_key(pr, "map_insert_stock/random", full) == (None, "map_insert/random")
+    # One arm name in two harnesses resolves to each harness's own entry (#981)
+    # ...
+    assert registered_ops_key(pr, "map_insert/random", smoke) == (
+        "smoke_instructions::smoke_cost", "map_insert"
+    )
+    assert pr.get_bench_n("map_insert/random", smoke) == 10_000
+    assert pr.get_bench_n("map_insert/random", full) == 1_007
+    # ... a whole-target scope serves every group of that target ...
+    assert registered_ops_key(pr, "judyl_get_stock/random_big", ("vs_stock", "vs_stock")) == (
+        "vs_stock", "judyl_get/random_big"
+    )
+    # ... and a scoped harness is closed: its unregistered arm does not borrow
+    # the same-named `BENCH_N_MAP` entry that describes another harness.
+    assert registered_ops_key(pr, "map_get/random", smoke) is None
     # fail-then-pass: an unregistered arm resolves to nothing, which is what
     # `get_bench_n` turns into N = 1 — the silent fallback this gate exists for.
-    assert registered_ops_key(stub, "set_insert/random", False) is None
+    assert registered_ops_key(pr, "set_insert/random", full) is None
+    assert ops_entry_name(("vs_stock", "judyl_get")) == "HARNESS_BENCH_N_MAP['vs_stock']['judyl_get']"
+    assert ops_entry_name((None, "map_get")) == "BENCH_N_MAP['map_get']"
 
     assert not_enumerable_reason("x.rs", "criterion_group!(benches, f);")
     assert not_enumerable_reason("crates/expanse-hot-bench/src/bin/x.rs", "fn other() {}")
