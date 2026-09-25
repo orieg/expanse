@@ -563,7 +563,7 @@ it is the α = 1 reference curve and is never a gate cell
     performs that fold **before** it runs the closure, so
     `with_locked(ExpanseSet::validate)`, which is how the concurrent tests check
     invariants, validates the *post-repair* tree. Both the fold and `validate`'s
-    check at `validate.rs:501` derive the population by recounting children, so
+    check at `validate.rs:502` derive the population by recounting children, so
     they agree by construction. The lazy contract is therefore review-verified,
     not test-discriminated; a test that pins it has to observe `pop0` without
     folding first.
