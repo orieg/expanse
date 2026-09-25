@@ -7,12 +7,12 @@
 ## Provenance
 
 - Host: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic); core pin `0-15`; governor `powersave`.
-- Commit `668c28d7`; run https://github.com/orieg/expanse/actions/runs/35953193935.
-- Load: 21 snapshots, one before every harness population and one at the end (present); largest busy-CPU delta from processes outside the run 0.04 core-equivalents (§8.17 contamination threshold: about 1).
+- Commit `6000b4a1`; run https://github.com/orieg/expanse/actions/runs/36092319875.
+- Load: 21 snapshots, one before every harness population and one at the end (present); largest busy-CPU delta from processes outside the run 0.03 core-equivalents (§8.17 contamination threshold: about 1).
 
 ## Pre-registered verdicts
 
-Evaluated at n ∈ {100,000, 1,000,000}, both build orders, under METHODOLOGY.md §3 (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic), 668c28d7). No independent peer review.
+Evaluated at n ∈ {100,000, 1,000,000}, both build orders, under METHODOLOGY.md §3 (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic), 6000b4a1). No independent peer review.
 
 | Prediction | Cells | Verdict | Breakdown |
 |---|---|---|---|
@@ -32,36 +32,34 @@ Every evaluated cell whose interval lies wholly above 1, where the ratio is Expa
 
 - T1 at n = 1,000,000 against `fast_radix_trie` passes on its 8-vs-240 rule, but the four point estimates are not monotone in prefix length.
 - T1 at n = 1,000,000 against `qp_trie` passes on its 8-vs-240 rule, but the four point estimates are not monotone in prefix length.
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal sequential generator, n = 100,000, against `qp_trie`: 1.2064 [1.2042, 1.2085]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal sequential shuffled, n = 100,000, against `qp_trie`: 1.0490 [1.0475, 1.0508]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal clustered generator, n = 100,000, against `qp_trie`: 1.2665 [1.2610, 1.2701]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal clustered shuffled, n = 100,000, against `qp_trie`: 1.0450 [1.0405, 1.0476]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal uniform_random generator, n = 100,000, against `qp_trie`: 1.2288 [1.2181, 1.2383]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal uniform_random shuffled, n = 100,000, against `qp_trie`: 1.2166 [1.2053, 1.2269]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride generator, n = 100,000, against `qp_trie`: 4.1060 [4.0988, 4.1107]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride shuffled, n = 100,000, against `qp_trie`: 3.3042 [3.2974, 3.3190]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 generator, n = 100,000, against `qp_trie`: 1.6367 [1.6283, 1.6430]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 100,000, against `patricia_tree`: 1.0579 [1.0516, 1.0639]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 100,000, against `fast_radix_trie`: 1.1610 [1.1552, 1.1686]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 100,000, against `qp_trie`: 1.7754 [1.7651, 1.7861]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride generator, n = 1,000,000, against `qp_trie`: 2.2398 [2.2316, 2.2485]
-- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride shuffled, n = 1,000,000, against `qp_trie`: 1.0628 [1.0597, 1.0662]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 generator, n = 1,000,000, against `fast_radix_trie`: 1.2664 [1.2620, 1.2703]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 generator, n = 1,000,000, against `qp_trie`: 2.4708 [2.4636, 2.4816]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 1,000,000, against `patricia_tree`: 1.3294 [1.3270, 1.3321]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 1,000,000, against `fast_radix_trie`: 1.4488 [1.4434, 1.4530]
-- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 1,000,000, against `qp_trie`: 1.6907 [1.6823, 1.6979]
-- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 128 generator, n = 100,000, against `fast_radix_trie`: 1.1339 [1.1310, 1.1366]
-- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 128 sorted, n = 100,000, against `fast_radix_trie`: 1.2339 [1.2249, 1.2375]
-- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 generator, n = 100,000, against `fast_radix_trie`: 1.3371 [1.3149, 1.3447]
-- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 generator, n = 100,000, against `qp_trie`: 1.0441 [1.0404, 1.0479]
-- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 sorted, n = 100,000, against `fast_radix_trie`: 1.4554 [1.4525, 1.4589]
-- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 sorted, n = 100,000, against `qp_trie`: 1.1075 [1.1043, 1.1108]
-- Outside the evaluated n (`NOT_PREREGISTERED`), 24 further cells have Expanse slower; they are in the tables below.
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal sequential generator, n = 100,000, against `qp_trie`: 1.2888 [1.2686, 1.3037]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal sequential shuffled, n = 100,000, against `qp_trie`: 1.0601 [1.0529, 1.0650]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal clustered generator, n = 100,000, against `qp_trie`: 1.3004 [1.2952, 1.3056]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal clustered shuffled, n = 100,000, against `qp_trie`: 1.0708 [1.0688, 1.0728]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal uniform_random generator, n = 100,000, against `qp_trie`: 1.2054 [1.2014, 1.2095]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal uniform_random shuffled, n = 100,000, against `qp_trie`: 1.2089 [1.2048, 1.2130]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride generator, n = 100,000, against `qp_trie`: 4.1039 [4.0946, 4.1243]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride shuffled, n = 100,000, against `qp_trie`: 3.3173 [3.3084, 3.3342]
+- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 generator, n = 100,000, against `qp_trie`: 1.3666 [1.3502, 1.3834]
+- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 100,000, against `qp_trie`: 1.4812 [1.4754, 1.4851]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride generator, n = 1,000,000, against `qp_trie`: 2.2346 [2.2265, 2.2518]
+- UNPREDICTED_LOSS — `patricia_scan` full_traversal sparse_stride shuffled, n = 1,000,000, against `qp_trie`: 1.0636 [1.0600, 1.0681]
+- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 generator, n = 1,000,000, against `fast_radix_trie`: 1.1253 [1.1232, 1.1272]
+- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 generator, n = 1,000,000, against `qp_trie`: 2.2998 [2.2857, 2.3076]
+- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 1,000,000, against `patricia_tree`: 1.1699 [1.1660, 1.1731]
+- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 1,000,000, against `fast_radix_trie`: 1.2081 [1.2026, 1.2115]
+- UNPREDICTED_LOSS — `patricia_scan` prefix_scan prefixed_path 35 sorted, n = 1,000,000, against `qp_trie`: 1.4511 [1.4469, 1.4553]
+- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 128 generator, n = 100,000, against `fast_radix_trie`: 1.0968 [1.0818, 1.1026]
+- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 128 sorted, n = 100,000, against `fast_radix_trie`: 1.1938 [1.1877, 1.1984]
+- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 generator, n = 100,000, against `fast_radix_trie`: 1.2984 [1.2895, 1.3055]
+- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 generator, n = 100,000, against `qp_trie`: 1.0299 [1.0270, 1.0321]
+- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 sorted, n = 100,000, against `fast_radix_trie`: 1.4280 [1.4239, 1.4309]
+- UNPREDICTED_LOSS — `patricia_string_lookup` prefixed_path 240 sorted, n = 100,000, against `qp_trie`: 1.0920 [1.0892, 1.0945]
+- Outside the evaluated n (`NOT_PREREGISTERED`), 26 further cells have Expanse slower; they are in the tables below.
 
 ## Charts
 
-Generated by `scripts/generate_charts.py` from the same artifacts. Timing charts use a log axis centred on 1, so bar length understates large ratios; the tables below carry every value and interval (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic), 668c28d7).
+Generated by `scripts/generate_charts.py` from the same artifacts. Timing charts use a log axis centred on 1, so bar length understates large ratios; the tables below carry every value and interval (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic), 6000b4a1).
 
 ![chart lookup](results/chart_lookup.svg)
 
@@ -77,7 +75,7 @@ Generated by `scripts/generate_charts.py` from the same artifacts. Timing charts
 
 ## Results
 
-(measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic), 668c28d7)
+(measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic), 6000b4a1)
 
 ### Point lookup, 100% hit (workload: patricia_lookup_hit)
 
@@ -85,34 +83,34 @@ Ratio = Expanse ns ÷ twin ns, geometric mean of per-round ratios with its BCa 9
 
 | n | cell | vs `patricia_tree` | vs `fast_radix_trie` | vs `qp_trie` |
 |---|---|---|---|---|
-| 10,000 | sequential / generator | 0.0073 [0.0072, 0.0074] | invalid | 0.4018 [0.3969, 0.4044] |
-| 10,000 | sequential / shuffled | 0.0051 [0.0050, 0.0052] | invalid | 0.3969 [0.3903, 0.4013] |
-| 10,000 | clustered / generator | 0.0110 [0.0110, 0.0110] | invalid | 0.5578 [0.5571, 0.5586] |
-| 10,000 | clustered / shuffled | 0.0077 [0.0076, 0.0077] | invalid | 0.5552 [0.5523, 0.5572] |
-| 10,000 | uniform_random / generator | 0.0115 [0.0115, 0.0115] | invalid | 0.5047 [0.5030, 0.5064] |
-| 10,000 | uniform_random / shuffled | 0.0113 [0.0113, 0.0113] | invalid | 0.5071 [0.5061, 0.5083] |
-| 10,000 | sparse_stride / generator | 0.0076 [0.0076, 0.0076] | invalid | 0.4172 [0.4153, 0.4205] |
-| 10,000 | sparse_stride / shuffled | 0.0051 [0.0051, 0.0052] | invalid | 0.4154 [0.4147, 0.4165] |
-| 100,000 | sequential / generator | 0.0076 [0.0075, 0.0076] | invalid | 0.4219 [0.4200, 0.4249] |
-| 100,000 | sequential / shuffled | 0.0041 [0.0041, 0.0041] | invalid | 0.4277 [0.4270, 0.4283] |
-| 100,000 | clustered / generator | 0.0156 [0.0156, 0.0156] | invalid | 0.5140 [0.5123, 0.5150] |
-| 100,000 | clustered / shuffled | 0.0069 [0.0069, 0.0069] | invalid | 0.5369 [0.5345, 0.5384] |
-| 100,000 | uniform_random / generator | 0.0093 [0.0093, 0.0093] | invalid | 0.6653 [0.6636, 0.6670] |
-| 100,000 | uniform_random / shuffled | 0.0091 [0.0091, 0.0091] | invalid | 0.6604 [0.6586, 0.6620] |
-| 100,000 | sparse_stride / generator | 0.0069 [0.0069, 0.0069] | invalid | 0.4349 [0.4339, 0.4360] |
-| 100,000 | sparse_stride / shuffled | 0.0037 [0.0037, 0.0037] | invalid | 0.4418 [0.4392, 0.4431] |
-| 25,177 | zipfian / generator | 0.0091 [0.0090, 0.0091] | invalid | 0.4333 [0.4328, 0.4338] |
-| 25,177 | zipfian / shuffled | 0.0090 [0.0090, 0.0090] | invalid | 0.4364 [0.4358, 0.4377] |
-| 1,000,000 | sequential / generator | 0.0084 [0.0083, 0.0084] | invalid | 0.2351 [0.2336, 0.2366] |
-| 1,000,000 | sequential / shuffled | 0.0027 [0.0027, 0.0027] | invalid | 0.2379 [0.2370, 0.2391] |
-| 1,000,000 | clustered / generator | 0.0137 [0.0137, 0.0138] | invalid | 0.3180 [0.3157, 0.3210] |
-| 1,000,000 | clustered / shuffled | 0.0050 [0.0050, 0.0050] | invalid | 0.3370 [0.3352, 0.3392] |
-| 1,000,000 | uniform_random / generator | 0.0119 [0.0119, 0.0120] | invalid | 0.4454 [0.4448, 0.4464] |
-| 1,000,000 | uniform_random / shuffled | 0.0120 [0.0120, 0.0121] | invalid | 0.4569 [0.4559, 0.4580] |
-| 1,000,000 | sparse_stride / generator | 0.0071 [0.0070, 0.0071] | invalid | 0.2085 [0.2077, 0.2094] |
-| 1,000,000 | sparse_stride / shuffled | 0.0023 [0.0023, 0.0023] | invalid | 0.2133 [0.2127, 0.2140] |
-| 226,479 | zipfian / generator | 0.0066 [0.0066, 0.0066] | invalid | 0.4134 [0.4043, 0.4208] |
-| 226,479 | zipfian / shuffled | 0.0066 [0.0065, 0.0066] | invalid | 0.4139 [0.4057, 0.4209] |
+| 10,000 | sequential / generator | 0.0069 [0.0067, 0.0071] | invalid | 0.3971 [0.3931, 0.4011] |
+| 10,000 | sequential / shuffled | 0.0052 [0.0052, 0.0053] | invalid | 0.4046 [0.4004, 0.4078] |
+| 10,000 | clustered / generator | 0.0110 [0.0109, 0.0110] | invalid | 0.5565 [0.5557, 0.5574] |
+| 10,000 | clustered / shuffled | 0.0077 [0.0077, 0.0077] | invalid | 0.5591 [0.5587, 0.5596] |
+| 10,000 | uniform_random / generator | 0.0114 [0.0114, 0.0114] | invalid | 0.5026 [0.5013, 0.5041] |
+| 10,000 | uniform_random / shuffled | 0.0112 [0.0112, 0.0112] | invalid | 0.5000 [0.4988, 0.5013] |
+| 10,000 | sparse_stride / generator | 0.0074 [0.0074, 0.0075] | invalid | 0.4088 [0.4075, 0.4104] |
+| 10,000 | sparse_stride / shuffled | 0.0051 [0.0051, 0.0051] | invalid | 0.4112 [0.4093, 0.4137] |
+| 100,000 | sequential / generator | 0.0076 [0.0075, 0.0076] | invalid | 0.4222 [0.4207, 0.4233] |
+| 100,000 | sequential / shuffled | 0.0041 [0.0041, 0.0041] | invalid | 0.4299 [0.4291, 0.4310] |
+| 100,000 | clustered / generator | 0.0156 [0.0156, 0.0156] | invalid | 0.5117 [0.5090, 0.5128] |
+| 100,000 | clustered / shuffled | 0.0069 [0.0069, 0.0069] | invalid | 0.5382 [0.5371, 0.5393] |
+| 100,000 | uniform_random / generator | 0.0092 [0.0092, 0.0093] | invalid | 0.6605 [0.6580, 0.6623] |
+| 100,000 | uniform_random / shuffled | 0.0090 [0.0090, 0.0091] | invalid | 0.6573 [0.6559, 0.6592] |
+| 100,000 | sparse_stride / generator | 0.0070 [0.0070, 0.0070] | invalid | 0.4366 [0.4354, 0.4381] |
+| 100,000 | sparse_stride / shuffled | 0.0036 [0.0036, 0.0037] | invalid | 0.4364 [0.4332, 0.4384] |
+| 25,177 | zipfian / generator | 0.0091 [0.0091, 0.0091] | invalid | 0.4355 [0.4339, 0.4374] |
+| 25,177 | zipfian / shuffled | 0.0090 [0.0090, 0.0090] | invalid | 0.4335 [0.4317, 0.4354] |
+| 1,000,000 | sequential / generator | 0.0083 [0.0083, 0.0084] | invalid | 0.2347 [0.2335, 0.2360] |
+| 1,000,000 | sequential / shuffled | 0.0027 [0.0027, 0.0027] | invalid | 0.2382 [0.2371, 0.2396] |
+| 1,000,000 | clustered / generator | 0.0137 [0.0137, 0.0137] | invalid | 0.3191 [0.3170, 0.3218] |
+| 1,000,000 | clustered / shuffled | 0.0050 [0.0050, 0.0050] | invalid | 0.3359 [0.3341, 0.3382] |
+| 1,000,000 | uniform_random / generator | 0.0120 [0.0120, 0.0121] | invalid | 0.4493 [0.4478, 0.4510] |
+| 1,000,000 | uniform_random / shuffled | 0.0121 [0.0121, 0.0121] | invalid | 0.4547 [0.4539, 0.4555] |
+| 1,000,000 | sparse_stride / generator | 0.0071 [0.0070, 0.0071] | invalid | 0.2083 [0.2076, 0.2090] |
+| 1,000,000 | sparse_stride / shuffled | 0.0022 [0.0022, 0.0023] | invalid | 0.2129 [0.2124, 0.2134] |
+| 226,479 | zipfian / generator | 0.0066 [0.0066, 0.0066] | invalid | 0.4112 [0.4024, 0.4184] |
+| 226,479 | zipfian / shuffled | 0.0066 [0.0065, 0.0066] | invalid | 0.4122 [0.4028, 0.4210] |
 
 ### Point lookup, 50% hit, in-range misses (workload: patricia_lookup_miss)
 
@@ -120,34 +118,34 @@ Ratio = Expanse ns ÷ twin ns, geometric mean of per-round ratios with its BCa 9
 
 | n | cell | vs `patricia_tree` | vs `fast_radix_trie` | vs `qp_trie` |
 |---|---|---|---|---|
-| 10,000 | sequential / generator | 0.0200 [0.0200, 0.0201] | 0.1351 [0.1348, 0.1354] | 0.5204 [0.5186, 0.5222] |
-| 10,000 | sequential / shuffled | 0.0144 [0.0144, 0.0145] | 0.1220 [0.1216, 0.1224] | 0.5203 [0.5185, 0.5220] |
-| 10,000 | clustered / generator | 0.0383 [0.0381, 0.0386] | 0.2040 [0.2027, 0.2055] | 0.6098 [0.6000, 0.6238] |
-| 10,000 | clustered / shuffled | 0.0260 [0.0259, 0.0263] | 0.1854 [0.1843, 0.1869] | 0.6070 [0.6015, 0.6126] |
-| 10,000 | uniform_random / generator | 0.0141 [0.0141, 0.0142] | invalid | 0.6451 [0.6340, 0.6527] |
-| 10,000 | uniform_random / shuffled | 0.0142 [0.0141, 0.0143] | invalid | 0.6176 [0.6051, 0.6299] |
-| 10,000 | sparse_stride / generator | 0.0215 [0.0214, 0.0216] | 0.1505 [0.1501, 0.1510] | 0.5804 [0.5785, 0.5826] |
-| 10,000 | sparse_stride / shuffled | 0.0156 [0.0156, 0.0157] | 0.1343 [0.1337, 0.1347] | 0.5846 [0.5816, 0.5865] |
-| 100,000 | sequential / generator | 0.0097 [0.0097, 0.0098] | invalid | 0.4518 [0.4511, 0.4526] |
-| 100,000 | sequential / shuffled | 0.0074 [0.0074, 0.0075] | invalid | 0.4594 [0.4562, 0.4607] |
-| 100,000 | clustered / generator | 0.0311 [0.0311, 0.0312] | 0.1821 [0.1801, 0.1830] | 0.5885 [0.5878, 0.5893] |
-| 100,000 | clustered / shuffled | 0.0176 [0.0175, 0.0176] | 0.1443 [0.1441, 0.1446] | 0.6034 [0.5994, 0.6048] |
-| 100,000 | uniform_random / generator | 0.0101 [0.0101, 0.0101] | invalid | 0.6270 [0.6253, 0.6288] |
-| 100,000 | uniform_random / shuffled | 0.0101 [0.0101, 0.0101] | invalid | 0.6228 [0.6216, 0.6237] |
-| 100,000 | sparse_stride / generator | 0.0125 [0.0125, 0.0125] | invalid | 0.5518 [0.5510, 0.5529] |
-| 100,000 | sparse_stride / shuffled | 0.0086 [0.0086, 0.0086] | invalid | 0.5596 [0.5583, 0.5608] |
-| 24,298 | zipfian / generator | 0.0234 [0.0233, 0.0235] | invalid | 0.7533 [0.7501, 0.7564] |
-| 24,298 | zipfian / shuffled | 0.0230 [0.0229, 0.0231] | invalid | 0.7606 [0.7578, 0.7631] |
-| 1,000,000 | sequential / generator | 0.0087 [0.0087, 0.0087] | invalid | 0.2850 [0.2838, 0.2864] |
-| 1,000,000 | sequential / shuffled | 0.0058 [0.0058, 0.0059] | invalid | 0.3305 [0.3289, 0.3324] |
-| 1,000,000 | clustered / generator | 0.0233 [0.0233, 0.0234] | invalid | 0.4186 [0.4164, 0.4213] |
-| 1,000,000 | clustered / shuffled | 0.0107 [0.0107, 0.0108] | invalid | 0.4537 [0.4520, 0.4555] |
-| 1,000,000 | uniform_random / generator | 0.0131 [0.0131, 0.0131] | invalid | 0.5375 [0.5367, 0.5390] |
-| 1,000,000 | uniform_random / shuffled | 0.0131 [0.0131, 0.0131] | invalid | 0.5366 [0.5354, 0.5382] |
-| 1,000,000 | sparse_stride / generator | 0.0126 [0.0126, 0.0126] | invalid | 0.3957 [0.3948, 0.3965] |
-| 1,000,000 | sparse_stride / shuffled | 0.0070 [0.0070, 0.0070] | invalid | 0.4061 [0.4043, 0.4078] |
-| 219,472 | zipfian / generator | 0.0151 [0.0151, 0.0152] | invalid | 0.5291 [0.5195, 0.5368] |
-| 219,472 | zipfian / shuffled | 0.0150 [0.0150, 0.0151] | invalid | 0.5324 [0.5245, 0.5390] |
+| 10,000 | sequential / generator | 0.0191 [0.0187, 0.0196] | 0.1321 [0.1313, 0.1332] | 0.5315 [0.5304, 0.5331] |
+| 10,000 | sequential / shuffled | 0.0147 [0.0147, 0.0147] | 0.1224 [0.1219, 0.1229] | 0.5342 [0.5329, 0.5354] |
+| 10,000 | clustered / generator | 0.0400 [0.0399, 0.0401] | 0.2074 [0.2067, 0.2080] | 0.6263 [0.6223, 0.6294] |
+| 10,000 | clustered / shuffled | 0.0271 [0.0271, 0.0272] | 0.1881 [0.1875, 0.1889] | 0.6286 [0.6230, 0.6339] |
+| 10,000 | uniform_random / generator | 0.0150 [0.0149, 0.0150] | invalid | 0.6646 [0.6492, 0.6776] |
+| 10,000 | uniform_random / shuffled | 0.0151 [0.0151, 0.0152] | invalid | 0.6508 [0.6378, 0.6639] |
+| 10,000 | sparse_stride / generator | 0.0235 [0.0234, 0.0235] | 0.1622 [0.1619, 0.1627] | 0.6416 [0.6388, 0.6433] |
+| 10,000 | sparse_stride / shuffled | 0.0171 [0.0170, 0.0171] | 0.1445 [0.1440, 0.1450] | 0.6461 [0.6438, 0.6481] |
+| 100,000 | sequential / generator | 0.0103 [0.0103, 0.0103] | invalid | 0.4779 [0.4770, 0.4786] |
+| 100,000 | sequential / shuffled | 0.0079 [0.0078, 0.0079] | invalid | 0.4862 [0.4854, 0.4881] |
+| 100,000 | clustered / generator | 0.0325 [0.0325, 0.0326] | 0.1892 [0.1888, 0.1898] | 0.6129 [0.6118, 0.6143] |
+| 100,000 | clustered / shuffled | 0.0183 [0.0183, 0.0183] | 0.1484 [0.1480, 0.1486] | 0.6244 [0.6233, 0.6254] |
+| 100,000 | uniform_random / generator | 0.0102 [0.0102, 0.0102] | invalid | 0.6369 [0.6329, 0.6389] |
+| 100,000 | uniform_random / shuffled | 0.0102 [0.0102, 0.0102] | invalid | 0.6352 [0.6337, 0.6367] |
+| 100,000 | sparse_stride / generator | 0.0132 [0.0131, 0.0132] | invalid | 0.5761 [0.5750, 0.5773] |
+| 100,000 | sparse_stride / shuffled | 0.0090 [0.0090, 0.0090] | invalid | 0.5885 [0.5873, 0.5897] |
+| 24,298 | zipfian / generator | 0.0238 [0.0238, 0.0239] | invalid | 0.7680 [0.7643, 0.7711] |
+| 24,298 | zipfian / shuffled | 0.0234 [0.0233, 0.0234] | invalid | 0.7683 [0.7647, 0.7712] |
+| 1,000,000 | sequential / generator | 0.0090 [0.0090, 0.0091] | invalid | 0.2946 [0.2932, 0.2960] |
+| 1,000,000 | sequential / shuffled | 0.0060 [0.0059, 0.0060] | invalid | 0.3362 [0.3342, 0.3388] |
+| 1,000,000 | clustered / generator | 0.0237 [0.0237, 0.0238] | invalid | 0.4239 [0.4216, 0.4265] |
+| 1,000,000 | clustered / shuffled | 0.0108 [0.0108, 0.0109] | invalid | 0.4585 [0.4560, 0.4628] |
+| 1,000,000 | uniform_random / generator | 0.0133 [0.0132, 0.0133] | invalid | 0.5435 [0.5420, 0.5448] |
+| 1,000,000 | uniform_random / shuffled | 0.0132 [0.0132, 0.0133] | invalid | 0.5418 [0.5388, 0.5430] |
+| 1,000,000 | sparse_stride / generator | 0.0128 [0.0128, 0.0128] | invalid | 0.4003 [0.3993, 0.4012] |
+| 1,000,000 | sparse_stride / shuffled | 0.0071 [0.0071, 0.0071] | invalid | 0.4144 [0.4135, 0.4157] |
+| 219,472 | zipfian / generator | 0.0154 [0.0153, 0.0154] | invalid | 0.5375 [0.5251, 0.5463] |
+| 219,472 | zipfian / shuffled | 0.0154 [0.0153, 0.0154] | invalid | 0.5419 [0.5324, 0.5494] |
 
 ### Cold-build insert (generator order, then shuffled) (workload: patricia_insert)
 
@@ -155,20 +153,20 @@ Ratio = Expanse ns ÷ twin ns, geometric mean of per-round ratios with its BCa 9
 
 | n | cell | vs `patricia_tree` | vs `fast_radix_trie` | vs `qp_trie` |
 |---|---|---|---|---|
-| 10,000 | sequential | 0.0069 [0.0068, 0.0069]<br>0.0313 [0.0311, 0.0315] | invalid | 0.2254 [0.2239, 0.2268]<br>0.4618 [0.4596, 0.4643] |
-| 10,000 | clustered | 0.0092 [0.0092, 0.0092]<br>0.0439 [0.0438, 0.0441] | invalid | 0.2649 [0.2640, 0.2657]<br>0.5693 [0.5672, 0.5715] |
-| 10,000 | uniform_random | 0.0406 [0.0404, 0.0407]<br>0.0397 [0.0395, 0.0399] | invalid | 0.8266 [0.8230, 0.8285]<br>0.8262 [0.8173, 0.8298] |
-| 10,000 | sparse_stride | 0.0166 [0.0165, 0.0167]<br>0.0393 [0.0391, 0.0394] | invalid | 0.5587 [0.5555, 0.5610]<br>0.5800 [0.5787, 0.5814] |
-| 100,000 | sequential | 0.0040 [0.0039, 0.0040]<br>0.0154 [0.0153, 0.0155] | invalid | 0.1715 [0.1701, 0.1746]<br>0.3848 [0.3785, 0.3878] |
-| 100,000 | clustered | 0.0081 [0.0081, 0.0082]<br>0.0290 [0.0289, 0.0291] | invalid | 0.1887 [0.1876, 0.1914]<br>0.4535 [0.4458, 0.4581] |
-| 100,000 | uniform_random | 0.0167 [0.0166, 0.0167]<br>0.0159 [0.0158, 0.0161] | invalid | 0.4107 [0.4078, 0.4133]<br>0.4391 [0.4310, 0.4434] |
-| 100,000 | sparse_stride | 0.0100 [0.0100, 0.0100]<br>0.0187 [0.0186, 0.0187] | invalid | 0.4439 [0.4411, 0.4506]<br>0.4741 [0.4654, 0.4784] |
-| 25,177 | zipfian | 0.0347 [0.0346, 0.0347]<br>0.0328 [0.0327, 0.0333] | invalid | 0.4633 [0.4624, 0.4641]<br>0.4585 [0.4577, 0.4592] |
-| 1,000,000 | sequential | 0.0036 [0.0036, 0.0036]<br>0.0121 [0.0121, 0.0122] | invalid | 0.1169 [0.1121, 0.1271]<br>0.3261 [0.3089, 0.3345] |
-| 1,000,000 | clustered | 0.0051 [0.0051, 0.0051]<br>0.0168 [0.0167, 0.0168] | invalid | 0.1294 [0.1247, 0.1394]<br>0.3644 [0.3473, 0.3733] |
-| 1,000,000 | uniform_random | 0.0131 [0.0128, 0.0136]<br>0.0116 [0.0115, 0.0119] | invalid | 0.3029 [0.2951, 0.3159]<br>0.3049 [0.3002, 0.3080] |
-| 1,000,000 | sparse_stride | 0.0104 [0.0104, 0.0104]<br>0.0147 [0.0147, 0.0148] | invalid | 0.3469 [0.3288, 0.3838]<br>0.4106 [0.3876, 0.4224] |
-| 226,479 | zipfian | 0.0230 [0.0230, 0.0230]<br>0.0215 [0.0214, 0.0219] | invalid | 0.3999 [0.3955, 0.4163]<br>0.4610 [0.4594, 0.4623] |
+| 10,000 | sequential | 0.0068 [0.0068, 0.0069]<br>0.0310 [0.0309, 0.0311] | invalid | 0.2251 [0.2234, 0.2263]<br>0.4583 [0.4569, 0.4598] |
+| 10,000 | clustered | 0.0092 [0.0092, 0.0092]<br>0.0436 [0.0435, 0.0438] | invalid | 0.2655 [0.2641, 0.2664]<br>0.5691 [0.5680, 0.5703] |
+| 10,000 | uniform_random | 0.0406 [0.0405, 0.0407]<br>0.0400 [0.0399, 0.0401] | invalid | 0.8203 [0.8126, 0.8266]<br>0.8302 [0.8273, 0.8333] |
+| 10,000 | sparse_stride | 0.0166 [0.0165, 0.0167]<br>0.0390 [0.0389, 0.0391] | invalid | 0.5505 [0.5491, 0.5520]<br>0.5774 [0.5759, 0.5787] |
+| 100,000 | sequential | 0.0039 [0.0039, 0.0039]<br>0.0156 [0.0155, 0.0156] | invalid | 0.1698 [0.1684, 0.1728]<br>0.3827 [0.3769, 0.3856] |
+| 100,000 | clustered | 0.0081 [0.0080, 0.0081]<br>0.0292 [0.0291, 0.0293] | invalid | 0.1866 [0.1853, 0.1891]<br>0.4554 [0.4462, 0.4600] |
+| 100,000 | uniform_random | 0.0164 [0.0163, 0.0165]<br>0.0159 [0.0157, 0.0160] | invalid | 0.4027 [0.3993, 0.4059]<br>0.4324 [0.4199, 0.4387] |
+| 100,000 | sparse_stride | 0.0099 [0.0099, 0.0099]<br>0.0188 [0.0187, 0.0189] | invalid | 0.4754 [0.4735, 0.4777]<br>0.4798 [0.4773, 0.4837] |
+| 25,177 | zipfian | 0.0347 [0.0346, 0.0347]<br>0.0328 [0.0326, 0.0331] | invalid | 0.4603 [0.4587, 0.4613]<br>0.4578 [0.4572, 0.4588] |
+| 1,000,000 | sequential | 0.0036 [0.0036, 0.0036]<br>0.0121 [0.0120, 0.0122] | invalid | 0.1159 [0.1111, 0.1262]<br>0.3258 [0.3082, 0.3348] |
+| 1,000,000 | clustered | 0.0051 [0.0051, 0.0051]<br>0.0168 [0.0167, 0.0168] | invalid | 0.1290 [0.1244, 0.1388]<br>0.3658 [0.3487, 0.3746] |
+| 1,000,000 | uniform_random | 0.0132 [0.0129, 0.0137]<br>0.0116 [0.0115, 0.0119] | invalid | 0.3054 [0.2971, 0.3185]<br>0.3077 [0.3037, 0.3097] |
+| 1,000,000 | sparse_stride | 0.0103 [0.0103, 0.0103]<br>0.0147 [0.0146, 0.0147] | invalid | 0.3439 [0.3264, 0.3798]<br>0.4097 [0.3871, 0.4211] |
+| 226,479 | zipfian | 0.0232 [0.0231, 0.0232]<br>0.0217 [0.0215, 0.0220] | invalid | 0.4037 [0.3996, 0.4202]<br>0.4645 [0.4621, 0.4659] |
 
 ### String lookup, 50% hit, by shared-prefix length (workload: patricia_string_lookup)
 
@@ -176,30 +174,30 @@ Ratio = Expanse ns ÷ twin ns, geometric mean of per-round ratios with its BCa 9
 
 | n | cell | vs `patricia_tree` | vs `fast_radix_trie` | vs `qp_trie` |
 |---|---|---|---|---|
-| 10,000 | prefix 8 / generator | 0.2290 [0.2277, 0.2299] | 0.7247 [0.7206, 0.7284] | 0.8609 [0.8571, 0.8666] |
-| 10,000 | prefix 8 / sorted | 0.2406 [0.2401, 0.2418] | 0.7486 [0.7457, 0.7516] | 0.8749 [0.8728, 0.8768] |
-| 10,000 | prefix 35 / generator | 0.2602 [0.2599, 0.2606] | 0.8554 [0.8524, 0.8582] | 1.0334 [1.0317, 1.0352] |
-| 10,000 | prefix 35 / sorted | 0.2730 [0.2721, 0.2734] | 0.8906 [0.8872, 0.8926] | 1.0522 [1.0436, 1.0553] |
-| 10,000 | prefix 128 / generator | 0.3967 [0.3952, 0.3982] | 1.3170 [1.3110, 1.3239] | 1.5645 [1.5591, 1.5697] |
-| 10,000 | prefix 128 / sorted | 0.4167 [0.4159, 0.4175] | 1.3646 [1.3583, 1.3690] | 1.5921 [1.5896, 1.5945] |
-| 10,000 | prefix 240 / generator | 0.5296 [0.5284, 0.5315] | 1.6182 [1.6082, 1.6266] | 2.2225 [2.2128, 2.2334] |
-| 10,000 | prefix 240 / sorted | 0.5586 [0.5578, 0.5601] | 1.6655 [1.6569, 1.6721] | 2.2746 [2.2698, 2.2819] |
-| 100,000 | prefix 8 / generator | 0.2074 [0.2059, 0.2087] | 0.7108 [0.7069, 0.7133] | 0.7065 [0.6983, 0.7150] |
-| 100,000 | prefix 8 / sorted | 0.2524 [0.2517, 0.2531] | 0.7771 [0.7756, 0.7788] | 0.7339 [0.7254, 0.7417] |
-| 100,000 | prefix 35 / generator | 0.2306 [0.2292, 0.2315] | 0.8170 [0.8139, 0.8192] | 0.7753 [0.7637, 0.7853] |
-| 100,000 | prefix 35 / sorted | 0.2819 [0.2815, 0.2822] | 0.8974 [0.8944, 0.9004] | 0.8218 [0.8110, 0.8303] |
-| 100,000 | prefix 128 / generator | 0.3197 [0.3180, 0.3207] | 1.1339 [1.1310, 1.1366] | 0.8991 [0.8944, 0.9032] |
-| 100,000 | prefix 128 / sorted | 0.3871 [0.3864, 0.3880] | 1.2339 [1.2249, 1.2375] | 0.9595 [0.9562, 0.9627] |
-| 100,000 | prefix 240 / generator | 0.4028 [0.4017, 0.4038] | 1.3371 [1.3149, 1.3447] | 1.0441 [1.0404, 1.0479] |
-| 100,000 | prefix 240 / sorted | 0.4823 [0.4804, 0.4838] | 1.4554 [1.4525, 1.4589] | 1.1075 [1.1043, 1.1108] |
-| 1,000,000 | prefix 8 / generator | 0.1585 [0.1582, 0.1588] | 0.4371 [0.4364, 0.4376] | 0.4550 [0.4530, 0.4557] |
-| 1,000,000 | prefix 8 / sorted | 0.2119 [0.2116, 0.2124] | 0.5175 [0.5168, 0.5186] | 0.4898 [0.4891, 0.4906] |
-| 1,000,000 | prefix 35 / generator | 0.2550 [0.2541, 0.2554] | 0.7230 [0.7216, 0.7238] | 0.7414 [0.7385, 0.7428] |
-| 1,000,000 | prefix 35 / sorted | 0.3439 [0.3437, 0.3443] | 0.8295 [0.8287, 0.8302] | 0.7890 [0.7879, 0.7898] |
-| 1,000,000 | prefix 128 / generator | 0.2632 [0.2628, 0.2637] | 0.7046 [0.7039, 0.7058] | 0.7197 [0.7188, 0.7214] |
-| 1,000,000 | prefix 128 / sorted | 0.3629 [0.3624, 0.3638] | 0.8366 [0.8352, 0.8382] | 0.7853 [0.7842, 0.7872] |
-| 1,000,000 | prefix 240 / generator | 0.3084 [0.3081, 0.3087] | 0.8030 [0.8009, 0.8044] | 0.8333 [0.8317, 0.8341] |
-| 1,000,000 | prefix 240 / sorted | 0.4271 [0.4265, 0.4287] | 0.9475 [0.9459, 0.9510] | 0.9074 [0.9062, 0.9104] |
+| 10,000 | prefix 8 / generator | 0.2342 [0.2335, 0.2358] | 0.7513 [0.7488, 0.7550] | 0.8805 [0.8770, 0.8842] |
+| 10,000 | prefix 8 / sorted | 0.2455 [0.2451, 0.2459] | 0.7808 [0.7794, 0.7822] | 0.8948 [0.8923, 0.8969] |
+| 10,000 | prefix 35 / generator | 0.2594 [0.2591, 0.2597] | 0.8700 [0.8673, 0.8720] | 1.0314 [1.0302, 1.0331] |
+| 10,000 | prefix 35 / sorted | 0.2731 [0.2726, 0.2739] | 0.9024 [0.9000, 0.9048] | 1.0481 [1.0462, 1.0495] |
+| 10,000 | prefix 128 / generator | 0.3886 [0.3872, 0.3895] | 1.3027 [1.2970, 1.3066] | 1.5252 [1.5189, 1.5306] |
+| 10,000 | prefix 128 / sorted | 0.4074 [0.4064, 0.4084] | 1.3425 [1.3372, 1.3483] | 1.5523 [1.5451, 1.5560] |
+| 10,000 | prefix 240 / generator | 0.5195 [0.5187, 0.5205] | 1.5995 [1.5917, 1.6048] | 2.1749 [2.1680, 2.1823] |
+| 10,000 | prefix 240 / sorted | 0.5707 [0.5702, 0.5715] | 1.7408 [1.7178, 1.7532] | 2.3299 [2.3216, 2.3338] |
+| 100,000 | prefix 8 / generator | 0.2077 [0.2064, 0.2088] | 0.7134 [0.7118, 0.7151] | 0.7102 [0.7013, 0.7179] |
+| 100,000 | prefix 8 / sorted | 0.2547 [0.2538, 0.2557] | 0.7797 [0.7767, 0.7831] | 0.7415 [0.7325, 0.7493] |
+| 100,000 | prefix 35 / generator | 0.2303 [0.2289, 0.2313] | 0.8152 [0.8074, 0.8184] | 0.7769 [0.7646, 0.7872] |
+| 100,000 | prefix 35 / sorted | 0.2817 [0.2808, 0.2823] | 0.8934 [0.8913, 0.8960] | 0.8159 [0.8064, 0.8242] |
+| 100,000 | prefix 128 / generator | 0.3132 [0.3125, 0.3139] | 1.0968 [1.0818, 1.1026] | 0.8720 [0.8651, 0.8769] |
+| 100,000 | prefix 128 / sorted | 0.3763 [0.3751, 0.3774] | 1.1938 [1.1877, 1.1984] | 0.9348 [0.9295, 0.9389] |
+| 100,000 | prefix 240 / generator | 0.3986 [0.3971, 0.3996] | 1.2984 [1.2895, 1.3055] | 1.0299 [1.0270, 1.0321] |
+| 100,000 | prefix 240 / sorted | 0.4774 [0.4752, 0.4787] | 1.4280 [1.4239, 1.4309] | 1.0920 [1.0892, 1.0945] |
+| 1,000,000 | prefix 8 / generator | 0.1567 [0.1564, 0.1570] | 0.4378 [0.4370, 0.4384] | 0.4506 [0.4500, 0.4511] |
+| 1,000,000 | prefix 8 / sorted | 0.2118 [0.2114, 0.2121] | 0.5159 [0.5151, 0.5164] | 0.4874 [0.4869, 0.4881] |
+| 1,000,000 | prefix 35 / generator | 0.2564 [0.2558, 0.2571] | 0.7235 [0.7225, 0.7256] | 0.7431 [0.7414, 0.7446] |
+| 1,000,000 | prefix 35 / sorted | 0.3456 [0.3450, 0.3463] | 0.8312 [0.8303, 0.8324] | 0.7916 [0.7897, 0.7927] |
+| 1,000,000 | prefix 128 / generator | 0.2605 [0.2601, 0.2608] | 0.6921 [0.6913, 0.6928] | 0.7105 [0.7099, 0.7111] |
+| 1,000,000 | prefix 128 / sorted | 0.3580 [0.3576, 0.3594] | 0.8291 [0.8277, 0.8332] | 0.7743 [0.7722, 0.7771] |
+| 1,000,000 | prefix 240 / generator | 0.3082 [0.3079, 0.3084] | 0.8007 [0.7997, 0.8019] | 0.8296 [0.8287, 0.8305] |
+| 1,000,000 | prefix 240 / sorted | 0.4279 [0.4268, 0.4312] | 0.9519 [0.9483, 0.9626] | 0.9085 [0.9050, 0.9177] |
 
 ### Full traversal and prefix scan (workload: patricia_scan)
 
@@ -207,40 +205,53 @@ Ratio = Expanse ns ÷ twin ns, geometric mean of per-round ratios with its BCa 9
 
 | n | cell | vs `patricia_tree` | vs `fast_radix_trie` | vs `qp_trie` |
 |---|---|---|---|---|
-| 10,000 | full_traversal sequential / generator | 0.1590 [0.1587, 0.1595] | invalid | 1.2747 [1.2725, 1.2782] |
-| 10,000 | full_traversal sequential / shuffled | 0.1259 [0.1252, 0.1263] | invalid | 1.2278 [1.2235, 1.2306] |
-| 10,000 | full_traversal clustered / generator | 0.1586 [0.1583, 0.1588] | invalid | 1.2851 [1.2837, 1.2871] |
-| 10,000 | full_traversal clustered / shuffled | 0.1258 [0.1257, 0.1260] | invalid | 1.2381 [1.2366, 1.2396] |
-| 10,000 | full_traversal uniform_random / generator | 0.7697 [0.7673, 0.7720] | invalid | 2.6989 [2.6725, 2.7307] |
-| 10,000 | full_traversal uniform_random / shuffled | 0.7620 [0.7604, 0.7637] | invalid | 2.6887 [2.6719, 2.7035] |
-| 10,000 | full_traversal sparse_stride / generator | 0.5852 [0.5815, 0.5881] | invalid | 4.2047 [4.1960, 4.2184] |
-| 10,000 | full_traversal sparse_stride / shuffled | 0.4057 [0.4052, 0.4063] | invalid | 3.8213 [3.8164, 3.8267] |
-| 10,000 | prefix_scan prefixed_path / generator | 2.0891 [2.0738, 2.1081] | 2.6771 [2.6553, 2.6985] | 6.0183 [5.9608, 6.0977] |
-| 10,000 | prefix_scan prefixed_path / sorted | 2.2653 [2.2559, 2.2836] | 2.7677 [2.7395, 2.7951] | 5.7592 [5.7100, 5.8091] |
-| 100,000 | full_traversal sequential / generator | 0.1561 [0.1559, 0.1563] | invalid | 1.2064 [1.2042, 1.2085] |
-| 100,000 | full_traversal sequential / shuffled | 0.0710 [0.0709, 0.0711] | invalid | 1.0490 [1.0475, 1.0508] |
-| 100,000 | full_traversal clustered / generator | 0.1857 [0.1851, 0.1862] | invalid | 1.2665 [1.2610, 1.2701] |
-| 100,000 | full_traversal clustered / shuffled | 0.0716 [0.0713, 0.0717] | invalid | 1.0450 [1.0405, 1.0476] |
-| 100,000 | full_traversal uniform_random / generator | 0.4427 [0.4413, 0.4446] | invalid | 1.2288 [1.2181, 1.2383] |
-| 100,000 | full_traversal uniform_random / shuffled | 0.4408 [0.4391, 0.4423] | invalid | 1.2166 [1.2053, 1.2269] |
-| 100,000 | full_traversal sparse_stride / generator | 0.5834 [0.5826, 0.5841] | invalid | 4.1060 [4.0988, 4.1107] |
-| 100,000 | full_traversal sparse_stride / shuffled | 0.2239 [0.2235, 0.2248] | invalid | 3.3042 [3.2974, 3.3190] |
-| 25,177 | full_traversal zipfian / generator | 0.1459 [0.1454, 0.1464] | invalid | 0.6492 [0.6458, 0.6523] |
-| 25,177 | full_traversal zipfian / shuffled | 0.1451 [0.1444, 0.1458] | invalid | 0.6489 [0.6450, 0.6535] |
-| 100,000 | prefix_scan prefixed_path / generator | 0.7727 [0.7689, 0.7770] | 0.9851 [0.9777, 0.9915] | 1.6367 [1.6283, 1.6430] |
-| 100,000 | prefix_scan prefixed_path / sorted | 1.0579 [1.0516, 1.0639] | 1.1610 [1.1552, 1.1686] | 1.7754 [1.7651, 1.7861] |
-| 1,000,000 | full_traversal sequential / generator | 0.1759 [0.1753, 0.1765] | invalid | 0.6946 [0.6887, 0.6986] |
-| 1,000,000 | full_traversal sequential / shuffled | 0.0324 [0.0318, 0.0332] | invalid | 0.3881 [0.3863, 0.3901] |
-| 1,000,000 | full_traversal clustered / generator | 0.1808 [0.1799, 0.1819] | invalid | 0.6984 [0.6923, 0.7046] |
-| 1,000,000 | full_traversal clustered / shuffled | 0.0327 [0.0315, 0.0341] | invalid | 0.3987 [0.3970, 0.4004] |
-| 1,000,000 | full_traversal uniform_random / generator | 0.0580 [0.0575, 0.0587] | invalid | 0.2364 [0.2358, 0.2369] |
-| 1,000,000 | full_traversal uniform_random / shuffled | 0.0589 [0.0584, 0.0595] | invalid | 0.2366 [0.2361, 0.2370] |
-| 1,000,000 | full_traversal sparse_stride / generator | 0.5726 [0.5705, 0.5743] | invalid | 2.2398 [2.2316, 2.2485] |
-| 1,000,000 | full_traversal sparse_stride / shuffled | 0.0889 [0.0879, 0.0901] | invalid | 1.0628 [1.0597, 1.0662] |
-| 226,479 | full_traversal zipfian / generator | 0.0961 [0.0955, 0.0966] | invalid | 0.5498 [0.5465, 0.5527] |
-| 226,479 | full_traversal zipfian / shuffled | 0.0950 [0.0944, 0.0955] | invalid | 0.5526 [0.5500, 0.5547] |
-| 1,000,000 | prefix_scan prefixed_path / generator | 0.8324 [0.8301, 0.8357] | 1.2664 [1.2620, 1.2703] | 2.4708 [2.4636, 2.4816] |
-| 1,000,000 | prefix_scan prefixed_path / sorted | 1.3294 [1.3270, 1.3321] | 1.4488 [1.4434, 1.4530] | 1.6907 [1.6823, 1.6979] |
+| 10,000 | full_traversal sequential / generator | 0.1862 [0.1854, 0.1872] | invalid | 1.3536 [1.3463, 1.3588] |
+| 10,000 | full_traversal sequential / shuffled | 0.1359 [0.1357, 0.1362] | invalid | 1.2414 [1.2368, 1.2451] |
+| 10,000 | full_traversal clustered / generator | 0.1910 [0.1904, 0.1917] | invalid | 1.3660 [1.3623, 1.3725] |
+| 10,000 | full_traversal clustered / shuffled | 0.1346 [0.1342, 0.1352] | invalid | 1.2564 [1.2525, 1.2622] |
+| 10,000 | full_traversal uniform_random / generator | 0.7397 [0.7371, 0.7436] | invalid | 2.0527 [2.0437, 2.0679] |
+| 10,000 | full_traversal uniform_random / shuffled | 0.7396 [0.7356, 0.7420] | invalid | 2.0210 [2.0124, 2.0307] |
+| 10,000 | full_traversal sparse_stride / generator | 0.5876 [0.5846, 0.5890] | invalid | 4.1878 [4.1815, 4.1946] |
+| 10,000 | full_traversal sparse_stride / shuffled | 0.4075 [0.4069, 0.4085] | invalid | 3.8017 [3.7929, 3.8098] |
+| 10,000 | prefix_scan prefixed_path / generator | 1.5418 [1.5304, 1.5498] | 1.7271 [1.7084, 1.7415] | 4.7126 [4.6358, 4.7998] |
+| 10,000 | prefix_scan prefixed_path / sorted | 1.7018 [1.6904, 1.7112] | 1.6948 [1.6695, 1.7342] | 4.1820 [4.1410, 4.2454] |
+| 100,000 | full_traversal sequential / generator | 0.1838 [0.1758, 0.1887] | invalid | 1.2888 [1.2686, 1.3037] |
+| 100,000 | full_traversal sequential / shuffled | 0.0720 [0.0719, 0.0722] | invalid | 1.0601 [1.0529, 1.0650] |
+| 100,000 | full_traversal clustered / generator | 0.1918 [0.1914, 0.1926] | invalid | 1.3004 [1.2952, 1.3056] |
+| 100,000 | full_traversal clustered / shuffled | 0.0733 [0.0732, 0.0735] | invalid | 1.0708 [1.0688, 1.0728] |
+| 100,000 | full_traversal uniform_random / generator | 0.4517 [0.4506, 0.4536] | invalid | 1.2054 [1.2014, 1.2095] |
+| 100,000 | full_traversal uniform_random / shuffled | 0.4505 [0.4479, 0.4522] | invalid | 1.2089 [1.2048, 1.2130] |
+| 100,000 | full_traversal sparse_stride / generator | 0.5890 [0.5882, 0.5911] | invalid | 4.1039 [4.0946, 4.1243] |
+| 100,000 | full_traversal sparse_stride / shuffled | 0.2244 [0.2239, 0.2256] | invalid | 3.3173 [3.3084, 3.3342] |
+| 25,177 | full_traversal zipfian / generator | 0.1491 [0.1486, 0.1497] | invalid | 0.5087 [0.5060, 0.5108] |
+| 25,177 | full_traversal zipfian / shuffled | 0.1470 [0.1463, 0.1479] | invalid | 0.5098 [0.5071, 0.5133] |
+| 100,000 | prefix_scan prefixed_path / generator | 0.6549 [0.6507, 0.6600] | 0.7930 [0.7859, 0.8026] | 1.3666 [1.3502, 1.3834] |
+| 100,000 | prefix_scan prefixed_path / sorted | 0.8953 [0.8925, 0.8977] | 0.9223 [0.9195, 0.9259] | 1.4812 [1.4754, 1.4851] |
+| 1,000,000 | full_traversal sequential / generator | 0.1831 [0.1820, 0.1846] | invalid | 0.7184 [0.7143, 0.7234] |
+| 1,000,000 | full_traversal sequential / shuffled | 0.0325 [0.0319, 0.0334] | invalid | 0.3863 [0.3844, 0.3887] |
+| 1,000,000 | full_traversal clustered / generator | 0.1851 [0.1833, 0.1863] | invalid | 0.7079 [0.7025, 0.7147] |
+| 1,000,000 | full_traversal clustered / shuffled | 0.0330 [0.0319, 0.0345] | invalid | 0.3977 [0.3957, 0.4003] |
+| 1,000,000 | full_traversal uniform_random / generator | 0.0565 [0.0560, 0.0570] | invalid | 0.2367 [0.2356, 0.2376] |
+| 1,000,000 | full_traversal uniform_random / shuffled | 0.0573 [0.0568, 0.0578] | invalid | 0.2375 [0.2367, 0.2384] |
+| 1,000,000 | full_traversal sparse_stride / generator | 0.5729 [0.5701, 0.5777] | invalid | 2.2346 [2.2265, 2.2518] |
+| 1,000,000 | full_traversal sparse_stride / shuffled | 0.0893 [0.0884, 0.0906] | invalid | 1.0636 [1.0600, 1.0681] |
+| 226,479 | full_traversal zipfian / generator | 0.0978 [0.0972, 0.0984] | invalid | 0.5394 [0.5329, 0.5430] |
+| 226,479 | full_traversal zipfian / shuffled | 0.0966 [0.0950, 0.0972] | invalid | 0.5437 [0.5407, 0.5469] |
+| 1,000,000 | prefix_scan prefixed_path / generator | 0.7747 [0.7705, 0.7780] | 1.1253 [1.1232, 1.1272] | 2.2998 [2.2857, 2.3076] |
+| 1,000,000 | prefix_scan prefixed_path / sorted | 1.1699 [1.1660, 1.1731] | 1.2081 [1.2026, 1.2115] | 1.4511 [1.4469, 1.4553] |
+
+### Prefix scan: `cursor_prefix` vs the unbounded walk (workload: patricia_scan)
+
+Ratio = `cursor_prefix` ns ÷ `cursor_at_or_after` + per-key `starts_with` ns, both on `ExpanseStrMap`, each on its own map, timed in the same rounds as the twins; geometric mean of per-round ratios with its BCa 95% interval. Below 1 means `cursor_prefix` is faster.
+
+| n | order | `cursor_prefix` ns/prefix | unbounded ns/prefix | ratio |
+|---|---|---|---|---|
+| 10,000 | generator | 875 | 960 | 0.9101 [0.9057, 0.9120] |
+| 10,000 | sorted | 862 | 946 | 0.9137 [0.9106, 0.9226] |
+| 100,000 | generator | 4,915 | 5,706 | 0.8615 [0.8553, 0.8681] |
+| 100,000 | sorted | 4,361 | 5,299 | 0.8264 [0.8227, 0.8303] |
+| 1,000,000 | generator | 161,445 | 173,789 | 0.9263 [0.9229, 0.9293] |
+| 1,000,000 | sorted | 57,177 | 71,336 | 0.7989 [0.7947, 0.8017] |
 
 ### Live heap (workload: patricia_memory)
 
@@ -252,15 +263,15 @@ Requested / usable bytes per key (`malloc_usable_size`); exact counts. Usable si
 | 100,000 | clustered | 9.56 / 9.82<br>20.70 / 21.00 | 24.08 / 24.13<br>24.08 / 24.13 | invalid<br>invalid | 42.76 / 43.30<br>42.76 / 43.51 |
 | 100,000 | uniform_random | 30.49 / 30.62<br>30.58 / 30.69 | 30.54 / 34.68<br>30.54 / 34.68 | invalid<br>invalid | 64.60 / 67.62<br>64.60 / 67.60 |
 | 100,000 | sparse_stride | 17.09 / 17.16<br>24.87 / 24.97 | 24.06 / 24.11<br>24.06 / 24.11 | invalid<br>invalid | 42.73 / 43.27<br>42.73 / 43.47 |
-| 100,000 | path, prefix 8 | 45.49 / 50.08<br>37.87 / 42.06 | 37.94 / 43.59<br>37.94 / 43.60 | 51.93 / 60.75<br>51.93 / 60.75 | 94.20 / 104.14<br>94.20 / 103.79 |
-| 100,000 | path, prefix 35 | 46.64 / 47.87<br>37.91 / 39.03 | 37.94 / 43.59<br>37.94 / 43.60 | 51.93 / 60.76<br>51.93 / 60.75 | 121.20 / 135.24<br>121.20 / 134.76 |
-| 100,000 | path, prefix 128 | 45.50 / 50.11<br>37.88 / 42.08 | 37.94 / 43.59<br>37.94 / 43.61 | 51.93 / 60.76<br>51.93 / 60.76 | 214.20 / 231.86<br>214.20 / 231.97 |
-| 100,000 | path, prefix 240 | 45.50 / 50.13<br>37.88 / 42.10 | 37.94 / 43.60<br>37.94 / 43.61 | 51.93 / 60.76<br>51.93 / 60.77 | 326.20 / 342.77<br>326.20 / 342.72 |
+| 100,000 | path, prefix 8 | 45.49 / 50.08<br>37.87 / 42.06 | 37.94 / 44.51<br>37.94 / 43.59 | 51.93 / 60.76<br>51.93 / 60.75 | 94.20 / 104.15<br>94.20 / 103.79 |
+| 100,000 | path, prefix 35 | 46.64 / 47.87<br>37.91 / 39.03 | 37.94 / 43.59<br>37.94 / 43.60 | 51.93 / 60.75<br>51.93 / 60.75 | 121.20 / 135.24<br>121.20 / 134.76 |
+| 100,000 | path, prefix 128 | 45.50 / 50.12<br>37.88 / 42.09 | 37.94 / 44.51<br>37.94 / 43.59 | 51.93 / 60.76<br>51.93 / 60.76 | 214.20 / 231.86<br>214.20 / 231.97 |
+| 100,000 | path, prefix 240 | 45.50 / 50.12<br>37.88 / 42.10 | 37.94 / 44.51<br>37.94 / 43.60 | 51.93 / 60.76<br>51.93 / 60.77 | 326.20 / 342.77<br>326.20 / 342.72 |
 | 1,000,000 | sequential | 8.65 / 8.91<br>19.72 / 20.01 | 24.06 / 24.09<br>24.06 / 24.09 | invalid<br>invalid | 42.67 / 43.20<br>42.67 / 43.41 |
 | 1,000,000 | clustered | 8.77 / 9.03<br>19.95 / 20.23 | 24.08 / 24.12<br>24.08 / 24.12 | invalid<br>invalid | 42.72 / 43.26<br>42.72 / 43.47 |
 | 1,000,000 | uniform_random | 24.56 / 24.81<br>24.61 / 24.85 | 25.51 / 26.27<br>25.51 / 26.27 | invalid<br>invalid | 67.17 / 70.01<br>67.17 / 69.95 |
 | 1,000,000 | sparse_stride | 16.39 / 16.46<br>24.19 / 24.28 | 24.06 / 24.10<br>24.06 / 24.10 | invalid<br>invalid | 42.67 / 43.20<br>42.67 / 43.41 |
-| 1,000,000 | path, prefix 8 | 44.84 / 49.26<br>36.26 / 40.53 | 37.07 / 42.91<br>37.07 / 42.91 | 50.60 / 58.84<br>50.60 / 58.84 | 90.59 / 100.40<br>90.59 / 100.15 |
-| 1,000,000 | path, prefix 35 | 41.23 / 42.25<br>39.12 / 40.12 | 37.07 / 42.91<br>37.07 / 42.91 | 50.60 / 58.84<br>50.60 / 58.84 | 117.59 / 131.29<br>117.59 / 130.87 |
-| 1,000,000 | path, prefix 128 | 44.85 / 49.26<br>36.26 / 40.53 | 37.07 / 42.91<br>37.07 / 42.91 | 50.60 / 58.84<br>50.60 / 58.84 | 210.59 / 228.22<br>210.59 / 228.29 |
-| 1,000,000 | path, prefix 240 | 44.85 / 49.26<br>36.26 / 40.53 | 37.07 / 42.91<br>37.07 / 42.91 | 50.60 / 58.84<br>50.60 / 58.85 | 322.59 / 338.87<br>322.59 / 338.86 |
+| 1,000,000 | path, prefix 8 | 44.84 / 49.26<br>36.26 / 40.53 | 37.07 / 44.27<br>37.07 / 42.91 | 50.60 / 58.84<br>50.60 / 58.84 | 90.59 / 100.40<br>90.59 / 100.15 |
+| 1,000,000 | path, prefix 35 | 41.23 / 42.25<br>39.12 / 40.11 | 37.07 / 42.91<br>37.07 / 42.91 | 50.60 / 58.84<br>50.60 / 58.84 | 117.59 / 131.29<br>117.59 / 130.87 |
+| 1,000,000 | path, prefix 128 | 44.85 / 49.26<br>36.26 / 40.53 | 37.07 / 44.27<br>37.07 / 42.91 | 50.60 / 58.86<br>50.60 / 58.84 | 210.59 / 228.24<br>210.59 / 228.29 |
+| 1,000,000 | path, prefix 240 | 44.85 / 49.26<br>36.26 / 40.53 | 37.07 / 42.91<br>37.07 / 42.91 | 50.60 / 58.86<br>50.60 / 58.85 | 322.59 / 338.85<br>322.59 / 338.86 |

@@ -207,6 +207,29 @@ def ratio_table(d: dict, title: str, wid: str, row_key, keys_for) -> list[str]:
     return lines + [""]
 
 
+def surface_table(scan: dict) -> list[str]:
+    """The prefix cells' in-harness comparison of the two Expanse surfaces.
+
+    Rendered only from rows that carry the `expanse_unbounded` arm, so an
+    artifact from before that arm renders nothing here.
+    """
+    rows = [r for r in scan["results"] if r["operation"] == "prefix_scan"
+            and "ratio_expanse_over_expanse_unbounded" in r]
+    if not rows:
+        return []
+    lines = ["### Prefix scan: `cursor_prefix` vs the unbounded walk (workload: patricia_scan)", "",
+             "Ratio = `cursor_prefix` ns ÷ `cursor_at_or_after` + per-key `starts_with` ns, both on "
+             "`ExpanseStrMap`, each on its own map, timed in the same rounds as the twins; geometric mean "
+             "of per-round ratios with its BCa 95% interval. Below 1 means `cursor_prefix` is faster.", "",
+             "| n | order | `cursor_prefix` ns/prefix | unbounded ns/prefix | ratio |",
+             "|---|---|---|---|---|"]
+    for r in rows:
+        lines.append(f"| {r['population']:,} | {r['order']} | {r['expanse_ns_op']:,.0f} | "
+                     f"{r['expanse_unbounded_ns_op']:,.0f} | "
+                     f"{fmt_ratio(r, 'ratio_expanse_over_expanse_unbounded')} |")
+    return lines + [""]
+
+
 def memory_table(mem: dict) -> list[str]:
     arms = ("expanse",) + TWINS
     lines = ["### Live heap (workload: patricia_memory)", "",
@@ -299,6 +322,7 @@ def render() -> str:
         *ratio_table(scan, "Full traversal and prefix scan", "patricia_scan",
                      lambda r: f"{r['operation']} {r['distribution']} / {r['order']}",
                      lambda t: [f"ratio_expanse_over_{t}"]),
+        *surface_table(scan),
         *memory_table(mem),
     ]
     return "\n".join(md).rstrip() + "\n"
