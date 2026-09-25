@@ -9016,6 +9016,16 @@ impl SyncExpanseMap {
 
 /// A per-thread reader handle for [`SyncExpanseMap`].
 ///
+/// Besides `get`, the handle has the ordered reads `first`, `last`,
+/// `next_at_or_after`, `next_after`, `prev_at_or_before` and `prev_before`,
+/// as [`OwnedMapReader`] and [`DetachedMapReader`] do. None excludes writers.
+/// Each call validates the nodes it depends on, retries when a concurrent
+/// write overlaps, and after a bounded number of attempts answers under the
+/// writer lock, so each call is linearizable on its own. A sequence of calls
+/// is not a snapshot: a scan built from `first` and `next_after` returns keys
+/// in strictly ascending order and sees every key present for the whole scan,
+/// and may or may not see keys inserted or removed while it runs.
+///
 /// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
 /// [`Reader`], whose single epoch slot two threads pinning at once would
 /// clear under each other. Sharing one by reference does not compile:
@@ -9160,46 +9170,40 @@ impl DetachedMapReader {
     }
 
     // The ordered reads of `map_reader_ordered_reads!`, taking the map at call
-    // time; the same `map` requirement as `get` applies to each. Hidden for
-    // the same reason (`docs/benchmarks/concurrency/METHODOLOGY.md` §12).
+    // time, with the same contract; the `map` requirement of `get` applies to
+    // each.
 
     /// Smallest entry, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn first(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
         map_next_with(map, &self.reader, 0)
     }
 
     /// Largest entry, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn last(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
         map_prev_with(map, &self.reader, u64::MAX)
     }
 
     /// Smallest entry with key `>= key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn next_at_or_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_next_with(map, &self.reader, key)
     }
 
     /// Smallest entry with key `> key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn next_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_next_with(map, &self.reader, key.checked_add(1)?)
     }
 
     /// Largest entry with key `<= key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn prev_at_or_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_prev_with(map, &self.reader, key)
     }
 
     /// Largest entry with key `< key`, without excluding writers.
-    #[doc(hidden)]
     #[must_use]
     pub fn prev_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_prev_with(map, &self.reader, key.checked_sub(1)?)
@@ -9239,47 +9243,48 @@ fn map_prev_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<(u64
 }
 
 /// The ordered reads on a map reader handle, over `map_next_with` and
-/// `map_prev_with`. Hidden while their soundness gates and measurements
-/// (`docs/benchmarks/concurrency/METHODOLOGY.md` §12) are outstanding.
+/// `map_prev_with` (#900, `docs/benchmarks/concurrency/METHODOLOGY.md` §12).
+///
+/// Each call is one optimistic read that does not exclude writers: it walks
+/// the tree validating every node it depends on, retries when a concurrent
+/// write overlaps, and after `MAX_RETRIES` attempts answers under the writer
+/// lock. Each call is linearizable on its own (the history checker in
+/// `tests/linearizability.rs` runs them); a sequence of calls is not a
+/// snapshot, so a scan built from them sees each key present throughout it,
+/// and may or may not see keys inserted or removed while it runs.
 macro_rules! map_reader_ordered_reads {
     ($($map:ident).+) => {
         /// Smallest entry, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn first(&self) -> Option<(u64, u64)> {
             map_next_with(&self.$($map).+, &self.reader, 0)
         }
 
         /// Largest entry, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn last(&self) -> Option<(u64, u64)> {
             map_prev_with(&self.$($map).+, &self.reader, u64::MAX)
         }
 
         /// Smallest entry with key `>= key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
             map_next_with(&self.$($map).+, &self.reader, key)
         }
 
         /// Smallest entry with key `> key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn next_after(&self, key: Key) -> Option<(u64, u64)> {
             map_next_with(&self.$($map).+, &self.reader, key.checked_add(1)?)
         }
 
         /// Largest entry with key `<= key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
             map_prev_with(&self.$($map).+, &self.reader, key)
         }
 
         /// Largest entry with key `< key`, without excluding writers.
-        #[doc(hidden)]
         #[must_use]
         pub fn prev_before(&self, key: Key) -> Option<(u64, u64)> {
             map_prev_with(&self.$($map).+, &self.reader, key.checked_sub(1)?)

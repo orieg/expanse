@@ -1867,7 +1867,13 @@ impl<'a, S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::Byt
 impl<'a, S> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BytesReader<'a, S>
 pub struct expanse_trie::sync::DetachedMapReader
 impl expanse_trie::sync::DetachedMapReader
+pub fn expanse_trie::sync::DetachedMapReader::first(&self, &expanse_trie::sync::SyncExpanseMap) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::DetachedMapReader::get(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::DetachedMapReader::last(&self, &expanse_trie::sync::SyncExpanseMap) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::DetachedMapReader::next_after(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::DetachedMapReader::next_at_or_after(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::DetachedMapReader::prev_at_or_before(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::DetachedMapReader::prev_before(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 impl core::marker::Freeze for expanse_trie::sync::DetachedMapReader
 impl core::marker::Send for expanse_trie::sync::DetachedMapReader
 impl !core::marker::Sync for expanse_trie::sync::DetachedMapReader
@@ -1876,6 +1882,13 @@ impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedMapReader
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedMapReader
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedMapReader
 pub struct expanse_trie::sync::MapReader<'a>
+impl expanse_trie::sync::MapReader<'_>
+pub fn expanse_trie::sync::MapReader<'_>::first(&self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::MapReader<'_>::last(&self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::MapReader<'_>::next_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::MapReader<'_>::next_at_or_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::MapReader<'_>::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::MapReader<'_>::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 impl expanse_trie::sync::MapReader<'_>
 pub fn expanse_trie::sync::MapReader<'_>::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 impl<'a> core::marker::Freeze for expanse_trie::sync::MapReader<'a>
@@ -1886,6 +1899,13 @@ impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::MapReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::MapReader<'a>
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::MapReader<'a>
 pub struct expanse_trie::sync::OwnedMapReader
+impl expanse_trie::sync::OwnedMapReader
+pub fn expanse_trie::sync::OwnedMapReader::first(&self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::OwnedMapReader::last(&self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::OwnedMapReader::next_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::OwnedMapReader::next_at_or_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::OwnedMapReader::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::OwnedMapReader::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 impl expanse_trie::sync::OwnedMapReader
 pub fn expanse_trie::sync::OwnedMapReader::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 impl core::marker::Freeze for expanse_trie::sync::OwnedMapReader
