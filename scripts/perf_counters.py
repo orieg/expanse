@@ -58,6 +58,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
+from bench_provenance import add_load, estimators, host_facts  # noqa: E402
 
 # The counters #455 R0 names. The first group is portable; the second is
 # Intel-specific and simply does not exist on other microarchitectures, which
@@ -770,6 +771,7 @@ def build_doc(
     available: list[str],
     unavailable: list[dict],
     cells: list[dict],
+    loads: list[dict] | None = None,
 ) -> dict:
     return {
         "schema": "expanse.perfcounters.v1",
@@ -780,6 +782,21 @@ def build_doc(
             "commit": args.commit or _git_commit(root),
             "run_id": args.run_id,
             "kernel_perf_event_paranoid": paranoid_level(),
+            # What `scripts/check_bench_provenance.py` requires of a committed
+            # comparative artifact (AGENTS.md section 8.17): the host, what
+            # each published figure is, and load snapshots with the busy-CPU
+            # delta taken before every cell and at the end.
+            "host": host_facts(" ".join(pin[2:]) if pin and len(pin) > 2 else None),
+            "estimators": estimators(
+                "none: counts per cell, not ratios",
+                columns="mean over paired runs of (probe phase - build phase) counts, "
+                "BCa 95% interval over those per-run differences (scripts/bca_bootstrap.py; "
+                "construction label in each counter's ci_method)",
+            ),
+            "loads": loads or [],
+        },
+        "rounds_raw": {
+            c["id"]: {e: st.get("samples", []) for e, st in c["counters"].items()} for c in cells
         },
         "pmu": {
             "selected": pmu,
@@ -900,10 +917,12 @@ def main() -> int:
 
     workload = root / WORKLOAD_REL
     cells: list[dict] = []
+    prov: dict = {"loads": []}
     try:
         for arm in arms:
             for pop in pops:
                 for hit_pct in hit_pcts:
+                    add_load(prov, f"before {cell_id(arm, pop, hit_pct)}")
                     phases = run_cell(
                         workload,
                         available,
@@ -944,7 +963,8 @@ def main() -> int:
         print(f"::error::{exc}", file=sys.stderr)
         return 1
 
-    doc = build_doc(args, root, pmu, why, pin, available, unavailable, cells)
+    add_load(prov, "end")
+    doc = build_doc(args, root, pmu, why, pin, available, unavailable, cells, prov["loads"])
     Path(args.out).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     print("\n".join(render(doc)))
     return 0
