@@ -51,8 +51,8 @@ CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 UNCONDITIONAL_JOBS = frozenset({"detect-changes", "docs-lint", "ci-gate"})
 
 # The slow lanes wait for this job (`needs: [..., fast-lane]`): it runs only
-# once lint and docs-lint have passed, and never on a draft pull request or a
-# push to main. Its `if:` reads job results and event fields rather than filter
+# once lint and docs-lint have passed, and never on a draft pull request or on
+# a push to main that lands a tree CI already passed in full. Its `if:` reads job results and event fields rather than filter
 # outputs, so it is checked by `check_fast_lane`, not `evaluate_if`.
 FAST_LANE_JOB = "fast-lane"
 # The jobs that run before (or regardless of) the fast lane. Every other job
@@ -62,7 +62,7 @@ FAST_LANE_EXEMPT = frozenset({"detect-changes", "lint", "docs-lint", FAST_LANE_J
 # Clauses the fast lane's `if:` must carry; each is one of its three purposes.
 FAST_LANE_CLAUSES = (
     "needs.docs-lint.result == 'success'",
-    "github.event_name != 'push'",
+    "(github.event_name != 'push' || !(needs.detect-changes.outputs.push-verified == 'true'))",
     "!github.event.pull_request.draft",
 )
 
@@ -85,7 +85,7 @@ def check_fast_lane(jobs) -> list[str]:
         if FAST_LANE_JOB not in job_needs(jobs[name]):
             errs.append(
                 f"{name!r} does not list {FAST_LANE_JOB!r} in `needs` -- it would run on "
-                "draft pull requests, pushes to main and runs whose lint failed"
+                "draft pull requests, verified pushes to main and runs whose lint failed"
             )
     expr = str(jobs[FAST_LANE_JOB].get("if") or "")
     for clause in FAST_LANE_CLAUSES:

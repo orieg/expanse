@@ -18,8 +18,10 @@ This is the floor under that. It asserts:
   3. For every job, `skipped` matches its `if:` evaluating false under the
      filter outputs that were actually observed. A job that skipped while its
      own gate says it should have run is the silent-narrowing case.
-  4. The fast lane decided the slow lanes: on a push to main it did not run
-     and neither did they; on a draft pull request it did not run, and the
+  4. The fast lane decided the slow lanes: on a push to main that landed a
+     tree CI already passed in full (`push-verified` true) it did not run and
+     neither did they; on any other push it succeeded, like a ready pull
+     request; on a draft pull request it did not run, and the
      gate FAILS so a draft never shows a green required context; on any other
      event it succeeded, or no slow lane ran and the gate fails. A slow lane
      is judged by its own `if:` only when the fast lane succeeded.
@@ -56,15 +58,16 @@ def _as_bool(value) -> bool:
     return str(value).strip().lower() == "true"
 
 
-def check_fast_lane_result(jobs, statuses, *, event_name, draft) -> tuple[bool, list[str]]:
+def check_fast_lane_result(jobs, statuses, *, event_name, draft,
+                           push_verified=False) -> tuple[bool, list[str]]:
     """Whether the slow lanes were released, and what is wrong with that."""
     if FAST_LANE_JOB not in jobs:
         return True, []
     result = (statuses.get(FAST_LANE_JOB) or {}).get("result")
-    if event_name == "push":
+    if event_name == "push" and push_verified:
         if result not in (None, "skipped"):
-            return True, [f"{FAST_LANE_JOB!r} ran on a push to main (result {result!r}); "
-                          "a push runs the fast lane only"]
+            return True, [f"{FAST_LANE_JOB!r} ran on a push whose tree CI already passed in "
+                          f"full (result {result!r}); such a push runs the fast lane only"]
         return False, []
     if draft:
         errs = ["draft pull request: only the fast lane (lint, docs-lint) ran -- mark it "
@@ -84,8 +87,9 @@ def check_floor(jobs, statuses, outputs, *, is_pull_request=True, event_name=Non
     notices = notices if notices is not None else []
     if event_name is None:
         event_name = "pull_request" if is_pull_request else "push"
-    released, fl_errs = check_fast_lane_result(jobs, statuses, event_name=event_name,
-                                               draft=draft)
+    released, fl_errs = check_fast_lane_result(
+        jobs, statuses, event_name=event_name, draft=draft,
+        push_verified=_as_bool(outputs.get("push-verified")))
     errs += fl_errs
     gated = gated_jobs(jobs)
 
@@ -279,12 +283,26 @@ def self_test() -> int:
           any("was skipped" in e for e in check_floor(fl, st("success", "skipped"), out)), True)
     check("ready PR, fast lane skipped fails closed",
           any(FAST_LANE_JOB in e for e in check_floor(fl, st("skipped", "skipped"), out)), True)
-    check("push: fast lane and slow lanes skipped passes",
-          check_floor(fl, st("skipped", "skipped"), out, event_name="push"), [])
-    check("push: a slow lane that ran is caught",
-          len(check_floor(fl, st("skipped", "success"), out, event_name="push")) >= 1, True)
-    check("push: the fast lane running is caught",
-          len(check_floor(fl, st("success", "success"), out, event_name="push")) >= 1, True)
+    # A push that landed a tree CI already passed in full (push-verified).
+    vout = {"rust-src": "true", "push-verified": "true"}
+    check("verified push: fast lane and slow lanes skipped passes",
+          check_floor(fl, st("skipped", "skipped"), vout, event_name="push"), [])
+    check("verified push: a slow lane that ran is caught",
+          len(check_floor(fl, st("skipped", "success"), vout, event_name="push")) >= 1, True)
+    check("verified push: the fast lane running is caught",
+          len(check_floor(fl, st("success", "success"), vout, event_name="push")) >= 1, True)
+    # THE DEFECT THIS PINS: the ruleset lets a pull request merge behind main,
+    # so a push can land a tree no run built. Such a push runs every lane, and
+    # a skipped fast lane on it fails the gate.
+    uout = {"rust-src": "true", "push-verified": "false"}
+    check("unverified push: full run passes",
+          check_floor(fl, st("success", "success"), uout, event_name="push"), [])
+    check("unverified push: skipped fast lane is caught",
+          any(FAST_LANE_JOB in e for e in check_floor(fl, st("skipped", "skipped"), uout,
+                                                         event_name="push")), True)
+    check("push with no push-verified output runs the full matrix",
+          any(FAST_LANE_JOB in e for e in check_floor(fl, st("skipped", "skipped"),
+                                                         {"rust-src": "true"}, event_name="push")), True)
     draft_errs = check_floor(fl, st("skipped", "skipped"), out, draft=True)
     check("draft fails the gate, by name", any("draft" in e for e in draft_errs), True)
     check("draft fails with that one reason", len(draft_errs), 1)
