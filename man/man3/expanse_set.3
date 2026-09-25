@@ -184,7 +184,9 @@ Returns the byte-exact heap memory currently consumed by the set.
 .BI "size_t expanse_set_mem_held(const expanse_set_t *" set ");"
 Returns the heap bytes the set holds from the system allocator:
 \fBexpanse_set_mem_used\fR() plus the freed blocks it keeps for reuse
-and unused slab space. 0 for NULL. \fB64-bit surface only.\fR
+and unused slab space; on a 32-bit build, \fBexpanse_set_mem_used\fR()
+plus the node arena's slot table and free-handle stack, which keep
+their peak capacity after removals. 0 for NULL.
 .TP
 .BI "size_t expanse_set_shrink_to_fit(expanse_set_t *" set ");"
 Returns the freed blocks the set retains after removals to the system
@@ -192,7 +194,7 @@ allocator and returns the bytes released (0 for NULL). Afterwards
 \fBexpanse_set_mem_held\fR() is lower by exactly that amount and
 \fBexpanse_set_mem_used\fR() is unchanged. Nothing moves: no key, value
 or value pointer is affected. \fBexpanse_set_clear\fR() and
-\fBexpanse_set_free\fR() also return them. \fB64-bit surface only.\fR
+\fBexpanse_set_free\fR() also return them. Both widths.
 .SS Ordered Navigation
 .TP
 .BI "bool expanse_set_first(const expanse_set_t *" "set" ", uint64_t *"

@@ -194,7 +194,9 @@ non-NULL, writes an explanation into \fIerr_buf\fR.
 .BI "size_t expanse_map_mem_held(const expanse_map_t *" map ");"
 Returns the heap bytes the map holds from the system allocator:
 \fBexpanse_map_mem_used\fR() plus the freed blocks it keeps for reuse
-and unused slab space. 0 for NULL. \fB64-bit surface only.\fR
+and unused slab space; on a 32-bit build, \fBexpanse_map_mem_used\fR()
+plus the node arena's slot table and free-handle stack, which keep
+their peak capacity after removals. 0 for NULL.
 .TP
 .BI "size_t expanse_map_shrink_to_fit(expanse_map_t *" map ");"
 Returns the freed blocks the map retains after removals to the system
@@ -202,7 +204,7 @@ allocator and returns the bytes released (0 for NULL). Afterwards
 \fBexpanse_map_mem_held\fR() is lower by exactly that amount and
 \fBexpanse_map_mem_used\fR() is unchanged. Nothing moves: no key, value
 or value pointer is affected. \fBexpanse_map_clear\fR() and
-\fBexpanse_map_free\fR() also return them. \fB64-bit surface only.\fR
+\fBexpanse_map_free\fR() also return them. Both widths.
 .SS Mutations & Queries
 .TP
 .BI "bool expanse_map_insert(expanse_map_t *" map ", uint64_t " key ","
