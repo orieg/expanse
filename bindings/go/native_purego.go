@@ -111,6 +111,8 @@ var (
 	expanse_sync_set_remove          func(set uintptr, key uint64) bool
 	expanse_sync_set_contains        func(set uintptr, key uint64) bool
 	expanse_sync_set_len             func(set uintptr) uint64
+	expanse_sync_set_mem_held        func(set uintptr) uintptr
+	expanse_sync_set_shrink_to_fit   func(set uintptr) uintptr
 	expanse_sync_set_reader_new      func(set uintptr) uintptr
 	expanse_sync_set_reader_free     func(reader uintptr)
 	expanse_sync_set_reader_contains func(reader uintptr, key uint64) bool
@@ -125,6 +127,8 @@ var (
 	expanse_sync_map_remove                   func(mapPtr uintptr, key uint64, oldOut *uint64) bool
 	expanse_sync_map_len                      func(mapPtr uintptr) uint64
 	expanse_sync_map_mem_used                 func(mapPtr uintptr) uintptr
+	expanse_sync_map_mem_held                 func(mapPtr uintptr) uintptr
+	expanse_sync_map_shrink_to_fit            func(mapPtr uintptr) uintptr
 	expanse_sync_map_reader_new               func(mapPtr uintptr) uintptr
 	expanse_sync_map_reader_free              func(reader uintptr)
 	expanse_sync_map_reader_get               func(reader uintptr, key uint64, valueOut *uint64) bool
@@ -282,6 +286,8 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_sync_set_remove, "expanse_sync_set_remove"},
 		{&expanse_sync_set_contains, "expanse_sync_set_contains"},
 		{&expanse_sync_set_len, "expanse_sync_set_len"},
+		{&expanse_sync_set_mem_held, "expanse_sync_set_mem_held"},
+		{&expanse_sync_set_shrink_to_fit, "expanse_sync_set_shrink_to_fit"},
 		{&expanse_sync_set_reader_new, "expanse_sync_set_reader_new"},
 		{&expanse_sync_set_reader_free, "expanse_sync_set_reader_free"},
 		{&expanse_sync_set_reader_contains, "expanse_sync_set_reader_contains"},
@@ -294,6 +300,8 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_sync_map_remove, "expanse_sync_map_remove"},
 		{&expanse_sync_map_len, "expanse_sync_map_len"},
 		{&expanse_sync_map_mem_used, "expanse_sync_map_mem_used"},
+		{&expanse_sync_map_mem_held, "expanse_sync_map_mem_held"},
+		{&expanse_sync_map_shrink_to_fit, "expanse_sync_map_shrink_to_fit"},
 		{&expanse_sync_map_reader_new, "expanse_sync_map_reader_new"},
 		{&expanse_sync_map_reader_free, "expanse_sync_map_reader_free"},
 		{&expanse_sync_map_reader_get, "expanse_sync_map_reader_get"},

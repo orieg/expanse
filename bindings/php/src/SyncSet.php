@@ -84,5 +84,39 @@ if (!class_exists(SyncSet::class)) {
             }
             return isset($this->data[$key]);
         }
+
+        /**
+         * Bytes the set holds from the global allocator: its tree's own share
+         * plus the blocks its epoch collector keeps for reuse or is waiting to
+         * reclaim. The pure-PHP fallback reports 0.
+         */
+        public function memHeld(): int
+        {
+            if ($this->native !== null) {
+                return (int) $this->native->memHeld();
+            }
+            if ($this->handle !== null) {
+                $ffi = FFIDriver::getFFI();
+                return (int) $ffi->expanse_sync_set_mem_held($this->handle);
+            }
+            return 0;
+        }
+
+        /**
+         * Returns the freed blocks the set's epoch collector keeps for reuse
+         * to the global allocator; returns the bytes released, by which
+         * memHeld() then falls. The pure-PHP fallback releases 0.
+         */
+        public function shrinkToFit(): int
+        {
+            if ($this->native !== null) {
+                return (int) $this->native->shrinkToFit();
+            }
+            if ($this->handle !== null) {
+                $ffi = FFIDriver::getFFI();
+                return (int) $ffi->expanse_sync_set_shrink_to_fit($this->handle);
+            }
+            return 0;
+        }
     }
 }

@@ -63,6 +63,22 @@ func (s *SyncSet) Size() uint64 {
 	return uint64(C.expanse_sync_set_len(s.ptr))
 }
 
+// MemoryHeld returns the heap bytes the set holds from the system
+// allocator: its tree's own share plus the blocks its epoch collector keeps
+// for reuse or is waiting to reclaim. Read with writers excluded.
+func (s *SyncSet) MemoryHeld() uint64 {
+	defer runtime.KeepAlive(s)
+	return uint64(C.expanse_sync_set_mem_held(s.ptr))
+}
+
+// ShrinkToFit returns the freed blocks the set's epoch collector keeps for
+// reuse to the system allocator and returns the bytes released, by which
+// MemoryHeld then falls. Runs beside readers and writers.
+func (s *SyncSet) ShrinkToFit() uint64 {
+	defer runtime.KeepAlive(s)
+	return uint64(C.expanse_sync_set_shrink_to_fit(s.ptr))
+}
+
 func (s *SyncSet) Reader() *SyncSetReader {
 	defer runtime.KeepAlive(s)
 	r := &SyncSetReader{
@@ -139,6 +155,22 @@ func (m *SyncMap) Delete(key uint64) bool {
 func (m *SyncMap) Size() uint64 {
 	defer runtime.KeepAlive(m)
 	return uint64(C.expanse_sync_map_len(m.ptr))
+}
+
+// MemoryHeld returns the heap bytes the map holds from the system
+// allocator: its tree's own share plus the blocks its epoch collector keeps
+// for reuse or is waiting to reclaim. Read with writers excluded.
+func (m *SyncMap) MemoryHeld() uint64 {
+	defer runtime.KeepAlive(m)
+	return uint64(C.expanse_sync_map_mem_held(m.ptr))
+}
+
+// ShrinkToFit returns the freed blocks the map's epoch collector keeps for
+// reuse to the system allocator and returns the bytes released, by which
+// MemoryHeld then falls. Runs beside readers and writers.
+func (m *SyncMap) ShrinkToFit() uint64 {
+	defer runtime.KeepAlive(m)
+	return uint64(C.expanse_sync_map_shrink_to_fit(m.ptr))
 }
 
 func (m *SyncMap) Reader() *SyncMapReader {

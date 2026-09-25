@@ -56,6 +56,24 @@ impl SyncExpanseMap {
         BigInt::from(self.inner.mem_used() as u64)
     }
 
+    // abi-parity: expanse_sync_map_mem_held
+    /// Heap bytes the map holds from the global allocator: its tree's own
+    /// share plus the blocks its epoch collector keeps for reuse or is
+    /// waiting to reclaim. Read with writers excluded.
+    #[napi]
+    pub fn mem_held(&self) -> BigInt {
+        BigInt::from(self.inner.mem_held() as u64)
+    }
+
+    // abi-parity: expanse_sync_map_shrink_to_fit
+    /// Returns the freed blocks the map's epoch collector keeps for reuse to
+    /// the global allocator; returns the bytes released. Runs beside readers
+    /// and writers.
+    #[napi]
+    pub fn shrink_to_fit(&self) -> BigInt {
+        BigInt::from(self.inner.shrink_to_fit() as u64)
+    }
+
     /// Optimistic membership test `has(key)`.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {
@@ -237,6 +255,24 @@ impl SyncExpanseSet {
     #[napi]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    // abi-parity: expanse_sync_set_mem_held
+    /// Heap bytes the set holds from the global allocator: its tree's own
+    /// share plus the blocks its epoch collector keeps for reuse or is
+    /// waiting to reclaim. Read with writers excluded.
+    #[napi]
+    pub fn mem_held(&self) -> BigInt {
+        BigInt::from(self.inner.mem_held() as u64)
+    }
+
+    // abi-parity: expanse_sync_set_shrink_to_fit
+    /// Returns the freed blocks the set's epoch collector keeps for reuse to
+    /// the global allocator; returns the bytes released. Runs beside readers
+    /// and writers.
+    #[napi]
+    pub fn shrink_to_fit(&self) -> BigInt {
+        BigInt::from(self.inner.shrink_to_fit() as u64)
     }
 
     // abi-parity: expanse_sync_set_contains, expanse_sync_set_reader_new

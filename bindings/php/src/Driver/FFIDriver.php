@@ -98,6 +98,8 @@ class FFIDriver
     bool     expanse_sync_set_insert(expanse_sync_set_t *set, uint64_t key);
     bool     expanse_sync_set_remove(expanse_sync_set_t *set, uint64_t key);
     bool     expanse_sync_set_contains(const expanse_sync_set_t *set, uint64_t key);
+    size_t   expanse_sync_set_mem_held(const expanse_sync_set_t *set);
+    size_t   expanse_sync_set_shrink_to_fit(const expanse_sync_set_t *set);
 
     typedef struct expanse_sync_map expanse_sync_map_t;
     expanse_sync_map_t *expanse_sync_map_new(void);
@@ -105,6 +107,8 @@ class FFIDriver
     bool     expanse_sync_map_insert(expanse_sync_map_t *map, uint64_t key, uint64_t value, uint64_t *old_out);
     bool     expanse_sync_map_get(const expanse_sync_map_t *map, uint64_t key, uint64_t *value_out);
     bool     expanse_sync_map_remove(expanse_sync_map_t *map, uint64_t key, uint64_t *old_out);
+    size_t   expanse_sync_map_mem_held(const expanse_sync_map_t *map);
+    size_t   expanse_sync_map_shrink_to_fit(const expanse_sync_map_t *map);
     CDEF;
 
     public static function getFFI(): FFI

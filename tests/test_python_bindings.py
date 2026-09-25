@@ -554,6 +554,33 @@ def test_mem_held_and_shrink_to_fit():
         assert c.shrink_to_fit() == 0
 
 
+def test_sync_mem_held_and_shrink_to_fit():
+    """After a half drain a concurrent map holds more than it uses: its epoch
+    collector keeps the freed blocks. shrink_to_fit() returns the ones past
+    their grace period, and mem_held() falls by exactly what it reports;
+    blocks still in their grace period stay held, so mem_held() is not
+    asserted to reach mem_used()."""
+    n = 50000
+    sm = SyncExpanseMap()
+    ss = SyncExpanseSet()
+    for k in range(n):
+        sm.insert(k * 0x9E3779B1, k)
+        ss.insert(k * 0x9E3779B1)
+    for k in range(0, n, 2):
+        assert sm.remove(k * 0x9E3779B1) == k
+        assert ss.remove(k * 0x9E3779B1) is True
+    assert sm.mem_held() > sm.mem_used()
+    for c in (sm, ss):
+        held = c.mem_held()
+        assert isinstance(held, int) and held > 0
+        released = c.shrink_to_fit()
+        assert isinstance(released, int) and released >= 0
+        assert c.mem_held() == held - released
+    for k in range(1, n, 2):
+        assert sm.get(k * 0x9E3779B1) == k
+        assert (k * 0x9E3779B1) in ss
+
+
 def test_sync_remove_returns_value_not_keyerror():
     """SyncExpanseMap.remove -> Optional[int]; SyncExpanseSet.remove -> bool (mirror non-sync)."""
     sm = SyncExpanseMap()

@@ -232,6 +232,40 @@ public final class SyncExpanseMap implements AutoCloseable {
         }
     }
 
+    /**
+     * Returns the off-heap bytes this map holds from the system allocator:
+     * its tree's own share plus the blocks its epoch collector keeps for
+     * reuse or is waiting to reclaim. Read with writers excluded, so writers
+     * wait for it.
+     *
+     * @return bytes of native heap memory held
+     */
+    public long memHeld() {
+        checkOpen();
+        try {
+            return (long) ExpanseNative.MH_expanse_sync_map_mem_held.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Returns the freed blocks this map's epoch collector keeps for reuse
+     * to the system allocator; {@link #memHeld()} falls by exactly the bytes
+     * released. Runs beside readers and writers; blocks still in their grace
+     * period stay held until a later call.
+     *
+     * @return bytes released
+     */
+    public long shrinkToFit() {
+        checkOpen();
+        try {
+            return (long) ExpanseNative.MH_expanse_sync_map_shrink_to_fit.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
     @Override
     public synchronized void close() {
         if (closed || handle.equals(MemorySegment.NULL)) {

@@ -400,6 +400,38 @@ test('memHeld / shrinkToFit return the blocks a drained container keeps', () => 
   }
 });
 
+test('SyncExpanseMap / SyncExpanseSet memHeld and shrinkToFit after a half drain', () => {
+  // The epoch collector keeps the freed blocks, so the map holds more than it
+  // uses. shrinkToFit returns those past their grace period and memHeld falls
+  // by exactly what it reports; blocks still in their grace period stay held,
+  // so memHeld is not asserted to reach memUsed.
+  const n = 50000n;
+  const syncMap = new SyncExpanseMap();
+  const syncSet = new SyncExpanseSet();
+  for (let k = 0n; k < n; k++) {
+    syncMap.set(k * 0x9e3779b1n, k);
+    syncSet.add(k * 0x9e3779b1n);
+  }
+  for (let k = 0n; k < n; k += 2n) {
+    assert.ok(syncMap.delete(k * 0x9e3779b1n));
+    assert.ok(syncSet.remove(k * 0x9e3779b1n));
+  }
+  assert.ok(syncMap.memHeld() > syncMap.memUsed());
+  for (const c of [syncMap, syncSet]) {
+    const held = c.memHeld();
+    assert.strictEqual(typeof held, 'bigint');
+    assert.ok(held > 0n);
+    const released = c.shrinkToFit();
+    assert.strictEqual(typeof released, 'bigint');
+    assert.ok(released >= 0n);
+    assert.strictEqual(c.memHeld(), held - released);
+  }
+  for (let k = 1n; k < n; k += 2n) {
+    assert.strictEqual(syncMap.get(k * 0x9e3779b1n), k);
+    assert.ok(syncSet.has(k * 0x9e3779b1n));
+  }
+});
+
 test('SyncExpanseMap ordered reads at the ends of the key space', () => {
   const top = 2n ** 64n - 1n;
   const syncMap = new SyncExpanseMap();

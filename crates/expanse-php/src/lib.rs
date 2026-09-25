@@ -456,6 +456,22 @@ impl PhpSyncSet {
     pub fn contains(&self, key: u64) -> bool {
         self.inner.contains(key)
     }
+
+    /// Returns the bytes the set holds from the global allocator: its tree's
+    /// own share plus the blocks its epoch collector keeps for reuse or is
+    /// waiting to reclaim. Read with writers excluded.
+    #[php(name = "memHeld")]
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    /// Returns the freed blocks the set's epoch collector keeps for reuse to
+    /// the global allocator and returns the bytes released, by which
+    /// `memHeld()` then falls. Runs beside readers and writers.
+    #[php(name = "shrinkToFit")]
+    pub fn shrink_to_fit(&self) -> usize {
+        self.inner.shrink_to_fit()
+    }
 }
 
 /// Native Concurrent Expanse Map (`Expanse\SyncMap`)
@@ -486,6 +502,22 @@ impl PhpSyncMap {
     /// Deletes a key concurrently. Returns true if removed.
     pub fn delete(&self, key: u64) -> bool {
         self.inner.remove(key).is_some()
+    }
+
+    /// Returns the bytes the map holds from the global allocator: its tree's
+    /// own share plus the blocks its epoch collector keeps for reuse or is
+    /// waiting to reclaim. Read with writers excluded.
+    #[php(name = "memHeld")]
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    /// Returns the freed blocks the map's epoch collector keeps for reuse to
+    /// the global allocator and returns the bytes released, by which
+    /// `memHeld()` then falls. Runs beside readers and writers.
+    #[php(name = "shrinkToFit")]
+    pub fn shrink_to_fit(&self) -> usize {
+        self.inner.shrink_to_fit()
     }
 }
 

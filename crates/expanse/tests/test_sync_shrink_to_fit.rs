@@ -18,7 +18,9 @@
 #![cfg(not(miri))]
 
 use expanse_trie::strmap::NulFreeStr;
-use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
+use expanse_trie::sync::{
+    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
+};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
@@ -167,6 +169,56 @@ fn a_half_drained_sync_set_reports_and_returns_its_collector_blocks() {
     );
     for i in (1..N).step_by(2) {
         assert!(s.contains(i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+    }
+}
+
+#[test]
+fn a_half_drained_sync_bytes_map_reports_and_returns_its_collector_blocks() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let m = SyncExpanseBytesMap::new();
+    for i in 0..N {
+        assert_eq!(m.insert(&key(i), i), None);
+    }
+    for i in (0..N).step_by(2) {
+        assert_eq!(m.remove(&key(i)), Some(i));
+    }
+    check_release(
+        "bytesmap",
+        m.mem_used(),
+        m.mem_held(),
+        || m.shrink_to_fit(),
+        || m.mem_held(),
+    );
+    for i in (1..N).step_by(2) {
+        assert_eq!(m.get(&key(i)), Some(i));
+    }
+}
+
+#[test]
+fn a_half_drained_sync_blob_map_reports_and_returns_its_collector_blocks() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let m = SyncExpanseBlobMap::new();
+    // Payloads above the 7-byte inline limit, so the arena is exercised too.
+    let payload = |i: u64| format!("payload:{i:016}").into_bytes();
+    for i in 0..N {
+        m.insert(i.wrapping_mul(0x9E37_79B9_7F4A_7C15), &payload(i), 0)
+            .unwrap();
+    }
+    for i in (0..N).step_by(2) {
+        assert!(m.remove(i.wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+    }
+    check_release(
+        "blobmap",
+        m.mem_used(),
+        m.mem_held(),
+        || m.shrink_to_fit(),
+        || m.mem_held(),
+    );
+    for i in (1..N).step_by(2) {
+        assert_eq!(
+            m.get(i.wrapping_mul(0x9E37_79B9_7F4A_7C15)).map(|(v, _)| v),
+            Some(payload(i))
+        );
     }
 }
 

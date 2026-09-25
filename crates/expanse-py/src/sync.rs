@@ -110,6 +110,22 @@ impl SyncExpanseMap {
         py.detach(|| self.inner.mem_used())
     }
 
+    // abi-parity: expanse_sync_map_mem_held
+    /// Heap bytes the map holds from the global allocator: its tree's own
+    /// share plus the blocks its epoch collector keeps for reuse or is
+    /// waiting to reclaim. Read with writers excluded (releases the GIL).
+    pub fn mem_held(&self, py: Python<'_>) -> usize {
+        py.detach(|| self.inner.mem_held())
+    }
+
+    // abi-parity: expanse_sync_map_shrink_to_fit
+    /// Returns the freed blocks the map's epoch collector keeps for reuse to
+    /// the global allocator; returns the bytes released. Runs beside readers
+    /// and writers (releases the GIL).
+    pub fn shrink_to_fit(&self, py: Python<'_>) -> usize {
+        py.detach(|| self.inner.shrink_to_fit())
+    }
+
     /// Property returning True if empty.
     #[getter]
     pub fn empty(&self, py: Python<'_>) -> bool {
@@ -452,6 +468,22 @@ impl SyncExpanseSet {
     /// True when empty releasing the GIL.
     pub fn is_empty(&self, py: Python<'_>) -> bool {
         py.detach(|| self.inner.is_empty())
+    }
+
+    // abi-parity: expanse_sync_set_mem_held
+    /// Heap bytes the set holds from the global allocator: its tree's own
+    /// share plus the blocks its epoch collector keeps for reuse or is
+    /// waiting to reclaim. Read with writers excluded (releases the GIL).
+    pub fn mem_held(&self, py: Python<'_>) -> usize {
+        py.detach(|| self.inner.mem_held())
+    }
+
+    // abi-parity: expanse_sync_set_shrink_to_fit
+    /// Returns the freed blocks the set's epoch collector keeps for reuse to
+    /// the global allocator; returns the bytes released. Runs beside readers
+    /// and writers (releases the GIL).
+    pub fn shrink_to_fit(&self, py: Python<'_>) -> usize {
+        py.detach(|| self.inner.shrink_to_fit())
     }
 
     /// Property returning True if empty.

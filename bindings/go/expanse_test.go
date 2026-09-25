@@ -670,3 +670,49 @@ func TestShrinkToFit(t *testing.T) {
 	}
 	check("strmap", sm.MemoryHeld, sm.MemoryUsed, sm.ShrinkToFit, true)
 }
+
+// TestSyncShrinkToFit: after a half drain the concurrent map's epoch collector
+// keeps the freed blocks. ShrinkToFit returns those past their grace period
+// and MemoryHeld falls by exactly what it reports; blocks still in their grace
+// period stay held, so MemoryHeld is not asserted to reach MemoryUsed.
+func TestSyncShrinkToFit(t *testing.T) {
+	const n = 50000
+	const mul = 0x9E3779B1
+	m := NewSyncMap()
+	defer m.Free()
+	s := NewSyncSet()
+	defer s.Free()
+	for k := uint64(0); k < n; k++ {
+		m.Set(k*mul, k)
+		s.Add(k * mul)
+	}
+	for k := uint64(0); k < n; k += 2 {
+		if !m.Delete(k * mul) {
+			t.Fatalf("map: key %d missing", k)
+		}
+		if !s.Remove(k * mul) {
+			t.Fatalf("set: key %d missing", k)
+		}
+	}
+	check := func(name string, held, shrink func() uint64) {
+		t.Helper()
+		h := held()
+		if h == 0 {
+			t.Fatalf("%s: MemoryHeld is 0 on a populated container", name)
+		}
+		released := shrink()
+		if got := held(); got != h-released {
+			t.Fatalf("%s: MemoryHeld %d after releasing %d, want %d", name, got, released, h-released)
+		}
+	}
+	check("sync map", m.MemoryHeld, m.ShrinkToFit)
+	check("sync set", s.MemoryHeld, s.ShrinkToFit)
+	for k := uint64(1); k < n; k += 2 {
+		if v, ok := m.Get(k * mul); !ok || v != k {
+			t.Fatalf("map: key %d = %d, %v", k, v, ok)
+		}
+		if !s.Contains(k * mul) {
+			t.Fatalf("set: key %d missing", k)
+		}
+	}
+}

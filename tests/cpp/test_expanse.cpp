@@ -692,6 +692,39 @@ void test_shrink_to_fit() {
     std::cout << "[PASS] test_shrink_to_fit" << std::endl;
 }
 
+// A half-drained concurrent map holds more than it uses: its epoch collector
+// keeps the freed blocks. shrink_to_fit() returns those past their grace
+// period and mem_held() falls by exactly what it reports; blocks still in
+// their grace period stay held, so mem_held() is not asserted to reach
+// mem_used().
+void test_sync_shrink_to_fit() {
+    constexpr uint64_t n = 50000;
+    expanse::sync_map sm;
+    expanse::sync_set ss;
+    for (uint64_t k = 0; k < n; ++k) {
+        sm.insert(k * 0x9E3779B1ULL, k);
+        ss.insert(k * 0x9E3779B1ULL);
+    }
+    for (uint64_t k = 0; k < n; k += 2) {
+        assert(sm.erase(k * 0x9E3779B1ULL));
+        assert(ss.erase(k * 0x9E3779B1ULL));
+    }
+    assert(sm.mem_held() > sm.mem_used());
+    const size_t map_held = sm.mem_held();
+    const size_t map_released = sm.shrink_to_fit();
+    assert(sm.mem_held() == map_held - map_released);
+    const size_t set_held = ss.mem_held();
+    assert(set_held > 0);
+    const size_t set_released = ss.shrink_to_fit();
+    assert(ss.mem_held() == set_held - set_released);
+    for (uint64_t k = 1; k < n; k += 2) {
+        assert(sm.get(k * 0x9E3779B1ULL) == std::optional<uint64_t>(k));
+        assert(ss.contains(k * 0x9E3779B1ULL));
+    }
+
+    std::cout << "[PASS] test_sync_shrink_to_fit" << std::endl;
+}
+
 int main() {
     std::cout << "========================================" << std::endl;
     std::cout << "Running Expanse C++20 Header Unit Tests" << std::endl;
@@ -707,6 +740,7 @@ int main() {
     test_sync_set();
     test_sync_map();
     test_shrink_to_fit();
+    test_sync_shrink_to_fit();
 
     std::cout << "========================================" << std::endl;
     std::cout << "All C++20 unit tests passed successfully!" << std::endl;

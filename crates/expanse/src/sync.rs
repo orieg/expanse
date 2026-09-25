@@ -10035,6 +10035,39 @@ impl SyncExpanseBlobMap {
         self.shared.read_locked(ExpanseBlobMap::mem_used)
     }
 
+    /// Heap bytes the blob map holds from the global allocator: the map's
+    /// own share, [`ExpanseBlobMap::mem_used`] (read under the writer lock,
+    /// as [`Self::mem_used`] reads), plus what its epoch collector holds for
+    /// it — freed index blocks past their grace period, kept on the
+    /// collector's freelists for reuse, and retired index blocks, arena
+    /// chunks and chunk tables still in their grace period.
+    ///
+    /// The map's own share is `mem_used` rather than a separate held figure
+    /// because a shared index keeps nothing beyond it: its allocator frees
+    /// into the collector, not onto per-tree freelists, and carves no slab
+    /// pages (`defer_to` asserts both). The arena's chunks are counted at
+    /// their capacity, whatever part of them is live. Compare this, not
+    /// `mem_used`, with resident memory. Writers wait for it, so it does not
+    /// belong in a hot loop.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.shared.read_locked(ExpanseBlobMap::mem_used) + self.shared.collector_held()
+    }
+
+    /// Returns the freed index blocks the blob map's epoch collector keeps
+    /// for reuse to the global allocator, and returns the bytes released.
+    /// Only blocks past their grace period are released — no reader can
+    /// still hold one — so it runs beside readers and writers without
+    /// excluding either: writers that find the collector's lists empty
+    /// allocate from the system, as on any miss. Blocks still in their grace
+    /// period are released by a later call, once reclaimed. Arena chunks are
+    /// not touched: a chunk retired by a compaction or a clear is freed
+    /// straight to the system at the end of its grace period, and a live
+    /// chunk's dead records are returned only by [`Self::compact`].
+    pub fn shrink_to_fit(&self) -> usize {
+        self.shared.release_collector()
+    }
+
     /// Runs `f` over the map with all writers excluded — the escape hatch to
     /// the full single-threaded read API (`scan_filtered`, iteration over
     /// [`ExpanseBlobMap::index`], persistence, …).
@@ -11439,6 +11472,39 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.shared.read_locked(ExpanseBytesMap::mem_used)
+    }
+
+    /// Heap bytes the map holds from the global allocator: the map's own
+    /// share, [`ExpanseBytesMap::mem_used`] (read under the writer lock, as
+    /// [`Self::mem_used`] reads), plus what its epoch collector holds for it
+    /// — freed hash-trie blocks past their grace period, kept on the
+    /// collector's freelists for reuse, and retired trie blocks, collision
+    /// buckets and key buffers still in their grace period.
+    ///
+    /// The map's own share is `mem_used` rather than a separate held figure
+    /// because a shared hash trie keeps nothing beyond it: its allocator
+    /// frees into the collector, not onto per-tree freelists, and carves no
+    /// slab pages (`defer_to` asserts both). Its collision buckets are
+    /// counted by `mem_used`'s estimate (key bytes plus fixed per-entry and
+    /// per-bucket overheads, no vector spare capacity); the collector's part
+    /// is exact. Compare this, not `mem_used`, with resident memory. Writers
+    /// wait for it, so it does not belong in a hot loop.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.shared.read_locked(ExpanseBytesMap::mem_used) + self.shared.collector_held()
+    }
+
+    /// Returns the freed hash-trie blocks the map's epoch collector keeps
+    /// for reuse to the global allocator, and returns the bytes released.
+    /// Only blocks past their grace period are released — no reader can
+    /// still hold one — so it runs beside readers and writers without
+    /// excluding either: writers that find the collector's lists empty
+    /// allocate from the system, as on any miss. Blocks still in their grace
+    /// period are released by a later call, once reclaimed. Retired
+    /// collision buckets and key buffers never reach a freelist: they are
+    /// freed straight to the system at the end of their grace period.
+    pub fn shrink_to_fit(&self) -> usize {
+        self.shared.release_collector()
     }
 
     /// Runs `f` over the map with all writers excluded — the escape
