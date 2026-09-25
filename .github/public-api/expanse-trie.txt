@@ -694,10 +694,8 @@ pub fn expanse_trie::map::ExpanseMap::next_at_or_after(&self, expanse_trie::type
 pub fn expanse_trie::map::ExpanseMap::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::range(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRange<'_>
-pub fn expanse_trie::map::ExpanseMap::range_filtered<'a, P>(&'a self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P) -> impl core::iter::traits::iterator::Iterator<Item = (expanse_trie::types::Key, u64)> + 'a where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool + 'a
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
-pub fn expanse_trie::map::ExpanseMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, u64) -> bool
 pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
@@ -2924,10 +2922,8 @@ pub fn expanse_trie::map::ExpanseMap::next_at_or_after(&self, expanse_trie::type
 pub fn expanse_trie::map::ExpanseMap::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::range(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRange<'_>
-pub fn expanse_trie::map::ExpanseMap::range_filtered<'a, P>(&'a self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P) -> impl core::iter::traits::iterator::Iterator<Item = (expanse_trie::types::Key, u64)> + 'a where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool + 'a
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
-pub fn expanse_trie::map::ExpanseMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, u64) -> bool
 pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize

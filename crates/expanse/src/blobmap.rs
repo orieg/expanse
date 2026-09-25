@@ -1655,6 +1655,11 @@ impl ExpanseBlobMap {
     }
 
     /// Returns a reference to the internal index.
+    ///
+    /// Its values are raw [`ValueSlot`] words. Hot metadata exists only on
+    /// [`SlotTag::ArenaMeta`] slots; an inline slot holds payload bytes in the
+    /// same bits. Filter by metadata with [`Self::scan_filtered`], which
+    /// decodes the tag, rather than by reading bits of the index words.
     #[must_use]
     pub fn index(&self) -> &ExpanseMap {
         &self.index
@@ -2103,6 +2108,54 @@ mod tests {
             assert_eq!(k, expected_key);
             assert_eq!(m, (expected_key * 10) as u32);
         }
+    }
+
+    /// Hot metadata is decoded only from `ArenaMeta` slots. An inline slot
+    /// stores payload bytes in bits 63:8, so a decoder that reads bits 63:40
+    /// without checking the tag — the removed `ExpanseMap::scan_filtered` /
+    /// `range_filtered` did, over `index()` — reports payload bytes as
+    /// metadata. The map's own scan reports 0 for the inline slot.
+    #[test]
+    fn scan_filtered_reads_metadata_only_from_arena_slots() {
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        map.insert(1, &[0xFF; 7], 0x00AB_CDEF).unwrap();
+        map.insert(2, b"a payload stored in the slab arena", 0x0012_3456)
+            .unwrap();
+
+        // Precondition: the inline word's bits 63:40 are non-zero, so an
+        // untagged decode of this index word yields a non-zero "metadata".
+        let inline_raw = map.index().get(1).expect("inline key present");
+        assert_eq!(ValueSlot::from_raw(inline_raw).tag(), SlotTag::Inline7);
+        assert_ne!((inline_raw >> 40) & ValueSlot::ARENA_META_MASK, 0);
+
+        let mut seen = Vec::new();
+        map.scan_filtered(
+            0..=10,
+            |_k, meta| meta != 0,
+            |k, view, meta| {
+                seen.push((k, view.as_bytes().to_vec(), meta));
+                true
+            },
+        );
+        assert_eq!(
+            seen,
+            vec![(
+                2,
+                b"a payload stored in the slab arena".to_vec(),
+                0x0012_3456
+            )]
+        );
+
+        let mut metas = Vec::new();
+        map.scan_filtered(
+            0..=10,
+            |_k, _meta| true,
+            |k, _view, meta| {
+                metas.push((k, meta));
+                true
+            },
+        );
+        assert_eq!(metas, vec![(1, 0), (2, 0x0012_3456)]);
     }
 
     #[test]
