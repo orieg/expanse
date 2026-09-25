@@ -45,9 +45,19 @@ the map arm:
   and P12.5 (the per-round paired `prev` / `prev_locked` reader throughput ratio
   at W=1, R=4, uniform, with the W=0, R=1 control).
 
+`--count-cells` (#1144, `METHODOLOGY.md` §23) is a separate sweep on the map
+arm, under the same pin and interleaving:
+- cells probe in {uniform, one_top_byte} x (W, R) in {(0,1), (1,0), (1,1),
+  (4,0), (4,1)}, read_op count_locked (`count_below` through `with_locked`);
+- R = 0 is each W's writers-only twin over the same prefill and fresh stream;
+- it writes the per-round paired writer_mops(W, R=1) / writer_mops(W, R=0)
+  at W in {1, 4} for each probe, with a BCa 95% interval; no magnitude is
+  predicted.
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --ordered-readers
+    python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --count-cells
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
 
 `--self-test` is run by the `writer-scaling-selftest` CI job, gated on the
@@ -2398,6 +2408,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         PADDED_RESULTS_PATH.resolve(),
         *(p.resolve() for p in ABLATION_RESULTS_PATHS),
         ORDERED_READERS_RESULTS_PATH.resolve(),
+        COUNT_CELLS_RESULTS_PATH.resolve(),
         READERS_ONLY_RESULTS_PATH.resolve(),
         GATE_929_STR_RESULTS_PATH.resolve(),
         GATE_929_STR_V2_RESULTS_PATH.resolve(),
@@ -2468,7 +2479,9 @@ def pins_equal(a: str | None, b: str | None) -> bool:
     return la == lb
 
 
-def resolve_ordered_readers_pin(env: dict[str, str], smoke: bool) -> str | None:
+def resolve_ordered_readers_pin(
+    env: dict[str, str], smoke: bool, mode: str = "--ordered-readers", cite: str = "§12.4", voids: str = "§12.5"
+) -> str | None:
     """Point `env` at the §12.4 pin before `bench_pin.apply` reads it.
 
     An unset `EXPANSE_BENCH_PIN` becomes `0,2,4,6,8,10,12,14`. A pin variable
@@ -2490,9 +2503,9 @@ def resolve_ordered_readers_pin(env: dict[str, str], smoke: bool) -> str | None:
     if not departures:
         return None
     message = (
-        f"--ordered-readers measures under the pin {ORDERED_READERS_PIN} "
-        f"(METHODOLOGY.md §12.4), but {', '.join(departures)} names another, and "
-        f"§12.5 voids every cell measured under it"
+        f"{mode} measures under the pin {ORDERED_READERS_PIN} "
+        f"(METHODOLOGY.md {cite}), but {', '.join(departures)} names another, and "
+        f"{voids} voids every cell measured under it"
     )
     if not smoke:
         raise ValueError(message)
@@ -2589,7 +2602,7 @@ def check_reader_counters_row(row: dict[str, Any]) -> None:
             f"+ locked_reads ({row['locked_reads']})"
         )
     ops, reader_ops = int(row["read_ops"]), int(row["reader_ops"])
-    if row["read_op"] == "prev_locked":
+    if row["read_op"] in ("prev_locked", "count_locked"):
         if ops != 0 or int(row["locked_reads"]) != reader_ops:
             raise ValueError(
                 f"{ctx}: a with_locked reader cell needs read_ops == 0 and locked_reads == reader_ops, "
@@ -2961,6 +2974,308 @@ def run_ordered_readers(args: argparse.Namespace) -> int:
               f"[{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}] {e['verdict']}")
     for reason in report["void"]:
         sys.stderr.write(f"::warning:: this run is void as a §12.4 measurement: {reason}\n")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nWrote artifact to {out_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Counts under a writer (#1144, docs/benchmarks/concurrency/METHODOLOGY.md §23)
+# ---------------------------------------------------------------------------
+
+COUNT_CELLS_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "count_cells_writer_scaling.json"
+)
+# §23.3: the ordered-reader pin, one thread per physical P-core; at most five
+# threads per cell, so every thread has a core of its own.
+COUNT_CELLS_PIN = ORDERED_READERS_PIN
+COUNT_CELLS_OP = "count_locked"
+COUNT_CELLS_PROBES = ("uniform", "one_top_byte")
+# (W, R): the counting reader beside W writers, each W's writers-only twin, and
+# the reader alone (W = 0) as the no-fold control.
+COUNT_CELLS_WR = ((0, 1), (1, 0), (1, 1), (4, 0), (4, 1))
+COUNT_RATIO_WRITERS = (1, 4)
+
+
+def count_cells_schedule(rounds: int) -> list[dict[str, Any]]:
+    """Every harness invocation of a count sweep, in execution order.
+
+    As `ordered_readers_schedule`: each round runs both probe blocks, the first
+    alternating by round, and within a block the five (W, R) cells follow row
+    `round` of the Williams construction. Five is odd, so eight rounds do not
+    balance positions exactly; every row is still a permutation of the block.
+    """
+    out: list[dict[str, Any]] = []
+    n = len(COUNT_CELLS_WR)
+    for r in range(rounds):
+        probes = COUNT_CELLS_PROBES if r % 2 == 0 else COUNT_CELLS_PROBES[::-1]
+        for block, probe in enumerate(probes):
+            for pos, idx in enumerate(williams_positions(n, r)):
+                w, rd = COUNT_CELLS_WR[idx]
+                out.append({
+                    "round": r, "block": block, "probe": probe, "position": pos,
+                    "read_op": COUNT_CELLS_OP, "writers": w, "readers": rd,
+                })
+    return out
+
+
+def check_count_throughput_row(row: dict[str, Any]) -> None:
+    """A count-cell throughput row: writer timing when W >= 1, reader timing when
+    R >= 1, no reader probes when R = 0, and no counters (§23.3)."""
+    ctx = f"{row.get('cell')} round {row.get('round')}"
+    leaked = [k for k in (*READER_COUNTER_FIELDS, "lock_fallbacks", "inserts") if k in row]
+    if leaked:
+        raise ValueError(f"{ctx}: throughput row carries counter field(s) {leaked}; the two roles never share a binary")
+    positive = []
+    if int(row["writers"]) > 0:
+        positive += ["writer_elapsed_s", "writer_mops"]
+    if int(row["readers"]) > 0:
+        positive += ["reader_ops", "reader_elapsed_s", "reader_mops"]
+    elif row.get("reader_ops") != 0:
+        raise ValueError(f"{ctx}: an R = 0 row made {row.get('reader_ops')!r} reader probes, expected 0")
+    for k in positive:
+        v = row.get(k)
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+            raise ValueError(f"{ctx}: throughput row {k} = {v!r}, expected a positive number")
+
+
+def _mean_ci(xs: list[float], prefix: str) -> dict[str, Any]:
+    mean, lo, hi, method = bca_bootstrap_ci_with_method(xs, confidence=0.95)
+    return {
+        f"{prefix}mops_mean": round(mean, 6),
+        f"{prefix}ci_lower": round(lo, 6),
+        f"{prefix}ci_upper": round(hi, 6),
+        f"{prefix}ci_method": method,
+        f"{prefix}mops_median": round(sorted(xs)[len(xs) // 2], 6),
+    }
+
+
+def summarize_count_cells(
+    throughput_rows: list[dict[str, Any]],
+    counters_rows: list[dict[str, Any]],
+    rounds: int,
+    load: dict[str, Any],
+    throughput_target: Path = THROUGHPUT_TARGET,
+) -> list[dict[str, Any]]:
+    """One cell per (probe, W, R), each carrying every round of both roles.
+
+    A cell missing a round in either role, or holding one twice, is refused.
+    """
+    if rounds < 3:
+        raise ValueError(f"count cells: need at least 3 rounds for a BCa interval, got {rounds}")
+    cells: list[dict[str, Any]] = []
+    for probe in COUNT_CELLS_PROBES:
+        for w, r in COUNT_CELLS_WR:
+            key = (probe, COUNT_CELLS_OP, w, r)
+            label = f"{probe} W={w} R={r}"
+
+            def matches(row: dict[str, Any]) -> bool:
+                return (row["probe"], row["read_op"], int(row["writers"]), int(row["readers"])) == key
+
+            t = sorted((x for x in throughput_rows if matches(x)), key=lambda x: int(x["round"]))
+            c = sorted((x for x in counters_rows if matches(x)), key=lambda x: int(x["round"]))
+            for role, got in (("throughput", t), ("counters", c)):
+                seen = [int(x["round"]) for x in got]
+                if seen != list(range(rounds)):
+                    raise ValueError(
+                        f"{label}: {role} rows cover rounds {seen}, expected each of 0..{rounds - 1} once"
+                    )
+            for x in t:
+                check_count_throughput_row(x)
+            for x in c:
+                check_reader_counters_row(x)
+            totals = {k: sum(int(x[k]) for x in c)
+                      for k in (*READER_COUNTER_FIELDS, "reader_ops", "lock_fallbacks", "quiesce_calls")}
+            cell: dict[str, Any] = {
+                "workload_id": t[0]["workload_id"],
+                "arm": "map",
+                "probe": probe,
+                "read_op": COUNT_CELLS_OP,
+                "writers": w,
+                "readers": r,
+                "prefill": t[0]["prefill"],
+                "hotspot_prefill": t[0]["hotspot_prefill"],
+                "fresh_keys": t[0]["fresh_keys"],
+                "rounds": rounds,
+                "cpu_pin": t[0]["cpu_pin"],
+            }
+            if w > 0:
+                cell.update(_mean_ci([float(x["writer_mops"]) for x in t], "writer_"))
+            if r > 0:
+                cell.update(_mean_ci([float(x["reader_mops"]) for x in t], "reader_"))
+            cell.update({
+                "counters_total": totals,
+                "build_provenance": {
+                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
+                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                },
+                "rounds_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_ops", "reader_elapsed_s", "reader_mops",
+                        "write_ops", "writer_elapsed_s", "writer_mops", "population_after", "cpu_pin", "tsc_hz",
+                    )}
+                    for x in t
+                ],
+                "counters_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_ops", "write_ops", "inserts",
+                        *READER_COUNTER_FIELDS, "lock_fallbacks", "quiesce_calls", "fallback_causes",
+                        "population_after", "cpu_pin",
+                    )}
+                    for x in c
+                ],
+                "load": load,
+            })
+            cells.append(cell)
+    return cells
+
+
+def count_writer_ratio(
+    throughput_rows: list[dict[str, Any]], probe: str, writers: int, rounds: int
+) -> dict[str, Any]:
+    """`writer_mops(W, R=1) / writer_mops(W, R=0)`, paired within each round, BCa 95% CI of the mean (§23.2)."""
+    label = f"{probe} W={writers}"
+    by_round: dict[tuple[int, int], float] = {}
+    for row in throughput_rows:
+        if (row["probe"], row["read_op"], int(row["writers"])) != (probe, COUNT_CELLS_OP, writers):
+            continue
+        key = (int(row["round"]), int(row["readers"]))
+        if key in by_round:
+            raise ValueError(f"count ratio {label}: round {key[0]} holds two R={key[1]} rows")
+        by_round[key] = float(row["writer_mops"])
+    ratios: list[float] = []
+    for r in range(rounds):
+        counted, alone = by_round.get((r, 1)), by_round.get((r, 0))
+        if counted is None or alone is None:
+            raise ValueError(f"count ratio {label}: round {r} is unpaired (R=1 {counted}, R=0 {alone})")
+        if counted <= 0 or alone <= 0:
+            raise ValueError(f"count ratio {label}: round {r} has a non-positive throughput ({counted}, {alone})")
+        ratios.append(counted / alone)
+    if len(ratios) < 3:
+        raise ValueError(f"count ratio {label}: need at least 3 paired rounds for a BCa interval, got {len(ratios)}")
+    mean, lo, hi, method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
+    return {
+        "cell": label, "probe": probe, "writers": writers,
+        "ratio_mean": round(mean, 6),
+        "ratio_ci_lower": round(lo, 6),
+        "ratio_ci_upper": round(hi, 6),
+        "ratio_ci_method": method,
+        "ratio_median": round(sorted(ratios)[len(ratios) // 2], 6),
+        "paired_ratios_raw": [round(x, 6) for x in ratios],
+    }
+
+
+def build_count_cells_artifact(
+    prov: dict[str, Any],
+    cells: list[dict[str, Any]],
+    throughput_rows: list[dict[str, Any]],
+    rounds: int,
+    applied_pin: str,
+    quick: bool,
+) -> dict[str, Any]:
+    """The committed shape: provenance, the cells, and the paired writer ratios."""
+    conforms = pins_equal(applied_pin, COUNT_CELLS_PIN)
+    void: list[str] = []
+    if not conforms:
+        void.append(f"applied pin {applied_pin!r} is not {COUNT_CELLS_PIN} (METHODOLOGY.md §23.4)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §23.3 cells")
+    return {
+        "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
+        "throughput": cells,
+        "count_cells": {
+            "issue": 1144,
+            "preregistration": "docs/benchmarks/concurrency/METHODOLOGY.md §23",
+            "pin": {"required": COUNT_CELLS_PIN, "applied": applied_pin, "conforms": conforms},
+            "rounds": rounds,
+            "quick": quick,
+            "schedule": "each round runs both probe blocks, alternating which goes first; within a block the "
+                        "five (W, R) cells follow that round's row of the Williams construction; one harness "
+                        "process per cell; the throughput pass runs every round before the counters pass",
+            "void": void,
+            "predicted": "no magnitude (METHODOLOGY.md §23.2); the gate is that the cost is recorded",
+            "writer_ratio": [
+                count_writer_ratio(throughput_rows, probe, w, rounds)
+                for probe in COUNT_CELLS_PROBES
+                for w in COUNT_RATIO_WRITERS
+            ],
+        },
+    }
+
+
+def run_count_cells(args: argparse.Namespace) -> int:
+    """`--count-cells`: the §23.3 cells, both roles, and the paired writer ratios."""
+    out_path = Path(args.out) if args.out else COUNT_CELLS_RESULTS_PATH
+    committed = out_path.resolve().is_relative_to((REPO_ROOT / "docs" / "benchmarks").resolve())
+    smoke = bool(args.quick) and not committed
+    try:
+        notice = resolve_ordered_readers_pin(os.environ, smoke, "--count-cells", "§23.3", "§23.4")
+    except ValueError as exc:
+        sys.stderr.write(f"refusing to start: {exc}\nNo benchmark was run and no numbers were produced.\n")
+        return 1
+    if notice:
+        sys.stderr.write(f"::notice:: smoke run: {notice}; nothing this run produces is a §23.3 cell\n")
+    applied = bench_pin.apply("writer_scaling.py --count-cells")
+    if not pins_equal(applied, COUNT_CELLS_PIN) and not smoke:
+        sys.stderr.write(f"refusing to start: the applied pin is {applied!r}, not {COUNT_CELLS_PIN} (§23.4)\n")
+        return 1
+
+    throughput_bin, counters_bin = build_binaries(verbose=True)
+    ratio = ("mean over rounds of writer_mops(W, R=1) / writer_mops(W, R=0), paired within each round, "
+             "BCa 95% interval (METHODOLOGY.md §23.2)")
+    prov = new_provenance(
+        suite="concurrency",
+        issue=1144,
+        ratio=ratio,
+        repo_root=REPO_ROOT,
+        core_pin=applied,
+        estimators=estimators(
+            ratio,
+            columns="per-cell writer and reader Mops/s are means over rounds with a BCa 95% interval; "
+                    "medians are auxiliary; counters are summed over rounds",
+        ),
+    )
+    schedule = count_cells_schedule(args.rounds)
+    print("========================================================================")
+    print(" Counts under a writer on SyncExpanseMap (#1144, METHODOLOGY.md §23)")
+    print(f" Cells: {len(COUNT_CELLS_PROBES) * len(COUNT_CELLS_WR)} | Rounds: {args.rounds} | "
+          f"Pin: {applied} | Quick: {bool(args.quick)}")
+    print("========================================================================")
+    try:
+        start = begin_cell(prov, "count_cells:throughput")
+        t_rows = []
+        for i, run in enumerate(schedule):
+            t_rows.append(run_reader_invocation(throughput_bin, "throughput", run, args.quick))
+            if (i + 1) % len(COUNT_CELLS_WR) == 0:
+                print(f"  [throughput] {i + 1}/{len(schedule)} cells")
+        load = end_cell(start)
+        c_rows = []
+        for i, run in enumerate(schedule):
+            c_rows.append(run_reader_invocation(counters_bin, "counters", run, args.quick))
+            if (i + 1) % len(COUNT_CELLS_WR) == 0:
+                print(f"  [counters] {i + 1}/{len(schedule)} cells")
+        check_row_pins(t_rows + c_rows, applied)
+        cells = summarize_count_cells(t_rows, c_rows, args.rounds, load)
+        artifact = build_count_cells_artifact(prov, cells, t_rows, args.rounds, applied, bool(args.quick))
+    except (RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"count cells failed: {exc} (AGENTS.md §8.1)\n")
+        return 1
+
+    report = artifact["count_cells"]
+    for c in cells:
+        parts = []
+        if c["writers"]:
+            parts.append(f"writer Mops/s {c['writer_mops_mean']:.4f} [{c['writer_ci_lower']:.4f}, {c['writer_ci_upper']:.4f}]")
+        if c["readers"]:
+            parts.append(f"reader Mops/s {c['reader_mops_mean']:.4f} [{c['reader_ci_lower']:.4f}, {c['reader_ci_upper']:.4f}]")
+        print(f"  {c['probe']:>12} W={c['writers']} R={c['readers']} | " + " | ".join(parts))
+    for e in report["writer_ratio"]:
+        print(f"  writer_mops(R=1) / writer_mops(R=0), {e['cell']}: {e['ratio_mean']:.4f} "
+              f"[{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}]")
+    for reason in report["void"]:
+        sys.stderr.write(f"::warning:: this run is void as a §23.3 measurement: {reason}\n")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(artifact, indent=2) + "\n")
@@ -4095,6 +4410,156 @@ def _self_test_ordered_readers(throughput_bin: Path, counters_bin: Path, pin: st
                               capture_output=True, text=True, check=False)
         assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
     sys.stderr.write("Ordered-reader instrument PASSED\n")
+
+
+def _synthetic_count_rows(
+    rounds: int, writer_mops: Any, pin: str, reader_ops: int = 100_000
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Rows in the harness's reader-mode schema for every scheduled count run.
+
+    `writer_mops(run)` gives a throughput row's writer Mops/s; every counter
+    identity of a `with_locked` reader holds.
+    """
+    t_rows: list[dict[str, Any]] = []
+    c_rows: list[dict[str, Any]] = []
+    for run in count_cells_schedule(rounds):
+        fresh = 0 if run["writers"] == 0 else 4096
+        ops = reader_ops if run["readers"] else 0
+        base = {
+            "workload_id": ORDERED_READERS_WORKLOAD_ID, "arm": "expanse",
+            "cell": f"map_w{run['writers']}_r{run['readers']}_{run['read_op']}_{run['probe']}",
+            "keyspace_bits": 64, "prefill": 4096,
+            "hotspot_prefill": 0 if run["probe"] == "one_top_byte" else 256,
+            "hotspot_base": 0 if run["probe"] == "one_top_byte" else 1 << 40,
+            "fresh_keys": fresh, "write_ops": fresh, "cpu_pin": pin, "tsc_hz": 1,
+            "population_after": 4096 + fresh, **run,
+        }
+        t_rows.append({
+            **base, "role": "throughput",
+            "writer_elapsed_s": 1.0 if fresh else None, "writer_mops": writer_mops(run) if fresh else None,
+            "reader_ops": ops, "reader_elapsed_s": 1.0, "reader_mops": ops / 1e6,
+        })
+        c_rows.append({
+            **base, "role": "counters", "reader_ops": ops,
+            "read_ops": 0, "read_attempts": 0, "read_fallbacks": 0, "locked_reads": ops,
+            "lock_fallbacks": 0, "inserts": fresh, "quiesce_calls": ops,
+            "fallback_causes": {name: 0 for name in CAUSE_NAMES},
+        })
+    return t_rows, c_rows
+
+
+def _self_test_count_cells(throughput_bin: Path, counters_bin: Path, pin: str) -> None:
+    """The count-cell instrument (#1144): schedule, paired ratio, refusals, artifact, harness seam."""
+    import check_bench_provenance as cbp  # noqa: PLC0415 -- the gate's own functions judge the artifact
+
+    sys.stderr.write("Testing the count-cell instrument (#1144, METHODOLOGY.md §23)...\n")
+    rounds = 8
+    n = len(COUNT_CELLS_WR)
+    sched = count_cells_schedule(rounds)
+    assert len(sched) == rounds * len(COUNT_CELLS_PROBES) * n, len(sched)
+    for r in range(rounds):
+        for probe in COUNT_CELLS_PROBES:
+            block = sorted((x for x in sched if x["round"] == r and x["probe"] == probe), key=lambda x: x["position"])
+            assert [x["position"] for x in block] == list(range(n)), block
+            assert sorted((x["writers"], x["readers"]) for x in block) == sorted(COUNT_CELLS_WR), block
+            assert all(x["read_op"] == COUNT_CELLS_OP for x in block), block
+    firsts = [next(x["probe"] for x in sched if x["round"] == r) for r in range(rounds)]
+    assert firsts == [COUNT_CELLS_PROBES[r % 2] for r in range(rounds)], firsts
+
+    load = {"since": "count_cells:throughput", "wall_s": 1.0, "busy_cpus_since_prev": 1.0,
+            "own_busy_cpus": 1.0, "foreign_busy_cpus": 0.0}
+    # Rounds differ eightfold; only a statistic paired within the round lands
+    # on the within-round factor.
+    base = [1.0, 5.0, 2.0, 8.0, 3.0, 7.0, 4.0, 6.0]
+
+    def mops(run: dict[str, Any]) -> float:
+        factor = 0.25 if run["probe"] == "one_top_byte" else 0.8
+        return base[run["round"]] * (factor if run["readers"] else 1.0)
+
+    t, c = _synthetic_count_rows(rounds, mops, pin)
+    cells = summarize_count_cells(t, c, rounds, load)
+    assert len(cells) == len(COUNT_CELLS_PROBES) * n, len(cells)
+    ratios = {(e["probe"], e["writers"]): e for e in (
+        count_writer_ratio(t, probe, w, rounds) for probe in COUNT_CELLS_PROBES for w in COUNT_RATIO_WRITERS)}
+    for (probe, w), e in ratios.items():
+        want = 0.25 if probe == "one_top_byte" else 0.8
+        assert abs(e["ratio_mean"] - want) < 1e-9, (probe, w, e)
+        assert e["ratio_ci_method"] in CI_METHODS, e
+    alone = next(x for x in cells if (x["probe"], x["writers"], x["readers"]) == ("uniform", 0, 1))
+    assert "writer_mops_mean" not in alone and alone["reader_mops_mean"] > 0, alone
+    twin = next(x for x in cells if (x["probe"], x["writers"], x["readers"]) == ("one_top_byte", 4, 0))
+    assert "reader_mops_mean" not in twin and twin["writer_mops_mean"] > 0, twin
+
+    # Refusals: a missing round, an unpaired ratio, reader probes in an R = 0
+    # row, an optimistic read in a with_locked cell.
+    _expect_value_error(lambda: summarize_count_cells(t, c[1:], rounds, load), "counters rows cover rounds")
+    unpaired = [x for x in t if (x["probe"], x["writers"], x["readers"], x["round"]) != ("uniform", 4, 0, 3)]
+    _expect_value_error(lambda: count_writer_ratio(unpaired, "uniform", 4, rounds), "round 3 is unpaired")
+    probed = [dict(x) for x in t]
+    i0 = next(i for i, x in enumerate(probed) if x["readers"] == 0)
+    probed[i0]["reader_ops"] = 5
+    _expect_value_error(lambda: summarize_count_cells(probed, c, rounds, load), "an R = 0 row made 5")
+    optimistic = [dict(x) for x in c]
+    i1 = next(i for i, x in enumerate(optimistic) if x["readers"] == 1)
+    optimistic[i1]["read_ops"] = 1
+    _expect_value_error(lambda: summarize_count_cells(t, optimistic, rounds, load), "with_locked reader cell")
+    env: dict[str, str] = {}
+    assert resolve_ordered_readers_pin(env, False, "--count-cells", "§23.3", "§23.4") is None
+    _expect_value_error(
+        lambda: resolve_ordered_readers_pin({"EXPANSE_BENCH_PIN": "0-15"}, False, "--count-cells", "§23.3", "§23.4"),
+        "--count-cells measures under the pin")
+
+    # The artifact, judged by the provenance gate's own functions.
+    prov = new_provenance(suite="concurrency", issue=1144, ratio="self-test", repo_root=REPO_ROOT,
+                          core_pin=pin, estimators=estimators("self-test"))
+    rel = COUNT_CELLS_RESULTS_PATH.relative_to(cbp.BENCH).as_posix()
+    assert any(Path(rel).match(g) for g in cbp.ARTIFACT_GLOBS), (rel, cbp.ARTIFACT_GLOBS)
+    art = build_count_cells_artifact(prov, cells, t, rounds, pin, quick=True)
+    assert cbp.findings_for(rel, art) == [], cbp.findings_for(rel, art)
+    assert any("--quick" in v for v in art["count_cells"]["void"]), art["count_cells"]["void"]
+    assert len(art["count_cells"]["writer_ratio"]) == len(COUNT_CELLS_PROBES) * len(COUNT_RATIO_WRITERS)
+    unlabelled = json.loads(json.dumps(art))
+    del unlabelled["count_cells"]["writer_ratio"][0]["ratio_ci_method"]
+    assert any("construction label" in f for f in cbp.findings_for(rel, unlabelled)), "a dropped CI label must be seen"
+    assert str(REPO_ROOT) not in json.dumps(art), "absolute repo path leaked into the artifact (AGENTS.md §7)"
+
+    # The seam: real harness rows spliced into a synthetic sweep (AGENTS.md §8.20.7).
+    short = 3
+    wanted = {("uniform", 0, 1), ("one_top_byte", 1, 0), ("one_top_byte", 1, 1)}
+    real_runs = [x for x in count_cells_schedule(short)
+                 if x["round"] == 0 and (x["probe"], x["writers"], x["readers"]) in wanted]
+    assert len(real_runs) == len(wanted), real_runs
+    t3, c3 = _synthetic_count_rows(short, mops, pin)
+
+    def key(x: dict[str, Any]) -> tuple[Any, ...]:
+        return (x["probe"], x["writers"], x["readers"], x["round"])
+
+    for run in real_runs:
+        rt = run_reader_invocation(throughput_bin, "throughput", run, quick=True)
+        rc = run_reader_invocation(counters_bin, "counters", run, quick=True)
+        check_row_pins([rt, rc], pin)
+        t3 = [rt if key(x) == key(run) else x for x in t3]
+        c3 = [rc if key(x) == key(run) else x for x in c3]
+    cells3 = summarize_count_cells(t3, c3, short, load)
+    counted = next(x for x in cells3 if (x["probe"], x["writers"], x["readers"]) == ("one_top_byte", 1, 1))
+    assert counted["counters_raw"][0]["locked_reads"] == counted["counters_raw"][0]["reader_ops"] > 0, counted
+    assert counted["rounds_raw"][0]["writer_mops"] > 0 and counted["hotspot_prefill"] == 0, counted
+    twin3 = next(x for x in cells3 if (x["probe"], x["writers"], x["readers"]) == ("one_top_byte", 1, 0))
+    assert twin3["rounds_raw"][0]["reader_ops"] == 0 and twin3["counters_raw"][0]["locked_reads"] == 0, twin3
+    control = next(x for x in cells3 if (x["probe"], x["writers"], x["readers"]) == ("uniform", 0, 1))
+    assert control["rounds_raw"][0]["writer_mops"] is None and control["rounds_raw"][0]["reader_ops"] == 4096, control
+    art3 = build_count_cells_artifact(prov, cells3, t3, short, pin, quick=True)
+    assert cbp.findings_for(rel, art3) == [], cbp.findings_for(rel, art3)
+
+    # The harness refuses an R = 0 cell that is not the count control, by name.
+    for extra, needle in (
+        (["--arm", "map", "--writers", "0", "--readers", "0", "--read-op", "count_locked"], "writers-only control"),
+        (["--arm", "map", "--writers", "1", "--readers", "0", "--read-op", "prev"], "needs --readers > 0"),
+    ):
+        proc = subprocess.run([str(throughput_bin), "--role", "throughput", *extra, "--quick"],
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
+    sys.stderr.write("Count-cell instrument PASSED\n")
 
 
 def _synthetic_readers_only_rows(
@@ -6274,6 +6739,7 @@ def self_test() -> int:
 
     # 10. The ordered-reader instrument (#900).
     _self_test_ordered_readers(throughput_bin, counters_bin, pin)
+    _self_test_count_cells(throughput_bin, counters_bin, pin)
     _self_test_readers_only(throughput_bin, counters_bin, pin)
 
     eprintln("writer_scaling.py self-test PASSED\n")
@@ -6384,6 +6850,13 @@ def build_parser() -> argparse.ArgumentParser:
              "(default output gate_929_bytes_writer_scaling.json)",
     )
     comparison.add_argument(
+        "--count-cells",
+        action="store_true",
+        help="Counts under a writer on the map (#1144, METHODOLOGY.md §23): probe x (W, R) cells of "
+             "count_below through with_locked under the pin 0,2,4,6,8,10,12,14, with the paired writer "
+             "ratios (default output count_cells_writer_scaling.json)",
+    )
+    comparison.add_argument(
         "--ordered-readers",
         action="store_true",
         help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
@@ -6463,6 +6936,33 @@ def main() -> int:
             )
             return 1
         return run_readers_only(args)
+
+    if args.count_cells:
+        # A sweep of its own, as `--ordered-readers` is (the two share a
+        # mutually exclusive group).
+        conflicts = [
+            flag for flag, on in (
+                ("--diagnostic", args.diagnostic), ("--pmu", args.pmu), ("--c2c", args.c2c),
+                ("--features", args.features is not None), ("--arm", args.arm != "all"),
+                ("--writers", args.writers != "1,2,4,8"),
+            ) if on
+        ]
+        if conflicts:
+            sys.stderr.write(f"error: --count-cells does not combine with {', '.join(conflicts)}\n")
+            return 1
+        if args.rounds < 3:
+            sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
+            return 1
+        if not args.out:
+            args.out = str(COUNT_CELLS_RESULTS_PATH)
+        if (args.quick and Path(args.out).resolve() in committed_result_paths()
+                and not args.force_quick_out):
+            sys.stderr.write(
+                "error: --quick output cannot overwrite committed results path "
+                f"{Path(args.out).resolve()} without --force-quick-out\n"
+            )
+            return 1
+        return run_count_cells(args)
 
     if args.ordered_readers:
         # A sweep of its own: none of the writer sweep's selectors apply, and

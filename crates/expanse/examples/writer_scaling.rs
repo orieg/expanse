@@ -116,6 +116,21 @@
 //! writers insert the 2^20 uniform fresh keys. Generation refuses to run if any
 //! uniform prefill or fresh key falls inside the hotspot expanse.
 //!
+//! **Counts under a writer (#1144, `METHODOLOGY.md` §23).** `--read-op
+//! count_locked` is `count_below` under `with_locked`, which folds the ancestor
+//! `pop0` the writers left stale. Its probe mode `one_top_byte` prefills 2^20
+//! uniform keys under the one top byte `ONE_TOP_BYTE` (the writer sweep's draws
+//! shifted right a byte), inserts 2^20 fresh keys of the same shape, and holds
+//! nothing else — neither the uniform prefill nor the hotspot keys. With
+//! `count_locked` only, `--readers 0 --writers W` is accepted: the cell's
+//! writers-only control, over the same prefill and fresh stream, with no
+//! reader. At W = 0 a `count_locked` cell checks sampled ranks against the
+//! sorted prefill. `writer_scaling.py --count-cells` drives the cells.
+//!
+//! ```text
+//! cargo run --release -p expanse-trie --example writer_scaling -- --arm map --writers <W> --readers <R> --read-op count_locked --probe <uniform|one_top_byte> [--round <r>] [--position <p>] [--quick]
+//! ```
+//!
 //! ## Readers-only mode on the set and string arms (#730)
 //!
 //! `--arm set` and `--arm str` with `--readers R` run the readers-only cell:
@@ -191,15 +206,15 @@
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
 //! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_bytes_overwrite`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing; a `one_top_byte` cell (#1144) prefills 2^20 keys under one top byte and inserts 2^20 fresh keys of that shape, with no hotspot keys. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key |
 //! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled; blob overwrite targets in per-writer stream draw order over a Fisher–Yates rank table |
-//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` under `with_locked`, over the identical stream. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
+//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` or `count_below` under `with_locked`, over the identical stream; a `one_top_byte` cell's readers cycle permutations of its own prefill; a `count_locked` cell may run with R = 0 as its writers-only control. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
 //! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100% |
 //! | `miss_gen_method` | same-generator rejection sampling against prefill; reader probes draw no misses |
 //! | `value_dereference` | map arms check stored values against key-derived expectation; the blob arm checks payload bytes and metadata, and its overwrite cell that each read-back key holds its prefill or exactly one overwrite that targeted it; reader results fold key and value into a `black_box` accumulator |
 //! | `measured_region` | writer mode: barrier release to last-writer join; the blob overwrite cell's prefill, Zipfian table, rank draws and read-back check are outside. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time |
 //! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver |
-//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters |
+//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, the #1144 per-round paired writer Mops/s with and without a counting reader with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters |
 //! | `verdict` | pending measurement |
 
 use std::collections::HashSet;
@@ -403,7 +418,7 @@ impl Counters {
                     ));
                 }
             }
-            ReadOp::PrevLocked => {
+            ReadOp::PrevLocked | ReadOp::CountLocked => {
                 if self.read_ops != 0 {
                     return Err(format!(
                         "{cell}: read_ops = {} on a with_locked reader cell, expected 0",
@@ -618,18 +633,33 @@ impl WriterWorkload {
         } else {
             (1u64 << keyspace_bits) - 1
         };
+        Self::generate_shaped(n_prefill, m_fresh, keyspace_bits, |x| x & mask)
+    }
 
+    /// Uniform keys under one top byte, [`ONE_TOP_BYTE`] (#1144): the same
+    /// draws as [`Self::generate`] at 64 bits, each shifted right one byte.
+    fn generate_one_top_byte(n_prefill: usize, m_fresh: usize) -> Self {
+        Self::generate_shaped(n_prefill, m_fresh, 56, |x| ONE_TOP_BYTE | (x >> 8))
+    }
+
+    /// The prefill and fresh streams with every draw mapped through `shape`.
+    fn generate_shaped(
+        n_prefill: usize,
+        m_fresh: usize,
+        keyspace_bits: u32,
+        shape: impl Fn(u64) -> u64,
+    ) -> Self {
         // 1. Generate prefill keys.
         let mut rng = XorShift::new(SEED_PREFILL);
         let mut prefill = Vec::with_capacity(n_prefill);
         for _ in 0..n_prefill {
-            prefill.push(rng.next() & mask);
+            prefill.push(shape(rng.next()));
         }
         prefill.sort_unstable();
         prefill.dedup();
         // If duplicates occurred, top up to exactly n_prefill.
         while prefill.len() < n_prefill {
-            let k = rng.next() & mask;
+            let k = shape(rng.next());
             if let Err(pos) = prefill.binary_search(&k) {
                 prefill.insert(pos, k);
             }
@@ -639,7 +669,7 @@ impl WriterWorkload {
         let mut fresh_rng = XorShift::new(SEED_FRESH);
         let mut fresh_keys = Vec::with_capacity(m_fresh);
         while fresh_keys.len() < m_fresh {
-            let c = fresh_rng.next() & mask;
+            let c = shape(fresh_rng.next());
             if prefill.binary_search(&c).is_err() {
                 fresh_keys.push(c);
             }
@@ -1692,6 +1722,9 @@ const _: () = assert!(
 pub const SEED_HOTSPOT_BASE: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0900;
 /// Seed of the Fisher–Yates shuffle of the hotspot writers' fresh keys.
 pub const SEED_HOTSPOT_FRESH: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0901;
+/// The top byte every `one_top_byte` key carries (#1144): the concurrent
+/// map's per-top-digit dirty mask then has one bit for the whole tree.
+pub const ONE_TOP_BYTE: u64 = 0xA5 << 56;
 /// Base of the per-reader probe shuffle seeds; see [`reader_seed`].
 pub const SEED_READER: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_0902;
 
@@ -1704,6 +1737,9 @@ enum ReadOp {
     PrevLocked,
     /// `MapReader::prev_before`, optimistic.
     Prev,
+    /// `ExpanseMap::count_below` under `SyncExpanseMap::with_locked`, which
+    /// folds the ancestor `pop0` the writers left stale (#1144).
+    CountLocked,
 }
 
 impl ReadOp {
@@ -1712,8 +1748,9 @@ impl ReadOp {
             "get" => Ok(Self::Get),
             "prev_locked" => Ok(Self::PrevLocked),
             "prev" => Ok(Self::Prev),
+            "count_locked" => Ok(Self::CountLocked),
             other => Err(format!(
-                "unknown --read-op {other:?} (expected get, prev_locked or prev)"
+                "unknown --read-op {other:?} (expected get, prev_locked, prev or count_locked)"
             )),
         }
     }
@@ -1723,6 +1760,7 @@ impl ReadOp {
             Self::Get => "get",
             Self::PrevLocked => "prev_locked",
             Self::Prev => "prev",
+            Self::CountLocked => "count_locked",
         }
     }
 }
@@ -1734,6 +1772,10 @@ enum Probe {
     Uniform,
     /// The offset-1 hotspot keys of every terminal byte above the first.
     Hotspot,
+    /// A prefill of uniform keys under one top byte, [`ONE_TOP_BYTE`], and
+    /// fresh keys of the same shape (#1144). The tree holds these keys only:
+    /// neither the uniform prefill nor the hotspot keys.
+    OneTopByte,
 }
 
 impl Probe {
@@ -1741,8 +1783,9 @@ impl Probe {
         match s {
             "uniform" => Ok(Self::Uniform),
             "hotspot" => Ok(Self::Hotspot),
+            "one_top_byte" => Ok(Self::OneTopByte),
             other => Err(format!(
-                "unknown --probe {other:?} (expected uniform or hotspot)"
+                "unknown --probe {other:?} (expected uniform, hotspot or one_top_byte)"
             )),
         }
     }
@@ -1751,6 +1794,7 @@ impl Probe {
         match self {
             Self::Uniform => "uniform",
             Self::Hotspot => "hotspot",
+            Self::OneTopByte => "one_top_byte",
         }
     }
 }
@@ -1874,6 +1918,8 @@ impl HotspotExpanse {
 /// A reader-mode workload: the writer sweep's map workload, the hotspot
 /// expanse, and one probe permutation per reader.
 struct ReaderWorkload {
+    /// The writer sweep's map workload, or for `one_top_byte` its
+    /// one-top-byte form.
     uniform: WriterWorkload,
     hotspot: HotspotExpanse,
     /// Every prefilled key, sorted: the uniform prefill and the hotspot keys.
@@ -1889,8 +1935,27 @@ impl ReaderWorkload {
         probe: Probe,
         readers: usize,
     ) -> Result<Self, String> {
-        let uniform = WriterWorkload::generate(n_prefill, m_fresh, 64);
         let hotspot = HotspotExpanse::generate();
+        if probe == Probe::OneTopByte {
+            // Its own population only: the probes, the fresh stream and the
+            // whole prefill share the one top byte.
+            let uniform = WriterWorkload::generate_one_top_byte(n_prefill, m_fresh);
+            let prefill_all = uniform.prefill.clone();
+            let probes = (0..readers)
+                .map(|r| {
+                    let mut v = uniform.prefill.clone();
+                    fisher_yates(&mut v, reader_seed(r));
+                    v
+                })
+                .collect();
+            return Ok(Self {
+                uniform,
+                hotspot,
+                prefill_all,
+                probes,
+            });
+        }
+        let uniform = WriterWorkload::generate(n_prefill, m_fresh, 64);
         let inside_prefill = uniform
             .prefill
             .iter()
@@ -1912,7 +1977,7 @@ impl ReaderWorkload {
         prefill_all.extend_from_slice(&hotspot.prefill);
         prefill_all.sort_unstable();
         let source = match probe {
-            Probe::Uniform => &uniform.prefill,
+            Probe::Uniform | Probe::OneTopByte => &uniform.prefill,
             Probe::Hotspot => &hotspot.probes,
         };
         let probes = (0..readers)
@@ -1933,7 +1998,7 @@ impl ReaderWorkload {
     /// The keys the writers of a `probe` cell insert.
     fn fresh(&self, probe: Probe) -> &[u64] {
         match probe {
-            Probe::Uniform => &self.uniform.fresh_keys,
+            Probe::Uniform | Probe::OneTopByte => &self.uniform.fresh_keys,
             Probe::Hotspot => &self.hotspot.fresh,
         }
     }
@@ -2050,6 +2115,31 @@ fn verify_prev_answers(
     Ok(())
 }
 
+/// Checks a sample of `count_below` answers under `with_locked` against the
+/// sorted prefill: the rank of a present key is its index. Untimed, and only
+/// meaningful at W = 0, where the prefill is the whole tree.
+fn verify_count_answers(
+    map: &SyncExpanseMap,
+    sorted: &[u64],
+    probes: &[u64],
+    round: usize,
+) -> Result<(), String> {
+    let step = (probes.len() / 512).max(1);
+    for &k in probes.iter().step_by(step) {
+        let Ok(i) = sorted.binary_search(&k) else {
+            return Err(format!("probe {k:#x} is not a prefilled key"));
+        };
+        let got = map.with_locked(|m| m.count_below(k));
+        if got != i as u64 {
+            return Err(format!(
+                "round {round}: count_below({k:#x}) answered {got} under with_locked; the sorted \
+                 prefill says {i}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn run_reader_cell(
     wl: &ReaderWorkload,
     cell: ReaderCell,
@@ -2144,6 +2234,14 @@ fn run_reader_cell(
                             });
                             (n, t0.elapsed().as_secs_f64())
                         }
+                        ReadOp::CountLocked => {
+                            b.wait();
+                            let t0 = Instant::now();
+                            let n = probe_loop(probes, limit, stop, |k| {
+                                m.with_locked(|t| t.count_below(k))
+                            });
+                            (n, t0.elapsed().as_secs_f64())
+                        }
                     })
                 })
                 .collect();
@@ -2190,7 +2288,7 @@ fn run_reader_cell(
             "round {round}: population {final_pop} after the cell, expected {expected_pop}"
         ));
     }
-    if reader_ops == 0 {
+    if cell.readers > 0 && reader_ops == 0 {
         return Err(format!(
             "round {round}: the readers made no probes, so the cell has no reader throughput"
         ));
@@ -2204,7 +2302,12 @@ fn run_reader_cell(
         }
     }
     if cell.writers == 0 {
-        verify_prev_answers(&map, &wl.prefill_all, &wl.probes[0], round)?;
+        match cell.op {
+            ReadOp::CountLocked => {
+                verify_count_answers(&map, &wl.prefill_all, &wl.probes[0], round)?;
+            }
+            _ => verify_prev_answers(&map, &wl.prefill_all, &wl.probes[0], round)?,
+        }
     }
 
     Ok(ReaderOutcome {
@@ -2528,6 +2631,13 @@ fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(),
         .ok_or_else(|| "reader mode needs --writers <W>, a single count (0 allowed)".to_string())?;
     let op = ReadOp::parse(flag_value(args, "--read-op")?.unwrap_or("prev"))?;
     let probe = Probe::parse(flag_value(args, "--probe")?.unwrap_or("uniform"))?;
+    if readers == 0 && (op != ReadOp::CountLocked || writers == 0) {
+        return Err(
+            "--readers 0 in reader mode is the count cells' writers-only control: it needs \
+             --read-op count_locked and --writers >= 1"
+                .to_string(),
+        );
+    }
     let position: usize = parse_flag(args, "--position")?.unwrap_or(0);
     let rounds: usize = parse_flag(args, "--rounds")?.unwrap_or(8);
     let (round_start, round_end) = match parse_flag::<usize>(args, "--round")? {
@@ -2561,7 +2671,11 @@ fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(),
     let label = format!("map_w{writers}_r{readers}_{}_{}", op.name(), probe.name());
     let pin = cpu_pin_json();
     let (op_name, probe_name) = (op.name(), probe.name());
-    let (hotspot_prefill, hotspot_base) = (HOTSPOT_BUCKETS, wl.hotspot.base);
+    let (hotspot_prefill, hotspot_base) = if probe == Probe::OneTopByte {
+        (0, 0)
+    } else {
+        (HOTSPOT_BUCKETS, wl.hotspot.base)
+    };
 
     for round in round_start..round_end {
         let out = run_reader_cell(&wl, cell, round, is_counters, &mut perf_ctl)?;
@@ -2768,6 +2882,12 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     // fails this test at any population.
     for (idx, name) in occ_stats::NAMES.iter().enumerate() {
         if let Some(cause) = name.strip_prefix("fallback_") {
+            // Not an engine choice: a `diag-entry` caller's deliberate
+            // serialised route, a feature no harness build enables. Were one
+            // counted, the partition check below would report it unattributed.
+            if idx == Stat::FallbackForced as usize {
+                continue;
+            }
             let covered = CAUSES
                 .iter()
                 .any(|&(stat, label)| stat as usize == idx && label == cause);
@@ -2780,7 +2900,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     }
     let engine_causes = occ_stats::NAMES
         .iter()
-        .filter(|n| n.starts_with("fallback_"))
+        .filter(|n| n.starts_with("fallback_") && **n != "fallback_forced")
         .count();
     if engine_causes != CAUSES.len() {
         return Err(format!(
@@ -3204,13 +3324,21 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         || probe_counters
             .check_reader(ReadOp::PrevLocked, 1, "probe")
             .is_ok()
+        || probe_counters
+            .check_reader(ReadOp::CountLocked, 1, "probe")
+            .is_ok()
     {
         return Err("check_reader accepted a mismatched count or refused a matching one".into());
     }
 
     // One cell per read op and probe, at W = 0 and W = 1, in this build's role.
-    for op in [ReadOp::Prev, ReadOp::PrevLocked, ReadOp::Get] {
-        for probe in [Probe::Uniform, Probe::Hotspot] {
+    for op in [
+        ReadOp::Prev,
+        ReadOp::PrevLocked,
+        ReadOp::Get,
+        ReadOp::CountLocked,
+    ] {
+        for probe in [Probe::Uniform, Probe::Hotspot, Probe::OneTopByte] {
             let wl = ReaderWorkload::generate(n0, m, probe, 2)?;
             for writers in [0usize, 1] {
                 let ctx = format!(
@@ -3257,6 +3385,49 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                     ));
                 }
             }
+        }
+    }
+
+    // The one-top-byte workload (#1144): every prefill and fresh key under
+    // `ONE_TOP_BYTE`, the two disjoint, and the tree holding nothing else.
+    let otb = ReaderWorkload::generate(n0, m, Probe::OneTopByte, 1)?;
+    if otb
+        .prefill_all
+        .iter()
+        .chain(&otb.uniform.fresh_keys)
+        .any(|&k| k >> 56 != ONE_TOP_BYTE >> 56)
+        || otb.prefill_all != otb.uniform.prefill
+        || otb
+            .uniform
+            .fresh_keys
+            .iter()
+            .any(|k| otb.prefill_all.binary_search(k).is_ok())
+    {
+        return Err("one_top_byte keys must share the top byte and be the whole prefill".into());
+    }
+
+    // The count cells' writers-only control: R = 0 over the same workload.
+    for probe in [Probe::Uniform, Probe::OneTopByte] {
+        let wl = ReaderWorkload::generate(n0, m, probe, 0)?;
+        let ctx = format!("self-test count control {}", probe.name());
+        let cell = ReaderCell {
+            writers: 1,
+            readers: 0,
+            op: ReadOp::CountLocked,
+            probe,
+        };
+        let out = run_reader_cell(&wl, cell, 0, is_counters, &mut dummy_ctl)
+            .map_err(|e| format!("{ctx}: {e}"))?;
+        if out.reader_ops != 0 || out.writer_elapsed_s.is_none() {
+            return Err(format!(
+                "{ctx}: {} probes and writer time {:?}, expected 0 and a time",
+                out.reader_ops, out.writer_elapsed_s
+            ));
+        }
+        if is_counters {
+            out.counters
+                .check(out.fresh_keys, out.counters.locked_reads, &ctx)?;
+            out.counters.check_reader(ReadOp::CountLocked, 0, &ctx)?;
         }
     }
 
@@ -3440,7 +3611,14 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if readers > 0 {
+    // `--read-op count_locked --readers 0` is reader mode's writers-only
+    // control for the count cells (#1144): the same prefill and fresh stream
+    // as its counting cells, with no reader.
+    let count_control = readers == 0
+        && args
+            .windows(2)
+            .any(|w| w[0] == "--read-op" && w[1] == "count_locked");
+    if readers > 0 || count_control {
         if let Err(e) = reader_main(&args, is_counters, readers) {
             eprintln!("reader mode: {e}");
             std::process::exit(1);
@@ -3449,7 +3627,10 @@ fn main() {
     }
     for flag in ["--read-op", "--probe"] {
         if args.iter().any(|a| a == flag) {
-            eprintln!("{flag} is a reader-mode flag and needs --readers > 0");
+            eprintln!(
+                "{flag} is a reader-mode flag and needs --readers > 0 \
+                 (--readers 0 only with --read-op count_locked)"
+            );
             std::process::exit(1);
         }
     }
