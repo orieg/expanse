@@ -1041,6 +1041,8 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 +---------------------------------------------------------------------------------------+
 ```
 
+Phase B's filtered iteration is `ExpanseBlobMap::scan_filtered` (§5.2), on the blob map, which owns the slot layout; the plain-map `scan_prefix_filtered` and `range_filtered` the box places in `nav.rs` are not part of the design, because a plain `ExpanseMap` value is an uninterpreted JudyL word with no metadata to filter on. The SIMD kernels and their vectorizable entry, `scan_meta_range` (§5.5.4), remain design (§5.3).
+
 ---
 
 ## 10. Verification, Testing & Benchmarking Matrix
