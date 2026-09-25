@@ -82,9 +82,12 @@
 //! Readers walk tree memory the writer may be mutating; the racy loads
 //! are validated before use per the seqlock pattern (Boehm, "Can seqlocks
 //! get along with programming language memory models?", MSPC 2012). Under
-//! a strict reading of the Rust memory model those plain loads are data
-//! races; this is the same industry-standard trade the 64-bit `sync`
-//! module documents, pending tearable-atomics support, and it is why the
+//! the Rust memory model those plain loads are data races, and a reader
+//! also holds `&` to the engine while the writer holds `&mut` to it: both
+//! classes of undefined behaviour #1086 names, still reachable from safe
+//! code here. The 64-bit `sync` module no longer makes this trade (its
+//! shared accesses are atomic words and its writers use raw pointers); this
+//! module has not been converted, no census workload covers it, and the
 //! concurrent stress tests are excluded under Miri. The reclamation-fence
 //! construction (reader: store the odd counter then `SeqCst` fence then
 //! sample; writer: mutate/unlink, close bracket, `SeqCst` fence, then

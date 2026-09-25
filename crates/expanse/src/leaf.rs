@@ -1293,6 +1293,31 @@ mod tests {
     /// and position: reads, lower bounds and searches over an area, and
     /// in-place inserts and removals leave the same bytes. In the Tier-1
     /// Miri lane (`leaf::`), so the atomic word accesses are checked there.
+    /// An allocation of exactly `n` bytes at 8-byte alignment, freed on drop
+    /// (so a panicking assertion does not leak it under LeakSanitizer).
+    struct ExactArea(*mut u8, core::alloc::Layout);
+
+    impl ExactArea {
+        fn new(n: usize) -> Self {
+            let layout = core::alloc::Layout::from_size_align(n.max(1), 8).expect("layout");
+            // SAFETY: non-zero size.
+            let p = unsafe { std::alloc::alloc_zeroed(layout) };
+            assert!(!p.is_null(), "allocation failed");
+            Self(p, layout)
+        }
+
+        fn free(self) {
+            drop(self);
+        }
+    }
+
+    impl Drop for ExactArea {
+        fn drop(&mut self) {
+            // SAFETY: allocated in `new` with this layout, freed once.
+            unsafe { std::alloc::dealloc(self.0, self.1) };
+        }
+    }
+
     #[test]
     fn shared_keys_match_plain() {
         use super::shared_keys as sk;
@@ -1319,6 +1344,38 @@ mod tests {
                     // SAFETY: `i < pop`.
                     let got = unsafe { sk::read(sp, i, kb, pop) };
                     assert_eq!(got, k, "read kb {kb} pop {pop} i {i}");
+                }
+                // The same reads, and an in-place insert and removal, over an
+                // allocation of exactly the key area: a covering word that
+                // reached past it would be an out-of-bounds access, which the
+                // Tier-1 Miri run over `leaf::` reports.
+                {
+                    let exact = kb * cap_class(pop);
+                    let buf = ExactArea::new(exact);
+                    // SAFETY: both buffers hold at least `exact` bytes.
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(plain.as_ptr().cast::<u8>(), buf.0, exact);
+                    }
+                    for (i, &k) in keys.iter().enumerate() {
+                        // SAFETY: `i < pop`, inside the exact area.
+                        let got = unsafe { sk::read(buf.0, i, kb, pop) };
+                        assert_eq!(got, k, "exact read kb {kb}");
+                    }
+                    // SAFETY: `pop` keys in the exact area.
+                    let hit = unsafe { sk::find(buf.0, pop, kb, keys[pop - 1]) };
+                    assert_eq!(hit, Some(pop - 1), "exact find kb {kb} pop {pop}");
+                    if cap_class(pop + 1) == cap_class(pop) {
+                        // SAFETY: the class holds `pop + 1` keys.
+                        unsafe { sk::set_insert_at(buf.0, kb as u8, pop, 0, 0) };
+                        // SAFETY: `pop + 1` keys now.
+                        unsafe { sk::set_remove_at(buf.0, kb as u8, pop + 1, 0) };
+                    }
+                    for (i, &k) in keys.iter().enumerate() {
+                        // SAFETY: as above.
+                        let got = unsafe { sk::read(buf.0, i, kb, pop) };
+                        assert_eq!(got, k, "exact round trip kb {kb}");
+                    }
+                    buf.free();
                 }
                 for needle in [0u64, 1, 5, 42, 200, (1u64 << (kb * 8)) - 1] {
                     let n = needle & ((1u64 << (kb * 8)) - 1);

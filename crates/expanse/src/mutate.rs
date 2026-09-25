@@ -1530,6 +1530,10 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
     path: &mut InsertPath,
     cover: Cover,
 ) -> bool {
+    debug_assert!(
+        OCC,
+        "the shared insert walk runs only on a shared tree (#1086)"
+    );
     // The sequential-insert bypass caches raw edge pointers across
     // operations; under OCC every store must sit inside the bracket of the
     // node that contains it, which a cached pointer cannot name. Keep the
@@ -2508,6 +2512,10 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
     level: u8,
     cover: Cover,
 ) -> bool {
+    debug_assert!(
+        !OCC,
+        "a shared tree removes through `remove_occ`, never the plain body (#1086)"
+    );
     debug_assert!((1..=8).contains(&level));
     let tag = edge.tag().expect("valid edge tag");
     match tag {
@@ -3035,6 +3043,10 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
     level: u8,
     cover: Cover,
 ) -> bool {
+    debug_assert!(
+        OCC,
+        "`remove_occ` is the shared tree's removal; a plain tree uses `remove` (#1086)"
+    );
     debug_assert!((1..=8).contains(&level));
     // A local copy of the published edge; see `insert_with_path_occ`.
     // SAFETY: `edge_ptr` is the live edge this frame owns per contract.

@@ -53,7 +53,8 @@
 //! site no workload reaches is covered only by the argument above. What
 //! stays outside: `with_locked_mut` hands the bytes and string maps' slot
 //! APIs a plain `&mut`, and a value stored through a slot they return is a
-//! plain store.
+//! plain store; and the 32-bit wrappers (`sync32`) have not been converted
+//! and still reach both classes.
 //!
 //! The threaded tests in `sync::tests` are compiled out under Miri;
 //! `mod miri_ub_sites` holds the workloads Miri runs. The per-node version
@@ -1157,6 +1158,112 @@ pub(crate) mod fold_edges {
     /// Edges folded on this thread since it started.
     pub(crate) fn get() -> u64 {
         EDGES.with(Cell::get)
+    }
+}
+
+/// Whether every slot of a `BranchU` is null: what an optimistic removal
+/// that nulled one of its slots reports to a host that tracks it
+/// ([`OlcHost::note_vacant_branch`]). At most 256 edge loads, and only on
+/// that removal; out of line and cold, so the bodies of the hosts that
+/// never call it are unchanged.
+///
+/// # Safety
+///
+/// `node` is an EBR-live `BranchU` whose version the caller holds locked,
+/// so no writer stores to its slots during the scan.
+#[cfg(feature = "std")]
+#[cold]
+#[inline(never)]
+unsafe fn branch_u_all_null(node: *const BranchU) -> bool {
+    // SAFETY: `node` is live (contract); the projection reads no memory.
+    let edges = unsafe { (&raw const (*node).edges).cast::<Edge>() };
+    // SAFETY: `i < BRANCH_FANOUT`, inside the edges array, whose slots the
+    // caller's lock keeps from being stored to.
+    (0..BRANCH_FANOUT).all(|i| unsafe { edges.add(i).read() }.is_null())
+}
+
+/// Whether the subtree under `edge` holds no key: an early-exit census for
+/// the exclusive path, which decides a dirty string sub-map's emptiness from
+/// it rather than from a full [`fold_branch_pop0`] (Refs #1162). An
+/// optimistic removal only ever empties a subtree by nulling `BranchU`
+/// slots, so a drained tree is null edges and branches of null edges; the
+/// walk stops at the first key it meets, so on a non-empty tree it reads the
+/// first path down to a key and any drained branches before it. Reads only:
+/// branch `pop0` words are left as they are.
+///
+/// # Safety
+///
+/// As [`fold_branch_pop0`]: exclusive, and `edge` points to an EBR-live
+/// `Edge`.
+#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+pub(crate) unsafe fn subtree_vacant(edge: *const Edge, level: u8) -> bool {
+    #[cfg(test)]
+    fold_edges::bump();
+    // SAFETY: caller guarantees `edge` is EBR-live and exclusive.
+    let e = unsafe { edge.read() };
+    let Some(tag) = e.tag() else {
+        // An undecodable edge is not claimed vacant: the caller would free it.
+        return false;
+    };
+    // Every child edge of a branch at level `bl`, first key found stops it.
+    let vacant_run = |edges: *const Edge, n: usize, bl: u8| {
+        // SAFETY: `i < n`, inside the branch's live edge array (caller).
+        (0..n).all(|i| unsafe { subtree_vacant(edges.add(i), bl - 1) })
+    };
+    match tag {
+        EdgeTag::Structural(EdgeType::Null) => true,
+        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+            // SAFETY: a live branch edge (caller).
+            let bl = unsafe { branch_form_level(&e, t, level) };
+            let ptr = e.node_ptr();
+            if ptr.is_null() {
+                return true;
+            }
+            // SAFETY: `ptr` is the live branch the edge names.
+            let (num, edges): (usize, *const Edge) = unsafe {
+                if matches!(t, EdgeType::BranchL3) {
+                    let b = ptr.cast::<BranchL3>();
+                    (
+                        (*b).hdr.num as usize,
+                        (&raw const (*b).edges).cast::<Edge>(),
+                    )
+                } else {
+                    let b = ptr.cast::<BranchL7>();
+                    (
+                        (*b).hdr.num as usize,
+                        (&raw const (*b).edges).cast::<Edge>(),
+                    )
+                }
+            };
+            vacant_run(edges, num, bl)
+        }
+        EdgeTag::Structural(EdgeType::BranchB) => {
+            // SAFETY: a live branch edge (caller).
+            let bl = unsafe { branch_form_level(&e, EdgeType::BranchB, level) };
+            let ptr = e.node_ptr();
+            if ptr.is_null() {
+                return true;
+            }
+            let b = ptr.cast::<BranchB>();
+            (0..8usize).all(|sub| {
+                // SAFETY: `ptr` is the live bitmap branch the edge names.
+                let (n, sub_ptr) = unsafe { ((*b).pop_counts[sub] as usize, (*b).subarrays[sub]) };
+                n == 0 || sub_ptr.is_null() || vacant_run(sub_ptr, n, bl)
+            })
+        }
+        EdgeTag::Structural(EdgeType::BranchU) => {
+            // SAFETY: a live branch edge (caller).
+            let bl = unsafe { branch_form_level(&e, EdgeType::BranchU, level) };
+            let ptr = e.node_ptr();
+            if ptr.is_null() {
+                return true;
+            }
+            // SAFETY: `ptr` is the live uncompressed branch the edge names.
+            let edges = unsafe { (&raw const (*ptr.cast::<BranchU>()).edges).cast::<Edge>() };
+            vacant_run(edges, BRANCH_FANOUT, bl)
+        }
+        // Immediates, leaves and full expanses hold at least one key.
+        _ => false,
     }
 }
 
@@ -2762,6 +2869,25 @@ pub(crate) trait OlcHost {
     /// A mutation landed under top-level digit `d`: the host's census is
     /// stale there until its next quiescent fold.
     fn mark_dirty_digit(&self, d: u8);
+
+    /// Whether this host wants to hear that a removal left an uncompressed
+    /// branch with every slot null ([`Self::note_vacant_branch`]). An
+    /// optimistic removal nulls a `BranchU` slot in place and never frees
+    /// the branch, so a host that decides emptiness from a count its
+    /// optimistic writers leave stale cannot otherwise see a tree drain.
+    /// A constant per host: `false` compiles the check out of every other
+    /// host's bodies.
+    #[inline(always)]
+    fn tracks_vacant_branch(&self) -> bool {
+        false
+    }
+
+    /// A removal nulled the last non-null slot of a `BranchU`. Called under
+    /// that branch's lock, only when [`Self::tracks_vacant_branch`] is true.
+    /// Necessary for the tree to have drained, not sufficient: other
+    /// subtrees may still hold keys.
+    #[inline(always)]
+    fn note_vacant_branch(&self) {}
 
     /// Decodes the tag of an edge met on the descent.
     ///
@@ -4420,7 +4546,7 @@ impl SyncExpanseSet {
                             Edge::new_immed_single_set(level, crate::mutate::key_low(key, level));
                         // SAFETY: edge_ptr is within the locked BranchU node; writing new_edge is bracketed by the parent version lock.
                         unsafe {
-                            *edge_ptr = new_edge;
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                         }
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         self.shared.mark_dirty_digit(digit(key, 8));
@@ -7573,7 +7699,7 @@ macro_rules! olc_insert_map_body {
                         Edge::new_immed_single_map(level, crate::mutate::key_low($key, level), $val);
                     // SAFETY: edge_ptr is within the locked BranchU node; writing new_edge is bracketed by the parent version lock.
                     unsafe {
-                        *edge_ptr = new_edge;
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                     }
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
                     $host.mark_dirty_digit(digit($key, 8));
@@ -7878,6 +8004,14 @@ macro_rules! olc_remove_map_body {
                             let old_arr = (*node).values[sub];
                             let old = *old_arr.add(rank);
                             Edge::store_at::<true>(edge_ptr, Edge::NULL);
+                            // Under the parent's lock: a host that decides
+                            // emptiness from a stale count learns the branch
+                            // drained (`OlcHost::note_vacant_branch`).
+                            if $host.tracks_vacant_branch()
+                                && branch_u_all_null(parent.node.cast())
+                            {
+                                $host.note_vacant_branch();
+                            }
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             alloc.free_bytes(
@@ -8337,6 +8471,14 @@ macro_rules! olc_remove_map_body {
                         unsafe {
                             let old = base.cast::<u64>().read();
                             Edge::store_at::<true>(edge_ptr, Edge::NULL);
+                            // Under the parent's lock: a host that decides
+                            // emptiness from a stale count learns the branch
+                            // drained (`OlcHost::note_vacant_branch`).
+                            if $host.tracks_vacant_branch()
+                                && branch_u_all_null(parent.node.cast())
+                            {
+                                $host.note_vacant_branch();
+                            }
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             alloc.free_bytes(
@@ -8511,7 +8653,15 @@ macro_rules! olc_remove_map_body {
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
                             let old = Edge::word0_at(edge_ptr);
-                            (*edge_ptr) = Edge::NULL;
+                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
+                            // Under the parent's lock: a host that decides
+                            // emptiness from a stale count learns the branch
+                            // drained (`OlcHost::note_vacant_branch`).
+                            if $host.tracks_vacant_branch()
+                                && branch_u_all_null(parent.node.cast())
+                            {
+                                $host.note_vacant_branch();
+                            }
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             $host.mark_dirty_digit(digit($key, 8));
                             return OlcOutcome::Done(Some(old));

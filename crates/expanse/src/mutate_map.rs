@@ -1184,6 +1184,10 @@ pub(crate) unsafe fn map_insert_with_path_occ<
     path: &mut InsertPathMap,
     cover: Cover,
 ) -> (Option<u64>, *mut u64) {
+    debug_assert!(
+        OCC,
+        "the shared insert walk runs only on a shared tree (#1086)"
+    );
     path.clear();
     loop {
         debug_assert!((1..=8).contains(&level));
@@ -2153,6 +2157,10 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
     level: u8,
     cover: Cover,
 ) -> Option<u64> {
+    debug_assert!(
+        !OCC,
+        "a shared tree removes through `map_remove_occ`, never the plain body (#1086)"
+    );
     debug_assert!((1..=8).contains(&level));
     let tag = edge.tag().expect("valid edge tag");
     match tag {
@@ -2779,6 +2787,10 @@ pub(crate) unsafe fn map_remove_occ<const OCC: bool, const NESTED: bool>(
     level: u8,
     cover: Cover,
 ) -> Option<u64> {
+    debug_assert!(
+        OCC,
+        "`map_remove_occ` is the shared tree's removal; a plain tree uses `map_remove` (#1086)"
+    );
     debug_assert!((1..=8).contains(&level));
     // A local copy of the published edge; see `mutate::insert_with_path_occ`.
     // SAFETY: `edge_ptr` is the live edge this frame owns per contract.
