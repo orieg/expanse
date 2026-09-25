@@ -212,6 +212,47 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
     (removed, now)
 }
 
+/// [`tree_remove`] for a shared set's serialized removal under a clean top
+/// digit, allowed to condense drained subtrees (`subtree-condense`).
+#[cfg(all(feature = "std", feature = "subtree-condense"))]
+#[inline(always)]
+fn condensing_tree_remove(
+    alloc: &NodeAlloc,
+    tree_pop: &mut u64,
+    top: &mut Edge,
+    key: Key,
+) -> (bool, u64) {
+    debug_assert!(alloc.occ_enabled());
+    // SAFETY: trie maintained/owned by this set's engine; the wrapper runs
+    // this under its writer lock with writers quiesced.
+    let removed = unsafe {
+        if alloc.engine_covers_root() {
+            mutate::remove_condensing::<false>(alloc, top, key, 8, crate::occ::Cover::Tree)
+        } else {
+            mutate::remove_condensing::<true>(alloc, top, key, 8, crate::occ::Cover::Tree)
+        }
+    };
+    let now = if !removed {
+        u64::MAX
+    } else {
+        *tree_pop -= 1;
+        *tree_pop
+    };
+    (removed, now)
+}
+
+/// The `subtree-condense` sweep over a tree, per sharing mode.
+#[cfg(feature = "subtree-condense")]
+fn condense_sweep_tree<const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    top: &mut Edge,
+) -> usize {
+    // SAFETY: trie maintained/owned by this set's engine; on a shared tree
+    // the caller excludes every other writer and has folded the dirty
+    // digits, so each `pop0` the sweep reads is exact.
+    unsafe { crate::condense::sweep::<OCC, NESTED, false>(alloc, top, 8, crate::occ::Cover::Tree) }
+}
+
 /// The root-leaf promotion, per sharing mode: builds the level-8 trie for
 /// `slice` plus `key` on a private edge. On a shared tree the wrapper holds
 /// the tree bracket for this root-state change and the build brackets a
@@ -356,7 +397,16 @@ impl ExpanseSet {
     /// walk of the allocator's pages and freelists. A no-op on a set
     /// shared through a concurrent wrapper, whose freed blocks go to its
     /// epoch collector: [`crate::sync::SyncExpanseSet::shrink_to_fit`] returns those.
+    ///
+    /// With the `subtree-condense` feature it first condenses every drained
+    /// branch subtree whose packed leaf is smaller
+    /// (`docs/benchmarks/remove_retention/METHODOLOGY.md` §5.3), which
+    /// lowers [`Self::mem_used`] too.
     pub fn shrink_to_fit(&mut self) -> usize {
+        #[cfg(feature = "subtree-condense")]
+        if !self.alloc.occ_enabled() {
+            self.condense_sweep();
+        }
         self.alloc.release_free()
     }
 
@@ -1143,7 +1193,29 @@ impl ExpanseSet {
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn remove_shared(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.remove_inner_shared(key))
+        noting_root_rewrite!(self, t => t.remove_inner_shared::<false>(key))
+    }
+
+    /// [`Self::remove_shared`] allowed to condense drained subtrees
+    /// (`subtree-condense`): the wrapper calls it for a serialized removal
+    /// whose key's top digit is clean in its `DirtyDigits`.
+    #[cfg(all(feature = "std", feature = "subtree-condense"))]
+    #[inline(always)]
+    pub(crate) fn remove_shared_condensing(&mut self, key: Key) -> bool {
+        noting_root_rewrite!(self, t => t.remove_inner_shared::<true>(key))
+    }
+
+    /// The `subtree-condense` sweep of `shrink_to_fit`: condenses every
+    /// branch subtree below the top edge whose packed form is smaller.
+    /// Returns the number condensed. On a shared set the caller holds the
+    /// writer lock with writers quiesced and dirty digits folded.
+    #[cfg(feature = "subtree-condense")]
+    pub(crate) fn condense_sweep(&mut self) -> usize {
+        self.path.get_mut().clear();
+        let Root::Tree { top } = &mut self.root else {
+            return 0;
+        };
+        by_mode!(self.alloc, condense_sweep_tree(&self.alloc, top))
     }
 
     #[inline(always)]
@@ -1224,7 +1296,7 @@ impl ExpanseSet {
     /// [`Self::insert_inner_shared`].
     #[cfg(feature = "std")]
     #[inline(always)]
-    fn remove_inner_shared(&mut self, key: Key) -> bool {
+    fn remove_inner_shared<const C: bool>(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => false,
@@ -1269,6 +1341,16 @@ impl ExpanseSet {
             Root::Tree { top } => {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat (see `insert_inner`).
+                #[cfg(feature = "subtree-condense")]
+                let (removed, now) = if C {
+                    condensing_tree_remove(&self.alloc, &mut self.tree_pop, top, key)
+                } else {
+                    by_mode!(
+                        self.alloc,
+                        tree_remove(&self.alloc, &mut self.tree_pop, top, key)
+                    )
+                };
+                #[cfg(not(feature = "subtree-condense"))]
                 let (removed, now) = by_mode!(
                     self.alloc,
                     tree_remove(&self.alloc, &mut self.tree_pop, top, key)

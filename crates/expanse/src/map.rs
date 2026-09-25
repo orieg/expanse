@@ -348,6 +348,47 @@ fn tree_insert<const KEEP: bool, const OCC: bool, const NESTED: bool>(
     r
 }
 
+/// [`tree_remove`] for a shared map's serialized removal under a clean top
+/// digit, allowed to condense drained subtrees (`subtree-condense`).
+#[cfg(all(feature = "std", feature = "subtree-condense"))]
+#[inline(always)]
+fn condensing_tree_remove(
+    alloc: &NodeAlloc,
+    tree_pop: &mut u64,
+    top: &mut Edge,
+    key: Key,
+) -> (Option<u64>, u64) {
+    debug_assert!(alloc.occ_enabled());
+    // SAFETY: trie maintained/owned by this map's engine; the wrapper runs
+    // this under its writer lock with writers quiesced.
+    let old = unsafe {
+        if alloc.engine_covers_root() {
+            mutate_map::map_remove_condensing::<false>(alloc, top, key, 8, crate::occ::Cover::Tree)
+        } else {
+            mutate_map::map_remove_condensing::<true>(alloc, top, key, 8, crate::occ::Cover::Tree)
+        }
+    };
+    let now = if old.is_none() {
+        u64::MAX
+    } else {
+        *tree_pop -= 1;
+        *tree_pop
+    };
+    (old, now)
+}
+
+/// The `subtree-condense` sweep over a map tree, per sharing mode.
+#[cfg(feature = "subtree-condense")]
+fn condense_sweep_tree<const OCC: bool, const NESTED: bool>(
+    alloc: &NodeAlloc,
+    top: &mut Edge,
+) -> usize {
+    // SAFETY: trie maintained/owned by this map's engine; on a shared tree
+    // the caller excludes every other writer and has folded the dirty
+    // digits, so each `pop0` the sweep reads is exact.
+    unsafe { crate::condense::sweep::<OCC, NESTED, true>(alloc, top, 8, crate::occ::Cover::Tree) }
+}
+
 /// The tree arm of remove, per sharing mode: `(removed value, population
 /// after)`, `u64::MAX` when nothing was removed.
 #[inline(always)]
@@ -2794,7 +2835,35 @@ impl MapCore {
         key: Key,
         path: &mut crate::mutate_map::InsertPathMap,
     ) -> Option<u64> {
-        noting_root_rewrite!(self, m => m.remove_inner_shared(alloc, key, path))
+        noting_root_rewrite!(self, m => m.remove_inner_shared::<false>(alloc, key, path))
+    }
+
+    /// [`Self::remove_shared`] allowed to condense drained subtrees
+    /// (`subtree-condense`), for a serialized removal under a clean top digit.
+    #[cfg(all(feature = "std", feature = "subtree-condense"))]
+    #[inline(always)]
+    pub(crate) fn remove_shared_condensing(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        noting_root_rewrite!(self, m => m.remove_inner_shared::<true>(alloc, key, path))
+    }
+
+    /// The `subtree-condense` sweep of `shrink_to_fit`; see
+    /// [`crate::set::ExpanseSet`]'s twin.
+    #[cfg(feature = "subtree-condense")]
+    pub(crate) fn condense_sweep(
+        &mut self,
+        alloc: &NodeAlloc,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> usize {
+        path.clear();
+        let Root::Tree { top } = &mut self.root else {
+            return 0;
+        };
+        by_mode!(alloc, condense_sweep_tree(alloc, top))
     }
 
     /// Single-threaded remove, bypassing OCC checks.
@@ -2899,7 +2968,7 @@ impl MapCore {
     /// [`Self::insert_inner_shared`].
     #[cfg(feature = "std")]
     #[inline(always)]
-    fn remove_inner_shared(
+    fn remove_inner_shared<const C: bool>(
         &mut self,
         alloc: &NodeAlloc,
         key: Key,
@@ -2952,6 +3021,13 @@ impl MapCore {
             Root::Tree { top } => {
                 // One OCC check per operation, where the runtime dispatch
                 // always sat (see `insert_inner`).
+                #[cfg(feature = "subtree-condense")]
+                let (old, now) = if C {
+                    condensing_tree_remove(alloc, &mut self.tree_pop, top, key)
+                } else {
+                    by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key))
+                };
+                #[cfg(not(feature = "subtree-condense"))]
                 let (old, now) = by_mode!(alloc, tree_remove(alloc, &mut self.tree_pop, top, key));
                 if old.is_some() {
                     if now == 0 {
@@ -3839,7 +3915,16 @@ impl ExpanseMap {
     /// walk of the allocator's pages and freelists. A no-op on a map
     /// shared through a concurrent wrapper, whose freed blocks go to its
     /// epoch collector: [`crate::sync::SyncExpanseMap::shrink_to_fit`] returns those.
+    ///
+    /// With the `subtree-condense` feature it first condenses every drained
+    /// branch subtree whose packed leaf is smaller
+    /// (`docs/benchmarks/remove_retention/METHODOLOGY.md` §5.3), which moves
+    /// the values it repacks and lowers [`Self::mem_used`] too.
     pub fn shrink_to_fit(&mut self) -> usize {
+        #[cfg(feature = "subtree-condense")]
+        if !self.alloc.occ_enabled() {
+            self.condense_sweep();
+        }
         self.alloc.release_free()
     }
 
@@ -4006,6 +4091,23 @@ impl ExpanseMap {
     pub(crate) fn remove_shared(&mut self, key: Key) -> Option<u64> {
         self.core
             .remove_shared(&self.alloc, key, self.path.get_mut())
+    }
+
+    /// [`Self::remove_shared`] allowed to condense drained subtrees
+    /// (`subtree-condense`), for a serialized removal under a clean top digit.
+    #[cfg(all(feature = "std", feature = "subtree-condense"))]
+    #[inline(always)]
+    pub(crate) fn remove_shared_condensing(&mut self, key: Key) -> Option<u64> {
+        self.core
+            .remove_shared_condensing(&self.alloc, key, self.path.get_mut())
+    }
+
+    /// The `subtree-condense` sweep of `shrink_to_fit`. On a shared map the
+    /// caller holds the writer lock with writers quiesced and dirty digits
+    /// folded.
+    #[cfg(feature = "subtree-condense")]
+    pub(crate) fn condense_sweep(&mut self) -> usize {
+        self.core.condense_sweep(&self.alloc, self.path.get_mut())
     }
 
     /// Single-threaded remove, bypassing OCC checks.

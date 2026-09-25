@@ -93,6 +93,8 @@ pub mod blobmap;
 pub mod bytesmap;
 #[cfg(target_pointer_width = "64")]
 pub mod codec;
+#[cfg(all(target_pointer_width = "64", feature = "subtree-condense"))]
+pub mod condense;
 #[cfg(target_pointer_width = "64")]
 pub mod cursor;
 #[cfg(target_pointer_width = "64")]

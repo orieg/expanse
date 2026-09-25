@@ -2395,7 +2395,53 @@ pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut E
 /// # Safety
 ///
 /// Same contract as [`insert`].
+#[inline(always)]
 pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    key: Key,
+    level: u8,
+    cover: Cover,
+) -> bool {
+    // A plain tree may condense drained subtrees (`subtree-condense`); a
+    // shared tree condenses only through [`remove_condensing`], which its
+    // wrapper calls when the key's top digit is clean.
+    if OCC {
+        // SAFETY: forwarded contract.
+        unsafe { remove_c::<OCC, NESTED, false>(a, edge, key, level, cover) }
+    } else {
+        // SAFETY: forwarded contract.
+        unsafe { remove_c::<OCC, NESTED, true>(a, edge, key, level, cover) }
+    }
+}
+
+/// [`remove`] on a shared tree, allowed to condense drained subtrees
+/// (`docs/benchmarks/remove_retention/METHODOLOGY.md` §5.3): only for a
+/// serialized removal whose key's top digit is clean in the wrapper's
+/// `DirtyDigits`, so every ancestor `pop0` it reads is exact.
+///
+/// # Safety
+///
+/// Same contract as [`insert`], with no other writer running.
+#[cfg(all(feature = "std", feature = "subtree-condense"))]
+pub(crate) unsafe fn remove_condensing<const NESTED: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    key: Key,
+    level: u8,
+    cover: Cover,
+) -> bool {
+    // SAFETY: forwarded contract.
+    unsafe { remove_c::<true, NESTED, true>(a, edge, key, level, cover) }
+}
+
+/// The remove walk. `CONDENSE` admits the `subtree-condense` hook on each
+/// branch frame's success exit; without the feature it is inert.
+///
+/// # Safety
+///
+/// Same contract as [`insert`].
+unsafe fn remove_c<const OCC: bool, const NESTED: bool, const CONDENSE: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
@@ -2649,7 +2695,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 cover.end_if::<OCC, NESTED>(a);
             }
             // SAFETY: freshly materialized well-formed subtree.
-            unsafe { remove::<OCC, NESTED>(a, edge, key, level, cover) }
+            unsafe { remove_c::<OCC, NESTED, CONDENSE>(a, edge, key, level, cover) }
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
@@ -2672,7 +2718,13 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     };
                     let inner = Cover::Node(&raw mut (*b).hdr.version);
                     inner.nest_begin::<OCC, NESTED>(a);
-                    let r = remove::<OCC, NESTED>(a, &mut (*b).edges[slot], key, bl - 1, inner);
+                    let r = remove_c::<OCC, NESTED, CONDENSE>(
+                        a,
+                        &mut (*b).edges[slot],
+                        key,
+                        bl - 1,
+                        inner,
+                    );
                     inner.nest_end::<OCC, NESTED>(a);
                     let child_null = r && (*b).edges[slot].is_null();
                     if child_null {
@@ -2697,7 +2749,13 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                     };
                     let inner = Cover::Node(&raw mut (*b).hdr.version);
                     inner.nest_begin::<OCC, NESTED>(a);
-                    let r = remove::<OCC, NESTED>(a, &mut (*b).edges[slot], key, bl - 1, inner);
+                    let r = remove_c::<OCC, NESTED, CONDENSE>(
+                        a,
+                        &mut (*b).edges[slot],
+                        key,
+                        bl - 1,
+                        inner,
+                    );
                     inner.nest_end::<OCC, NESTED>(a);
                     let child_null = r && (*b).edges[slot].is_null();
                     if child_null {
@@ -2753,6 +2811,16 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
+            #[cfg(feature = "subtree-condense")]
+            if CONDENSE {
+                // SAFETY: this frame's brackets are closed; `edge` is the
+                // live branch edge at `level`.
+                unsafe {
+                    crate::condense::after_branch_remove::<OCC, NESTED, false>(
+                        a, edge, level, bl, cover,
+                    )
+                };
+            }
             true
         }
 
@@ -2775,7 +2843,13 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             // SAFETY: bitmap/subarray consistency invariant. The descent is
             // not bracketed; the child frame takes `inner` for its stores.
             let removed = unsafe {
-                remove::<OCC, NESTED>(a, &mut *(*b).subarrays[sub].add(rank), key, bl - 1, inner)
+                remove_c::<OCC, NESTED, CONDENSE>(
+                    a,
+                    &mut *(*b).subarrays[sub].add(rank),
+                    key,
+                    bl - 1,
+                    inner,
+                )
             };
             inner.nest_end::<OCC, NESTED>(a);
             if !removed {
@@ -2847,6 +2921,16 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
                 cover.end_if::<OCC, NESTED>(a);
             }
+            #[cfg(feature = "subtree-condense")]
+            if CONDENSE {
+                // SAFETY: this frame's brackets are closed; `edge` is the
+                // live branch edge at `level`.
+                unsafe {
+                    crate::condense::after_branch_remove::<OCC, NESTED, false>(
+                        a, edge, level, bl, cover,
+                    )
+                };
+            }
             true
         }
 
@@ -2860,7 +2944,13 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             // (or null). The descent is not bracketed; the child frame
             // takes `inner` for its stores into this node's slot.
             let removed = unsafe {
-                remove::<OCC, NESTED>(a, &mut (*b).edges[d as usize], key, level - 1, inner)
+                remove_c::<OCC, NESTED, CONDENSE>(
+                    a,
+                    &mut (*b).edges[d as usize],
+                    key,
+                    level - 1,
+                    inner,
+                )
             };
             inner.nest_end::<OCC, NESTED>(a);
             if !removed {
@@ -2896,6 +2986,16 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 cover.end_if::<OCC, NESTED>(a);
+            }
+            #[cfg(feature = "subtree-condense")]
+            if CONDENSE {
+                // SAFETY: this frame's brackets are closed; `edge` is the
+                // live branch edge at `level`.
+                unsafe {
+                    crate::condense::after_branch_remove::<OCC, NESTED, false>(
+                        a, edge, level, level, cover,
+                    )
+                };
             }
             true
         }

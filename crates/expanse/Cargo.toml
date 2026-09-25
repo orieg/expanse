@@ -46,6 +46,14 @@ lock-padded = []
 # only — `sync32` is single-writer, has no writer mutex, and already pads its
 # version word.
 ablation-unpadded-lock = []
+# Spike, off by default: condense a drained branch subtree back into a packed
+# leaf on remove when the leaf is the smaller of the two, on the 64-bit set and
+# map engines (docs/benchmarks/remove_retention/METHODOLOGY.md §5). Alone it is
+# the `H1` arm (threshold LEAF_CAP - 1); `subtree-condense-wide` selects the
+# `wide` arm (LEAF_CAP - 8). Not promoted: a promoted arm becomes the default
+# under AGENTS.md §2.7 with an `ablation-no-subtree-condense` inverse.
+subtree-condense = []
+subtree-condense-wide = ["subtree-condense"]
 # Diagnostic-only: epoch-advance interval variants, to measure what the advance
 # scan costs the write path. `advance-never` is sound only for workloads that
 # retire nothing. Features are additive: with both on, `advance-never` wins.

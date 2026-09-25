@@ -1135,7 +1135,7 @@ impl DirtyDigits {
     }
 
     #[inline(always)]
-    #[cfg(test)]
+    #[cfg(any(test, feature = "subtree-condense"))]
     pub fn is_digit_dirty(&self, d: u8) -> bool {
         let word_idx = (d / 32) as usize;
         let bit = 1u32 << (d % 32);
@@ -2671,6 +2671,32 @@ impl<T: SharedTree> Shared<T> {
         res
     }
 
+    /// A serialised write (as [`Self::remove_root_covered`]) that first
+    /// folds the dirty digits' branch `pop0` counts, inside the same
+    /// section, so `f` reads exact counts everywhere: the `subtree-condense`
+    /// sweep of `shrink_to_fit` (`docs/benchmarks/remove_retention/
+    /// METHODOLOGY.md` §5.3). No removal refolds per operation.
+    #[cfg(feature = "subtree-condense")]
+    fn fold_then_write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: RootState,
+    {
+        self.write_root_covered_with::<true, false, R>(|inner| {
+            let mut mask = [0u32; 8];
+            if self.dirty_digits.take(&mut mask) {
+                // SAFETY: writers are quiesced and the write lock is held
+                // (`write_root_covered_with`); the root top edge is live.
+                let top_ptr = unsafe { inner.root_top_ptr() };
+                if !top_ptr.is_null() {
+                    // SAFETY: non-null, EBR-live root edge; no other writer.
+                    let folded = unsafe { fold_branch_pop0_selective(top_ptr, 8, &mask) };
+                    debug_assert_eq!(folded, inner.tree_pop());
+                }
+            }
+            f(inner)
+        })
+    }
+
     /// Consistent read under the writer lock with on-demand branch `pop0` synchronization.
     ///
     /// The escape hatch to the full single-threaded read API (`count_below`, `count_range`,
@@ -3937,7 +3963,7 @@ impl SyncExpanseSet {
             drop(_guard);
             match res {
                 Ok(rem) => rem,
-                Err(_) => self.shared.remove_root_covered(|s| s.remove_shared(key)),
+                Err(_) => self.remove_serialised(key),
             }
         }
         #[cfg(not(feature = "std"))]
@@ -3993,7 +4019,28 @@ impl SyncExpanseSet {
     pub fn remove_serialized(&self, key: Key) -> bool {
         crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
         crate::occ_stats::bump(FallbackCause::Forced.stat());
-        self.shared.remove_root_covered(|s| s.remove_shared(key))
+        self.remove_serialised(key)
+    }
+
+    /// The serialised removal every fallback takes. Writers are quiesced
+    /// inside `remove_root_covered`, so a top digit's dirty state is stable
+    /// there; clean means every ancestor `pop0` below it is exact, which the
+    /// `subtree-condense` rule reads (METHODOLOGY §5.3), so only then may the
+    /// removal condense.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    fn remove_serialised(&self, key: Key) -> bool {
+        self.shared.remove_root_covered(|s| {
+            #[cfg(feature = "subtree-condense")]
+            if !self
+                .shared
+                .dirty_digits
+                .is_digit_dirty(crate::types::digit(key, 8))
+            {
+                return s.remove_shared_condensing(key);
+            }
+            s.remove_shared(key)
+        })
     }
 
     /// Diagnostic (`diag-entry`): the optimistic write protocol's fixed steps
@@ -5815,7 +5862,14 @@ impl SyncExpanseSet {
     /// writers that find the collector's lists empty allocate from the
     /// system, as on any miss. Blocks still in their grace period are
     /// released by a later call, once reclaimed.
+    ///
+    /// With the `subtree-condense` feature it first folds the dirty digits'
+    /// counts and condenses every drained branch subtree whose packed leaf
+    /// is smaller, under the writer lock with writers quiesced (readers keep
+    /// running and retry across each replaced subtree).
     pub fn shrink_to_fit(&self) -> usize {
+        #[cfg(feature = "subtree-condense")]
+        self.shared.fold_then_write(ExpanseSet::condense_sweep);
         self.shared.release_collector()
     }
 
@@ -6035,7 +6089,7 @@ impl SyncExpanseMap {
             drop(_guard);
             match res {
                 Ok(prev) => prev,
-                Err(_) => self.shared.remove_root_covered(|m| m.remove_shared(key)),
+                Err(_) => self.remove_serialised(key),
             }
         }
         #[cfg(not(feature = "std"))]
@@ -6238,7 +6292,25 @@ impl SyncExpanseMap {
     pub fn remove_serialized(&self, key: Key) -> Option<u64> {
         crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
         crate::occ_stats::bump(FallbackCause::Forced.stat());
-        self.shared.remove_root_covered(|m| m.remove_shared(key))
+        self.remove_serialised(key)
+    }
+
+    /// The serialised removal every fallback takes; as
+    /// `SyncExpanseSet::remove_serialised`.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    fn remove_serialised(&self, key: Key) -> Option<u64> {
+        self.shared.remove_root_covered(|m| {
+            #[cfg(feature = "subtree-condense")]
+            if !self
+                .shared
+                .dirty_digits
+                .is_digit_dirty(crate::types::digit(key, 8))
+            {
+                return m.remove_shared_condensing(key);
+            }
+            m.remove_shared(key)
+        })
     }
 
     /// Diagnostic (`diag-entry`): the optimistic write protocol's fixed steps
@@ -6371,7 +6443,14 @@ impl SyncExpanseMap {
     /// writers that find the collector's lists empty allocate from the
     /// system, as on any miss. Blocks still in their grace period are
     /// released by a later call, once reclaimed.
+    ///
+    /// With the `subtree-condense` feature it first folds the dirty digits'
+    /// counts and condenses every drained branch subtree whose packed leaf
+    /// is smaller, under the writer lock with writers quiesced (readers keep
+    /// running and retry across each replaced subtree).
     pub fn shrink_to_fit(&self) -> usize {
+        #[cfg(feature = "subtree-condense")]
+        self.shared.fold_then_write(ExpanseMap::condense_sweep);
         self.shared.release_collector()
     }
 
