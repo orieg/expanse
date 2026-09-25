@@ -233,4 +233,11 @@ impl ExpanseSet {
         }
         Ok(count)
     }
+
+    // abi-parity: expanse_set_validate
+    /// Validates internal structural invariants.
+    #[napi]
+    pub fn validate(&self) -> bool {
+        self.inner.validate_defensive().is_ok()
+    }
 }

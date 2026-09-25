@@ -111,7 +111,58 @@ extern Word_t   JudyHSFreeArray(PPvoid_t PPArray, PJError_t PJError);
  * usage styles observed in consumers: `JLI(PV, A, I);` (man-page style)
  * and `JLI(PV, A, I)` bare at statement position. Consequence (doc-gap
  * D5): they are statements, not expressions, and an unbraced
- * `if (c) JLI(...); else ...` needs braces around the macro. */
+ * `if (c) JLI(...); else ...` needs braces around the macro.
+ *
+ * For modern strict C compilers that enforce `do { ... } while(0)` macro hygiene,
+ * define JUDY_STRICT_MACROS before including Judy.h.
+ */
+#ifdef JUDY_STRICT_MACROS
+#define J1S(Rc, PArray, Index)   do { (Rc) = Judy1Set(&(PArray), Index, PJE0); } while (0)
+#define J1U(Rc, PArray, Index)   do { (Rc) = Judy1Unset(&(PArray), Index, PJE0); } while (0)
+#define J1T(Rc, PArray, Index)   do { (Rc) = Judy1Test((Pcvoid_t)(PArray), Index, PJE0); } while (0)
+#define J1C(Rc, PArray, I1, I2)  do { (Rc) = Judy1Count((Pcvoid_t)(PArray), I1, I2, PJE0); } while (0)
+#define J1BC(Rc, PArray, Nth, Index) do { (Rc) = Judy1ByCount((Pcvoid_t)(PArray), Nth, &(Index), PJE0); } while (0)
+#define J1F(Rc, PArray, Index)   do { (Rc) = Judy1First((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1N(Rc, PArray, Index)   do { (Rc) = Judy1Next((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1L(Rc, PArray, Index)   do { (Rc) = Judy1Last((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1P(Rc, PArray, Index)   do { (Rc) = Judy1Prev((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1FE(Rc, PArray, Index)  do { (Rc) = Judy1FirstEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1NE(Rc, PArray, Index)  do { (Rc) = Judy1NextEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1LE(Rc, PArray, Index)  do { (Rc) = Judy1LastEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1PE(Rc, PArray, Index)  do { (Rc) = Judy1PrevEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define J1FA(Rc, PArray)         do { (Rc) = Judy1FreeArray(&(PArray), PJE0); } while (0)
+#define J1MU(Rc, PArray)         do { (Rc) = Judy1MemUsed((Pcvoid_t)(PArray)); } while (0)
+
+#define JLI(PV, PArray, Index)   do { (PV) = (PWord_t) JudyLIns(&(PArray), Index, PJE0); } while (0)
+#define JLD(Rc, PArray, Index)   do { (Rc) = JudyLDel(&(PArray), Index, PJE0); } while (0)
+#define JLG(PV, PArray, Index)   do { (PV) = (PWord_t) JudyLGet((Pcvoid_t)(PArray), Index, PJE0); } while (0)
+#define JLC(Rc, PArray, I1, I2)  do { (Rc) = JudyLCount((Pcvoid_t)(PArray), I1, I2, PJE0); } while (0)
+#define JLBC(PV, PArray, Nth, Index) do { (PV) = (PWord_t) JudyLByCount((Pcvoid_t)(PArray), Nth, &(Index), PJE0); } while (0)
+#define JLF(PV, PArray, Index)   do { (PV) = (PWord_t) JudyLFirst((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLN(PV, PArray, Index)   do { (PV) = (PWord_t) JudyLNext((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLL(PV, PArray, Index)   do { (PV) = (PWord_t) JudyLLast((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLP(PV, PArray, Index)   do { (PV) = (PWord_t) JudyLPrev((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLFE(Rc, PArray, Index)  do { (Rc) = JudyLFirstEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLNE(Rc, PArray, Index)  do { (Rc) = JudyLNextEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLLE(Rc, PArray, Index)  do { (Rc) = JudyLLastEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLPE(Rc, PArray, Index)  do { (Rc) = JudyLPrevEmpty((Pcvoid_t)(PArray), &(Index), PJE0); } while (0)
+#define JLFA(Rc, PArray)         do { (Rc) = JudyLFreeArray(&(PArray), PJE0); } while (0)
+#define JLMU(Rc, PArray)         do { (Rc) = JudyLMemUsed((Pcvoid_t)(PArray)); } while (0)
+
+#define JSLI(PV, PArray, Index)  do { (PV) = (PWord_t) JudySLIns(&(PArray), Index, PJE0); } while (0)
+#define JSLD(Rc, PArray, Index)  do { (Rc) = JudySLDel(&(PArray), Index, PJE0); } while (0)
+#define JSLG(PV, PArray, Index)  do { (PV) = (PWord_t) JudySLGet((Pcvoid_t)(PArray), Index, PJE0); } while (0)
+#define JSLF(PV, PArray, Index)  do { (PV) = (PWord_t) JudySLFirst((Pcvoid_t)(PArray), Index, PJE0); } while (0)
+#define JSLN(PV, PArray, Index)  do { (PV) = (PWord_t) JudySLNext((Pcvoid_t)(PArray), Index, PJE0); } while (0)
+#define JSLL(PV, PArray, Index)  do { (PV) = (PWord_t) JudySLLast((Pcvoid_t)(PArray), Index, PJE0); } while (0)
+#define JSLP(PV, PArray, Index)  do { (PV) = (PWord_t) JudySLPrev((Pcvoid_t)(PArray), Index, PJE0); } while (0)
+#define JSLFA(Rc, PArray)        do { (Rc) = JudySLFreeArray(&(PArray), PJE0); } while (0)
+
+#define JHSI(PV, PArray, Index, Len) do { (PV) = (PWord_t) JudyHSIns(&(PArray), Index, Len, PJE0); } while (0)
+#define JHSD(Rc, PArray, Index, Len) do { (Rc) = JudyHSDel(&(PArray), Index, Len, PJE0); } while (0)
+#define JHSG(PV, PArray, Index, Len) do { (PV) = (PWord_t) JudyHSGet((Pcvoid_t)(PArray), Index, Len); } while (0)
+#define JHSFA(Rc, PArray)            do { (Rc) = JudyHSFreeArray(&(PArray), PJE0); } while (0)
+#else
 #define J1S(Rc, PArray, Index)   { (Rc) = Judy1Set(&(PArray), Index, PJE0); }
 #define J1U(Rc, PArray, Index)   { (Rc) = Judy1Unset(&(PArray), Index, PJE0); }
 #define J1T(Rc, PArray, Index)   { (Rc) = Judy1Test((Pcvoid_t)(PArray), Index, PJE0); }
@@ -157,6 +208,7 @@ extern Word_t   JudyHSFreeArray(PPvoid_t PPArray, PJError_t PJError);
 #define JHSD(Rc, PArray, Index, Len) { (Rc) = JudyHSDel(&(PArray), Index, Len, PJE0); }
 #define JHSG(PV, PArray, Index, Len) { (PV) = (PWord_t) JudyHSGet((Pcvoid_t)(PArray), Index, Len); }
 #define JHSFA(Rc, PArray)            { (Rc) = JudyHSFreeArray(&(PArray), PJE0); }
+#endif /* JUDY_STRICT_MACROS */
 
 #ifdef __cplusplus
 }

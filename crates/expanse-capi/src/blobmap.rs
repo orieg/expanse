@@ -117,9 +117,8 @@ pub unsafe extern "C" fn expanse_blob_map_remove(map: *mut ExpanseBlobMap, key: 
 /// For uncompressed inline (<= 7 bytes) and arena-allocated values, the written
 /// [`ExpanseBlobView::ptr`] borrows into the map and is valid until the next
 /// structural mutation of `map` (any insert/remove/clear/compact/free).
-/// For compressed inline values, [`ExpanseBlobView::ptr`] is `NULL` and `is_inline`
-/// is `true`; callers should use [`expanse_blob_map_get_into`] to decompress into
-/// caller-owned memory.
+/// For compressed inline values, [`ExpanseBlobView::ptr`] is `NULL` and callers
+/// use [`expanse_blob_map_get_into`] to decompress into their buffer.
 ///
 /// # Safety
 ///
@@ -244,6 +243,7 @@ pub unsafe extern "C" fn expanse_blob_map_scan_filtered(
         |key, view, meta| {
             count += 1;
             if let Some(cb) = callback {
+                let is_inline = view.is_inline();
                 let (ptr, len) = match view {
                     BlobView::Inline(slice) => (slice.as_ptr(), slice.len()),
                     BlobView::Arena(slice) => (slice.as_ptr(), slice.len()),
@@ -253,9 +253,10 @@ pub unsafe extern "C" fn expanse_blob_map_scan_filtered(
                     ptr,
                     len,
                     hot_meta: meta,
-                    is_inline: view.is_inline(),
+                    is_inline,
                 };
                 // SAFETY: caller supplied callback function pointer and user_ctx.
+                // ptr points to valid slice or stack buf for the duration of cb.
                 unsafe { cb(key, c_view, user_ctx) }
             } else {
                 true
@@ -326,4 +327,15 @@ pub unsafe extern "C" fn expanse_blob_map_contains_key(
 ) -> bool {
     // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
     unsafe { map.as_ref() }.is_some_and(|m| m.contains_key(key))
+}
+
+/// Convenience alias matching the standardized `expanse_*_contains` naming convention.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_blob_map_contains(map: *const ExpanseBlobMap, key: u64) -> bool {
+    // SAFETY: forwarded to expanse_blob_map_contains_key.
+    unsafe { expanse_blob_map_contains_key(map, key) }
 }

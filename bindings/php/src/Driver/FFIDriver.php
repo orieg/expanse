@@ -91,6 +91,7 @@ class FFIDriver
     size_t   expanse_blob_map_mem_used(const ExpanseBlobMap *map);
     void     expanse_blob_map_clear(ExpanseBlobMap *map);
     bool     expanse_blob_map_contains_key(const ExpanseBlobMap *map, uint64_t key);
+    bool     expanse_blob_map_contains(const ExpanseBlobMap *map, uint64_t key);
 
     typedef struct expanse_sync_set expanse_sync_set_t;
     expanse_sync_set_t *expanse_sync_set_new(void);

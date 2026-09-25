@@ -121,16 +121,16 @@ one that does not link, and a link error names the gap at build time.
 
 | Configuration | Cargo invocation | Exported C symbols |
 |---|---|---|
-| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 162 |
-| 64-bit, `no_std` | `--no-default-features` | 133 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 66 |
+| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 170 |
+| 64-bit, `no_std` | `--no-default-features` | 141 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 67 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
 64-bit rows at commit `5e8147ae`, the 32-bit row re-measured each time the
 narrow surface grew: 31 for the ordered core plus `expanse_map_remove_range`,
 55 when the `expanse_sync32_*` surface landed for #573, 56 when
 `expanse_map_for_each_range` landed for #614, 62 when the reader-handle
-ordered reads landed for #900, 66 when `expanse_{map,set}_{mem_held,shrink_to_fit}` reached the 32-bit build for #1135 (62 on its parent, dabd13f8, by the same method). The #900 change also added six 64-bit symbols: the
+ordered reads landed for #900, 66 when `expanse_{map,set}_{mem_held,shrink_to_fit}` reached the 32-bit build for #1135 (62 on its parent, dabd13f8, by the same method), and 67 when `expanse_map_contains` reached the 32-bit build for #1159 (66 on its parent, 81f9eda2, by the same method). The #900 change also added six 64-bit symbols: the
 64-bit `std` row was re-measured then with `nm -gU` on an arm64 macOS dylib,
 145 before and 151 after, and 152 once `expanse_sync_map_mem_used` was added
 (same `nm -gU` method; 151 on its parent); the 64-bit `no_std` row is unchanged by
@@ -142,7 +142,11 @@ built with `--features embedded-panic-handler`, both on the branch that added
 them, off `dc5cbad2`. The four `expanse_sync_{map,set}_{mem_held,shrink_to_fit}`
 entry points took the 64-bit `std` row from 158 to 162 (`nm -gU` on an arm64
 macOS release dylib; 158 on their parent, `94bbe22d`, by the same method); the
-64-bit `no_std` row is unchanged by construction, as above.
+64-bit `no_std` row is unchanged by construction, as above. The eight modern C
+API methods in #1159 took the 64-bit `std` row from 162 to 170 (`nm -gU` on an arm64
+macOS dylib; 162 on parent 81f9eda2) and the 64-bit `no_std` row from 133 to 141
+(`llvm-nm --defined-only --extern-only` on the `x86_64-unknown-none` staticlib
+built with `--features embedded-panic-handler`).
 Reproduce with the invocations above; the 32-bit row needs
 `--features embedded-panic-handler`, as the CI job does.)
 

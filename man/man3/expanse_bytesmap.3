@@ -3,10 +3,16 @@
 expanse_bytesmap_new, expanse_bytesmap_free, expanse_bytesmap_clear, \
 expanse_bytesmap_insert, expanse_bytesmap_get, expanse_bytesmap_remove, \
 expanse_bytesmap_slot, expanse_bytesmap_ins_slot, expanse_bytesmap_len, \
-expanse_bytesmap_mem_used \
+expanse_bytesmap_mem_used, expanse_bytesmap_contains, \
+expanse_bytesmap_for_each \
 \- dynamic map for arbitrary byte slices to 64-bit values
 .SH SYNOPSIS
 .B #include <expanse.h>
+.PP
+.nf
+typedef bool (*expanse_bytesmap_iter_fn)(const void *key, size_t key_len,
+                                         uint64_t value, void *user_ctx);
+.fi
 .PP
 .BI "expanse_bytesmap_t *expanse_bytesmap_new(void);"
 .br
@@ -23,6 +29,9 @@ expanse_bytesmap_mem_used \
 .BI "                              const void *" key ", size_t " len ","
 .BI "                              uint64_t *" value_out ");"
 .br
+.BI "bool     expanse_bytesmap_contains(const expanse_bytesmap_t *" map ","
+.BI "                                   const void *" key ", size_t " len ");"
+.br
 .BI "bool     expanse_bytesmap_remove(expanse_bytesmap_t *" map ","
 .BI "                                 const void *" key ", size_t " len ","
 .BI "                                 uint64_t *" old_out ");"
@@ -36,6 +45,10 @@ expanse_bytesmap_mem_used \
 .BI "uint64_t expanse_bytesmap_len(const expanse_bytesmap_t *" map ");"
 .br
 .BI "size_t   expanse_bytesmap_mem_used(const expanse_bytesmap_t *" map ");"
+.br
+.BI "size_t   expanse_bytesmap_for_each(const expanse_bytesmap_t *" map ","
+.BI "                                   expanse_bytesmap_iter_fn " callback ","
+.BI "                                   void *" user_ctx ");"
 .PP
 Link with \fI-lexpanse\fR.
 .SH DESCRIPTION

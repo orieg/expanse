@@ -9,7 +9,8 @@ expanse_strmap_next_at_or_after, expanse_strmap_next_after, \
 expanse_strmap_prev_at_or_before, expanse_strmap_prev_before, \
 expanse_strmap_first_ex, expanse_strmap_last_ex, \
 expanse_strmap_next_at_or_after_ex, expanse_strmap_next_after_ex, \
-expanse_strmap_prev_at_or_before_ex, expanse_strmap_prev_before_ex \
+expanse_strmap_prev_at_or_before_ex, expanse_strmap_prev_before_ex, \
+expanse_strmap_contains \
 \- dynamic ordered null-terminated string-to-uint64 map
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -27,6 +28,9 @@ expanse_strmap_prev_at_or_before_ex, expanse_strmap_prev_before_ex \
 .BI "bool     expanse_strmap_get(const expanse_strmap_t *" map ","
 .BI "                            const char *" key ","
 .BI "                            uint64_t *" value_out ");"
+.br
+.BI "bool     expanse_strmap_contains(const expanse_strmap_t *" map ","
+.BI "                                 const char *" key ");"
 .br
 .BI "bool     expanse_strmap_remove(expanse_strmap_t *" map ","
 .BI "                               const char *" key ","

@@ -33,6 +33,7 @@ var (
 	expanse_set_count_range       func(set uintptr, lo, hi uint64) uint64
 	expanse_set_by_count          func(set uintptr, n uint64, keyOut *uint64) bool
 	expanse_set_contains_batch    func(set uintptr, keys *uint64, outPresent *bool, count uintptr) uintptr
+	expanse_set_validate          func(set uintptr) bool
 )
 
 // Map
@@ -41,6 +42,7 @@ var (
 	expanse_map_free              func(mapPtr uintptr)
 	expanse_map_insert            func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
 	expanse_map_get               func(mapPtr uintptr, key uint64, valueOut *uint64) bool
+	expanse_map_contains          func(mapPtr uintptr, key uint64) bool
 	expanse_map_get_batch         func(mapPtr uintptr, keys *uint64, outValues *uint64, outFound *bool, count uintptr) uintptr
 	expanse_map_remove            func(mapPtr uintptr, key uint64, oldOut *uint64) bool
 	expanse_map_len               func(mapPtr uintptr) uint64
@@ -48,6 +50,8 @@ var (
 	expanse_map_mem_held          func(mapPtr uintptr) uintptr
 	expanse_map_shrink_to_fit     func(mapPtr uintptr) uintptr
 	expanse_map_clear             func(mapPtr uintptr)
+	expanse_map_validate          func(mapPtr uintptr) bool
+	expanse_map_validate_explain  func(mapPtr uintptr, buf unsafe.Pointer, bufLen uintptr) bool
 	expanse_map_slot              func(mapPtr uintptr, key uint64) *uint64
 	expanse_map_ins_slot          func(mapPtr uintptr, key uint64) *uint64
 	expanse_map_first             func(mapPtr uintptr, keyOut, valueOut *uint64) bool
@@ -67,12 +71,14 @@ var (
 	expanse_bytesmap_free     func(mapPtr uintptr)
 	expanse_bytesmap_insert   func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, oldOut *uint64) bool
 	expanse_bytesmap_get      func(mapPtr uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
+	expanse_bytesmap_contains func(mapPtr uintptr, key unsafe.Pointer, len uintptr) bool
 	expanse_bytesmap_remove   func(mapPtr uintptr, key unsafe.Pointer, len uintptr, oldOut *uint64) bool
 	expanse_bytesmap_slot     func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
 	expanse_bytesmap_ins_slot func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
 	expanse_bytesmap_len      func(mapPtr uintptr) uint64
 	expanse_bytesmap_mem_used func(mapPtr uintptr) uintptr
 	expanse_bytesmap_clear    func(mapPtr uintptr)
+	expanse_bytesmap_for_each func(mapPtr uintptr, cb uintptr, userCtx unsafe.Pointer) uintptr
 )
 
 // StrMap
@@ -81,6 +87,7 @@ var (
 	expanse_strmap_free                 func(mapPtr uintptr)
 	expanse_strmap_insert               func(mapPtr uintptr, key unsafe.Pointer, value uint64, oldOut *uint64) bool
 	expanse_strmap_get                  func(mapPtr uintptr, key unsafe.Pointer, valueOut *uint64) bool
+	expanse_strmap_contains             func(mapPtr uintptr, key unsafe.Pointer) bool
 	expanse_strmap_remove               func(mapPtr uintptr, key unsafe.Pointer, oldOut *uint64) bool
 	expanse_strmap_slot                 func(mapPtr uintptr, key unsafe.Pointer) *uint64
 	expanse_strmap_ins_slot             func(mapPtr uintptr, key unsafe.Pointer) *uint64
@@ -163,6 +170,7 @@ var (
 	expanse_blob_map_mem_used      func(mapPtr uintptr) uintptr
 	expanse_blob_map_clear         func(mapPtr uintptr)
 	expanse_blob_map_contains_key  func(mapPtr uintptr, key uint64) bool
+	expanse_blob_map_contains      func(mapPtr uintptr, key uint64) bool
 )
 
 var prunePredicateCallbackPtr uintptr
@@ -216,12 +224,14 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_set_count_range, "expanse_set_count_range"},
 		{&expanse_set_by_count, "expanse_set_by_count"},
 		{&expanse_set_contains_batch, "expanse_set_contains_batch"},
+		{&expanse_set_validate, "expanse_set_validate"},
 
 		// Map
 		{&expanse_map_new, "expanse_map_new"},
 		{&expanse_map_free, "expanse_map_free"},
 		{&expanse_map_insert, "expanse_map_insert"},
 		{&expanse_map_get, "expanse_map_get"},
+		{&expanse_map_contains, "expanse_map_contains"},
 		{&expanse_map_get_batch, "expanse_map_get_batch"},
 		{&expanse_map_remove, "expanse_map_remove"},
 		{&expanse_map_len, "expanse_map_len"},
@@ -229,6 +239,8 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_map_mem_held, "expanse_map_mem_held"},
 		{&expanse_map_shrink_to_fit, "expanse_map_shrink_to_fit"},
 		{&expanse_map_clear, "expanse_map_clear"},
+		{&expanse_map_validate, "expanse_map_validate"},
+		{&expanse_map_validate_explain, "expanse_map_validate_explain"},
 		{&expanse_map_slot, "expanse_map_slot"},
 		{&expanse_map_ins_slot, "expanse_map_ins_slot"},
 		{&expanse_map_first, "expanse_map_first"},
@@ -246,18 +258,21 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_bytesmap_free, "expanse_bytesmap_free"},
 		{&expanse_bytesmap_insert, "expanse_bytesmap_insert"},
 		{&expanse_bytesmap_get, "expanse_bytesmap_get"},
+		{&expanse_bytesmap_contains, "expanse_bytesmap_contains"},
 		{&expanse_bytesmap_remove, "expanse_bytesmap_remove"},
 		{&expanse_bytesmap_slot, "expanse_bytesmap_slot"},
 		{&expanse_bytesmap_ins_slot, "expanse_bytesmap_ins_slot"},
 		{&expanse_bytesmap_len, "expanse_bytesmap_len"},
 		{&expanse_bytesmap_mem_used, "expanse_bytesmap_mem_used"},
 		{&expanse_bytesmap_clear, "expanse_bytesmap_clear"},
+		{&expanse_bytesmap_for_each, "expanse_bytesmap_for_each"},
 
 		// StrMap
 		{&expanse_strmap_new, "expanse_strmap_new"},
 		{&expanse_strmap_free, "expanse_strmap_free"},
 		{&expanse_strmap_insert, "expanse_strmap_insert"},
 		{&expanse_strmap_get, "expanse_strmap_get"},
+		{&expanse_strmap_contains, "expanse_strmap_contains"},
 		{&expanse_strmap_remove, "expanse_strmap_remove"},
 		{&expanse_strmap_slot, "expanse_strmap_slot"},
 		{&expanse_strmap_ins_slot, "expanse_strmap_ins_slot"},
@@ -325,6 +340,7 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_blob_map_mem_used, "expanse_blob_map_mem_used"},
 		{&expanse_blob_map_clear, "expanse_blob_map_clear"},
 		{&expanse_blob_map_contains_key, "expanse_blob_map_contains_key"},
+		{&expanse_blob_map_contains, "expanse_blob_map_contains"},
 	}
 
 	for _, s := range symbols {
