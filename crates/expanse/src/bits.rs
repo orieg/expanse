@@ -1264,7 +1264,6 @@ pub(crate) mod shared_bitmap {
 /// Relaxed is enough: every value a reader loads through this module is
 /// discarded unless the version word it sampled validates afterwards, and
 /// the version protocol supplies the ordering.
-#[cfg(feature = "std")]
 pub(crate) mod shared_word {
     use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
@@ -1294,6 +1293,45 @@ pub(crate) mod shared_word {
         if OCC {
             // SAFETY: caller contract.
             unsafe { AtomicU64::from_ptr(p).store(v, Relaxed) }
+        } else {
+            // SAFETY: caller contract.
+            unsafe { p.write(v) }
+        }
+    }
+
+    /// The pointer at `p`: `OCC = true` is an `Acquire` load, the pair of
+    /// [`store_ptr`]'s `Release`, so a reader that loads a freshly
+    /// published array's pointer sees the array's initialising stores.
+    ///
+    /// # Safety
+    /// As [`load`], for a pointer-sized word.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) unsafe fn load_ptr<const OCC: bool, T>(p: *const *mut T) -> *mut T {
+        if OCC {
+            // SAFETY: caller contract.
+            unsafe {
+                core::sync::atomic::AtomicPtr::from_ptr(p.cast_mut())
+                    .load(core::sync::atomic::Ordering::Acquire)
+            }
+        } else {
+            // SAFETY: caller contract.
+            unsafe { p.read() }
+        }
+    }
+
+    /// Stores the pointer `v` at `p`; `OCC = true` with `Release`.
+    ///
+    /// # Safety
+    /// As [`store`], for a pointer-sized word.
+    #[inline(always)]
+    pub(crate) unsafe fn store_ptr<const OCC: bool, T>(p: *mut *mut T, v: *mut T) {
+        if OCC {
+            // SAFETY: caller contract.
+            unsafe {
+                core::sync::atomic::AtomicPtr::from_ptr(p)
+                    .store(v, core::sync::atomic::Ordering::Release)
+            }
         } else {
             // SAFETY: caller contract.
             unsafe { p.write(v) }

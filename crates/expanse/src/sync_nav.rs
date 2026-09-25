@@ -34,7 +34,7 @@
 
 use crate::bits::shared_word;
 use crate::leaf;
-use crate::mutate::{key_low, pow256, read_packed};
+use crate::mutate::{key_low, pow256};
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::occ::{SeqVersion, node_sample, node_validate, version_cell};
 use crate::sync::{Retry, RootSnapshot};
@@ -129,26 +129,28 @@ fn compose(d: u8, rem: u64, level: u8) -> u64 {
 #[inline(always)]
 unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (*const u32, u8, usize, [u8; 8], *const Edge) {
     let node = edge.node_ptr();
-    // SAFETY: EBR-live node per contract; field projections and plain loads.
+    // SAFETY: EBR-live node per contract; field projections, and the
+    // header's meta and digit words loaded atomically (#1086).
     unsafe {
         if is_l3 {
             let b = node.cast::<BranchL3>();
+            let h = crate::node::BranchHeader::load_at(&raw const (*b).hdr);
             (
                 &raw const (*b).hdr.version,
-                (*b).hdr.level,
-                (*b).hdr.num as usize,
-                (*b).hdr.digits,
-                (*b).edges.as_ptr(),
+                h.level,
+                h.num as usize,
+                h.digits,
+                (&raw const (*b).edges).cast::<Edge>(),
             )
         } else {
             let b = node.cast::<BranchL7>();
-            let digits = (*b).hdr.digits;
+            let h = crate::node::BranchHeader::load_at(&raw const (*b).hdr);
             (
                 &raw const (*b).hdr.version,
-                (*b).hdr.level,
-                (*b).hdr.num as usize,
-                digits,
-                (*b).edges.as_ptr(),
+                h.level,
+                h.num as usize,
+                h.digits,
+                (&raw const (*b).edges).cast::<Edge>(),
             )
         }
     }
@@ -355,15 +357,15 @@ unsafe fn next_in<const MAP: bool>(
             };
             // SAFETY: a validated edge copy names a live leaf of `pop` keys of
             // `kb` bytes; the result is covered by the holder's final validation.
-            let slot = unsafe { lower_bound(keys, pop, kb, low) };
+            let slot = unsafe { leaf::shared_keys::lower_bound(keys, pop, kb as usize, low) };
             if slot == pop {
                 return Ok(None);
             }
             // SAFETY: `slot < pop`.
-            let k = unsafe { read_packed(keys, slot, kb as usize) };
+            let k = unsafe { leaf::shared_keys::read(keys, slot, kb as usize, pop) };
             let v = if MAP {
                 // SAFETY: map leaves hold `pop` values at the base.
-                unsafe { base.cast::<u64>().add(slot).read() }
+                unsafe { crate::bits::shared_word::load::<true>(base.cast::<u64>().add(slot)) }
             } else {
                 0
             };
@@ -409,7 +411,7 @@ unsafe fn next_in<const MAP: bool>(
             for (slot, &bd) in digits.iter().enumerate().take(num).skip(start) {
                 let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: `slot < num <= capacity`; validated before it is used.
-                let child = unsafe { edges.add(slot).read() };
+                let child = unsafe { Edge::load_at::<true>(edges.add(slot)) };
                 let here = Holder::Node(vp, nsnap);
                 if !here.ok() {
                     return Err(Retry);
@@ -482,7 +484,11 @@ unsafe fn next_in<const MAP: bool>(
             let d = digit(suffix, level);
             for bd in d..=255u8 {
                 // SAFETY: direct index into the live 256-slot node.
-                let child = unsafe { (*node).edges.as_ptr().add(bd as usize).read() };
+                let child = unsafe {
+                    Edge::load_at::<true>(
+                        (&raw const (*node).edges).cast::<Edge>().add(bd as usize),
+                    )
+                };
                 if child.is_null() {
                     continue;
                 }
@@ -576,16 +582,16 @@ unsafe fn prev_in<const MAP: bool>(
                 pop
             } else {
                 // SAFETY: as in `next_in`.
-                unsafe { lower_bound(keys, pop, kb, low + 1) }
+                unsafe { leaf::shared_keys::lower_bound(keys, pop, kb as usize, low + 1) }
             };
             let Some(slot) = bound.checked_sub(1) else {
                 return Ok(None);
             };
             // SAFETY: `slot < pop`.
-            let k = unsafe { read_packed(keys, slot, kb as usize) };
+            let k = unsafe { leaf::shared_keys::read(keys, slot, kb as usize, pop) };
             let v = if MAP {
                 // SAFETY: map leaves hold `pop` values at the base.
-                unsafe { base.cast::<u64>().add(slot).read() }
+                unsafe { crate::bits::shared_word::load::<true>(base.cast::<u64>().add(slot)) }
             } else {
                 0
             };
@@ -635,7 +641,7 @@ unsafe fn prev_in<const MAP: bool>(
                     pow256(bl - 1) - 1
                 };
                 // SAFETY: `slot < num <= capacity`; validated before it is used.
-                let child = unsafe { edges.add(slot).read() };
+                let child = unsafe { Edge::load_at::<true>(edges.add(slot)) };
                 let here = Holder::Node(vp, nsnap);
                 if !here.ok() {
                     return Err(Retry);
@@ -712,7 +718,11 @@ unsafe fn prev_in<const MAP: bool>(
             let d = digit(suffix, level);
             for bd in (0..=d).rev() {
                 // SAFETY: direct index into the live 256-slot node.
-                let child = unsafe { (*node).edges.as_ptr().add(bd as usize).read() };
+                let child = unsafe {
+                    Edge::load_at::<true>(
+                        (&raw const (*node).edges).cast::<Edge>().add(bd as usize),
+                    )
+                };
                 if child.is_null() {
                     continue;
                 }
@@ -766,7 +776,11 @@ unsafe fn branch_b_child(node: *const BranchB, bd: u8, here: Holder<'_>) -> Resu
         (
             crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, bd)
                 as usize,
-            (*node).subarrays[(bd >> 5) as usize],
+            crate::bits::shared_word::load_ptr::<true, Edge>(
+                (&raw const (*node).subarrays)
+                    .cast::<*mut Edge>()
+                    .add((bd >> 5) as usize),
+            ),
         )
     };
     if sub.is_null() {
@@ -779,7 +793,7 @@ unsafe fn branch_b_child(node: *const BranchB, bd: u8, here: Holder<'_>) -> Resu
         return Err(Retry);
     }
     // SAFETY: consistent bitmap/subarray pair → at least `rank + 1` edges.
-    let child = unsafe { sub.add(rank).read() };
+    let child = unsafe { Edge::load_at::<true>(sub.add(rank)) };
     if !here.ok() {
         return Err(Retry);
     }
@@ -817,7 +831,11 @@ unsafe fn bitmap_leaf<const MAP: bool>(
             (
                 crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d)
                     as usize,
-                (*node).values[(d >> 5) as usize],
+                crate::bits::shared_word::load_ptr::<true, u64>(
+                    (&raw const (*node).values)
+                        .cast::<*mut u64>()
+                        .add((d >> 5) as usize),
+                ),
             )
         };
         if vals.is_null() {
@@ -827,7 +845,7 @@ unsafe fn bitmap_leaf<const MAP: bool>(
             return Err(Retry);
         }
         // SAFETY: consistent bitmap/value-array pair → `rank + 1` values.
-        let v = unsafe { vals.add(rank).read() };
+        let v = unsafe { crate::bits::shared_word::load::<true>(vals.add(rank)) };
         Ok(Some((d, v)))
     } else {
         let node = edge.node_ptr().cast::<LeafBitmap1>();
@@ -843,27 +861,6 @@ unsafe fn bitmap_leaf<const MAP: bool>(
     }
 }
 
-/// Lower bound of `needle` in a linear leaf of `pop` packed `kb`-byte keys.
-///
-/// # Safety
-///
-/// `keys` points at a live leaf of at least `pop` keys of `kb` bytes.
-#[inline(always)]
-unsafe fn lower_bound(keys: *const u8, pop: usize, kb: u8, needle: u64) -> usize {
-    // SAFETY: forwarded contract.
-    unsafe {
-        match kb {
-            1 => leaf::lower_bound_fixed::<1>(keys, pop, needle),
-            2 => leaf::lower_bound_fixed::<2>(keys, pop, needle),
-            3 => leaf::lower_bound_fixed::<3>(keys, pop, needle),
-            4 => leaf::lower_bound_fixed::<4>(keys, pop, needle),
-            5 => leaf::lower_bound_fixed::<5>(keys, pop, needle),
-            6 => leaf::lower_bound_fixed::<6>(keys, pop, needle),
-            _ => leaf::lower_bound_fixed::<7>(keys, pop, needle),
-        }
-    }
-}
-
 /// The value of slot `slot` in a map immediate.
 ///
 /// # Safety
@@ -876,6 +873,6 @@ unsafe fn immed_value(edge: &Edge, im: crate::types::ImmedType, slot: usize) -> 
         u64::from_le_bytes(edge.imm_bytes())
     } else {
         // SAFETY: live value array per contract; `slot < key_count`.
-        unsafe { edge.node_ptr().cast::<u64>().add(slot).read() }
+        unsafe { crate::bits::shared_word::load::<true>(edge.node_ptr().cast::<u64>().add(slot)) }
     }
 }

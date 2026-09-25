@@ -116,18 +116,17 @@
     {
       "test": "map_tree_two_writers",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "sync::SyncExpanseMap::olc_insert_map"
-    },
-    {
-      "test": "map_tree_two_writers",
-      "check": "alias-sb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_tree_two_writers",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_tree_two_writers",
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
@@ -135,9 +134,8 @@
     {
       "test": "map_tree_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "sync::SyncExpanseMap::olc_insert_map"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_tree_reader_writer",
@@ -172,10 +170,8 @@
     {
       "test": "map_ordered_tree_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "sync::SyncExpanseMap::olc_insert_map",
-      "note": "the seqlock race the point-read workload map_tree_reader_writer records at the same frame: a writer's plain store racing a reader's plain load (#1086 class 1); the ordered walks' bitmap reads go through bits::shared_bitmap"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_ordered_tree_reader_writer",
@@ -193,7 +189,7 @@
       "test": "map_fold_reader_counter",
       "check": "race",
       "expect": "clean",
-      "note": "not observed within the seed range; the fold's pop0 updates are plain read-modify-writes (node.rs Edge::set_pop0_at) made while optimistic readers run, so this is an observation at this budget, not evidence the class is absent (#1144)"
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class. The fold stores pop0 through Edge::set_pop0_at, an atomic word store, while optimistic readers run (#1144)"
     },
     {
       "test": "map_fold_reader_counter",
@@ -210,9 +206,8 @@
     {
       "test": "set_tree_two_writers",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "sync::SyncExpanseSet::olc_insert_set"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "set_tree_two_writers",
@@ -229,9 +224,8 @@
     {
       "test": "set_tree_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "sync::SyncExpanseSet::olc_insert_set"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "set_tree_reader_writer",
@@ -248,12 +242,8 @@
     {
       "test": "str_two_writers",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": [
-        "node::BranchHeader::find_at",
-        "occ::version_try_lock_expect"
-      ]
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "str_two_writers",
@@ -306,12 +296,8 @@
     {
       "test": "bytes_two_writers",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": [
-        "sync::walk_validated",
-        "sync::olc_cas_publish_bucket_map"
-      ]
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "bytes_two_writers",
@@ -328,18 +314,17 @@
     {
       "test": "bytes_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "map::MapCore::ins_slot"
-    },
-    {
-      "test": "bytes_reader_writer",
-      "check": "alias-sb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "bytes_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "bytes_reader_writer",
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
@@ -347,9 +332,8 @@
     {
       "test": "blob_two_writers",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "sync::olc_insert_map"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "blob_two_writers",
@@ -366,9 +350,8 @@
     {
       "test": "blob_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "map::MapCore::insert_inner"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "blob_reader_writer",
@@ -385,9 +368,8 @@
     {
       "test": "map_covered_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "mutate_map::map_remove"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "map_covered_reader_writer",
@@ -404,9 +386,8 @@
     {
       "test": "set_covered_reader_writer",
       "check": "race",
-      "expect": "ub",
-      "error": "Data race detected",
-      "frame": "mutate::remove"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "set_covered_reader_writer",
@@ -416,6 +397,78 @@
     },
     {
       "test": "set_covered_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_tree_churn_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_tree_churn_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_tree_churn_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_tree_churn_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_tree_churn_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_tree_churn_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_covered_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_covered_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_covered_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_covered_teardown_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_covered_teardown_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_covered_teardown_reader_writer",
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"

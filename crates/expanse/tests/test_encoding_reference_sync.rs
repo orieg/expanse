@@ -608,19 +608,19 @@ fn test_encoding_prose_citations_name_their_symbol() {
 
 /// The scanner above fails on a drifted citation, a range that misses its
 /// symbol, and a citation with no symbol before it, and passes the same
-/// citations pointed at the right lines. Line 62 of `node.rs` declares
-/// `Edge`; line 47 declares `Word0`.
+/// citations pointed at the right lines. Line 66 of `node.rs` declares
+/// `Edge`; line 51 declares `Word0`.
 #[test]
 fn test_prose_citation_scanner_negative_controls() {
     let node = "crates/expanse/src/node.rs";
-    let good = format!("`Edge` is declared at `{node}:62`; `union Word0` (`{node}:47`–`48`).");
+    let good = format!("`Edge` is declared at `{node}:66`; `union Word0` (`{node}:51`–`52`).");
     let (checked, problems) = prose_citation_problems(&good);
     assert_eq!((checked, problems), (2, Vec::<String>::new()));
 
     for bad in [
-        format!("`Edge` is declared at `{node}:47`."),
+        format!("`Edge` is declared at `{node}:51`."),
         format!("`BranchB` sits at `{node}:60`–`63`."),
-        format!("Declared at `{node}:62`."),
+        format!("Declared at `{node}:66`."),
     ] {
         let (checked, problems) = prose_citation_problems(&bad);
         assert_eq!(checked, 1, "{bad}");

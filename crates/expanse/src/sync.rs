@@ -23,61 +23,41 @@
 //!   the walk; after a bounded number of restarts the reader falls back
 //!   to the writer mutex (guaranteed progress under a write storm).
 //!
-//! ## Undefined behaviour the wrappers still reach (#1086)
+//! ## Memory-model soundness (#1086)
 //!
-//! Concurrent use of every wrapper here reaches two classes of undefined
-//! behaviour from safe code. No incorrect result has been observed from
-//! either. `scripts/miri_ub_sites.py` runs the threaded workloads in
-//! `mod miri_ub_sites` under Miri each night and compares every site they
-//! reach with `.github/miri-ub-sites.json`, so a change to any of them —
-//! a fix included — is an explicit edit there.
+//! Between `sample` and a failed `validate`, a reader, or an optimistic
+//! writer descending to its lock point, loads memory a covered or locked
+//! writer may be storing to. Each such location is accessed as an atomic
+//! word of the same size on both sides — edges (`Edge::load_at` /
+//! `store_at`), linear-branch headers (`BranchHeader::load_at` /
+//! `store_at`), value words and array pointers (`bits::shared_word`),
+//! bitmaps (`bits::shared_bitmap`), packed leaf keys (`leaf::shared_keys`)
+//! and a string node's sub-map root (`map::root_word`) — so a load the
+//! seqlock discards is an atomic load, not a data race under the Rust memory
+//! model. `docs/ARCHITECTURE.md` §4.2 lists them.
 //!
-//! 1. **Racing optimistic loads.** Between `sample` and a failed `validate`,
-//!    a reader, or an optimistic writer descending to its lock point, makes
-//!    plain loads that race with a covered writer's plain stores: a node's
-//!    edges, header fields and value arrays (every wrapper publishes its own
-//!    root as atomics in `TreeHead`; node bitmaps are atomic on every shared
-//!    path, `bits::shared_bitmap`, and so are the map's and set's root-leaf
-//!    keys and values, `bits::shared_word`, and a string node's sub-map
-//!    root, `map::root_word`). Every such
-//!    value is discarded unless validation proves no writer overlapped. That
-//!    is the seqlock pattern (Linux kernel seqlocks; Judy's own published OCC
-//!    design), and it is sound at the protocol level — `SeqVersion` uses
-//!    Boehm's fence construction, which loom checks — but it is still a data
-//!    race under the Rust memory model, because neither access is atomic.
-//!    Word-sized fields can be loaded atomically on stable Rust; packed
-//!    1–7-byte leaf keys, read with unaligned SWAR loads, have no atomic
-//!    spelling.
-//! 2. **References over shared state.** Nothing in a node sits in an
-//!    `UnsafeCell`, so a reference to shared memory asserts something another
-//!    thread falsifies; Stacked and Tree Borrows both report it. Readers and
-//!    optimistic writers form none: they load the published root rather than
-//!    touch the engine (the bytes map hashes with the wrapper's clone of the
-//!    hasher, the blob map loads the arena's reader table from a heap cell,
-//!    `blobmap::ArenaDeferred`), read node headers, edges and a string node's
-//!    sub-map root by value through raw pointers (`BranchHeader::find_at`,
-//!    `MapCore::occ_snapshot_of`), and reach bitmaps through
-//!    `bits::shared_bitmap`. A lock holder stores to an edge or a string
-//!    node's root state through a raw pointer too (`Edge::set_pop0_at`,
-//!    `MapCore::insert_leaf_state_at`). What remains of the class is the
-//!    covered writer: a fallback, root-state change or serialised operation
-//!    holds the tree word and quiesces the optimistic writers, but still
-//!    mutates published nodes through `&mut Edge` (the engine walks) and
-//!    `&mut StrNode` (the string map's serialised path) while readers may be
-//!    copying them. A covered write holds the tree word odd and a reader's
-//!    `sample` waits it out, so the overlap is a reader that sampled just
-//!    before and is still walking. `map_covered_reader_writer` and
-//!    `set_covered_reader_writer` force covered removals under a reader, and
-//!    `occ_stats::Stat::ReadCoverOverlaps` shows those overlaps happening under
-//!    Miri on every seed, without an aliasing report. That is a site unsound
-//!    in principle and not observed, not one shown absent: the counter proves
-//!    the reader overlapped a covered write, not that it read the node being
-//!    rewritten. This class is not a seqlock property and needs no new
-//!    language feature to remove.
+//! No thread forms a reference over memory another thread accesses. Readers
+//! and optimistic writers load the published root rather than touch the
+//! engine, and read node fields by value through raw pointers. A covered
+//! writer — a fallback, root-state change or serialised operation, which
+//! holds the tree word and quiesces the optimistic writers — edits a local
+//! copy of each edge and publishes it with one store, and the string map's
+//! exclusive path reaches its nodes and their sub-maps through raw pointers
+//! (`ExpanseStrMap::insert_shared` and its siblings).
 //!
-//! The threaded tests in `sync::tests` are compiled out under Miri for these
-//! reasons; `mod miri_ub_sites` holds the workloads Miri runs. The per-node
-//! version words are live protocol state (readers validate against them
+//! `scripts/miri_ub_sites.py` runs the threaded workloads in
+//! `mod miri_ub_sites` under Miri each night, under the race detector and
+//! under Stacked and Tree Borrows, and compares each with
+//! `.github/miri-ub-sites.json`, where every entry is `clean`. A clean entry
+//! is what a workload showed at the manifest's seed range, not a proof: a
+//! site no workload reaches is covered only by the argument above. What
+//! stays outside: `with_locked_mut` hands the bytes and string maps' slot
+//! APIs a plain `&mut`, and a value stored through a slot they return is a
+//! plain store.
+//!
+//! The threaded tests in `sync::tests` are compiled out under Miri;
+//! `mod miri_ub_sites` holds the workloads Miri runs. The per-node version
+//! words are live protocol state (readers validate against them
 //! hand-over-hand); the two bitmap-leaf words are reserved.
 
 use crate::alloc::NodeAlloc;
@@ -274,14 +254,18 @@ macro_rules! walk_validated_body {
                 // SAFETY: `mid < pop` and the allocation is EBR-live;
                 // the loaded value is validated before use.
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                // Unvalidated: it only steers the probe, which stays below
+                // `pop`; the search's outcome is validated below.
                 let k = unsafe { shared_word::load::<true>(keys.add(mid)) };
-                chk!();
                 if k < $key {
                     lo = mid + 1;
                 } else {
                     hi = mid;
                 }
             }
+            // Every answer is validated, an absence included: a search the
+            // loads above steered wrongly can end past the last key.
+            chk!();
             if lo >= pop {
                 return Ok(None);
             }
@@ -342,25 +326,17 @@ macro_rules! walk_validated_body {
                     else {
                         return Err(Retry);
                     };
-                    // SAFETY: EBR-live branch node; loads validated below.
+                    // SAFETY: EBR-live branch node; the header's meta and
+                    // digit words are loaded atomically and validated below.
                     let (bl, num, digits, edges_base) = unsafe {
-                        if is_l3 {
+                        let (h, e) = if is_l3 {
                             let b = node.cast::<BranchL3>();
-                            (
-                                (*b).hdr.level,
-                                (*b).hdr.num as usize,
-                                (*b).hdr.digits,
-                                (&raw const (*b).edges).cast::<Edge>(),
-                            )
+                            (crate::node::BranchHeader::load_at(&raw const (*b).hdr), (&raw const (*b).edges).cast::<Edge>())
                         } else {
                             let b = node.cast::<BranchL7>();
-                            (
-                                (*b).hdr.level,
-                                (*b).hdr.num as usize,
-                                (*b).hdr.digits,
-                                (&raw const (*b).edges).cast::<Edge>(),
-                            )
-                        }
+                            (crate::node::BranchHeader::load_at(&raw const (*b).hdr), (&raw const (*b).edges).cast::<Edge>())
+                        };
+                        (h.level, h.num as usize, h.digits, e)
                     };
                     if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                         return Err(Retry);
@@ -387,7 +363,7 @@ macro_rules! walk_validated_body {
                     // SAFETY: `slot < num <= capacity`; in-bounds read of
                     // the EBR-live node, validated just below.
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                    edge = unsafe { edges_base.add(slot).read() };
+                    edge = unsafe { Edge::load_at::<true>(edges_base.add(slot)) };
                     // SAFETY: live version field (EBR).
                     if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
                         return Err(Retry);
@@ -418,7 +394,7 @@ macro_rules! walk_validated_body {
                             bl,
                             crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
                             crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
-                            (*node).subarrays[(d >> 5) as usize],
+                            crate::bits::shared_word::load_ptr::<true, Edge>((&raw const (*node).subarrays).cast::<*mut Edge>().add((d >> 5) as usize)),
                         )
                     };
                     if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
@@ -459,7 +435,7 @@ macro_rules! walk_validated_body {
                     // just above → the subarray holds at least `rank + 1`
                     // EBR-live edges.
                     // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
-                    edge = unsafe { sub.add(rank).read() };
+                    edge = unsafe { Edge::load_at::<true>(sub.add(rank)) };
                     // The edge copy itself must also be covered: re-check
                     // before the next iteration dereferences it.
                     // SAFETY: live version field (EBR).
@@ -483,7 +459,7 @@ macro_rules! walk_validated_body {
                     };
                     let d = digit($key, level);
                     // SAFETY: EBR-live BranchU; direct 256-slot index.
-                    edge = unsafe { (&raw const (*node).edges).cast::<Edge>().add(d as usize).read() };
+                    edge = unsafe { Edge::load_at::<true>((&raw const (*node).edges).cast::<Edge>().add(d as usize)) };
                     // SAFETY: live version field (EBR).
                     if !unsafe { crate::occ::node_validate(crate::occ::version_cell(vp), nsnap) } {
                         return Err(Retry);
@@ -508,7 +484,7 @@ macro_rules! walk_validated_body {
                             (
                                 crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
                                 crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
-                                (*node).values[(d >> 5) as usize],
+                                crate::bits::shared_word::load_ptr::<true, u64>((&raw const (*node).values).cast::<*mut u64>().add((d >> 5) as usize)),
                             )
                         };
                         chk!();
@@ -519,7 +495,7 @@ macro_rules! walk_validated_body {
                             return Err(Retry);
                         }
                         // SAFETY: bit set + validated → `rank + 1` values.
-                        let v = unsafe { vals.add(rank).read() };
+                        let v = unsafe { crate::bits::shared_word::load::<true>(vals.add(rank)) };
                         chk!();
                         return Ok(Some(v));
                     }
@@ -555,7 +531,7 @@ macro_rules! walk_validated_body {
                     // SAFETY: EBR-live leaf of (validated) `pop` keys;
                     // the slot is validated before the value read.
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                    let found = unsafe { leaf::search(keys, pop, kb, $key) };
+                    let found = unsafe { leaf::shared_keys::find(keys, pop, kb as usize, $key) };
                     chk!();
                     let Some(slot) = found else {
                         return Ok(None);
@@ -566,7 +542,7 @@ macro_rules! walk_validated_body {
                     #[cfg(test)]
                     test_hooks::before_leaf_value();
                     // SAFETY: `slot < pop` values at the leaf base.
-                    let v = unsafe { base.cast::<u64>().add(slot).read() };
+                    let v = unsafe { crate::bits::shared_word::load::<true>(base.cast::<u64>().add(slot)) };
                     chk!();
                     return Ok(Some(v));
                 }
@@ -614,7 +590,7 @@ macro_rules! walk_validated_body {
                 // SAFETY: multi-$key map immediates store an EBR-live
                 // array of `n` values in word 0 (validated tag + count).
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                let v = unsafe { edge.node_ptr().cast::<u64>().add(slot).read() };
+                let v = unsafe { crate::bits::shared_word::load::<true>(edge.node_ptr().cast::<u64>().add(slot)) };
                 chk!();
                 return Ok(Some(v));
             }
@@ -2581,8 +2557,8 @@ impl<T: SharedTree> Shared<T> {
         // Optimistic readers still run, and they touch the engine only where
         // the wrapper does not publish its root (`T::PUBLISHES_ROOT`, #1086);
         // this unique reference flushes the path cursors and feeds the fold.
-        // The fold below stores node `pop0` words those readers may load:
-        // plain stores racing optimistic loads, #1086's first class.
+        // The fold below stores node `pop0` words those readers may load,
+        // each as an atomic word (`Edge::set_pop0_at`, #1086).
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
         let mut mask = [0u32; 8];
@@ -3647,11 +3623,11 @@ impl ProbeCell {
 /// serialized), validated optimistic readers. See the module docs for the
 /// protocol and its trade-offs.
 ///
-/// # Undefined behaviour under concurrent use
+/// # Memory-model soundness
 ///
-/// Concurrent use reaches undefined behaviour from safe code, as the module
-/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
-/// incorrect result has been observed.
+/// Concurrent use forms no data race and no aliasing violation that the
+/// nightly Miri census observes; the module docs say what it covers and
+/// what stays outside ([#1086](https://github.com/orieg/expanse/issues/1086)).
 pub struct SyncExpanseSet {
     shared: SharedBox<ExpanseSet>,
 }
@@ -3916,7 +3892,7 @@ impl SyncExpanseSet {
         }; 8];
         let mut anc_depth = 0;
         // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
-        let mut edge = unsafe { top_ptr.read() };
+        let mut edge = unsafe { Edge::load_at::<true>(top_ptr) };
         let mut edge_ptr = top_ptr;
         let mut level = 8u8;
 
@@ -3946,10 +3922,16 @@ impl SyncExpanseSet {
                     let (bl, num, digits) = unsafe {
                         if is_l3 {
                             let b = node.cast::<BranchL3>();
-                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                            {
+                                let h = BranchHeader::load_at(&raw const (*b).hdr);
+                                (h.level, h.num as usize, h.digits)
+                            }
                         } else {
                             let b = node.cast::<BranchL7>();
-                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                            {
+                                let h = BranchHeader::load_at(&raw const (*b).hdr);
+                                (h.level, h.num as usize, h.digits)
+                            }
                         }
                     };
                     if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
@@ -3980,7 +3962,7 @@ impl SyncExpanseSet {
                         #[cfg(test)]
                         test_hooks::before_child_edge_load();
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        edge = unsafe { edge_ptr.read() };
+                        edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                         // Validated after the child edge is loaded, not before: no later
                         // step re-validates this node, and a new digit's linear insert
                         // shifts its edges in place, which can move a neighbouring digit's
@@ -4033,26 +4015,22 @@ impl SyncExpanseSet {
                         unsafe {
                             if is_l3 {
                                 let b = node.cast::<BranchL3>();
-                                let slot = crate::mutate::linear_insert_slot_l3(
-                                    &mut (*b).hdr.digits,
-                                    &mut (*b).edges,
+                                crate::node::linear_insert_at_shared(
+                                    &raw mut (*b).hdr,
+                                    (&raw mut (*b).edges).cast::<Edge>(),
                                     cur_num,
                                     d,
+                                    new_edge,
                                 );
-                                (*b).edges[slot] = new_edge;
-                                (*b).hdr.num += 1;
-                                BranchHeader::add_presence_at(&raw mut (*b).hdr, d);
                             } else {
                                 let b = node.cast::<BranchL7>();
-                                let slot = crate::mutate::linear_insert_slot(
-                                    &mut (*b).hdr.digits,
-                                    &mut (*b).edges,
+                                crate::node::linear_insert_at_shared(
+                                    &raw mut (*b).hdr,
+                                    (&raw mut (*b).edges).cast::<Edge>(),
                                     cur_num,
                                     d,
+                                    new_edge,
                                 );
-                                (*b).edges[slot] = new_edge;
-                                (*b).hdr.num += 1;
-                                BranchHeader::add_presence_at(&raw mut (*b).hdr, d);
                             }
                             version_unlock_timed(
                                 crate::occ::version_cell(vp),
@@ -4091,7 +4069,11 @@ impl SyncExpanseSet {
                                 &raw const (*node).bitmap,
                                 d,
                             ) as usize,
-                            (*node).subarrays[(d >> 5) as usize],
+                            crate::bits::shared_word::load_ptr::<true, Edge>(
+                                (&raw const (*node).subarrays)
+                                    .cast::<*mut Edge>()
+                                    .add((d >> 5) as usize),
+                            ),
                         )
                     };
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
@@ -4110,7 +4092,7 @@ impl SyncExpanseSet {
                         }
                         let sub_idx = (d >> 5) as usize;
                         // SAFETY: node pointer is EBR-live; pop_counts load is word-aligned and torn reads bounded to valid range.
-                        let old_n = unsafe { (*node).pop_counts[sub_idx] as usize };
+                        let old_n = unsafe { crate::node::pop_count_at(node, sub_idx) };
                         if old_n > 32 {
                             return OlcOutcome::Retry;
                         }
@@ -4195,7 +4177,7 @@ impl SyncExpanseSet {
                             return branch_split(BranchSplitKind::Upgrade);
                         }
                         // SAFETY: node pointer is EBR-live; read under version lock.
-                        let cur_n = unsafe { (*node).pop_counts[sub_idx] as usize };
+                        let cur_n = unsafe { crate::node::pop_count_at(node, sub_idx) };
                         if cur_n != old_n {
                             if let Some(p) = pre_alloc {
                                 // SAFETY: pre_alloc was allocated above and never published.
@@ -4245,7 +4227,12 @@ impl SyncExpanseSet {
                                     old_arr_to_free = core::ptr::NonNull::new(old_arr);
                                 }
                                 new_arr.as_ptr().add(rank).write(new_edge);
-                                (*node).subarrays[sub_idx] = new_arr.as_ptr();
+                                crate::bits::shared_word::store_ptr::<true, Edge>(
+                                    (&raw mut (*node).subarrays)
+                                        .cast::<*mut Edge>()
+                                        .add(sub_idx),
+                                    new_arr.as_ptr(),
+                                );
                             }
                         } else {
                             // SAFETY: The node's version lock provides exclusive writer access. Spare capacity
@@ -4253,13 +4240,13 @@ impl SyncExpanseSet {
                             // shift elements in place within the existing subarray.
                             unsafe {
                                 let arr = (*node).subarrays[sub_idx];
-                                core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                                arr.add(rank).write(new_edge);
+                                crate::node::edges_shift_up_shared(arr, rank, old_n - rank);
+                                Edge::store_at::<true>(arr.add(rank), new_edge);
                             }
                         }
                         // SAFETY: Raw-pointer mutation under exclusive version lock.
                         unsafe {
-                            (*node).pop_counts[sub_idx] = (old_n + 1) as u16;
+                            crate::node::set_pop_count_at(node, sub_idx, (old_n + 1) as u16);
                             crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                         }
 
@@ -4303,7 +4290,7 @@ impl SyncExpanseSet {
                     // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                     edge_ptr = unsafe { sub.add(rank) };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    edge = unsafe { edge_ptr.read() };
+                    edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                     // Validated again after the child edge is loaded: the check above
                     // guards the subarray and rank this load uses, and no later step
                     // re-validates this node. Subarray growth within its capacity class
@@ -4341,7 +4328,7 @@ impl SyncExpanseSet {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    edge = unsafe { edge_ptr.read() };
+                    edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                     // Validated after the child edge is loaded, not before: no later
                     // step re-validates this node, and a concurrent store to this slot
                     // can tear the load.
@@ -4385,7 +4372,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -4425,7 +4412,7 @@ impl SyncExpanseSet {
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // Double-check invariant: ensure edge is still null under the locked parent.
                         // SAFETY: edge_ptr points to an edge inside the locked, EBR-live BranchU node.
-                        if unsafe { !edge_ptr.read().is_null() } {
+                        if unsafe { !Edge::load_at::<true>(edge_ptr).is_null() } {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -4470,7 +4457,8 @@ impl SyncExpanseSet {
                     let mut at = pop;
                     for i in 0..pop {
                         // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
-                        let existing = unsafe { crate::mutate::read_packed(keys_ptr, i, kb) };
+                        let existing =
+                            unsafe { crate::leaf::shared_keys::read(keys_ptr, i, kb, pop) };
                         if existing == k {
                             found = true;
                             break;
@@ -4497,7 +4485,7 @@ impl SyncExpanseSet {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
@@ -4508,12 +4496,9 @@ impl SyncExpanseSet {
                             );
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
-                                core::ptr::copy(
-                                    keys_ptr.add(at * kb),
-                                    keys_ptr.add((at + 1) * kb),
-                                    (pop - at) * kb,
+                                crate::leaf::shared_keys::set_insert_at(
+                                    keys_ptr, kb as u8, pop, at, k,
                                 );
-                                crate::mutate::write_packed(keys_ptr, at, kb, k);
                                 Edge::set_pop0_at(edge_ptr, kb as u8, pop as u64);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 self.shared.mark_dirty_digit(digit(key, 8));
@@ -4544,7 +4529,7 @@ impl SyncExpanseSet {
                             };
 
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 // SAFETY: new_buf was freshly allocated and not published.
                                 unsafe {
                                     alloc.free_bytes_unpublished(
@@ -4570,7 +4555,7 @@ impl SyncExpanseSet {
                                 let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
                                 new_edge.set_aux_bytes(saved_aux);
                                 new_edge.set_pop0(kb as u8, pop as u64);
-                                edge_ptr.write(new_edge);
+                                Edge::store_at::<true>(edge_ptr, new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 alloc.free_bytes(
                                     core::ptr::NonNull::new_unchecked(keys_ptr),
@@ -4591,7 +4576,9 @@ impl SyncExpanseSet {
                     let saved_aux = *edge.aux_bytes();
                     let alloc = self.shared.engine_alloc();
                     // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
-                    let mut keys = unsafe { crate::mutate::leaf_keys(&edge, kb as u8, pop) };
+                    let mut keys = unsafe {
+                        crate::leaf::shared_keys::keys_vec(edge.node_ptr(), kb as u8, pop)
+                    };
                     // The copy was read after the version check above, so a
                     // writer that locked the parent in between can have torn
                     // it; nothing built from it may be trusted, not even by a
@@ -4625,7 +4612,7 @@ impl SyncExpanseSet {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             // SAFETY: ptr was freshly allocated and not published.
                             unsafe {
                                 alloc.free_node_unpublished(ptr);
@@ -4642,7 +4629,7 @@ impl SyncExpanseSet {
                                 Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                             new_edge.set_pop0(1, keys.len() as u64 - 1);
                             crate::mutate::restore_decode(&mut new_edge, 1, level, &saved_aux);
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(keys_ptr), old_size);
                             self.shared.mark_dirty_digit(digit(key, 8));
@@ -4678,7 +4665,7 @@ impl SyncExpanseSet {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 // SAFETY: ptr was freshly allocated and not published.
                                 unsafe {
                                     alloc.free_node_unpublished(ptr);
@@ -4698,7 +4685,7 @@ impl SyncExpanseSet {
                                     Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                                 new_edge.set_pop0(1, keys.len() as u64 - 1);
                                 crate::mutate::write_decode(&mut new_edge, 1, level, keys[0]);
-                                edge_ptr.write(new_edge);
+                                Edge::store_at::<true>(edge_ptr, new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 alloc.free_bytes(
                                     core::ptr::NonNull::new_unchecked(keys_ptr),
@@ -4746,7 +4733,7 @@ impl SyncExpanseSet {
                                 return OlcOutcome::Retry;
                             };
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 // SAFETY: tmp is an unpublished subtree owned by this thread.
                                 unsafe {
                                     crate::mutate::free_subtree_unpublished::<false>(
@@ -4764,7 +4751,7 @@ impl SyncExpanseSet {
                             );
                             // SAFETY: parent is locked; tmp is valid subtree; keys_ptr is valid for old_size.
                             unsafe {
-                                edge_ptr.write(tmp);
+                                Edge::store_at::<true>(edge_ptr, tmp);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 alloc.free_bytes(
                                     core::ptr::NonNull::new_unchecked(keys_ptr),
@@ -4820,7 +4807,7 @@ impl SyncExpanseSet {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -4862,7 +4849,7 @@ impl SyncExpanseSet {
                         new_edge.set_tag(new_im.as_u8());
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             self.shared.mark_dirty_digit(digit(key, 8));
                         }
@@ -4886,7 +4873,7 @@ impl SyncExpanseSet {
                     // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         // SAFETY: new_buf was freshly allocated and not published.
                         unsafe {
@@ -4919,7 +4906,7 @@ impl SyncExpanseSet {
                             Edge::new_node(new_buf, EdgeType::Leaf1 as u8 + (kb - 1));
                         new_edge.set_aux_bytes(saved_aux);
                         new_edge.set_pop0(kb, n as u64);
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         self.shared.mark_dirty_digit(digit(key, 8));
                     }
@@ -4953,7 +4940,7 @@ impl SyncExpanseSet {
         }; 8];
         let mut anc_depth = 0;
         // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
-        let mut edge = unsafe { top_ptr.read() };
+        let mut edge = unsafe { Edge::load_at::<true>(top_ptr) };
         let mut edge_ptr = top_ptr;
         let mut level = 8u8;
 
@@ -4983,10 +4970,16 @@ impl SyncExpanseSet {
                     let (bl, num, digits) = unsafe {
                         if is_l3 {
                             let b = node.cast::<BranchL3>();
-                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                            {
+                                let h = BranchHeader::load_at(&raw const (*b).hdr);
+                                (h.level, h.num as usize, h.digits)
+                            }
                         } else {
                             let b = node.cast::<BranchL7>();
-                            ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits)
+                            {
+                                let h = BranchHeader::load_at(&raw const (*b).hdr);
+                                (h.level, h.num as usize, h.digits)
+                            }
                         }
                     };
                     if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
@@ -5017,7 +5010,7 @@ impl SyncExpanseSet {
                         #[cfg(test)]
                         test_hooks::before_child_edge_load();
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        edge = unsafe { edge_ptr.read() };
+                        edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                         // Validated after the child edge is loaded, not before: no later
                         // step re-validates this node, and a new digit's linear insert
                         // shifts its edges in place, which can move a neighbouring digit's
@@ -5065,7 +5058,11 @@ impl SyncExpanseSet {
                                 &raw const (*node).bitmap,
                                 d,
                             ) as usize,
-                            (*node).subarrays[(d >> 5) as usize],
+                            crate::bits::shared_word::load_ptr::<true, Edge>(
+                                (&raw const (*node).subarrays)
+                                    .cast::<*mut Edge>()
+                                    .add((d >> 5) as usize),
+                            ),
                         )
                     };
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
@@ -5109,7 +5106,7 @@ impl SyncExpanseSet {
                     // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                     edge_ptr = unsafe { sub.add(rank) };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    edge = unsafe { edge_ptr.read() };
+                    edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                     // Validated again after the child edge is loaded: the check above
                     // guards the subarray and rank this load uses, and no later step
                     // re-validates this node. Subarray growth within its capacity class
@@ -5147,7 +5144,7 @@ impl SyncExpanseSet {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    edge = unsafe { edge_ptr.read() };
+                    edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                     // Validated after the child edge is loaded, not before: no later
                     // step re-validates this node, and a concurrent store to this slot
                     // can tear the load.
@@ -5194,13 +5191,13 @@ impl SyncExpanseSet {
                                 1
                             );
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
-                                edge_ptr.write(Edge::NULL);
+                                Edge::store_at::<true>(edge_ptr, Edge::NULL);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = self.shared.engine_alloc();
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
@@ -5247,7 +5244,7 @@ impl SyncExpanseSet {
                                 1
                             );
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
@@ -5259,7 +5256,7 @@ impl SyncExpanseSet {
                                 }
                                 let mut new_edge = Edge::NULL;
                                 crate::mutate::write_immed(&mut new_edge, level, full.as_slice());
-                                edge_ptr.write(new_edge);
+                                Edge::store_at::<true>(edge_ptr, new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = self.shared.engine_alloc();
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
@@ -5287,7 +5284,7 @@ impl SyncExpanseSet {
                                 1
                             );
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 // SAFETY: new_buf was allocated above and never published to the trie.
                                 unsafe {
@@ -5307,7 +5304,7 @@ impl SyncExpanseSet {
                                 let mut new_edge = Edge::new_node(new_buf, EdgeType::Leaf1.as_u8());
                                 new_edge.set_aux_bytes(saved_aux);
                                 new_edge.set_pop0(1, (keys.len - 1) as u64);
-                                edge_ptr.write(new_edge);
+                                Edge::store_at::<true>(edge_ptr, new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
                                 self.shared.mark_dirty_digit(digit(key, 8));
@@ -5321,7 +5318,7 @@ impl SyncExpanseSet {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -5362,7 +5359,7 @@ impl SyncExpanseSet {
                     let mut found = None;
                     for i in 0..pop {
                         // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
-                        if unsafe { crate::mutate::read_packed(keys_ptr, i, kb) } == k {
+                        if unsafe { crate::leaf::shared_keys::read(keys_ptr, i, kb, pop) } == k {
                             found = Some(i);
                             break;
                         }
@@ -5385,17 +5382,13 @@ impl SyncExpanseSet {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
-                            core::ptr::copy(
-                                keys_ptr.add((pos + 1) * kb),
-                                keys_ptr.add(pos * kb),
-                                (pop - 1 - pos) * kb,
-                            );
+                            crate::leaf::shared_keys::set_remove_at(keys_ptr, kb as u8, pop, pos);
                             Edge::set_pop0_at(edge_ptr, kb as u8, (pop - 2) as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             self.shared.mark_dirty_digit(digit(key, 8));
@@ -5420,7 +5413,7 @@ impl SyncExpanseSet {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             // SAFETY: new_buf was allocated above and never published to the trie.
                             unsafe {
@@ -5438,7 +5431,7 @@ impl SyncExpanseSet {
                             let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
                             new_edge.set_aux_bytes(saved_aux);
                             new_edge.set_pop0(kb as u8, (pop - 2) as u64);
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(keys_ptr),
@@ -5462,7 +5455,8 @@ impl SyncExpanseSet {
                                 continue;
                             }
                             // SAFETY: keys_ptr is a valid leaf pointer with at least pop keys.
-                            let low_k = unsafe { crate::mutate::read_packed(keys_ptr, slot, kb) };
+                            let low_k =
+                                unsafe { crate::leaf::shared_keys::read(keys_ptr, slot, kb, pop) };
                             let full_k = (dv << (8 * u32::from(kb as u8))) | low_k;
                             entries[idx] = full_k;
                             idx += 1;
@@ -5474,7 +5468,7 @@ impl SyncExpanseSet {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -5482,7 +5476,7 @@ impl SyncExpanseSet {
                         unsafe {
                             let mut new_edge = Edge::NULL;
                             crate::mutate::write_immed(&mut new_edge, level, &entries[..rem_pop]);
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = self.shared.engine_alloc();
                             alloc.free_bytes(
@@ -5501,13 +5495,13 @@ impl SyncExpanseSet {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
-                            edge_ptr.write(Edge::NULL);
+                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = self.shared.engine_alloc();
                             alloc.free_bytes(
@@ -5553,13 +5547,13 @@ impl SyncExpanseSet {
                                 1
                             );
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
-                                edge_ptr.write(Edge::NULL);
+                                Edge::store_at::<true>(edge_ptr, Edge::NULL);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 self.shared.mark_dirty_digit(digit(key, 8));
                             }
@@ -5587,7 +5581,7 @@ impl SyncExpanseSet {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -5606,7 +5600,7 @@ impl SyncExpanseSet {
                         new_edge.set_imm_bytes(w0);
                         new_edge.set_aux_bytes(aux);
                         new_edge.set_tag(new_im.as_u8());
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         self.shared.mark_dirty_digit(digit(key, 8));
                     }
@@ -5738,11 +5732,11 @@ impl SetReader<'_> {
 /// A map shareable across threads: one writer at a time (internally
 /// serialized), validated optimistic readers. See the module docs.
 ///
-/// # Undefined behaviour under concurrent use
+/// # Memory-model soundness
 ///
-/// Concurrent use reaches undefined behaviour from safe code, as the module
-/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
-/// incorrect result has been observed.
+/// Concurrent use forms no data race and no aliasing violation that the
+/// nightly Miri census observes; the module docs say what it covers and
+/// what stays outside ([#1086](https://github.com/orieg/expanse/issues/1086)).
 pub struct SyncExpanseMap {
     shared: SharedBox<ExpanseMap>,
 }
@@ -6293,7 +6287,7 @@ macro_rules! olc_insert_map_body {
     }; 8];
     let mut anc_depth = 0;
     // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
-    let mut edge = unsafe { top_ptr.read() };
+    let mut edge = unsafe { Edge::load_at::<true>(top_ptr) };
     let mut edge_ptr = top_ptr;
     let mut level = 8u8;
 
@@ -6320,14 +6314,14 @@ macro_rules! olc_insert_map_body {
                 let (bl, num, slot_opt) = unsafe {
                     if is_l3 {
                         let b = node.cast::<BranchL3>();
-                        let bl = (*b).hdr.level;
-                        let num = (*b).hdr.num as usize;
-                        (bl, num, BranchHeader::find_at(&raw const (*b).hdr, digit($key, bl)))
+                        let h = BranchHeader::load_at(&raw const (*b).hdr);
+                        let bl = h.level;
+                        (bl, h.num as usize, h.find(digit($key, bl)))
                     } else {
                         let b = node.cast::<BranchL7>();
-                        let bl = (*b).hdr.level;
-                        let num = (*b).hdr.num as usize;
-                        (bl, num, BranchHeader::find_at(&raw const (*b).hdr, digit($key, bl)))
+                        let h = BranchHeader::load_at(&raw const (*b).hdr);
+                        let bl = h.level;
+                        (bl, h.num as usize, h.find(digit($key, bl)))
                     }
                 };
                 if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
@@ -6357,7 +6351,7 @@ macro_rules! olc_insert_map_body {
                     #[cfg(test)]
                     test_hooks::before_child_edge_load();
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    edge = unsafe { edge_ptr.read() };
+                    edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                     // Validated after the child edge is loaded, not before: no later
                     // step re-validates this node, and a new digit's linear insert
                     // shifts its edges in place, which can move a neighbouring digit's
@@ -6415,26 +6409,10 @@ macro_rules! olc_insert_map_body {
                     unsafe {
                         if is_l3 {
                             let b = node.cast::<BranchL3>();
-                            let slot = crate::mutate::linear_insert_slot_l3(
-                                &mut (*b).hdr.digits,
-                                &mut (*b).edges,
-                                cur_num,
-                                d,
-                            );
-                            (*b).edges[slot] = new_edge;
-                            (*b).hdr.num += 1;
-                            BranchHeader::add_presence_at(&raw mut (*b).hdr, d);
+                            crate::node::linear_insert_at_shared(&raw mut (*b).hdr, (&raw mut (*b).edges).cast::<Edge>(), cur_num, d, new_edge);
                         } else {
                             let b = node.cast::<BranchL7>();
-                            let slot = crate::mutate::linear_insert_slot(
-                                &mut (*b).hdr.digits,
-                                &mut (*b).edges,
-                                cur_num,
-                                d,
-                            );
-                            (*b).edges[slot] = new_edge;
-                            (*b).hdr.num += 1;
-                            BranchHeader::add_presence_at(&raw mut (*b).hdr, d);
+                            crate::node::linear_insert_at_shared(&raw mut (*b).hdr, (&raw mut (*b).edges).cast::<Edge>(), cur_num, d, new_edge);
                         }
                         version_unlock_timed(crate::occ::version_cell(vp), old_v, true, lock_t0);
                         $host.mark_dirty_digit(digit($key, 8));
@@ -6465,7 +6443,7 @@ macro_rules! olc_insert_map_body {
                         bl,
                         crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
                         crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
-                        (*node).subarrays[(d >> 5) as usize],
+                        crate::bits::shared_word::load_ptr::<true, Edge>((&raw const (*node).subarrays).cast::<*mut Edge>().add((d >> 5) as usize)),
                     )
                 };
                 if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
@@ -6490,7 +6468,7 @@ macro_rules! olc_insert_map_body {
                     }
                     let sub_idx = (d >> 5) as usize;
                     // SAFETY: node pointer is EBR-live; pop_counts load is word-aligned and torn reads bounded to valid range.
-                    let old_n = unsafe { (*node).pop_counts[sub_idx] as usize };
+                    let old_n = unsafe { crate::node::pop_count_at(node, sub_idx) };
                     if old_n > 32 {
                         return OlcOutcome::Retry;
                     }
@@ -6568,7 +6546,7 @@ macro_rules! olc_insert_map_body {
                         return branch_split(BranchSplitKind::Upgrade);
                     }
                     // SAFETY: node pointer is EBR-live; read under version lock.
-                    let cur_n = unsafe { (*node).pop_counts[sub_idx] as usize };
+                    let cur_n = unsafe { crate::node::pop_count_at(node, sub_idx) };
                     if cur_n != old_n {
                         if let Some(p) = pre_alloc {
                             // SAFETY: pre_alloc was allocated above and never published.
@@ -6616,7 +6594,7 @@ macro_rules! olc_insert_map_body {
                                 old_arr_to_free = core::ptr::NonNull::new(old_arr);
                             }
                             new_arr.as_ptr().add(rank).write(new_edge);
-                            (*node).subarrays[sub_idx] = new_arr.as_ptr();
+                            crate::bits::shared_word::store_ptr::<true, Edge>((&raw mut (*node).subarrays).cast::<*mut Edge>().add(sub_idx), new_arr.as_ptr());
                         }
                     } else {
                         // SAFETY: The node's version lock provides exclusive writer access. Spare capacity
@@ -6624,13 +6602,13 @@ macro_rules! olc_insert_map_body {
                         // shift elements in place within the existing subarray.
                         unsafe {
                             let arr = (*node).subarrays[sub_idx];
-                            core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                            arr.add(rank).write(new_edge);
+                            crate::node::edges_shift_up_shared(arr, rank, old_n - rank);
+                            Edge::store_at::<true>(arr.add(rank), new_edge);
                         }
                     }
                     // SAFETY: Raw-pointer mutation under exclusive version lock.
                     unsafe {
-                        (*node).pop_counts[sub_idx] = (old_n + 1) as u16;
+                        crate::node::set_pop_count_at(node, sub_idx, (old_n + 1) as u16);
                         crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                     }
 
@@ -6666,7 +6644,7 @@ macro_rules! olc_insert_map_body {
                 // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                 edge_ptr = unsafe { sub.add(rank) };
                 // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                edge = unsafe { edge_ptr.read() };
+                edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                 // Validated again after the child edge is loaded: the check above
                 // guards the subarray and rank this load uses, and no later step
                 // re-validates this node. Subarray growth within its capacity class
@@ -6704,7 +6682,7 @@ macro_rules! olc_insert_map_body {
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                 // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                edge = unsafe { edge_ptr.read() };
+                edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                 // Validated after the child edge is loaded, not before: no later
                 // step re-validates this node, and a concurrent store to this slot
                 // can tear the load.
@@ -6733,7 +6711,7 @@ macro_rules! olc_insert_map_body {
                 let tested = unsafe { crate::bits::shared_bitmap::test_and_subexpanse_rank_with_sub::<true>(&raw const (*node).bitmap, d) };
                 if let Some((_, rank)) = tested {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                    let vals = unsafe { (*node).values[sub] };
+                    let vals = unsafe { crate::bits::shared_word::load_ptr::<true, u64>((&raw const (*node).values).cast::<*mut u64>().add(sub)) };
                     if vals.is_null() {
                         return OlcOutcome::Retry;
                     }
@@ -6746,7 +6724,7 @@ macro_rules! olc_insert_map_body {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -6758,7 +6736,7 @@ macro_rules! olc_insert_map_body {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Done(Some($old));
                         }
-                        slot.write($val);
+                        crate::bits::shared_word::store::<true>(slot, $val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         return OlcOutcome::Done(Some($old));
                     }
@@ -6784,7 +6762,7 @@ macro_rules! olc_insert_map_body {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -6793,8 +6771,8 @@ macro_rules! olc_insert_map_body {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         let arr = (*node).values[sub];
-                        core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                        arr.add(rank).write($val);
+                        crate::bits::shared_word::shift_up::<true>(arr, rank, old_n - rank);
+                        crate::bits::shared_word::store::<true>(arr.add(rank), $val);
                         crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 + 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
@@ -6821,7 +6799,7 @@ macro_rules! olc_insert_map_body {
                     };
 
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         // SAFETY: new_vals was freshly allocated and not published.
                         unsafe {
                             alloc.free_bytes_unpublished(
@@ -6849,7 +6827,7 @@ macro_rules! olc_insert_map_body {
                             None
                         };
                         new_vals.add(rank).write($val);
-                        (*node).values[sub] = new_vals;
+                        crate::bits::shared_word::store_ptr::<true, u64>((&raw mut (*node).values).cast::<*mut u64>().add(sub), new_vals);
                         crate::bits::shared_bitmap::set::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 + 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
@@ -6893,7 +6871,7 @@ macro_rules! olc_insert_map_body {
                 let mut at = pop;
                 for i in 0..pop {
                     // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
-                    let existing = unsafe { crate::mutate::read_packed(keys_ptr, i, kb) };
+                    let existing = unsafe { crate::leaf::shared_keys::read(keys_ptr, i, kb, pop) };
                     if existing == k {
                         found = Some(i);
                         break;
@@ -6908,7 +6886,7 @@ macro_rules! olc_insert_map_body {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -6920,7 +6898,7 @@ macro_rules! olc_insert_map_body {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Done(Some($old));
                         }
-                        slot.write($val);
+                        crate::bits::shared_word::store::<true>(slot, $val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         return OlcOutcome::Done(Some($old));
                     }
@@ -6944,7 +6922,7 @@ macro_rules! olc_insert_map_body {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -6952,7 +6930,7 @@ macro_rules! olc_insert_map_body {
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
-                            crate::leaf::map_insert_at(base, kb as u8, pop, at, k, $val);
+                            crate::leaf::shared_keys::map_insert_at(base, kb as u8, pop, at, k, $val);
                             Edge::set_pop0_at(edge_ptr, kb as u8, pop as u64);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             $host.mark_dirty_digit(digit($key, 8));
@@ -6983,7 +6961,7 @@ macro_rules! olc_insert_map_body {
                         };
 
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             // SAFETY: new_buf was freshly allocated and not published.
                             unsafe {
                                 alloc.free_bytes_unpublished(
@@ -7006,7 +6984,7 @@ macro_rules! olc_insert_map_body {
                             let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
                             new_edge.set_aux_bytes(saved_aux);
                             new_edge.set_pop0(kb as u8, pop as u64);
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
                             $host.mark_dirty_digit(digit($key, 8));
@@ -7024,7 +7002,7 @@ macro_rules! olc_insert_map_body {
                 let saved_aux = *edge.aux_bytes();
                 let alloc = $host.alloc();
                 // SAFETY: edge is an EBR-live linear leaf descriptor with pop elements and kb key bytes.
-                let mut entries = unsafe { crate::mutate_map::read_map_leaf(&edge, kb as u8, pop) };
+                let mut entries = unsafe { crate::leaf::shared_keys::map_entries(edge.node_ptr(), kb as u8, pop) };
                 // Validate the copy before building from it; see the set's split.
                 if !crate::occ::node_validate(p_cell, parent.version_snap) {
                     return OlcOutcome::Retry;
@@ -7049,7 +7027,7 @@ macro_rules! olc_insert_map_body {
                         return OlcOutcome::Retry;
                     };
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         // SAFETY: new_edge is an unpublished subtree owned by this thread.
                         unsafe {
                             crate::mutate::free_subtree_unpublished::<true>(alloc, &mut new_edge);
@@ -7062,7 +7040,7 @@ macro_rules! olc_insert_map_body {
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: parent is locked; new_edge is valid subtree; base is valid for old_size.
                     unsafe {
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
                         $host.mark_dirty_digit(digit($key, 8));
@@ -7108,7 +7086,7 @@ macro_rules! olc_insert_map_body {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             // SAFETY: new_edge is an unpublished subtree owned by this thread.
                             unsafe {
                                 crate::mutate::free_subtree_unpublished::<true>(
@@ -7124,7 +7102,7 @@ macro_rules! olc_insert_map_body {
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: parent is locked; new_edge is valid subtree; base is valid for old_size.
                         unsafe {
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
                             $host.mark_dirty_digit(digit($key, 8));
@@ -7167,7 +7145,7 @@ macro_rules! olc_insert_map_body {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             // SAFETY: tmp is an unpublished subtree owned by this thread.
                             unsafe {
                                 crate::mutate::free_subtree_unpublished::<true>(alloc, &mut tmp);
@@ -7180,7 +7158,7 @@ macro_rules! olc_insert_map_body {
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: parent is locked; tmp is valid subtree; base is valid for old_size.
                         unsafe {
-                            edge_ptr.write(tmp);
+                            Edge::store_at::<true>(edge_ptr, tmp);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             alloc.free_bytes(core::ptr::NonNull::new_unchecked(base), old_size);
                             $host.mark_dirty_digit(digit($key, 8));
@@ -7218,7 +7196,7 @@ macro_rules! olc_insert_map_body {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -7233,9 +7211,9 @@ macro_rules! olc_insert_map_body {
                             }
                             // Read, modify, write the whole edge: no `&mut` to
                             // an edge readers may be copying (#1086).
-                            let mut e = edge_ptr.read();
+                            let mut e = Edge::load_at::<true>(edge_ptr);
                             e.set_imm_bytes($val.to_le_bytes());
-                            edge_ptr.write(e);
+                            Edge::store_at::<true>(edge_ptr, e);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             return OlcOutcome::Done(Some($old));
                         }
@@ -7271,7 +7249,7 @@ macro_rules! olc_insert_map_body {
                         // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             // SAFETY: new_vals was freshly allocated and not published.
                             unsafe {
@@ -7293,7 +7271,7 @@ macro_rules! olc_insert_map_body {
                             let mut new_edge = Edge::new_node(new_vals.cast(), 0);
                             new_edge.set_aux_bytes(new_aux);
                             new_edge.set_tag(new_im.as_u8());
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             $host.mark_dirty_digit(digit($key, 8));
                         }
@@ -7318,7 +7296,7 @@ macro_rules! olc_insert_map_body {
                         // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             // SAFETY: new_leaf was freshly allocated and not published.
                             unsafe {
@@ -7342,7 +7320,7 @@ macro_rules! olc_insert_map_body {
                                 Edge::new_node(new_leaf, EdgeType::Leaf1 as u8 + (kb - 1));
                             new_edge.set_aux_bytes(saved_aux);
                             new_edge.set_pop0(kb, 1);
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             $host.mark_dirty_digit(digit($key, 8));
                         }
@@ -7361,7 +7339,7 @@ macro_rules! olc_insert_map_body {
                     // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -7374,7 +7352,7 @@ macro_rules! olc_insert_map_body {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Done(Some($old));
                         }
-                        slot.write($val);
+                        crate::bits::shared_word::store::<true>(slot, $val);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         return OlcOutcome::Done(Some($old));
                     }
@@ -7394,7 +7372,7 @@ macro_rules! olc_insert_map_body {
                             return OlcOutcome::Retry;
                         };
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -7404,14 +7382,10 @@ macro_rules! olc_insert_map_body {
                         unsafe {
                             let old_vals = edge.node_ptr().cast::<u64>();
                             if ins_pos < n {
-                                core::ptr::copy(
-                                    old_vals.add(ins_pos),
-                                    old_vals.add(ins_pos + 1),
-                                    n - ins_pos,
-                                );
+                                crate::bits::shared_word::shift_up::<true>(old_vals, ins_pos, n - ins_pos);
                             }
-                            old_vals.add(ins_pos).write($val);
-                            let mut new_aux = *edge_ptr.read().aux_bytes();
+                            crate::bits::shared_word::store::<true>(old_vals.add(ins_pos), $val);
+                            let mut new_aux = *Edge::load_at::<true>(edge_ptr).aux_bytes();
                             if ins_pos < n {
                                 new_aux.copy_within(
                                     ins_pos * kb_usize..n * kb_usize,
@@ -7424,7 +7398,7 @@ macro_rules! olc_insert_map_body {
                             let mut new_edge = edge;
                             new_edge.set_aux_bytes(new_aux);
                             new_edge.set_tag(new_im.as_u8());
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             $host.mark_dirty_digit(digit($key, 8));
                         }
@@ -7449,7 +7423,7 @@ macro_rules! olc_insert_map_body {
                     // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         // SAFETY: new_vals was freshly allocated and not published.
                         unsafe {
@@ -7486,7 +7460,7 @@ macro_rules! olc_insert_map_body {
                         let mut new_edge = Edge::new_node(new_vals.cast(), 0);
                         new_edge.set_aux_bytes(new_aux);
                         new_edge.set_tag(new_im.as_u8());
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         alloc.free_bytes(
                             core::ptr::NonNull::new_unchecked(old_vals.cast()),
@@ -7519,7 +7493,7 @@ macro_rules! olc_insert_map_body {
                 // Invariant verification (§2.3 / Rule 5): parent is locked (odd version).
                 debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                 // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                     version_unlock_timed(p_cell, old_v, false, lock_t0);
                     // SAFETY: new_leaf was freshly allocated and not published.
                     unsafe {
@@ -7558,7 +7532,7 @@ macro_rules! olc_insert_map_body {
                     let mut new_edge = Edge::new_node(new_leaf, EdgeType::Leaf1 as u8 + (kb - 1));
                     new_edge.set_aux_bytes(saved_aux);
                     new_edge.set_pop0(kb, n as u64);
-                    edge_ptr.write(new_edge);
+                    Edge::store_at::<true>(edge_ptr, new_edge);
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
                     alloc.free_bytes(core::ptr::NonNull::new_unchecked(old_vals.cast()), old_size);
                     $host.mark_dirty_digit(digit($key, 8));
@@ -7591,7 +7565,7 @@ macro_rules! olc_insert_map_body {
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // Double-check invariant: ensure edge is still null under the locked parent.
                     // SAFETY: edge_ptr points to an edge inside the locked, EBR-live BranchU node.
-                    if unsafe { !edge_ptr.read().is_null() } {
+                    if unsafe { !Edge::load_at::<true>(edge_ptr).is_null() } {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -7637,7 +7611,7 @@ macro_rules! olc_remove_map_body {
     }; 8];
     let mut anc_depth = 0;
     // SAFETY: top_ptr points to the root edge under verified EBR-live snapshot.
-    let mut edge = unsafe { top_ptr.read() };
+    let mut edge = unsafe { Edge::load_at::<true>(top_ptr) };
     let mut edge_ptr = top_ptr;
     let mut level = 8u8;
 
@@ -7664,14 +7638,14 @@ macro_rules! olc_remove_map_body {
                 let (bl, num, slot_opt) = unsafe {
                     if is_l3 {
                         let b = node.cast::<BranchL3>();
-                        let bl = (*b).hdr.level;
-                        let num = (*b).hdr.num as usize;
-                        (bl, num, BranchHeader::find_at(&raw const (*b).hdr, digit($key, bl)))
+                        let h = BranchHeader::load_at(&raw const (*b).hdr);
+                        let bl = h.level;
+                        (bl, h.num as usize, h.find(digit($key, bl)))
                     } else {
                         let b = node.cast::<BranchL7>();
-                        let bl = (*b).hdr.level;
-                        let num = (*b).hdr.num as usize;
-                        (bl, num, BranchHeader::find_at(&raw const (*b).hdr, digit($key, bl)))
+                        let h = BranchHeader::load_at(&raw const (*b).hdr);
+                        let bl = h.level;
+                        (bl, h.num as usize, h.find(digit($key, bl)))
                     }
                 };
                 if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
@@ -7701,7 +7675,7 @@ macro_rules! olc_remove_map_body {
                     #[cfg(test)]
                     test_hooks::before_child_edge_load();
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    edge = unsafe { edge_ptr.read() };
+                    edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                     // Validated after the child edge is loaded, not before: no later
                     // step re-validates this node, and a new digit's linear insert
                     // shifts its edges in place, which can move a neighbouring digit's
@@ -7745,7 +7719,7 @@ macro_rules! olc_remove_map_body {
                         bl,
                         crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d),
                         crate::bits::shared_bitmap::subexpanse_rank::<true>(&raw const (*node).bitmap, d) as usize,
-                        (*node).subarrays[(d >> 5) as usize],
+                        crate::bits::shared_word::load_ptr::<true, Edge>((&raw const (*node).subarrays).cast::<*mut Edge>().add((d >> 5) as usize)),
                     )
                 };
                 if bl < level && !crate::get::decode_matches(&edge, $key, bl, level) {
@@ -7788,7 +7762,7 @@ macro_rules! olc_remove_map_body {
                 // SAFETY: pointer arithmetic and destination buffer bounds are valid under locked parent.
                 edge_ptr = unsafe { sub.add(rank) };
                 // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                edge = unsafe { edge_ptr.read() };
+                edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                 // Validated again after the child edge is loaded: the check above
                 // guards the subarray and rank this load uses, and no later step
                 // re-validates this node. Subarray growth within its capacity class
@@ -7826,7 +7800,7 @@ macro_rules! olc_remove_map_body {
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 edge_ptr = unsafe { &raw mut (*node).edges[d as usize] };
                 // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                edge = unsafe { edge_ptr.read() };
+                edge = unsafe { Edge::load_at::<true>(edge_ptr) };
                 // Validated after the child edge is loaded, not before: no later
                 // step re-validates this node, and a concurrent store to this slot
                 // can tear the load.
@@ -7872,11 +7846,11 @@ macro_rules! olc_remove_map_body {
                     // SAFETY: the pointer and index were read under the snapshot just
                     // validated, inside an EBR-live allocation the writer pin keeps mapped.
                     let $old = unsafe { {
-                                        let vals = (*node).values[sub];
+                                        let vals = crate::bits::shared_word::load_ptr::<true, u64>((&raw const (*node).values).cast::<*mut u64>().add(sub));
                                         if vals.is_null() {
                                             return OlcOutcome::Retry;
                                         }
-                                        vals.add(rank).read()
+                                        crate::bits::shared_word::load::<true>(vals.add(rank))
                                     } };
                     if !crate::occ::node_validate(p_cell, parent.version_snap) {
                         return OlcOutcome::Retry;
@@ -7895,7 +7869,7 @@ macro_rules! olc_remove_map_body {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -7903,7 +7877,7 @@ macro_rules! olc_remove_map_body {
                         unsafe {
                             let old_arr = (*node).values[sub];
                             let old = *old_arr.add(rank);
-                            edge_ptr.write(Edge::NULL);
+                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             alloc.free_bytes(
@@ -7956,7 +7930,7 @@ macro_rules! olc_remove_map_body {
                                 1
                             );
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 return OlcOutcome::Retry;
                             }
@@ -7972,7 +7946,7 @@ macro_rules! olc_remove_map_body {
                                 new_edge.set_imm_bytes(v.to_le_bytes());
                                 new_edge.set_aux_bytes(aux);
                                 new_edge.set_tag(im.as_u8());
-                                edge_ptr.write(new_edge);
+                                Edge::store_at::<true>(edge_ptr, new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = $host.alloc();
                                 for s in 0..8 {
@@ -8011,7 +7985,7 @@ macro_rules! olc_remove_map_body {
                                 1
                             );
                             // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                                 version_unlock_timed(p_cell, old_v, false, lock_t0);
                                 // SAFETY: new_vals was allocated above and never published to the trie.
                                 unsafe {
@@ -8036,7 +8010,7 @@ macro_rules! olc_remove_map_body {
                                 let mut new_edge = Edge::new_node(new_vals.cast(), 0);
                                 new_edge.set_aux_bytes(aux);
                                 new_edge.set_tag(im.as_u8());
-                                edge_ptr.write(new_edge);
+                                Edge::store_at::<true>(edge_ptr, new_edge);
                                 version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = $host.alloc();
                                 for s in 0..8 {
@@ -8073,7 +8047,7 @@ macro_rules! olc_remove_map_body {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             // SAFETY: new_buf was allocated above and never published to the trie.
                             unsafe {
@@ -8096,7 +8070,7 @@ macro_rules! olc_remove_map_body {
                             let mut new_edge = Edge::new_node(new_buf, EdgeType::Leaf1.as_u8());
                             new_edge.set_aux_bytes(saved_aux);
                             new_edge.set_pop0(1, (entries.len - 1) as u64);
-                            edge_ptr.write(new_edge);
+                            Edge::store_at::<true>(edge_ptr, new_edge);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             for s in 0..8 {
@@ -8124,7 +8098,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -8132,7 +8106,7 @@ macro_rules! olc_remove_map_body {
                     unsafe {
                         let old_arr = (*node).values[sub];
                         let old = *old_arr.add(rank);
-                        (*node).values[sub] = core::ptr::null_mut();
+                        crate::bits::shared_word::store_ptr::<true, u64>((&raw mut (*node).values).cast::<*mut u64>().add(sub), core::ptr::null_mut());
                         crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
@@ -8152,7 +8126,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -8160,7 +8134,7 @@ macro_rules! olc_remove_map_body {
                     unsafe {
                         let arr = (*node).values[sub];
                         let old = arr.add(rank).read();
-                        core::ptr::copy(arr.add(rank + 1), arr.add(rank), old_n - 1 - rank);
+                        crate::bits::shared_word::shift_down::<true>(arr, rank, old_n - 1 - rank);
                         crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
@@ -8185,7 +8159,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         // SAFETY: new_vals was allocated above and never published to the trie.
                         unsafe {
@@ -8204,7 +8178,7 @@ macro_rules! olc_remove_map_body {
                         new_vals
                             .add(rank)
                             .copy_from_nonoverlapping(old_arr.add(rank + 1), old_n - 1 - rank);
-                        (*node).values[sub] = new_vals;
+                        crate::bits::shared_word::store_ptr::<true, u64>((&raw mut (*node).values).cast::<*mut u64>().add(sub), new_vals);
                         crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 - 1) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
@@ -8245,7 +8219,7 @@ macro_rules! olc_remove_map_body {
                 let mut found = None;
                 for i in 0..pop {
                     // SAFETY: pointer and index are within bounds of valid leaf/immediate allocation.
-                    if unsafe { crate::mutate::read_packed(keys_ptr, i, kb) } == k {
+                    if unsafe { crate::leaf::shared_keys::read(keys_ptr, i, kb, pop) } == k {
                         found = Some(i);
                         break;
                     }
@@ -8267,7 +8241,7 @@ macro_rules! olc_remove_map_body {
                     }
                     // SAFETY: the pointer and index were read under the snapshot just
                     // validated, inside an EBR-live allocation the writer pin keeps mapped.
-                    let $old = unsafe { base.cast::<u64>().add(pos).read() };
+                    let $old = unsafe { crate::bits::shared_word::load::<true>(base.cast::<u64>().add(pos)) };
                     if !crate::occ::node_validate(p_cell, parent.version_snap) {
                         return OlcOutcome::Retry;
                     }
@@ -8285,14 +8259,14 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         let old = base.cast::<u64>().add(pos).read();
-                        crate::leaf::map_remove_at(base, kb as u8, pop, pos);
+                        crate::leaf::shared_keys::map_remove_at(base, kb as u8, pop, pos);
                         Edge::set_pop0_at(edge_ptr, kb as u8, (pop - 2) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         $host.mark_dirty_digit(digit($key, 8));
@@ -8317,7 +8291,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         // SAFETY: new_buf was allocated above and never published to the trie.
                         unsafe {
@@ -8336,7 +8310,7 @@ macro_rules! olc_remove_map_body {
                         let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
                         new_edge.set_aux_bytes(saved_aux);
                         new_edge.set_pop0(kb as u8, (pop - 2) as u64);
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         alloc.free_bytes(
                             core::ptr::NonNull::new_unchecked(base),
@@ -8355,14 +8329,14 @@ macro_rules! olc_remove_map_body {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
                         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
                             let old = base.cast::<u64>().read();
-                            edge_ptr.write(Edge::NULL);
+                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
                             version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             alloc.free_bytes(
@@ -8388,7 +8362,7 @@ macro_rules! olc_remove_map_body {
                         continue;
                     }
                     // SAFETY: keys_ptr is a valid leaf pointer with at least pop keys.
-                    let low_k = unsafe { crate::mutate::read_packed(keys_ptr, slot, kb) };
+                    let low_k = unsafe { crate::leaf::shared_keys::read(keys_ptr, slot, kb, pop) };
                     let k = (dv << (8 * u32::from(kb as u8))) | low_k;
                     // SAFETY: base points to valid leaf values array with at least pop entries.
                     let v = unsafe { *base.cast::<u64>().add(slot) };
@@ -8411,7 +8385,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -8421,7 +8395,7 @@ macro_rules! olc_remove_map_body {
                         new_edge.set_imm_bytes(entries[0].1.to_le_bytes());
                         new_edge.set_aux_bytes(aux);
                         new_edge.set_tag(im.as_u8());
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         let alloc = $host.alloc();
                         alloc.free_bytes(
@@ -8449,7 +8423,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         // SAFETY: new_vals was allocated above and never published to the trie.
                         unsafe {
@@ -8468,7 +8442,7 @@ macro_rules! olc_remove_map_body {
                         let mut new_edge = Edge::new_node(new_vals.cast(), 0);
                         new_edge.set_aux_bytes(aux);
                         new_edge.set_tag(im.as_u8());
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         alloc.free_bytes(
                             core::ptr::NonNull::new_unchecked(base),
@@ -8530,7 +8504,7 @@ macro_rules! olc_remove_map_body {
                         };
                         debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                         // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                             version_unlock_timed(p_cell, old_v, false, lock_t0);
                             return OlcOutcome::Retry;
                         }
@@ -8568,7 +8542,7 @@ macro_rules! olc_remove_map_body {
                     }
                     // SAFETY: the pointer and index were read under the snapshot just
                     // validated, inside an EBR-live allocation the writer pin keeps mapped.
-                    let $old = unsafe { edge.node_ptr().cast::<u64>().add(p).read() };
+                    let $old = unsafe { crate::bits::shared_word::load::<true>(edge.node_ptr().cast::<u64>().add(p)) };
                     if !crate::occ::node_validate(p_cell, parent.version_snap) {
                         return OlcOutcome::Retry;
                     }
@@ -8584,7 +8558,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -8603,7 +8577,7 @@ macro_rules! olc_remove_map_body {
                         new_edge.set_imm_bytes(remain_val.to_le_bytes());
                         new_edge.set_aux_bytes(new_aux);
                         new_edge.set_tag(new_im.as_u8());
-                        edge_ptr.write(new_edge);
+                        Edge::store_at::<true>(edge_ptr, new_edge);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         let alloc = $host.alloc();
                         alloc.free_bytes(
@@ -8622,7 +8596,7 @@ macro_rules! olc_remove_map_body {
                     };
                     debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                     // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                    if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                         version_unlock_timed(p_cell, old_v, false, lock_t0);
                         return OlcOutcome::Retry;
                     }
@@ -8631,17 +8605,17 @@ macro_rules! olc_remove_map_body {
                         let vals = edge.node_ptr().cast::<u64>();
                         let old = vals.add(p).read();
                         if p + 1 < n {
-                            core::ptr::copy(vals.add(p + 1), vals.add(p), n - 1 - p);
+                            crate::bits::shared_word::shift_down::<true>(vals, p, n - 1 - p);
                         }
-                        let mut new_aux = *edge_ptr.read().aux_bytes();
+                        let mut new_aux = *Edge::load_at::<true>(edge_ptr).aux_bytes();
                         new_aux.copy_within((p + 1) * kb_usize..n * kb_usize, p * kb_usize);
                         new_aux[((n - 1) * kb_usize)..].fill(0);
                         let new_im = ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
                         // Read, modify, write the whole edge (see above).
-                        let mut e = edge_ptr.read();
+                        let mut e = Edge::load_at::<true>(edge_ptr);
                         e.set_aux_bytes(new_aux);
                         e.set_tag(new_im.as_u8());
-                        edge_ptr.write(e);
+                        Edge::store_at::<true>(edge_ptr, e);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         $host.mark_dirty_digit(digit($key, 8));
                         return OlcOutcome::Done(Some(old));
@@ -8664,7 +8638,7 @@ macro_rules! olc_remove_map_body {
                 };
                 debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
                 // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                if !unsafe { edge_ptr.read() }.bits_eq(&edge) {
+                if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
                     version_unlock_timed(p_cell, old_v, false, lock_t0);
                     // SAFETY: new_vals was allocated above and never published to the trie.
                     unsafe {
@@ -8692,7 +8666,7 @@ macro_rules! olc_remove_map_body {
                     let mut new_edge = Edge::new_node(new_vals.cast(), 0);
                     new_edge.set_aux_bytes(new_aux);
                     new_edge.set_tag(new_im.as_u8());
-                    edge_ptr.write(new_edge);
+                    Edge::store_at::<true>(edge_ptr, new_edge);
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
                     alloc.free_bytes(
                         core::ptr::NonNull::new_unchecked(vals.cast::<u8>()),
@@ -9460,11 +9434,11 @@ struct BlobWriterArenas {
 /// - Structural reads that need multi-field consistency (`mem_used`,
 ///   `scan_filtered`, iteration) go through [`Self::with_locked`].
 ///
-/// # Undefined behaviour under concurrent use
+/// # Memory-model soundness
 ///
-/// Concurrent use reaches undefined behaviour from safe code, as the module
-/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
-/// incorrect result has been observed.
+/// Concurrent use forms no data race and no aliasing violation that the
+/// nightly Miri census observes; the module docs say what it covers and
+/// what stays outside ([#1086](https://github.com/orieg/expanse/issues/1086)).
 pub struct SyncExpanseBlobMap {
     shared: SharedBox<ExpanseBlobMap>,
     /// The arena's reader table, loaded without reaching into the arena
@@ -9722,7 +9696,7 @@ impl SyncExpanseBlobMap {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "ablation-blob-serial-writers")]
         {
-            self.shared.write(|m| m.insert(key, data, hot_meta))
+            self.shared.write(|m| m.insert_shared(key, data, hot_meta))
         }
         #[cfg(not(feature = "ablation-blob-serial-writers"))]
         {
@@ -9738,12 +9712,12 @@ impl SyncExpanseBlobMap {
                     #[cfg(not(feature = "ablation-blob-shared-arena"))]
                     return self.shared.write_quiesced(|m| {
                         self.fold_writer_arenas(m);
-                        m.insert(key, data, hot_meta)
+                        m.insert_shared(key, data, hot_meta)
                     });
                     #[cfg(feature = "ablation-blob-shared-arena")]
                     return self
                         .shared
-                        .write_quiesced(|m| m.insert(key, data, hot_meta));
+                        .write_quiesced(|m| m.insert_shared(key, data, hot_meta));
                 }
 
                 let guard = self.shared.enter_writer_blocking();
@@ -9900,17 +9874,17 @@ impl SyncExpanseBlobMap {
                                     .arena_epoch
                                     .load(core::sync::atomic::Ordering::Acquire);
                                 if epoch_now == arena_epoch {
-                                    m.insert_slot(key, slot);
+                                    m.insert_slot_shared(key, slot);
                                     Ok(())
                                 } else {
-                                    m.insert(key, data, hot_meta)
+                                    m.insert_shared(key, data, hot_meta)
                                 }
                             })
                         }
                         #[cfg(feature = "ablation-blob-shared-arena")]
                         {
                             self.shared.write_quiesced(|m| {
-                                m.insert_slot(key, slot);
+                                m.insert_slot_shared(key, slot);
                             });
                             Ok(())
                         }
@@ -9919,7 +9893,7 @@ impl SyncExpanseBlobMap {
             }
             #[cfg(not(feature = "std"))]
             {
-                self.shared.write(|m| m.insert(key, data, hot_meta))
+                self.shared.write(|m| m.insert_shared(key, data, hot_meta))
             }
         }
     }
@@ -9928,7 +9902,7 @@ impl SyncExpanseBlobMap {
     pub fn remove(&self, key: Key) -> bool {
         #[cfg(feature = "ablation-blob-serial-writers")]
         {
-            self.shared.write(|m| m.remove(key))
+            self.shared.write(|m| m.remove_shared(key))
         }
         #[cfg(all(
             not(feature = "ablation-blob-serial-writers"),
@@ -9938,7 +9912,7 @@ impl SyncExpanseBlobMap {
         {
             self.shared.remove_root_covered(|m| {
                 self.fold_writer_arenas(m);
-                m.remove(key)
+                m.remove_shared(key)
             })
         }
         #[cfg(all(
@@ -9946,7 +9920,7 @@ impl SyncExpanseBlobMap {
             any(feature = "ablation-blob-shared-arena", not(feature = "std"))
         ))]
         {
-            self.shared.remove_root_covered(|m| m.remove(key))
+            self.shared.remove_root_covered(|m| m.remove_shared(key))
         }
     }
 
@@ -10509,11 +10483,11 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// deployment option, since a cargo feature applies to every string map in
 /// the binary.
 ///
-/// # Undefined behaviour under concurrent use
+/// # Memory-model soundness
 ///
-/// Concurrent use reaches undefined behaviour from safe code, as the module
-/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
-/// incorrect result has been observed.
+/// Concurrent use forms no data race and no aliasing violation that the
+/// nightly Miri census observes; the module docs say what it covers and
+/// what stays outside ([#1086](https://github.com/orieg/expanse/issues/1086)).
 pub struct SyncExpanseStrMap {
     shared: SharedBox<ExpanseStrMap>,
 }
@@ -10906,11 +10880,11 @@ impl StrReader<'_> {
 /// (`RandomState` clones its keys). Hashing goes through `&self`
 /// concurrently, hence the `Sync` bound.
 ///
-/// # Undefined behaviour under concurrent use
+/// # Memory-model soundness
 ///
-/// Concurrent use reaches undefined behaviour from safe code, as the module
-/// docs describe ([#1086](https://github.com/orieg/expanse/issues/1086)). No
-/// incorrect result has been observed.
+/// Concurrent use forms no data race and no aliasing violation that the
+/// nightly Miri census observes; the module docs say what it covers and
+/// what stays outside ([#1086](https://github.com/orieg/expanse/issues/1086)).
 pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
     shared: SharedBox<ExpanseBytesMap<S>>,
     /// The readers' and optimistic writers' hasher: a clone of the map's.
@@ -10982,7 +10956,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 return self.shared.remove_root_covered(|m| {
                     m.set_len(self.entry_pop.load());
                     let pop_before = m.len();
-                    let prev = m.insert(key, val);
+                    let prev = m.insert_shared(key, val);
                     let delta = m.len() as i64 - pop_before as i64;
                     if delta != 0 {
                         self.entry_pop.add_base(delta);
@@ -11165,7 +11139,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 Err(_) => self.shared.remove_root_covered(|m| {
                     m.set_len(self.entry_pop.load());
                     let pop_before = m.len();
-                    let prev = m.insert(key, val);
+                    let prev = m.insert_shared(key, val);
                     let delta = m.len() as i64 - pop_before as i64;
                     if delta != 0 {
                         self.entry_pop.add_base(delta);
@@ -11180,7 +11154,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         )))]
         {
-            self.shared.write(|m| m.insert(key, val))
+            self.shared.write(|m| m.insert_shared(key, val))
         }
     }
 
@@ -11197,7 +11171,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         self.shared.remove_root_covered(|m| {
             m.set_len(self.entry_pop.load());
             let pop_before = m.len();
-            let res = m.remove(key);
+            let res = m.remove_shared(key);
             let pop_after = m.len();
             let delta = pop_after as i64 - pop_before as i64;
             if pop_after == 0 && pop_before > 0 {
@@ -11406,7 +11380,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             not(feature = "ablation-bytes-serial-writers")
         )))]
         {
-            self.shared.write(|m| m.remove(key))
+            self.shared.write(|m| m.remove_shared(key))
         }
     }
 
@@ -11781,15 +11755,14 @@ mod miri_tests {
 /// site so each can change state on its own.
 ///
 /// Under `cargo test` each is an ordinary threaded test and checks what it
-/// reads. Under Miri each is ignored by default: it reaches one of the two
-/// classes the module docs name — a data race on an optimistic load, or a
-/// `&T` / `&mut T` overlap on the engine — and Miri stops a whole shard at the
-/// first. `scripts/miri_ub_sites.py` runs them one at a time with
-/// `--ignored --exact` under the checks `.github/miri-ub-sites.json` lists, and
-/// fails when a site's state differs from the manifest — including a site that
-/// stops reproducing, so a fix flips an entry by an explicit edit and a
-/// schedule change cannot. A workload whose every check is `clean` moves to
-/// `miri_tests`.
+/// reads. Under Miri each is ignored by default, and
+/// `scripts/miri_ub_sites.py` runs them one at a time with
+/// `--ignored --exact` under the checks `.github/miri-ub-sites.json` lists,
+/// over the manifest's seed range, and fails when a site's state differs from
+/// the manifest. Every entry is `clean`; the workloads stay here rather than
+/// in `miri_tests`, because the census's three checks over a seed range are
+/// the regression gate for data races and aliasing violations, and a Miri shard
+/// runs one schedule under one model.
 #[cfg(test)]
 mod miri_ub_sites {
     use super::*;
@@ -11934,6 +11907,86 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(map.len(), CHURN_KEYS);
+    }
+
+    /// Keys of the tree-regime churn workloads: `TREE_CHURN` dense keys that
+    /// share one leaf, and `BRANCH_GROUPS` groups of `GROUP_KEYS` keys that
+    /// differ in their third digit. The groups together overflow a leaf, so
+    /// they hang off one linear branch, one child per group.
+    const TREE_CHURN: u64 = 6;
+    const BRANCH_GROUPS: u64 = 6;
+    const GROUP_KEYS: u64 = 8;
+    const _: () = assert!(BRANCH_GROUPS * GROUP_KEYS > crate::types::LEAF_CAP as u64);
+    const _: () = assert!(BRANCH_GROUPS <= crate::types::BRANCH_L7_CAP as u64);
+
+    fn leaf_cluster(i: u64) -> u64 {
+        0x5A5A_5A5A_5A5A_0000 + i
+    }
+
+    fn group_key(g: u64, j: u64) -> u64 {
+        0x3C3C_3C3C_3C00_0000 | ((g + 1) << 16) | j
+    }
+
+    /// A reader over a tree whose writer overwrites values in one leaf,
+    /// removes and reinserts its keys (shifting the leaf in place and
+    /// rewriting its edge's population), and removes and reinserts children
+    /// of one linear branch (rewriting the branch header): the tree-regime
+    /// stores the insert-only workloads rarely put under a reader.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_tree_churn_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for i in 0..TREE_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        for i in 0..TREE_CHURN {
+            map.insert(leaf_cluster(i), i);
+        }
+        for g in 0..BRANCH_GROUPS {
+            for j in 0..GROUP_KEYS {
+                map.insert(group_key(g, j), j);
+            }
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_CHURN {
+                    let k = leaf_cluster(i);
+                    assert_eq!(map.insert(k, i + 100), Some(i));
+                    assert_eq!(map.remove(k), Some(i + 100));
+                    assert_eq!(map.insert(k, i), None);
+                }
+                // Emptying a group removes the branch's child for it; refilling
+                // it adds the child back: both rewrite the branch header.
+                for g in [1, 4] {
+                    for j in 0..GROUP_KEYS {
+                        assert_eq!(map.remove(group_key(g, j)), Some(j));
+                    }
+                    for j in 0..GROUP_KEYS {
+                        assert_eq!(map.insert(group_key(g, j), j), None);
+                    }
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..TREE_CHURN {
+                        if let Some(v) = map.get(leaf_cluster(i)) {
+                            assert!(v == i || v == i + 100);
+                        }
+                    }
+                    for g in 0..BRANCH_GROUPS {
+                        if let Some(v) = map.get(group_key(g, 3)) {
+                            assert_eq!(v, 3);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(
+            map.len(),
+            TREE_PREFILL + TREE_CHURN + BRANCH_GROUPS * GROUP_KEYS
+        );
     }
 
     #[test]
@@ -12184,6 +12237,56 @@ mod miri_ub_sites {
         assert_eq!(set.len(), CHURN_KEYS);
     }
 
+    /// `map_tree_churn_reader_writer` for the set.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_tree_churn_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for i in 0..TREE_PREFILL {
+            set.insert(splitmix64(i));
+        }
+        for i in 0..TREE_CHURN {
+            set.insert(leaf_cluster(i));
+        }
+        for g in 0..BRANCH_GROUPS {
+            for j in 0..GROUP_KEYS {
+                set.insert(group_key(g, j));
+            }
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_CHURN {
+                    assert!(set.remove(leaf_cluster(i)));
+                    assert!(set.insert(leaf_cluster(i)));
+                }
+                for g in [1, 4] {
+                    for j in 0..GROUP_KEYS {
+                        assert!(set.remove(group_key(g, j)));
+                    }
+                    for j in 0..GROUP_KEYS {
+                        assert!(set.insert(group_key(g, j)));
+                    }
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..TREE_CHURN {
+                        std::hint::black_box(set.contains(leaf_cluster(i)));
+                    }
+                    for g in 0..BRANCH_GROUPS {
+                        std::hint::black_box(set.contains(group_key(g, 3)));
+                    }
+                });
+            });
+        });
+        assert_eq!(
+            set.len(),
+            TREE_PREFILL + TREE_CHURN + BRANCH_GROUPS * GROUP_KEYS
+        );
+    }
+
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn set_tree_two_writers() {
@@ -12398,6 +12501,117 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(map.len(), CHURN_KEYS);
+    }
+
+    /// The string map's serialised path under a reader: the writer
+    /// overwrites, removes and reinserts keys through `with_locked_mut`, the
+    /// covered path the fallbacks and `prune_empty_path` take (the string
+    /// twin of `map_covered_reader_writer`). The keys share a prefix longer
+    /// than a chunk, so they sit in a nested sub-map below the root node.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_covered_reader_writer() {
+        fn k(i: u64) -> std::string::String {
+            std::format!("shared-prefix-{i:04}")
+        }
+        let map = SyncExpanseStrMap::new();
+        for i in 0..CHURN_KEYS {
+            map.insert(nf(&k(i)), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..CHURN_KEYS {
+                    map.with_locked_mut(|m| {
+                        assert_eq!(m.insert(nf(&k(i)), i + 100), Some(i));
+                        assert_eq!(m.remove(nf(&k(i))), Some(i + 100));
+                        assert_eq!(m.insert(nf(&k(i)), i), None);
+                    });
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..CHURN_KEYS {
+                        if let Some(v) = map.get(nf(&k(i))) {
+                            assert!(v == i || v == i + 100);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), CHURN_KEYS);
+    }
+
+    /// The string map's serialised root-state changes under a reader: a
+    /// sub-map promoted past a root leaf's capacity and condensed back, an
+    /// emptied chain of nodes pruned, and the whole map cleared and refilled
+    /// — the covered path's teardowns, which retire what pinned readers may
+    /// still be reading.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_covered_teardown_reader_writer() {
+        // More keys than a root leaf holds, so the root node's sub-map is a
+        // tree, and half of them fewer, so removing them condenses it.
+        const WIDE: u64 = crate::types::ROOT_LEAF_CAP as u64 + 9;
+        const HALF: u64 = WIDE / 2;
+        fn wide(i: u64) -> std::string::String {
+            std::format!("w{i:02}")
+        }
+        // Two keys sharing sixteen bytes: a node for the first chunk and one
+        // for the second, both emptied when the two are removed.
+        fn deep(j: u64) -> std::string::String {
+            std::format!("deep-chain-00-tail{j}")
+        }
+        fn fill(m: &mut ExpanseStrMap) {
+            for i in 0..WIDE {
+                m.insert(nf(&wide(i)), i);
+            }
+            for j in 0..2 {
+                m.insert(nf(&deep(j)), j);
+            }
+        }
+        let map = SyncExpanseStrMap::new();
+        map.with_locked_mut(fill);
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                map.with_locked_mut(|m| {
+                    for i in HALF..WIDE {
+                        assert_eq!(m.remove(nf(&wide(i))), Some(i));
+                    }
+                    for i in HALF..WIDE {
+                        assert_eq!(m.insert(nf(&wide(i)), i), None);
+                    }
+                });
+                map.with_locked_mut(|m| {
+                    for j in 0..2 {
+                        assert_eq!(m.remove(nf(&deep(j))), Some(j));
+                    }
+                    for j in 0..2 {
+                        assert_eq!(m.insert(nf(&deep(j)), j), None);
+                    }
+                });
+                map.clear();
+                map.with_locked_mut(fill);
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in (0..WIDE).step_by(7) {
+                        if let Some(v) = map.get(nf(&wide(i))) {
+                            assert_eq!(v, i);
+                        }
+                    }
+                    for j in 0..2 {
+                        if let Some(v) = map.get(nf(&deep(j))) {
+                            assert_eq!(v, j);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), WIDE + 2);
     }
 
     // --- SyncExpanseBytesMap ----------------------------------------------

@@ -39,6 +39,10 @@
 
 use crate::bits::Bitmap256;
 use crate::types::{BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, CACHE_LINE, EdgeTag, EdgeType};
+use core::sync::atomic::{
+    AtomicPtr, AtomicU32, AtomicU64,
+    Ordering::{Acquire, Relaxed, Release},
+};
 
 /// Word 0 of an edge: a child-node pointer, or 8 of the up-to-15 immediate
 /// key-payload bytes.
@@ -67,7 +71,6 @@ pub struct Edge {
 
 /// `Edge` as the two words a published copy stores (#1086): word 0 as a
 /// pointer, then the `aux`/tag word.
-#[cfg(all(target_pointer_width = "64", feature = "std"))]
 #[derive(Clone, Copy)]
 #[repr(C)]
 struct EdgeWords {
@@ -274,7 +277,6 @@ impl Edge {
     /// stores, and what [`Self::from_words`] rebuilds it from (#1086). A
     /// transmute rather than two reads through `&self`, so an edge held in
     /// registers is not spilled to memory to be split.
-    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     #[inline(always)]
     pub(crate) fn as_words(&self) -> (*mut u8, u64) {
         // SAFETY: `EdgeWords` has `Edge`'s size, alignment and field offsets
@@ -284,7 +286,6 @@ impl Edge {
     }
 
     /// Rebuilds an edge from the two words [`Self::as_words`] returns.
-    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     #[inline(always)]
     pub(crate) fn from_words(w0: *mut u8, aux: u64) -> Self {
         // SAFETY: as in `as_words`.
@@ -329,10 +330,59 @@ impl Edge {
         debug_assert!(level == 7 || pop0 < 1u64 << (level as u32 * 8));
         let mask = POP0_MASKS[level as usize];
         // SAFETY: caller contract; the `aux` word is the edge's second
-        // 8-aligned word, as `aux_word` reads it.
+        // 8-aligned word, as `aux_word` reads it. Readers load it as an
+        // atomic word (`Self::load_at::<true>`), so it is stored as one.
         unsafe {
-            let p = this.cast::<u64>().add(1);
-            p.write((p.read() & !mask) | (pop0 & mask));
+            let a = AtomicU64::from_ptr(this.cast::<u64>().add(1));
+            a.store((a.load(Relaxed) & !mask) | (pop0 & mask), Relaxed);
+        }
+    }
+
+    /// The edge at `p`. `OCC = false` is a plain read; `OCC = true` is the
+    /// shared form (#1086, class 1): word 0 loaded with `Acquire`, then the
+    /// `aux`/tag word. A writer that publishes a node by storing an edge
+    /// ([`Self::store_at`]) stores word 0 last with `Release`, so a reader
+    /// that loads the new word 0 sees the node's initialising stores.
+    ///
+    /// # Safety
+    ///
+    /// `p` points to a live, 16-aligned edge; with `OCC = true` it carries
+    /// write permission (from a node or root pointer, never from `&Edge`),
+    /// since the loads form atomic references.
+    #[inline(always)]
+    pub(crate) unsafe fn load_at<const OCC: bool>(p: *const Self) -> Self {
+        if !OCC {
+            // SAFETY: caller contract.
+            return unsafe { p.read() };
+        }
+        // SAFETY: caller contract; the two 8-aligned words of the edge.
+        unsafe {
+            let w = p.cast::<u64>().cast_mut();
+            let w0 = AtomicPtr::from_ptr(w.cast::<*mut u8>()).load(Acquire);
+            let aux = AtomicU64::from_ptr(w.add(1)).load(Relaxed);
+            Self::from_words(w0, aux)
+        }
+    }
+
+    /// Stores `e` at `p`. `OCC = true` stores the `aux`/tag word, then word
+    /// 0 with `Release` (see [`Self::load_at`]).
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::load_at`], and the caller is the edge's one writer.
+    #[inline(always)]
+    pub(crate) unsafe fn store_at<const OCC: bool>(p: *mut Self, e: Self) {
+        if !OCC {
+            // SAFETY: caller contract.
+            unsafe { p.write(e) };
+            return;
+        }
+        let (w0, aux) = e.as_words();
+        // SAFETY: caller contract; the two 8-aligned words of the edge.
+        unsafe {
+            let w = p.cast::<u64>();
+            AtomicU64::from_ptr(w.add(1)).store(aux, Relaxed);
+            AtomicPtr::from_ptr(w.cast::<*mut u8>()).store(w0, Release);
         }
     }
 
@@ -344,8 +394,9 @@ impl Edge {
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) unsafe fn word0_at(this: *const Self) -> u64 {
-        // SAFETY: caller contract.
-        unsafe { this.cast::<u64>().read() }
+        // SAFETY: caller contract; word 0 as the atomic word the shared
+        // paths store it as (`Self::store_at::<true>`).
+        unsafe { AtomicU64::from_ptr(this.cast::<u64>().cast_mut()).load(Acquire) }
     }
 
     /// The narrow-pointer decode bytes for a child at `level`: the high
@@ -457,24 +508,225 @@ impl BranchHeader {
     #[inline(always)]
     #[must_use]
     pub(crate) unsafe fn find_at(this: *const Self, digit: u8) -> Option<usize> {
-        // SAFETY: caller contract; a by-value copy of a `Copy` header.
-        unsafe { this.read() }.find(digit)
+        // SAFETY: caller contract.
+        unsafe { Self::load_at(this) }.find(digit)
     }
 
-    /// [`Self::add_presence`] on the header at `this`, through the raw
-    /// pointer (see [`Self::find_at`]).
+    /// The header at `this` as the shared paths read it (#1086, class 1):
+    /// the `num`/`level`/`presence` word and the digit word as two atomic
+    /// loads, never the `version` word, which other threads lock with an
+    /// atomic 32-bit exchange. The copy's `version` is 0.
+    ///
+    /// Three non-overlapping atomics — `version` (`u32`), meta (`u32`),
+    /// digits (`u64`) — so every access to a header location has the same
+    /// size on both sides of any race.
     ///
     /// # Safety
     ///
-    /// `this` points to a live header whose node this thread holds locked.
-    #[cfg(feature = "std")]
+    /// `this` points to a live header, with write permission (see
+    /// [`Edge::load_at`]).
     #[inline(always)]
-    pub(crate) unsafe fn add_presence_at(this: *mut Self, digit: u8) {
-        // SAFETY: caller contract; the field is projected, not borrowed.
+    pub(crate) unsafe fn load_at(this: *const Self) -> Self {
+        // SAFETY: caller contract.
+        let (meta, digits) = unsafe {
+            (
+                Self::meta_word(this).load(Relaxed),
+                Self::digit_word(this).load(Relaxed),
+            )
+        };
+        Self::from_parts(meta, digits)
+    }
+
+    /// Stores the header's `num`, `level`, `presence` and digits from `h`,
+    /// leaving `version` alone.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::load_at`], and the caller holds the node's lock.
+    #[inline(always)]
+    pub(crate) unsafe fn store_at(this: *mut Self, h: Self) {
+        let (meta, digits) = h.parts();
+        // SAFETY: caller contract.
         unsafe {
-            let p = &raw mut (*this).presence;
-            p.write(p.read() | (1u16 << (digit & 0x0F)));
+            Self::digit_word(this).store(digits, Relaxed);
+            Self::meta_word(this).store(meta, Relaxed);
         }
+    }
+
+    /// `num`, `level` and `presence` as the one little-endian word at
+    /// offset 4, and the digits as the word at offset 8.
+    #[inline(always)]
+    fn parts(self) -> (u32, u64) {
+        (
+            u32::from(self.num) | (u32::from(self.level) << 8) | (u32::from(self.presence) << 16),
+            u64::from_le_bytes(self.digits),
+        )
+    }
+
+    #[inline(always)]
+    fn from_parts(meta: u32, digits: u64) -> Self {
+        Self {
+            version: 0,
+            num: meta as u8,
+            level: (meta >> 8) as u8,
+            presence: (meta >> 16) as u16,
+            digits: digits.to_le_bytes(),
+        }
+    }
+
+    /// # Safety
+    /// `this` points to a live header with write permission.
+    #[inline(always)]
+    unsafe fn meta_word<'a>(this: *const Self) -> &'a AtomicU32 {
+        // SAFETY: caller contract; `num` heads the 4-aligned word at
+        // offset 4 (layout asserted below).
+        unsafe { AtomicU32::from_ptr((&raw const (*this).num).cast::<u32>().cast_mut()) }
+    }
+
+    /// # Safety
+    /// As [`Self::meta_word`].
+    #[inline(always)]
+    unsafe fn digit_word<'a>(this: *const Self) -> &'a AtomicU64 {
+        // SAFETY: caller contract; `digits` is the 8-aligned word at offset 8.
+        unsafe { AtomicU64::from_ptr((&raw const (*this).digits).cast::<u64>().cast_mut()) }
+    }
+}
+
+/// Inserts child `e` under digit `d` into a linear branch of `num`
+/// children, in place, for a shared tree (#1086): the header and each moved
+/// edge are stored as the atomic words the readers load
+/// ([`BranchHeader::store_at`], [`Edge::store_at`]), so the insert forms no
+/// reference over the node. `linear_insert_slot` is the unshared form.
+///
+/// # Safety
+///
+/// `hdr` and `edges` are the header and edge array of a live linear branch
+/// with room for `num + 1` children, whose lock this thread holds.
+#[inline(always)]
+pub(crate) unsafe fn linear_insert_at_shared(
+    hdr: *mut BranchHeader,
+    edges: *mut Edge,
+    num: usize,
+    d: u8,
+    e: Edge,
+) -> usize {
+    // SAFETY: caller contract.
+    let mut h = unsafe { BranchHeader::load_at(hdr) };
+    let pos = h.digits[..num].iter().position(|&x| x > d).unwrap_or(num);
+    let mut i = num;
+    while i > pos {
+        // SAFETY: `pos < i <= num`, inside the node's edge array.
+        unsafe { Edge::store_at::<true>(edges.add(i), Edge::load_at::<true>(edges.add(i - 1))) };
+        h.digits[i] = h.digits[i - 1];
+        i -= 1;
+    }
+    h.digits[pos] = d;
+    // SAFETY: `pos <= num`, inside the node's edge array.
+    unsafe { Edge::store_at::<true>(edges.add(pos), e) };
+    h.num += 1;
+    h.presence |= 1u16 << (d & 0x0F);
+    // SAFETY: caller contract.
+    unsafe { BranchHeader::store_at(hdr, h) };
+    pos
+}
+
+/// `pop_counts[i]` of the `BranchB` at `node`, as the shared paths read it:
+/// an atomic 16-bit load, the size its writers store (#1086).
+///
+/// # Safety
+///
+/// `node` points to a live `BranchB`, with write permission; `i < 8`.
+#[cfg(feature = "std")]
+#[inline(always)]
+pub(crate) unsafe fn pop_count_at(node: *const BranchB, i: usize) -> usize {
+    debug_assert!(i < 8);
+    // SAFETY: caller contract.
+    unsafe {
+        core::sync::atomic::AtomicU16::from_ptr(
+            (&raw const (*node).pop_counts)
+                .cast::<u16>()
+                .add(i)
+                .cast_mut(),
+        )
+        .load(Relaxed) as usize
+    }
+}
+
+/// Stores `pop_counts[i]` of the `BranchB` at `node` (see [`pop_count_at`]).
+///
+/// # Safety
+///
+/// As [`pop_count_at`], and the caller holds the lock that makes it the
+/// node's one writer.
+#[inline(always)]
+pub(crate) unsafe fn set_pop_count_at(node: *mut BranchB, i: usize, v: u16) {
+    debug_assert!(i < 8);
+    // SAFETY: caller contract.
+    unsafe {
+        core::sync::atomic::AtomicU16::from_ptr((&raw mut (*node).pop_counts).cast::<u16>().add(i))
+            .store(v, Relaxed);
+    }
+}
+
+/// Moves edges `at..at + n` of `arr` up one place, highest first, each as
+/// the atomic words readers load (#1086); the in-place insert into a
+/// `BranchB` subarray.
+///
+/// # Safety
+///
+/// `arr[at..=at + n]` are live edges of an array whose node this thread
+/// holds locked.
+#[inline(always)]
+pub(crate) unsafe fn edges_shift_up_shared(arr: *mut Edge, at: usize, n: usize) {
+    let mut i = at + n;
+    while i > at {
+        // SAFETY: `at < i <= at + n`, inside the caller's range.
+        unsafe { Edge::store_at::<true>(arr.add(i), Edge::load_at::<true>(arr.add(i - 1))) };
+        i -= 1;
+    }
+}
+
+/// Removes child `slot` from a linear branch of `num` children, in place,
+/// for a shared tree (#1086): the twin of [`linear_insert_at_shared`] and the
+/// shared form of `linear_remove_slot` plus the header's count and presence.
+///
+/// # Safety
+///
+/// As [`linear_insert_at_shared`], with `slot < num`.
+#[inline(always)]
+pub(crate) unsafe fn linear_remove_at_shared(
+    hdr: *mut BranchHeader,
+    edges: *mut Edge,
+    num: usize,
+    slot: usize,
+) {
+    // SAFETY: caller contract.
+    let mut h = unsafe { BranchHeader::load_at(hdr) };
+    for i in slot..num - 1 {
+        // SAFETY: `i + 1 < num`, inside the node's edge array.
+        unsafe { Edge::store_at::<true>(edges.add(i), Edge::load_at::<true>(edges.add(i + 1))) };
+        h.digits[i] = h.digits[i + 1];
+    }
+    h.digits[num - 1] = 0;
+    // SAFETY: `num - 1` is inside the node's edge array.
+    unsafe { Edge::store_at::<true>(edges.add(num - 1), Edge::NULL) };
+    h.num -= 1;
+    h.refresh_presence();
+    // SAFETY: caller contract.
+    unsafe { BranchHeader::store_at(hdr, h) };
+}
+
+/// Moves edges `at + 1..at + n + 1` of `arr` down one place, lowest first,
+/// as atomic words (#1086); the twin of [`edges_shift_up_shared`].
+///
+/// # Safety
+///
+/// As [`edges_shift_up_shared`].
+#[inline(always)]
+pub(crate) unsafe fn edges_shift_down_shared(arr: *mut Edge, at: usize, n: usize) {
+    for i in at..at + n {
+        // SAFETY: `i + 1 <= at + n`, inside the caller's range.
+        unsafe { Edge::store_at::<true>(arr.add(i), Edge::load_at::<true>(arr.add(i + 1))) };
     }
 }
 
@@ -659,6 +911,14 @@ impl Default for LeafBitmapL {
 // ---- Phase 3 gate: layout invariants proven at compile time ----
 const _: () = {
     use core::mem::{align_of, offset_of, size_of};
+    // The shared header accesses (`BranchHeader::load_at`): `version` is
+    // the u32 at 0, `num`/`level`/`presence` the u32 at 4, digits the u64 at 8.
+    assert!(offset_of!(BranchHeader, version) == 0);
+    assert!(offset_of!(BranchHeader, num) == 4);
+    assert!(offset_of!(BranchHeader, level) == 5);
+    assert!(offset_of!(BranchHeader, presence) == 6);
+    assert!(offset_of!(BranchHeader, digits) == 8);
+    assert!(size_of::<BranchHeader>() == 16);
 
     assert!(size_of::<Edge>() == 16);
     assert!(align_of::<Edge>() == 8);

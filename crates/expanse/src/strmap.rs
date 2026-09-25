@@ -295,7 +295,7 @@ fn pack_child(p: *mut StrNode) -> u64 {
 /// records that it is stale in `dirty`, and the exclusive path restores
 /// the population from a census fold before it decides from it — a
 /// removal, which condenses from it, and a prune, which tests it for
-/// empty ([`StrNode::resync_if_dirty`]). An exclusive insert only adds one
+/// empty ([`resync_at`]). An exclusive insert only adds one
 /// to the stale count and leaves the node dirty, since the fold recounts
 /// from the leaves whatever was added (Refs #1162). A dirty node is always
 /// in tree state:
@@ -407,6 +407,9 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     // its next sample instead of validating a word nobody bumps again. An
     // optimistic prune arrives with the word already odd — locked, then
     // marked through its lock — and is left alone.
+    // The map interior is cleared exactly once here and never touched
+    // again (in deferred mode the shell memory stays mapped for pinned
+    // readers, whose validation rejects whatever they read from it).
     #[cfg(feature = "std")]
     if defer.is_some() {
         // SAFETY: `ptr` is live (unlinked, not yet retired) and this is
@@ -415,12 +418,19 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
         if cell.load(Ordering::Relaxed).is_multiple_of(2) {
             crate::occ::version_obsolete(cell);
         }
+        // SAFETY: caller unlinked `ptr` and is the exclusive writer. Pinned
+        // readers may still copy the core, so it is cleared through the raw
+        // pointer (#1086).
+        unsafe { MapCore::clear_at(&raw mut (*ptr).map, alloc) };
+    } else {
+        // SAFETY: caller unlinked `ptr` and is the exclusive writer.
+        unsafe { (*ptr).map.clear_pathless(alloc) };
     }
-    // SAFETY: caller unlinked `ptr` and is the exclusive writer; the map
-    // interior is cleared exactly once here and never touched again (in
-    // deferred mode the shell memory stays mapped for pinned readers,
-    // whose validation rejects whatever they read from it).
-    unsafe { (*ptr).map.clear_pathless(alloc) };
+    #[cfg(not(feature = "std"))]
+    // SAFETY: caller unlinked `ptr` and is the exclusive writer.
+    unsafe {
+        (*ptr).map.clear_pathless(alloc)
+    };
     #[cfg(feature = "std")]
     match defer {
         None => {
@@ -753,33 +763,6 @@ impl StrNode {
         unsafe { &*(&raw const (*p).dirty).cast::<AtomicU32>() }
     }
 
-    /// Exclusive path: restores this node's sub-map population from a
-    /// census fold if optimistic writers left it stale (see the type
-    /// docs). Called before the exclusive path decides from that
-    /// population (a removal, a prune), never on an insert; a no-op on a
-    /// clean node, which is every node of a map that has never had
-    /// concurrent writers. The fold walks the whole sub-map, so a caller
-    /// on a per-insert path would make a load quadratic (#1162).
-    #[cfg(feature = "std")]
-    #[inline(always)]
-    fn resync_if_dirty(&mut self) {
-        // Through the unique borrow, so the view is a child of it.
-        // SAFETY: `self` is live and the flag is accessed only through this
-        // view.
-        let cell = unsafe { &*(&raw mut self.dirty).cast::<AtomicU32>() };
-        if cell.load(Ordering::Relaxed) != 0 {
-            let top = self.map.root_top_ptr_mut();
-            if !top.is_null() {
-                // SAFETY: the caller is exclusive (writers quiesced or
-                // serialised), and `top` is the live top edge of this
-                // node's tree.
-                let pop = unsafe { crate::sync::fold_branch_pop0(top, 8) };
-                self.map.set_tree_pop(pop);
-            }
-            cell.store(0, Ordering::Relaxed);
-        }
-    }
-
     /// The address of this node's cover word, in the form the OCC protocol
     /// addresses a branch header's version (`occ::version_cell`,
     /// `occ::node_sample`, `Cover::Node`).
@@ -1028,18 +1011,11 @@ impl StrNode {
     }
 
     /// Removes `key[off..]` from this subtree; see [`ExpanseStrMap::remove`].
-    ///
-    /// `SHARED` selects the deferred twin (Refs #929): each sub-map
-    /// mutation is bracketed by its node's cover and preceded by a census
-    /// re-sync, and a pruned child is marked obsolete before it retires.
-    /// The unshared instantiation is the plain path with nothing added.
-    fn remove_impl<const SHARED: bool>(
-        &mut self,
-        key: &[u8],
-        off: usize,
-        alloc: &NodeAlloc,
-        defer: DeferHandle<'_>,
-    ) -> Option<u64> {
+    /// The plain path: a shared map's removal is
+    /// [`StrNode::remove_shared`]. Inlined into its one caller, as its
+    /// generic form was (#1086).
+    #[inline(always)]
+    fn remove_impl(&mut self, key: &[u8], off: usize, alloc: &NodeAlloc) -> Option<u64> {
         let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
         let mut node: *mut StrNode = &raw mut *self;
         let mut off = off;
@@ -1050,10 +1026,9 @@ impl StrNode {
             // because the descent never revisits a node.
             let n = unsafe { &mut *node };
             if terminal {
-                resync::<SHARED>(n);
-                break covered::<SHARED, _>(n, alloc, |m| {
-                    m.remove_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
-                })?;
+                break n
+                    .map
+                    .remove_pathless_dispatch::<false, false>(alloc, chunk)?;
             }
             let v = n.map.get(chunk)?;
             if is_suffix_ptr(v) {
@@ -1061,17 +1036,13 @@ impl StrNode {
                 let rem = &key[off + CHUNK..];
                 // SAFETY: live suffix leaf, raw provenance over the bytes.
                 if rem == unsafe { suffix_bytes(sfx) } {
-                    resync::<SHARED>(n);
-                    covered::<SHARED, _>(n, alloc, |m| {
-                        m.remove_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
-                    });
+                    n.map.remove_pathless_dispatch::<false, false>(alloc, chunk);
                     // Read out before disposal: the borrow of the bytes above
                     // has ended, and nothing may reference the block once
                     // `dispose_suffix` has it.
                     // SAFETY: unlinked but still live; last owner.
                     let removed_val = unsafe { (*sfx).value };
-                    // Unlinked above; retired when shared.
-                    dispose_suffix(sfx, defer, SuffixArena::of(alloc));
+                    dispose_suffix(sfx, None, SuffixArena::of(alloc));
                     break removed_val;
                 }
                 return None;
@@ -1096,12 +1067,10 @@ impl StrNode {
                 if !empty {
                     break;
                 }
-                resync::<SHARED>(parent);
-                covered::<SHARED, _>(parent, alloc, |m| {
-                    m.remove_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
-                });
-                // Unlinked above; marked obsolete and retired when shared.
-                dispose_node(unpack_child(child_v), alloc, defer);
+                parent
+                    .map
+                    .remove_pathless_dispatch::<false, false>(alloc, chunk);
+                dispose_node(unpack_child(child_v), alloc, None);
             }
         }
         Some(removed)
@@ -1806,22 +1775,18 @@ impl ExpanseStrMap {
     /// Splits a suffix entry that diverges from the key being inserted:
     /// builds a child node holding the existing suffix's continuation,
     /// publishes it over the suffix's map entry, and disposes of the old
-    /// suffix (retired when shared — a concurrent reader may still hold
-    /// it). Returns the raw child for the caller to descend into.
-    fn split_suffix<const SHARED: bool>(
+    /// suffix. Returns the raw child for the caller to descend into. The
+    /// plain path: a shared map's is [`Self::split_suffix_shared`].
+    fn split_suffix(
         node: &mut StrNode,
         chunk: u64,
         old: *mut StrSuffix,
         alloc: &NodeAlloc,
-        defer: DeferHandle<'_>,
     ) -> *mut StrNode {
-        let child_raw = Self::build_split_child::<SHARED>(old, alloc);
-        // An insert over the suffix's own entry: no re-sync (see
-        // `insert_impl`).
-        covered::<SHARED, _>(node, alloc, |m| {
-            m.insert_pathless_dispatch::<SHARED, SHARED>(alloc, chunk, pack_child(child_raw))
-        });
-        dispose_suffix(old, defer, SuffixArena::of(alloc));
+        let child_raw = Self::build_split_child::<false>(old, alloc);
+        node.map
+            .insert_pathless_dispatch::<false, false>(alloc, chunk, pack_child(child_raw));
+        dispose_suffix(old, None, SuffixArena::of(alloc));
         child_raw
     }
 
@@ -1832,37 +1797,23 @@ impl ExpanseStrMap {
         // twin (Refs #929), every other map the plain one.
         #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get().cloned() {
-            return self.insert_impl::<true>(key, val, Some(&c));
+            return self.insert_shared(key.as_bytes(), val, Some(&c));
         }
-        self.insert_impl::<false>(key, val, None)
+        self.insert_impl(key, val)
     }
 
     /// Single-threaded insert, bypassing deferred/OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn insert_plain(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
-        self.insert_impl::<false>(key, val, None)
+        self.insert_impl(key, val)
     }
 
-    /// [`Self::insert`] for one sharing mode. `SHARED` is the deferred twin
-    /// (Refs #929): every sub-map mutation runs inside its node's cover
-    /// bracket; the unshared instantiation is the plain path with nothing
-    /// added.
-    ///
-    /// No census re-sync (Refs #1162): an insert only adds to a sub-map's
-    /// population and never decides from it, so on a node optimistic
-    /// writers left dirty it adds one to the stale count and leaves the node
-    /// dirty. The next exclusive operation that does decide from the count
-    /// (a removal or a prune) folds it exact from the leaves, whatever was
-    /// added in between. Re-syncing here refolded the whole sub-map on
-    /// every insert that reached this path, which made an ascending load
-    /// through `SyncExpanseStrMap` quadratic.
-    fn insert_impl<const SHARED: bool>(
-        &mut self,
-        key: &NulFreeStr,
-        val: u64,
-        defer: DeferHandle<'_>,
-    ) -> Option<u64> {
+    /// [`Self::insert`] on an unshared map; a shared map's is
+    /// [`Self::insert_shared`]. Inlined into its two callers, as its generic
+    /// form was: outlined, it cost a call per insert (#1086).
+    #[inline(always)]
+    fn insert_impl(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
         let key = key.as_bytes();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
@@ -1876,9 +1827,9 @@ impl ExpanseStrMap {
         loop {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
-                let prev = covered::<SHARED, _>(node, alloc, |m| {
-                    m.insert_pathless_dispatch::<SHARED, SHARED>(alloc, chunk, val)
-                });
+                let prev = node
+                    .map
+                    .insert_pathless_dispatch::<false, false>(alloc, chunk, val);
                 if prev.is_none() {
                     self.pop += 1;
                 }
@@ -1887,13 +1838,11 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
-                    covered::<SHARED, _>(node, alloc, |m| {
-                        m.insert_pathless_dispatch::<SHARED, SHARED>(
-                            alloc,
-                            chunk,
-                            pack_suffix(suffix),
-                        )
-                    });
+                    node.map.insert_pathless_dispatch::<false, false>(
+                        alloc,
+                        chunk,
+                        pack_suffix(suffix),
+                    );
                     self.pop += 1;
                     return None;
                 }
@@ -1905,17 +1854,12 @@ impl ExpanseStrMap {
                     // taken from the raw pointer so it reaches past the
                     // header.
                     if rem == unsafe { suffix_bytes(sfx) } {
-                        // In-place value update, field-precise (no `&mut`
-                        // over the header whose write-once fields concurrent
-                        // readers load): only the value word mutates, under
-                        // this node's cover bracket when shared (T3).
-                        return Some(covered::<SHARED, _>(node, alloc, |_| {
-                            // SAFETY: exclusive writer; a racing reader's
-                            // load is discarded unless its snapshot validates.
-                            unsafe { core::ptr::replace(&raw mut (*sfx).value, val) }
-                        }));
+                        // In-place value update, field-precise: only the
+                        // value word mutates (T3).
+                        // SAFETY: exclusive writer of a live suffix leaf.
+                        return Some(unsafe { core::ptr::replace(&raw mut (*sfx).value, val) });
                     }
-                    let child_raw = Self::split_suffix::<SHARED>(node, chunk, sfx, alloc, defer);
+                    let child_raw = Self::split_suffix(node, chunk, sfx, alloc);
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -1937,24 +1881,22 @@ impl ExpanseStrMap {
         // otherwise (Refs #929).
         #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get().cloned() {
-            return self.ins_slot_impl::<true>(key, Some(&c));
+            return self.ins_slot_shared(key.as_bytes(), Some(&c));
         }
-        self.ins_slot_impl::<false>(key, None)
+        self.ins_slot_impl(key)
     }
 
     /// Single-threaded insert-if-absent returning slot pointer, bypassing deferred/OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn ins_slot_plain(&mut self, key: &NulFreeStr) -> NonNull<u64> {
-        self.ins_slot_impl::<false>(key, None)
+        self.ins_slot_impl(key)
     }
 
-    /// [`Self::ins_slot`] for one sharing mode; see [`Self::insert_impl`].
-    fn ins_slot_impl<const SHARED: bool>(
-        &mut self,
-        key: &NulFreeStr,
-        defer: DeferHandle<'_>,
-    ) -> NonNull<u64> {
+    /// [`Self::ins_slot`] on an unshared map; a shared map's is
+    /// [`Self::ins_slot_shared`]. Inlined, as [`Self::insert_impl`].
+    #[inline(always)]
+    fn ins_slot_impl(&mut self, key: &NulFreeStr) -> NonNull<u64> {
         let key = key.as_bytes();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
@@ -1971,13 +1913,10 @@ impl ExpanseStrMap {
                 // Increment B (#813): $O(1)$ len check before and after ins_slot_pathless
                 // eliminates redundant contains_key lookup. The `v == 0` sentinel
                 // MUST NOT be used here, as 0 is a valid terminal value.
-                // On a dirty node the count is stale, but the insert adds
-                // exactly one to it when the key is new, so the comparison
-                // holds without a re-sync (see `insert_impl`).
                 let len_before = node.map.len();
-                let slot = covered::<SHARED, _>(node, alloc, |m| {
-                    m.ins_slot_pathless_dispatch::<SHARED, SHARED>(alloc, chunk)
-                });
+                let slot = node
+                    .map
+                    .ins_slot_pathless_dispatch::<false, false>(alloc, chunk);
                 if node.map.len() > len_before {
                     self.pop += 1;
                 }
@@ -1986,13 +1925,11 @@ impl ExpanseStrMap {
             match node.map.get(chunk) {
                 None => {
                     let suffix = new_suffix(&key[off + CHUNK..], 0, SuffixArena::of(alloc));
-                    covered::<SHARED, _>(node, alloc, |m| {
-                        m.insert_pathless_dispatch::<SHARED, SHARED>(
-                            alloc,
-                            chunk,
-                            pack_suffix(suffix),
-                        )
-                    });
+                    node.map.insert_pathless_dispatch::<false, false>(
+                        alloc,
+                        chunk,
+                        pack_suffix(suffix),
+                    );
                     self.pop += 1;
                     // SAFETY: suffix is a live, uniquely owned pointer
                     // allocated above; `value` sits at offset 0.
@@ -2010,7 +1947,7 @@ impl ExpanseStrMap {
                     }
                     // Divergence: publish a child over the suffix entry,
                     // then dispose of the old suffix (see `split_suffix`).
-                    let child_raw = Self::split_suffix::<SHARED>(node, chunk, sfx, alloc, defer);
+                    let child_raw = Self::split_suffix(node, chunk, sfx, alloc);
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -2154,7 +2091,14 @@ impl ExpanseStrMap {
                 // and is validated below before use. Both reads project
                 // from the raw pointer: a `&StrSuffix` would not carry
                 // provenance over the bytes past the header.
-                let (bytes, value) = unsafe { (suffix_bytes(sfx), (*sfx).value) };
+                let (bytes, value) = unsafe {
+                    (
+                        suffix_bytes(sfx),
+                        crate::bits::shared_word::load::<true>(
+                            (&raw const (*sfx).value).cast_mut(),
+                        ),
+                    )
+                };
                 let matched = bytes == &key[off + CHUNK..];
                 if !node_validate(cell, csnap) || !ver.validate(snap) {
                     return Err(Retry);
@@ -2229,33 +2173,31 @@ impl ExpanseStrMap {
         // otherwise (Refs #929).
         #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get().cloned() {
-            return self.remove_impl::<true>(key, Some(&c));
+            return self.remove_shared(key.as_bytes(), Some(&c));
         }
-        self.remove_impl::<false>(key, None)
+        self.remove_impl(key)
     }
 
     /// Single-threaded remove, bypassing deferred/OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn remove_plain(&mut self, key: &NulFreeStr) -> Option<u64> {
-        self.remove_impl::<false>(key, None)
+        self.remove_impl(key)
     }
 
-    /// [`Self::remove`] for one sharing mode; see [`Self::insert_impl`].
-    fn remove_impl<const SHARED: bool>(
-        &mut self,
-        key: &NulFreeStr,
-        defer: DeferHandle<'_>,
-    ) -> Option<u64> {
+    /// [`Self::remove`] on an unshared map; a shared map's is
+    /// [`Self::remove_shared`]. Inlined, as [`Self::insert_impl`].
+    #[inline(always)]
+    fn remove_impl(&mut self, key: &NulFreeStr) -> Option<u64> {
         let key = key.as_bytes();
         let alloc = &self.alloc;
         let root = self.root.as_deref_mut()?;
-        let removed = root.remove_impl::<SHARED>(key, 0, alloc, defer)?;
+        let removed = root.remove_impl(key, 0, alloc)?;
         self.pop -= 1;
         if root.map.is_empty() {
             let root_box = self.root.take().expect("root present");
-            // Unlinked (the root slot is cleared); retired when shared.
-            dispose_node(Box::into_raw(root_box), alloc, defer);
+            // Unlinked (the root slot is cleared).
+            dispose_node(Box::into_raw(root_box), alloc, None);
         }
         Some(removed)
     }
@@ -2387,6 +2329,11 @@ impl ExpanseStrMap {
     /// back to the system allocator too, however few; the return value
     /// counts only the entries' bytes.
     pub fn clear(&mut self) -> u64 {
+        // A shared map's readers may be walking the tree (#1086).
+        #[cfg(feature = "std")]
+        if let Some(c) = self.deferred.get().cloned() {
+            return self.clear_shared(Some(&c));
+        }
         let bytes = self.clear_entries();
         // As an emptying `remove`; a no-op on a shared map.
         self.alloc.release_free();
@@ -2429,49 +2376,6 @@ impl ExpanseStrMap {
     pub fn clear_plain(&mut self) -> u64 {
         self.clear_entries()
     }
-}
-
-// ---------------------------------------------------------------------------
-// The deferred twin's helpers (Refs #929)
-// ---------------------------------------------------------------------------
-
-/// Runs `f`, a mutation of `node`'s sub-map, inside `node`'s cover bracket
-/// when `SHARED` — the deferred twin, where concurrent readers validate that
-/// word — and as a plain call otherwise, so the unshared path pays nothing.
-#[inline(always)]
-fn covered<const SHARED: bool, R>(
-    node: &mut StrNode,
-    alloc: &NodeAlloc,
-    f: impl FnOnce(&mut MapCore) -> R,
-) -> R {
-    #[cfg(feature = "std")]
-    {
-        if SHARED {
-            // Through `node`'s own borrow, so the raw word is a child of the
-            // unique reference and the reborrow of `map` below stays valid.
-            let v: *mut u32 = &raw mut node.cover;
-            // SAFETY: a live node this writer is exclusive on (the wrapper
-            // serialised or quiesced every other writer), with no reference
-            // to `cover` live; the bracket opened here closes below.
-            unsafe { crate::occ::version_begin_if_ptr::<true>(alloc, v) };
-            let r = f(&mut node.map);
-            // SAFETY: as above.
-            unsafe { crate::occ::version_end_if_ptr::<true>(alloc, v) };
-            return r;
-        }
-    }
-    let _ = alloc;
-    f(&mut node.map)
-}
-
-/// [`StrNode::resync_if_dirty`] in the deferred twin; nothing otherwise.
-#[inline(always)]
-fn resync<const SHARED: bool>(node: &mut StrNode) {
-    #[cfg(feature = "std")]
-    if SHARED {
-        node.resync_if_dirty();
-    }
-    let _ = node;
 }
 
 // ---------------------------------------------------------------------------
@@ -2523,7 +2427,10 @@ mod olc {
             // SAFETY: live node; the top edge is read by value through validated
             // loads only, and an optimistic writer never stores to it (a
             // root-state change is a `RootGrowth` fallback).
-            unsafe { MapCore::root_top_ptr_of(&raw mut (*self.node).map) }
+            unsafe {
+                MapCore::root_top_ptr_of(&raw mut (*self.node).map)
+                    .map_or(core::ptr::null_mut(), NonNull::as_ptr)
+            }
         }
 
         #[inline(always)]
@@ -2881,7 +2788,12 @@ mod olc {
                         // SAFETY: field-precise store; the lock excludes every
                         // other writer of it, and a reader's load is discarded
                         // unless the cover validates.
-                        let old = unsafe { core::ptr::replace(&raw mut (*sfx).value, val) };
+                        let old = unsafe {
+                            let p = &raw mut (*sfx).value;
+                            let old = p.read();
+                            crate::bits::shared_word::store::<true>(p, val);
+                            old
+                        };
                         drop(lock);
                         return OlcOutcome::Done(Some(old));
                     }
@@ -3239,25 +3151,28 @@ impl ExpanseStrMap {
     /// The exclusive prune (Refs #929): unlinks every empty node on `key`'s
     /// chunk chain, bottom up, and takes the meta-trie root if it is empty
     /// — what an optimistic remove leaves for the exclusive path when its
-    /// own prune could not go through (`olc_remove`). Idempotent.
+    /// own prune could not go through (`olc_remove`). Idempotent. Through
+    /// raw pointers, as every exclusive path of a shared map (#1086).
     #[cfg(not(feature = "ablation-str-serial-writers"))]
     pub(crate) fn prune_empty_path(&mut self, key: &NulFreeStr) {
         let key = key.as_bytes();
         let defer = self.deferred.get().cloned();
+        let Some(root) = self.root_raw() else {
+            return;
+        };
         let alloc = &self.alloc;
         let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
-        if let Some(root) = self.root.as_deref_mut() {
-            let mut node: *mut StrNode = &raw mut *root;
-            let mut off = 0usize;
+        let mut node = root;
+        let mut off = 0usize;
+        // SAFETY: the root, then continuation values — live nodes; the
+        // wrapper excludes every other writer.
+        unsafe {
             loop {
                 let (chunk, terminal) = chunk_at(key, off);
                 if terminal {
                     break;
                 }
-                // SAFETY: the root, then continuation values — live nodes,
-                // and the descent never revisits one.
-                let n = unsafe { &mut *node };
-                match n.map.get(chunk) {
+                match (*node).map.get(chunk) {
                     Some(v) if !is_suffix_ptr(v) => {
                         path.push((node, chunk));
                         node = unpack_child(v);
@@ -3266,23 +3181,371 @@ impl ExpanseStrMap {
                     _ => break,
                 }
             }
-            while let Some((parent_ptr, chunk)) = path.pop() {
-                // SAFETY: recorded during the descent; still live.
-                let parent = unsafe { &mut *parent_ptr };
-                let child = unpack_child(parent.map.get(chunk).expect("path entry still linked"));
-                // SAFETY: continuation value, a live child node.
-                if !unsafe { &*child }.map.is_empty() {
+            while let Some((parent, chunk)) = path.pop() {
+                if !StrNode::prune_child_shared(parent, chunk, alloc, defer.as_ref()) {
                     break;
                 }
-                parent.resync_if_dirty();
-                covered::<true, _>(parent, alloc, |m| m.remove_pathless(alloc, chunk));
-                dispose_node(child, alloc, defer.as_ref());
+            }
+            if (*root).map.is_empty() {
+                let root = self.take_root_shared().expect("root present");
+                dispose_node(root, &self.alloc, defer.as_ref());
             }
         }
-        if self.root.as_deref().is_some_and(|r| r.map.is_empty()) {
-            let root_box = self.root.take().expect("root present");
-            dispose_node(Box::into_raw(root_box), alloc, defer.as_ref());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The exclusive path of a shared map (#1086)
+// ---------------------------------------------------------------------------
+
+/// Runs `f` on `node`'s sub-map inside `node`'s cover bracket, through raw
+/// pointers: the exclusive path of a shared map. Readers copy the sub-map's
+/// core and read the cover word meanwhile, so the writer holds no `&mut` to
+/// the node or its core (#1086).
+///
+/// # Safety
+///
+/// `node` is live, and the wrapper excluded every other writer.
+#[cfg(feature = "std")]
+#[inline(always)]
+unsafe fn covered_at<R>(
+    node: *mut StrNode,
+    alloc: &NodeAlloc,
+    f: impl FnOnce(*mut MapCore) -> R,
+) -> R {
+    // SAFETY: caller contract; field projections of the raw pointer, and
+    // the bracket opened here closes below.
+    unsafe {
+        let v: *mut u32 = &raw mut (*node).cover;
+        crate::occ::version_begin_if_ptr::<true>(alloc, v);
+        let r = f(&raw mut (*node).map);
+        crate::occ::version_end_if_ptr::<true>(alloc, v);
+        r
+    }
+}
+
+/// Restores `node`'s sub-map population from a census fold if optimistic
+/// writers left it stale (see [`StrNode`]'s docs), through a raw pointer
+/// (see [`covered_at`]). Called before the exclusive path decides from that
+/// population (a removal, a prune), never on an insert; a no-op on a clean
+/// node. The fold walks the whole sub-map, so a caller on a per-insert path
+/// would make a load quadratic (#1162).
+///
+/// # Safety
+///
+/// As [`covered_at`].
+#[cfg(feature = "std")]
+#[inline(always)]
+unsafe fn resync_at(node: *mut StrNode) {
+    // SAFETY: caller contract; the flag is only ever accessed as an atomic.
+    unsafe {
+        let cell = &*(&raw mut (*node).dirty).cast::<AtomicU32>();
+        if cell.load(Ordering::Relaxed) != 0 {
+            let m = &raw mut (*node).map;
+            if let Some(top) = MapCore::root_top_ptr_of(m) {
+                let pop = crate::sync::fold_branch_pop0(top.as_ptr(), 8);
+                MapCore::set_tree_pop_at(m, pop);
+            }
+            cell.store(0, Ordering::Relaxed);
         }
+    }
+}
+
+#[cfg(feature = "std")]
+impl StrNode {
+    /// [`Self::remove_impl`] on the exclusive path of a shared map, through
+    /// raw pointers (see [`covered_at`]).
+    ///
+    /// # Safety
+    ///
+    /// As [`covered_at`], for `node` and every node below it.
+    unsafe fn remove_shared(
+        node: *mut StrNode,
+        key: &[u8],
+        alloc: &NodeAlloc,
+        defer: DeferHandle<'_>,
+    ) -> Option<u64> {
+        let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
+        let mut node = node;
+        let mut off = 0;
+        // SAFETY: the root, then continuation values recorded on the path,
+        // all live; the wrapper excludes every other writer.
+        unsafe {
+            let removed = loop {
+                let (chunk, terminal) = chunk_at(key, off);
+                if terminal {
+                    resync_at(node);
+                    break covered_at(node, alloc, |m| {
+                        MapCore::remove_covered_at(m, alloc, chunk)
+                    })?;
+                }
+                let v = (*node).map.get(chunk)?;
+                if is_suffix_ptr(v) {
+                    let sfx = unpack_suffix(v);
+                    if &key[off + CHUNK..] != suffix_bytes(sfx) {
+                        return None;
+                    }
+                    resync_at(node);
+                    covered_at(node, alloc, |m| MapCore::remove_covered_at(m, alloc, chunk));
+                    // Unlinked above; the last owner reads it before
+                    // retiring it.
+                    let removed_val = (*sfx).value;
+                    dispose_suffix(sfx, defer, SuffixArena::of(alloc));
+                    break removed_val;
+                }
+                path.push((node, chunk));
+                node = unpack_child(v);
+                off += CHUNK;
+            };
+            // Unwind as the plain path does: an emptied child is unlinked
+            // and retired, up to the first non-empty ancestor.
+            while let Some((parent, chunk)) = path.pop() {
+                if !Self::prune_child_shared(parent, chunk, alloc, defer) {
+                    break;
+                }
+            }
+            Some(removed)
+        }
+    }
+
+    /// Unlinks and retires `parent`'s child at `chunk` if it is empty;
+    /// `false` when there is nothing to prune there.
+    ///
+    /// # Safety
+    ///
+    /// As [`covered_at`], for `parent` and its child.
+    unsafe fn prune_child_shared(
+        parent: *mut StrNode,
+        chunk: u64,
+        alloc: &NodeAlloc,
+        defer: DeferHandle<'_>,
+    ) -> bool {
+        // SAFETY: caller contract.
+        unsafe {
+            let Some(v) = (*parent).map.get(chunk) else {
+                return false;
+            };
+            if is_suffix_ptr(v) {
+                return true;
+            }
+            let child = unpack_child(v);
+            // A dirty child is in tree state and never empty, whatever its
+            // stale population reads.
+            if !(*child).map.is_empty() {
+                return false;
+            }
+            resync_at(parent);
+            covered_at(parent, alloc, |m| {
+                MapCore::remove_covered_at(m, alloc, chunk)
+            });
+            dispose_node(child, alloc, defer);
+            true
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl ExpanseStrMap {
+    /// The meta-trie root for the exclusive path of a shared map, created if
+    /// absent, as a raw pointer with the slot's provenance (see
+    /// [`covered_at`]). A new root is stored into the slot without forming
+    /// a reference to it; the wrapper publishes it to readers when the
+    /// section ends.
+    fn root_or_create_shared(&mut self) -> *mut StrNode {
+        if let Some(p) = self.root_raw() {
+            return p;
+        }
+        let p = Box::into_raw(Box::new(StrNode::new()));
+        // SAFETY: `Option<Box<T>>` has the layout of a nullable pointer, and
+        // the slot held `None`, so nothing is overwritten.
+        unsafe { (&raw mut self.root).cast::<*mut StrNode>().write(p) };
+        p
+    }
+
+    /// Clears the root slot of a shared map without moving the box out of
+    /// it, and returns the node for disposal (see [`covered_at`]).
+    fn take_root_shared(&mut self) -> Option<*mut StrNode> {
+        let p = self.root_raw()?;
+        // SAFETY: as in `root_or_create_shared`; ownership passes to the
+        // caller as the raw pointer.
+        unsafe {
+            (&raw mut self.root)
+                .cast::<*mut StrNode>()
+                .write(core::ptr::null_mut());
+        }
+        Some(p)
+    }
+
+    /// [`Self::split_suffix`] on the exclusive path of a shared map.
+    ///
+    /// # Safety
+    ///
+    /// As [`covered_at`]; `old` is the suffix `node` holds at `chunk`.
+    unsafe fn split_suffix_shared(
+        node: *mut StrNode,
+        chunk: u64,
+        old: *mut StrSuffix,
+        alloc: &NodeAlloc,
+        defer: DeferHandle<'_>,
+    ) -> *mut StrNode {
+        let child_raw = Self::build_split_child::<true>(old, alloc);
+        // SAFETY: caller contract.
+        unsafe {
+            covered_at(node, alloc, |m| {
+                MapCore::insert_covered_at(m, alloc, chunk, pack_child(child_raw))
+            });
+        }
+        dispose_suffix(old, defer, SuffixArena::of(alloc));
+        child_raw
+    }
+
+    /// [`Self::insert`] on a shared map: the exclusive path (the wrapper's
+    /// fallbacks, `with_locked_mut`), through raw pointers because readers
+    /// run meanwhile (see [`covered_at`]).
+    ///
+    /// No census re-sync (Refs #1162): an insert only adds to a sub-map's
+    /// population and never decides from it, so on a node optimistic
+    /// writers left dirty it adds one to the stale count and leaves the node
+    /// dirty. The next exclusive operation that does decide from the count
+    /// (a removal or a prune) folds it exact from the leaves, whatever was
+    /// added in between. Re-syncing here refolded the whole sub-map on
+    /// every insert that reached this path, which made an ascending load
+    /// through `SyncExpanseStrMap` quadratic.
+    fn insert_shared(&mut self, key: &[u8], val: u64, defer: DeferHandle<'_>) -> Option<u64> {
+        let mut node = self.root_or_create_shared();
+        let alloc = &self.alloc;
+        let mut off = 0;
+        // SAFETY: the root, then continuation values, all live; the wrapper
+        // excludes every other writer.
+        unsafe {
+            loop {
+                let (chunk, terminal) = chunk_at(key, off);
+                if terminal {
+                    let prev = covered_at(node, alloc, |m| {
+                        MapCore::insert_covered_at(m, alloc, chunk, val)
+                    });
+                    if prev.is_none() {
+                        self.pop += 1;
+                    }
+                    return prev;
+                }
+                match (*node).map.get(chunk) {
+                    None => {
+                        let suffix = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
+                        covered_at(node, alloc, |m| {
+                            MapCore::insert_covered_at(m, alloc, chunk, pack_suffix(suffix))
+                        });
+                        self.pop += 1;
+                        return None;
+                    }
+                    Some(v) if is_suffix_ptr(v) => {
+                        let sfx = unpack_suffix(v);
+                        if &key[off + CHUNK..] == suffix_bytes(sfx) {
+                            // T3: only the value word changes, under the
+                            // node's cover, which readers of it validate.
+                            return Some(covered_at(node, alloc, |_| {
+                                let p = &raw mut (*sfx).value;
+                                let old = p.read();
+                                crate::bits::shared_word::store::<true>(p, val);
+                                old
+                            }));
+                        }
+                        node = Self::split_suffix_shared(node, chunk, sfx, alloc, defer);
+                        off += CHUNK;
+                    }
+                    Some(v) => {
+                        node = unpack_child(v);
+                        off += CHUNK;
+                    }
+                }
+            }
+        }
+    }
+
+    /// [`Self::ins_slot`] on a shared map; see [`Self::insert_shared`].
+    fn ins_slot_shared(&mut self, key: &[u8], defer: DeferHandle<'_>) -> NonNull<u64> {
+        let mut node = self.root_or_create_shared();
+        let alloc = &self.alloc;
+        let mut off = 0;
+        // SAFETY: as in `insert_shared`.
+        unsafe {
+            loop {
+                let (chunk, terminal) = chunk_at(key, off);
+                if terminal {
+                    // On a dirty node the count is stale, but the insert adds
+                    // exactly one to it when the key is new, so the
+                    // comparison holds without a re-sync.
+                    let m = &raw mut (*node).map;
+                    let len_before = MapCore::len_of(m);
+                    let slot = covered_at(node, alloc, |m| {
+                        MapCore::ins_slot_covered_at(m, alloc, chunk)
+                    });
+                    if MapCore::len_of(m) > len_before {
+                        self.pop += 1;
+                    }
+                    return slot;
+                }
+                match (*node).map.get(chunk) {
+                    None => {
+                        let suffix = new_suffix(&key[off + CHUNK..], 0, SuffixArena::of(alloc));
+                        covered_at(node, alloc, |m| {
+                            MapCore::insert_covered_at(m, alloc, chunk, pack_suffix(suffix))
+                        });
+                        self.pop += 1;
+                        return NonNull::new_unchecked(&raw mut (*suffix).value);
+                    }
+                    Some(v) if is_suffix_ptr(v) => {
+                        let sfx = unpack_suffix(v);
+                        if &key[off + CHUNK..] == suffix_bytes(sfx) {
+                            return NonNull::new_unchecked(&raw mut (*sfx).value);
+                        }
+                        node = Self::split_suffix_shared(node, chunk, sfx, alloc, defer);
+                        off += CHUNK;
+                    }
+                    Some(v) => {
+                        node = unpack_child(v);
+                        off += CHUNK;
+                    }
+                }
+            }
+        }
+    }
+
+    /// [`Self::clear`] on a shared map: [`Self::clear_entries`] without
+    /// moving the root's box out of its slot, which readers load it from
+    /// (see [`covered_at`]). The allocator keeps its freed blocks, as on
+    /// every shared map.
+    fn clear_shared(&mut self, defer: DeferHandle<'_>) -> u64 {
+        let bytes = match self.take_root_shared() {
+            Some(root) => {
+                // SAFETY: the unlinked root, live until disposed of below;
+                // the walk only reads.
+                let shells = unsafe { (*root).shell_bytes() };
+                let bytes = self.alloc.bytes_in_use() as u64 + shells;
+                dispose_tree(root, &self.alloc, defer);
+                debug_assert_eq!(self.alloc.bytes_in_use(), 0);
+                bytes
+            }
+            None => 0,
+        };
+        self.pop = 0;
+        bytes
+    }
+
+    /// [`Self::remove`] on a shared map; see [`Self::insert_shared`].
+    fn remove_shared(&mut self, key: &[u8], defer: DeferHandle<'_>) -> Option<u64> {
+        let root = self.root_raw()?;
+        let alloc = &self.alloc;
+        // SAFETY: the live root; the wrapper excludes every other writer.
+        let removed = unsafe { StrNode::remove_shared(root, key, alloc, defer) }?;
+        self.pop -= 1;
+        // SAFETY: as above.
+        if unsafe { (*root).map.is_empty() } {
+            let root = self.take_root_shared().expect("root present");
+            // Unlinked (the root slot is cleared); retired.
+            dispose_node(root, &self.alloc, defer);
+        }
+        Some(removed)
     }
 }
 

@@ -745,6 +745,481 @@ pub unsafe fn search(keys: *const u8, pop: usize, key_bytes: u8, key: Key) -> Op
     }
 }
 
+/// Packed leaf keys on a shared tree's paths (#1086, class 1, stage (d);
+/// `docs/ARCHITECTURE.md` §4.2). A shared tree's readers search a leaf's key
+/// area while its writer shifts it, so both sides access the area as the
+/// aligned words that cover it: a key is extracted from one or two word
+/// loads by shift, and an in-place insert or removal rewrites the covering
+/// words. A word wholly inside the area is one 8-byte atomic
+/// (`bits::shared_word`); the area's last, partial word is 4-, 2- and
+/// 1-byte atomics at aligned offsets ([`tail_load`], [`tail_store`]), so no
+/// access reaches past the area, which ends the allocation. Both sides
+/// derive the area from the leaf's capacity class, `kb * cap_class(pop)`,
+/// which an in-place edit never changes, so every race is between accesses
+/// of one size at one address. No SIMD: stable Rust has no 128-bit atomic.
+/// The plain paths keep [`search`], [`lower_bound`] and the in-place helpers
+/// above, and leaf sizes are the same on plain and shared trees.
+///
+/// A key area starts 8-aligned: a set leaf's at the allocation, a map
+/// leaf's at [`map_keys_offset`], a multiple of 8.
+pub(crate) mod shared_keys {
+    use crate::bits::shared_word;
+
+    use core::sync::atomic::{AtomicU8, AtomicU16, AtomicU32, Ordering::Relaxed};
+
+    /// The low `kb` bytes of a word.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    const fn mask(kb: usize) -> u64 {
+        (1u64 << (kb * 8)) - 1
+    }
+
+    /// Bytes of the key area of a leaf of `pop` keys of `kb` bytes: its
+    /// capacity class's, which an in-place edit never changes.
+    #[inline(always)]
+    fn area(kb: usize, pop: usize) -> usize {
+        kb * super::cap_class(pop)
+    }
+
+    /// The area's last, partial word: `t` (1..=7) bytes at the 8-aligned
+    /// `p`, loaded as 4-, 2- and 1-byte atomics in that order.
+    ///
+    /// # Safety
+    ///
+    /// `p` is 8-aligned with `t` readable bytes and write permission.
+    #[inline]
+    pub(crate) unsafe fn tail_load(p: *const u8, t: usize) -> u64 {
+        let p = p.cast_mut();
+        let (mut v, mut o) = (0u64, 0usize);
+        // SAFETY: caller contract; each piece is aligned to its size, since
+        // `p` is 8-aligned and the pieces go 4, 2, 1.
+        unsafe {
+            if t & 4 != 0 {
+                v |= u64::from(AtomicU32::from_ptr(p.cast::<u32>()).load(Relaxed));
+                o = 4;
+            }
+            if t & 2 != 0 {
+                v |=
+                    u64::from(AtomicU16::from_ptr(p.add(o).cast::<u16>()).load(Relaxed)) << (o * 8);
+                o += 2;
+            }
+            if t & 1 != 0 {
+                v |= u64::from(AtomicU8::from_ptr(p.add(o)).load(Relaxed)) << (o * 8);
+            }
+        }
+        v
+    }
+
+    /// [`tail_load`]'s store: the low `t` bytes of `v` at `p`, in the same
+    /// pieces.
+    ///
+    /// # Safety
+    ///
+    /// As [`tail_load`], and the caller is the area's one writer.
+    #[inline]
+    pub(crate) unsafe fn tail_store(p: *mut u8, t: usize, v: u64) {
+        let mut o = 0usize;
+        // SAFETY: as in `tail_load`.
+        unsafe {
+            if t & 4 != 0 {
+                AtomicU32::from_ptr(p.cast::<u32>()).store(v as u32, Relaxed);
+                o = 4;
+            }
+            if t & 2 != 0 {
+                AtomicU16::from_ptr(p.add(o).cast::<u16>()).store((v >> (o * 8)) as u16, Relaxed);
+                o += 2;
+            }
+            if t & 1 != 0 {
+                AtomicU8::from_ptr(p.add(o)).store((v >> (o * 8)) as u8, Relaxed);
+            }
+        }
+    }
+
+    /// Word `w` of an area of `area` bytes: one 8-byte atomic when the word
+    /// lies inside the area, the tail's pieces otherwise.
+    ///
+    /// # Safety
+    ///
+    /// `keys` is an 8-aligned area of `area` bytes with write permission, and
+    /// `w * 8 < area`.
+    #[inline(always)]
+    unsafe fn word(keys: *const u8, w: usize, area: usize) -> u64 {
+        let p = keys.wrapping_add(w * 8);
+        if w * 8 + 8 <= area {
+            // SAFETY: caller contract; a whole word inside the area.
+            unsafe { shared_word::load::<true>(p.cast::<u64>().cast_mut()) }
+        } else {
+            // SAFETY: caller contract; the `area - w * 8` bytes that remain.
+            unsafe { tail_load(p, area - w * 8) }
+        }
+    }
+
+    /// [`word`]'s store.
+    ///
+    /// # Safety
+    ///
+    /// As [`word`], and the caller is the area's one writer.
+    #[inline(always)]
+    unsafe fn set_word(keys: *mut u8, w: usize, area: usize, v: u64) {
+        let p = keys.wrapping_add(w * 8);
+        if w * 8 + 8 <= area {
+            // SAFETY: as in `word`.
+            unsafe { shared_word::store::<true>(p.cast::<u64>(), v) }
+        } else {
+            // SAFETY: as in `word`.
+            unsafe { tail_store(p, area - w * 8, v) }
+        }
+    }
+
+    /// Key `i` of `kb` bytes in an area of `area` bytes.
+    ///
+    /// # Safety
+    ///
+    /// As [`word`], and key `i` lies inside the area.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    unsafe fn read_in(keys: *const u8, i: usize, kb: usize, area: usize) -> u64 {
+        let off = i * kb;
+        let w = off / 8;
+        let sh = (off & 7) * 8;
+        // SAFETY: caller contract; the word holding the key's first byte.
+        let lo = unsafe { word(keys, w, area) } >> sh;
+        let v = if sh + kb * 8 > 64 {
+            // SAFETY: the key's last byte is in the next word, inside the
+            // area.
+            lo | (unsafe { word(keys, w + 1, area) } << (64 - sh))
+        } else {
+            lo
+        };
+        v & mask(kb)
+    }
+
+    /// Key `i` of `kb` bytes of a leaf of `pop` keys.
+    ///
+    /// # Safety
+    ///
+    /// `keys` is the 8-aligned key area of a live leaf of `pop` keys, with
+    /// write permission (the loads form atomic references), and `i < pop`.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    pub(crate) unsafe fn read(keys: *const u8, i: usize, kb: usize, pop: usize) -> u64 {
+        // SAFETY: forwarded.
+        unsafe { read_in(keys, i, kb, area(kb, pop)) }
+    }
+
+    /// Key `i` of `KB` bytes in an area whose words are all whole (`FULL`:
+    /// `area` is a multiple of 8, so no word is a tail) or not.
+    ///
+    /// # Safety
+    ///
+    /// As [`read_in`].
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    unsafe fn read_fixed<const KB: usize, const FULL: bool>(
+        keys: *const u8,
+        i: usize,
+        area: usize,
+    ) -> u64 {
+        if !FULL {
+            // SAFETY: forwarded.
+            return unsafe { read_in(keys, i, KB, area) };
+        }
+        let off = i * KB;
+        let w = keys.wrapping_add(off & !7).cast::<u64>().cast_mut();
+        let sh = (off & 7) * 8;
+        // SAFETY: caller contract; every word of the area is whole.
+        let lo = unsafe { shared_word::load::<true>(w) } >> sh;
+        let v = if sh + KB * 8 > 64 {
+            // SAFETY: as above; the key's last byte is in the next word.
+            lo | (unsafe { shared_word::load::<true>(w.add(1)) } << (64 - sh))
+        } else {
+            lo
+        };
+        v & mask(KB)
+    }
+
+    /// First slot of `pop` sorted keys `>= needle`, and whether that slot
+    /// holds `needle`: one search per key width, with the tail test taken
+    /// once per call and a linear scan for up to four keys, as the plain
+    /// [`super::search`] specialises.
+    ///
+    /// # Safety
+    ///
+    /// As [`read`], for `pop` keys; `needle` is masked to `KB` bytes.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    unsafe fn seek_fixed<const KB: usize, const FULL: bool>(
+        keys: *const u8,
+        pop: usize,
+        area: usize,
+        needle: u64,
+    ) -> (usize, bool) {
+        if pop <= 4 {
+            for i in 0..pop {
+                // SAFETY: `i < pop`.
+                let v = unsafe { read_fixed::<KB, FULL>(keys, i, area) };
+                if v >= needle {
+                    return (i, v == needle);
+                }
+            }
+            return (pop, false);
+        }
+        let (mut lo, mut hi) = (0usize, pop);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            // SAFETY: `mid < pop`.
+            let v = unsafe { read_fixed::<KB, FULL>(keys, mid, area) };
+            if v < needle {
+                lo = mid + 1;
+            } else if v == needle {
+                // Keys are unique: the first slot `>= needle`.
+                return (mid, true);
+            } else {
+                hi = mid;
+            }
+        }
+        (lo, false)
+    }
+
+    /// [`seek_fixed`] for a key width known only at run time.
+    ///
+    /// # Safety
+    ///
+    /// As [`seek_fixed`], with `1 <= kb <= 7`.
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    unsafe fn seek(keys: *const u8, pop: usize, kb: usize, needle: u64) -> (usize, bool) {
+        let area = area(kb, pop);
+        macro_rules! by_width {
+            ($($k:literal)*) => {
+                match kb {
+                    $($k => {
+                        // SAFETY: forwarded.
+                        unsafe {
+                            if area & 7 == 0 {
+                                seek_fixed::<$k, true>(keys, pop, area, needle)
+                            } else {
+                                seek_fixed::<$k, false>(keys, pop, area, needle)
+                            }
+                        }
+                    })*
+                    _ => unreachable!("a packed leaf key is 1..=7 bytes"),
+                }
+            };
+        }
+        by_width!(1 2 3 4 5 6 7)
+    }
+
+    /// First slot of `pop` sorted keys whose key is `>= needle` (masked).
+    ///
+    /// # Safety
+    ///
+    /// As [`read`], for `pop` keys.
+    #[cfg(feature = "std")]
+    #[inline]
+    pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, kb: usize, needle: u64) -> usize {
+        // SAFETY: forwarded.
+        unsafe { seek(keys, pop, kb, needle) }.0
+    }
+
+    /// The slot of `key`'s low `kb` bytes, as [`super::search`].
+    ///
+    /// # Safety
+    ///
+    /// As [`lower_bound`].
+    #[cfg(feature = "std")]
+    #[inline]
+    pub(crate) unsafe fn find(keys: *const u8, pop: usize, kb: usize, key: u64) -> Option<usize> {
+        // SAFETY: forwarded.
+        let (at, hit) = unsafe { seek(keys, pop, kb, key & mask(kb)) };
+        hit.then_some(at)
+    }
+
+    /// Rewrites bytes `from..to` of an area of `area` bytes through `edit` on
+    /// a local copy of the words that cover them, then stores those words
+    /// back.
+    ///
+    /// # Safety
+    ///
+    /// `to <= area`; the caller is the area's one writer.
+    #[inline(always)]
+    unsafe fn rewrite(
+        keys: *mut u8,
+        from: usize,
+        to: usize,
+        area: usize,
+        edit: impl FnOnce(&mut [u8], usize),
+    ) {
+        debug_assert!(to <= area, "a rewrite past the key area");
+        let w0 = from / 8;
+        let w1 = to.div_ceil(8);
+        // A key area holds at most `LEAF_CAP` keys of 7 bytes: 224 bytes.
+        let mut buf = [0u8; 256];
+        for w in w0..w1 {
+            // SAFETY: caller contract; `w * 8 < to <= area`.
+            let v = unsafe { word(keys, w, area) };
+            buf[(w - w0) * 8..(w - w0 + 1) * 8].copy_from_slice(&v.to_le_bytes());
+        }
+        edit(&mut buf[..(w1 - w0) * 8], w0 * 8);
+        for w in w0..w1 {
+            let mut b = [0u8; 8];
+            b.copy_from_slice(&buf[(w - w0) * 8..(w - w0 + 1) * 8]);
+            // SAFETY: as above.
+            unsafe { set_word(keys, w, area, u64::from_le_bytes(b)) };
+        }
+    }
+
+    /// Inserts `key` at `pos` among `pop` keys, shifting the tail up.
+    ///
+    /// # Safety
+    ///
+    /// The area holds `pop + 1` keys (the class is unchanged), `pos <= pop`,
+    /// and the caller is its one writer.
+    #[inline]
+    pub(crate) unsafe fn insert_at(keys: *mut u8, kb: usize, pop: usize, pos: usize, key: u64) {
+        // SAFETY: caller contract; bytes up to `(pop + 1) * kb` are inside
+        // the area, whose class `pop + 1` shares.
+        unsafe {
+            rewrite(keys, pos * kb, (pop + 1) * kb, area(kb, pop), |b, base| {
+                let at = pos * kb - base;
+                let end = (pop + 1) * kb - base;
+                b.copy_within(at..end - kb, at + kb);
+                b[at..at + kb].copy_from_slice(&key.to_le_bytes()[..kb]);
+            });
+        }
+    }
+
+    /// Removes the key at `pos` among `pop` keys, shifting the tail down.
+    ///
+    /// # Safety
+    ///
+    /// `pos < pop`, and the caller is the area's one writer.
+    #[inline]
+    pub(crate) unsafe fn remove_at(keys: *mut u8, kb: usize, pop: usize, pos: usize) {
+        if pos + 1 >= pop {
+            return;
+        }
+        // SAFETY: caller contract; bytes up to `pop * kb` are inside.
+        unsafe {
+            rewrite(keys, pos * kb, pop * kb, area(kb, pop), |b, base| {
+                let at = pos * kb - base;
+                let end = pop * kb - base;
+                b.copy_within(at + kb..end, at);
+            });
+        }
+    }
+
+    /// Every key of a set leaf of `pop` keys, with one slot of headroom (as
+    /// `mutate::leaf_keys`).
+    ///
+    /// # Safety
+    ///
+    /// As [`read`], for `pop` keys.
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn keys_vec(
+        base: *const u8,
+        kb: u8,
+        pop: usize,
+    ) -> core_alloc::vec::Vec<u64> {
+        let mut out = core_alloc::vec::Vec::with_capacity(pop + 1);
+        // SAFETY: forwarded.
+        out.extend((0..pop).map(|i| unsafe { read(base, i, kb as usize, pop) }));
+        out
+    }
+
+    /// Every `(key, value)` of a map leaf of `pop` entries, with one slot of
+    /// headroom (as `mutate_map::read_map_leaf`).
+    ///
+    /// # Safety
+    ///
+    /// As [`read`], for a live map leaf of `pop` entries.
+    #[cfg(feature = "std")]
+    pub(crate) unsafe fn map_entries(
+        base: *const u8,
+        kb: u8,
+        pop: usize,
+    ) -> core_alloc::vec::Vec<(u64, u64)> {
+        let keys = base.wrapping_add(super::map_keys_offset(pop));
+        let mut out = core_alloc::vec::Vec::with_capacity(pop + 1);
+        // SAFETY: forwarded; `pop` values then `pop` keys.
+        out.extend((0..pop).map(|i| unsafe {
+            (
+                read(keys, i, kb as usize, pop),
+                shared_word::load::<true>(base.cast::<u64>().add(i).cast_mut()),
+            )
+        }));
+        out
+    }
+
+    /// [`super::set_insert_at`] for a shared tree.
+    ///
+    /// # Safety
+    ///
+    /// As [`super::set_insert_at`].
+    #[inline]
+    pub(crate) unsafe fn set_insert_at(base: *mut u8, kb: u8, pop: usize, pos: usize, key: u64) {
+        // SAFETY: forwarded.
+        unsafe { insert_at(base, kb as usize, pop, pos, key) }
+    }
+
+    /// [`super::set_remove_at`] for a shared tree.
+    ///
+    /// # Safety
+    ///
+    /// As [`super::set_remove_at`].
+    #[inline]
+    pub(crate) unsafe fn set_remove_at(base: *mut u8, kb: u8, pop: usize, pos: usize) {
+        // SAFETY: forwarded.
+        unsafe { remove_at(base, kb as usize, pop, pos) }
+    }
+
+    /// [`super::map_insert_at`] for a shared tree: values as atomic words,
+    /// keys as above.
+    ///
+    /// # Safety
+    ///
+    /// As [`super::map_insert_at`].
+    #[inline]
+    pub(crate) unsafe fn map_insert_at(
+        base: *mut u8,
+        kb: u8,
+        pop: usize,
+        pos: usize,
+        key: u64,
+        val: u64,
+    ) {
+        // SAFETY: forwarded; the class is unchanged, so both areas keep
+        // their offsets and hold `pop + 1` entries.
+        unsafe {
+            let vals = base.cast::<u64>();
+            shared_word::shift_up::<true>(vals, pos, pop - pos);
+            shared_word::store::<true>(vals.add(pos), val);
+            insert_at(
+                base.add(super::map_keys_offset(pop)),
+                kb as usize,
+                pop,
+                pos,
+                key,
+            );
+        }
+    }
+
+    /// [`super::map_remove_at`] for a shared tree.
+    ///
+    /// # Safety
+    ///
+    /// As [`super::map_remove_at`].
+    #[inline]
+    pub(crate) unsafe fn map_remove_at(base: *mut u8, kb: u8, pop: usize, pos: usize) {
+        // SAFETY: forwarded.
+        unsafe {
+            let vals = base.cast::<u64>();
+            shared_word::shift_down::<true>(vals, pos, pop - 1 - pos);
+            remove_at(base.add(super::map_keys_offset(pop)), kb as usize, pop, pos);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,14 +1275,93 @@ mod tests {
         assert_eq!(cap_class(28), 32);
         assert_eq!(cap_class(32), 32);
         assert_eq!(size_set(1, 25), 32);
+        // Key areas are exact, on shared trees too: the shared key helpers
+        // cover a partial last word with narrower atomics (#1086).
         assert_eq!(size_set(7, 2), 14);
+        assert_eq!(size_set(7, 12), 84);
         assert_eq!(size_map(1, 25), 8 * 32 + 32);
         assert_eq!(size_map(7, 2), 8 * 2 + 7 * 2);
+        assert_eq!(size_map(3, 12), 8 * 12 + 36);
         assert_eq!(map_keys_offset(3), 32);
         assert_eq!(map_keys_offset(4), 32);
         assert_eq!(map_keys_offset(5), 64);
         assert_eq!(map_keys_offset(17), 192);
         assert_eq!(map_keys_offset(25), 256);
+    }
+
+    /// The shared key helpers agree with the plain ones on every width, pop
+    /// and position: reads, lower bounds and searches over an area, and
+    /// in-place inserts and removals leave the same bytes. In the Tier-1
+    /// Miri lane (`leaf::`), so the atomic word accesses are checked there.
+    #[test]
+    fn shared_keys_match_plain() {
+        use super::shared_keys as sk;
+        for kb in 1..=7usize {
+            for pop in [3usize, 4, 7, 11, 12, 15, 23, 31] {
+                let area = size_set(kb as u8, pop + 1);
+                let mut keys: Vec<u64> = (0..pop as u64)
+                    .map(|i| (i * 37 + 5) & ((1u64 << (kb * 8)) - 1))
+                    .collect();
+                keys.sort_unstable();
+                keys.dedup();
+                let pop = keys.len();
+                let mut plain = vec![0u64; area.div_ceil(8) + 1];
+                let mut shared = plain.clone();
+                for (i, &k) in keys.iter().enumerate() {
+                    // SAFETY: in bounds of the word buffers.
+                    unsafe {
+                        crate::mutate::write_packed(plain.as_mut_ptr().cast(), i, kb, k);
+                        crate::mutate::write_packed(shared.as_mut_ptr().cast(), i, kb, k);
+                    }
+                }
+                let sp = shared.as_mut_ptr().cast::<u8>();
+                for (i, &k) in keys.iter().enumerate() {
+                    // SAFETY: `i < pop`.
+                    let got = unsafe { sk::read(sp, i, kb, pop) };
+                    assert_eq!(got, k, "read kb {kb} pop {pop} i {i}");
+                }
+                for needle in [0u64, 1, 5, 42, 200, (1u64 << (kb * 8)) - 1] {
+                    let n = needle & ((1u64 << (kb * 8)) - 1);
+                    // SAFETY: `pop` keys in both buffers.
+                    unsafe {
+                        assert_eq!(
+                            sk::lower_bound(sp, pop, kb, n),
+                            lower_bound(plain.as_ptr().cast(), pop, kb as u8, n),
+                            "lower_bound kb {kb} pop {pop} n {n}"
+                        );
+                        assert_eq!(
+                            sk::find(sp, pop, kb, needle),
+                            search(plain.as_ptr().cast(), pop, kb as u8, needle),
+                            "search kb {kb} pop {pop}"
+                        );
+                    }
+                }
+                // In place only within a class, as the engine inserts.
+                let same_class = cap_class(pop + 1) == cap_class(pop);
+                for pos in (0..=pop).filter(|_| same_class) {
+                    let (mut p2, mut s2) = (plain.clone(), shared.clone());
+                    // SAFETY: the buffers hold `pop + 1` keys.
+                    unsafe {
+                        set_insert_at(p2.as_mut_ptr().cast(), kb as u8, pop, pos, 0x55);
+                        sk::set_insert_at(s2.as_mut_ptr().cast(), kb as u8, pop, pos, 0x55);
+                    }
+                    assert_eq!(p2, s2, "insert kb {kb} pop {pop} pos {pos}");
+                }
+                for pos in 0..pop {
+                    let (mut p2, mut s2) = (plain.clone(), shared.clone());
+                    // SAFETY: `pos < pop`.
+                    unsafe {
+                        set_remove_at(p2.as_mut_ptr().cast(), kb as u8, pop, pos);
+                        sk::set_remove_at(s2.as_mut_ptr().cast(), kb as u8, pop, pos);
+                    }
+                    assert_eq!(
+                        p2[..pop * kb / 8],
+                        s2[..pop * kb / 8],
+                        "remove kb {kb} pop {pop} pos {pos}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
