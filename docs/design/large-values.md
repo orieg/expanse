@@ -210,7 +210,9 @@ Single 64-Byte Cache Line in LinearLeaf:
 
 ### 5.2 The Predicate Filter Pipeline
 
-During a range scan `scan_filtered(from..=to, predicate, callback)`:
+The metadata filter belongs to `ExpanseBlobMap` alone, the only owner of the slot layout: it decodes hot metadata from `ArenaMeta` slots and reports `0` for every other tag. A plain `ExpanseMap` value is an uninterpreted JudyL word (§4.1), so the plain map carries no metadata filter; a value predicate there is `map.range(r).filter(..)`.
+
+During a range scan `ExpanseBlobMap::scan_filtered(from..=to, predicate, callback)`:
 
 ```
                           Range Scan Step
@@ -1038,6 +1040,8 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 | - Gate: All 13 CI status checks green; zero instruction regression on Callgrind       |
 +---------------------------------------------------------------------------------------+
 ```
+
+Phase B's filtered iteration is `ExpanseBlobMap::scan_filtered` (§5.2), on the blob map, which owns the slot layout; the plain-map `scan_prefix_filtered` and `range_filtered` the box places in `nav.rs` are not part of the design, because a plain `ExpanseMap` value is an uninterpreted JudyL word with no metadata to filter on. The SIMD kernels and their vectorizable entry, `scan_meta_range` (§5.5.4), remain design (§5.3).
 
 ---
 
