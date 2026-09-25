@@ -1482,7 +1482,6 @@ fn test_modern_architecture_matches_source() {
             "0x20",
             "0x22..=0x23",
             "0x28..=0x2E",
-            "0xFE",
             "0xFF"
         ],
         "value_slot tags must match SlotTag in crates/expanse/src/slot.rs"
@@ -1512,7 +1511,6 @@ fn test_modern_architecture_matches_source() {
                     "Inline Payload" => decoded.is_raw_inline(),
                     "ArenaMeta" => decoded == SlotTag::ArenaMeta,
                     "External" => decoded == SlotTag::External,
-                    "Tombstone" => decoded == SlotTag::Tombstone,
                     "Raw Word" => decoded == SlotTag::RawWord,
                     m if m.starts_with("Compressed") => {
                         decoded.is_compressed_inline()
@@ -1547,7 +1545,7 @@ fn test_modern_architecture_matches_source() {
         .as_array()
         .expect("value_slot.modes")
     {
-        if matches!(s(m, "mode"), "External" | "Tombstone") {
+        if s(m, "mode") == "External" {
             assert!(
                 s(m, "alloc").contains("reserved and unused"),
                 "{} is reserved and unused (slot.rs); got {:?}",

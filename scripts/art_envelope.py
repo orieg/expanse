@@ -44,7 +44,7 @@ EXPANSE_LEAF_BITMAP1 = 64
 EXPANSE_LEAF_BITMAP_L = 128
 EXPANSE_BITMAP256 = 32
 
-# From crates/expanse/src/slot.rs:177
+# From crates/expanse/src/slot.rs:171
 EXPANSE_VALUE_SLOT = 8
 
 # From docs/visualizer_data.json (node_ladder constants)

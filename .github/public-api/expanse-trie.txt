@@ -1561,7 +1561,6 @@ pub expanse_trie::slot::SlotTag::Inline5 = 5
 pub expanse_trie::slot::SlotTag::Inline6 = 6
 pub expanse_trie::slot::SlotTag::Inline7 = 7
 pub expanse_trie::slot::SlotTag::RawWord = 255
-pub expanse_trie::slot::SlotTag::Tombstone = 254
 impl expanse_trie::slot::SlotTag
 pub const fn expanse_trie::slot::SlotTag::from_u8(u8) -> Self
 pub const fn expanse_trie::slot::SlotTag::inline_len(self) -> core::option::Option<usize>
@@ -2586,7 +2585,6 @@ pub expanse_trie::SlotTag::Inline5 = 5
 pub expanse_trie::SlotTag::Inline6 = 6
 pub expanse_trie::SlotTag::Inline7 = 7
 pub expanse_trie::SlotTag::RawWord = 255
-pub expanse_trie::SlotTag::Tombstone = 254
 impl expanse_trie::slot::SlotTag
 pub const fn expanse_trie::slot::SlotTag::from_u8(u8) -> Self
 pub const fn expanse_trie::slot::SlotTag::inline_len(self) -> core::option::Option<usize>

@@ -86,8 +86,6 @@ pub enum SlotTag {
     /// 14-digit 4-bit packed numeric decimal string.
     CompressedNibble14 = 0x2E,
 
-    /// Soft-deleted tombstone marker.
-    Tombstone = 0xFE,
     /// Raw uninterpreted 64-bit word (unmanaged).
     RawWord = 0xFF,
 }
@@ -118,7 +116,6 @@ impl SlotTag {
             0x2C => Self::CompressedNibble12,
             0x2D => Self::CompressedNibble13,
             0x2E => Self::CompressedNibble14,
-            0xFE => Self::Tombstone,
             _ => Self::RawWord,
         }
     }
@@ -301,19 +298,33 @@ impl From<ValueSlot> for u64 {
 // Phase B: Columnar Predicate Filter Kernels
 // ---------------------------------------------------------------------------
 
+/// The 24-bit hot metadata of a raw slot: [`ValueSlot::arena_meta_meta`] for
+/// an `ArenaMeta` slot, 0 for every other tag. Bits 63:40 of an inline slot
+/// hold payload bytes and of a raw word are data, so they are never metadata.
+#[inline(always)]
+fn slot_hot_meta(slot: u64) -> u32 {
+    let s = ValueSlot::from_raw(slot);
+    if matches!(s.tag(), SlotTag::ArenaMeta) {
+        s.arena_meta_meta()
+    } else {
+        0
+    }
+}
+
 /// Filters a batch of raw 64-bit value slots (up to 32 slots) against a closed
 /// range `[min_meta, max_meta]`, returning a bitmask where bit `i` is set iff
 /// `slots[i]` has `min_meta <= hot_meta <= max_meta`.
 ///
-/// Metadata is read from the `ArenaMeta` field (`bits [63:40]`, 24-bit);
-/// non-`ArenaMeta` slots (inline / raw) carry no metadata and read as `0`.
+/// Metadata is read from the `ArenaMeta` field (`bits [63:40]`, 24-bit) of
+/// `ArenaMeta` slots; every other tag (inline, compressed, raw) carries no
+/// metadata and reads as `0`, so it matches only a range that contains 0.
 #[inline]
 #[must_use]
 pub fn filter_slots_range(slots: &[u64], min_meta: u32, max_meta: u32) -> u32 {
     let count = slots.len().min(32);
     let mut mask = 0u32;
     for (i, &slot) in slots[..count].iter().enumerate() {
-        let meta = ((slot >> 40) & ValueSlot::ARENA_META_MASK) as u32;
+        let meta = slot_hot_meta(slot);
         if meta >= min_meta && meta <= max_meta {
             mask |= 1 << i;
         }
@@ -324,14 +335,14 @@ pub fn filter_slots_range(slots: &[u64], min_meta: u32, max_meta: u32) -> u32 {
 /// Filters a batch of raw 64-bit value slots (up to 32 slots) with a custom
 /// metadata predicate closure, returning a bitmask of matching slot indices.
 ///
-/// Metadata is read from the `ArenaMeta` field (`bits [63:40]`, 24-bit).
+/// Metadata is read as [`filter_slots_range`] reads it: the `ArenaMeta` field
+/// of `ArenaMeta` slots, and `0` for every other tag.
 #[inline]
 pub fn filter_slots_predicate<P: FnMut(u32) -> bool>(slots: &[u64], mut predicate: P) -> u32 {
     let count = slots.len().min(32);
     let mut mask = 0u32;
     for (i, &slot) in slots[..count].iter().enumerate() {
-        let meta = ((slot >> 40) & ValueSlot::ARENA_META_MASK) as u32;
-        if predicate(meta) {
+        if predicate(slot_hot_meta(slot)) {
             mask |= 1 << i;
         }
     }
@@ -401,13 +412,47 @@ mod tests {
     }
 
     #[test]
-    fn raw_and_tombstone_tags() {
+    fn raw_word_is_the_catch_all() {
         let raw_val = 0x1234_5678_9ABC_DEF0;
         let slot = ValueSlot::from_raw(raw_val);
         assert_eq!(slot.to_raw(), raw_val);
 
-        let tombstone = ValueSlot::from_raw(0x0000_0000_0000_00FE);
-        assert_eq!(tombstone.tag(), SlotTag::Tombstone);
+        // Every unassigned tag byte decodes as the `RawWord` catch-all.
+        for byte in [0x08u8, 0x11, 0x21, 0x2F, 0x80, 0xFE] {
+            let slot = ValueSlot::from_raw(u64::from(byte));
+            assert_eq!(slot.tag(), SlotTag::RawWord, "tag byte {byte:#04x}");
+            assert!(!slot.tag().is_inline());
+        }
+    }
+
+    /// An inline slot keeps payload bytes in bits 63:8, so bits 63:40 of a
+    /// full 7-byte inline slot are payload, not metadata. The kernels read
+    /// metadata only from `ArenaMeta` slots and report 0 for every other tag,
+    /// as their docs, `filter_slots_range_32` and `ExpanseBlobMap::scan_filtered` do.
+    #[test]
+    fn filter_kernels_read_no_metadata_from_non_arena_slots() {
+        let inline = ValueSlot::new_inline(&[0xAB; 7]).unwrap();
+        assert_eq!(inline.tag(), SlotTag::Inline7);
+        assert_ne!(
+            (inline.to_raw() >> 40) & ValueSlot::ARENA_META_MASK,
+            0,
+            "precondition: the inline payload sets bits 63:40"
+        );
+        let raw_word = ValueSlot::from_raw(0xFFFF_FF00_0000_0008);
+        assert_ne!(raw_word.tag(), SlotTag::ArenaMeta);
+        let arena = ValueSlot::new_arena_meta(0x00AB_ABAB, 7).unwrap();
+        let slots = [inline.to_raw(), raw_word.to_raw(), arena.to_raw()];
+
+        // Only the `ArenaMeta` slot carries 0xABABAB.
+        assert_eq!(filter_slots_range(&slots, 0x00AB_ABAB, 0x00AB_ABAB), 0b100);
+        assert_eq!(
+            filter_slots_range(&slots, 1, ValueSlot::ARENA_META_MAX),
+            0b100
+        );
+        // Every other tag reads as metadata 0.
+        assert_eq!(filter_slots_range(&slots, 0, 0), 0b011);
+        assert_eq!(filter_slots_predicate(&slots, |m| m != 0), 0b100);
+        assert_eq!(filter_slots_predicate(&slots, |m| m == 0), 0b011);
     }
 
     #[test]

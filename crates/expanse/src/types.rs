@@ -91,8 +91,8 @@ pub const IMMED_PAYLOAD_BYTES: usize = 15;
 /// leaf (the published design converts at populations above ~25).
 pub const LEAF1_CAP: usize = 25;
 
-/// Bitmap leaf demotes to linear leaf when population drops below this floor.
-pub const LEAFB1_DOWN: usize = 21;
+/// Bitmap leaf demotes below this floor (band: enters above 25, leaves below 21).
+pub const LEAFB1_DOWN: usize = LEAF1_CAP - 4;
 
 /// Linear-leaf population cap at levels 2..=7; overflow cascades into a
 /// branch. 32 seven-byte keys = 224 B, a handful of cache lines.

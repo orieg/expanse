@@ -174,6 +174,48 @@ changes, and cells from runs before this amendment are not comparable with
 later ones on the Expanse arm. The §4 *Scans* item describes the subject arm
 as before A2.
 
+**Amendment A3 — diagnostic D1 (2026-09-25, registered before any counter
+data; refs #1096).** At n = 1,000,000 the prefix-scan cell takes 41.4 ns per
+yielded entry when the map is built in generator order and 14.7 ns when it is
+built sorted: 161,445 and 57,177 ns per prefix over 3,901.1 entries per prefix
+(measured: i9-12900F reference host, 6000b4a1; run 36092319875). Both builds
+hold the same key set, so the same node census
+(`test_mem_used_order_invariant`) and the same walk over it; that the two
+retire the same instructions is derived, not measured. D1 asks whether the
+26.7 ns per entry between them is memory placement: a generator-order build
+allocates nodes and suffix leaves in insertion order, so a scan in key order
+visits them scattered across the heap.
+
+*Instrument.* `scripts/perf_counters.py`, arms `strmap_prefix_scan` and
+`strmap_prefix_scan_sorted` of `examples/perf_point_lookup.rs` (the suite's
+path keys, its 64 prefixes, `cursor_prefix`), `--pops 1000000 --hit-pcts 100
+--passes 200 --runs 10`, the P-core PMU, the driver's default event set. Counts
+are `probe − build` per run, divided by the entries the passes yield
+(200 × 249,670). Each order's per-entry figure carries a BCa 95% interval over
+the 10 runs.
+
+*Predictions*, generator order against sorted:
+
+| # | Counter per entry | Prediction | Falsified if |
+|---|---|---|---|
+| D1a | `instructions` | the two orders agree within 2% | the point estimates differ by more than 2%: the builds do not run the same walk, and nothing below is attributable to placement |
+| D1b | `mem_load_retired.l3_miss` + `dTLB-load-misses` | generator exceeds sorted, intervals disjoint | the generator interval of either counter is not above the sorted one, for both counters |
+| D1c | `cycle_activity.stalls_l3_miss` | generator − sorted is at least half of generator − sorted `cycles` | below half: L3-miss stalls do not carry most of the gap, whatever D1b says |
+
+The 2% in D1a is a tolerance for the counter's run-to-run spread, set before
+the data; the instruction streams are expected to be identical. D1b predicts
+only a direction because the number of misses the gap implies depends on the
+host's memory latency and on how many misses overlap, neither measured here.
+At an assumed 80–100 ns per DRAM access (not measured on this host), fully
+serialised misses would account for the gap at 0.27–0.33 extra misses per
+entry; overlapped misses would need more. That range is context for reading
+D1b, not a threshold.
+
+If D1b is falsified the gap is reported as unexplained, and no placement
+remedy (co-allocation, prefetch, a packed-suffix default) is proposed on its
+strength. If D1b and D1c hold, placement is the measured cause, and a remedy
+is a separate, ablated change.
+
 **No directional prediction:**
 - Any `fast_radix_trie` or `qp-trie` timing. The envelope gives them 3–8
   dependent node loads, the same range as Expanse, so nothing derived separates
