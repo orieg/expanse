@@ -453,6 +453,13 @@ jobs:
           # self-test pinned that arithmetic only through gate.sh; the
           # pre-registrations invoke it, so CI runs it too (AGENTS.md section 8.8).
           python3 scripts/olc_bounds.py --self-test
+          # condense_bounds.py holds the byte model behind subtree condensation on
+          # remove (docs/benchmarks/remove_retention/METHODOLOGY.md): packed-leaf
+          # against branch bytes, the two hysteresis arms, the G-thrash ceiling and
+          # the drained-vs-fresh prediction. Its self-test also reads the constants,
+          # node sizes and function bodies it mirrors from crates/expanse/src and
+          # fails when the engine moves (AGENTS.md section 8.8 commit 1).
+          python3 scripts/condense_bounds.py --self-test
           # reader_scaling_bounds.py reduces the committed readers-only string
           # rounds and counter cells (#730); its self-test also holds
           # docs/benchmarks/concurrency/README.md §13 to its own output.
