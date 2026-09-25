@@ -81,6 +81,20 @@ impl XorShift {
     }
 }
 
+/// The build under test: `main` (no condensing), or one arm of the
+/// `subtree-condense` spike (METHODOLOGY §5.2), selected by feature.
+const ARM: &str = if cfg!(feature = "subtree-condense-wide") {
+    "wide"
+} else if cfg!(feature = "subtree-condense") {
+    "H1"
+} else {
+    "main"
+};
+
+/// Whether this build condenses drained subtrees on remove and in
+/// `shrink_to_fit()`.
+const CONDENSES: bool = cfg!(feature = "subtree-condense");
+
 /// The seed every committed random cell in this repository draws from.
 const SEED: u64 = 0x0DDB_1A5E_5EED_0001;
 /// The removal permutation's own stream, so the key draw and the removal
@@ -241,6 +255,7 @@ struct Reading {
     held_drained: usize,
     released: usize,
     held_shrunk: usize,
+    used_shrunk: usize,
     used_fresh: usize,
     held_fresh: usize,
 }
@@ -333,16 +348,27 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
     let held_drained = t.held();
     let released = t.shrink();
     let held_shrunk = t.held();
-    assert_eq!(
-        t.used(),
-        used_drained,
-        "shrink_to_fit leaves mem_used unchanged"
-    );
-    assert_eq!(
-        held_drained - held_shrunk,
-        released,
-        "shrink_to_fit reports what it released"
-    );
+    let used_shrunk = t.used();
+    // Under `subtree-condense`, `shrink_to_fit()` first condenses what the
+    // byte rule accepts (METHODOLOGY §5.3), so it may lower `mem_used()` and
+    // allocate the packed leaves it builds; on `main` it moves nothing.
+    if !CONDENSES {
+        assert_eq!(
+            used_shrunk, used_drained,
+            "shrink_to_fit leaves mem_used unchanged"
+        );
+        assert_eq!(
+            held_drained - held_shrunk,
+            released,
+            "shrink_to_fit reports what it released"
+        );
+    } else {
+        assert!(
+            used_shrunk <= used_drained,
+            "the sweep never grows mem_used"
+        );
+        t.check();
+    }
     let drained_stats = t.census();
     assert_eq!(drained_stats.node_bytes.total(), used_drained);
 
@@ -366,6 +392,7 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
             held_drained,
             released,
             held_shrunk,
+            used_shrunk,
             used_fresh: f.used(),
             held_fresh: f.held(),
         },
@@ -564,7 +591,7 @@ fn main() {
     let host = host_json();
 
     println!(
-        "remove retention: R = mem_used(drained to M) / mem_used(fresh M); LEAF_CAP = {LEAF_CAP}{}",
+        "remove retention ({ARM}): R = mem_used(drained to M) / mem_used(fresh M); LEAF_CAP = {LEAF_CAP}{}",
         if quick {
             " (--quick: populations / 32)"
         } else {
@@ -578,14 +605,26 @@ fn main() {
     let pins = model_pins();
     let mut pins_json = String::new();
     for (name, flavor, engine, model) in &pins {
-        println!("model pin {name:<24} {flavor:<3} engine {engine:>4} B  model {model:>4} B");
-        assert_eq!(
-            engine, model,
-            "scripts/condense_bounds.py no longer describes the engine: {name} ({flavor})"
+        // The `drained` pins describe `main`'s remove path, which never
+        // condenses; a condensing build records what it reads instead.
+        let asserted = !(CONDENSES && name.contains("drained"));
+        println!(
+            "model pin {name:<24} {flavor:<3} engine {engine:>4} B  model {model:>4} B{}",
+            if asserted {
+                ""
+            } else {
+                "  (not asserted: condensing build)"
+            }
         );
+        if asserted {
+            assert_eq!(
+                engine, model,
+                "scripts/condense_bounds.py no longer describes the engine: {name} ({flavor})"
+            );
+        }
         write!(
             pins_json,
-            "{}{{\"name\": \"{name}\", \"flavor\": \"{flavor}\", \"engine_bytes\": {engine}, \"model_bytes\": {model}}}",
+            "{}{{\"name\": \"{name}\", \"flavor\": \"{flavor}\", \"engine_bytes\": {engine}, \"model_bytes\": {model}, \"asserted\": {asserted}}}",
             if pins_json.is_empty() { "" } else { ", " }
         )
         .expect("write to a String");
@@ -622,7 +661,7 @@ fn main() {
                 rows,
                 "    {{\"cell\": \"{id}\", \"flavor\": \"{flavor}\", \"dist\": \"{}\", \"n\": {n}, \"m\": {m}, \
                  \"removal_order\": \"{}\", {lam}\"used_full\": {}, \"used_drained\": {}, \"held_drained\": {}, \
-                 \"released_by_shrink\": {}, \"held_shrunk\": {}, \"used_fresh\": {}, \"held_fresh\": {}, \
+                 \"released_by_shrink\": {}, \"held_shrunk\": {}, \"used_shrunk\": {}, \"used_fresh\": {}, \"held_fresh\": {}, \
                  \"r\": {}, \"held_shrunk_over_used_fresh\": {}, \"bpk_drained\": {}, \"bpk_fresh\": {},\n      \
                  \"drained\": {},\n      \"fresh\": {}}},",
                 dist.name(),
@@ -632,6 +671,7 @@ fn main() {
                 r.held_drained,
                 r.released,
                 r.held_shrunk,
+                r.used_shrunk,
                 r.used_fresh,
                 r.held_fresh,
                 r4(ratio),
@@ -655,7 +695,7 @@ fn main() {
         let doc = format!(
             "{{\n  \"provenance\": {{\n    \"source\": \"crates/expanse/examples/remove_retention.rs --json\",\n    \
              \"workload_id\": \"example_remove_retention\",\n    \"commit\": \"{commit}\",\n    \"rustc\": \"{rustc}\",\n    \
-             \"profile\": \"release\",\n    \"host\": {host},\n    \
+             \"profile\": \"release\",\n    \"arm\": \"{ARM}\",\n    \"host\": {host},\n    \
              \"estimators\": {{\"kind\": \"deterministic count\", \"interval\": \"none: mem_used()/mem_held() are exact byte counts of the engine's own accounting; a cell has no rounds and no interval (AGENTS.md section 8.4) and reproduces to the byte on any 64-bit host at the same commit\", \
              \"r\": \"used_drained / used_fresh: the drained tree against a fresh build of the identical surviving key set\", \
              \"held_shrunk_over_used_fresh\": \"mem_held() after shrink_to_fit() on the drained tree / the fresh build's mem_used()\"}},\n    \
