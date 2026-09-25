@@ -1122,12 +1122,6 @@
           "alloc": "0 B heap: 8-14 ASCII decimal digits (codec.rs)"
         },
         {
-          "mode": "Tombstone",
-          "tag": "0xFE",
-          "layout": "reserved (no defined layout)",
-          "alloc": "reserved and unused: the tag decodes, but no code path writes it"
-        },
-        {
           "mode": "Raw Word",
           "tag": "0xFF",
           "layout": "[uninterpreted 64-bit machine scalar]",
