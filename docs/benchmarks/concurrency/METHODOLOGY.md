@@ -572,7 +572,7 @@ The bound has no direction, so fewer instructions refute it just as more would. 
 - **The source that changed** is the call site, not the walk. `walk_validated` and the node code are identical in both commits. Base matched the walk's `Result` and then converted with `r.is_some()`. Head converts inside the walk closure, `walked.map(|r| r.is_some())`, and the helper returns the `Ok` value unchanged. `map_get_with` returns the walk's result with no conversion, and its count did not move.
 - **The disassembly changed with it.**
   - **Size.** `SetReader::contains` is 805 instructions in base and 789 in head. `map_get_with` is 978 and 976, differing only in padding and branch offsets. Both builds call the same seven targets out of line, `leaf::search` among them, so no inlining decision changed.
-  - **Base exits.** Every walk exit stores its answer in `%rax` and branches to one shared block, reached by seven branches. That block converts the answer to a bool (`test %rax,%rax; setne`), writes `INACTIVE` to the reader's slot (the pin's drop, `occ.rs:1932`) and jumps to the epilogue. The bitmap exit reaches it through `bt`/`setb`.
+  - **Base exits.** Every walk exit stores its answer in `%rax` and branches to one shared block, reached by seven branches. That block converts the answer to a bool (`test %rax,%rax; setne`), writes `INACTIVE` to the reader's slot (the pin's drop, `occ.rs:1932@58565660`) and jumps to the epilogue. The bitmap exit reaches it through `bt`/`setb`.
   - **Head exits.** Each exit writes the bool directly, with its own pin release and jump, plus one `and $0x1` at the epilogue. The shared block and the `bt` are gone.
   - **The stack slot.** Base keeps a 32-bit value in `0x4(%rsp)`, with 21 references. Head holds it in a register, with 0 references. That fits the fall in data reads and writes.
 - **Not established.**
@@ -1422,45 +1422,45 @@ instead of filling the gap.
 #### 17.2.1 The node forms, the transitions, and what covers each store
 
 **The encoding.** A key is cut into 8-byte big-endian chunks
-(`chunk_at`, `crates/expanse/src/strmap.rs:321`). A chunk with fewer than eight
+(`chunk_at`, `crates/expanse/src/strmap.rs:321@eb35e465`). A chunk with fewer than eight
 bytes remaining is *terminal* and its entry holds the user value directly; a
 non-terminal chunk's entry is a tagged word — tag 0 a `*mut StrNode` child
-(`pack_child`/`unpack_child`, `strmap.rs:171`, `:177`), tag 1 a `*mut StrSuffix`
-leaf (`pack_suffix`/`unpack_suffix`, `strmap.rs:161`, `:166`); module doc
+(`pack_child`/`unpack_child`, `strmap.rs:171@eb35e465`, `:177@eb35e465`), tag 1 a `*mut StrSuffix`
+leaf (`pack_suffix`/`unpack_suffix`, `strmap.rs:161@eb35e465`, `:166@eb35e465`); module doc
 `strmap.rs:22-27`.
 
 **The two node forms.**
 
-- `StrNode { map: MapCore }` (`strmap.rs:191-193`) — a meta-trie branch is
+- `StrNode { map: MapCore }` (`strmap.rs:191-193@eb35e465`) — a meta-trie branch is
   exactly one word-map engine core, and nothing else. Its size is pinned equal
   to `MapCore` and at most 64 bytes by `str_node_is_just_the_map_core`
-  (`strmap.rs:2153-2160`).
+  (`strmap.rs:2153-2160@eb35e465`).
 - `StrSuffix { value, len }` with the remaining key bytes inline in the same
-  allocation (`strmap.rs:78-81`, bytes at `SUFFIX_BYTES`, `strmap.rs:104`).
+  allocation (`strmap.rs:78-81@eb35e465`, bytes at `SUFFIX_BYTES`, `strmap.rs:104@eb35e465`).
   Header and bytes are write-once after publication; only `value` mutates in
-  place (`strmap.rs:70-76`).
+  place (`strmap.rs:70-76@eb35e465`).
 
 **Every transition a mutation can take**, enumerated from the entry points:
 
 | # | entry point | transition | the store, and where it lands |
 |---|---|---|---|
-| T1 | `insert` `strmap.rs:1217` | terminal chunk | `MapCore::insert_pathless` into this node's sub-map (`:1232`) |
-| T2 | `insert` | continuation absent | `new_suffix` (`:113`) then `insert_pathless` of the tagged word (`:1240-1241`) |
-| T3 | `insert` | suffix present, remainder equal | in-place replace of the value word (`:1259`) — the only in-place payload mutation |
-| T4 | `insert` | suffix present, remainder diverges | `split_suffix` (`:1188-1213`): a private child `StrNode` is built and populated (`:1201`, `:1207`), published with one `insert_pathless` over the suffix entry (`:1211`), and the old suffix disposed (`:1212`) |
-| T5 | `insert` | child present | descend (`:1268`) — no store |
-| T6 | `ins_slot` `strmap.rs:1278` | terminal chunk | `ins_slot_pathless` (`:1297`); otherwise T2/T3/T4/T5 (`:1306`, `:1313-1331`) |
-| T7 | `remove` `strmap.rs:1489` → `StrNode::remove` `:720` | terminal chunk | `remove_pathless` (`:737`) |
-| T8 | `remove` | suffix match | `remove_pathless` then `dispose_suffix` (`:745-751`) |
-| T9 | `remove` unwind | emptied child pruned | `remove_pathless` on the **parent** then `dispose_node` (`:771-777`) — the one transition that propagates upward |
-| T10 | `remove` | meta-trie root emptied | `self.root.take()` then `dispose_node` (`strmap.rs:1497-1505`) |
-| T11 | `insert`/`ins_slot` | meta-trie root absent | a root `StrNode` is created (`strmap.rs:1225-1227`, `:1286-1288`) |
-| T12 | `clear` `strmap.rs:1584` | whole tree | `dispose_tree` (`:283`) |
+| T1 | `insert` `strmap.rs:1217@eb35e465` | terminal chunk | `MapCore::insert_pathless` into this node's sub-map (`:1232@eb35e465`) |
+| T2 | `insert` | continuation absent | `new_suffix` (`:113@eb35e465`) then `insert_pathless` of the tagged word (`:1240-1241@eb35e465`) |
+| T3 | `insert` | suffix present, remainder equal | in-place replace of the value word (`:1259@eb35e465`) — the only in-place payload mutation |
+| T4 | `insert` | suffix present, remainder diverges | `split_suffix` (`:1188-1213@eb35e465`): a private child `StrNode` is built and populated (`:1201@eb35e465`, `:1207@eb35e465`), published with one `insert_pathless` over the suffix entry (`:1211@eb35e465`), and the old suffix disposed (`:1212@eb35e465`) |
+| T5 | `insert` | child present | descend (`:1268@eb35e465`) — no store |
+| T6 | `ins_slot` `strmap.rs:1278@eb35e465` | terminal chunk | `ins_slot_pathless` (`:1297@eb35e465`); otherwise T2/T3/T4/T5 (`:1306@eb35e465`, `:1313-1331@eb35e465`) |
+| T7 | `remove` `strmap.rs:1489@eb35e465` → `StrNode::remove` `:720@eb35e465` | terminal chunk | `remove_pathless` (`:737@eb35e465`) |
+| T8 | `remove` | suffix match | `remove_pathless` then `dispose_suffix` (`:745-751@eb35e465`) |
+| T9 | `remove` unwind | emptied child pruned | `remove_pathless` on the **parent** then `dispose_node` (`:771-777@eb35e465`) — the one transition that propagates upward |
+| T10 | `remove` | meta-trie root emptied | `self.root.take()` then `dispose_node` (`strmap.rs:1497-1505@eb35e465`) |
+| T11 | `insert`/`ins_slot` | meta-trie root absent | a root `StrNode` is created (`strmap.rs:1225-1227@eb35e465`, `:1286-1288@eb35e465`) |
+| T12 | `clear` `strmap.rs:1584@eb35e465` | whole tree | `dispose_tree` (`:283@eb35e465`) |
 
 **What covers each store today.** Every one of T1–T12 runs inside
-`Shared::write` (`crates/expanse/src/sync.rs:1654`), reached from
-`SyncExpanseStrMap::insert` (`:8019`), `remove` (`:8025`), `clear` (`:8030`) and
-`with_locked_mut` (`:8093`). That function takes the writer mutex and holds the
+`Shared::write` (`crates/expanse/src/sync.rs:1654@eb35e465`), reached from
+`SyncExpanseStrMap::insert` (`:8019@eb35e465`), `remove` (`:8025@eb35e465`), `clear` (`:8030@eb35e465`) and
+`with_locked_mut` (`:8093@eb35e465`). That function takes the writer mutex and holds the
 **one tree version word** open across the whole operation, and the wrapper's
 sub-tries run the engine's nested mode (`docs/ARCHITECTURE.md` §4.1).
 
@@ -1473,16 +1473,16 @@ them can do today is take a *per-sub-map* cover, for two structural reasons
 that are properties of the code and not of this design:
 
 1. **A sub-map's root state carries no version word.** `Root::Empty`,
-   `Root::Leaf` and `Root::Tree` (`crates/expanse/src/map.rs:831`, `:837`,
-   `:848`) are covered by the tree-level word; only branch headers carry a word
+   `Root::Leaf` and `Root::Tree` (`crates/expanse/src/map.rs:831@eb35e465`, `:837@eb35e465`,
+   `:848@eb35e465`) are covered by the tree-level word; only branch headers carry a word
    of their own (`docs/ARCHITECTURE.md` §4.1). A `StrNode` whose sub-map is
    empty or a root leaf therefore has no word anywhere to lock.
 2. **The cover word is reached through the allocator, and the string map has
    one allocator for every sub-trie.** The engine finds its word through
    `NodeAlloc::bind_tree_word` / `tree_cover_addr`
-   (`crates/expanse/src/alloc.rs:922`, `:936`, `:951`), bound once per
+   (`crates/expanse/src/alloc.rs:922@eb35e465`, `:936@eb35e465`, `:951@eb35e465`), bound once per
    allocator; `ExpanseStrMap` deliberately shares a single `NodeAlloc` across
-   every sub-trie (`strmap.rs:11-14`, `defer_to` `:1129`, `:1137`), which is
+   every sub-trie (`strmap.rs:11-14`, `defer_to` `:1129@eb35e465`, `:1137@eb35e465`), which is
    what keeps a `StrNode` at one map root instead of ~700 bytes. One allocator
    is one bound word.
 
@@ -1490,7 +1490,7 @@ that are properties of the code and not of this design:
 that node's sub-map root state and its tagged continuation entries, with the
 engine's existing per-node words covering the sub-map interior when that
 sub-map is a tree; writers enter through the wrapper's writer-entry path
-(`Shared::enter_writer_blocking`, `sync.rs:1579`) and couple hand-over-hand
+(`Shared::enter_writer_blocking`, `sync.rs:1579@eb35e465`) and couple hand-over-hand
 down the chunk chain, one cover per hop. Reaching a per-node word requires the
 engine to take its cover per operation rather than from the allocator binding
 above — which of the two available shapes (a word passed down the descent, or
@@ -1500,38 +1500,38 @@ fix, because the gate is an outcome gate and neither shape is measured here.
 **Two consequences of that word, named now rather than discovered later
 (AGENTS.md §2.3).** A `StrNode` gaining a version word grows past
 `size_of::<MapCore>()`, so `str_node_is_just_the_map_core`
-(`strmap.rs:2153-2160`) fails and is part of the change, with its ≤ 64-byte
+(`strmap.rs:2153-2160@eb35e465`) fails and is part of the change, with its ≤ 64-byte
 bound re-argued rather than deleted; and `ExpanseStrMap` does not implement
-`RootState` today (the only impls are `ExpanseMap`, `sync.rs:1353`, and
-`ExpanseSet`, `:1360`), so `write_root_covered` (`sync.rs:1713`) and the whole
+`RootState` today (the only impls are `ExpanseMap`, `sync.rs:1353@eb35e465`, and
+`ExpanseSet`, `:1360@eb35e465`), so `write_root_covered` (`sync.rs:1713@eb35e465`) and the whole
 `olc_*` route are not reachable for the string wrapper at all until it does.
 
 #### 17.2.2 What a writer must hold for the suffix, and how readers validate
 
 **The writer.** A suffix block is write-once after publication except its value
-word (`strmap.rs:70-76`). A writer that publishes one must allocate it
-(`new_suffix`, `:113`), store the tagged word into the parent `StrNode`'s
+word (`strmap.rs:70-76@eb35e465`). A writer that publishes one must allocate it
+(`new_suffix`, `:113@eb35e465`), store the tagged word into the parent `StrNode`'s
 sub-map under that node's cover (T2, T4), and retire the superseded block
-through the epoch collector (`dispose_suffix`, `:205-224`) — never free it
+through the epoch collector (`dispose_suffix`, `:205-224@eb35e465`) — never free it
 inline, since a reader that validated the old tagged word may still be reading
 the header and bytes under its pin. T3's in-place value write is the one store
 that mutates a published block, and it stays a single word under the cover of
 the node holding the entry that points at it.
 
 **The reader, and the hazard this design creates.** `StrReader::get`
-(`sync.rs:8117`) calls `ExpanseStrMap::get_validated` (`strmap.rs:1396`), which
+(`sync.rs:8117@eb35e465`) calls `ExpanseStrMap::get_validated` (`strmap.rs:1396@eb35e465`), which
 walks one sub-map per chunk. Each hop enters `walk_validated::<true>`
-(`sync.rs:192`) with `Cover::Tree(ver, snap)` (`sync.rs:158-176`, `:198`) and
+(`sync.rs:192@eb35e465`) with `Cover::Tree(ver, snap)` (`sync.rs:158-176@eb35e465`, `:198@eb35e465`) and
 moves to `Cover::Node` inside the sub-map; **between hops, and on the suffix
 arm before returning, the reader re-validates the tree version**
-(`strmap.rs:1440-1447`). A design in which writers no longer bump the tree word
+(`strmap.rs:1440-1447@eb35e465`). A design in which writers no longer bump the tree word
 therefore leaves those checks validating a word nobody moves, which is the
 precise failure the reader half of this design must prevent: the cross-hop
 check and the suffix arm's check move to the cover word of the `StrNode` whose
 entry was read, sampled before the entry is loaded and re-validated after it,
 as `walk_validated` already does within a sub-map. `SyncExpanseStrMap::len`
-(`sync.rs:8059`) keeps the tree word, and `with_locked` / `read_locked`
-(`sync.rs:1844`, `:1815`) keep closing the gate and quiescing writers.
+(`sync.rs:8059@eb35e465`) keeps the tree word, and `with_locked` / `read_locked`
+(`sync.rs:1844@eb35e465`, `:1815@eb35e465`) keep closing the gate and quiescing writers.
 
 This is the first item of the §2.3 five-subsystem audit, and it is the reason
 the coverage in §17.5 is registered as a precondition rather than a follow-up.
@@ -1539,7 +1539,7 @@ the coverage in §17.5 is registered as a precondition rather than a follow-up.
 #### 17.2.3 What stays behind a bounded fallback, and the rate registered
 
 Registered as staying behind the blocking fallback (`write_root_covered`
-behind `fallback_mutex`, `sync.rs:1732`, which quiesces writers and serialises):
+behind `fallback_mutex`, `sync.rs:1732@eb35e465`, which quiesces writers and serialises):
 
 - **T11**, creation of the meta-trie root, and **T10**, its removal — root-state
   transitions of the wrapper itself.
@@ -1548,18 +1548,18 @@ behind `fallback_mutex`, `sync.rs:1732`, which quiesces writers and serialises):
   descent has already left.
 - Whatever the engine's own OLC path already falls back on inside a sub-map:
   the `FallbackCause` set is `CapExpansion`, `ImmediateConversion`,
-  `BranchSplit`, `RootGrowth`, `Contention`, `UnknownTag` (`sync.rs:1967-1987`),
+  `BranchSplit`, `RootGrowth`, `Contention`, `UnknownTag` (`sync.rs:1967-1987@eb35e465`),
   and a sub-map in `Root::Empty` or `Root::Leaf` state raises `RootGrowth`.
 
 **The rate registered, and its derivation.** The declared workload is
 `concurrency_writer_str`: a 2^20-key prefill, then 2^20 fresh keys inserted by
-W writers over contiguous disjoint slices (`writer_scaling.rs:800-867`,
-generator `:600-643`). Keys are alphanumeric over a 62-symbol alphabet
-(`fill_alnum`, `:543-548`) with length `8 + rng % 9`, so every key is 8 to 16
+W writers over contiguous disjoint slices (`writer_scaling.rs:800-867@eb35e465`,
+generator `:600-643@eb35e465`). Keys are alphanumeric over a 62-symbol alphabet
+(`fill_alnum`, `:543-548@eb35e465`) with length `8 + rng % 9`, so every key is 8 to 16
 bytes.
 
 - A key of at least 8 bytes never presents a terminal first chunk (`chunk_at`,
-  `strmap.rs:321`), so **T1 cannot occur at the meta-trie root** on this
+  `strmap.rs:321@eb35e465`), so **T1 cannot occur at the meta-trie root** on this
   workload.
 - Two keys share a first chunk only if their first 8 bytes agree. Over
   2^21 = 2,097,152 keys drawn from 62^8 ≈ 2.1834 × 10^14 first chunks, the
@@ -1654,7 +1654,7 @@ to `docs/benchmarks/concurrency/`.
 | the per-round series | each cell's `rounds_raw`, in `round` order, field `writer_mops`, matched round for round between the two builds |
 | the interval | BCa 95% over the round series of R(W, r), 2,000 resamples (`scripts/bca_bootstrap.py`, the construction the driver uses for `scaling_factor_c_n_ci_*`) |
 | reported beside it, not gated | `expanse_writer_mops_mean` with `writer_ci_lower` / `writer_ci_upper`, `scaling_factor_c_n_mean` with its interval, `lock_fallbacks`, `fallback_rate`, `fallback_causes_total`, `contention_subsets_total`, `lock_restarts_per_insert`, `gate_blocked_entries_per_insert`, `gate_wait_cycles_per_insert`, `retired_per_insert` |
-| the fallback prediction (§17.2.3) | `fallback_rate` and `fallback_causes_total`, over `write_ops` — which is the harness's fresh-key count, not `Stat::WriteOps` (`scripts/writer_scaling.py:604-605`, `writer_scaling.rs:2671`) |
+| the fallback prediction (§17.2.3) | `fallback_rate` and `fallback_causes_total`, over `write_ops` — which is the harness's fresh-key count, not `Stat::WriteOps` (`scripts/writer_scaling.py:604-605@eb35e465`, `writer_scaling.rs:2671@eb35e465`) |
 | the round count | each cell's `rounds` |
 | the pin | `provenance.core_pin`, and each cell's `cpu_pin` |
 | the commits | `provenance.commit`, and the comparison run's per-build commit fields |
@@ -1691,7 +1691,7 @@ programmatically, not retyped from `README.md` §15.2.
 
 **`fallback_rate` 0.0 here does not mean "no fallbacks".** The string wrapper
 has no optimistic path to fall back *from*: every mutation takes
-`Shared::write` (`sync.rs:1654`), which bumps `Stat::WriteOps` and never
+`Shared::write` (`sync.rs:1654@eb35e465`), which bumps `Stat::WriteOps` and never
 `Stat::LockFallbacks`. The column becomes informative only once the design
 lands, which is why §17.2.3's prediction is registered against it now.
 
@@ -1714,9 +1714,9 @@ them is not evaluated.
 
 - **Loom.** One model per new concurrent transition class, each with the line
   whose deletion turns it red, beside the existing models in
-  `crates/expanse/src/occ.rs:2635-3308` and
-  `crates/expanse/src/sync.rs:12161`, and run by the `loom` CI job
-  (`.github/workflows/ci.yml:1909-1930`). At minimum: two writers publishing
+  `crates/expanse/src/occ.rs:2635-3308@eb35e465` and
+  `crates/expanse/src/sync.rs:12161@eb35e465`, and run by the `loom` CI job
+  (`.github/workflows/ci.yml:1909-1930@eb35e465`). At minimum: two writers publishing
   into one `StrNode`'s sub-map entry are mutually excluded; a superseded suffix
   or child is marked and retired only after the entry pointing at it is
   rewritten (the S3 property, for the tagged word); and a reader's cross-hop
@@ -1725,16 +1725,16 @@ them is not evaluated.
   is left on the tree word.
 - **Tier-1 Miri.** A deterministic single-threaded test of every new transition,
   named so the per-PR filter selects it. That filter is a literal list
-  (`.github/workflows/ci.yml:1379`, mirrored in AGENTS.md §5), so either the
+  (`.github/workflows/ci.yml:1379@eb35e465`, mirrored in AGENTS.md §5), so either the
   new tests sit under a prefix it already selects — `strmap::tests::deferred`,
   `occ::tests::` — or the filter and `scripts/check_miri_shards.py`'s
   module-to-shard map are updated in the same change. No Miri is run on the
   laptop; the CI jobs are the authority.
 - **Linearizability.** `crates/expanse/tests/linearizability.rs` covers
-  `SyncExpanseMap` and `SyncExpanseSet` only (`:8`). A `SyncExpanseStrMap`
+  `SyncExpanseMap` and `SyncExpanseSet` only (`:8@eb35e465`). A `SyncExpanseStrMap`
   history test is added with the same per-key checker shape, at W ≥ 2, plus the
   disjoint-writer census check that `test_multi_writer_parallel_disjoint_and_census`
-  (`:468`) performs for the two integer wrappers.
+  (`:468@eb35e465`) performs for the two integer wrappers.
 - **The §2.3 five-subsystem audit** accompanies the change, including the two
   consequences §17.2.1 names.
 
@@ -1819,8 +1819,8 @@ the instrument, not to the engine, and each must land before a run counts:
    way the #568 ablation arms were measured. Without it the driver has no
    variant build to interleave.
 2. **A suite entry** in `.github/bench-suites.json` and the hand-listed places
-   in `.github/workflows/bench_baremetal.yml` (the suite list at `:64-70` and
-   the case block at `:990-999`), synced with
+   in `.github/workflows/bench_baremetal.yml` (the suite list at `:64-70@eb35e465` and
+   the case block at `:990-999@eb35e465`), synced with
    `python3 scripts/check_bench_suites.py --write`.
 3. **The gate statistic is computed by committed code** before the run that it
    judges. The driver writes `scaling_factor_c_n_*` per build; the ratio of the
@@ -1828,15 +1828,15 @@ the instrument, not to the engine, and each must land before a run counts:
    is committed with the suite entry and reads `rounds_raw` of both builds.
 4. **The driver's counters-pass identities must still hold on the head.** It
    refuses a row where the fallback causes do not sum to `lock_fallbacks`
-   (`writer_scaling.py:615-618`), where `Stat::Inserts` differs from the
-   harness's insert count (`:620-623`), or where `quiesce_calls` differs from
-   `lock_fallbacks` (`:626-629`); the harness checks the same identities
-   (`writer_scaling.rs:424-441`). A design whose fallback path does not quiesce
+   (`writer_scaling.py:615-618@eb35e465`), where `Stat::Inserts` differs from the
+   harness's insert count (`:620-623@eb35e465`), or where `quiesce_calls` differs from
+   `lock_fallbacks` (`:626-629@eb35e465`); the harness checks the same identities
+   (`writer_scaling.rs:424-441@eb35e465`). A design whose fallback path does not quiesce
    exactly once per fallback breaks the third, and that is a change to the
    instrument's invariant which is disclosed and re-argued, never silently
    relaxed.
 5. **The artifact records which pre-registration it was read against**, as the
-   ordered-reader artifacts do (`writer_scaling.py:1595`). A run whose artifact
+   ordered-reader artifacts do (`writer_scaling.py:1595@eb35e465`). A run whose artifact
    does not name this section is a baseline, not an evaluation, and carries no
    verdict.
 
@@ -2155,29 +2155,29 @@ is substituted.
 
 | instrument the plan names | status | evidence |
 |---|---|---|
-| `reader_scaling_bounds.per_arm_interval` | **exists** | `scripts/reader_scaling_bounds.py:193` |
-| `reader_scaling_bounds.mde_from_rounds` | **exists** | `scripts/reader_scaling_bounds.py:225` |
-| `reader_scaling_bounds.frequency_share` | **exists** | `scripts/reader_scaling_bounds.py:239` |
-| `reader_scaling_bounds.unexplained_cycles` | **exists** | `scripts/reader_scaling_bounds.py:277` |
-| `reader_scaling_bounds.max_over_mean_bias` | **exists** | `scripts/reader_scaling_bounds.py:295` |
-| `reader_scaling_bounds.hugepage_ceiling` | **exists** | `scripts/reader_scaling_bounds.py:306` |
-| `reader_scaling_bounds.round_outliers` | **exists** | `scripts/reader_scaling_bounds.py:206` |
+| `reader_scaling_bounds.per_arm_interval` | **exists** | `scripts/reader_scaling_bounds.py:193@686dd6cb` |
+| `reader_scaling_bounds.mde_from_rounds` | **exists** | `scripts/reader_scaling_bounds.py:225@686dd6cb` |
+| `reader_scaling_bounds.frequency_share` | **exists** | `scripts/reader_scaling_bounds.py:239@686dd6cb` |
+| `reader_scaling_bounds.unexplained_cycles` | **exists** | `scripts/reader_scaling_bounds.py:277@686dd6cb` |
+| `reader_scaling_bounds.max_over_mean_bias` | **exists** | `scripts/reader_scaling_bounds.py:295@686dd6cb` |
+| `reader_scaling_bounds.hugepage_ceiling` | **exists** | `scripts/reader_scaling_bounds.py:306@686dd6cb` |
+| `reader_scaling_bounds.round_outliers` | **exists** | `scripts/reader_scaling_bounds.py:206@686dd6cb` |
 | `reader_scaling_bounds.threshold_a` | **absent** | no definition anywhere under `scripts/`, `crates/` or `docs/` |
-| `hitm_cycle_ceiling` / `rfo_cycle_ceiling` | **absent under those names** | the generic `event_cycle_ceiling(per_probe_r1, per_probe_rk, cost_cycles)` exists at `scripts/reader_scaling_bounds.py:266` and takes the per-event cost as an argument |
+| `hitm_cycle_ceiling` / `rfo_cycle_ceiling` | **absent under those names** | the generic `event_cycle_ceiling(per_probe_r1, per_probe_rk, cost_cycles)` exists at `scripts/reader_scaling_bounds.py:266@686dd6cb` and takes the per-event cost as an argument |
 | `instructions`, `cycles`, `ref-cycles`, `task-clock`, `LLC-load-misses`, `l2_rqsts.rfo_miss`, `mem_load_l3_hit_retired.xsnp_hitm`, `context-switches` per thread | **exist** | `scripts/bench_counters.py:147-156`; the eight `reader/*` keys of `results/counters_masstree_conc_str_w0_r{1,8}.json` |
 | `cycle_activity.stalls_l3_miss` | **absent from the per-thread set** | not in `THREAD_EVENTS`, `scripts/bench_counters.py:147-156`; absent from both committed cells' `events` |
 | `dTLB-load-misses` per thread | **absent from the per-thread set** | present in `BASE_EVENTS` (process mode) at `scripts/bench_counters.py:132`, not in `THREAD_EVENTS`; absent from both committed cells' `events` |
 | `mem_load_l3_hit_retired.xsnp_{fwd,none,miss}` | **absent** | only `xsnp_hitm` is registered, `scripts/bench_counters.py:139` |
 | `machine_clears.memory_ordering` | **absent** | not in any registered event set |
-| per-cell extra events | **mechanism exists, unused by #730** | `Cell.extra_events` and `Cell.events()` at `scripts/bench_counters.py:238-242`; the precedent is `OPTIMISTIC_EXTRA_EVENTS` at `:169`. No #730 cell requests any extra event today |
-| `_masstree` counter cells (`masstree_conc_str_w0_r{1,8}_masstree`) | **absent** | `_conc` hardcodes `arm="expanse"`, `scripts/bench_counters.py:248`; the registry holds only `masstree_conc_str_w0_r1` and `_r8` at `:287`, `:290` |
+| per-cell extra events | **mechanism exists, unused by #730** | `Cell.extra_events` and `Cell.events()` at `scripts/bench_counters.py:238-242@686dd6cb`; the precedent is `OPTIMISTIC_EXTRA_EVENTS` at `:169`. No #730 cell requests any extra event today |
+| `_masstree` counter cells (`masstree_conc_str_w0_r{1,8}_masstree`) | **absent** | `_conc` hardcodes `arm="expanse"`, `scripts/bench_counters.py:248@686dd6cb`; the registry holds only `masstree_conc_str_w0_r1` and `_r8` at `:287@686dd6cb`, `:290@686dd6cb` |
 | harness `--arm <expanse\|masstree>` | **exists** | `crates/expanse-hot-bench/src/bin/masstree_concurrent.rs:540`, documented at `:42` |
 | `masstree_conc_str_w0_r{2,4}` counter cells | **absent** | not in the registry |
 | W = 0 at R ∈ {2, 4} in the throughput driver | **absent** | `CONCURRENT_MIXED_READERS = 8` is a scalar, `docs/benchmarks/masstree_comparison/scripts/run_all.py:66`; the C2 grid is W ∈ {0, 1, 2, 4, 8} × R = 8, so R = 1, 2 and 4 at W = 0 are not driver cells. R = 1 exists only as a `bench_counters.py` cell |
 | `run_all.py --cells` | **absent** | `main()` at `docs/benchmarks/masstree_comparison/scripts/run_all.py:681` selects with `--quick`, `--concurrent`, `--only-concurrent`, `--ab-base-bin`, `--ab-base-commit` and `--self-test` only |
 | `scripts/perf_counters.py` with `--arms strmap_get --pops --hit-pcts --runs` | **exists** | flags at `scripts/perf_counters.py:813-817`; `strmap_get` is a documented `EXPANSE_PERF_ARM` value at `crates/expanse/examples/perf_point_lookup.rs:39`, read at `:242`, unknown arms refused at `:341` |
 | `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`, verified by `AnonHugePages` | **exists as committed practice** | `docs/benchmarks/masstree_comparison/README.md:597-600`, verified before interpretation |
-| `load.foreign_busy_cpus_since_prev` | **exists** | `scripts/check_bench_provenance.py:924`, `:927`; per-cell `load.foreign_busy_cpus` required at `:514-541` |
+| `load.foreign_busy_cpus_since_prev` | **exists** | `scripts/check_bench_provenance.py:924@686dd6cb`, `:927@686dd6cb`; per-cell `load.foreign_busy_cpus` required at `:514-541@686dd6cb` |
 | `EXPANSE_BENCH_PIN`, one thread per physical P-core | **exists** | `scripts/bench_pin.sh` |
 
 **What this audit costs the campaign.** Two of the five predictions are
@@ -3418,10 +3418,10 @@ The reader is owed the full accounting of prior observations (AGENTS.md §8.7, �
    and the serial mutex wrapper `sync_blobmap_insert` arms (Refs #1018).
 2. **Prerequisite audits**:
    - **Counter visibility audit (AGENTS.md §8.22.1)**: `ExpanseBlobMap::len` is an
-     exported public API (`crates/expanse/src/blobmap.rs:1107`), as are `BlobArena::live_bytes`
-     (`crates/expanse/src/blobmap.rs:1013`), `BlobArena::chunks` and `chunks_count`
-     (`crates/expanse/src/blobmap.rs:1027, 1020`), and `BlobArena::mem_used`
-     (`crates/expanse/src/blobmap.rs:1006`). Public API signatures cannot be modified or
+     exported public API (`crates/expanse/src/blobmap.rs:1107@a80ce8a5`), as are `BlobArena::live_bytes`
+     (`crates/expanse/src/blobmap.rs:1013@a80ce8a5`), `BlobArena::chunks` and `chunks_count`
+     (`crates/expanse/src/blobmap.rs:1027@a80ce8a5, 1020@a80ce8a5`), and `BlobArena::mem_used`
+     (`crates/expanse/src/blobmap.rs:1006@a80ce8a5`). Public API signatures cannot be modified or
      reduced to test-only under cargo semver without breaking `scripts/check_public_api.py`.
      Under multi-writer execution, `len` reads from the sharded pop counter (`tree_pop.sum()`).
      `BlobArena`'s internal counters (`live_bytes`, `total_allocated`) are maintained as plain
@@ -3432,13 +3432,13 @@ The reader is owed the full accounting of prior observations (AGENTS.md §8.7, �
      (137.95 ns/op in release mode). Under Amdahl's law, the serialization ceiling is
      $1 / (17.41 \times 10^{-9}) \approx 57.4 \text{ M ops/s}$, which strictly dominates the
      $W = 8$ scaling floor ($F \ge 20 \text{ M ops/s}$).
-   - **Compaction hazard & invariant analysis**: Evaluated `crates/expanse/src/blobmap.rs:902`.
+   - **Compaction hazard & invariant analysis**: Evaluated `crates/expanse/src/blobmap.rs:902@a80ce8a5`.
      Chunk header generation checks invalidate retired chunks, but cannot track concurrent
      arena reallocations across uncoordinated threads. The writer gate must strictly enclose
      arena allocation before index insertion; pointer-valued epoch pins must span read through
      publish. Active compaction remains stop-the-world behind the writer lock with the tree-level
      version word bracketed unconditionally (`write_quiesced`).
-   - **Single-block bucket layout analysis**: Evaluated `crates/expanse/src/bytesmap.rs:78-98`
+   - **Single-block bucket layout analysis**: Evaluated `crates/expanse/src/bytesmap.rs:78-98@a80ce8a5`
      for layout consolidation and indirection overhead bounds.
 3. **No multi-writer throughput run**: No execution of `concurrency_writer_blob_64bit`
    under multi-writer OLC or `--compare` has been performed.

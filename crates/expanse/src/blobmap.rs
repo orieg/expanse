@@ -1030,14 +1030,17 @@ impl BlobArena {
         }
     }
 
-    /// In-place mark-compact GC consolidating live payloads into fresh chunk(s),
-    /// updating `ValueSlot` arena offsets directly in the trie index, and freeing dead chunks.
+    /// Copying compaction: every live `ArenaMeta` payload the index references
+    /// is copied into a fresh arena, the index's `ValueSlot` locators are then
+    /// rewritten to the new offsets, and the old chunk set is swapped out and
+    /// disposed of (freed, or retired to the collector in deferred mode).
+    /// Nothing is compacted in place.
     ///
-    /// All-or-nothing: every live payload is relocated into a fresh arena
-    /// *before* any index slot is rewritten. If any relocation fails (e.g.
+    /// Two phases, all-or-nothing: every live payload is copied into the fresh
+    /// arena *before* any index slot is rewritten. If any copy fails (e.g.
     /// [`ArenaError::AllocationFailed`] / [`ArenaError::OffsetOverflow`]) the
     /// method returns `Err` with both `self` and `index` left untouched — the
-    /// half-built new arena is dropped and no index slot points into it. The
+    /// half-built new arena is dropped and no index slot points into it.
     /// The new arena's generation is bumped so a **retired** chunk — one a
     /// pinned reader still holds a payload borrow into — fails the
     /// [`ArenaChunk::get_slice`] generation check rather than resolving to
