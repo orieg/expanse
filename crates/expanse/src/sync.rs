@@ -11956,6 +11956,82 @@ mod miri_ub_sites {
         assert_eq!(map.len(), TREE_PREFILL + TREE_KEYS);
     }
 
+    /// One ascending pass by `first` / `next_after` and one descending pass by
+    /// `last` / `prev_before` on a reader handle: the validated ordered walks
+    /// (`sync_nav`), including the unaligned loads of packed leaf keys. Asserts
+    /// each pass is strictly monotone and returns the keys it saw.
+    fn ordered_passes(rd: &MapReader<'_>) -> std::vec::Vec<u64> {
+        let mut up = std::vec::Vec::new();
+        let mut at = rd.first();
+        while let Some((k, _)) = at {
+            assert!(up.last().is_none_or(|&p| p < k), "ascending pass");
+            up.push(k);
+            at = rd.next_after(k);
+        }
+        let mut last_seen: Option<u64> = None;
+        let mut at = rd.last();
+        while let Some((k, _)) = at {
+            assert!(last_seen.is_none_or(|p| p > k), "descending pass");
+            last_seen = Some(k);
+            at = rd.prev_before(k);
+        }
+        up
+    }
+
+    /// The ordered reads (#900) over a root leaf a writer appends to (#1142).
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_ordered_leaf_reader_writer() {
+        let map = SyncExpanseMap::new();
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..LEAF_KEYS {
+                    assert_eq!(map.insert(key(0, i), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = map.reader();
+                read_until(&done, || {
+                    ordered_passes(&rd);
+                });
+            });
+        });
+        assert_eq!(map.len(), LEAF_KEYS);
+    }
+
+    /// The ordered reads (#900) over a tree a writer inserts into (#1142):
+    /// every prefilled key is present for the whole run, so every ascending
+    /// pass sees all of them.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_ordered_tree_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for i in 0..TREE_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_KEYS {
+                    assert_eq!(map.insert(key(0, i), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = map.reader();
+                read_until(&done, || {
+                    let seen = ordered_passes(&rd);
+                    for i in 0..TREE_PREFILL {
+                        assert!(seen.binary_search(&splitmix64(i)).is_ok());
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
     // --- SyncExpanseSet ---------------------------------------------------
 
     #[test]
