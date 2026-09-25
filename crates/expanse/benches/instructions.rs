@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exception: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000) |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -462,6 +462,245 @@ fn set_clear_refill(built: (ExpanseSet, Vec<u64>)) -> u64 {
     let n = set.len();
     core::mem::forget(set);
     black_box(n)
+}
+
+// ---- Remove retention (docs/benchmarks/remove_retention/METHODOLOGY.md) ----
+//
+// The arms the remove-retention pre-registration names (§7.2–§7.4). They were
+// added before any condensing code exists, so `main` carries a base-side count
+// for each. Every tree is built in `setup` and leaked, so neither the build nor
+// the drop is measured.
+
+/// `set_remove_partial` / `map_remove_partial` population: 200,000 uniform
+/// random keys at a 60-bit width, λ = 200,000 / 4,096 = 48.8 keys per 2-byte
+/// expanse (the headline λ_N of METHODOLOGY §3).
+const PARTIAL_N: usize = 200_000;
+/// Keys the partial-remove arms keep: 62,500, λ = 15.3 (the headline λ_M).
+const PARTIAL_M: usize = 62_500;
+/// Key width of the partial-remove population.
+const PARTIAL_BITS: u32 = 60;
+
+/// The partial-remove population in generator order (distinct keys, drawn as
+/// `remove_retention.rs` draws `random@60`) and the `PARTIAL_N - PARTIAL_M`
+/// keys to remove, in a Fisher–Yates order.
+fn partial_keys() -> (Vec<u64>, Vec<u64>) {
+    let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+    let mask = (1u64 << PARTIAL_BITS) - 1;
+    let mut seen = std::collections::HashSet::with_capacity(PARTIAL_N);
+    let mut all = Vec::with_capacity(PARTIAL_N);
+    while all.len() < PARTIAL_N {
+        let k = rng.next() & mask;
+        if seen.insert(k) {
+            all.push(k);
+        }
+    }
+    let mut perm = all.clone();
+    let mut prng = XorShift(0x5EED_0DE1_E7E5_0002);
+    for i in (1..perm.len()).rev() {
+        perm.swap(i, (prng.next() % (i as u64 + 1)) as usize);
+    }
+    perm.truncate(PARTIAL_N - PARTIAL_M);
+    (all, perm)
+}
+
+fn built_partial_set(_: &str) -> (ExpanseSet, Vec<u64>) {
+    let (all, removals) = partial_keys();
+    let mut set = ExpanseSet::new();
+    for &k in &all {
+        set.insert(k);
+    }
+    (set, removals)
+}
+
+fn built_partial_map(_: &str) -> (ExpanseMap, Vec<u64>) {
+    let (all, removals) = partial_keys();
+    let mut map = ExpanseMap::new();
+    for &k in &all {
+        map.insert(k, !k);
+    }
+    (map, removals)
+}
+
+// Remove 137,500 of 200,000 keys in shuffled order, down to 62,500: drains
+// cascaded expanses below `LEAF_CAP` (METHODOLOGY §7.2). Counted per remove.
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = built_partial_set)]
+fn set_remove_partial(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (mut set, removals) = built;
+    let mut removed = 0u64;
+    for &k in &removals {
+        removed += u64::from(set.remove(black_box(k)));
+    }
+    core::mem::forget(set);
+    black_box(removed)
+}
+
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = built_partial_map)]
+fn map_remove_partial(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (mut map, removals) = built;
+    let mut removed = 0u64;
+    for &k in &removals {
+        removed += u64::from(map.remove(black_box(k)).is_some());
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
+/// Level-6 expanses the subtree arms drive (METHODOLOGY §7.3, §7.4: E).
+const SUBTREE_E: usize = 1_024;
+/// Spacing of the driven expanses among the 65,536 2-byte prefixes.
+const SUBTREE_STRIDE: usize = 65_536 / SUBTREE_E;
+/// The `H1` arm's threshold, `LEAF_CAP - 1` (METHODOLOGY §5.2).
+const SUBTREE_T_H1: usize = expanse_trie::types::LEAF_CAP - 1;
+/// The `wide` arm's threshold, `LEAF_CAP - 8` (METHODOLOGY §5.2).
+const SUBTREE_T_WIDE: usize = expanse_trie::types::LEAF_CAP - 8;
+/// Full insert/remove cycles per expanse in the oscillation arm.
+const OSC_CYCLES: usize = 8;
+
+/// Key `j` of driven expanse `e`: 2-byte prefix `e * SUBTREE_STRIDE`, a third
+/// byte distinct for every `j < 256` (so a cascaded expanse is a branch of
+/// single-key children), and 40 low bits from `rng`.
+fn subtree_key(e: usize, j: usize, rng: &mut XorShift) -> u64 {
+    let prefix = (e * SUBTREE_STRIDE) as u64;
+    let third = ((j * 37 + e) & 0xFF) as u64;
+    (prefix << 48) | (third << 40) | (rng.next() & ((1u64 << 40) - 1))
+}
+
+/// A set whose top two levels are `BranchU` (every one of the 65,536 2-byte
+/// prefixes populated) with `SUBTREE_E` driven expanses. Each driven expanse
+/// draws `drawn` keys, has the first `insert` of them inserted fresh, and is then
+/// drained, highest `j` first, to `keep` keys. Every other prefix holds one
+/// key. Returns the set and, per driven expanse, its `drawn` keys in `j` order.
+fn subtree_set(drawn: usize, insert: usize, keep: usize) -> (ExpanseSet, Vec<Vec<u64>>) {
+    assert!(keep <= insert && insert <= drawn && drawn <= 256);
+    let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+    let mut set = ExpanseSet::new();
+    for p in 0..65_536usize {
+        if p % SUBTREE_STRIDE != 0 {
+            set.insert(((p as u64) << 48) | (rng.next() & ((1u64 << 48) - 1)));
+        }
+    }
+    let mut expanses = Vec::with_capacity(SUBTREE_E);
+    for e in 0..SUBTREE_E {
+        let ks: Vec<u64> = (0..drawn).map(|j| subtree_key(e, j, &mut rng)).collect();
+        for &k in &ks[..insert] {
+            assert!(set.insert(k));
+        }
+        for &k in ks[keep..insert].iter().rev() {
+            assert!(set.remove(k));
+        }
+        expanses.push(ks);
+    }
+    (set, expanses)
+}
+
+/// Oscillation input: the band's lower edge, `LEAF_CAP + 1 - band` keys.
+fn osc_setup(band: usize) -> (ExpanseSet, Vec<Vec<u64>>, usize) {
+    let cap1 = expanse_trie::types::LEAF_CAP + 1;
+    let (set, ex) = subtree_set(cap1, cap1, cap1);
+    (set, ex, band)
+}
+
+// METHODOLOGY §7.3: every driven expanse cascaded at `LEAF_CAP + 1` keys, then
+// `OSC_CYCLES` cycles per expanse of removing its highest `band` keys and
+// inserting them again. `band2` crosses `LEAF_CAP + 1 ↔ LEAF_CAP - 1` (H = 1),
+// `band9` crosses `LEAF_CAP + 1 ↔ LEAF_CAP - 8` (H = 8). Counted per operation:
+// `OSC_CYCLES × SUBTREE_E × 2 × band`.
+#[library_benchmark]
+#[bench::band2(args = (2,), setup = osc_setup)]
+#[bench::band9(args = (9,), setup = osc_setup)]
+fn set_subtree_boundary_oscillate(built: (ExpanseSet, Vec<Vec<u64>>, usize)) -> u64 {
+    let (mut set, expanses, band) = built;
+    let mut sink = 0u64;
+    for _ in 0..OSC_CYCLES {
+        for ks in &expanses {
+            let lo = ks.len() - band;
+            for &k in ks[lo..].iter().rev() {
+                sink += u64::from(set.remove(black_box(k)));
+            }
+            for &k in &ks[lo..] {
+                sink += u64::from(set.insert(black_box(k)));
+            }
+        }
+    }
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+/// Split pair input: every driven expanse a fresh leaf of `pop` keys (built by
+/// insertion only), and the key each measured insert adds.
+fn split_leaf_setup(pop: usize) -> (ExpanseSet, Vec<u64>) {
+    let (set, ex) = subtree_set(pop + 1, pop, pop);
+    let adds = ex.iter().map(|ks| ks[pop]).collect();
+    (set, adds)
+}
+
+fn insert_each(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (mut set, adds) = built;
+    let mut sink = 0u64;
+    for &k in &adds {
+        sink += u64::from(set.insert(black_box(k)));
+    }
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+// METHODOLOGY §7.4, C_split: one insert into each of `SUBTREE_E` full
+// `LEAF_CAP`-key leaves, so every insert cascades its expanse.
+#[library_benchmark]
+#[bench::e1024(args = (expanse_trie::types::LEAF_CAP,), setup = split_leaf_setup)]
+fn set_subtree_split(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    insert_each(built)
+}
+
+// The control of `set_subtree_split`: one insert into each of `SUBTREE_E`
+// `LEAF_CAP - 1`-key leaves, the same slot class, no cascade.
+#[library_benchmark]
+#[bench::e1024(args = (expanse_trie::types::LEAF_CAP - 1,), setup = split_leaf_setup)]
+fn set_subtree_split_control(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    insert_each(built)
+}
+
+/// Condense pair input: each driven expanse cascaded at `LEAF_CAP + 1` keys
+/// and drained to `pop` keys (a `BranchB` of single-key children), and the
+/// key each measured remove takes out.
+fn condense_setup(pop: usize) -> (ExpanseSet, Vec<u64>) {
+    let cap1 = expanse_trie::types::LEAF_CAP + 1;
+    let (set, ex) = subtree_set(cap1, cap1, pop);
+    let takes = ex.iter().map(|ks| ks[pop - 1]).collect();
+    (set, takes)
+}
+
+fn remove_each(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (mut set, takes) = built;
+    let mut sink = 0u64;
+    for &k in &takes {
+        sink += u64::from(set.remove(black_box(k)));
+    }
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+// METHODOLOGY §7.4, C_condense: one remove from each of `SUBTREE_E` drained
+// expanses at `T + 1` keys, so under the arm with threshold T every remove
+// lands on T and condenses. `h1` is T = `LEAF_CAP - 1`, `wide` is
+// T = `LEAF_CAP - 8`; the input matching a build's arm is the one its
+// C_condense reads.
+#[library_benchmark]
+#[bench::h1(args = (SUBTREE_T_H1 + 1,), setup = condense_setup)]
+#[bench::wide(args = (SUBTREE_T_WIDE + 1,), setup = condense_setup)]
+fn set_subtree_condense(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    remove_each(built)
+}
+
+// The control of `set_subtree_condense`: the same remove from expanses at
+// `T + 2` keys, which lands on `T + 1`, not an evaluation point of either arm.
+#[library_benchmark]
+#[bench::h1(args = (SUBTREE_T_H1 + 2,), setup = condense_setup)]
+#[bench::wide(args = (SUBTREE_T_WIDE + 2,), setup = condense_setup)]
+fn set_subtree_condense_control(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    remove_each(built)
 }
 
 // Snapshot by deep copy (#1103): `Clone` rebuilds by ordered iteration, so
@@ -2401,6 +2640,13 @@ library_benchmark_group!(
         set_refill,
         map_clear_refill,
         set_clear_refill,
+        set_remove_partial,
+        map_remove_partial,
+        set_subtree_boundary_oscillate,
+        set_subtree_split,
+        set_subtree_split_control,
+        set_subtree_condense,
+        set_subtree_condense_control,
         map_iterate,
         map_clone,
         set_clone,

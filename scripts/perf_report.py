@@ -93,6 +93,19 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_clear_refill": 50_000,
     "set_clear_refill": 50_000,
     "map_churn": 50_000,
+    # Remove retention (docs/benchmarks/remove_retention/METHODOLOGY.md §7):
+    # `*_remove_partial` counts its 137,500 removes (200,000 -> 62,500); the
+    # oscillation counts OSC_CYCLES (8) x SUBTREE_E (1,024) x 2 x band
+    # operations (band2 is the base entry); the isolating pairs count one operation per driven expanse
+    # (SUBTREE_E = 1,024).
+    "set_remove_partial": 137_500,
+    "map_remove_partial": 137_500,
+    "set_subtree_boundary_oscillate": 32_768,
+    "set_subtree_boundary_oscillate/band9": 147_456,
+    "set_subtree_split": 1_024,
+    "set_subtree_split_control": 1_024,
+    "set_subtree_condense": 1_024,
+    "set_subtree_condense_control": 1_024,
     # Concurrent wrappers on one thread (#568): the `OCC=true` engine with
     # an uncontended mutex; same probe count as their plain twins.
     "sync_map_insert": 50_000,
@@ -347,6 +360,13 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_clear_refill",
             "set_clear_refill",
             "map_churn",
+            "set_remove_partial",
+            "map_remove_partial",
+            "set_subtree_boundary_oscillate",
+            "set_subtree_split",
+            "set_subtree_split_control",
+            "set_subtree_condense",
+            "set_subtree_condense_control",
             "sync_map_insert",
             "sync_set_insert",
             "sync_map_churn",
