@@ -182,6 +182,10 @@ public:
         return expanse_set_shrink_to_fit(ptr_);
     }
 
+    [[nodiscard]] bool validate() const noexcept {
+        return expanse_set_validate(ptr_);
+    }
+
     void clear() noexcept {
         expanse_set_clear(ptr_);
     }
@@ -426,8 +430,7 @@ public:
     }
 
     [[nodiscard]] bool contains(Key key) const noexcept {
-        uint64_t val = 0;
-        return expanse_map_get(ptr_, static_cast<uint64_t>(key), &val);
+        return expanse_map_contains(ptr_, static_cast<uint64_t>(key));
     }
 
     [[nodiscard]] uint64_t* slot(Key key) noexcept {
@@ -468,6 +471,13 @@ public:
     // bytes released. Nothing moves and mem_used() is unchanged.
     size_t shrink_to_fit() noexcept {
         return expanse_map_shrink_to_fit(ptr_);
+    }
+    [[nodiscard]] bool validate() const noexcept {
+        return expanse_map_validate(ptr_);
+    }
+
+    [[nodiscard]] bool validate_explain(char* err_buf, size_t err_len) const noexcept {
+        return expanse_map_validate_explain(ptr_, err_buf, err_len);
     }
 
     void clear() noexcept {
@@ -631,7 +641,7 @@ public:
 
         constexpr const_iterator() noexcept : map_(nullptr), current_{}, is_end_(true) {}
 
-        const_iterator(expanse_strmap_t* m, std::string k, Value v, bool is_end)
+        const_iterator(const expanse_strmap_t* m, std::string k, Value v, bool is_end)
             : map_(m), current_{std::move(k), v}, is_end_(is_end) {}
 
         [[nodiscard]] const std::pair<std::string, Value>& operator*() const noexcept {
@@ -680,7 +690,7 @@ public:
         }
 
     private:
-        expanse_strmap_t*              map_{nullptr};
+        const expanse_strmap_t*       map_{nullptr};
         std::pair<std::string, Value> current_{};
         bool                          is_end_{true};
     };
@@ -763,7 +773,8 @@ public:
     }
 
     [[nodiscard]] bool contains(std::string_view key) const {
-        return get(key).has_value();
+        std::string k_str(key);
+        return expanse_strmap_contains(ptr_, k_str.c_str());
     }
 
     [[nodiscard]] uint64_t* slot(std::string_view key) {
@@ -1000,7 +1011,38 @@ public:
 
     template <typename KeyLike>
     [[nodiscard]] bool contains(const KeyLike& key) const noexcept {
-        return get(key).has_value();
+        auto span = detail::to_byte_span(key);
+        return expanse_bytesmap_contains(ptr_, span.data(), span.size());
+    }
+
+    template <typename Fn>
+    size_t for_each(Fn&& fn) const {
+        struct Ctx {
+            Fn* f;
+            std::exception_ptr exc;
+        } ctx{&fn, nullptr};
+
+        auto cb = [](const void* key, size_t key_len, uint64_t val, void* user_data) -> bool {
+            auto* c = static_cast<Ctx*>(user_data);
+            try {
+                std::span<const std::byte> k_span{reinterpret_cast<const std::byte*>(key), key_len};
+                if constexpr (std::is_invocable_r_v<bool, Fn&, std::span<const std::byte>, Value>) {
+                    return (*(c->f))(k_span, static_cast<Value>(val));
+                } else {
+                    (*(c->f))(k_span, static_cast<Value>(val));
+                    return true;
+                }
+            } catch (...) {
+                c->exc = std::current_exception();
+                return false;
+            }
+        };
+
+        size_t res = expanse_bytesmap_for_each(ptr_, cb, &ctx);
+        if (ctx.exc) {
+            std::rethrow_exception(ctx.exc);
+        }
+        return res;
     }
 
     template <typename KeyLike>
@@ -1077,6 +1119,11 @@ public:
     constexpr blob_view() noexcept : data_{}, hot_meta_{0}, is_inline_{false} {}
     constexpr blob_view(std::span<const std::byte> data, uint32_t hot_meta, bool is_inline) noexcept
         : data_(data), hot_meta_(hot_meta), is_inline_(is_inline) {}
+
+    explicit blob_view(const ExpanseBlobView& view) noexcept
+        : data_(view.ptr ? std::span<const std::byte>{reinterpret_cast<const std::byte*>(view.ptr), view.len} : std::span<const std::byte>{}),
+          hot_meta_(view.hot_meta),
+          is_inline_(view.is_inline) {}
 
     [[nodiscard]] constexpr std::span<const std::byte> data() const noexcept { return data_; }
     [[nodiscard]] inline std::span<const uint8_t> as_u8() const noexcept {
@@ -1163,20 +1210,20 @@ public:
     [[nodiscard]] std::optional<blob_view> get(uint64_t key) const noexcept {
         ExpanseBlobView view{};
         if (expanse_blob_map_get(ptr_, key, &view)) {
-            return blob_view{
-                std::span<const std::byte>{
-                    reinterpret_cast<const std::byte*>(view.ptr),
-                    view.len
-                },
-                view.hot_meta,
-                view.is_inline
-            };
+            if (view.ptr == nullptr) {
+                return std::nullopt; // compressed inline needs get_into
+            }
+            return blob_view{view};
         }
         return std::nullopt;
     }
 
+    bool get_into(uint64_t key, std::span<uint8_t> buf, size_t* out_len = nullptr, uint32_t* out_meta = nullptr) const noexcept {
+        return expanse_blob_map_get_into(ptr_, key, buf.data(), buf.size(), out_len, out_meta);
+    }
+
     [[nodiscard]] bool contains(uint64_t key) const noexcept {
-        return expanse_blob_map_contains_key(ptr_, key);
+        return expanse_blob_map_contains(ptr_, key);
     }
 
     [[nodiscard]] uint64_t size() const noexcept {
@@ -1204,17 +1251,28 @@ public:
         struct PruneContext {
             Predicate* p;
             std::vector<uint64_t> keys;
-        } ctx{&pred, {}};
+            std::exception_ptr exc{nullptr};
+        } ctx{&pred, {}, nullptr};
 
         auto pred_wrapper = [](uint64_t k, uint32_t meta, void* user_ctx) -> bool {
             auto* c = static_cast<PruneContext*>(user_ctx);
-            return (*(c->p))(k, meta);
+            try {
+                return (*(c->p))(k, meta);
+            } catch (...) {
+                c->exc = std::current_exception();
+                return false;
+            }
         };
 
         auto cb_wrapper = [](uint64_t k, ExpanseBlobView /*view*/, void* user_ctx) -> bool {
             auto* c = static_cast<PruneContext*>(user_ctx);
-            c->keys.push_back(k);
-            return true;
+            try {
+                c->keys.push_back(k);
+                return true;
+            } catch (...) {
+                c->exc = std::current_exception();
+                return false;
+            }
         };
 
         expanse_blob_map_scan_filtered(
@@ -1225,6 +1283,10 @@ public:
             cb_wrapper,
             &ctx
         );
+
+        if (ctx.exc) {
+            std::rethrow_exception(ctx.exc);
+        }
 
         size_t count = 0;
         for (uint64_t k : ctx.keys) {
@@ -1245,27 +1307,31 @@ public:
         struct ScanContext {
             Predicate* p;
             Callback* c;
-        } ctx{&pred, &cb};
+            std::exception_ptr exc{nullptr};
+        } ctx{&pred, &cb, nullptr};
 
         auto pred_wrapper = [](uint64_t k, uint32_t meta, void* user_ctx) -> bool {
             auto* c = static_cast<ScanContext*>(user_ctx);
-            return (*(c->p))(k, meta);
+            try {
+                return (*(c->p))(k, meta);
+            } catch (...) {
+                c->exc = std::current_exception();
+                return false;
+            }
         };
 
         auto cb_wrapper = [](uint64_t k, ExpanseBlobView view, void* user_ctx) -> bool {
             auto* c = static_cast<ScanContext*>(user_ctx);
-            blob_view bv{
-                std::span<const std::byte>{
-                    reinterpret_cast<const std::byte*>(view.ptr),
-                    view.len
-                },
-                view.hot_meta,
-                view.is_inline
-            };
-            return (*(c->c))(k, bv);
+            try {
+                blob_view bv{view};
+                return (*(c->c))(k, bv);
+            } catch (...) {
+                c->exc = std::current_exception();
+                return false;
+            }
         };
 
-        return expanse_blob_map_scan_filtered(
+        size_t count = expanse_blob_map_scan_filtered(
             ptr_,
             start_key,
             end_key,
@@ -1273,6 +1339,12 @@ public:
             cb_wrapper,
             &ctx
         );
+
+        if (ctx.exc) {
+            std::rethrow_exception(ctx.exc);
+        }
+
+        return count;
     }
 
     void swap(blob_map& other) noexcept {

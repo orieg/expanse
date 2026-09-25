@@ -67,6 +67,12 @@ impl ExpanseMap {
         self.inner.contains_key(key)
     }
 
+    // abi-parity: expanse_map_contains
+    /// Returns True if key is present in the map.
+    pub fn contains(&self, key: u64) -> bool {
+        self.inner.contains_key(key)
+    }
+
     /// Returns True if key is present in the map.
     pub fn contains_key(&self, key: u64) -> bool {
         self.inner.contains_key(key)
@@ -237,6 +243,18 @@ impl ExpanseMap {
     /// Number of keys in the range `[start, end]`.
     pub fn count_range(&self, start: u64, end: u64) -> u64 {
         self.inner.count_range(start..=end)
+    }
+
+    // abi-parity: expanse_map_validate
+    /// Validates internal structural invariants.
+    pub fn validate(&self) -> bool {
+        self.inner.validate_defensive().is_ok()
+    }
+
+    // abi-parity: expanse_map_validate_explain
+    /// Validates internal structural invariants, returning None if valid or an error explanation string.
+    pub fn validate_explain(&self) -> Option<String> {
+        self.inner.validate_defensive().err()
     }
 
     /// Returns a list of `(key, value)` pairs in the range `[start, end]` (inclusive).

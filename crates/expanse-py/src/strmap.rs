@@ -66,6 +66,12 @@ impl ExpanseStrMap {
         Ok(self.inner.get(&k).is_some())
     }
 
+    // abi-parity: expanse_strmap_contains
+    /// Returns True if key is present in the map.
+    pub fn contains(&self, key: &Bound<'_, PyAny>) -> PyResult<bool> {
+        self.__contains__(key)
+    }
+
     /// Returns True if key is present in the map.
     pub fn contains_key(&self, key: &Bound<'_, PyAny>) -> PyResult<bool> {
         self.__contains__(key)

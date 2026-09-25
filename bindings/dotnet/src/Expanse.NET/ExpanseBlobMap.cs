@@ -186,16 +186,16 @@ public sealed class ExpanseBlobMap : IDisposable
     /// </summary>
     /// <param name="key">The 64-bit key.</param>
     /// <returns><c>true</c> if present; otherwise <c>false</c>.</returns>
-    public bool Contains(ulong key) => ContainsKey(key);
+    public bool Contains(ulong key)
+    {
+        ThrowIfDisposed();
+        return NativeMethods.expanse_blob_map_contains(_handle, key);
+    }
 
     /// <summary>
     /// Checks whether the map contains the specified key.
     /// </summary>
-    public bool ContainsKey(ulong key)
-    {
-        ThrowIfDisposed();
-        return NativeMethods.expanse_blob_map_contains_key(_handle, key);
-    }
+    public bool ContainsKey(ulong key) => Contains(key);
 
     /// <summary>
     /// Gets the number of entries stored in the map (capped at <see cref="int.MaxValue"/>).

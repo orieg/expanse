@@ -3856,3 +3856,49 @@ no concurrent removals; 64-bit targets only.
    SipHash-2-4 provides 64-bit pseudorandom dispersion over arbitrary byte slices, bounding collision
    chain lengths to $O(1)$ under non-adversarial keys. Bucket chain traversal is $O(1)$ expected time.
 
+
+## 23. Pre-registration for #1144 — the cost of a concurrent count under a writer (appended and locked 2026-09-25, before any admissible run of it)
+
+### 23.1 The gate
+
+#1144's first gate, verbatim: *the cost of a count under a writer is recorded, deterministically and in wall clock, on uniform and one-top-byte key sets.* No magnitude is predicted, and the blast radius is benches and examples only. Its falsifier is an unrecorded cell: the gate is met when every cell of §23.3 is in two non-void committed runs (§23.4), not by any value those cells take.
+
+The deterministic half is the Callgrind arms merged in #1155: `map_count_below` and `set_count_below` on plain trees, and `sync_map_count_locked`, `sync_map_write_twin` and `sync_map_count_after_write` over one probe stream and one stream of absent keys (`crates/expanse/benches/instructions.rs`), whose combined arm minus its two twins is the fold's instruction cost. This section fixes the wall-clock half.
+
+### 23.2 What is measured, and the statistic
+
+- **Writer cost of a counting reader.** For each probe mode and W ∈ {1, 4}: `writer_mops(W, R = 1) / writer_mops(W, R = 0)`, one ratio per round, the two cells run in the same round of the same build, with a BCa 95% interval of the mean over rounds (`count_writer_ratio`, `docs/benchmarks/concurrency/scripts/writer_scaling.py`). Reported, not gated: #1144 asks for the cost to be recorded, and no floor was set before this section.
+- **Per cell:** writer Mops/s where W ≥ 1 and reader Mops/s where R ≥ 1, each the mean over rounds with a BCa 95% interval; the counters pass's `locked_reads`, `quiesce_calls`, `lock_fallbacks` and fallback causes, summed over rounds.
+- **The no-fold control:** W = 0, R = 1. With no writer, every count after the first finds the dirty mask clean, so its reader throughput is the lock, quiesce and count alone.
+- **Uniform against one top byte** is read from the two probe modes' intervals. A difference between them is claimed only when both runs show it in the same direction with non-overlapping intervals (`docs/BENCHMARKING.md` rule 18); a single run's interval does not bound between-run spread.
+
+### 23.3 Instruments and cells
+
+- Harness: `crates/expanse/examples/writer_scaling.rs` reader mode, `--arm map --read-op count_locked`: each reader calls `count_below(k)` under `SyncExpanseMap::with_locked` for its own Fisher–Yates permutation of the prefill, cycled until the writers join. `--readers 0` with `count_locked` is the writers-only control over the same prefill and fresh stream.
+- Probe modes:
+  - `uniform`: the writer sweep's 2^20-key 64-bit prefill plus reader mode's 256 hotspot keys; writers insert the 2^20 uniform fresh keys.
+  - `one_top_byte`: 2^20 keys under the top byte `0xA5` (the writer sweep's draws shifted right one byte), nothing else prefilled; writers insert 2^20 fresh keys of the same shape. Every write marks the one top digit, so every count after a write refolds the whole tree.
+- Cells: probe ∈ {`uniform`, `one_top_byte`} × (W, R) ∈ {(0, 1), (1, 0), (1, 1), (4, 0), (4, 1)}: ten cells.
+- Driver: `writer_scaling.py --count-cells`, 8 rounds. Each round runs both probe blocks, the first alternating by round; within a block the five cells follow that round's row of the Williams construction (five is odd, so positions are not exactly balanced over 8 rounds; every row is a permutation). One harness process per cell (§15). The throughput build runs every round before the `occ-stats` counters build.
+- Pin: `0,2,4,6,8,10,12,14`, one thread per physical P-core on the reference host, as §12.4. A cell holds at most five threads, so every thread has a core of its own, including a writer parked while a count quiesces the writers. `AGENTS.md` §8.20.5 step 0 warns against this pin where blocked threads need CPUs to park on; with five threads on eight pinned cores none shares one.
+- Load: snapshots before, between and after the passes, with the busy-CPU delta (AGENTS.md §8.17), recorded in the artifact.
+- Artifact: `docs/benchmarks/concurrency/results/count_cells_writer_scaling.json`, then a second run to `count_cells_writer_scaling_run2.json`, at one commit.
+
+### 23.4 What voids a cell or a run
+
+- An applied pin other than §23.3's, or a row recording another (the driver refuses to start).
+- `--quick`, which is a smoke run of the instrument, not these cells.
+- Host contention as AGENTS.md §8.17 defines it: a non-target process above about 100% CPU, a load average above cores / 2, or a load shift above 2 between passes. A contaminated run is discarded and the discard disclosed in the suite README, never reinterpreted.
+- A broken counters identity (`quiesce_calls ≠ lock_fallbacks + locked_reads`, `locked_reads ≠ reader_ops`, causes not summing to `lock_fallbacks`): the driver refuses the run.
+- The runs being at different commits.
+
+### 23.5 What had been seen when this was written
+
+- The Callgrind arms of §23.1 had run once, in #1155's own CI; their counts are read from `main`'s `instruction-counts` job, not quoted here.
+- A native release run on an arm64 laptop, used only to size those arms (not published, not an input to anything here), took about 20 s for 50,000 `one_top_byte` insert–count–remove steps, against well under 1 s for `random` and `sequential`.
+- A `--quick` smoke of the new cells on the same laptop (4,096 prefill keys, one round, no pin, no interval) showed the `one_top_byte` W = 1 writer far slower beside a counting reader than without one. That is one uncontrolled sample on a non-reference host, not a measurement; it fixed nothing in this section, which states no magnitude.
+
+### 23.6 Not predicted, and out of scope
+
+- No magnitude, direction or ordering between cells is predicted, and no threshold is set; a later design choice among #1144's options may set one, in its own pre-registration.
+- W = 8, R > 1 and ordered reads are outside this gate. So are the string map, `sync32`, and any change to the write path, the fold or `nav`.

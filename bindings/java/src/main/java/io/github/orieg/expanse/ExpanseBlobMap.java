@@ -182,13 +182,23 @@ public final class ExpanseBlobMap implements AutoCloseable {
      * @param key 64-bit key
      * @return true if key is present
      */
-    public boolean containsKey(long key) {
+    public boolean contains(long key) {
         checkOpen();
         try {
-            return (boolean) ExpanseNative.MH_expanse_blob_map_contains_key.invokeExact(handle, key);
+            return (boolean) ExpanseNative.MH_expanse_blob_map_contains.invokeExact(handle, key);
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
+    }
+
+    /**
+     * Checks if key exists in the map.
+     *
+     * @param key 64-bit key
+     * @return true if key is present
+     */
+    public boolean containsKey(long key) {
+        return contains(key);
     }
 
     /**

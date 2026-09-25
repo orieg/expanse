@@ -23,7 +23,7 @@ description = "Judy digital tree engine and libexpanse C ABI"
 # repository's test entry point, and neither pytest nor unittest would collect
 # it. Read by every gate that separates test code from production code.
 [tests]
-# Self-test entry points in scripts; the names are plain function names, not globs.
+# Self-test entry points in scripts; plain function names, not globs.
 functions = ["self_test", "_self_test"]
 
 [languages.c]

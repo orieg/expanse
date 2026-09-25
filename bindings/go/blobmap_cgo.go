@@ -45,8 +45,13 @@ func (b *BlobMap) Get(key uint64) ([]byte, uint32, bool) {
 	var view C.ExpanseBlobView
 	if bool(C.expanse_blob_map_get(b.ptr, C.uint64_t(key), &view)) {
 		var data []byte
-		if view.len > 0 {
-			data = unsafe.Slice((*byte)(unsafe.Pointer(view.ptr)), view.len)
+		if view.len > 0 && view.ptr != nil {
+			if bool(view.is_inline) {
+				data = make([]byte, view.len)
+				copy(data, unsafe.Slice((*byte)(unsafe.Pointer(view.ptr)), view.len))
+			} else {
+				data = unsafe.Slice((*byte)(unsafe.Pointer(view.ptr)), view.len)
+			}
 		}
 		return data, uint32(view.hot_meta), true
 	}
@@ -60,7 +65,7 @@ func (b *BlobMap) Delete(key uint64) bool {
 
 func (b *BlobMap) Contains(key uint64) bool {
 	defer runtime.KeepAlive(b)
-	return bool(C.expanse_blob_map_contains_key(b.ptr, C.uint64_t(key)))
+	return bool(C.expanse_blob_map_contains(b.ptr, C.uint64_t(key)))
 }
 
 func (b *BlobMap) Size() uint64 {

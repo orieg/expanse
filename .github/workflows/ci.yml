@@ -697,7 +697,7 @@ jobs:
       # option discipline's own guide prefers.
       - name: Diff Gates (orieg/discipline)
         if: github.event_name == 'pull_request'
-        uses: orieg/discipline@v0.12.0
+        uses: orieg/discipline@v0.12.2
 
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
         # These ship `--self-test` suites and were invoked by no workflow and
@@ -1491,10 +1491,36 @@ jobs:
           toolchain: nightly
           components: rust-src
       - uses: Swatinem/rust-cache@v2
+      # Every lib unit test and every integration-test target, except the
+      # docs and data-sync targets named in ASAN_EXCLUDED_TESTS: they contain
+      # no `unsafe`, run in the plain `test` job on every rust-src change, and
+      # `test_visualizer_sync` alone took 277 s of the job's 642 s median over
+      # ten main runs (docs/CI.md). The targets are read from `cargo metadata`,
+      # so a new test file is in this lane without an edit here; a named
+      # exclusion that no longer exists fails the step.
       - name: Run expanse-trie unit tests under AddressSanitizer
-        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie
+        shell: bash
         env:
           RUSTFLAGS: "-Zsanitizer=address"
+          ASAN_EXCLUDED_TESTS: "test_visualizer_sync"
+        run: |
+          set -euo pipefail
+          mapfile -t all < <(cargo metadata --no-deps --format-version 1 | python3 -c '
+          import json, sys
+          pkg = next(p for p in json.load(sys.stdin)["packages"] if p["name"] == "expanse-trie")
+          print("\n".join(sorted(t["name"] for t in pkg["targets"] if "test" in t["kind"])))')
+          args=()
+          for t in "${all[@]}"; do
+            [[ " $ASAN_EXCLUDED_TESTS " == *" $t "* ]] || args+=(--test "$t")
+          done
+          for x in $ASAN_EXCLUDED_TESTS; do
+            printf '%s\n' "${all[@]}" | grep -qx -e "$x" \
+              || { echo "::error::excluded test target $x is not a test target of expanse-trie"; exit 1; }
+          done
+          echo "ASan lane: the lib and $(( ${#args[@]} / 2 )) of ${#all[@]} integration-test targets (excluded: $ASAN_EXCLUDED_TESTS)"
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib "${args[@]}" 2>&1 | tee asan-core.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' asan-core.log \
+            || { echo "::error::the ASan core step ran zero tests"; exit 1; }
       # `packed-suffix` frees suffix leaves through `NodeAlloc` on the plain,
       # shared and unpublished paths; a free through the wrong allocator is
       # what ASan sees and an assertion may not. Separate invocations, since
@@ -3240,7 +3266,7 @@ jobs:
       # ci-integrity`. When the two have agreed on runs that exercised a skip,
       # the advisory input goes and the script is retired.
       - name: Gate Floor Shadow (orieg/discipline ci-skip-set, advisory)
-        uses: orieg/discipline@v0.12.0
+        uses: orieg/discipline@v0.12.2
         with:
           suite: integrity
           advisory: true

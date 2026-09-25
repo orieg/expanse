@@ -38,6 +38,7 @@ impl ExpanseStrMap {
         self.inner.is_empty()
     }
 
+    // abi-parity: expanse_strmap_contains
     /// Membership test `has(key)`. Returns `true` if `key` exists in the map.
     #[napi]
     pub fn has(&self, key: String) -> Result<bool> {

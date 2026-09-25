@@ -94,6 +94,10 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_set_contains_batch")]
     public static extern unsafe nuint expanse_set_contains_batch(SafeExpanseSetHandle set, ulong* keys, byte* out_present, nuint count);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_set_validate")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_set_validate(SafeExpanseSetHandle set);
+
     #endregion
 
     #region ExpanseMap
@@ -115,6 +119,10 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_get")]
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern bool expanse_map_get(SafeExpanseMapHandle map, ulong key, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_map_contains(SafeExpanseMapHandle map, ulong key);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_get_batch")]
     public static extern unsafe nuint expanse_map_get_batch(SafeExpanseMapHandle map, ulong* keys, ulong* out_values, byte* out_found, nuint count);
@@ -141,6 +149,14 @@ public static class NativeMethods
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_clear")]
     public static extern void expanse_map_clear(SafeExpanseMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_validate")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_map_validate(SafeExpanseMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_validate_explain")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_map_validate_explain(SafeExpanseMapHandle map, byte* buf, nuint bufLen);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_slot")]
     public static extern unsafe ulong* expanse_map_slot(SafeExpanseMapHandle map, ulong key);
@@ -204,6 +220,10 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern unsafe bool expanse_bytesmap_get(SafeExpanseBytesMapHandle map, byte* key, nuint len, out ulong value_out);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_bytesmap_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_bytesmap_contains(SafeExpanseBytesMapHandle map, byte* key, nuint len);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_bytesmap_remove")]
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern unsafe bool expanse_bytesmap_remove(SafeExpanseBytesMapHandle map, byte* key, nuint len, out ulong old_out);
@@ -227,6 +247,13 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_bytesmap_clear")]
     public static extern void expanse_bytesmap_clear(SafeExpanseBytesMapHandle map);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public unsafe delegate bool ExpanseBytesMapIterCallback(byte* key, nuint keyLen, ulong val, IntPtr userCtx);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_bytesmap_for_each")]
+    public static extern nuint expanse_bytesmap_for_each(SafeExpanseBytesMapHandle map, ExpanseBytesMapIterCallback cb, IntPtr userCtx);
+
     #endregion
 
     #region ExpanseStrMap
@@ -248,6 +275,10 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_get")]
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern unsafe bool expanse_strmap_get(SafeExpanseStrMapHandle map, byte* key, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_strmap_contains(SafeExpanseStrMapHandle map, byte* key);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_remove")]
     [return: MarshalAs(UnmanagedType.I1)]
@@ -328,7 +359,7 @@ public static class NativeMethods
     #region ExpanseBlobMap
 
     [StructLayout(LayoutKind.Sequential)]
-    public struct NativeBlobView
+    public unsafe struct NativeBlobView
     {
         public IntPtr Ptr;
         public nuint Len;
@@ -398,6 +429,10 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_contains_key")]
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern bool expanse_blob_map_contains_key(SafeExpanseBlobMapHandle map, ulong key);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_blob_map_contains(SafeExpanseBlobMapHandle map, ulong key);
 
     #endregion
 

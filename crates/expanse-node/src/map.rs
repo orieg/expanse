@@ -39,6 +39,7 @@ impl ExpanseMap {
         self.inner.is_empty()
     }
 
+    // abi-parity: expanse_map_contains
     /// Membership test `has(key)`. Returns `true` if `key` exists in the map.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {
@@ -258,6 +259,20 @@ impl ExpanseMap {
             .collect();
 
         Ok(items)
+    }
+
+    // abi-parity: expanse_map_validate
+    /// Validates internal structural invariants.
+    #[napi]
+    pub fn validate(&self) -> bool {
+        self.inner.validate_defensive().is_ok()
+    }
+
+    // abi-parity: expanse_map_validate_explain
+    /// Validates internal structural invariants, returning null if valid or an error explanation string.
+    #[napi(js_name = "validateExplain")]
+    pub fn validate_explain(&self) -> Option<String> {
+        self.inner.validate_defensive().err()
     }
 }
 

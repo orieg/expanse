@@ -210,6 +210,12 @@ impl ExpanseSet {
         self.inner.count_range(start..=end)
     }
 
+    // abi-parity: expanse_set_validate
+    /// Validates internal structural invariants.
+    pub fn validate(&self) -> bool {
+        self.inner.validate_defensive().is_ok()
+    }
+
     /// Returns a list of elements in the range `[start, end]` (inclusive).
     #[pyo3(signature = (start=None, end=None, inclusive=true))]
     pub fn range(&self, start: Option<u64>, end: Option<u64>, inclusive: bool) -> Vec<u64> {
