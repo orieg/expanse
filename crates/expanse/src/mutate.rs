@@ -3524,8 +3524,8 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                 }
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, bl, -1) };
-                if digits < BRANCH_L7_CAP {
-                    // Hysteresis: B → L7 one index below the L7 capacity.
+                if digits <= crate::types::BRANCHB_TO_L7_DOWN {
+                    // Hysteresis: B → L7 at `BRANCHB_TO_L7_DOWN` = L7 cap − 1.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_b_to_l7::<OCC>(a, edge) };
                 }
@@ -3586,8 +3586,8 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                 }
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
-                if digits < BRANCHB_UP {
-                    // Hysteresis: U → B one index below the U threshold.
+                if digits <= crate::types::BRANCHU_TO_B_DOWN {
+                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 1.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
