@@ -50,6 +50,49 @@ CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 #   ci-gate        -- the rollup; runs `always()`.
 UNCONDITIONAL_JOBS = frozenset({"detect-changes", "docs-lint", "ci-gate"})
 
+# The slow lanes wait for this job (`needs: [..., fast-lane]`): it runs only
+# once lint and docs-lint have passed, and never on a draft pull request or on
+# a push to main that lands a tree CI already passed in full. Its `if:` reads job results and event fields rather than filter
+# outputs, so it is checked by `check_fast_lane`, not `evaluate_if`.
+FAST_LANE_JOB = "fast-lane"
+# The jobs that run before (or regardless of) the fast lane. Every other job
+# must list FAST_LANE_JOB in its `needs`, or it bypasses the gate and takes a
+# runner on every draft, every push to main and every run whose lint failed.
+FAST_LANE_EXEMPT = frozenset({"detect-changes", "lint", "docs-lint", FAST_LANE_JOB, "ci-gate"})
+# Clauses the fast lane's `if:` must carry; each is one of its three purposes.
+FAST_LANE_CLAUSES = (
+    "needs.docs-lint.result == 'success'",
+    "(github.event_name != 'push' || !(needs.detect-changes.outputs.push-verified == 'true'))",
+    "!github.event.pull_request.draft",
+)
+
+
+def job_needs(body) -> list[str]:
+    needs = (body or {}).get("needs") or []
+    return [needs] if isinstance(needs, str) else list(needs)
+
+
+def gated_jobs(jobs) -> set[str]:
+    """The jobs that run only when the fast lane succeeded."""
+    return {name for name, body in jobs.items() if FAST_LANE_JOB in job_needs(body)}
+
+
+def check_fast_lane(jobs) -> list[str]:
+    if FAST_LANE_JOB not in jobs:
+        return [f"ci.yml has no {FAST_LANE_JOB!r} job -- the slow lanes are ungated"]
+    errs = []
+    for name in sorted(set(jobs) - FAST_LANE_EXEMPT):
+        if FAST_LANE_JOB not in job_needs(jobs[name]):
+            errs.append(
+                f"{name!r} does not list {FAST_LANE_JOB!r} in `needs` -- it would run on "
+                "draft pull requests, verified pushes to main and runs whose lint failed"
+            )
+    expr = str(jobs[FAST_LANE_JOB].get("if") or "")
+    for clause in FAST_LANE_CLAUSES:
+        if clause not in expr:
+            errs.append(f"{FAST_LANE_JOB!r} `if:` lacks {clause!r}")
+    return errs
+
 # ---------------------------------------------------------------------------
 # Golden table: (label, changed paths, jobs that MUST run, jobs that MUST NOT)
 #
@@ -241,6 +284,10 @@ def jobs_for_change(jobs, filters, changed):
     outputs = evaluate_filters(filters, changed)
     running = set()
     for name, body in jobs.items():
+        if name == FAST_LANE_JOB:
+            # The golden cases model a ready pull request whose lint passed.
+            running.add(name)
+            continue
         runs, _ = evaluate_if(body.get("if"), outputs)
         if runs:
             running.add(name)
@@ -319,6 +366,8 @@ def check_if_shape(jobs) -> list[str]:
     errs = []
     for name, body in jobs.items():
         expr = body.get("if")
+        if name == FAST_LANE_JOB:
+            continue  # checked by check_fast_lane
         if name in UNCONDITIONAL_JOBS:
             if expr is not None and name != "ci-gate":
                 errs.append(f"{name!r} is declared unconditional but carries an `if:`")
@@ -412,6 +461,25 @@ def self_test() -> int:
     # an ungated job must fail
     check("ungated job is caught", len(check_if_shape({"newjob": {}})), 1)
 
+    # The fast lane: a job that forgets `needs: fast-lane` runs on every draft
+    # and every push to main, which is the load this gate exists to remove.
+    fl_if = " && ".join(("!cancelled()",) + FAST_LANE_CLAUSES)
+    fl_jobs = {
+        "detect-changes": {}, "lint": {}, "docs-lint": {}, "ci-gate": {},
+        FAST_LANE_JOB: {"needs": ["lint", "docs-lint"], "if": fl_if},
+        "miri": {"needs": ["detect-changes", FAST_LANE_JOB]},
+    }
+    check("gated matrix passes", check_fast_lane(fl_jobs), [])
+    check("gated set", gated_jobs(fl_jobs), {"miri"})
+    missing = dict(fl_jobs, miri={"needs": ["detect-changes"]})
+    check("job without the fast lane is caught", len(check_fast_lane(missing)), 1)
+    for clause in FAST_LANE_CLAUSES:
+        weak = dict(fl_jobs)
+        weak[FAST_LANE_JOB] = {"if": fl_if.replace(clause, "true")}
+        check(f"fast lane without {clause!r} is caught", len(check_fast_lane(weak)), 1)
+    check("absent fast lane is caught",
+          len(check_fast_lane({k: v for k, v in fl_jobs.items() if k != FAST_LANE_JOB})), 1)
+
     if failures:
         for f in failures:
             print(f"::error::check_ci_filters self-test: {f}")
@@ -438,6 +506,7 @@ def main() -> int:
     errs = []
     errs += check_job_snapshot(jobs)
     errs += check_if_shape(jobs)
+    errs += check_fast_lane(jobs)
     errs += check_outputs_consumed(jobs, declared_outputs)
     errs += check_golden_table(jobs, filters)
     if errs:

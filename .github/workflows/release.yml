@@ -19,14 +19,21 @@ permissions:
   contents: read
 
 jobs:
-  # Gate: only publish artifacts for a tag whose commit already passed the full
-  # CI rollup on main, and whose manifests are in version lockstep with the tag.
+  # Gate: only publish artifacts for a commit that passed a FULL ci.yml run,
+  # and whose manifests are in version lockstep with the tag. A push to main
+  # that lands a tree CI already passed in full runs ci.yml's fast lane only,
+  # and its `CI Gate / All Checks Passed` check-run succeeds with no test
+  # having run, so that check-run alone is not evidence (docs/CI.md section 3). release_ci_gate.py reads the commit's
+  # ci.yml runs instead, and dispatches a full one on this ref when none exists.
   release-gate:
     name: Release Gate / Verify CI + Version Lockstep
     runs-on: ubuntu-latest
+    # Bounds the wait for a dispatched full run behind a busy runner pool; the
+    # script's own --deadline-minutes fails it first, with the reason.
+    timeout-minutes: 240
     permissions:
       contents: read
-      checks: read
+      actions: write # read the commit's ci.yml runs; dispatch one if none is full
     steps:
       - uses: actions/checkout@v7
 
@@ -35,46 +42,21 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Assert tagged commit passed the CI Gate rollup
+      - name: Assert the released commit passed a full CI run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          # Poll for the CI Gate check-run instead of insta-failing: a tag
-          # pushed moments after its commit lands on main races the
-          # still-running CI (the v0.4.0 incident, #313). Assert on the MOST
-          # RECENT check-run only — re-runs accumulate multiple check-runs per
-          # commit, and a stale failed one must not poison the commit forever.
-          deadline=$(( $(date +%s) + 1800 ))  # wait up to 30 minutes
-          while :; do
-            # One "started_at|status|conclusion" row per matching check-run
-            # (robust to pagination; jq runs per page, sorting happens below).
-            mapfile -t rows < <(gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
-              --jq '.check_runs[] | select(.name=="CI Gate / All Checks Passed") | "\(.started_at)|\(.status)|\(.conclusion // "pending")"')
-            if [ "${#rows[@]}" -eq 0 ]; then
-              status="absent"; conclusion="absent"
-            else
-              latest=$(printf '%s\n' "${rows[@]}" | sort | tail -1)
-              status=$(echo "${latest}" | cut -d'|' -f2)
-              conclusion=$(echo "${latest}" | cut -d'|' -f3)
-            fi
-            echo "CI Gate check-run for ${GITHUB_SHA}: status=${status} conclusion=${conclusion}"
-            if [ "${status}" = "completed" ]; then
-              if [ "${conclusion}" = "success" ]; then
-                echo "CI Gate rollup concluded success for ${GITHUB_SHA}."
-                break
-              fi
-              echo "::error::The latest CI Gate rollup for ${GITHUB_SHA} concluded '${conclusion}'. Fix CI (or re-run it to success) before releasing."
-              exit 1
-            fi
-            if [ "$(date +%s)" -ge "${deadline}" ]; then
-              echo "::error::Timed out waiting for the CI Gate rollup on ${GITHUB_SHA} (last status=${status}). Ensure CI runs and passes on this commit."
-              exit 1
-            fi
-            echo "CI Gate not concluded yet; retrying in 30s..."
-            sleep 30
-          done
+          # A full run is one whose `fast-lane` job succeeded; the latest full
+          # (or still-running) run decides. With none, ci.yml is dispatched on
+          # this ref once and waited for -- a workflow_dispatch made with
+          # GITHUB_TOKEN does start a run. A tag pushed moments after its
+          # commit lands races the still-running CI; the script waits for it
+          # rather than failing (the v0.4.0 incident, #313).
+          python3 scripts/release_ci_gate.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --sha "${GITHUB_SHA}" \
+            --dispatch-ref "${GITHUB_REF_NAME}" \
+            --deadline-minutes 220
 
       - name: Assert manifests are in version lockstep with the tag
         if: github.event_name == 'push'  # no tag to compare on a canary dispatch

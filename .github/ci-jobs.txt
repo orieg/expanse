@@ -3,6 +3,7 @@ ci-gate
 detect-changes
 differential-oracle
 docs-lint
+fast-lane
 fuzz-smoke
 instruction-counts
 lint

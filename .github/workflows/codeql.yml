@@ -3,21 +3,23 @@ name: CodeQL
 # Advanced setup, replacing GitHub's default setup. Default setup cannot be
 # path-filtered: it analysed all nine languages on every push, a docs-only
 # commit included. Here a pull request analyses only the languages whose
-# files it changes, and pushes to `main`, the weekly schedule and a manual
-# dispatch analyse all of them, so a language a PR skips is still analysed on
-# `main`. The categories match default setup's (`/language:<lang>`), which
+# files it changes, and the daily schedule and a manual dispatch analyse all
+# of them on `main`, so a language a PR skips is still analysed there. Pushes
+# to `main` do not trigger an analysis: nine analyses per merge held hosted
+# runners the account shares across every repository (docs/CI.md), and code
+# scanning is not a merge gate, so `main` is analysed once a day instead of at
+# every merge -- including a merge that landed a tree its pull request's own
+# analysis did not see. The categories match default setup's (`/language:<lang>`), which
 # keeps existing alerts tracked across the switch.
 #
 # Not a required check: the ruleset requires only `CI Gate / All Checks
 # Passed`, so a pull request with no analysed language merges unblocked.
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   schedule:
-    - cron: "23 5 * * 1"
+    - cron: "23 5 * * *"
   workflow_dispatch:
 
 concurrency:

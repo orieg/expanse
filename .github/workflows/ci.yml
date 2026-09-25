@@ -1,14 +1,33 @@
 name: CI
 
 on:
+  # A push to main runs the fast lane only when it lands a tree CI already
+  # passed in full; see the `fast-lane` job and `push-verified`.
   push:
     branches: [main]
   pull_request:
     branches: [main]
+    # The default types plus `ready_for_review`: a draft runs the fast lane
+    # only, so marking it ready must start the full run.
+    types: [opened, synchronize, reopened, ready_for_review]
+  # The full matrix on main, once a day, clear of the nightly workflow's slot
+  # (03:17 UTC), and on demand.
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # One group per pull-request run: a run keeps its group until every job has
+  # finished, `ci-gate` is `if: always()` and so still needs a runner after a
+  # cancel, and under a per-PR group a new push waited behind its own cancelled
+  # predecessor for as long as the runner pool was full. Superseding is done
+  # instead by `detect-changes`' first step (scripts/ci_supersede.py), which
+  # force-cancels the PR's older runs so their gate never takes a runner.
+  # On main the event name keeps a scheduled or dispatched run from sharing a
+  # group with the push run of the same commit, where the later of two
+  # pending runs would cancel the earlier.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || format('{0}-{1}', github.event_name, github.sha) }}
+  cancel-in-progress: false
 
 # Least privilege for every job's GITHUB_TOKEN. This matches the repository's
 # read-only default, stated here so the workflow does not depend on that
@@ -27,6 +46,10 @@ jobs:
     name: Subsystems / Change Detection
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write # force-cancel this pull request's superseded runs
+      pull-requests: read # push-verified: the pull request a merge commit came from
     outputs:
       rust-src: ${{ steps.filter.outputs.rust-src }}
       # Which `ci.yml` job definitions this diff touched. Replaces
@@ -51,11 +74,34 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       integrations: ${{ steps.filter.outputs.integrations }}
       esp-component: ${{ steps.filter.outputs.esp-component }}
+      # Push only: 'true' when the pushed tree is the merged pull request's
+      # head tree and that head passed a full run (scripts/push_tree_verified.py).
+      push-verified: ${{ steps.pushtree.outputs.push-verified }}
     steps:
       - uses: actions/checkout@v7
         with:
           # `ci_job_diff.py` reads the workflow at the base revision.
           fetch-depth: 0
+      - name: Did CI already pass this exact tree in full?
+        id: pushtree
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/push_tree_verified.py --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
+      - name: Cancel this pull request's superseded runs
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Through the environment, never interpolated into the script: a
+          # branch name is chosen by whoever pushes it.
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          python3 scripts/ci_supersede.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --branch "$HEAD_REF" \
+            --head-repo "$HEAD_REPO"
       - uses: dorny/paths-filter@v4
 
         id: filter
@@ -552,7 +598,7 @@ jobs:
 
   msrv:
     name: Core / MSRV 1.88 Build
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|msrv|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -570,7 +616,7 @@ jobs:
 
   man-examples:
     name: Docs / Man Page Examples Compile and Match
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     # `man/**` sits in the `tooling` filter, so a man-page-only PR reaches this.
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|man-examples|')
     runs-on: ubuntu-latest
@@ -721,6 +767,9 @@ jobs:
           python3 docs/benchmarks/masstree_comparison/scripts/run_all.py --self-test
           python3 docs/benchmarks/set_algebra/scripts/harvest_domain.py --self-test
           python3 scripts/discipline_replay.py --self-test
+          python3 scripts/release_ci_gate.py --self-test
+          python3 scripts/ci_supersede.py --self-test
+          python3 scripts/push_tree_verified.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts
@@ -732,9 +781,46 @@ jobs:
           python3 -m pip install --quiet --disable-pip-version-check pyyaml
           python3 scripts/validate_citation.py
 
+  # The one decision point for whether the slow lanes run at all. Every job
+  # other than detect-changes, lint, docs-lint and ci-gate lists `fast-lane`
+  # in its `needs`, so when this job is skipped every one of them skips with
+  # it, and its own `if:` is left exactly as the path filters wrote it.
+  #
+  # Why: the account's hosted runners cap at 20 concurrent jobs, and a full
+  # run of this workflow is ~72 of them. Holding the slow lanes back until
+  # lint and discipline (docs-lint) pass keeps a run that is going to fail
+  # anyway from taking the whole pool, and three event classes run no slow
+  # lane at all:
+  #   - a draft pull request: fast lane only, and ci-gate fails the run so a
+  #     draft never shows a green required context (check_gate_floor.py);
+  #     `ready_for_review` starts the full run;
+  #   - a push to main that lands a tree CI already passed in full: the
+  #     merged pull request's head tree, whose latest full run succeeded
+  #     (`push-verified`, scripts/push_tree_verified.py). The ruleset does not
+  #     require a pull request to be up to date, so a merge behind main lands
+  #     a tree no run built, and that push runs every lane. The full matrix
+  #     also runs on main on the daily `schedule`, and on demand through
+  #     `workflow_dispatch`;
+  #   - a run whose lint or docs-lint failed.
+  # `lint` may be skipped (a docs-only change matches none of its filters);
+  # docs-lint is unconditional, so it must have succeeded. `!cancelled()` is
+  # what lets a skipped `lint` through -- without a status function one
+  # skipped dependency skips this job and every slow lane behind it -- and it
+  # masks nothing: a failed or cancelled lint or docs-lint keeps this job off,
+  # and ci-gate fails on the dependency itself.
+  fast-lane:
+    name: Core / Fast Lane Passed
+    needs: [detect-changes, lint, docs-lint]
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success' && (needs.lint.result == 'success' || needs.lint.result == 'skipped') && needs.docs-lint.result == 'success' && (github.event_name != 'push' || !(needs.detect-changes.outputs.push-verified == 'true')) && !github.event.pull_request.draft }}  # discipline:allow(ci-integrity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Release the slow lanes
+        run: echo "lint=${{ needs.lint.result }} docs-lint=${{ needs.docs-lint.result }} event=${{ github.event_name }}"
+
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test|')
     strategy:
       fail-fast: false
@@ -834,7 +920,7 @@ jobs:
 
   test-aarch64:
     name: Core / AArch64 Linux Tests & Callgrind (Neoverse N2)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     # `perf-tooling` is back in this condition as of the Callgrind gate below:
     # the job now runs perf_report.py, so a change to that script must be
     # exercised here too. (It was dropped when the lane only printed counts and
@@ -1026,7 +1112,7 @@ jobs:
 
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-riscv64|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1044,7 +1130,7 @@ jobs:
 
   test-rv32:
     name: Cross / RV32IMAC Cross-Compile (Bare-Metal)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rv32|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1068,7 +1154,7 @@ jobs:
 
   test-rv32-zbb:
     name: Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rv32-zbb|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1093,7 +1179,7 @@ jobs:
 
   test-esp32c3:
     name: Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-esp32c3|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1264,7 +1350,7 @@ jobs:
 
   test-cortex-m:
     name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     # Also on `integrations` changes: this job links the STM32H747 harness
     # (integrations/stm32h747), so harness-only PRs must exercise it (#601).
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-cortex-m|')
@@ -1300,7 +1386,7 @@ jobs:
 
   test-qemu-cortex-m3:
     name: Cross / ARM Cortex-M3 Execution (QEMU mps2-an385)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     # The ARM execution gate that needs no hardware (#598 step 4): the narrow
     # C ABI and the sync32 SysTick-reader protocol run on an emulated
     # ARMv7-M core. Soft float, no cache, not cycle-accurate — the M7/M4
@@ -1334,7 +1420,7 @@ jobs:
 
   test-x86_64-none:
     name: Cross / x86_64 Bare-Metal Cross-Compile (x86_64-unknown-none)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-x86_64-none|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1353,7 +1439,7 @@ jobs:
 
   test-i686:
     name: Cross / i686 32-bit Test Execution (Linux)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-i686|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1404,7 +1490,7 @@ jobs:
 
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-musl|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1440,7 +1526,7 @@ jobs:
 
   miri:
     name: Safety / Tier 1 Miri Fast Smoke (${{ matrix.shard }})
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1487,7 +1573,7 @@ jobs:
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-asan|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1550,7 +1636,7 @@ jobs:
 
   php-judy-compat:
     name: Compat / PHP-Judy Extension (Linux)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|php-judy-compat|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1601,7 +1687,7 @@ jobs:
 
   php-judy-windows:
     name: Compat / PHP-Judy Extension (Windows x64)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|php-judy-windows|')
     runs-on: windows-latest
     timeout-minutes: 30
@@ -1655,7 +1741,7 @@ jobs:
 
   instruction-counts:
     name: Perf / Callgrind Deterministic Instructions
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|instruction-counts|')
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -1869,7 +1955,7 @@ jobs:
 
   callgrind-smoke:
     name: Perf / Callgrind Fast Smoke (Ubuntu)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|callgrind-smoke|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1963,7 +2049,7 @@ jobs:
 
   differential-oracle:
     name: Compat / Stock libjudy Oracle (Linux)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|differential-oracle|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2006,7 +2092,7 @@ jobs:
 
   memory-budget:
     name: Perf / Memory Budget Invariants
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|memory-budget|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2025,7 +2111,7 @@ jobs:
 
   writer-scaling-selftest:
     name: Perf / Writer Scaling Instrument Self-Test
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     # Deliberately not run on every push to `main`: the self-test builds the
     # harness twice (default and `occ-stats`), and the contract it guards can
     # only be broken by the two files in the `concurrency-instrument` filter.
@@ -2050,7 +2136,7 @@ jobs:
 
   ycsb-concurrent-selftest:
     name: Perf / YCSB Concurrent Instrument Self-Test
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|ycsb-concurrent-selftest|')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -2066,7 +2152,7 @@ jobs:
 
   loom:
     name: Safety / Loom Concurrency Race Model
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|loom|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -2100,7 +2186,7 @@ jobs:
 
   fuzz-smoke:
     name: Safety / Fuzz Invariants Smoke
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|fuzz-smoke|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -2150,7 +2236,7 @@ jobs:
 
   test-python:
     name: Bindings / Python Fast Smoke (Py3.12)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-python|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2189,13 +2275,22 @@ jobs:
 
   test-node:
     name: Bindings / Node.js (${{ matrix.os }}, Node ${{ matrix.node-version }})
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.node == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-node|')
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [20, 22, 24]
+        # Every supported version on Linux; the newest only on macOS and
+        # Windows. The version axis exercises the N-API surface, which is the
+        # same on all three OSes, and macOS legs draw on a 5-job account-wide
+        # cap -- nine legs here held all of it on every run.
+        exclude:
+          - { os: macos-latest, node-version: 20 }
+          - { os: macos-latest, node-version: 22 }
+          - { os: windows-latest, node-version: 20 }
+          - { os: windows-latest, node-version: 22 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -2222,13 +2317,20 @@ jobs:
 
   test-php:
     name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-php|')
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         php-version: ['8.2', '8.3', '8.4']
+        # Every supported version on Linux; the newest only on macOS and
+        # Windows, for the reason given on `test-node`'s matrix.
+        exclude:
+          - { os: macos-latest, php-version: '8.2' }
+          - { os: macos-latest, php-version: '8.3' }
+          - { os: windows-latest, php-version: '8.2' }
+          - { os: windows-latest, php-version: '8.3' }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -2265,7 +2367,7 @@ jobs:
 
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-dotnet|')
     strategy:
       fail-fast: false
@@ -2307,7 +2409,7 @@ jobs:
 
   pack-dotnet:
     name: Bindings / .NET NuGet Package
-    needs: [detect-changes, test-dotnet]
+    needs: [detect-changes, fast-lane, test-dotnet]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|pack-dotnet|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2339,7 +2441,7 @@ jobs:
 
   test-java:
     name: Bindings / Java 22+ Panama (${{ matrix.os }})
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-java|')
     strategy:
       fail-fast: false
@@ -2384,7 +2486,7 @@ jobs:
 
   pack-java:
     name: Bindings / Java JAR Package
-    needs: [detect-changes, test-java]
+    needs: [detect-changes, fast-lane, test-java]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|pack-java|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2423,7 +2525,7 @@ jobs:
 
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-rocksdb-memtable|')
     strategy:
       fail-fast: false
@@ -2745,7 +2847,7 @@ jobs:
   # the pushed commit and the base its first parent, reported the same way.
   rocksdb-locate-ir-bound:
     name: Integrations / RocksDB Optimistic-Seek Callgrind Bound
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|rocksdb-locate-ir-bound|')
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -2843,7 +2945,7 @@ jobs:
   test-ruby:
     name: Bindings / Ruby (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-ruby|')
     strategy:
       matrix:
@@ -2869,7 +2971,7 @@ jobs:
   test-wasm:
     name: Bindings / WebAssembly (wasm32)
     runs-on: ubuntu-latest
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-wasm|')
     timeout-minutes: 15
     steps:
@@ -2890,7 +2992,7 @@ jobs:
   test-wasm64:
     name: Bindings / WebAssembly (wasm64 Memory64 Experimental)
     runs-on: ubuntu-latest
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-wasm64|')
     timeout-minutes: 15
     steps:
@@ -2920,7 +3022,7 @@ jobs:
   wasm-fuel:
     name: Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic)
     runs-on: ubuntu-latest
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|wasm-fuel|')
     timeout-minutes: 25
     steps:
@@ -3010,7 +3112,7 @@ jobs:
   test-go:
     name: Bindings / Go (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-go|')
     strategy:
       fail-fast: false
@@ -3100,7 +3202,7 @@ jobs:
 
   supply-chain:
     name: Core / Supply Chain (advisories, licences, sources)
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|supply-chain|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -3133,7 +3235,7 @@ jobs:
 
   public-api:
     name: Core / Public Rust API Surface
-    needs: [detect-changes]
+    needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|public-api|')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -3185,6 +3287,7 @@ jobs:
       - msrv
       - man-examples
       - docs-lint
+      - fast-lane
       - test
       - test-aarch64
       - test-musl
@@ -3262,7 +3365,8 @@ jobs:
           python3 scripts/check_gate_floor.py \
             --statuses "$STATUSES" \
             --outputs "$FILTERS" \
-            --event-name "${{ github.event_name }}"
+            --event-name "${{ github.event_name }}" \
+            --draft "${{ github.event.pull_request.draft || false }}"
 
       # The same question as the step above, asked of discipline's
       # `ci-skip-set` from the same data: the rollup's own `needs` context,
