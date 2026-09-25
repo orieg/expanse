@@ -511,6 +511,66 @@ fn push_terminal(out: &mut Vec<u8>, chunk: u64) {
     out.truncate(len);
 }
 
+/// Appends a continuation chunk's 8 bytes and then `tail`, the bytes of the
+/// suffix leaf it leads to: one capacity check for both, one store for the
+/// chunk, and for a tail shorter than 16 bytes two overlapping loads and
+/// stores in place of a `memcpy` call. Every read stays inside `tail`.
+#[inline(never)]
+fn push_chunk_suffix(out: &mut Vec<u8>, chunk: u64, tail: &[u8]) {
+    let n = tail.len();
+    let at = out.len();
+    out.reserve(CHUNK + n);
+    // SAFETY: `reserve` leaves capacity for `CHUNK + n` bytes past `at`, and
+    // the writes below cover exactly `at..at + CHUNK + n`: the chunk at
+    // `at..at + CHUNK`, and `copy_small` writes all `n` bytes of `tail`
+    // after it, each read in bounds of `tail`. `set_len` then publishes only
+    // bytes that were written.
+    unsafe {
+        let dst = out.as_mut_ptr().add(at);
+        dst.cast::<[u8; CHUNK]>()
+            .write_unaligned(chunk.to_be_bytes());
+        copy_small(tail.as_ptr(), dst.add(CHUNK), n);
+        out.set_len(at + CHUNK + n);
+    }
+}
+
+/// Copies `n` bytes from `src` to `dst`. Below 16 bytes it copies the first
+/// and the last `w` bytes, for the widest `w` in {8, 4, 2, 1} with `w <= n`;
+/// the two ranges overlap and together cover all `n`.
+///
+/// # Safety
+///
+/// `src` is valid for `n` byte reads and `dst` for `n` byte writes, and the
+/// two ranges do not overlap.
+#[inline(always)]
+unsafe fn copy_small(src: *const u8, dst: *mut u8, n: usize) {
+    macro_rules! pair {
+        ($t:ty, $w:expr) => {
+            // SAFETY: `$w <= n`, so both `[0, $w)` and `[n - $w, n)` lie in
+            // the caller's ranges; unaligned accesses are used throughout.
+            unsafe {
+                let a = src.cast::<$t>().read_unaligned();
+                let b = src.add(n - $w).cast::<$t>().read_unaligned();
+                dst.cast::<$t>().write_unaligned(a);
+                dst.add(n - $w).cast::<$t>().write_unaligned(b);
+            }
+        };
+    }
+    if n >= 16 {
+        // SAFETY: the caller's contract, as for every branch.
+        unsafe { core::ptr::copy_nonoverlapping(src, dst, n) };
+    } else if n >= 8 {
+        pair!(u64, 8);
+    } else if n >= 4 {
+        pair!(u32, 4);
+    } else if n >= 2 {
+        pair!(u16, 2);
+    } else if n == 1 {
+        // SAFETY: `n == 1`, in the caller's ranges.
+        unsafe { dst.write(src.read()) };
+    }
+}
+
 /// The byte-scan definition of a terminal chunk's content, retained as the
 /// parity oracle for [`push_terminal`].
 #[cfg(test)]
@@ -1328,17 +1388,17 @@ impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
                 // the chunk came from its own map, so the slot is present.
                 return unsafe { &mut *node }.map.value_slot_pathless(chunk);
             }
-            self.key.extend_from_slice(&chunk.to_be_bytes());
             if is_suffix_ptr(v) {
                 let sfx = unpack_suffix(v);
                 // SAFETY: tagged pointer encodes a live suffix leaf; the raw
                 // pointer carries provenance over the inline bytes.
-                self.key.extend_from_slice(unsafe { suffix_bytes(sfx) });
+                push_chunk_suffix(&mut self.key, chunk, unsafe { suffix_bytes(sfx) });
                 // SAFETY: field-precise pointer to the value word at offset 0.
                 return Some(
                     NonNull::new(unsafe { &raw mut (*sfx).value }).expect("non-null value slot"),
                 );
             }
+            self.key.extend_from_slice(&chunk.to_be_bytes());
             node = unpack_child(v);
             // SAFETY: untagged continuation value, a live child node.
             (chunk, v) = unsafe { &*node }.map.first()?;
@@ -3622,6 +3682,26 @@ mod tests {
                 "cursor restarted after None"
             );
             assert_eq!(got, want, "prefix {:?}", String::from_utf8_lossy(p));
+        }
+    }
+
+    /// [`push_chunk_suffix`] appends the chunk's bytes and then the tail, for
+    /// every tail length through three words — each branch of `copy_small`
+    /// and its boundaries — onto an empty buffer and onto one whose length
+    /// is not a multiple of eight.
+    #[test]
+    fn push_chunk_suffix_appends_chunk_then_tail() {
+        let chunk = u64::from_be_bytes(*b"ABCDEFGH");
+        let src: Vec<u8> = (1..=40u8).collect();
+        for head in [&b""[..], b"xyz"] {
+            for n in 0..=src.len() {
+                let mut got = head.to_vec();
+                push_chunk_suffix(&mut got, chunk, &src[..n]);
+                let mut want = head.to_vec();
+                want.extend_from_slice(b"ABCDEFGH");
+                want.extend_from_slice(&src[..n]);
+                assert_eq!(got, want, "head {} tail {n}", head.len());
+            }
         }
     }
 
