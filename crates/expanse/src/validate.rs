@@ -7,7 +7,9 @@ use crate::mutate::{
 };
 use crate::mutate_map::map_immed_val_size;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
-use crate::types::RAW_ALIGN;
+use crate::types::{
+    BRANCH_L3_CAP, BRANCH_L7_CAP, BRANCHB_TO_L7_DOWN, BRANCHU_TO_B_DOWN, RAW_ALIGN,
+};
 use crate::types::{EdgeTag, EdgeType, ImmedType};
 use core::mem::size_of;
 #[cfg(not(feature = "std"))]
@@ -16,9 +18,6 @@ use core_alloc::format;
 use core_alloc::string::String;
 #[cfg(not(feature = "std"))]
 use core_alloc::vec::Vec;
-
-const BRANCH_L3_CAP: usize = 3;
-const BRANCH_L7_CAP: usize = 7;
 
 /// Diagnostic statistics for an Expanse trie.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -414,9 +413,10 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             let b = unsafe { &*ptr.cast::<BranchB>() };
             stats.node_bytes.branch_b += size_of::<BranchB>();
             let digits = b.bitmap.count() as usize;
-            if digits < BRANCH_L7_CAP {
+            if digits <= BRANCHB_TO_L7_DOWN {
                 return Err(format!(
-                    "bitmap branch population {digits} below hysteresis floor {BRANCH_L7_CAP}"
+                    "bitmap branch population {digits} at or below demotion threshold \
+                     {BRANCHB_TO_L7_DOWN}"
                 ));
             }
             if digits > BRANCHB_UP {
@@ -476,9 +476,10 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             let b = unsafe { &*ptr.cast::<BranchU>() };
             stats.node_bytes.branch_u += size_of::<BranchU>();
             let digits = b.edges.iter().filter(|e| !e.is_null()).count();
-            if digits < BRANCHB_UP {
+            if digits <= BRANCHU_TO_B_DOWN {
                 return Err(format!(
-                    "uncompressed branch population {digits} below hysteresis floor {BRANCHB_UP}"
+                    "uncompressed branch population {digits} at or below demotion threshold \
+                     {BRANCHU_TO_B_DOWN}"
                 ));
             }
             let mut pop = 0;
@@ -513,6 +514,32 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
 mod tests {
     use crate::map::ExpanseMap;
     use crate::set::ExpanseSet;
+
+    /// The demotion predicates read the derived `*_DOWN` constants
+    /// (`digits <= BRANCHB_TO_L7_DOWN`, `digits <= BRANCHU_TO_B_DOWN`) where
+    /// they once read `digits < BRANCH_L7_CAP` and `digits < BRANCHB_UP`, and
+    /// `LEAFB1_DOWN` is derived from `LEAF1_CAP`. Every child count a node can
+    /// hold must take the same branch as under the literals 7, 192 and 21 the
+    /// old forms compared against, so the rewrite moves no demotion.
+    #[test]
+    fn demotion_thresholds_match_the_literal_forms() {
+        use crate::mutate::BRANCHB_UP;
+        use crate::types::{
+            BRANCH_L7_CAP, BRANCHB_TO_L7_DOWN, BRANCHU_TO_B_DOWN, LEAF1_CAP, LEAFB1_DOWN,
+        };
+        for n in 0..=crate::types::BRANCH_FANOUT {
+            assert_eq!(n <= BRANCHB_TO_L7_DOWN, n < BRANCH_L7_CAP, "B -> L7 at {n}");
+            assert_eq!(n <= BRANCHB_TO_L7_DOWN, n < 7, "B -> L7 at {n}");
+            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < BRANCHB_UP, "U -> B at {n}");
+            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < 192, "U -> B at {n}");
+            assert_eq!(n < LEAFB1_DOWN, n < 21, "bitmap leaf -> Leaf1 at {n}");
+        }
+        assert_eq!(
+            LEAF1_CAP - LEAFB1_DOWN,
+            4,
+            "Leaf1 band: enters above 25, leaves below 21"
+        );
+    }
 
     /// The `bytes_per_key` census generators, so every node form the
     /// committed density cells exercise (packed leaves, cascaded bitmap
