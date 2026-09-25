@@ -9,15 +9,26 @@
 //! version of the node that *contains* the stored address — the parent's
 //! word for a slot, an immediate, or a leaf / subarray payload; the tree
 //! word for the root state — through [`Cover`] (active only for
-//! concurrently shared trees). Where the engine covers the root, a branch
-//! child's frame is entered with its parent's word closed, so a word is
-//! odd only while one frame stores into that node, never for a whole
-//! descent; where the wrapper holds the tree word for the whole operation
-//! (the string, bytes and blob wrappers) the engine's nested mode keeps a
-//! node's word odd across the descent beneath it, the protocol those
-//! readers are built for (`Cover::nest_begin`). Readers validate hand-over-hand
-//! with `node_sample`/`node_validate`. Measured motivation and effect in
-//! `docs/BENCHMARKING.md` (concurrent read scaling) and
+//! concurrently shared trees). Where the engine covers the root (the set
+//! and map wrappers, `NodeAlloc::cover_root`), a branch child's frame is
+//! entered with its parent's word closed, so a word is odd only while one
+//! frame stores into that node, never for a whole descent; a covered write
+//! there holds the tree word for its whole operation and the engine's own
+//! tree bracket stands down (`NodeAlloc::hold_tree_word`), but the per-node
+//! brackets stay brief. The string, bytes and blob wrappers never hand the
+//! root to the engine. Their serialised paths (fallbacks, the operations
+//! they serialise, and every mutation under their `ablation-*-serial-writers`
+//! features) hold the tree word for the whole operation and run the
+//! engine's nested mode (`Cover::nest_begin`), which keeps a node's word odd
+//! across the descent beneath it: `by_mode!` selects it for the bytes and
+//! blob index tries, the string map passes it explicitly for each `StrNode`
+//! sub-map, which it also brackets with that node's cover word. Their
+//! optimistic writers never store to the tree word and never enter nested
+//! mode: they run the engine's OLC bodies under per-node version locks, the
+//! string wrapper taking each `StrNode`'s cover word as the lock on that
+//! node's root state (`docs/ARCHITECTURE.md` §4.1–§4.2). Readers validate
+//! hand-over-hand with `node_sample`/`node_validate`. Measured motivation
+//! and effect in `docs/BENCHMARKING.md` (concurrent read scaling) and
 //! `docs/benchmarks/concurrency/`.
 //!
 //! Under `--cfg loom` the atomics and sync types swap to loom's, and the

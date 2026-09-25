@@ -1364,6 +1364,28 @@
       "replacement": "two runs at 7cd5140e: sequential scan 3.1426 / 3.0744, batch scan 2.1376 / 2.1301 (docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json and _run2.json)",
       "provenance": "#868, #873, #877",
       "rationale": "Two partial re-runs of the scan rows only, at 2b4c15a8 and 314deb39, committed no artifact and were published in the suite README as interim movement. Superseded by the committed 7cd5140e pair, which measures every row through the provenance-bearing driver."
+    },
+    {
+      "id": "vs_libjudy_quiet_host_43b46f38_seq_random",
+      "patterns": [
+        "(?<![\\w.])13\\.4\\s*/\\s*23\\.6\\s*ns\\b",
+        "(?<![\\w.])7\\.5\\s*/\\s*11\\.1\\s*ns\\b",
+        "(?<![\\w.])56\\.2\\s*/\\s*71\\.7\\s*ns\\b",
+        "(?<![\\w.])35\\.8\\s*/\\s*32\\.3\\s*ns\\b",
+        "(?<![\\w.])0\\.57[x×]\\s*[–-]\\s*0\\.933[x×]",
+        "(?<![\\w.])0\\.68[x×]\\s*/\\s*0\\.904[x×]"
+      ],
+      "context": [
+        "libjudy",
+        "stock",
+        "sequential",
+        "random",
+        "insert",
+        "lookup"
+      ],
+      "replacement": "expanse_dl_over_stock series of results/baseline_vs_libjudy.json (commit 4c4e852a, run 33151981386): sequential 1M ins 0.545x [0.544, 0.546], get 0.872x [0.869, 0.877]; random 1M ins 0.804x [0.802, 0.807], get 1.031x [1.024, 1.038]",
+      "provenance": "run 33151981386, results/baseline_vs_libjudy.json",
+      "rationale": "Quiet-host sequential and random 1M rows from commit 43b46f38 (5-round medians, no intervals) do not match the repaired harness; sequential lookup was published at 0.68x against a measured 0.872x."
     }
   ]
 }
