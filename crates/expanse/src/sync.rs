@@ -2552,9 +2552,12 @@ impl<T: SharedTree> Shared<T> {
         #[cfg(feature = "std")]
         let _gate = self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
-        // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
-        // readers and writers, so creating a temporary unique reference to flush
-        // acceleration path cursors (`inner.clear_path()`) does not alias any concurrent access.
+        // SAFETY: the writer mutex and the writer gate exclude every writer.
+        // Optimistic readers still run, and they touch the engine only where
+        // the wrapper does not publish its root (`T::PUBLISHES_ROOT`, #1086);
+        // this unique reference flushes the path cursors and feeds the fold.
+        // The fold below stores node `pop0` words those readers may load:
+        // plain stores racing optimistic loads, #1086's first class.
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
         let mut mask = [0u32; 8];
@@ -2597,9 +2600,9 @@ impl<T: SharedTree> Shared<T> {
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
         let _gate = self.quiesce_writers();
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
-        // SAFETY: the writer mutex and WriterGate quiescence exclude all concurrent
-        // readers of the engine's plain fields and all writers, so this is the
-        // only mutable borrow (as in `with_locked`).
+        // SAFETY: as in `with_locked`: every writer is excluded, and
+        // optimistic readers touch the engine only where the wrapper does not
+        // publish its root (`T::PUBLISHES_ROOT`, #1086).
         let inner = unsafe { &mut *self.inner.get() };
         inner.clear_path();
         pre(inner);
