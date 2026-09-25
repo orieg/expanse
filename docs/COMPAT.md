@@ -10,7 +10,7 @@
 |---|---|
 | Rust crate (core) | `expanse-trie` |
 | C library | `libexpanse.so` / `expanse.dll` / `libexpanse.a` |
-| Modern header | `expanse.h` — **shipped**: `expanse_set_t`, `expanse_map_t`, `expanse_bytesmap_t`, plus the concurrent `expanse_sync_set_t`/`expanse_sync_map_t` and their per-thread reader handles. Adds what classic Judy lacks: rank/select on ordered types (`count_below`/`count_range`/`by_count`), byte-exact `mem_used`, plain value returns instead of `JError_t` out-params, and optimistic concurrent readers. (`expanse_strmap_t` still to come — `JudySL*` covers ordered string maps today.) |
+| Modern header | `expanse.h` — **shipped**: `expanse_set_t`, `expanse_map_t`, `expanse_bytesmap_t`, `expanse_strmap_t` (ordered NUL-terminated string keys, with truncation-aware `_ex` navigation), `ExpanseBlobMap` (`expanse_blob_map_*`), plus the concurrent `expanse_sync_set_t`/`expanse_sync_map_t` and their per-thread reader handles. Adds what classic Judy lacks: rank/select on ordered types (`count_below`/`count_range`/`by_count`), byte-exact `mem_used`, plain value returns instead of `JError_t` out-params, and optimistic concurrent readers. |
 | Compat header | `Judy.h` (source-compatible with classic libjudy) |
 | Distro packages  | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
 
@@ -108,7 +108,7 @@ chunk-geometry fields) is `CorruptedHeader`, a different error.
 
 ## Non-goals
 
-- **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in the shipped header.
+- **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in `Judy(3)` (`man/man3/Judy.3`, *Memory Accounting*); the shipped `Judy.h` declares the two functions without comment.
 - **Internal structure equality** — no attempt to match libjudy's node layouts, only its observable behavior.
 - **`JErrno` legacy globals** beyond what the documented macro layer requires.
 
@@ -150,6 +150,8 @@ built with `--features embedded-panic-handler`).
 Reproduce with the invocations above; the 32-bit row needs
 `--features embedded-panic-handler`, as the CI job does.)
 
+**Two exported symbols are declared in no header.** `expanse_validate(const void *array, int is_map)` and `expanse_stats(const void *array, int is_map, CExpanseStats *out)` (`crates/expanse-capi/src/lib.rs`, 64-bit only) are `#[no_mangle] extern "C"` and are counted in both 64-bit rows above, but neither `expanse.h` nor `Judy.h` declares them, so `scripts/check_abi_parity.py` does not see them and no binding wraps them. They take a `Judy1`/`JudyL` array pointer. They are not part of the supported surface until a header declares them; that is a code change, not a documentation one.
+
 **64-bit `no_std` drops only the concurrent containers** — the 29
 `expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
 bare-metal 64-bit build has no one-writer/many-reader surface. Everything
@@ -163,16 +165,19 @@ bidirectional range navigation:
 | Container | 32-bit entry points |
 |---|---|
 | identity | `expanse_version` |
-| `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` and `_for_each_range` (both 32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_mem_held`, `_shrink_to_fit`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_mem_held`, `_shrink_to_fit`, `_clear`, `_insert`, `_get`, `_contains`, `_remove`, `_remove_range` and `_for_each_range` (both 32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 | `expanse_sync32_map_t` / `expanse_sync32_set_t` (32-bit-only, provisional) | `_new`, `_free`, `_writer`, `_reader`, `_writer_try_insert`, `_writer_try_remove`, `_writer_try_reclaim`, `_writer_get` / `_writer_contains`, `_writer_stats`, `_reader_try_get` / `_reader_try_contains`, `_reader_try_len`; map only, the ordered reads `_reader_try_first`, `_reader_try_last`, `_reader_try_next_at_or_after`, `_reader_try_next_after`, `_reader_try_prev_at_or_before`, `_reader_try_prev_before`; plus `expanse_sync32_mutation_headroom`, `expanse_sync32_status_str` |
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
 `ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
 no `get_value_slot`/`ins_slot`, and their
 `count_range` takes a `(start, end)` pair rather than a range — so the
-corresponding C contracts have nothing to translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
-`sync` module exist only at 64-bit width.
+corresponding C contracts have nothing to translate to. `ExpanseStrMap`/`ExpanseBytesMap` and the
+`sync` module exist only at 64-bit width. `ExpanseBlobMap32` is public at every
+width and is what `ExpanseBlobMap` names on a 32-bit target
+(`crates/expanse/src/lib.rs`), but no C entry point wraps it: `expanse_blob_map_*`
+is declared only in the wide surface.
 
 The reverse gap also exists. Two batched range entry points are declared in a
 `#if !EXPANSE_WIDE_SURFACE` block and shipped **only at 32-bit width**, because
@@ -305,8 +310,7 @@ The cross-thread free rests on the handle types being `Send`. That bound is auto
 | D3 | Behavior on allocation failure | Allocation failure aborts (Rust global-allocator convention) instead of returning `JERR`/`PJERR` with `JU_ERRNO_NOMEM`. Recorded as a deviation; revisit if a consumer needs graceful OOM |
 | D4 | `JudyHSFreeArray` byte total | The returned "bytes freed" is implementation-defined (libexpanse's hash-trie + bucket accounting differs from classic's internals). Both are nonzero for nonempty arrays; the oracle compares emptiness semantics, not byte totals — same stance as `MemUsed` |
 | D5 | Convenience-macro grammar (`JLI`/`J1S`/…) | Statement blocks `{ … ; }`, not expressions. Black-box evidence: php-judy invokes several macros without trailing semicolons at statement position and compiles against classic system libjudy, so classic's macros tolerate that; the shipped macros match, accepting both `JLI(...)` and `JLI(...);`. Consequence: the macros cannot be used as expressions, and unbraced `if/else` around one needs braces (no observed consumer does either) |
-
-| D6 | Control flow out of a caller-supplied callback (`expanse_map_remove_range_fn`, `expanse_map_for_each_range_fn`, `expanse_predicate_fn`, `expanse_scan_cb_fn`) — the headers said what the callback must not *touch*, and nothing about how it must *return* | The callback must return normally. A C++ exception thrown through it, or a `longjmp` out of it, unwinds through Rust frames that are mid traversal or mid structural fix-up: no destructor runs and the map is left satisfying none of its invariants, with no diagnostic. Undefined behaviour, and not detectable by the library — `catch_unwind` cannot intercept a foreign exception, and catching a Rust panic mid-mutation would hand a torn map back to the caller, which is worse than aborting. A Rust panic in a callback is not an exception to the rule: `extern "C"` aborts the process rather than unwinding (verified: a panic crossing `extern "C"` reports "panic in a function that cannot unwind" and aborts, in every profile, and an outer `catch_unwind` does not intercept it), which is the defined and debuggable outcome. Callers must catch inside the callback |
+| D6 | Control flow out of a caller-supplied callback (`expanse_map_remove_range_fn`, `expanse_map_for_each_range_fn`, `expanse_bytesmap_iter_fn`, `expanse_predicate_fn`, `expanse_scan_cb_fn`) — the headers said what the callback must not *touch*, and nothing about how it must *return* | The callback must return normally. A C++ exception thrown through it, or a `longjmp` out of it, unwinds through Rust frames that are mid traversal or mid structural fix-up: no destructor runs and the map is left satisfying none of its invariants, with no diagnostic. Undefined behaviour, and not detectable by the library — `catch_unwind` cannot intercept a foreign exception, and catching a Rust panic mid-mutation would hand a torn map back to the caller, which is worse than aborting. A Rust panic in a callback is not an exception to the rule: `extern "C"` aborts the process rather than unwinding (verified: a panic crossing `extern "C"` reports "panic in a function that cannot unwind" and aborts, in every profile, and an outer `catch_unwind` does not intercept it), which is the defined and debuggable outcome. Callers must catch inside the callback |
 
 Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with the shipped `Judy.h`, and **all four gates green**, each as a standing CI job. G1 runs the differential-oracle harness against a `dlopen`'d stock libjudy for all four families (randomized op sequences, full-sweep/rank agreement, byte-exact JudySL buffer sweeps, JudyHS byte-key sequences including zero-length keys). G2 passes the php-judy test suite built against libexpanse via the libjudy-compat prefix — 221/221 locally (macOS AArch64, PHP 8.5) and as the `php-judy-compat` Linux CI job.
 
@@ -314,20 +318,20 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 
 ## Cross-Language Feature & Container Parity
 
-`scripts/check_abi_parity.py` checks C ABI symbol coverage in CI for the Java, .NET, Python, Node.js and Go bindings (the 64-bit surface; the `!EXPANSE_WIDE_SURFACE` block is excluded). Java, .NET and Go are checked by symbol name; Python and Node, which bind the Rust API, by a per-symbol `// abi-parity:` marker at the implementing site. The PHP and Ruby bindings are not checked by it:
+`scripts/check_abi_parity.py` checks C ABI symbol coverage in CI for the Java, .NET, Python, Node.js and Go bindings (the 64-bit surface; the `!EXPANSE_WIDE_SURFACE` block is excluded). Java, .NET and Go are checked by symbol name; Python and Node, which bind the Rust API, by a per-symbol `// abi-parity:` marker at the implementing site. The per-family function counts below are the declarations in `include/expanse.h`, and the parity row is `check_abi_parity.py --check` output: 126 symbols on the 64-bit surface, 126/126 for each of Java, .NET, Python, Node.js and Go; the 32 declarations of the `!EXPANSE_WIDE_SURFACE` block are listed separately. The PHP and Ruby bindings are not checked by it, and the Rust column is the implementation, not a binding:
 
 | Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) | PHP (`orieg/expanse`) | Ruby (`expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`ExpanseSet` (Judy1)** | `expanse_set_*` (17 fns) | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `Set` / `ExpanseSet` | `Expanse::Set` |
-| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns + 1 32-bit-only; `expanse_sync32_*` 30 fns 32-bit-only, provisional) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
-| **`ExpanseBytesMap` (JudyHS)** | `expanse_bytesmap_*` (10 fns) | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `BytesMap` / `ExpanseBytesMap` | `Expanse::BytesMap` |
-| **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (16 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` / `ExpanseStrMap` | `Expanse::StrMap` |
+| **`ExpanseSet` (Judy1)** | `expanse_set_*` (21 fns) | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `Set` / `ExpanseSet` | `Expanse::Set` |
+| **`ExpanseMap` (JudyL)** | `expanse_map_*` (25 fns + 2 32-bit-only; `expanse_sync32_*` 30 fns 32-bit-only, provisional) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
+| **`ExpanseBytesMap` (JudyHS)** | `expanse_bytesmap_*` (12 fns) | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `BytesMap` / `ExpanseBytesMap` | `Expanse::BytesMap` |
+| **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (19 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` / `ExpanseStrMap` | `Expanse::StrMap` |
 | **StrMap truncation-aware nav** | `expanse_strmap_*_ex` (6 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` | `Expanse::StrMap` |
 | **`SyncExpanseSet` (OCC Set)**| `expanse_sync_set_*` (11 fns) | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncSet` | Via C ABI |
 | **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (18 fns, 6 of them reader-handle ordered reads) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
-| **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (11 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
+| **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (13 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
-| **Metadata Filtering** | ✅ Predicate callbacks | ✅ SWAR vector kernels | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
+| **Metadata Filtering** | ✅ Predicate callbacks | ✅ Scalar per-entry predicate closure (`scan_filtered`) | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
 | **Optimistic Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe | ✅ Optimistic OCC | ✅ GVL-safe FFI |
-| **C ABI Symbol Parity** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | **108 / 108 (100%)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
+| **C ABI Symbol Parity** | **126 declared** | implementation (not checked) | **126 / 126 (100%)** | **126 / 126 (100%)** | **126 / 126 (100%)** | **126 / 126 (100%)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
 

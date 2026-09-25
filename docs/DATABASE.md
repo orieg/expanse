@@ -74,13 +74,16 @@ Roaring Bitmaps partition 32-bit integers into chunks of $2^{16}$ (64K) and choo
 - **Class-Sized Linear Leaves**: Doc-ID remainders are packed into contiguous byte-aligned arrays (1, 2, 3, or 4 bytes per key remainder) sized to exact power-of-two slab size classes.
 - **256-Bit Bitmap Leaves**: At Level 1, dense runs of 256 keys are represented as 32-byte 256-bit words (`Bitmap256`), yielding **0.07–0.36 bytes per docID** on realistic database cluster distributions. These are set (presence) figures; a map carrying an 8-byte value per key measures 8.56–8.61 B/key on the same dense and clustered keys at 1M *(measured: deterministic `mem_used()` accounting, host-independent; `bytes_per_key` example, workload `example_bytes_per_key`; gated copy `docs/visualizer_data.json` → `memory_budget`)*.
 
-```
-Doc-ID Distribution       Roaring Bitmap        ExpanseSet (Judy1)     Memory Reduction
-────────────────────────────────────────────────────────────────────────────────────────
-Dense Contiguous (1M)     0.125 B/docID         0.070–0.120 B/docID    Up to 44% lower
-Clustered Runs (100K)     0.650 B/docID         0.360 B/docID          44.6% lower
-Sparse Uniform (<0.1%)    2.000 B/docID         1.100–1.400 B/docID    30–45% lower
-```
+Against Roaring the measured picture is mixed, and mostly a loss. The search suite compares live heap per docID with `roaring::RoaringTreemap` *(measured: reference host — Intel i9-12900F, commit `29f86ddc`; workload: `domain_search_memory`; [`benchmarks/search_inverted_index/results/baseline_memory.json`](benchmarks/search_inverted_index/results/baseline_memory.json))*:
+
+| Distribution, N = 10⁶ | `ExpanseSet` (bits/docID) | `RoaringTreemap` (bits/docID) | Expanse vs Roaring |
+|---|--:|--:|---|
+| dense | 1.10 | 1.06 | ~tie (1.04×) |
+| clustered | 4.06 | 2.59 | 1.6× larger |
+| sparse | 7.21 | 2.60 | 2.8× larger |
+| shard | 1.22 | 1.07 | 1.14× larger |
+
+Roaring is more compact on most cells, including every small-N cell the suite tabulates; Expanse wins `shard` at N = 10⁵ (7.48 vs 10.73 bits/docID) (suite [README, Pillar 3](benchmarks/search_inverted_index/README.md)). On uniform-random 64-bit keys the set measures **8.21 B/key** at 1M, and **16.31 B/key** on the isolated-key `i << 40` distribution, one 16-byte edge per key *(measured: deterministic `mem_used()` accounting; workload: `example_bytes_per_key`; `docs/visualizer_data.json` → `memory_budget`)*.
 
 ### 2.2 Bitwise Set Algebra Directly Over Compressed Trie Nodes
 
@@ -102,8 +105,8 @@ Search engines evaluate boolean queries (`AND`, `OR`, `AND NOT`, `XOR`) by inter
           ┌───────────────────────┼───────────────────────┐
           ▼                       ▼                       ▼
    [ FullExpanse ∩ Node ]   [ Disjoint Edges ]    [ BitmapLeaf ∩ BitmapLeaf ]
-   Result = Node            Result = Null         4 x u64 bitwise AND (SIMD)
-   (Zero alloc, O(1))       (Zero alloc, O(1))    POPCNT rank condensation
+   Result = Node            Result = Null         4 x u64 word AND
+   (Zero alloc, O(1))       (Zero alloc, O(1))    + POPCNT per word
 ```
 
 #### Node-Level Algebra Rules:
@@ -116,7 +119,7 @@ Search engines evaluate boolean queries (`AND`, `OR`, `AND NOT`, `XOR`) by inter
    $`\text{FullExpanse} \setminus \text{Node} = \neg \text{Node}`$
 
 2. **Disjoint Subexpanse Pruning**: If two edges at level $L$ have non-overlapping digit masks or diverging decode prefixes, the intersection yields `Null` in a single scalar check without descending into child subtrees.
-3. **SIMD Bitmap Leaf Algebra**: Level-1 `BitmapLeaf` nodes (32 bytes = 4 $\times$ `u64`) are intersected using 256-bit AVX2/NEON instructions (`_mm256_and_si256`), followed by `POPCNT` to test if the resulting population triggers downward hysteresis to a linear leaf.
+3. **Word-Parallel Bitmap Leaf Algebra**: Level-1 bitmap leaves (32 bytes = 4 $\times$ `u64`) are intersected as four scalar `u64` ANDs, with a `popcnt` per word for the result population (`Bitmap256::and` / `count_and`, `crates/expanse/src/bits.rs`). The source uses no SIMD intrinsics here; whether the compiler vectorizes the four words is not established.
 
 ### 2.3 Skip-Scan Acceleration via $O(\text{depth})$ `next_at_or_after(doc_id)`
 
@@ -154,7 +157,7 @@ pub fn intersect_postings(a: &ExpanseSet, b: &ExpanseSet) -> ExpanseSet {
 }
 ```
 
-Point lookups (`contains`) run in **sub-15ns** latency on random 64-bit document IDs and **sub-5ns** on cached L1/L2 linear leaves, making Expanse an ideal in-memory posting list index.
+Measured skip-scan and Boolean-query costs against Roaring, wins and losses, are in the search suite ([`benchmarks/search_inverted_index/`](benchmarks/search_inverted_index/README.md)): the stateless `next_at_or_after` above loses every WAND cell, and the stateful cursor (#340) beats or ties Roaring on the dense cells and trails on sparse deep skips.
 
 ---
 
@@ -175,7 +178,8 @@ To determine whether a tuple is visible to a reading transaction $T_{\text{read}
        ▼
  ┌─────────────────────────────────────────────────────────┐
  │ SyncExpanseSet (Active XID Tracking)                   │
- │   • Write: Mutex serialized + Node SeqLock version bump │
+ │   • Write: per-node version locks (multi-writer OLC);   │
+ │     fallback mutex for structural cases                 │
  │   • Memory: Intrusive Epoch-Based Reclamation (EBR)     │
  └────────────────────────────┬────────────────────────────┘
                               │
@@ -183,10 +187,11 @@ To determine whether a tuple is visible to a reading transaction $T_{\text{read}
            ▼ (Optimistic Walk)                      ▼ (Optimistic Walk)
      Reader Query Thread 1                   Reader Query Thread 2
      • Pins EBR Epoch                        • Pins EBR Epoch
-     • Samples Node SeqVersion               • Samples Node SeqVersion
+     • Samples node version words            • Samples node version words
      • Validates Hand-Over-Hand              • Validates Hand-Over-Hand
-     • Non-Blocking Reader Progress          • Non-Blocking Reader Progress
-     • ZERO Reader-Writer Locks              • ZERO Reader-Writer Locks
+     • Waits while a bracket it samples      • Waits while a bracket it samples
+       is open (blocking, not lock-free)       is open (blocking, not lock-free)
+     • No lock on the common read path       • No lock on the common read path
 ```
 
 ### 3.1 Eliminating Reader-Writer Locks with `SyncExpanseSet`
@@ -195,19 +200,26 @@ Under high OLTP transaction churn, maintaining the active transaction list using
 - Every `SELECT` query acquires a read-lock on the shared transaction table to build its snapshot.
 - Transaction commits and rollbacks block all readers to modify the active array.
 
-`SyncExpanseSet` eliminates this bottleneck entirely using fine-grained **Optimistic Concurrency Control (OCC)** coupled with **Epoch-Based Reclamation (EBR)**:
-- **Optimistic Read Protocol**: Readers register a per-thread handle (`set.reader()`) and pin the active epoch. Point lookups (`contains(xid)`) walk the trie hand-over-hand without taking any mutex or atomic increment.
-- **Node-Level Version Bracketing**: Every branch node contains a 32-bit `SeqVersion` counter in its 16-byte header. Writers increment the version to an odd number before in-place modification and release with an even number.
+`SyncExpanseSet` takes the reader lock off the common path using **optimistic lock coupling** (Leis et al., DaMoN 2016) coupled with **Epoch-Based Reclamation (EBR)** (`docs/ARCHITECTURE.md` §4.1–§4.2):
+- **Optimistic Read Protocol**: Readers register a per-thread handle (`set.reader()`, one per thread) and pin the active epoch. Point lookups (`contains(xid)`) walk the trie hand-over-hand without taking a mutex on the common path. The protocol is **blocking, not lock-free**: a reader waits while a bracket it samples is open, and after a bounded number of restarts it falls back to the writer mutex.
+- **Node-Level Version Words**: Every branch node carries a 32-bit (`u32`) version word; a writer holds it odd while it stores into that node and releases it even. The tree-level `SeqVersion` that covers the root state is a separate `AtomicU64`.
+- **Concurrent Writers**: Multi-writer OLC (#568) lets writers on disjoint subtrees proceed in parallel, each locking only the direct parent of the node it changes; structural cases and retry exhaustion fall back to a mutex.
 - **Safe Memory Reclamation**: When concurrent vacuum or transaction completion shrinks or deletes trie nodes, memory frees are deferred through the EBR collector until all active readers exit their epoch pins.
+
+> **Open soundness issue ([#1086](https://github.com/orieg/expanse/issues/1086)).** Concurrent use of every `Sync*` wrapper reaches two classes of undefined behaviour from safe code: optimistic plain loads that race covered writers' stores (a data race under the Rust memory model, although the seqlock discards every such value), and references formed over shared engine state by covered writers. No incorrect result has been observed from either, and `scripts/miri_ub_sites.py` tracks every reached site nightly (`crates/expanse/src/sync.rs` module docs). Weigh this before depending on the wrappers in production.
 
 ### 3.2 High-Throughput MVCC Snapshot Engine Implementation
 
 ```rust
-use expanse_trie::sync::SyncExpanseSet;
+use expanse_trie::sync::{SetReader, SyncExpanseSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-/// Optimistic MVCC Snapshot Manager for High-Churn OLTP Engines
+/// Optimistic MVCC Snapshot Manager for High-Churn OLTP Engines.
+///
+/// Each reading thread registers one `SetReader` (`engine.reader()`) and
+/// reuses it: `SyncExpanseSet::reader` registers an epoch slot with the
+/// collector, which is not a per-lookup cost to pay.
 pub struct MvccEngine {
     active_xids: Arc<SyncExpanseSet>,
     next_xid: AtomicU64,
@@ -235,16 +247,20 @@ impl MvccEngine {
         self.active_xids.remove(xid);
     }
 
+    /// Registers a reader handle for the calling thread; keep it for the
+    /// thread's lifetime (`Send`, not `Sync`: one handle per thread).
+    pub fn reader(&self) -> SetReader<'_> {
+        self.active_xids.reader()
+    }
+
     /// Reader Visibility Check: Returns true if row with creation xmin is visible
     #[inline(always)]
-    pub fn is_visible(&self, xmin: u64, snapshot_xid: u64) -> bool {
+    pub fn is_visible(&self, reader: &SetReader<'_>, xmin: u64, snapshot_xid: u64) -> bool {
         // 1. Transaction created after reader snapshot is not visible
         if xmin > snapshot_xid {
             return false;
         }
         // 2. Optimistic check: if xmin was active at snapshot time, not visible
-        // Uses thread-local registered reader for single-digit nanosecond verification
-        let reader = self.active_xids.reader();
         !reader.contains(xmin)
     }
 }
@@ -252,7 +268,7 @@ impl MvccEngine {
 
 **Measured Concurrency Benchmark** *(measured: reference host — Intel i9-12900F, runs [34881026495](https://github.com/orieg/expanse/actions/runs/34881026495) and [34882381735](https://github.com/orieg/expanse/actions/runs/34882381735), commit `76432c5c`; `benches/concurrency.rs` through `docs/benchmarks/concurrency/scripts/mixed_concurrency.py`, 18 interleaved rounds of 500 ms windows per cell, bounded keyspaces, `docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json` and its second run; workload: `core_concurrency`)*:
 - **Read-only** OCC access scales at 16 threads in both runs: `SyncExpanseMap` **361 M ops/s, C(16) = 9.44 [9.43, 9.46]** on u64 keys, with no third-party arm of that key type in the harness; on byte-string keys `SyncExpanseBytesMap` **126 M ops/s (11.03–11.08×)** and `SyncExpanseStrMap` **73.3–75.6 M ops/s (10.63–10.99×)** against `DashMap` at 129–130 M ops/s (8.39–8.46×); `SyncExpanseSet` measured 562 and 415 M ops/s, a level the two runs do not agree on. The `Mutex<Expanse*>` baselines fall to **0.13×–0.30×**.
-- **Write-mixed is the weak regime.** At 50/50, `SyncExpanseMap` and `SyncExpanseSet`, which admit concurrent writers (`docs/ARCHITECTURE.md` §4.2), scale to C(16) = **2.23** and **1.93–1.98** with no baseline of their key type here, while the single-writer wrappers fall: `SyncExpanseBlobMap` to **0.27×** where `SkipMap` scales **8.54×** on the same 128-byte payloads, and `SyncExpanseStrMap` and `SyncExpanseBytesMap` to **0.65×** where `DashMap` scales **7.77×–7.80×** on the same keys (workload: `core_concurrency`). The 50/50 figure is a **mixed-operation rate** — every thread picks a read or a write per operation in one loop — not a read-scaling result.
+- **Write-mixed is the weak regime.** At 50/50, `SyncExpanseMap` and `SyncExpanseSet`, which admit concurrent writers (`docs/ARCHITECTURE.md` §4.2), scale to C(16) = **2.23** and **1.93–1.98** with no baseline of their key type here, while the string, bytes and blob wrappers — single-writer at `76432c5c`; their multi-writer paths landed afterwards under #929 and these cells have not been re-measured — fall: `SyncExpanseBlobMap` to **0.27×** where `SkipMap` scales **8.54×** on the same 128-byte payloads, and `SyncExpanseStrMap` and `SyncExpanseBytesMap` to **0.65×** where `DashMap` scales **7.77×–7.80×** on the same keys (workload: `core_concurrency`). The 50/50 figure is a **mixed-operation rate** — every thread picks a read or a write per operation in one loop — not a read-scaling result.
 
 ---
 
@@ -284,7 +300,7 @@ Traditional hash table dictionaries (`std::unordered_map`, Swiss Tables) store f
 ### 4.2 Zero-Copy Columnar String Dictionary Block
 
 ```rust
-use expanse_trie::strmap::ExpanseStrMap;
+use expanse_trie::strmap::{ExpanseStrMap, NulFreeStr};
 
 /// Columnar Dictionary Encoder for Arrow / DuckDB String Vectors
 pub struct ColumnarStringDictionary {
@@ -306,10 +322,13 @@ impl ColumnarStringDictionary {
         }
     }
 
-    /// Encodes a string slice into a compact 32-bit dictionary symbol ID
+    /// Encodes a string slice into a compact 32-bit dictionary symbol ID.
+    /// Keys are NUL-free by construction (`NulFreeStr`); a string carrying a
+    /// NUL byte is not representable in a JudySL-style map.
     pub fn encode_or_insert(&mut self, text: &str) -> u32 {
         let bytes = text.as_bytes();
-        if let Some(id) = self.forward_dict.get(bytes) {
+        let key = NulFreeStr::new(bytes).expect("dictionary strings carry no NUL byte");
+        if let Some(id) = self.forward_dict.get(key) {
             return id as u32;
         }
 
@@ -322,19 +341,23 @@ impl ColumnarStringDictionary {
         self.reverse_storage.extend_from_slice(bytes);
 
         // Insert into forward trie
-        self.forward_dict.insert(bytes, new_id as u64);
+        self.forward_dict.insert(key, new_id as u64);
         new_id
     }
 
     /// Evaluates prefix range query: finds all symbol IDs starting with prefix.
-    // NB: `ExpanseStrMap::next_at_or_after` / `next_after` take `&mut self` and
-    // return `Option<(Vec<u8>, NonNull<u64>)>` — the second element is a pointer
-    // to the value slot, so the stored id is read by dereferencing it.
-    pub fn find_prefix_range(&mut self, prefix: &str) -> Vec<u32> {
+    // NB: `ExpanseStrMap::next_at_or_after` / `next_after` take `&self` and a
+    // `&NulFreeStr`, and return `Option<(Vec<u8>, NonNull<u64>)>` — the second
+    // element is a pointer to the value slot, so the stored id is read by
+    // dereferencing it.
+    pub fn find_prefix_range(&self, prefix: &str) -> Vec<u32> {
         let mut results = Vec::new();
         let prefix_bytes = prefix.as_bytes();
+        let Some(prefix_key) = NulFreeStr::new(prefix_bytes) else {
+            return results; // no stored key contains a NUL byte
+        };
 
-        let mut cursor = self.forward_dict.next_at_or_after(prefix_bytes);
+        let mut cursor = self.forward_dict.next_at_or_after(prefix_key);
         while let Some((matched_bytes, slot)) = cursor {
             if !matched_bytes.starts_with(prefix_bytes) {
                 break; // Left prefix range in lexicographical order
@@ -342,15 +365,15 @@ impl ColumnarStringDictionary {
             // SAFETY: `slot` points at the live value slot for `matched_bytes`.
             let symbol_id = unsafe { *slot.as_ptr() };
             results.push(symbol_id as u32);
-            cursor = self.forward_dict.next_after(&matched_bytes);
+            let matched = NulFreeStr::new(&matched_bytes).expect("stored keys carry no NUL byte");
+            cursor = self.forward_dict.next_after(matched);
         }
         results
     }
 }
 ```
 
-**Prefix Compression Efficiency on URL / Metric Datasets**:
-- Across 1,000,000 HTTP endpoint access logs with common domain prefixes, `ExpanseStrMap` reduces memory consumption from **38.4 MB** (hash table storing raw strings) to **11.2 MB** (**70.8% memory reduction**), while maintaining sorted iteration at **12.4M items/s**.
+**Prefix Compression Efficiency on URL / Metric Datasets**: no committed benchmark measures dictionary memory or iteration rate on a URL or metric-name dataset, so this document carries no figure for it. The string-key comparisons that are measured are in [`benchmarks/hot_comparison/`](benchmarks/hot_comparison/README.md).
 
 ### 4.3 Interned Set Domain: Shared Dictionary & Posting-List Sets
 
@@ -465,7 +488,7 @@ Traditional B-Trees incur cache-line straddles and structural node split/merge r
 
 `ExpanseMap` accelerates range scans (`range()`, `iter_from()`) by skipping unpopulated subtrees:
 - When scanning from key $K_{\text{start}}$ to $K_{\text{end}}$, `BitmapBranch` nodes test active subexpanses using a single 256-bit bitmask.
-- Trailing zero counts (`TZCNT`) skip empty 32-bit digit spans in **a single CPU cycle** during descent; full ordered iteration is faster than `BTreeMap::iter()` for dense keys but still slower on sparse keys (see §7.1†) — the trie's most durable advantage remains **point and prefix lookups**.
+- Trailing-zero counts (`trailing_zeros`, which lowers to `TZCNT`/`BSF` on x86-64) locate the next populated digit in a bitmap word without a per-digit loop; full ordered iteration is faster than `BTreeMap::iter()` for dense keys but still slower on sparse keys (see §7.1†) — the trie's most durable advantage remains **point and prefix lookups**.
 
 ```rust
 use expanse_trie::map::ExpanseMap;
@@ -519,8 +542,9 @@ Expanse provides an official pluggable MemTable implementation for RocksDB (`int
 #include "expanse_memtable.h"
 
 rocksdb::Options options;
-// 1.42x higher key density in RAM vs a fair skiplist baseline (measured);
-// fewer SSTable flushes is inferred (target); scan speed measured at 3.82x
+// 1.42x higher key density vs a fair skiplist baseline (measured); fewer
+// SSTable flushes is inferred (target); prefixscan 3.14x / 3.07x in two runs
+// at 7cd5140e (measured) -- see "Architectural Benefits in RocksDB" below
 options.memtable_factory = rocksdb::NewExpanseMemTableRepFactory(
     /*leaf_capacity=*/64,
     /*enable_prefix_trie=*/true
@@ -591,12 +615,12 @@ Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-155-gbec51c48)`, commit `
 
 **Correction.** Re-harvested at `bec51c48` after #694 carried a running rank through the C ABI range walk. In a paired capture across that one change — its merge parent against it, equal-length version strings, one sitting — the aggregate arm moved from 461.45 to 371.10 cycles per key (−19.6%) against a twin floor of 5.3% on that cell and a layout floor of 4.45% on arms the change cannot reach; the earlier range-scan headline is superseded, and the pairing is recorded in [`docs/design/32-bit-embedded.md` §8.1.8](design/32-bit-embedded.md) with its artifacts under [`results/pairing_694/`](benchmarks/embedded/results/pairing_694/). Every other headline below is re-stated from this harvest; the ingest and BLE cells moved only within the layout floor of this part (§8.1.3).
 
-**Measured against `main` (`28dd572e`) on the same board, same harness build.**
-The engine is the only thing that differs between the two arms: the PR adds a
+**Pairing across #625 (`22908c15`) against its base `28dd572e`, same board, same harness build.**
+The engine is the only thing that differs between the two arms: #625 added a
 monotone-append short circuit on linear-leaf inserts and a cached descent to the
 last-inserted expanse (`Finger32`), and nothing else on any measured path.
 
-| Arm (N=2000, pop=2000 unless noted) | `main` | this PR | Change | vs twin drift (7.73% max this pairing) |
+| Arm (N=2000, pop=2000 unless noted) | base `28dd572e` | #625 | Change | vs twin drift (7.73% max this pairing) |
 |---|---|---|---|---|
 | `esp32_tsdb_ingest` | 3,524.6 | **3,049.9** | **-13.5%** | 1.7× drift |
 | `esp32_tsdb_ingest` (N=500) | 3,598.9 | **3,176.0** | **-11.8%** | 1.5× drift |
@@ -614,19 +638,19 @@ and under +2% everywhere else.
 
 **Two cells are not a verdict on this change.** The pop=500 eviction arms read
 +48% and +56% here, and read −1.6% and −5.4% for the *same engine source* in
-an earlier link of this PR — two builds differing only in code the measured
+an earlier build of #625 — two builds differing only in code the measured
 path never runs moved them by 57%. They are layout-dominated on this part and
 published as measured, not attributed
 (`design/32-bit-embedded.md` §8.1.3). The shuffled aggregate at pop 500 sits
 1.3× outside drift on a read path this change does not touch, at 311→343
-cycles; it is likewise unattributed. The ingest result, by contrast, has
-reproduced across five links this session.
+cycles; it is likewise unattributed. The ingest result, by contrast,
+reproduced across five builds of #625.
 
 Each arm is 10 repetitions and the median leads. The mean does not survive this
 part: one repetition in ten whose timed window catches a FreeRTOS tick or a
 flash-cache miss storm moves it further than any code change this suite
 measures. Across the twin arms in this pairing the run-to-run spread is 0.06% at the
-median and 7.73% at worst, against far larger swings on the mean.
+median and 7.73% at worst, against far larger swings on the mean. The harvester records
 min, median, mean and the BCa interval, and flags any arm whose slowest
 repetition exceeds its median by 2x with a warning marker.
 
@@ -776,10 +800,10 @@ toward an allocation failure over a long deployment.
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./benchmarks/rocksdb_memtable/results/bench_rocksdb.svg)
 
-1. **1.42× Higher In-Memory Key Density**: leaf blocks store entry pointers in contiguous 64-byte aligned spans at **13.2 B/entry vs 18.7 B/entry** for a fair variable-height skiplist (1.26 MB vs 1.8 MB for 100k entries). *The earlier "11.1×" headline is retracted*: its 146.7 B/entry baseline came from a strawman node embedding all 16 tower pointers statically, where a real `InlineSkipList`-style node costs 8 B (key ptr) + height×8 B. **Honest framing:** `VectorRep` (unordered append vector) measures *denser than Expanse* in the same table — **10.5 vs 13.2 B/entry**; the Expanse edge is specifically over the ordered skiplist.
+1. **1.42× Higher In-Memory Key Density**: leaf blocks store entry pointers in contiguous 64-byte aligned spans at **13.2 B/entry vs 18.7 B/entry** for a fair variable-height skiplist (1.26 MB vs 1.79 MB for 100k entries). *The earlier "11.1×" headline is retracted*: its 146.7 B/entry baseline came from a strawman node embedding all 16 tower pointers statically, where a real `InlineSkipList`-style node costs 8 B (key ptr) + height×8 B. **Honest framing:** `VectorRep` (unordered append vector) measures *denser than Expanse* in the same table — **10.5 vs 13.2 B/entry**; the Expanse edge is specifically over the ordered skiplist.
 2. **Fewer L0 SSTable Flushes** *(inferred (target) — not measured; no `db_bench` artifact)*: higher density should fit more user data per memtable budget and reduce flush frequency, but the effect scales with the 1.42× density edge and has not been measured.
 3. **Faster Sequential Scans** against the fair variable-height baseline, five rounds with BCa 95% bootstrap intervals per run, run 1 then run 2: `prefixscan` **3.1426x** [3.1061, 3.2269] and **3.0744x** [3.0480, 3.1095], point lookup **1.4915x** [1.4901, 1.4939] and **1.4985x** [1.4913, 1.5073], range seek **1.5318x** [1.5225, 1.5377] and **1.5348x** [1.5268, 1.5414], insert **1.4734x** [1.4414, 1.4856] and **1.4757x** [1.4609, 1.4859]. Every lower bound clears 1.0 in both runs. `VectorRep` scans faster still but cannot serve ordered seeks. *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, `Linux-6.8.0-136-generic-x86_64-with-glibc2.35`, pin `0-15`, commit `7cd5140e`, runs [35547165132](https://github.com/orieg/expanse/actions/runs/35547165132) and [35547235205](https://github.com/orieg/expanse/actions/runs/35547235205); artifacts [`docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json`](benchmarks/rocksdb_memtable/results/baseline_rocksdb.json) and [`…_run2.json`](benchmarks/rocksdb_memtable/results/baseline_rocksdb_run2.json))* The earlier `6cb64b45` figures — `3.331x`, `1.457x`, `1.512x`, `1.406x` — are superseded by these. Of the five vs-SkipList rows only point lookup and batch scan (item 4) move clear of them in **both** runs, up and down respectively; the rest are reported and not claimed as changed (suite `METHODOLOGY.md` §6.2).
-   - **An earlier fair-baseline run disagrees on one arm.** A single-round run at commit `7644c2b6` reported `prefixscan` at 188.2 Mops/s against 49.3, a 3.82x ratio; the five-round interval above is [3.198, 3.486] and does not contain it. The other three arms agree within their intervals (1.47/1.51/1.43 then, 1.457/1.512/1.406 now). The single-round figure had no interval to compare against, which is why it is superseded rather than reconciled — but the gap is larger than the other arms' run-to-run spread and is worth a look if `prefixscan` is ever load-bearing.
+   - **An earlier single-round run is superseded.** A single-round run at commit `7644c2b6` reported `prefixscan` at 3.82x (188.2 vs 49.3 Mops/s), with no interval. Neither five-round interval above ([3.1061, 3.2269] and [3.0480, 3.1095]) contains it, and the suite README carries only the two `7cd5140e` runs, so the 3.82x figure is superseded rather than reconciled.
 4. **Zero-Copy Batch Scan Extraction, and the suite's one confirmed loss.** `ScanBatch` extracts keys and values with no redundant varint re-parsing at **119.69 Mops/s** [115.64, 123.42] in run 1 and **126.37 Mops/s** [125.21, 127.97] in run 2, against the fair skiplist's **56.29** [49.27, 58.67] and **59.35** [58.33, 60.17] *(workload: rocksdb_memtable_single_threaded)*. **The ratio fell against the superseded `6cb64b45` figure — `2.524x` [2.421, 2.644] → 2.1376x [2.0452, 2.3111] and 2.1301x [2.0820, 2.1930] — and it is the only cell both runs move clear of the old interval.** The skiplist arm rose in both runs; the `ScanBatch` arm's own rise clears the old interval in run 2 only, so the confirmed reading is that the baseline rose and the ratio fell. No mechanism is attributed: no counter was collected, and the re-measurement spans an engine change, a process-boundary change and an estimator change at once (suite `METHODOLOGY.md` §6.1, §6.3). The standalone **111.8 Mops/s** figure at `7d87dff7` is superseded by the cells here.
 
 See [`docs/benchmarks/rocksdb_memtable/`](benchmarks/rocksdb_memtable/README.md) for full benchmarks and methodology, and [`integrations/rocksdb/`](../integrations/rocksdb/README.md) for integration options and build instructions.
@@ -814,9 +838,9 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 ## 7. Comparative Benchmark & Decision Matrix
 
-> **Provenance.** The §7.2 YCSB throughput and latency figures are measured on the reference host (Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `21a382f3`, runs [35419627251](https://github.com/orieg/expanse/actions/runs/35419627251) and [35419631571](https://github.com/orieg/expanse/actions/runs/35419631571), pinned CPUs `0,2,4,6,8,10,12,14`, 8 paired rounds with BCa 95% bootstrap intervals, Refs #1005). The §5.3 RocksDB figures are measured on the dedicated quiet host (commit 695b98d). The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns for Expanse structures with committed harnesses (`ExpanseSet`, `ExpanseMap`, `ExpanseBlobMap`) derive from deterministic allocator accounting (`JudyLMemUsed` / `TrackingAlloc`). External entries are approximate ranges or definitional baselines; none carries a pending-measurement marker. The ART baseline #387 tracked has landed with a committed suite — see [`docs/benchmarks/art_comparison/`](benchmarks/art_comparison/README.md). Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
+> **Provenance.** The §7.2 YCSB throughput and latency figures are measured on the reference host (Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `21a382f3`, runs [35419627251](https://github.com/orieg/expanse/actions/runs/35419627251) and [35419631571](https://github.com/orieg/expanse/actions/runs/35419631571), pinned CPUs `0,2,4,6,8,10,12,14`, 8 paired rounds with BCa 95% bootstrap intervals, Refs #1005). The RocksDB figures in §5 are measured on the reference host at commit `7cd5140e`, in two runs ([35547165132](https://github.com/orieg/expanse/actions/runs/35547165132), [35547235205](https://github.com/orieg/expanse/actions/runs/35547235205)), as published in the suite [README](benchmarks/rocksdb_memtable/README.md). The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns for Expanse structures with committed harnesses (`ExpanseSet`, `ExpanseMap`, `ExpanseBlobMap`) derive from deterministic allocator accounting (`JudyLMemUsed` / `TrackingAlloc`). External entries are approximate ranges or definitional baselines; none carries a pending-measurement marker. The ART baseline #387 tracked has landed with a committed suite — see [`docs/benchmarks/art_comparison/`](benchmarks/art_comparison/README.md). Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
 >
-> ✅ **Re-measured in #1005.** The standardized single-threaded YCSB suite re-measurement across 8 paired rounds on the reference host confirms `ExpanseBlobMap` throughput of 17.94–34.79 Mops/s across Workloads A–D/F on shuffled keys, leading `BTreeMap` by 1.28×–2.01× (up to 2.28× on sorted D) and leading RocksDB `SkipMap` by 4.77×–5.88×. In Workload E, dense clustered keys reverse the sparse-key loss: at 1M sorted `ExpanseBlobMap` leads `BTreeMap` 1.027× [1.026, 1.029] and at 10M sorted 1.157× [1.155, 1.158]. Latency percentiles under 64-op window means show p95 of 64.5 ns on A and 72.4 ns on F, refuting the historical 38 µs tail.
+> ✅ **Re-measured in #1005.** The standardized single-threaded YCSB suite re-measurement across 8 paired rounds on the reference host confirms `ExpanseBlobMap` throughput of 17.94–34.79 Mops/s across Workloads A–D/F on shuffled keys, leading `BTreeMap` by 1.28×–2.01× on A–D and 1.03× [1.025, 1.035] on F (up to 2.28× on sorted D) and leading RocksDB `SkipMap` by 4.77×–5.88×. In Workload E, dense clustered keys reverse the sparse-key loss: at 1M sorted `ExpanseBlobMap` leads `BTreeMap` 1.027× [1.026, 1.029] and at 10M sorted 1.157× [1.155, 1.158]. Latency percentiles under 64-op window means show p95 of 64.5 ns on A and 72.4 ns on F, refuting the historical 38 µs tail.
 
 ### 7.1 Expanse vs Industry Primitives Matrix
 
@@ -831,7 +855,7 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 | **ART (Adaptive Radix Tree)** | 40.13–55.62 B/key *(measured: reference host, harness 07b8413e, art_memory; up to 58.50 projected)* | 17.9–66.8 ns *(measured: reference host, harness 07b8413e, art_lookup_hit)* | Ordered Walk | Node Version Locks (Rowex) |
 | **SkipList (RocksDB MemTable)** | ~32.0–64.0 B/key (208B blob) | ~45.0–90.0 ns | Pointer Walk | Lock-Free CAS Linked List |
 
-† **Range-scan update (measured):** full in-order iteration (`ExpanseMap::iter()`) is **faster than `BTreeMap::iter()` for dense key distributions** at 1M keys — sequential **0.7×**, clustered **0.8×**, random **0.5×** (2× faster) the time of `BTreeMap::iter()` — after [#245](https://github.com/orieg/expanse/pull/245) replaced the per-step allocating descent with a stack-based zero-allocation iterator (a 2.2×–9.4× speedup over the pre-#245 6.8×/6.4×/2.1×-slower readings). **Sparse-key iteration remains ~4.7× slower** (was 10.4×), a structural residual — the trie chases pointers across up to 8 levels where a B-tree walks contiguous node arrays — tracked in [#270](https://github.com/orieg/expanse/issues/270) *(measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19, `benches/compare.rs`)*. Point lookup (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`) remains the engine's other advantage.
+† **Range-scan update (measured):** full in-order iteration (`ExpanseMap::iter()`) is **faster than `BTreeMap::iter()` for dense key distributions** at 1M keys — sequential **0.7×**, clustered **0.8×**, random **0.5×** (2× faster) the time of `BTreeMap::iter()` — after [#245](https://github.com/orieg/expanse/pull/245) replaced the per-step allocating descent with a stack-based zero-allocation iterator (a 2.2×–9.4× speedup over the pre-#245 6.8×/6.4×/2.1×-slower readings). **Sparse-key iteration remains ~2.4× slower** (10.4× before #245, 4.7× after it): [#270](https://github.com/orieg/expanse/issues/270) added a single-key-immediate fast path, and the residual is the trie visiting its branch spine and re-descending per key where a B-tree walks contiguous leaf arrays *(measured: reference host — Intel i9-12900F, 24 threads; dense rows at commit 46529f19, sparse row at commit 1feefadf; `benches/compare.rs`; `docs/BENCHMARKING.md`, full ordered iteration)*. Point lookup (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`) remains the engine's other advantage.
 
 The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache uniform-random 1M case, not a fixed gap versus hashbrown's single probe: random lookup is a working-set-vs-cache crossover — within ~1.1× of hashbrown while cache-resident (10k) and widening to ~2.9× at 1M as the ~5 trie descents miss to DRAM — verified stable, not a regression *(measured: reference host, commit 4a12f046)*.
 
@@ -869,7 +893,7 @@ Under sorted ascending insertion order, throughputs remain consistent: Workload 
 **Key Architectural Insights for Database Engineers:**
 1. **Workload D (Read Latest)**: `ExpanseBlobMap` measures **1.955×** [1.937, 1.971] on shuffled keys (34.79 vs 17.79 Mops/s) and **2.275×** [2.207, 2.331] on sorted keys (35.39 vs 15.58 Mops/s; workload: `workload_ycsb`, BCa 95% intervals over paired rounds). The earlier uncalibrated ~5.7× and 5.02× criterion medians on non-read-latest D with rejected writes are retracted.
 2. **Against the RocksDB `SkipMap` model**: `ExpanseBlobMap` measures **4.77× to 5.88×** `crossbeam_skiplist::SkipMap`'s throughput across Workloads A, B, C, D, F on shuffled keys (A: 5.808 [5.693, 5.958], B: 5.883 [5.830, 5.938], C: 5.604 [5.481, 5.703], D: 4.774 [4.755, 4.797], F: 5.634 [5.604, 5.694]) and **4.53× to 5.33×** on sorted keys (A: 5.203, B: 5.142, C: 4.899, D: 4.526, F: 5.331). The earlier 8.14×–11.14× criterion medians are retracted.
-3. **Concurrency Scaling**: Single-writer OCC (`SyncExpanseBlobMap`, `SyncExpanseStrMap`, `SyncExpanseBytesMap`) scales on read-only workloads while write-mixed throughput is serialized on the single writer mutex. Stage B Multi-Writer OLC (#568, Phases 4A–4D on `SyncExpanseSet` and `SyncExpanseMap`) replaces the global writer mutex on common write paths with per-node version locks down disjoint key expanses.
+3. **Concurrency Scaling**: every `Sync*` wrapper now has a multi-writer path: Stage B OLC (#568) on `SyncExpanseSet` and `SyncExpanseMap` takes per-node version locks down disjoint key expanses, and #929 added per-node writes to `SyncExpanseStrMap`, CAS bucket publication to `SyncExpanseBytesMap` and per-writer arenas to `SyncExpanseBlobMap` (`docs/ARCHITECTURE.md` §4.1–§4.2). The §3.2 write-mixed cells were measured at `76432c5c`, before the #929 paths, and are not re-measured here. See the #1086 caveat in §3.1.
 
 ### 7.3 Architectural Selection Guide
 
@@ -878,11 +902,11 @@ Under sorted ascending insertion order, throughputs remain consistent: Workload 
   │
   ├── 1. Document ID / Row ID Indexing, Filter Masks, Inverted Lists
   │      └── Single-Threaded / Batch:  Use `ExpanseSet` (Judy1)
-  │      └── Highly Concurrent OLTP:    Use `SyncExpanseSet` (OCC)
+  │      └── Highly Concurrent OLTP:    Use `SyncExpanseSet` (OCC; see #1086, §3.1)
   │
   ├── 2. 64-bit Key-Value Index, MemTable, Secondary Index, Sequence Tracking
   │      └── Single-Threaded / Batch:  Use `ExpanseMap` (JudyL)
-  │      └── Concurrent Read / Write:  Use `SyncExpanseMap` (OCC)
+  │      └── Concurrent Read / Write:  Use `SyncExpanseMap` (OCC; see #1086, §3.1)
   │
   ├── 3. String / Text Dictionaries, URLs, Hierarchical Metric Names
   │      └── NUL-Terminated / Text:    Use `ExpanseStrMap` (JudySL)
@@ -897,8 +921,8 @@ Under sorted ascending insertion order, throughputs remain consistent: Workload 
 ## 8. Summary
 
 Expanse provides modern database engines with a unified, high-performance family of digital trie data structures:
-- **Search & Inverted Indexes**: Sub-15ns boolean queries with 0.07–0.36 B/docID memory packing (set: presence only).
-- **MVCC Engine Visibility**: Reader validation without a lock on the common path, scaling on bounded-keyspace read workloads at 16 threads — `SyncExpanseMap` 361 M ops/s (C(16) = 9.44 [9.43, 9.46]), `SyncExpanseBytesMap` 126 M ops/s (11.03–11.08×), `SyncExpanseStrMap` 73.3–75.6 M ops/s (10.63–10.99×) (workload: `core_concurrency`) — while the `Mutex<Expanse*>` baselines of the blob and string key types fall to 0.13×–0.30× *(measured: reference host — Intel i9-12900F, runs [34881026495](https://github.com/orieg/expanse/actions/runs/34881026495) and [34882381735](https://github.com/orieg/expanse/actions/runs/34882381735), commit `76432c5c`, `docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json`)*. Write-mixed workloads are the weak regime (0.27×–2.23× at 50/50 across the `Sync*` arms) — see §3.2.
+- **Search & Inverted Indexes**: 0.07–0.36 B/docID on dense and clustered keys (set: presence only); against Roaring, memory and Boolean-query cost are mixed and mostly losses — see §2.1 and the search suite.
+- **MVCC Engine Visibility**: Reader validation without a lock on the common path, scaling on bounded-keyspace read workloads at 16 threads — `SyncExpanseMap` 361 M ops/s (C(16) = 9.44 [9.43, 9.46]), `SyncExpanseBytesMap` 126 M ops/s (11.03–11.08×), `SyncExpanseStrMap` 73.3–75.6 M ops/s (10.63–10.99×) (workload: `core_concurrency`) — while the `Mutex<Expanse*>` baselines of the blob and string key types fall to 0.13×–0.30× *(measured: reference host — Intel i9-12900F, runs [34881026495](https://github.com/orieg/expanse/actions/runs/34881026495) and [34882381735](https://github.com/orieg/expanse/actions/runs/34882381735), commit `76432c5c`, `docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json`)*. Write-mixed workloads are the weak regime (0.27×–2.23× at 50/50 across the `Sync*` arms, measured before the string, bytes and blob wrappers gained multi-writer paths) — see §3.2. The wrappers carry an open soundness issue, #1086 (§3.1).
 - **Columnar Symbol Dictionaries**: Deduplicated string storage on shared-prefix strings via 8-byte big-endian chunk decomposition and tail collapse.
 - **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with fast point/prefix lookups (full ordered iteration is faster than a B-tree for dense keys, still slower on sparse keys — see §7.1†).
 - **Shared Memory IPC** *(roadmap — not implemented; see §6)*: Zero-deserialization analytical query sharing across multi-worker engine processes.

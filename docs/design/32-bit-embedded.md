@@ -31,7 +31,7 @@ leak-check, cross-compilation for RV32/Cortex-M, 32-bit test execution on
 | §5.5 Map bitmap leaf `LeafBitmapL_32` | **Shipped** | `node32.rs` (96 B, 8 value subarrays, Band 16 hysteresis in `trie32`) |
 | §7 `ValueSlot32` arena/hot-metadata mode | **Shipped** | zero-heap inline storage (`<= 3` bytes) + 12-bit slab arena with freelist recycling in `blobmap32.rs` |
 | §8 `SlabPage32` custom allocator / freelist classes | **Not yet** | arena uses the global allocator via `alloc` |
-| §9 `SeqVersion32` / OCC primitives | **Shipped** | `occ32.rs` provides 32-bit atomic seqlock version word and node-level bracketing; sampling is bounded (`try_sample`), never spinning, per the interrupt-handler contract |
+| §9 `SeqVersion32` / OCC primitives | **Shipped** | `occ32.rs` provides the 32-bit seqlock version word; sampling is bounded (`try_sample`), never spinning, per the interrupt-handler contract. The concurrent wrapper brackets at **tree** granularity (one `SeqVersion32` per container, `sync32.rs`); `occ32::node_version_begin`/`node_version_end` exist but no engine path calls them, and only `BranchB32` carries a `version` field, which nothing brackets |
 | §9/§10 concurrent wrapper (`sync32`) | **Shipped (point ops)** | `SyncExpanseMap32`/`SyncExpanseSet32`: single writer enforced at compile time (`split(&mut)` + non-clonable handle — no mutex, no CAS, load/store+fence only, so it runs on `riscv32imc`), validated optimistic `try_get`/`try_contains`/`try_len` returning `Busy` instead of spinning, fixed-capacity arena with deferred reclamation drained at reader quiescence, `ArenaFull`/`ReclaimBacklog` refused *before* the tree is touched. Ordered single-key reads on the map (`try_first`/`try_last`/`try_next_*`/`try_prev_*` on `Reader32`, exact twins on `Writer32`, #900) exist and are `#[doc(hidden)]` pending the concurrency METHODOLOGY §12 gates; ordered scans/iteration on the concurrent surface are not yet exposed. The fixed arena is opt-in on this wrapper only — the single-threaded engines keep §2.1 expanse-proportional memory |
 | §11 32-bit `Judy*` C ABI drop-in | **Not shipped** | A 32-bit `libexpanse` exports **no** `Judy*` symbols. `ExpanseMap32`/`ExpanseSet32` have no rank/select (`count_below`/`by_count`) and no value-slot accessors, so `Judy1ByCount`, `JudyLIns` and their siblings have nothing to translate to; `JudySL*`/`JudyHS*` have no 32-bit container at all. Symbols are absent rather than stubbed. Surface matrix: [COMPAT.md](../COMPAT.md#build-configuration-surface-matrix) |
 | §12/§13 QEMU runners, ESP-IDF component | **Shipped** | ESP-IDF component in `components/expanse/` builds and links `libexpanse.a` for the bare-metal RISC-V target matching `IDF_TARGET`; CI cross-compilation matrix covers engine + C ABI staticlib. RISC-V parts only — the Xtensa ESP32/S2/S3 have no mainline rustc target. The CMake integration itself is not exercised in CI (no ESP-IDF lane) |
@@ -57,13 +57,13 @@ In these embedded environments, system memory is severely constrained—often li
 
 This design establishes a unified 32-bit architecture for Expanse, scaling the digital trie from 64-bit servers down to embedded microcontrollers with **zero algorithmic compromises**:
 
-1. **4-Level Digital Tree Hierarchy**: Keys shrink from 64-bit (`Key = u64`, Levels 8 $\rightarrow$ 1) to 32-bit (`Key = u32`, Levels 4 $\rightarrow$ 1), halving maximum descent depth from 8 hops to 4 hops and cutting lookup latency by up to $`48\%`$.
+1. **4-Level Digital Tree Hierarchy**: Keys shrink from 64-bit (`Key = u64`, Levels 8 $\rightarrow$ 1) to 32-bit (`Key = u32`, Levels 4 $\rightarrow$ 1), halving maximum descent depth from 8 hops to 4 hops. (The lookup-latency effect of the shorter descent is not measured here.)
 2. **Compact 8-Byte `Edge` Descriptor (`Edge32`)**: Replacing 16-byte edges with an 8-byte tagged union (`4B Pointer/Imm` + `3B Level-Split Aux/Pop0/Decode` + `1B Tag`), achieving an immediate **$`50\%`$ reduction in structural memory**.
 3. **Immediate In-Edge Packing up to 7 Bytes**: Packing up to 7 1-byte keys, 3 2-byte keys, or 2 3-byte keys directly inside a single 8-byte edge without heap allocation.
 4. **Polymorphic 32-Bit Value Slots (`ValueSlot32`) & Large-Value Integration (#112)**:
    - **Inline Mode ($\le 3$ bytes)**: Direct 24-bit payload packing in the slot with zero heap allocations.
    - **Arena Mode**: 12-bit hot metadata (TTL, status flags, sensor threshold) + 12-bit slab offset (4 KiB direct / 64 KiB aligned chunks) + the 8-bit tag — 12 + 12 + 8 = 32 bits exactly. (Earlier drafts of this document said 16-bit metadata, which does not fit alongside a 12-bit offset and an 8-bit tag; the shipped widths are gated in [ARCHITECTURE.md §10.5](../ARCHITECTURE.md#105-valueslot--the-8-byte-polymorphic-value-word).)
-   - **Raw Word Mode (`0xFF`)**: Transparent 32-bit C ABI drop-in compatibility for classic `JudyL` on 32-bit architectures.
+   - **Raw Word Mode (`0xFF`)**: every tag byte `ValueSlot32` does not list decodes as `RawWord`, so an uninterpreted 32-bit value round-trips. This is not a `JudyL` drop-in: 32-bit builds export no `Judy*` symbols (§11).
 5. **Microarchitecture-Aware 32-Byte / 64-Byte Cache Alignment**: Optimized node geometries mapped directly to 32-byte cache lines (Cortex-M7, ESP32 cache) and tightly-coupled un-cached SRAM.
 6. **`#![no_std]` & Embedded Concurrency**: Replacing 64-bit atomics with `AtomicU32` / `AtomicUsize` for base `RV32I` architectures, with pluggable support for FreeRTOS `pvPortMalloc` and ESP-IDF `esp_heap_caps_malloc`.
 
@@ -79,7 +79,7 @@ Tree Depth:8 Levels (L8 -> L1)                           4 Levels (L4 -> L1)
 Edge Size: 16 Bytes                                      8 Bytes (-50% Structural RAM)
 Cache Line:64 Bytes / 128 Bytes                          32 Bytes / 64 Bytes / Un-cached SRAM
 Value Slot:64-bit (<=7B inline, 24-bit meta)              32-bit (<=3B inline, 12-bit meta)
-Atomics:   AtomicU64 SeqVersion                          AtomicU32 SeqVersion32 (Native RV32A)
+Atomics:   AtomicU64 SeqVersion                          AtomicU32 SeqVersion32 (load/store + fences; no RV32A needed)
 Max Heap:  Exabytes (Virtual Addressing)                 128 KiB - 16 MiB (Strict Physical SRAM)
 ```
 
@@ -179,31 +179,7 @@ pub const fn digit32(key: Key32, level: u8) -> u8 {
 
 ### 4.1 Memory Layout & Bit Allocations
 
-In 64-bit Expanse, `Edge` is 16 bytes. For 32-bit targets, `Edge32` is compressed to **8 bytes** with zero padding:
-
-```
-========================================================================================
-8-Byte Edge32 Bit Layout
-========================================================================================
-
-Offset 0..3 (4 Bytes): Word 0
-+---------------------------------------------------------------------------------------+
-| Child Node Raw Pointer (*mut u8)  OR  Immediate Key Payload (4 Bytes)                 |
-| [31:0] (32 bits)                                                                      |
-+---------------------------------------------------------------------------------------+
-
-Offset 4..6 (3 Bytes): Level-Split Aux Field
-+---------------------------------------------------+-----------------------------------+
-| Narrow Pointer Decode Bytes (High 3 - L Bytes)    | Subtree Pop0 (Low L Bytes)        |
-| [23 : L*8]                                        | [L*8 - 1 : 0]                     |
-+---------------------------------------------------+-----------------------------------+
-
-Offset 7 (1 Byte): Tag Discriminant
-+---------------------------------------------------------------------------------------+
-| Edge Tag (Structural: 0x00..=0x0C, 0x7F | Immediate: 0x10..=0x36)                     |
-| [7:0] (8 bits)                                                                        |
-+---------------------------------------------------------------------------------------+
-```
+In 64-bit Expanse, `Edge` is 16 bytes. For 32-bit targets, `Edge32` is **8 bytes**: word 0 (bytes 0..3) holds a child handle or immediate payload, the aux field (bytes 4..6) holds decode digits, population or more payload, and byte 7 is the tag. The layout, both 32-bit tag spaces (the `Tag32` enumeration and the private tag bytes the `trie32` engine actually writes) and their gated values are specified in [`docs/ARCHITECTURE.md` §10.2](../ARCHITECTURE.md#102-edge32--the-8-byte-descriptor-32-bit-targets) and [§10.3.3](../ARCHITECTURE.md#1033-32-bit-tag-spaces); this document does not restate them.
 
 ### 4.2 The 3-Byte Level-Split Auxiliary Field
 
@@ -217,45 +193,13 @@ The 3-byte auxiliary field perfectly accommodates both $\text{pop0}$ and narrow-
 
 ### 4.3 Immediate Edge Packing in `Edge32`
 
-An 8-byte `Edge32` offers 7 contiguous payload bytes (`Word0` [4B] + `Aux` [3B]) for immediate keys:
+An 8-byte `Edge32` offers 7 contiguous payload bytes (word 0 [4B] + aux [3B]) for immediate keys:
 
 ```math
 \text{IMMED\_PAYLOAD\_BYTES}_{32} = 7\text{ bytes}
 ```
 
-| Undecoded Key Width ($K_B$) | Max Keys in `Edge32` ($\lfloor 7 / K_B \rfloor$) | Set Immediate Capacity | Map Immediate Capacity (Aux 3B) |
-|---|---|---|---|
-| **1 Byte** (Level 1) | $\lfloor 7 / 1 \rfloor = \mathbf{7\text{ keys}}$ | 7 Keys (0 heap allocs) | 3 Keys + 1 Value Array Ptr |
-| **2 Bytes** (Level 2) | $\lfloor 7 / 2 \rfloor = \mathbf{3\text{ keys}}$ | 3 Keys (0 heap allocs) | 1 Key + Direct Value in W0 |
-| **3 Bytes** (Level 3) | $\lfloor 7 / 3 \rfloor = \mathbf{2\text{ keys}}$ | 2 Keys (0 heap allocs) | 1 Key + Direct Value in W0 |
-
-```rust
-// crates/expanse/src/node32.rs
-
-#[derive(Clone, Copy)]
-#[repr(C)]
-union Word0_32 {
-    ptr: *mut u8,
-    imm: [u8; 4],
-}
-
-/// The uniform 8-byte tagged edge descriptor for 32-bit embedded targets.
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct Edge32 {
-    w0: Word0_32,
-    aux: [u8; 3],
-    tag: u8,
-}
-
-const _: () = {
-    use core::mem::{size_of, align_of, offset_of};
-    assert!(size_of::<Edge32>() == 8, "Edge32 must be exactly 8 bytes");
-    assert!(align_of::<Edge32>() == 4, "Edge32 must be 4-byte aligned");
-    assert!(offset_of!(Edge32, aux) == 4);
-    assert!(offset_of!(Edge32, tag) == 7);
-};
-```
+A set immediate holds `7 / key_bytes` keys (`trie32::set_immed_cap`); a map immediate holds a **single** entry, with the value in word 0. Capacities are tabulated and gated in [`docs/ARCHITECTURE.md` §10.4](../ARCHITECTURE.md#104-immediate-capacity). `Edge32` itself is declared in `crates/expanse/src/types32.rs`, with its size and alignment const-asserted there.
 
 ---
 
@@ -263,106 +207,36 @@ const _: () = {
 
 To support both 32-byte cache line embedded microcontrollers (Cortex-M7, ESP32) and standard 64-byte systems, node structures are defined with exact compile-time sizing guarantees:
 
+The shipped layouts are declared in `crates/expanse/src/node32.rs`, where a `const` assertion pins each size and alignment; the field lists below are read from that file. Child pointers are 32-bit arena **handles** (§0, *Deviation*), not raw pointers.
+
 ### 5.1 Linear Branch Headers (`BranchHeader32`)
 
-```rust
-/// Compact 8-byte header for 32-bit linear branches.
-#[derive(Debug, Clone, Copy)]
-#[repr(C)]
-pub struct BranchHeader32 {
-    /// OCC Version counter (even = stable, odd = mutating)
-    pub version: u32,
-    /// Populated child edge count
-    pub num: u8,
-    /// Node's current level (1..=4)
-    pub level: u8,
-    /// 16-bit presence bloom filter: 1 << (digit & 0x0F)
-    pub presence: u16,
-}
-```
+`BranchHeader32` is 8 bytes, 4-byte aligned: `pop0: u32` (subtree population − 1), `num_edges: u8`, `level: u8`, `decode: [u8; 2]`. It carries **no** version word and no presence filter; the 32-bit concurrent wrapper validates against one tree-level `SeqVersion32` (§9.1).
 
 ### 5.2 Linear Branch Flavors (`BranchL2_32` & `BranchL6_32`)
 
-1. **`BranchL2_32` (32 Bytes — Exactly 1x 32-byte Cache Line)**:
-   - Header (8B) + 4 sorted digits (4B) + 4B pad + 2 `Edge32` (16B) = **32 Bytes**.
-   - Ideal for ultra-compact subtrees in internal microcontroller SRAM.
-2. **`BranchL6_32` (64 Bytes — Exactly 2x 32-byte Lines / 1x 64-byte Line)**:
-   - Header (8B) + 8 sorted digits (8B) + 6 `Edge32` (48B) = **64 Bytes**.
-   - Direct SIMD / SWAR digit scanning across 8 bytes.
+1. **`BranchL2_32` (32 bytes, one 32-byte line)**: header (8B) + `digits: [u8; 2]` + 6B pad + 2 `Edge32` (16B).
+2. **`BranchL6_32` (64 bytes, two 32-byte lines)**: header (8B) + `digits: [u8; 6]` + 2B pad + 6 `Edge32` (48B).
 
-```rust
-#[derive(Debug)]
-#[repr(C, align(32))]
-pub struct BranchL2_32 {
-    pub hdr: BranchHeader32,
-    pub digits: [u8; 4],
-    pub _pad: [u8; 4],
-    pub edges: [Edge32; 2],
-}
+Both are `#[repr(C, align(32))]`.
 
-#[derive(Debug)]
-#[repr(C, align(32))]
-pub struct BranchL6_32 {
-    pub hdr: BranchHeader32,
-    pub digits: [u8; 8],
-    pub edges: [Edge32; 6],
-}
-```
+### 5.3 Bitmap Branch (`BranchB32`) (96 Bytes — 3× 32-byte Lines)
 
-### 5.3 Bitmap Branch (`BranchB32`) (96 Bytes — Exactly 3x 32-byte Lines)
-
-```rust
-#[derive(Debug)]
-#[repr(C, align(32))]
-pub struct BranchB32 {
-    /// 256-bit presence bitmap (32 bytes)
-    pub bitmap: Bitmap256,
-    /// 8 subarray pointers to packed Edge32 arrays (8 * 4B = 32 bytes)
-    pub subarrays: [*mut Edge32; 8],
-    /// Cached population counts for fast rank/count (8 * 2B = 16 bytes)
-    pub pop_counts: [u16; 8],
-    /// OCC Version counter (4 bytes)
-    pub version: u32,
-    /// Node level (1 byte)
-    pub level: u8,
-    /// Alignment padding to 96 bytes (11 bytes)
-    pub _pad: [u8; 11],
-}
-
-const _: () = {
-    use core::mem::size_of;
-    assert!(size_of::<BranchB32>() == 96, "BranchB32 must be exactly 96 bytes (3x 32B cache lines)");
-};
-```
+`bitmap: [u64; 4]` (32B) + `subarrays: [u32; 8]` (8 handles to packed `Edge32` subarrays, 32B) + `pop_counts: [u16; 8]` (16B) + `version: u32` + `level: u8` + 11B pad = 96 bytes. The `version` field is the only per-node version word in the 32-bit engine, and no path brackets it.
 
 ### 5.4 Uncompressed Branch (`BranchU32`) (2080 Bytes — 50% Reduction vs. 64-Bit)
 
 - 64-bit `BranchU`: 256 edges $\times 16\text{B} + 64\text{B} = \mathbf{4160\text{ bytes}}$.
 - 32-bit `BranchU32`: 256 edges $\times 8\text{B} + 32\text{B} = \mathbf{2080\text{ bytes}}$.
 
-Saving over **2 KiB per uncompressed branch** is decisive on microcontrollers with $\le 256\text{ KiB}$ SRAM.
-
-```rust
-#[derive(Debug)]
-#[repr(C, align(32))]
-pub struct BranchU32 {
-    pub version: u32,
-    pub _pad: [u8; 28],
-    pub edges: [Edge32; 256],
-}
-
-const _: () = {
-    use core::mem::size_of;
-    assert!(size_of::<BranchU32>() == 2080, "BranchU32 must be exactly 2080 bytes");
-};
-```
+The 32-byte header is `count: u32` (subtree population), `num_children: u16`, `level: u8` and 25B of padding; there is no version field.
 
 ### 5.5 Bitmap Leaves (`LeafBitmap1_32` & `LeafBitmapL_32`)
 
-- **`LeafBitmap1_32` (Set Flavor, 64 Bytes = 2x 32B Lines)**:
-  `Bitmap256` (32B) + `version: u32` (4B) + 28B padding = 64 Bytes.
-- **`LeafBitmapL_32` (Map Flavor, 96 Bytes = 3x 32B Lines)**:
-  `Bitmap256` (32B) + `values: [*mut u32; 8]` (32B) + `version: u32` (4B) + 28B padding = 96 Bytes.
+- **`LeafBitmap1_32` (set flavor, 64 bytes)**: `bitmap: [u64; 4]` + `pop0: u16` + `level: u8` + 1B pad; the declared fields total 36 bytes and `align(32)` rounds the type to 64 (`docs/ARCHITECTURE.md` §10.6).
+- **`LeafBitmapL_32` (map flavor, 96 bytes)**: `bitmap: [u64; 4]` + `subarrays: [u32; 8]` (value-subarray handles) + `pop0: u16` + `level: u8` + 29B pad.
+
+Neither leaf carries a version word.
 
 ---
 
@@ -380,27 +254,7 @@ In a 32-bit trie, linear leaf key remainders are at most **3 bytes** ($`K_B \in 
 
   $`\text{Size}_{\text{Map32}}(K_B, \text{pop}) = 4 \times \text{cap\_class}(\text{pop}) + K_B \times \text{cap\_class}(\text{pop})`$
 
-```rust
-// crates/expanse/src/leaf32.rs
-
-#[inline(always)]
-#[must_use]
-pub const fn size_set32(key_bytes: u8, pop: usize) -> usize {
-    key_bytes as usize * crate::leaf::cap_class(pop)
-}
-
-#[inline(always)]
-#[must_use]
-pub const fn size_map32(key_bytes: u8, pop: usize) -> usize {
-    4 * crate::leaf::cap_class(pop) + (key_bytes as usize * crate::leaf::cap_class(pop))
-}
-
-#[inline(always)]
-#[must_use]
-pub const fn map_keys_offset32(pop: usize) -> usize {
-    4 * crate::leaf::cap_class(pop)
-}
-```
+The two sizes are `size_set32` and `size_map32` in `crates/expanse/src/trie32.rs` (crate-private), both over `trie32::cap_class`, which mirrors the 64-bit `leaf::cap_class` schedule. There is no separate `leaf32` module.
 
 Since value slots are `u32` (4 bytes), values are **naturally 4-byte aligned** from offset 0 of the leaf allocation without padding!
 
@@ -408,131 +262,7 @@ Since value slots are `u32` (4 bytes), values are **naturally 4-byte aligned** f
 
 ## 7. 32-Bit Polymorphic Value Slots (`ValueSlot32`) & Large-Value Integration (#112)
 
-Issue #112 established the polymorphic `ValueSlot` architecture on 64-bit systems. For 32-bit embedded platforms, we introduce **`ValueSlot32`**:
-
-```
-========================================================================================
-32-Bit Value Slot Bit Layouts (ValueSlot32)
-========================================================================================
-
-1. Inline Mode (<= 3 Bytes Payload):
-+------------------------------------+-------------------+-------------------+----------+
-| Payload Byte 2                     | Payload Byte 1    | Payload Byte 0    | Tag      |
-| [31:24]                            | [23:16]           | [15:8]            | [7:0]    |
-+------------------------------------+-------------------+-------------------+----------+
-  - Tag (0x00..=0x03) encodes exact payload length (0 to 3 bytes).
-  - Stored directly in leaf memory: ZERO heap allocation, ZERO pointer dereference.
-
-2. Embedded Arena Mode (Hot Metadata + 12-bit Arena Offset):
-+------------------------------------+------------------------------+-------------------+
-| Hot Metadata (TTL / Sensor Flags)  | Arena Chunk Offset (12 bits) | Tag (0x10)        |
-| [31:20] (12 bits)                  | [19:8] (12 bits)             | [7:0]             |
-+------------------------------------+------------------------------+-------------------+
-  - 12-bit Hot Metadata: Directly filterable in registers (e.g. status code, TTL).
-  - 12-bit Arena Offset: 4 KiB direct offset (or 64 KiB at 16B alignment) per slab.
-  (Both widths are `ValueSlot32::ARENA_META_MASK` / `ARENA_OFFSET_MASK`, gated in
-   ARCHITECTURE.md section 10.5. An earlier revision of this diagram claimed a
-   16-bit metadata field at [31:16] overlapping a 12-bit offset at [15:8, 23:20],
-   which is not a partition of a 32-bit word.)
-
-3. Raw Uninterpreted 32-Bit Machine Word (JudyL C ABI Compatibility):
-+---------------------------------------------------------------------------------------+
-| Uninterpreted 32-bit Machine Word / Pointer (Tag arbitrary)                           |
-| [31:0]                                                                                |
-+---------------------------------------------------------------------------------------+
-```
-
-### 7.1 Rust Struct Definition & Bit Operations
-
-```rust
-// crates/expanse/src/slot32.rs
-
-#[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum SlotTag32 {
-    Inline0 = 0x00,
-    Inline1 = 0x01,
-    Inline2 = 0x02,
-    Inline3 = 0x03,
-    ArenaShort = 0x10,
-    Tombstone = 0xFE,
-    RawWord = 0xFF,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct ValueSlot32(pub u32);
-
-impl ValueSlot32 {
-    pub const TAG_MASK: u32 = 0xFF;
-    pub const ARENA_OFFSET_MASK: u32 = 0x0FFF;
-
-    #[inline(always)]
-    #[must_use]
-    pub fn new_inline(bytes: &[u8]) -> Option<Self> {
-        let len = bytes.len();
-        if len > 3 {
-            return None;
-        }
-        let mut raw = len as u32;
-        for (i, &b) in bytes.iter().enumerate() {
-            raw |= (b as u32) << (8 * (i + 1));
-        }
-        Some(Self(raw))
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn new_arena_short(hot_meta: u16, arena_offset: u16) -> Option<Self> {
-        if arena_offset > 0x0FFF {
-            return None;
-        }
-        let raw = (SlotTag32::ArenaShort as u32)
-            | (((arena_offset & 0x0FFF) as u32) << 8)
-            | ((hot_meta as u32) << 20);
-        Some(Self(raw))
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn tag(self) -> SlotTag32 {
-        match (self.0 & Self::TAG_MASK) as u8 {
-            0x00 => SlotTag32::Inline0,
-            0x01 => SlotTag32::Inline1,
-            0x02 => SlotTag32::Inline2,
-            0x03 => SlotTag32::Inline3,
-            0x10 => SlotTag32::ArenaShort,
-            0xFE => SlotTag32::Tombstone,
-            _ => SlotTag32::RawWord,
-        }
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn inline_payload(self) -> ([u8; 3], usize) {
-        let len = (self.0 & Self::TAG_MASK) as usize;
-        let effective_len = len.min(3);
-        let mut buf = [0u8; 3];
-        let val = self.0 >> 8;
-        for (i, byte) in buf.iter_mut().enumerate().take(effective_len) {
-            *byte = ((val >> (8 * i)) & 0xFF) as u8;
-        }
-        (buf, effective_len)
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn hot_meta(self) -> u16 {
-        (self.0 >> 20) as u16
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub fn arena_offset(self) -> u16 {
-        ((self.0 >> 8) & Self::ARENA_OFFSET_MASK) as u16
-    }
-}
-```
+Issue #112 established the polymorphic `ValueSlot` architecture on 64-bit systems. The 32-bit counterpart, **`ValueSlot32`** (`crates/expanse/src/slot32.rs`), is specified, and its constants gated, in [`docs/ARCHITECTURE.md` §10.5](../ARCHITECTURE.md#105-valueslot--the-8-byte-polymorphic-value-word); this document does not restate the encoding. In summary: the low byte is the tag (`SlotTag32`: `Inline0`..`Inline3` = `0x00`..`0x03`, `Arena` = `0x10`, `RawWord` = `0xFF`, with every unlisted byte decoding as `RawWord`); inline slots carry up to 3 payload bytes in bits 31:8; an `Arena` slot carries 12-bit hot metadata (`ARENA_META_MASK = 0xFFF0_0000`) and a 12-bit slab offset (`ARENA_OFFSET_MASK = 0x000F_FF00`), built by `ValueSlot32::new_arena(hot_meta, slab_offset)`, which rejects either argument above `0x0FFF`. `ExpanseBlobMap32` (`blobmap32.rs`) is the container that uses it.
 
 ---
 
@@ -1052,56 +782,61 @@ unsafe impl EmbeddedAlloc for EspIdfInternalAlloc {
 
 ### 9.1 `SeqVersion32`: Native 32-Bit OCC Reader Validation
 
-To avoid dependency on unavailable 64-bit atomics, `SeqVersion32` is implemented entirely using `AtomicU32`:
+To avoid dependency on unavailable 64-bit atomics, `SeqVersion32` is implemented entirely using `AtomicU32`, with loads, stores and fences only — no read-modify-write — so it compiles for `riscv32imc` (no A extension). The listing below matches `crates/expanse/src/occ32.rs` with doc comments and attributes removed:
 
 ```rust
 // crates/expanse/src/occ32.rs
 
 use core::sync::atomic::{AtomicU32, Ordering, fence};
 
-/// 32-bit Seqlock Version Word for Embedded Microcontrollers
 #[derive(Debug, Default)]
 pub struct SeqVersion32(AtomicU32);
 
 impl SeqVersion32 {
-    #[inline(always)]
     pub const fn new() -> Self {
         Self(AtomicU32::new(0))
     }
 
-    #[inline(always)]
+    /// Writer: even -> odd.
     pub fn begin(&self) {
         let v = self.0.load(Ordering::Relaxed);
-        debug_assert!(v % 2 == 0, "nested or unpaired begin");
-        self.0.store(v + 1, Ordering::Relaxed);
+        debug_assert!(v.is_multiple_of(2), "nested or unpaired begin");
+        self.0.store(v.wrapping_add(1), Ordering::Relaxed);
         fence(Ordering::Release);
     }
 
-    #[inline(always)]
+    /// Writer: odd -> even.
     pub fn end(&self) {
         let v = self.0.load(Ordering::Relaxed);
-        debug_assert!(v % 2 == 1, "end without begin");
-        self.0.store(v + 1, Ordering::Release);
+        debug_assert!(!v.is_multiple_of(2), "end without begin");
+        self.0.store(v.wrapping_add(1), Ordering::Release);
     }
 
-    #[inline(always)]
+    /// Reader, interrupt-safe: one bounded attempt, `None` while a bracket is open.
+    pub fn try_sample(&self) -> Option<u32> {
+        let v = self.0.load(Ordering::Acquire);
+        v.is_multiple_of(2).then_some(v)
+    }
+
+    /// Reader, NOT interrupt-safe: spins past odd states.
     pub fn sample(&self) -> u32 {
         loop {
             let v = self.0.load(Ordering::Acquire);
-            if v % 2 == 0 {
+            if v.is_multiple_of(2) {
                 return v;
             }
             core::hint::spin_loop();
         }
     }
 
-    #[inline(always)]
     pub fn validate(&self, snapshot: u32) -> bool {
         fence(Ordering::Acquire);
         self.0.load(Ordering::Relaxed) == snapshot
     }
 }
 ```
+
+`sync32` uses one `SeqVersion32` per container and reads only through `try_sample`, so a reader that preempted the writer returns `Busy` instead of spinning (`docs/COMPAT.md`, *The 32-bit concurrent story*). The protocol is optimistic lock coupling at **tree** granularity and is blocking, not lock-free.
 
 ---
 
@@ -1113,11 +848,11 @@ impl SeqVersion32 {
 +------------------------------------------------------------------------------------+
 | 1. Network MAC Table (Layer 2 Bridge):                                             |
 |    - 48-bit MAC address lower 32-bit mapped directly to port & VLAN ID.           |
-|    - Memory: < 1.2 bytes per MAC entry (vs. 32 bytes in std BTreeMap).             |
+|    - Memory per entry: not measured for this workload.                            |
 +------------------------------------------------------------------------------------+
 | 2. IPv4 /24 Subnet Routing Table:                                                  |
 |    - 32-bit IPv4 address mapped to next-hop gateway.                               |
-|    - 4-level descent matches CIDR byte boundaries exactly; 15ns route lookups.     |
+|    - 4-level descent matches CIDR byte boundaries exactly (latency not measured). |
 +------------------------------------------------------------------------------------+
 | 3. CAN-Bus / CAN-FD Sparse Identifier Filter (Automotive ECU):                     |
 |    - 11-bit standard / 29-bit extended CAN arbitration IDs.                        |
@@ -1205,7 +940,7 @@ Development proceeds in strict, sequential engineering phases with measurable ve
 +---------------------------------------------------------------------------------------+
 | PHASE 5: `#![no_std]` Hardening, RV32 Cross-Compilation & CI QEMU Matrix              |
 | - Enable `#![no_std]` core build for target `riscv32imac-unknown-none-elf`           |
-| - Add CI jobs for `armv7em-none-eabihf` (Cortex-M4/M7) and `riscv32imc-esp-espidf`    |
+| - Add CI jobs for `thumbv7em-none-eabihf` (Cortex-M4/M7) and `riscv32imc-esp-espidf`  |
 | - QEMU automated test runner executing differential test suites                       |
 | - Gate: 100% green CI cross-compilation and QEMU execution across all 32-bit targets  |
 +---------------------------------------------------------------------------------------+
@@ -1217,12 +952,17 @@ Development proceeds in strict, sequential engineering phases with measurable ve
 
 ### 13.1 Cross-Compilation Targets for Standing CI
 
-| Architecture Family | Target Triple | Microcontroller Reference Hardware | Test Execution Mode |
-|---|---|---|---|
-| **RISC-V 32-Bit Bare Metal** | `riscv32imac-unknown-none-elf` | SiFive FE310, ESP32-C6/H2, CH32V307 | QEMU `qemu-system-riscv32 -M virt` |
-| **ARM Cortex-M4/M7 (Hard Float)** | `armv7em-none-eabihf` | STM32F4/F7/H7, NXP i.MX RT | QEMU `qemu-system-arm -M netduinoplus2` |
-| **ARM Cortex-M0+ (Thumb-1)** | `thumbv6m-none-eabi` | RP2040, SAMD21, STM32G0 | QEMU `qemu-arm` emulation |
-| **Espressif ESP32-C3 (ESP-IDF)** | `riscv32imc-esp-espidf` | ESP32-C3 DevKit | Wokwi CLI / QEMU-ESP32 |
+The 32-bit lanes `.github/workflows/ci.yml` runs today:
+
+| CI job | Target triple | What it runs |
+|---|---|---|
+| `test-rv32` | `riscv32imac-unknown-none-elf` | `cargo check -p expanse-trie --no-default-features`, also with the ablation features |
+| `test-esp32c3` | `riscv32imc-unknown-none-elf`, `riscv32imafc-unknown-none-elf` | core check and C ABI staticlib build for ESP32-C3 (RV32IMC), C ABI staticlib build for ESP32-P4 (RV32IMAFC), and a clang RV32IMC type-check of the 32-bit C header path and component sources |
+| `test-cortex-m` | `thumbv7em-none-eabihf` | core check and C ABI staticlib build (Cortex-M4/M7) |
+| `test-qemu-cortex-m3` | `thumbv7m-none-eabi` | C ABI staticlib linked into a test firmware and executed under `qemu-system-arm -M mps2-an385` |
+| `test-i686` | `i686-unknown-linux-gnu` | `cargo test -p expanse-trie --lib`, the narrow C surface test, and a `-m32` C smoke |
+
+No lane builds `thumbv6m-none-eabi` or `riscv32imc-esp-espidf`, and there is no ESP-IDF or Wokwi lane (§0).
 
 A companion **`test-rv32-zbb`** lane cross-compiles the core against `riscv32imac-unknown-none-elf` with `RUSTFLAGS="-C target-feature=+zbb"`, keeping the Zbb bit-manipulation build profile (§2.3) green so the `cpop`/`clz`/`ctz` lowering does not silently regress.
 
