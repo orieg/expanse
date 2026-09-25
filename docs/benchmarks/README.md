@@ -43,6 +43,7 @@ not reachable as `/benchmark` tokens and so do not appear below.
 | [`masstree_comparison/`](masstree_comparison/README.md) | `masstree_concurrent`, `masstree_latency`, `masstree_memory`, `masstree_string_latency` | wall-clock | Expanse vs. Masstree: Empirical Benchmark Suite |
 | [`patricia_comparison/`](patricia_comparison/README.md) | `patricia_comparison` | wall-clock | Expanse vs. Patricia and Radix Tries |
 | [`redis_zset_engine/`](redis_zset_engine/README.md) | `zset_memory`, `zset_range`, `zset_rank`, `zset_zadd` | wall-clock | Redis ZSET Engine: Expanse dual-trie sorted set vs SkipList + Dict |
+| [`remove_retention/`](remove_retention/README.md) | `remove_retention` | byte census | Remove retention: what a drained tree keeps |
 | [`rocksdb_memtable/`](rocksdb_memtable/README.md) | `rocksdb`, `rocksdb_concurrent`, `rocksdb_concurrent_counters`, `rocksdb_concurrent_heldout`, `rocksdb_concurrent_narrowed`, `rocksdb_concurrent_optimistic`, `rocksdb_concurrent_optimistic_counters`, `rocksdb_locate_profile` | `perf stat` + wall-clock | RocksDB MemTable suite: results and how to read them |
 | [`search_inverted_index/`](search_inverted_index/README.md) | `search_boolean`, `search_instructions`, `search_memory`, `search_wand` | Callgrind + wall-clock | Search / Inverted-Index Benchmark: ExpanseSet vs Roaring |
 | [`set_algebra/`](set_algebra/README.md) | `domain` | wall-clock | Set algebra — engine kernels and the interned set domain |
