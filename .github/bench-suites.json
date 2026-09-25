@@ -857,7 +857,7 @@
       "available": false,
       "kind": "census",
       "runner": "builtin",
-      "reason": "a deterministic `mem_used()` census from an example, not a `[[bench]]` target: it needs no bare-metal host and reproduces to the byte on any 64-bit machine. Run `cargo run --release -p expanse-trie --example remove_retention -- --json <path>` (`docs/benchmarks/remove_retention/README.md`).",
+      "reason": "a deterministic `mem_used()` census from an example, not a `[[bench]]` target: it needs no bare-metal host and reproduces to the byte on any 64-bit machine. Run `cargo run --release -p expanse-trie --example remove_retention -- --json <path>` (`docs/benchmarks/remove_retention/README.md`; pre-registration in `METHODOLOGY.md` there).",
       "summary": "Bytes a tree keeps after removals against a fresh build of the surviving keys (R), and `mem_held()` after `shrink_to_fit()`, over random, sequential, sparse and clustered keys and three removal orders.",
       "suite": "remove_retention"
     }
