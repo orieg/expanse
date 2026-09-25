@@ -32,7 +32,18 @@
     "large_value_benchmarks.predicate_scan_selectivity": "measured: reference host - Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 43b46f38; benches/large_values.rs predicate_scan_cold_dram_sweep on a warm (L3-resident) arena - docs/design/large-values.md section 10.3. Both arms share the identical scan_filtered traversal; the naive arm touches every payload byte and the columnar arm only matches. The arena is smaller than the host L3, so a skipped payload avoids an L3 hit rather than a DRAM fetch -- the doc derives the resulting ceiling as full-scan 323 us / traversal-floor 228 us ~= 1.42x, reached as sigma -> 0. The RFC's >10x / 82%-DRAM-traffic figures remain targets, not measured results.",
     "modern_architecture": "crates/expanse/src/slot.rs, blobmap.rs, types32.rs, occ.rs - compile-time layout; SlotTag discriminants asserted by test_visualizer_sync.rs",
     "embedded_32bit_benchmarks": "crates/expanse/examples/bytes_per_key_32.rs - deterministic allocator accounting (mem_used() / N), machine-independent. Every cell is recomputed from the engine and asserted by test_visualizer_sync.rs.",
+    "depth_census": "crates/expanse/src/validate.rs ExpanseStats::branch_depth_histogram of an ExpanseSet built from the memory_budget key generators (crates/expanse/examples/bytes_per_key.rs, seed 0x0DDB_1A5E_5EED_0001) - deterministic structure, machine-independent. Each list names the slot levels that hold at least one branch node, so no lookup passes more branch nodes than its length. Every cell is recomputed from the engine and asserted by test_visualizer_sync.rs.",
     "removed_for_lack_of_provenance": "stock_vs_expanse.ratio_rlib and .est_cycles_so (no committed count, no stated model), benchmarks[].instr_fastpath, the benchmarks row set_insert/small (no such arm in benches/instructions.rs), the embedded-32bit BTree baseline columns and the OTA firmware row, and every hand-written narrative `notes` string (AGENTS.md 8.2). Re-add only with a committed artifact - issue #382."
+  },
+  "depth_census": {
+    "flavor": "set",
+    "metric": "slot levels holding at least one branch node (ExpanseStats::branch_depth_histogram)",
+    "rows": [
+      { "pop": 1000, "random": [8], "sequential": [8, 7], "clustered": [8] },
+      { "pop": 10000, "random": [8, 7], "sequential": [8, 7], "clustered": [8, 7] },
+      { "pop": 100000, "random": [8, 7], "sequential": [8, 7, 2], "clustered": [8, 7] },
+      { "pop": 1000000, "random": [8, 7, 6], "sequential": [8, 7, 2], "clustered": [8, 7, 6] }
+    ]
   },
   "node_ladder": {
     "ROOT_LEAF_CAP": 31,
@@ -72,7 +83,7 @@
       "v3_delta": "-2.93%",
       "l1_hits": 13069387,
       "ram_hits": 667,
-      "algo": "Sequential Run Bypass skips 8 levels of branch descent"
+      "algo": "Cached insert path goes straight to the level-1 leaf when key >> 8 matches its prefix"
     },
     {
       "id": "map_insert/sequential",
@@ -114,7 +125,7 @@
       "v3_delta": "-4.80%",
       "l1_hits": 62581102,
       "ram_hits": 21855,
-      "algo": "Full 8-level digital trie routing with 16-byte edge tags"
+      "algo": "Digital trie descent over 16-byte tagged edges; branch levels follow the key spread"
     },
     {
       "id": "set_insert/clustered",
@@ -1019,7 +1030,7 @@
         {
           "mode": "Inline Payload",
           "tag": "0x00..=0x07",
-          "layout": "[payload_byte_6..0 (56b) | tag (8b)]",
+          "layout": "[payload_byte_6..0 (56b) | tag = length (8b)]",
           "alloc": "0 B heap overhead (inline inside the leaf slot)"
         },
         {
@@ -1031,20 +1042,38 @@
         {
           "mode": "External",
           "tag": "0x12",
-          "layout": "[external locator (56b) | tag (8b)]",
-          "alloc": "reserved for out-of-arena storage"
+          "layout": "reserved (no defined layout)",
+          "alloc": "reserved and unused: no code path produces or consumes it"
+        },
+        {
+          "mode": "CompressedZeroTrim8",
+          "tag": "0x20",
+          "layout": "[integer below 2^56 (56b) | tag (8b)]",
+          "alloc": "0 B heap: 8-byte integer payload whose top byte is zero (codec.rs)"
+        },
+        {
+          "mode": "CompressedAlnum8..9",
+          "tag": "0x22..=0x23",
+          "layout": "[8 or 9 chars x 6 bits | tag (8b)]",
+          "alloc": "0 B heap: 8-9 characters from [0-9A-Za-z_-] (codec.rs)"
+        },
+        {
+          "mode": "CompressedNibble8..14",
+          "tag": "0x28..=0x2E",
+          "layout": "[8..14 decimal digits x 4 bits | tag (8b)]",
+          "alloc": "0 B heap: 8-14 ASCII decimal digits (codec.rs)"
         },
         {
           "mode": "Tombstone",
           "tag": "0xFE",
-          "layout": "[tombstone marker (56b) | tag (8b)]",
-          "alloc": "soft-deleted marker for the compaction pass"
+          "layout": "reserved (no defined layout)",
+          "alloc": "reserved and unused: the tag decodes, but no code path writes it"
         },
         {
           "mode": "Raw Word",
           "tag": "0xFF",
           "layout": "[uninterpreted 64-bit machine scalar]",
-          "alloc": "standard 64-bit integer map value"
+          "alloc": "unmanaged word; every unassigned tag byte also decodes as RawWord"
         }
       ]
     },
@@ -1052,7 +1081,7 @@
       "alignment_bytes": 16,
       "record_header_bytes": 8,
       "header_struct": "BlobRecordHeader { len: u32, generation: u32 }",
-      "gc_algorithm": "In-place mark-compact single-pass relocation"
+      "gc_algorithm": "Two-phase copying compaction (compact_with_index): copy every live record into a fresh arena with a bumped generation, then rewrite the index slots only after every copy succeeded"
     },
     "edge_32": {
       "edge_size_bytes": 8,
@@ -1061,7 +1090,7 @@
     },
     "occ_concurrency": {
       "protocol": "Optimistic Version Bracketing (SeqVersion) + Epoch-Based Reclamation (EBR)",
-      "reader_guarantee": "Lock-free & wait-free read paths with hand-over-hand validation and zero CAS overhead"
+      "reader_guarantee": "Blocking optimistic lock coupling, not lock-free: a reader samples the tree version (spinning while it is odd), validates its root snapshot against it, then reads each branch under that node's own version word, validating hand over hand; after MAX_RETRIES = 64 failed attempts it takes the writer mutex (occ.rs SeqVersion::sample, sync.rs optimistic_read)"
     }
   },
   "embedded_32bit_benchmarks": {
