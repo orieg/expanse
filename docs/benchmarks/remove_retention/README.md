@@ -10,7 +10,7 @@ losses) is [`METHODOLOGY.md`](METHODOLOGY.md).
 | 0 | Step 0a census on `main`, the no-go gate | measured; gate met (§1) |
 | 1 | Bound functions, `scripts/condense_bounds.py` | committed; self-test in the `lint` job and `scripts/gate.sh` |
 | 2 | Pre-registration, `METHODOLOGY.md` | committed; frozen once merged |
-| 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | not started |
+| 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | Callgrind arms of METHODOLOGY §7.2–§7.4 in `crates/expanse/benches/instructions.rs`; engine change and gate evaluation not started |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/step0a_retention.json`.
 Single-threaded and deterministic: any 64-bit host reproduces every byte at the
