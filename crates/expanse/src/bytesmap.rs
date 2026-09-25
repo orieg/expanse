@@ -846,18 +846,21 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// Takes `&self` to allow read-only lookups without requiring a mutable borrow.
     #[must_use]
     pub fn get_slot_ptr(&self, key: &[u8]) -> Option<NonNull<u64>> {
-        let bucket = self.bucket_of(key)?;
-        // SAFETY: bucket is a live Box<Bucket> owned by this map.
-        // We obtain the raw entry buffer pointer without creating an intermediate
-        // reference covering the value word (.1), ensuring the returned pointer
-        // carries unrestricted write provenance under Miri's aliasing models.
-        let b_ptr = bucket.as_ptr();
+        let b_ptr = self.bucket_of(key)?.as_ptr();
+        // SAFETY: `b_ptr` is a live bucket owned by this map. `as_mut_ptr`
+        // borrows the bucket's `Vec` header mutably for the call, as the
+        // `&mut self` lookup this replaces did; it does not reference the
+        // entries, so the returned pointer keeps the buffer's provenance.
         let (len, entries) = unsafe { ((*b_ptr).len(), (*b_ptr).as_mut_ptr()) };
         for i in 0..len {
+            // SAFETY: `i < len`, so `entries + i` is an initialised entry.
             let entry = unsafe { entries.add(i) };
-            // SAFETY: project key without borrowing the value slot
+            // SAFETY: a live entry; this borrows its key only, never the
+            // value word the returned pointer writes.
             let k: &[u8] = unsafe { &(*entry).0 };
             if k == key {
+                // SAFETY: a raw place projection to the value word, with the
+                // buffer's write provenance and no intermediate reference.
                 let val_ptr = unsafe { &raw mut (*entry).1 };
                 return NonNull::new(val_ptr);
             }

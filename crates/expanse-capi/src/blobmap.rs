@@ -335,10 +335,7 @@ pub unsafe extern "C" fn expanse_blob_map_contains_key(
 ///
 /// `map` must be null or a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_blob_map_contains(
-    map: *const ExpanseBlobMap,
-    key: u64,
-) -> bool {
+pub unsafe extern "C" fn expanse_blob_map_contains(map: *const ExpanseBlobMap, key: u64) -> bool {
     // SAFETY: forwarded to expanse_blob_map_contains_key.
     unsafe { expanse_blob_map_contains_key(map, key) }
 }

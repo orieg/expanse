@@ -864,12 +864,7 @@ impl StrNode {
     /// nothing at-or-after, the level *resumes* at its next sibling, so
     /// the stack has to carry both the node to resume at and the `out`
     /// length to truncate back to.
-    fn next_at_or_after(
-        &self,
-        key: &[u8],
-        off: usize,
-        out: &mut Vec<u8>,
-    ) -> Option<NonNull<u64>> {
+    fn next_at_or_after(&self, key: &[u8], off: usize, out: &mut Vec<u8>) -> Option<NonNull<u64>> {
         // (node to resume at, its target chunk, `out` length on entry)
         let mut stack: Vec<(*const StrNode, u64, usize)> = Vec::new();
         let mut node: *const StrNode = self;

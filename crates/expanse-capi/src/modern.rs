@@ -521,10 +521,7 @@ pub unsafe extern "C" fn expanse_map_get(
 ///
 /// `map` must be null or a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_map_contains(
-    map: *const ExpanseMap,
-    key: CWord,
-) -> bool {
+pub unsafe extern "C" fn expanse_map_contains(map: *const ExpanseMap, key: CWord) -> bool {
     // SAFETY: null or live handle per contract.
     if map.is_null() {
         return false;

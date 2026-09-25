@@ -172,8 +172,12 @@ pub unsafe extern "C" fn expanse_bytesmap_ins_slot(
 
 /// Callback function type for [`expanse_bytesmap_for_each`].
 /// Returns `true` to continue iteration, or `false` to terminate early.
-pub type ExpanseBytesmapIterFn =
-    unsafe extern "C" fn(key: *const c_void, key_len: usize, value: u64, user_ctx: *mut c_void) -> bool;
+pub type ExpanseBytesmapIterFn = unsafe extern "C" fn(
+    key: *const c_void,
+    key_len: usize,
+    value: u64,
+    user_ctx: *mut c_void,
+) -> bool;
 
 /// Iterates over all entries in the map, invoking `callback` for each entry.
 ///
@@ -189,9 +193,12 @@ pub unsafe extern "C" fn expanse_bytesmap_for_each(
     callback: Option<ExpanseBytesmapIterFn>,
     user_ctx: *mut c_void,
 ) -> usize {
+    // SAFETY: null or a live handle, per the contract.
     let (Some(m), Some(cb)) = (unsafe { map.as_ref() }, callback) else {
         return 0;
     };
+    // SAFETY: the caller guarantees `cb` may be called with each entry and
+    // `user_ctx`; the key pointer and length describe the live key bytes.
     m.try_for_each(|k, v| unsafe { cb(k.as_ptr().cast(), k.len(), v, user_ctx) })
 }
 

@@ -171,11 +171,7 @@ impl ExpanseBytesMap {
                 }
             }
         });
-        if let Some(e) = err {
-            Err(e)
-        } else {
-            Ok(())
-        }
+        if let Some(e) = err { Err(e) } else { Ok(()) }
     }
 
     /// Returns an iterator of `(key, value)` pairs.

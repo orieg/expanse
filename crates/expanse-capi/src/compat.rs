@@ -765,9 +765,7 @@ pub unsafe extern "C" fn JudySLGet(
         if index.is_null() {
             return null_mut();
         }
-        strmap_handle(parray).map_or(null_mut(), |m| {
-            slot_ptr(m.get_slot_ptr(cstr_bytes(index)))
-        })
+        strmap_handle(parray).map_or(null_mut(), |m| slot_ptr(m.get_slot_ptr(cstr_bytes(index))))
     }
 }
 
