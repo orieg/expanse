@@ -1482,7 +1482,6 @@ fn test_modern_architecture_matches_source() {
             "0x20",
             "0x22..=0x23",
             "0x28..=0x2E",
-            "0xFE",
             "0xFF"
         ],
         "value_slot tags must match SlotTag in crates/expanse/src/slot.rs"

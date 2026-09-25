@@ -86,8 +86,6 @@ pub enum SlotTag {
     /// 14-digit 4-bit packed numeric decimal string.
     CompressedNibble14 = 0x2E,
 
-    /// Soft-deleted tombstone marker.
-    Tombstone = 0xFE,
     /// Raw uninterpreted 64-bit word (unmanaged).
     RawWord = 0xFF,
 }
@@ -118,7 +116,6 @@ impl SlotTag {
             0x2C => Self::CompressedNibble12,
             0x2D => Self::CompressedNibble13,
             0x2E => Self::CompressedNibble14,
-            0xFE => Self::Tombstone,
             _ => Self::RawWord,
         }
     }
@@ -415,13 +412,17 @@ mod tests {
     }
 
     #[test]
-    fn raw_and_tombstone_tags() {
+    fn raw_word_is_the_catch_all() {
         let raw_val = 0x1234_5678_9ABC_DEF0;
         let slot = ValueSlot::from_raw(raw_val);
         assert_eq!(slot.to_raw(), raw_val);
 
-        let tombstone = ValueSlot::from_raw(0x0000_0000_0000_00FE);
-        assert_eq!(tombstone.tag(), SlotTag::Tombstone);
+        // Every unassigned tag byte decodes as the `RawWord` catch-all.
+        for byte in [0x08u8, 0x11, 0x21, 0x2F, 0x80, 0xFE] {
+            let slot = ValueSlot::from_raw(u64::from(byte));
+            assert_eq!(slot.tag(), SlotTag::RawWord, "tag byte {byte:#04x}");
+            assert!(!slot.tag().is_inline());
+        }
     }
 
     /// An inline slot keeps payload bytes in bits 63:8, so bits 63:40 of a

@@ -737,9 +737,9 @@ Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src
 
 ### 10.5 `ValueSlot` — the 8-byte polymorphic value word
 
-`ValueSlot` (`crates/expanse/src/slot.rs:174`) is `#[repr(transparent)]` over a `u64`, so a map leaf's value area is exactly 8 slots per 64-byte line and the `JudyL` C ABI `*mut Word` contract is preserved. The low byte is always the tag.
+`ValueSlot` (`crates/expanse/src/slot.rs:171`) is `#[repr(transparent)]` over a `u64`, so a map leaf's value area is exactly 8 slots per 64-byte line and the `JudyL` C ABI `*mut Word` contract is preserved. The low byte is always the tag.
 
-`SlotTag` (`crates/expanse/src/slot.rs:33`), decoded by `SlotTag::from_u8` (`crates/expanse/src/slot.rs:99`):
+`SlotTag` (`crates/expanse/src/slot.rs:33`), decoded by `SlotTag::from_u8` (`crates/expanse/src/slot.rs:97`):
 
 <!-- ENCODING-TABLE slot_tag -->
 
@@ -765,18 +765,17 @@ Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src
 | `CompressedNibble12` | 0x2C | — | 12 4-bit decimal digits packed in bits 55:8 |
 | `CompressedNibble13` | 0x2D | — | 13 4-bit decimal digits packed in bits 59:8 |
 | `CompressedNibble14` | 0x2E | — | 14 4-bit decimal digits packed in bits 63:8 |
-| `Tombstone` | 0xFE | — | soft-deleted marker |
 | `RawWord` | 0xFF | — | uninterpreted 64-bit word |
 
 <!-- /ENCODING-TABLE -->
 
-`from_u8` maps every unlisted byte to `RawWord`, so `RawWord` is the catch-all; `is_inline` (`crates/expanse/src/slot.rs:155`) is simply `tag <= 0x07`, and `inline_len` (`crates/expanse/src/slot.rs:162`) returns the tag itself as the length.
+`from_u8` maps every unlisted byte to `RawWord`, so `RawWord` is the catch-all; `is_inline` (`crates/expanse/src/slot.rs:152`) is simply `tag <= 0x07`, and `inline_len` (`crates/expanse/src/slot.rs:159`) returns the tag itself as the length.
 
-**Inline encoding** *(gated)*. `ValueSlot::new_inline` (`crates/expanse/src/slot.rs:194`) writes `raw = len | Σ bytes[i] << (8 * (i + 1))`: the length is the tag byte, and the payload occupies bits 63:8 little-endian. The payload is the whole word above the tag, which is precisely why an inline slot carries **no metadata field** — `ExpanseBlobMap` ignores the `hot_meta` argument for payloads of ≤ 7 bytes and reports their metadata as `0` (the module's `hot_meta` note, `crates/expanse/src/blobmap.rs:27`–`32`; `ExpanseBlobMap::insert` stores them with `ValueSlot::new_inline`, `crates/expanse/src/blobmap.rs:1497`). No cold fetch is needed for them in any case: the payload is already in the slot.
+**Inline encoding** *(gated)*. `ValueSlot::new_inline` (`crates/expanse/src/slot.rs:191`) writes `raw = len | Σ bytes[i] << (8 * (i + 1))`: the length is the tag byte, and the payload occupies bits 63:8 little-endian. The payload is the whole word above the tag, which is precisely why an inline slot carries **no metadata field** — `ExpanseBlobMap` ignores the `hot_meta` argument for payloads of ≤ 7 bytes and reports their metadata as `0` (the module's `hot_meta` note, `crates/expanse/src/blobmap.rs:27`–`32`; `ExpanseBlobMap::insert` stores them with `ValueSlot::new_inline`, `crates/expanse/src/blobmap.rs:1494`). No cold fetch is needed for them in any case: the payload is already in the slot.
 
 This is also where `ExpanseBlobMap` puts small payloads — in the leaf's value slot, **not** inside an edge.
 
-**`ArenaMeta` encoding** *(gated)*. `ValueSlot::new_arena_meta` (`crates/expanse/src/slot.rs:215`) writes
+**`ArenaMeta` encoding** *(gated)*. `ValueSlot::new_arena_meta` (`crates/expanse/src/slot.rs:212`) writes
 
 ```
 raw = (hot_meta << 40) | (locator << 8) | 0x10
@@ -786,7 +785,7 @@ raw = (hot_meta << 40) | (locator << 8) | 0x10
   bits  7: 0   tag        0x10
 ```
 
-`hot_meta` above the 24-bit field is rejected (`None`), never truncated. `arena_meta_meta` (`crates/expanse/src/slot.rs:247`) and `arena_meta_locator` (`crates/expanse/src/slot.rs:255`) read the two fields back; `with_arena_meta_meta` (`crates/expanse/src/slot.rs:263`) rewrites the metadata in place without disturbing the locator. This is the sole arena encoding — there is no metadata-less spill form, so a predicate over metadata is always evaluable in-slot.
+`hot_meta` above the 24-bit field is rejected (`None`), never truncated. `arena_meta_meta` (`crates/expanse/src/slot.rs:244`) and `arena_meta_locator` (`crates/expanse/src/slot.rs:252`) read the two fields back; `with_arena_meta_meta` (`crates/expanse/src/slot.rs:260`) rewrites the metadata in place without disturbing the locator. This is the sole arena encoding — there is no metadata-less spill form, so a predicate over metadata is always evaluable in-slot.
 
 **Locator arithmetic** *(gated)*. The locator is not a chunk/offset pair; it is a flat global address in 16-byte units:
 
@@ -896,10 +895,10 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:697` |
 | `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:636` |
 | `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:683` |
-| `size_of::<ValueSlot>()` | 8 | `crates/expanse/src/slot.rs:174` |
-| `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:183` |
-| `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:185` |
-| `ValueSlot::ARENA_META_MAX` | 16777215 | `crates/expanse/src/slot.rs:187` |
+| `size_of::<ValueSlot>()` | 8 | `crates/expanse/src/slot.rs:171` |
+| `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:180` |
+| `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:182` |
+| `ValueSlot::ARENA_META_MAX` | 16777215 | `crates/expanse/src/slot.rs:184` |
 | `ARENA_ALIGN` | 16 | `crates/expanse/src/blobmap.rs:488` |
 | `ARENA_META_CEILING` | 68719476736 | `crates/expanse/src/blobmap.rs:493` |
 | `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:500` |
