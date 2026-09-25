@@ -26,7 +26,7 @@
 //! Terminal payloads (linear leaves, immediates, bitmap leaves, a `BranchB`
 //! subarray) carry no version and are covered by the branch whose slot points
 //! at them, or by the tree version for the top edge (`docs/ARCHITECTURE.md`
-//! §4.2). A search backtracks at most once below a branch with a live digit on
+//! §4.1). A search backtracks at most once below a branch with a live digit on
 //! the searched side, so a consistent read holds at most ℓ + 5 branch
 //! versions for a backtrack at level ℓ, 13 at most
 //! (`scripts/olc_bounds.py::ordered_read_set_branches`). A read that needs more

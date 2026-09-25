@@ -3,8 +3,8 @@
 //! reader never dereferences a freed node.
 //!
 //! The concurrent wrappers (`SyncExpanseSet`/`SyncExpanseMap` in `sync`)
-//! combine a **tree-level** [`SeqVersion`] (in the [`Collector`]; readers
-//! validate their root snapshot against it) with **per-node** versions in
+//! combine a **tree-level** [`SeqVersion`] (heading the wrapper's `Shared`
+//! block; readers validate their root snapshot against it) with **per-node** versions in
 //! the branch headers. The mutation engine brackets every store by the
 //! version of the node that *contains* the stored address — the parent's
 //! word for a slot, an immediate, or a leaf / subarray payload; the tree
