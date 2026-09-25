@@ -50,7 +50,7 @@ graph TD
 ### Change detection
 | Job | Name | Role |
 |---|---|---|
-| `detect-changes` | Subsystems / Change Detection | `dorny/paths-filter@v4` computes per-subsystem outputs (`rust-src`, `tooling`, `perf-tooling`, `concurrency-instrument`, `visualizer`, `python`, `node`, `dotnet`, `java`, `ruby`, `php`, `wasm`, `go`, `integrations`, `esp-component`) that downstream jobs gate on, then runs `scripts/ci_job_diff.py` to add `ci-workflow-all` and `changed-jobs` — which `ci.yml` job definitions this diff touched. |
+| `detect-changes` | Subsystems / Change Detection | On a pull request, first force-cancels that pull request's older unfinished runs (`scripts/ci_supersede.py`; see *Concurrency hygiene* in Appendix A). `dorny/paths-filter@v4` then computes per-subsystem outputs (`rust-src`, `tooling`, `perf-tooling`, `concurrency-instrument`, `visualizer`, `python`, `node`, `dotnet`, `java`, `ruby`, `php`, `wasm`, `go`, `integrations`, `esp-component`) that downstream jobs gate on, then runs `scripts/ci_job_diff.py` to add `ci-workflow-all` and `changed-jobs` — which `ci.yml` job definitions this diff touched. |
 
 ### Core
 | Job | Name | Role |
@@ -357,12 +357,13 @@ done
 
 These conventions apply across Expanse and its sister repositories (`php-judy`, `judy-cache`, `judy-polyfill`, `yaml-workflows`, `gws-connectors`). They exist so a new repo inherits the same zero-regression discipline.
 
-**Concurrency hygiene.** PR runs cancel superseded runs; `main` pushes must not:
+**Concurrency hygiene.** A pull request's new run supersedes its older ones; `main` pushes must not cancel each other. Where the workflow carries an `if: always()` rollup gate, do **not** supersede through a per-PR concurrency group with `cancel-in-progress`. The rollup must stay `always()`, because a job skipped by its condition reports "Success" to branch protection ([Troubleshooting required status checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks)). An `always()` job still needs a runner after its run is cancelled, and the cancelled run holds the group until that job has had one, so the new run waits behind it for as long as the runner pool is full. Give each pull-request run its own group instead, and supersede explicitly with a force-cancel, which starts no `always()` job and leaves the old run's checks `cancelled`, a failure to branch protection:
 ```yaml
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || format('{0}-{1}', github.event_name, github.sha) }}
+  cancel-in-progress: false
 ```
+with a first step in the first job running `scripts/ci_supersede.py` under `permissions: actions: write`, the branch name passed through `env:` rather than interpolated into the script. A fork's read-only token cannot cancel; the script warns by name, and the old run finishes on its own.
 Runs on `main` use a unique key (`github.run_id`, or the event name plus `github.sha`) with `cancel-in-progress: false`, so no run on `main` cancels another. Runner capacity is shared across every repository on the account, so a repository whose pull requests must already be up to date and green before merging runs its full matrix on a daily schedule rather than on every merge, and holds its slow lanes behind a fast lane (lint + policy checks) that also runs alone on drafts — `expanse`'s shape is described in §3.
 
 **New-project setup checklist:**

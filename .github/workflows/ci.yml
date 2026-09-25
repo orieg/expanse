@@ -16,11 +16,17 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # The event name keeps a scheduled or dispatched run on main from sharing a
-  # group with the push run of the same commit, where the later of two pending
-  # runs would cancel the earlier.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.event_name, github.sha) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # One group per pull-request run: a run keeps its group until every job has
+  # finished, `ci-gate` is `if: always()` and so still needs a runner after a
+  # cancel, and under a per-PR group a new push waited behind its own cancelled
+  # predecessor for as long as the runner pool was full. Superseding is done
+  # instead by `detect-changes`' first step (scripts/ci_supersede.py), which
+  # force-cancels the PR's older runs so their gate never takes a runner.
+  # On main the event name keeps a scheduled or dispatched run from sharing a
+  # group with the push run of the same commit, where the later of two
+  # pending runs would cancel the earlier.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || format('{0}-{1}', github.event_name, github.sha) }}
+  cancel-in-progress: false
 
 # Least privilege for every job's GITHUB_TOKEN. This matches the repository's
 # read-only default, stated here so the workflow does not depend on that
@@ -39,6 +45,9 @@ jobs:
     name: Subsystems / Change Detection
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write # force-cancel this pull request's superseded runs
     outputs:
       rust-src: ${{ steps.filter.outputs.rust-src }}
       # Which `ci.yml` job definitions this diff touched. Replaces
@@ -68,6 +77,20 @@ jobs:
         with:
           # `ci_job_diff.py` reads the workflow at the base revision.
           fetch-depth: 0
+      - name: Cancel this pull request's superseded runs
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Through the environment, never interpolated into the script: a
+          # branch name is chosen by whoever pushes it.
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          python3 scripts/ci_supersede.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" \
+            --branch "$HEAD_REF" \
+            --head-repo "$HEAD_REPO"
       - uses: dorny/paths-filter@v4
 
         id: filter
@@ -727,6 +750,7 @@ jobs:
           python3 docs/benchmarks/set_algebra/scripts/harvest_domain.py --self-test
           python3 scripts/discipline_replay.py --self-test
           python3 scripts/release_ci_gate.py --self-test
+          python3 scripts/ci_supersede.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts
