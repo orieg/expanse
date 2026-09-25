@@ -46,7 +46,7 @@ fails when the engine moves (with one negative control per kind of check);
   map_immed_max (7 // kb), map_immed_val_size             crates/expanse/src/mutate.rs, mutate_map.rs
   ImmedType::max_count (15 // kb)                         crates/expanse/src/types.rs
   BranchL3 64, BranchL7 128, BranchB 128, BranchU 4160    crates/expanse/src/node.rs (const asserts)
-  B -> L7 at digits < 7, L7 -> L3 at num < 3              crates/expanse/src/mutate_map.rs (remove)
+  B -> L7 at digits <= 6, L7 -> L3 at num < 3             crates/expanse/src/mutate_map.rs (remove)
   a map leaf above map_immed_max stays a leaf down to 1   crates/expanse/src/mutate_map.rs (remove)
 
 Usage:
@@ -543,9 +543,9 @@ ENGINE_BODIES = (
 
 # The remove-path demotions `drained_form` models, one site per file.
 ENGINE_DEMOTIONS = (
-    ("mutate.rs", "digits < BRANCH_L7_CAP"),
+    ("mutate.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN"),
     ("mutate.rs", "num < BRANCH_L3_CAP"),
-    ("mutate_map.rs", "digits < BRANCH_L7_CAP"),
+    ("mutate_map.rs", "digits <= crate::types::BRANCHB_TO_L7_DOWN"),
     ("mutate_map.rs", "num < BRANCH_L3_CAP"),
 )
 
@@ -641,8 +641,9 @@ def test_engine_sync() -> None:
          "size_of::<BranchB>() == 3 * CACHE_LINE", "BranchB"),
         ("leaf.rs", "} else if pop <= 24 {\n        24", "} else if pop <= 24 {\n        28", "cap_class"),
         ("mutate.rs", "7 / kb as usize", "6 / kb as usize", "map_immed_max"),
-        ("mutate.rs", "if digits < BRANCH_L7_CAP {", "if digits < BRANCHB_TO_L7_DOWN {",
-         "digits < BRANCH_L7_CAP"),
+        ("mutate.rs", "if digits <= crate::types::BRANCHB_TO_L7_DOWN {",
+         "if digits < crate::types::BRANCHB_TO_L7_DOWN {",
+         "digits <= crate::types::BRANCHB_TO_L7_DOWN"),
         # A demotion that survives only in a comment must not count.
         ("mutate_map.rs", "if !is_l3 && num < BRANCH_L3_CAP {",
          "if false { // num < BRANCH_L3_CAP", "num < BRANCH_L3_CAP"),

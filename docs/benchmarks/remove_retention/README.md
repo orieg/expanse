@@ -35,7 +35,10 @@ smallest keys, ascending). The last two columns are `mem_held()` after
 (measured: Apple M1, macOS, rustc 1.98.1, engine source of `main` at
 `463ff2d0`; workload: example_remove_retention; artifact
 [`results/step0a_retention.json`](results/step0a_retention.json). Exact byte
-counts with no interval: `mem_used()` is deterministic accounting.)
+counts with no interval: `mem_used()` is deterministic accounting. Re-run on
+the same host at `407f73b2`, after the remove-path demotion thresholds were
+rewritten as derived constants with unchanged values: all 42 cells
+byte-identical.)
 
 | Cell | Keys | N → M | Removal | set R | map R | set B/key drained / fresh | map B/key drained / fresh | set held after shrink ÷ fresh used | map held after shrink ÷ fresh used |
 |---|---|---|---|---|---|---|---|---|---|
