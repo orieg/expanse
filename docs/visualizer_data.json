@@ -39,10 +39,68 @@
     "flavor": "set",
     "metric": "slot levels holding at least one branch node (ExpanseStats::branch_depth_histogram)",
     "rows": [
-      { "pop": 1000, "random": [8], "sequential": [8, 7], "clustered": [8] },
-      { "pop": 10000, "random": [8, 7], "sequential": [8, 7], "clustered": [8, 7] },
-      { "pop": 100000, "random": [8, 7], "sequential": [8, 7, 2], "clustered": [8, 7] },
-      { "pop": 1000000, "random": [8, 7, 6], "sequential": [8, 7, 2], "clustered": [8, 7, 6] }
+      {
+        "pop": 1000,
+        "random": [
+          8
+        ],
+        "sequential": [
+          8,
+          7
+        ],
+        "clustered": [
+          8
+        ]
+      },
+      {
+        "pop": 10000,
+        "random": [
+          8,
+          7
+        ],
+        "sequential": [
+          8,
+          7
+        ],
+        "clustered": [
+          8,
+          7
+        ]
+      },
+      {
+        "pop": 100000,
+        "random": [
+          8,
+          7
+        ],
+        "sequential": [
+          8,
+          7,
+          2
+        ],
+        "clustered": [
+          8,
+          7
+        ]
+      },
+      {
+        "pop": 1000000,
+        "random": [
+          8,
+          7,
+          6
+        ],
+        "sequential": [
+          8,
+          7,
+          2
+        ],
+        "clustered": [
+          8,
+          7,
+          6
+        ]
+      }
     ]
   },
   "node_ladder": {
