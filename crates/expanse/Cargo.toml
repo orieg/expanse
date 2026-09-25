@@ -17,7 +17,7 @@ authors.workspace = true
 name = "expanse_trie"
 
 [features]
-default = ["std"]
+default = ["std", "subtree-condense"]  # MEASUREMENT-ONLY: reverted before merge
 std = []
 # Diagnostic-only: arms the `occ_stats` event counters (OCC retries,
 # writer-lock fallbacks, epoch advances). Off by default and compiled
