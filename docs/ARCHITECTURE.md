@@ -720,7 +720,7 @@ The budget rule is a byte count, not a key count. This is the fact most often re
 
 The `n/a` rows are widths a 32-bit key cannot produce: a 4-level trie leaves at most 4 undecoded bytes.
 
-Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src/types.rs:387`), `tag_spaces_are_disjoint_and_total` (`crates/expanse/src/types.rs:363`) and `immediate_payload_round_trips_all_widths` (`crates/expanse/src/trie32.rs:6524`), in addition to the doc gate.
+Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src/types.rs:387`), `tag_spaces_are_disjoint_and_total` (`crates/expanse/src/types.rs:363`) and `immediate_payload_round_trips_all_widths` (`crates/expanse/src/trie32.rs:6565`), in addition to the doc gate.
 
 ### 10.5 `ValueSlot` — the 8-byte polymorphic value word
 

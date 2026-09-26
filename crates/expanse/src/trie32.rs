@@ -3247,6 +3247,7 @@ fn leaf_insert_pos(buf: &[u8], pop: usize, kb: u8, needle: u32) -> usize {
     leaf_lower_bound(buf, pop, kb, needle).unwrap()
 }
 
+#[inline(always)]
 pub(crate) fn set_insert_mode<const SHARED: bool>(
     a: &mut Arena,
     e: &mut Edge32,
@@ -3297,9 +3298,17 @@ pub(crate) fn set_insert_mode<const SHARED: bool>(
                 let old = edge_handle(e);
                 *e = make_l2(a, kb, &[], 0);
                 for &k in &keys {
-                    set_insert_mode::<SHARED>(a, e, kb, k);
+                    (if SHARED {
+                        set_insert_shared
+                    } else {
+                        set_insert
+                    })(a, e, kb, k);
                 }
-                set_insert_mode::<SHARED>(a, e, kb, rem);
+                (if SHARED {
+                    set_insert_shared
+                } else {
+                    set_insert
+                })(a, e, kb, rem);
                 a.free(old);
             } else {
                 set_leaf_insert_at(a, e, kb, pos, rem);
@@ -3313,7 +3322,11 @@ pub(crate) fn set_insert_mode<const SHARED: bool>(
             match branch_child(a, e, d) {
                 Some(mut child) => {
                     let old_child = child;
-                    let inserted = set_insert_mode::<SHARED>(a, &mut child, kb - 1, cr);
+                    let inserted = (if SHARED {
+                        set_insert_shared
+                    } else {
+                        set_insert
+                    })(a, &mut child, kb - 1, cr);
                     if inserted {
                         branch_commit::<SHARED>(a, e, d, (child != old_child).then_some(child), 1);
                     }
@@ -3321,7 +3334,11 @@ pub(crate) fn set_insert_mode<const SHARED: bool>(
                 }
                 None => {
                     let mut child = Edge32::null();
-                    set_insert_mode::<SHARED>(a, &mut child, kb - 1, cr);
+                    (if SHARED {
+                        set_insert_shared
+                    } else {
+                        set_insert
+                    })(a, &mut child, kb - 1, cr);
                     branch_insert_new::<SHARED>(a, e, d, child, 1);
                     true
                 }
@@ -3333,6 +3350,7 @@ pub(crate) fn set_insert_mode<const SHARED: bool>(
     }
 }
 
+#[inline(always)]
 pub(crate) fn set_remove_mode<const SHARED: bool>(
     a: &mut Arena,
     e: &mut Edge32,
@@ -3416,7 +3434,11 @@ pub(crate) fn set_remove_mode<const SHARED: bool>(
             match branch_child(a, e, d) {
                 None => false,
                 Some(mut child) => {
-                    let removed = set_remove_mode::<SHARED>(a, &mut child, kb - 1, cr);
+                    let removed = (if SHARED {
+                        set_remove_shared
+                    } else {
+                        set_remove
+                    })(a, &mut child, kb - 1, cr);
                     if removed {
                         if child.is_null() {
                             branch_add_keys::<SHARED>(a, e, -1);
@@ -3616,6 +3638,7 @@ pub(crate) fn map_insert_via_finger_mode<const SHARED: bool>(
 
 /// Insert without a finger, for callers that hold no cached path (bulk
 /// rebuilds, promotions, the blob map's index).
+#[inline(always)]
 pub(crate) fn map_insert_mode<const SHARED: bool>(
     a: &mut Arena,
     e: &mut Edge32,
@@ -3624,7 +3647,11 @@ pub(crate) fn map_insert_mode<const SHARED: bool>(
     val: u32,
 ) -> Option<u32> {
     let mut scratch = Finger32::new();
-    map_insert_f_mode::<SHARED>(a, e, kb, rem, val, &mut scratch)
+    (if SHARED {
+        map_insert_f_shared
+    } else {
+        map_insert_f
+    })(a, e, kb, rem, val, &mut scratch)
 }
 
 /// [`map_insert_mode`] on an unshared tree: plain stores throughout.
@@ -3636,6 +3663,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
 
 /// Insert, recording the descent in `f` when it terminates somewhere the
 /// finger can be reused. Any other outcome disarms it.
+#[inline(always)]
 pub(crate) fn map_insert_f_mode<const SHARED: bool>(
     a: &mut Arena,
     e: &mut Edge32,
@@ -3748,7 +3776,11 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
             match branch_child(a, e, d) {
                 Some(mut child) => {
                     let old_child = child;
-                    let old = map_insert_f_mode::<SHARED>(a, &mut child, kb - 1, cr, val, f);
+                    let old = (if SHARED {
+                        map_insert_f_shared
+                    } else {
+                        map_insert_f
+                    })(a, &mut child, kb - 1, cr, val, f);
                     let changed = child != old_child;
                     if changed || old.is_none() {
                         branch_commit::<SHARED>(
@@ -3769,7 +3801,11 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                 }
                 None => {
                     let mut child = Edge32::null();
-                    map_insert_f_mode::<SHARED>(a, &mut child, kb - 1, cr, val, f);
+                    (if SHARED {
+                        map_insert_f_shared
+                    } else {
+                        map_insert_f
+                    })(a, &mut child, kb - 1, cr, val, f);
                     // A new digit can upgrade this branch, replacing the node
                     // the finger would cache.
                     f.clear();
@@ -3782,6 +3818,7 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
     }
 }
 
+#[inline(always)]
 pub(crate) fn map_remove_mode<const SHARED: bool>(
     a: &mut Arena,
     e: &mut Edge32,
@@ -3883,7 +3920,11 @@ pub(crate) fn map_remove_mode<const SHARED: bool>(
             match branch_child(a, e, d) {
                 None => None,
                 Some(mut child) => {
-                    let old = map_remove_mode::<SHARED>(a, &mut child, kb - 1, cr);
+                    let old = (if SHARED {
+                        map_remove_shared
+                    } else {
+                        map_remove
+                    })(a, &mut child, kb - 1, cr);
                     if old.is_some() {
                         if child.is_null() {
                             branch_add_keys::<SHARED>(a, e, -1);
