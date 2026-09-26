@@ -1665,3 +1665,225 @@ fn test_sync_map_compare_exchange_claim_by_removal() {
     assert_eq!(map.len(), 64 + 20 + 600 + 3);
     map.with_locked(expanse_trie::map::ExpanseMap::validate);
 }
+
+/// Root digits that never move in the floor-crossing tests below: one key
+/// per top digit `0..FLOOR_FIXED`, so the root is a branch keyed on byte 7.
+const FLOOR_FIXED: u64 = 188;
+/// Root digits the writers insert and remove: the root's digit count moves
+/// through `FLOOR_FIXED..=FLOOR_FIXED + FLOOR_CHURN`, which spans both the
+/// `BranchU` demotion floor (191) and the bitmap-to-uncompressed threshold
+/// (192), so the root is promoted to a `BranchU` and demoted back while
+/// readers run (Refs #1079).
+const FLOOR_CHURN: u64 = 10;
+const _: () = assert!(FLOOR_FIXED <= 191 && FLOOR_FIXED + FLOOR_CHURN > 192 + 1);
+
+fn floor_key(d: u64) -> u64 {
+    (d << 56) | 0x0001
+}
+
+/// A fixed per-thread operation schedule (xorshift64), so a failure replays
+/// the same program order.
+fn floor_schedule(t_id: u64, n: usize) -> Vec<(u64, bool)> {
+    let mut x = 0x9E37_79B9_7F4A_7C15u64 ^ (t_id + 1).wrapping_mul(0xD1B5_4A32_D192_ED03);
+    (0..n)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (FLOOR_FIXED + x % FLOOR_CHURN, (x >> 32) & 1 == 0)
+        })
+        .collect()
+}
+
+/// Removes and re-inserts carry a `BranchU` root back and forth across its
+/// demotion floor under W = 4 writers and 2 readers. Each key's history is
+/// checked for linearizability, the untouched keys must stay readable
+/// throughout, and the tree must validate once the threads join: before
+/// #1079 an optimistic removal could leave the root uncompressed below the
+/// floor. The crossings fall back (`DemoteU` down, `Upgrade` up), so this is
+/// also the concurrent check of the fallback itself.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_linearizability_branch_u_floor_crossings() {
+    const WRITERS: u64 = 4;
+    const READERS: u64 = 2;
+    const OPS: usize = 120;
+    for round in 0..4u64 {
+        let map = Arc::new(SyncExpanseMap::new());
+        for d in 0..FLOOR_FIXED {
+            map.insert(floor_key(d), d);
+        }
+        let history = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = vec![];
+        for t_id in 0..WRITERS + READERS {
+            let map = Arc::clone(&map);
+            let history = Arc::clone(&history);
+            handles.push(thread::spawn(move || {
+                let mut local = Vec::with_capacity(OPS);
+                for (i, (d, ins)) in floor_schedule(round * 16 + t_id, OPS)
+                    .into_iter()
+                    .enumerate()
+                {
+                    let key = floor_key(d);
+                    let op = if t_id >= WRITERS {
+                        // A reader also checks one untouched key per step.
+                        let fixed = (i as u64 * 7 + t_id) % FLOOR_FIXED;
+                        assert_eq!(map.get(floor_key(fixed)), Some(fixed));
+                        Op::Get(key)
+                    } else if ins {
+                        Op::Insert(key, t_id * 1000 + i as u64)
+                    } else {
+                        Op::Remove(key)
+                    };
+                    let start = Instant::now();
+                    let ret = match &op {
+                        Op::Insert(k, v) => Ret::Insert(map.insert(*k, *v)),
+                        Op::Remove(k) => Ret::Remove(map.remove(*k)),
+                        Op::Get(k) => Ret::Get(map.get(*k)),
+                    };
+                    let end = Instant::now();
+                    // The first writer validates the tree every tenth step
+                    // from inside an exclusive section, so a branch left
+                    // below its floor mid-run is caught at the step, not
+                    // only if the run happens to end there.
+                    if t_id == 0
+                        && i % 10 == 9
+                        && let Err(e) = map.with_locked(|m| m.validate_defensive())
+                    {
+                        panic!("round {round}, step {i}: {e}");
+                    }
+                    local.push(Event {
+                        op,
+                        ret,
+                        start,
+                        end,
+                    });
+                }
+                history.lock().unwrap().extend(local);
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let history = history.lock().unwrap().clone();
+        let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+        for e in history {
+            by_key.entry(e.op.key()).or_default().push(e);
+        }
+        for (key, events) in by_key {
+            assert!(
+                check_linearizability_for_key(&events),
+                "round {round}: linearizability violation for key {key:#x}"
+            );
+        }
+        for d in 0..FLOOR_FIXED {
+            assert_eq!(map.get(floor_key(d)), Some(d), "round {round}");
+        }
+        // A deterministic tail: every churn digit in (the root is then a
+        // `BranchU`), then every one out, across the floor on one thread.
+        for d in FLOOR_FIXED..FLOOR_FIXED + FLOOR_CHURN {
+            map.insert(floor_key(d), d);
+        }
+        for d in FLOOR_FIXED..FLOOR_FIXED + FLOOR_CHURN {
+            assert_eq!(map.remove(floor_key(d)), Some(d));
+        }
+        if let Err(e) = map.with_locked(|m| m.validate_defensive()) {
+            panic!("round {round}: {e}");
+        }
+    }
+}
+
+/// The set twin of the floor-crossing test.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_linearizability_branch_u_floor_crossings() {
+    const WRITERS: u64 = 4;
+    const READERS: u64 = 2;
+    const OPS: usize = 120;
+    for round in 0..4u64 {
+        let set = Arc::new(SyncExpanseSet::new());
+        for d in 0..FLOOR_FIXED {
+            set.insert(floor_key(d));
+        }
+        let history = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = vec![];
+        for t_id in 0..WRITERS + READERS {
+            let set = Arc::clone(&set);
+            let history = Arc::clone(&history);
+            handles.push(thread::spawn(move || {
+                let mut local = Vec::with_capacity(OPS);
+                for (i, (d, ins)) in floor_schedule(round * 16 + t_id + 8, OPS)
+                    .into_iter()
+                    .enumerate()
+                {
+                    let key = floor_key(d);
+                    let op = if t_id >= WRITERS {
+                        let fixed = (i as u64 * 7 + t_id) % FLOOR_FIXED;
+                        assert!(set.contains(floor_key(fixed)));
+                        SetOp::Contains(key)
+                    } else if ins {
+                        SetOp::Insert(key)
+                    } else {
+                        SetOp::Remove(key)
+                    };
+                    let start = Instant::now();
+                    let ret = match &op {
+                        SetOp::Insert(k) => SetRet::Insert(set.insert(*k)),
+                        SetOp::Remove(k) => SetRet::Remove(set.remove(*k)),
+                        SetOp::Contains(k) => SetRet::Contains(set.contains(*k)),
+                    };
+                    let end = Instant::now();
+                    // The first writer validates the tree every tenth step
+                    // from inside an exclusive section, so a branch left
+                    // below its floor mid-run is caught at the step, not
+                    // only if the run happens to end there.
+                    if t_id == 0
+                        && i % 10 == 9
+                        && let Err(e) = set.with_locked(|s| s.validate_defensive())
+                    {
+                        panic!("round {round}, step {i}: {e}");
+                    }
+                    local.push(SetEvent {
+                        op,
+                        ret,
+                        start,
+                        end,
+                    });
+                }
+                history.lock().unwrap().extend(local);
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let history = history.lock().unwrap().clone();
+        let mut by_key: HashMap<u64, Vec<SetEvent>> = HashMap::new();
+        for e in history {
+            by_key.entry(e.op.key()).or_default().push(e);
+        }
+        for (key, events) in by_key {
+            assert!(
+                check_set_linearizability_for_key(&events),
+                "round {round}: linearizability violation for key {key:#x}"
+            );
+        }
+        for d in 0..FLOOR_FIXED {
+            assert!(set.contains(floor_key(d)), "round {round}");
+        }
+        for d in FLOOR_FIXED..FLOOR_FIXED + FLOOR_CHURN {
+            set.insert(floor_key(d));
+        }
+        for d in FLOOR_FIXED..FLOOR_FIXED + FLOOR_CHURN {
+            assert!(set.remove(floor_key(d)));
+        }
+        if let Err(e) = set.with_locked(|s| s.validate_defensive()) {
+            panic!("round {round}: {e}");
+        }
+    }
+}

@@ -1162,35 +1162,147 @@ pub(crate) mod fold_edges {
     }
 }
 
-/// Whether every slot of a `BranchU` is null: what an optimistic removal
-/// that nulled one of its slots reports to a host that tracks it
-/// ([`OlcHost::note_vacant_branch`]). At most 256 edge loads, and only on
-/// that removal; out of line and cold, so the bodies of the hosts that
-/// never call it are unchanged.
+/// The non-null slots of a `BranchU`, each read with the shared edge load,
+/// then an acquire fence: what [`null_branch_u_slot`] decides the floor
+/// from before it locks the branch. The loads may race a writer. A count
+/// they tear is rejected by the lock's compare-exchange from the descent's
+/// snapshot (the fence orders every load before it, as
+/// [`crate::occ::node_validate`]'s does), or it only makes the removal fall
+/// back, which is always safe. All 256 slots, including the one the caller
+/// is about to null. Out of line and cold, so a removal body carries one
+/// call on its null-store branch, and no plain-tree path reaches it.
 ///
 /// # Safety
 ///
-/// `node` is an EBR-live `BranchU` whose version the caller holds locked,
-/// so no writer stores to its slots during the scan.
+/// `node` is non-null and points to a `BranchU` that is EBR-live for the
+/// whole call: the caller loaded it from a published edge while holding its
+/// writer pin, and a node retired after that load is freed only once every
+/// pin taken before the retirement is released. The pointer carries write
+/// provenance (it comes from an edge's node pointer, never from a shared
+/// reference), which the shared load needs to form atomic views of the
+/// edges. Nothing else is required: the node's contents may change during
+/// the scan, and the caller's lock by snapshot rejects a count they tore.
 #[cfg(feature = "std")]
 #[cold]
 #[inline(never)]
-unsafe fn branch_u_all_null(node: *const BranchU) -> bool {
-    // SAFETY: `node` is live (contract); the projection reads no memory.
-    let edges = unsafe { (&raw const (*node).edges).cast::<Edge>() };
-    // SAFETY: `i < BRANCH_FANOUT`, inside the edges array, whose slots the
-    // caller's lock keeps from being stored to.
-    (0..BRANCH_FANOUT).all(|i| unsafe { edges.add(i).read() }.is_null())
+unsafe fn branch_u_digits_shared(node: *mut BranchU) -> usize {
+    // SAFETY: `node` is non-null and its allocation is live (contract); the
+    // place projection reads no memory.
+    let edges = unsafe { (&raw mut (*node).edges).cast::<Edge>() };
+    let mut n = 0usize;
+    for i in 0..BRANCH_FANOUT {
+        // SAFETY: `i < BRANCH_FANOUT`: a 16-aligned edge inside the live
+        // branch's edge array, reached from a pointer with write provenance.
+        if !unsafe { Edge::load_at::<true>(edges.add(i)) }.is_null() {
+            n += 1;
+        }
+    }
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+    n
+}
+
+/// Nulls the `BranchU` slot at `edge_ptr` whose child an optimistic removal
+/// emptied, or declines to (Refs #1079). Every optimistic store of a null
+/// edge into a `BranchU` goes through here; the call-site count is pinned
+/// by `tests/test_branchu_demotion.rs`.
+///
+/// An optimistic writer never changes the form of the branch it locks
+/// (`docs/ARCHITECTURE.md` §4.2). Nulling a slot of a branch holding
+/// [`crate::types::BRANCHU_TO_B_DOWN`] + 1 digits would leave it at its
+/// demotion floor, a form change the exclusive walks make with
+/// `downgrade_u_to_b`. That removal falls back instead
+/// (`BranchSplitKind::DemoteU`), and the exclusive remove demotes the
+/// branch. The sequence:
+///
+/// 1. Count the branch's non-null slots ([`branch_u_digits_shared`]) before
+///    any lock. If nulling one would leave the branch at or below the floor
+///    ([`crate::mutate::branch_u_below_floor`]), fall back without locking.
+///    A count a concurrent writer tore can only cause a spurious fallback.
+/// 2. Otherwise lock the branch by compare-exchange from the version the
+///    descent sampled. Success validates the count. Every change of a
+///    `BranchU` slot between null and non-null is a store under that
+///    branch's version lock, released with the version advanced: the
+///    null-slot inserts (`olc_insert_set`, `olc_insert_map_body!`), the
+///    replacements of a child edge in both removal bodies, and this
+///    routine. The exclusive path runs only with the writer gate closed
+///    and every optimistic writer drained, so none of its stores falls
+///    between this writer's sample and its lock. A slot that changed since
+///    the sample moved the version, and the compare-exchange fails into a
+///    retry.
+/// 3. Re-check that the slot still holds `edge`, run `under_lock` (the
+///    caller's reads of the child that the lock protects), store the null
+///    edge, and unlock with the version advanced.
+///
+/// `Ok` carries `under_lock`'s value; the caller then frees the emptied
+/// child and marks its digit dirty. `Err` is the outcome the caller
+/// returns: a retry, or the `DemoteU` fallback.
+///
+/// # Safety
+///
+/// `parent` is the frame of an EBR-live `BranchU` whose slot at
+/// `edge_ptr` the descent loaded `edge` from under `parent.version_snap`,
+/// and the caller holds its writer pin. `under_lock` may rely on the
+/// branch being locked and the slot still holding `edge`.
+#[cfg(feature = "std")]
+#[inline(always)]
+unsafe fn null_branch_u_slot<T, R>(
+    parent: &AncestorFrame,
+    edge_ptr: *mut Edge,
+    edge: &Edge,
+    under_lock: impl FnOnce() -> R,
+) -> Result<R, OlcOutcome<T>> {
+    debug_assert_eq!(parent.edge_type, EdgeType::BranchU);
+    let branch = parent.node.cast::<BranchU>();
+    // SAFETY: `parent` is `ancestors[anc_depth - 1]` with `anc_depth >= 1`
+    // (every caller returns before this on `anc_depth == 0`), so it is a
+    // frame the descent wrote, not one of the array's null placeholders:
+    // the descent wrote it when it met a `BranchU` edge, storing that edge's
+    // node pointer after sampling the node's version through it. The node is
+    // EBR-live under this writer's pin, taken before that load, and the
+    // pointer has the edge's write provenance. The version snapshot is not
+    // what keeps the memory valid; it is what the lock below checks the
+    // count against.
+    let digits = unsafe { branch_u_digits_shared(branch) };
+    if crate::mutate::branch_u_below_floor(digits.saturating_sub(1)) {
+        return Err(branch_split(BranchSplitKind::DemoteU));
+    }
+    // SAFETY: version cell is within an EBR-live node allocation.
+    let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
+    let Ok((old_v, lock_t0)) = version_try_lock_expect_timed(p_cell, parent.version_snap) else {
+        return Err(OlcOutcome::Retry);
+    };
+    debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
+    // SAFETY: edge_ptr points to an EBR-live edge inside the locked branch.
+    if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(edge) {
+        version_unlock_timed(p_cell, old_v, false, lock_t0);
+        return Err(OlcOutcome::Retry);
+    }
+    let r = under_lock();
+    // SAFETY: the slot is inside the locked, EBR-live branch, and this
+    // writer is its one writer until the unlock.
+    unsafe { Edge::store_at::<true>(edge_ptr, Edge::NULL) };
+    // The lock validated the count (step 2): the branch holds exactly one
+    // digit fewer, above the floor, so in particular it is not all null.
+    debug_assert_eq!(
+        // SAFETY: as for the count above; the branch is now locked.
+        unsafe { branch_u_digits_shared(branch) },
+        digits - 1,
+        "a BranchU slot changed between null and non-null without its version lock"
+    );
+    version_unlock_timed(p_cell, old_v, true, lock_t0);
+    Ok(r)
 }
 
 /// Whether the subtree under `edge` holds no key: an early-exit census for
 /// the exclusive path, which decides a dirty string sub-map's emptiness from
-/// it rather than from a full [`fold_branch_pop0`] (Refs #1162). An
-/// optimistic removal only ever empties a subtree by nulling `BranchU`
-/// slots, so a drained tree is null edges and branches of null edges; the
-/// walk stops at the first key it meets, so on a non-empty tree it reads the
-/// first path down to a key and any drained branches before it. Reads only:
-/// branch `pop0` words are left as they are.
+/// it rather than from a full [`fold_branch_pop0`] (Refs #1162). A dirty
+/// node's count is stale, so its emptiness is read from the tree. An
+/// optimistic removal never empties a tree: it nulls a `BranchU` slot only
+/// while the branch stays above its demotion floor, and a removal that
+/// would empty a child of any other branch falls back (Refs #1079). The
+/// walk stops at the first key it meets, so on a non-empty tree it reads
+/// one path down to a key and any null edges before it. Reads only: branch
+/// `pop0` words are left as they are.
 ///
 /// # Safety
 ///
@@ -2871,25 +2983,6 @@ pub(crate) trait OlcHost {
     /// stale there until its next quiescent fold.
     fn mark_dirty_digit(&self, d: u8);
 
-    /// Whether this host wants to hear that a removal left an uncompressed
-    /// branch with every slot null ([`Self::note_vacant_branch`]). An
-    /// optimistic removal nulls a `BranchU` slot in place and never frees
-    /// the branch, so a host that decides emptiness from a count its
-    /// optimistic writers leave stale cannot otherwise see a tree drain.
-    /// A constant per host: `false` compiles the check out of every other
-    /// host's bodies.
-    #[inline(always)]
-    fn tracks_vacant_branch(&self) -> bool {
-        false
-    }
-
-    /// A removal nulled the last non-null slot of a `BranchU`. Called under
-    /// that branch's lock, only when [`Self::tracks_vacant_branch`] is true.
-    /// Necessary for the tree to have drained, not sufficient: other
-    /// subtrees may still hold keys.
-    #[inline(always)]
-    fn note_vacant_branch(&self) {}
-
     /// Decodes the tag of an edge met on the descent.
     ///
     /// Which form a host takes is pinned rather than left to the inliner,
@@ -3107,6 +3200,17 @@ pub(crate) enum BranchSplitKind {
     Remove,
     /// BranchB bitmap count exceeds BRANCHB_UP, requiring upgrade to BranchU (Phase 4D residual).
     Upgrade,
+    /// A removal that empties a child of a `BranchU` holding
+    /// `BRANCHU_TO_B_DOWN + 1` digits: nulling the slot would leave the
+    /// branch at its demotion floor, and an optimistic writer never changes
+    /// the form of the branch it locks, so the exclusive remove runs and
+    /// demotes it with `downgrade_u_to_b` (Refs #1079). Its own kind rather
+    /// than [`Self::Remove`], so the two causes stay apart in the counts:
+    /// `Remove` counts removals the optimistic path has no form for (a
+    /// child emptied under a linear or bitmap branch, a prefix mismatch),
+    /// and `DemoteU` counts one threshold on a form it does handle, so a
+    /// workload's `DemoteU` count is its U → B crossings on the shared path.
+    DemoteU,
 }
 
 #[cfg(all(feature = "std", feature = "occ-stats"))]
@@ -3119,6 +3223,7 @@ impl BranchSplitKind {
             Self::Prefix => crate::occ_stats::Stat::BranchSplitPrefix,
             Self::Remove => crate::occ_stats::Stat::BranchSplitRemove,
             Self::Upgrade => crate::occ_stats::Stat::BranchSplitUpgrade,
+            Self::DemoteU => crate::occ_stats::Stat::BranchSplitDemoteU,
         }
     }
 }
@@ -5308,24 +5413,16 @@ impl SyncExpanseSet {
                     let pop0 = edge.pop0(1) as usize;
                     if pop0 == 0 {
                         if parent.edge_type == EdgeType::BranchU {
-                            let Ok((old_v, lock_t0)) =
-                                version_try_lock_expect_timed(p_cell, parent.version_snap)
-                            else {
-                                return OlcOutcome::Retry;
-                            };
-                            debug_assert_eq!(
-                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
-                                1
-                            );
-                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
-                                version_unlock_timed(p_cell, old_v, false, lock_t0);
-                                return OlcOutcome::Retry;
+                            // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
+                            // from at `edge_ptr`, under this writer's pin.
+                            let nulled =
+                                unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || ()) };
+                            if let Err(o) = nulled {
+                                return o;
                             }
-                            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                            // SAFETY: the slot no longer names `node`, which is EBR-live and
+                            // retired through the deferred allocator.
                             unsafe {
-                                Edge::store_at::<true>(edge_ptr, Edge::NULL);
-                                version_unlock_timed(p_cell, old_v, true, lock_t0);
                                 let alloc = self.shared.engine_alloc();
                                 alloc.free_node(core::ptr::NonNull::new_unchecked(node));
                                 self.shared.mark_dirty_digit(digit(key, 8));
@@ -5615,21 +5712,15 @@ impl SyncExpanseSet {
                         return OlcOutcome::Done(true);
                     }
                     if parent.edge_type == EdgeType::BranchU {
-                        let Ok((old_v, lock_t0)) =
-                            version_try_lock_expect_timed(p_cell, parent.version_snap)
-                        else {
-                            return OlcOutcome::Retry;
-                        };
-                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
-                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
-                            version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Retry;
+                        // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
+                        // from at `edge_ptr`, under this writer's pin.
+                        let nulled = unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || ()) };
+                        if let Err(o) = nulled {
+                            return o;
                         }
-                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        // SAFETY: the slot no longer names the leaf at `keys_ptr`, which is
+                        // EBR-live and retired through the deferred allocator.
                         unsafe {
-                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
-                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = self.shared.engine_alloc();
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(keys_ptr),
@@ -5664,26 +5755,14 @@ impl SyncExpanseSet {
                             if parent.edge_type != EdgeType::BranchU {
                                 return branch_split(BranchSplitKind::Remove);
                             }
-                            let Ok((old_v, lock_t0)) =
-                                version_try_lock_expect_timed(p_cell, parent.version_snap)
-                            else {
-                                return OlcOutcome::Retry;
-                            };
-                            debug_assert_eq!(
-                                p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1,
-                                1
-                            );
-                            // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                            if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
-                                version_unlock_timed(p_cell, old_v, false, lock_t0);
-                                return OlcOutcome::Retry;
+                            // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
+                            // from at `edge_ptr`, under this writer's pin.
+                            let nulled =
+                                unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || ()) };
+                            if let Err(o) = nulled {
+                                return o;
                             }
-                            // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                            unsafe {
-                                Edge::store_at::<true>(edge_ptr, Edge::NULL);
-                                version_unlock_timed(p_cell, old_v, true, lock_t0);
-                                self.shared.mark_dirty_digit(digit(key, 8));
-                            }
+                            self.shared.mark_dirty_digit(digit(key, 8));
                             return OlcOutcome::Done(true);
                         }
                         if !crate::occ::node_validate(p_cell, parent.version_snap) {
@@ -7989,31 +8068,21 @@ macro_rules! olc_remove_map_body {
                 let pop0 = edge.pop0(1) as usize;
                 if pop0 == 0 {
                     if parent.edge_type == EdgeType::BranchU {
-                        let Ok((old_v, lock_t0)) =
-                            version_try_lock_expect_timed(p_cell, parent.version_snap)
-                        else {
-                            return OlcOutcome::Retry;
+                        // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
+                        // from at `edge_ptr`, under this writer's pin; the closure reads the
+                        // leaf the slot still names while the branch lock excludes its writers.
+                        let (old_arr, old) = match unsafe {
+                            null_branch_u_slot(&parent, edge_ptr, &edge, || {
+                                let old_arr = (*node).values[sub];
+                                (old_arr, *old_arr.add(rank))
+                            })
+                        } {
+                            Ok(read) => read,
+                            Err(o) => return o,
                         };
-                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
-                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
-                            version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Retry;
-                        }
-                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        // SAFETY: the slot no longer names `node` or its value array, both
+                        // EBR-live and retired through the deferred allocator.
                         unsafe {
-                            let old_arr = (*node).values[sub];
-                            let old = *old_arr.add(rank);
-                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
-                            // Under the parent's lock: a host that decides
-                            // emptiness from a stale count learns the branch
-                            // drained (`OlcHost::note_vacant_branch`).
-                            if $host.tracks_vacant_branch()
-                                && branch_u_all_null(parent.node.cast())
-                            {
-                                $host.note_vacant_branch();
-                            }
-                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(old_arr.cast()),
@@ -8457,30 +8526,20 @@ macro_rules! olc_remove_map_body {
                 }
                 if pop == 1 {
                     if parent.edge_type == EdgeType::BranchU {
-                        let Ok((old_v, lock_t0)) =
-                            version_try_lock_expect_timed(p_cell, parent.version_snap)
-                        else {
-                            return OlcOutcome::Retry;
+                        // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
+                        // from at `edge_ptr`, under this writer's pin; the closure reads the
+                        // leaf the slot still names while the branch lock excludes its writers.
+                        let old = match unsafe {
+                            null_branch_u_slot(&parent, edge_ptr, &edge, || {
+                                base.cast::<u64>().read()
+                            })
+                        } {
+                            Ok(old) => old,
+                            Err(o) => return o,
                         };
-                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
-                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
-                            version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Retry;
-                        }
-                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                        // SAFETY: the slot no longer names the leaf at `base`, which is
+                        // EBR-live and retired through the deferred allocator.
                         unsafe {
-                            let old = base.cast::<u64>().read();
-                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
-                            // Under the parent's lock: a host that decides
-                            // emptiness from a stale count learns the branch
-                            // drained (`OlcHost::note_vacant_branch`).
-                            if $host.tracks_vacant_branch()
-                                && branch_u_all_null(parent.node.cast())
-                            {
-                                $host.note_vacant_branch();
-                            }
-                            version_unlock_timed(p_cell, old_v, true, lock_t0);
                             let alloc = $host.alloc();
                             alloc.free_bytes(
                                 core::ptr::NonNull::new_unchecked(base),
@@ -8640,33 +8699,19 @@ macro_rules! olc_remove_map_body {
                         if parent.edge_type != EdgeType::BranchU {
                             return branch_split(BranchSplitKind::Remove);
                         }
-                        let Ok((old_v, lock_t0)) =
-                            version_try_lock_expect_timed(p_cell, parent.version_snap)
-                        else {
-                            return OlcOutcome::Retry;
+                        // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
+                        // from at `edge_ptr`, under this writer's pin; the closure reads the
+                        // slot's value word while the branch lock excludes its writers.
+                        let old = match unsafe {
+                            null_branch_u_slot(&parent, edge_ptr, &edge, || {
+                                Edge::word0_at(edge_ptr)
+                            })
+                        } {
+                            Ok(old) => old,
+                            Err(o) => return o,
                         };
-                        debug_assert_eq!(p_cell.load(core::sync::atomic::Ordering::Relaxed) & 1, 1);
-                        // SAFETY: edge_ptr points to an EBR-live edge inside a validated ancestor node or root.
-                        if !unsafe { Edge::load_at::<true>(edge_ptr) }.bits_eq(&edge) {
-                            version_unlock_timed(p_cell, old_v, false, lock_t0);
-                            return OlcOutcome::Retry;
-                        }
-                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                        unsafe {
-                            let old = Edge::word0_at(edge_ptr);
-                            Edge::store_at::<true>(edge_ptr, Edge::NULL);
-                            // Under the parent's lock: a host that decides
-                            // emptiness from a stale count learns the branch
-                            // drained (`OlcHost::note_vacant_branch`).
-                            if $host.tracks_vacant_branch()
-                                && branch_u_all_null(parent.node.cast())
-                            {
-                                $host.note_vacant_branch();
-                            }
-                            version_unlock_timed(p_cell, old_v, true, lock_t0);
-                            $host.mark_dirty_digit(digit($key, 8));
-                            return OlcOutcome::Done(Some(old));
-                        }
+                        $host.mark_dirty_digit(digit($key, 8));
+                        return OlcOutcome::Done(Some(old));
                     }
                     if !crate::occ::node_validate(p_cell, parent.version_snap) {
                         return OlcOutcome::Retry;
@@ -11990,10 +12035,10 @@ mod miri_tests {
 
     /// The wrapper is moved by value after construction, as a caller does:
     /// the move is what retagged the `Box` and is part of what is tested.
-    /// `validate` runs before the removals: removing a third of these keys
-    /// leaves the root `BranchU` below `BRANCHB_UP`, which the validator
-    /// rejects and the optimistic remove path does not demote (#1079) — a
-    /// separate finding, not the aliasing one this test pins.
+    /// `validate` runs after the removals: removing a third of these keys
+    /// takes the root `BranchU` across its demotion floor, so the run also
+    /// takes the `DemoteU` fallback and the exclusive U -> B demotion under
+    /// the aliasing model, and the validator checks the result (#1079).
     #[test]
     fn map_wrapper_survives_the_root_promotion_under_miri() {
         let map = SyncExpanseMap::new();
@@ -12005,11 +12050,11 @@ mod miri_tests {
             assert_eq!(map.get(splitmix64(i)), Some(i));
         }
         assert_eq!(map.len(), KEYS);
-        map.with_locked(ExpanseMap::validate);
         for i in (0..KEYS).step_by(3) {
             assert_eq!(map.remove(splitmix64(i)), Some(i));
         }
         assert_eq!(map.len(), KEYS - KEYS.div_ceil(3));
+        map.with_locked(ExpanseMap::validate);
     }
 
     #[test]
@@ -12023,11 +12068,11 @@ mod miri_tests {
             assert!(set.contains(splitmix64(i)));
         }
         assert_eq!(set.len(), KEYS);
-        set.with_locked(ExpanseSet::validate);
         for i in (0..KEYS).step_by(3) {
             assert!(set.remove(splitmix64(i)));
         }
         assert_eq!(set.len(), KEYS - KEYS.div_ceil(3));
+        set.with_locked(ExpanseSet::validate);
     }
 
     /// Past the root-leaf capacity (31), so the tree holds nodes to free;
@@ -12475,6 +12520,76 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(map.len(), TREE_PREFILL);
+    }
+
+    /// Root digits of the floor-crossing workload: one key per top digit,
+    /// three past the `BranchU` demotion floor, so the root starts as an
+    /// uncompressed branch and [`FLOOR_CHURN`] removals take it below.
+    const FLOOR_FILL: u64 = crate::types::BRANCHU_TO_B_DOWN as u64 + 3;
+    const FLOOR_CHURN: u64 = 4;
+    const _: () = assert!(FLOOR_FILL - FLOOR_CHURN < crate::types::BRANCHU_TO_B_DOWN as u64);
+    const _: () = assert!(FLOOR_FILL > crate::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64);
+
+    fn floor_key(d: u64) -> u64 {
+        (d << 56) | 1
+    }
+
+    /// A `BranchU` root carried across its demotion floor under an
+    /// optimistic reader (Refs #1079): the writer's removals null root slots
+    /// optimistically until the next would reach the floor, which falls back
+    /// (`DemoteU`) to the exclusive remove that demotes the root to a
+    /// `BranchB`; reinsertion promotes it back. The reader walks the root
+    /// throughout. The positive controls are the root's form, read from
+    /// exclusive sections on the writer thread, before and after each half.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_branchu_floor_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for d in 0..FLOOR_FILL {
+            map.insert(floor_key(d), d);
+        }
+        let branch_u = |map: &SyncExpanseMap| map.with_locked(|m| m.stats().node_counts.branch_u);
+        assert_eq!(branch_u(&map), 1, "the root starts uncompressed");
+        let done = AtomicBool::new(false);
+        // Set on drop, so a failed assertion on the writer ends the reader's
+        // loop and the test fails instead of hanging.
+        struct Finish<'a>(&'a AtomicBool);
+        impl Drop for Finish<'_> {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        thread::scope(|s| {
+            s.spawn(|| {
+                let _finish = Finish(&done);
+                for d in FLOOR_FILL - FLOOR_CHURN..FLOOR_FILL {
+                    assert_eq!(map.remove(floor_key(d)), Some(d));
+                }
+                assert_eq!(
+                    branch_u(&map),
+                    0,
+                    "the root crossed its floor and was demoted"
+                );
+                for d in FLOOR_FILL - FLOOR_CHURN..FLOOR_FILL {
+                    assert_eq!(map.insert(floor_key(d), d), None);
+                }
+                assert_eq!(branch_u(&map), 1, "the root was promoted back");
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for d in (0..FLOOR_FILL - FLOOR_CHURN).step_by(37) {
+                        assert_eq!(map.get(floor_key(d)), Some(d));
+                    }
+                    for d in FLOOR_FILL - FLOOR_CHURN..FLOOR_FILL {
+                        if let Some(v) = map.get(floor_key(d)) {
+                            assert_eq!(v, d);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), FLOOR_FILL);
+        map.with_locked(ExpanseMap::validate);
     }
 
     // --- SyncExpanseSet ---------------------------------------------------

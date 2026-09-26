@@ -476,7 +476,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             let b = unsafe { &*ptr.cast::<BranchU>() };
             stats.node_bytes.branch_u += size_of::<BranchU>();
             let digits = b.edges.iter().filter(|e| !e.is_null()).count();
-            if digits <= BRANCHU_TO_B_DOWN {
+            if crate::mutate::branch_u_below_floor(digits) {
                 return Err(format!(
                     "uncompressed branch population {digits} at or below demotion threshold \
                      {BRANCHU_TO_B_DOWN}"
@@ -532,6 +532,15 @@ mod tests {
             assert_eq!(n <= BRANCHB_TO_L7_DOWN, n < 7, "B -> L7 at {n}");
             assert_eq!(n <= BRANCHU_TO_B_DOWN, n < BRANCHB_UP, "U -> B at {n}");
             assert_eq!(n <= BRANCHU_TO_B_DOWN, n < 192, "U -> B at {n}");
+            // The one predicate every U -> B decision reads (Refs #1079):
+            // the exclusive walks, the optimistic removal and the validator
+            // share it, so an error in it would move all three together and
+            // no drain test could see it. Pinned against the literal here.
+            assert_eq!(
+                crate::mutate::branch_u_below_floor(n),
+                n < 192,
+                "branch_u_below_floor at {n}"
+            );
             assert_eq!(n < LEAFB1_DOWN, n < 21, "bitmap leaf -> Leaf1 at {n}");
         }
         assert_eq!(

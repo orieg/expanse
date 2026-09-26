@@ -301,13 +301,13 @@ fn pack_child(p: *mut StrNode) -> u64 {
 /// (Refs #1162). A dirty node is always in tree state: leaf-state sub-maps
 /// are only ever mutated under the cover, which keeps their population
 /// exact, and an optimistic writer never condenses a tree or changes its
-/// root state. It can **empty** one: its removal nulls a `BranchU` slot
-/// in place and frees nothing, so a tree whose keys all sat under
-/// uncompressed branches drains to null edges with its stale count still
-/// non-zero. The removal reports each `BranchU` it leaves all null
-/// (`OlcHost::note_vacant_branch`), and the remove path hands that node's
-/// prune to the exclusive path. The flag sits in the padding the cover
-/// word's alignment already reserved, so the node's size does not move.
+/// root state. Nor does it empty one: it nulls a `BranchU` slot only while
+/// the branch stays above its demotion floor, and a removal that would
+/// empty a child of any other branch, or cross that floor, falls back
+/// (Refs #1079). The removal of a tree's last key is therefore always
+/// exclusive, and the exclusive path decides the prune. The flag sits in
+/// the padding the cover word's alignment already reserved, so the node's
+/// size does not move.
 #[repr(C)]
 struct StrNode {
     /// Per-node cover for this node's sub-map root state. See the type
@@ -2456,65 +2456,6 @@ mod olc {
         }
     }
 
-    /// [`StrHost`] for a removal: it also records that the removal left an
-    /// uncompressed branch all null. An optimistic removal empties a tree
-    /// only that way (it nulls `BranchU` slots and frees nothing), and the
-    /// node's own count is stale while it is dirty, so this is how the
-    /// remove path learns a sub-map may have drained and hands its prune to
-    /// the exclusive path. The flag is the removal's own: insertions keep
-    /// the plain host.
-    struct StrRemoveHost<'a> {
-        host: StrHost<'a>,
-        vacant: core::cell::Cell<bool>,
-    }
-
-    impl<'a> StrRemoveHost<'a> {
-        #[inline(always)]
-        fn new(node: *mut StrNode, alloc: &'a NodeAlloc, locked: bool) -> Self {
-            Self {
-                host: StrHost {
-                    node,
-                    alloc,
-                    locked,
-                },
-                vacant: core::cell::Cell::new(false),
-            }
-        }
-    }
-
-    impl crate::sync::OlcHost for StrRemoveHost<'_> {
-        #[inline(always)]
-        fn tree_word_even(&self) -> bool {
-            self.host.tree_word_even()
-        }
-
-        #[inline(always)]
-        unsafe fn top_ptr(&self) -> *mut Edge {
-            // SAFETY: forwarded contract.
-            unsafe { self.host.top_ptr() }
-        }
-
-        #[inline(always)]
-        fn alloc(&self) -> &NodeAlloc {
-            self.host.alloc()
-        }
-
-        #[inline(always)]
-        fn mark_dirty_digit(&self, d: u8) {
-            self.host.mark_dirty_digit(d);
-        }
-
-        #[inline(always)]
-        fn tracks_vacant_branch(&self) -> bool {
-            true
-        }
-
-        #[inline(always)]
-        fn note_vacant_branch(&self) {
-            self.vacant.set(true);
-        }
-    }
-
     /// A `StrNode`'s cover word held as a lock by an optimistic string writer:
     /// the RAII form of `occ::version_try_lock_expect`. Drops as
     /// `occ::NodeLock` does: unlocked with the version advanced unless
@@ -2944,7 +2885,7 @@ mod olc {
             Option<crate::sync::FallbackCause>,
         ) {
             use crate::occ::{node_sample, node_validate, version_cell};
-            use crate::sync::{FallbackCause, OlcOutcome, olc_remove_map, walk_validated_node};
+            use crate::sync::{OlcOutcome, olc_remove_map, walk_validated_node};
             let key = key.as_bytes();
             let alloc = &self.alloc;
             let defer = self.deferred.get();
@@ -2971,14 +2912,17 @@ mod olc {
                 let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
                 if terminal {
                     if is_tree {
-                        // T7 in tree state. The engine empties a tree only by
-                        // nulling `BranchU` slots and never prunes it; when a
-                        // branch went all null the sub-map may have drained,
-                        // and the exclusive prune decides (`prune_empty_path`).
-                        let host = StrRemoveHost::new(node, alloc, false);
-                        let outcome = olc_remove_map(&host, chunk);
-                        let prune = host.vacant.get().then_some(FallbackCause::RootGrowth);
-                        return (outcome, prune);
+                        // T7 in tree state. An optimistic removal never
+                        // empties a tree (a removal that would empty a child
+                        // falls back unless its `BranchU` parent stays above
+                        // its floor, Refs #1079), so the sub-map still holds
+                        // a key and there is no prune to hand on.
+                        let host = StrHost {
+                            node,
+                            alloc,
+                            locked: false,
+                        };
+                        return (olc_remove_map(&host, chunk), None);
                     }
                     // SAFETY: live node.
                     let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
@@ -3023,13 +2967,15 @@ mod olc {
                     else {
                         return (OlcOutcome::Retry, None);
                     };
-                    let mut drained = false;
                     if is_tree {
-                        let held = StrRemoveHost::new(node, alloc, true);
+                        let held = StrHost {
+                            node,
+                            alloc,
+                            locked: true,
+                        };
                         match olc_remove_map(&held, chunk) {
                             OlcOutcome::Done(Some(w)) => {
                                 debug_assert_eq!(w, v, "the entry moved under the cover lock");
-                                drained = held.vacant.get();
                             }
                             OlcOutcome::Done(None) => {
                                 lock.abort_unmodified();
@@ -3055,12 +3001,6 @@ mod olc {
                     // before disposal.
                     let val = unsafe { (*sfx).value };
                     dispose_suffix(sfx, defer, SuffixArena::of(alloc));
-                    if drained {
-                        // As for T7 in tree state: the node's count is stale,
-                        // so the exclusive prune decides.
-                        drop(lock);
-                        return (OlcOutcome::Done(Some(val)), Some(FallbackCause::RootGrowth));
-                    }
                     // SAFETY: as for T7.
                     let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
                     return (OlcOutcome::Done(Some(val)), deferred);
@@ -3102,9 +3042,9 @@ mod olc {
             let alloc = &self.alloc;
             loop {
                 // A leaf's population is exact under the lock. A tree's may be
-                // stale, but a tree reaches this check only when its removal
-                // left no `BranchU` all null (the callers hand that case to
-                // the exclusive prune), and then it still holds a key.
+                // stale, but an optimistic removal never empties a tree (a
+                // removal that would falls back, Refs #1079), so a tree here
+                // still holds a key and its stale count is non-zero.
                 // SAFETY: `node` is live and locked by `lock`.
                 if unsafe { MapCore::len_of(&raw const (*node).map) } != 0 {
                     drop(lock);
@@ -3122,14 +3062,14 @@ mod olc {
                 // SAFETY: the parent is live and locked; its root state cannot
                 // change under the lock.
                 let parent_is_tree = unsafe { MapCore::root_is_tree_of(&raw const (*parent).map) };
-                let mut parent_drained = false;
                 let removed = if parent_is_tree {
-                    let held = StrRemoveHost::new(parent, alloc, true);
+                    let held = StrHost {
+                        node: parent,
+                        alloc,
+                        locked: true,
+                    };
                     match olc_remove_map(&held, pchunk) {
-                        OlcOutcome::Done(w) => {
-                            parent_drained = held.vacant.get();
-                            w
-                        }
+                        OlcOutcome::Done(w) => w,
                         OlcOutcome::Retry => {
                             plock.abort_unmodified();
                             drop(plock);
@@ -3162,12 +3102,6 @@ mod olc {
                 // SAFETY: live (retired below, not freed), and its interior is
                 // the exclusive property of this writer since the lock.
                 unsafe { under_lock(node, alloc, || dispose_node(node, alloc, defer)) };
-                if parent_drained {
-                    // The parent is a tree whose count is stale: the
-                    // exclusive prune decides whether it drained.
-                    drop(plock);
-                    return Some(FallbackCause::RootGrowth);
-                }
                 node = parent;
                 lock = plock;
             }
@@ -3331,13 +3265,15 @@ unsafe fn resync_at(node: *mut StrNode) {
 }
 
 /// Whether `node`'s sub-map holds no key, decided exactly on a dirty node
-/// too, through a raw pointer (see [`covered_at`]). Optimistic removals
-/// drain a tree by nulling `BranchU` slots and leave its count stale, so a
-/// dirty tree is tested structurally (`sync::subtree_vacant`, which stops at
-/// the first key) rather than refolded: the prune that calls this runs after
-/// a removal, and a full fold of a large non-empty sub-map there would be
-/// the per-operation census #1162 removed. A drained tree gets the exact
-/// count, 0, and a clean flag.
+/// too, through a raw pointer (see [`covered_at`]). Optimistic writers
+/// leave a tree's count stale, so a dirty tree is tested structurally
+/// (`sync::subtree_vacant`, which stops at the first key) rather than
+/// trusted or refolded: the prune that calls this runs after a removal, and
+/// a full fold of a large non-empty sub-map there would be the
+/// per-operation census #1162 removed. An optimistic removal never empties
+/// a tree (Refs #1079), so a dirty tree is expected to answer `false` here;
+/// the walk keeps the answer exact rather than resting it on that. A
+/// drained tree gets the exact count, 0, and a clean flag.
 ///
 /// # Safety
 ///
@@ -5076,19 +5012,19 @@ mod tests {
         assert_eq!(m.len(), keep as u64);
     }
 
-    /// Optimistic removes drain a tree-state sub-map through its
-    /// uncompressed branches: the engine's OLC remove nulls a `BranchU`
-    /// slot in place for each last key, never condenses or frees the tree,
-    /// and leaves the node dirty with its stale count. The emptied node
-    /// must still be pruned — a child from its parent, and the meta-trie
-    /// root taken — so the map ends as a fresh one does. Three shapes: the
-    /// root sub-map and a child sub-map each topped by a `BranchU`, and a
-    /// root sub-map whose linear top branch holds two `BranchU`s, where
-    /// draining one of them must prune nothing (the other still holds
-    /// keys). Red when the optimistic remove treats a dirty tree as never
-    /// empty, or when the exclusive prune reads the dirty node's stale
-    /// count: the drained nodes then stay linked, holding their `BranchU`
-    /// (4 KiB each), until `clear` or drop.
+    /// Removals through the wrapper drain a tree-state sub-map topped by
+    /// uncompressed branches. The engine's OLC remove nulls a `BranchU`
+    /// slot in place only while the branch stays above its demotion floor;
+    /// the removal that would cross it falls back and the exclusive remove
+    /// demotes the branch (Refs #1079), so the last key of the tree is
+    /// removed exclusively. The emptied node must be pruned — a child from
+    /// its parent, and the meta-trie root taken — so the map ends as a
+    /// fresh one does. Three shapes: the root sub-map and a child sub-map
+    /// each topped by a `BranchU`, and a root sub-map whose linear top
+    /// branch holds two `BranchU`s, where draining one of them must prune
+    /// nothing (the other still holds keys). Red when the exclusive prune
+    /// reads a dirty node's stale count: the drained nodes then stay
+    /// linked, holding their branches, until `clear` or drop.
     #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
     #[test]
     fn deferred_olc_drained_branch_u_sub_maps_are_pruned() {
@@ -5145,8 +5081,35 @@ mod tests {
                 };
                 assert!(want, "precondition: the sub-map's top branch is {tag:?}");
             });
+            #[cfg(feature = "occ-stats")]
+            let demote_before =
+                crate::occ_stats::snapshot()[crate::occ_stats::Stat::BranchSplitDemoteU as usize];
             let half = if top_is_u { keys.len() } else { keys.len() / 2 };
-            for k in &keys[..half] {
+            // Twenty removals take the first 200-digit `BranchU` to 180
+            // digits, past its floor (191): the sub-map must still validate
+            // (Refs #1079). Red before #1079, whose optimistic removals left
+            // the branch uncompressed at 180.
+            for k in &keys[..20] {
+                assert!(m.remove(tk(k)).is_some(), "remove of {k:?}");
+            }
+            m.exclusive(|inner| {
+                let mut node = inner.root.as_deref_mut().expect("root present");
+                if keys[0].len() > CHUNK {
+                    let (chunk, _) = chunk_at(&keys[0], 0);
+                    let v = node.map.get(chunk).expect("continuation");
+                    // SAFETY: a live child node; the map is locked.
+                    node = unsafe { &mut *unpack_child(v) };
+                }
+                let ptr: *mut StrNode = node;
+                // SAFETY: a live node of a locked map, reached from its
+                // exclusive borrow; the census fold restores the count the
+                // validator compares against.
+                unsafe { resync_at(ptr) };
+                if let Err(e) = node.map.validate_defensive() {
+                    panic!("after 20 removals (keys of {} bytes): {e}", keys[0].len());
+                }
+            });
+            for k in &keys[20..half] {
                 assert!(m.remove(tk(k)).is_some(), "remove of {k:?}");
             }
             if !top_is_u {
@@ -5176,6 +5139,23 @@ mod tests {
                 );
                 assert_eq!(inner.mem_used(), 0);
             });
+            // Each `BranchU` crossed its floor once, and that removal fell
+            // back as `DemoteU`: the exclusive remove demoted the branch, and
+            // the drain's last key was removed on the exclusive path, which
+            // pruned the sub-map (Refs #1079). No optimistic removal emptied
+            // a tree.
+            #[cfg(feature = "occ-stats")]
+            {
+                let crossings = if top_is_u { 1 } else { 2 };
+                let after = crate::occ_stats::snapshot()
+                    [crate::occ_stats::Stat::BranchSplitDemoteU as usize];
+                assert_eq!(
+                    after - demote_before,
+                    crossings,
+                    "DemoteU fallbacks for keys of {} bytes",
+                    keys[0].len()
+                );
+            }
         }
     }
 

@@ -269,7 +269,8 @@ fn fallback_causes_account_for_every_fallback() {
         + d(Stat::BranchSplitLinear)
         + d(Stat::BranchSplitPrefix)
         + d(Stat::BranchSplitRemove)
-        + d(Stat::BranchSplitUpgrade);
+        + d(Stat::BranchSplitUpgrade)
+        + d(Stat::BranchSplitDemoteU);
     assert_eq!(
         bs_partition_map,
         d(Stat::FallbackBranchSplit),
@@ -279,16 +280,19 @@ fn fallback_causes_account_for_every_fallback() {
         + sd(Stat::BranchSplitLinear)
         + sd(Stat::BranchSplitPrefix)
         + sd(Stat::BranchSplitRemove)
-        + sd(Stat::BranchSplitUpgrade);
+        + sd(Stat::BranchSplitUpgrade)
+        + sd(Stat::BranchSplitDemoteU);
     assert_eq!(
         bs_partition_set,
         sd(Stat::FallbackBranchSplit),
         "set: BranchSplit subsets must sum to FallbackBranchSplit"
     );
 
-    // Remove partition must be 0 on insert-only workloads
+    // Remove partitions must be 0 on insert-only workloads (DemoteU: Refs #1079)
     assert_eq!(d(Stat::BranchSplitRemove), 0);
     assert_eq!(sd(Stat::BranchSplitRemove), 0);
+    assert_eq!(d(Stat::BranchSplitDemoteU), 0);
+    assert_eq!(sd(Stat::BranchSplitDemoteU), 0);
 
     // Exact identity 4: CapExpansion partition (#568)
     let ce_partition_map = d(Stat::CapExpansionClass)
@@ -372,7 +376,7 @@ fn fallback_causes_account_for_every_fallback() {
         "set: CapExpansionLeafFull must be 0 after Phase 4E"
     );
 
-    // Remove partition must be 0 on insert-only workloads
+    // Remove partitions must be 0 on insert-only workloads (DemoteU: Refs #1079)
     assert_eq!(d(Stat::CapExpansionRemove), 0);
     assert_eq!(sd(Stat::CapExpansionRemove), 0);
 
@@ -652,4 +656,57 @@ fn fallback_causes_account_for_every_fallback() {
 
     targeted_set.with_locked(expanse_trie::set::ExpanseSet::validate);
     targeted_map.with_locked(expanse_trie::map::ExpanseMap::validate);
+
+    // Exact identity 3 over removals, and `DemoteU` discriminating (Refs
+    // #1079): 200 one-key top digits make the top node a `BranchU`, and an
+    // ascending drain crosses its floor exactly once. The removals above the
+    // floor null slots optimistically; the one that would reach it falls back
+    // as `DemoteU`; those below it empty children of a `BranchB` (`Remove`).
+    let floor_key = |d: u64| (d << 56) | 7;
+    let floor_map = SyncExpanseMap::new();
+    let floor_set = expanse_trie::sync::SyncExpanseSet::new();
+    for d in 0..200u64 {
+        floor_map.insert(floor_key(d), d);
+        floor_set.insert(floor_key(d));
+    }
+    let drain_map = || {
+        for d in 0..200u64 {
+            assert_eq!(floor_map.remove(floor_key(d)), Some(d));
+        }
+    };
+    let drain_set = || {
+        for d in 0..200u64 {
+            assert!(floor_set.remove(floor_key(d)));
+        }
+    };
+    let drains: [(&str, &dyn Fn()); 2] = [("map", &drain_map), ("set", &drain_set)];
+    for (name, drain) in drains {
+        let before = occ_stats::snapshot();
+        drain();
+        let after = occ_stats::snapshot();
+        let dd = |s: Stat| after[s as usize] - before[s as usize];
+        assert_eq!(
+            dd(Stat::BranchSplitDemoteU),
+            1,
+            "{name}: one U -> B crossing, one DemoteU fallback"
+        );
+        assert!(
+            dd(Stat::BranchSplitRemove) > 0,
+            "{name}: the drain below the floor empties BranchB children"
+        );
+        assert_eq!(
+            dd(Stat::BranchSplitSubarray)
+                + dd(Stat::BranchSplitLinear)
+                + dd(Stat::BranchSplitPrefix)
+                + dd(Stat::BranchSplitRemove)
+                + dd(Stat::BranchSplitUpgrade)
+                + dd(Stat::BranchSplitDemoteU),
+            dd(Stat::FallbackBranchSplit),
+            "{name}: BranchSplit subsets must sum to FallbackBranchSplit over removals"
+        );
+    }
+    assert_eq!(floor_map.len(), 0);
+    assert_eq!(floor_set.len(), 0);
+    floor_map.with_locked(expanse_trie::map::ExpanseMap::validate);
+    floor_set.with_locked(expanse_trie::set::ExpanseSet::validate);
 }

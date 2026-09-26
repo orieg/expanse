@@ -827,11 +827,14 @@ def summarize_arm(
             bs_pfx = int(r.get("branch_split_prefix", 0))
             bs_rem = int(r.get("branch_split_remove", 0))
             bs_upg = int(r.get("branch_split_upgrade", 0))
-            bs_sum = bs_sub + bs_lin + bs_pfx + bs_rem + bs_upg
+            # Absent from artifacts recorded before the kind existed (Refs #1079).
+            bs_dmu = int(r.get("branch_split_demote_u", 0))
+            bs_sum = bs_sub + bs_lin + bs_pfx + bs_rem + bs_upg + bs_dmu
             if bs_sum != int(causes["branch_split"]):
                 raise ValueError(
                     f"{arm} W={w} round {r['round']}: branch_split partition ({bs_sub} + {bs_lin} + "
-                    f"{bs_pfx} + {bs_rem} + {bs_upg} = {bs_sum}) != causes['branch_split'] ({causes['branch_split']})"
+                    f"{bs_pfx} + {bs_rem} + {bs_upg} + {bs_dmu} = {bs_sum}) "
+                    f"!= causes['branch_split'] ({causes['branch_split']})"
                 )
             # Invariant 4: CapExpansion exact partition (#568)
             ce_cls = int(r.get("cap_expansion_class", 0))
@@ -6369,6 +6372,7 @@ def self_test() -> int:
                 + r["branch_split_prefix"]
                 + r["branch_split_remove"]
                 + r.get("branch_split_upgrade", 0)
+                + r.get("branch_split_demote_u", 0)
                 == r["fallback_causes"]["branch_split"]
             ), r
             assert (

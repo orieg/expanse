@@ -1451,4 +1451,76 @@ mod tests {
         assert_eq!(m.get(b"beta"), Some(456));
         assert_eq!(m.len(), 2);
     }
+
+    /// A hasher whose hash is splitmix64 of the key read as a little-endian
+    /// word, so the keys below land on the hash trie exactly as the map
+    /// wrapper's reproduction lands its keys (Refs #1079).
+    #[cfg(feature = "std")]
+    #[derive(Clone, Default)]
+    struct SplitMix(u64);
+
+    #[cfg(feature = "std")]
+    impl Hasher for SplitMix {
+        fn finish(&self) -> u64 {
+            let mut z = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            for (i, &b) in bytes.iter().take(8).enumerate() {
+                self.0 |= u64::from(b) << (8 * i);
+            }
+        }
+        // `[u8]`'s `Hash` writes its length first; the word is the key alone.
+        fn write_usize(&mut self, _len: usize) {}
+    }
+
+    #[cfg(feature = "std")]
+    #[derive(Clone, Default)]
+    struct SplitMixBuild;
+
+    #[cfg(feature = "std")]
+    impl BuildHasher for SplitMixBuild {
+        type Hasher = SplitMix;
+        fn build_hasher(&self) -> SplitMix {
+            SplitMix(0)
+        }
+    }
+
+    /// Optimistic removals on the shared bytes map run the map removal body
+    /// on its hash trie (`olc_cas_remove_bucket_map`), so they shared the
+    /// map wrapper's defect: 400 keys put the trie's root at a `BranchU`,
+    /// removing every third leaves about 169 top digits, and before #1079
+    /// the branch stayed uncompressed below its demotion floor. The hash
+    /// trie is validated directly, since the bytes map has no validator.
+    #[cfg(all(feature = "std", target_pointer_width = "64"))]
+    #[test]
+    fn sync_bytes_map_remove_keeps_branch_u_above_its_floor() {
+        let m = crate::sync::SyncExpanseBytesMap::with_hasher(SplitMixBuild);
+        for i in 0..400u64 {
+            assert_eq!(m.insert(&i.to_le_bytes(), i), None);
+        }
+        m.with_locked(|b| b.map.validate_defensive())
+            .expect("precondition: valid before the removals");
+        assert_eq!(
+            m.with_locked(|b| b.map.stats().node_counts.branch_u),
+            1,
+            "precondition: the hash trie's root is an uncompressed branch"
+        );
+        for i in (0..400u64).step_by(3) {
+            assert_eq!(m.remove(&i.to_le_bytes()), Some(i));
+        }
+        m.with_locked(|b| b.map.validate_defensive())
+            .expect("the removals left a valid hash trie");
+        assert_eq!(
+            m.with_locked(|b| b.map.stats().node_counts.branch_u),
+            0,
+            "the root crossed its floor and was demoted"
+        );
+        for i in 0..400u64 {
+            let want = (i % 3 != 0).then_some(i);
+            assert_eq!(m.get(&i.to_le_bytes()), want, "key {i}");
+        }
+    }
 }

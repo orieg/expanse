@@ -474,6 +474,24 @@
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
+      "test": "map_branchu_floor_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "observed clean at seed 0 by the per-PR subset (CI run 36256715324, Refs #1079); the nightly seed range is not yet observed"
+    },
+    {
+      "test": "map_branchu_floor_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "observed clean at seed 0 by the per-PR subset (CI run 36256715324, Refs #1079); the nightly seed range is not yet observed"
+    },
+    {
+      "test": "map_branchu_floor_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "observed clean at seed 0 by the per-PR subset (CI run 36256715324, Refs #1079); the nightly seed range is not yet observed"
+    },
+    {
       "test": "map_clear_reader_writer",
       "check": "race",
       "expect": "clean",
