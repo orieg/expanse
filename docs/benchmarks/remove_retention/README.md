@@ -11,6 +11,7 @@ losses) is [`METHODOLOGY.md`](METHODOLOGY.md).
 | 1 | Bound functions, `scripts/condense_bounds.py` | committed; self-test in the `lint` job and `scripts/gate.sh` |
 | 2 | Pre-registration, `METHODOLOGY.md` | committed; frozen once merged |
 | 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | evaluated; **negative**, nothing promoted (§2); the engine code is kept at tag `poc/subtree-condense`, not on `main` |
+| — | Allocator census and rebuild arm (`NodeAlloc::census`, `set_rebuild_drained` / `map_rebuild_drained`) | measured; pinning confirmed, no option chosen (§3) |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/step0a_retention.json`.
 Single-threaded and deterministic: any 64-bit host reproduces every byte at the
@@ -381,3 +382,350 @@ profile shows that the rise is made of condenses.
 
 The next step is measure-first: an allocator census of a drained tree and a
 comparison against rebuilding it, before any further engine change.
+
+## 3. Allocator census and rebuild
+
+A measurement step, with no engine change and no decision. Condensing drained
+branches (phase 3) lowers `mem_used()`; `mem_held()` after `shrink_to_fit()`
+stays far above a fresh build's even where `mem_used()` already matches it
+(`r64_range`, R = 1.000). This section asks where those held bytes are, and
+what a rebuild of the drained tree would hold.
+
+**Instrument.** The same grid, keys, removal orders and assertions as §1, with
+three additions per cell (`crates/expanse/examples/remove_retention.rs`):
+
+- an allocator census (`NodeAlloc::census`, read-only, out of line,
+  `#[doc(hidden)]`) of the drained tree, of the drained tree after
+  `shrink_to_fit()`, of the fresh build and of the rebuilt tree. Per slab size
+  class (the classes of 256 B or less, carved from 4 KiB pages in
+  `crates/expanse/src/alloc.rs`): pages total, pages with no live block, partly
+  used and full, live and free blocks, and pages bucketed by live fraction.
+  Each census is asserted to sum to `mem_used()` and `mem_held()` exactly;
+- a rebuild arm: `let rebuilt = drained.clone(); drop(drained);` on the shrunk
+  drained tree. The set's `Clone` is `from_sorted_iter` (`set.rs`,
+  `impl Clone for ExpanseSet`). The map has no `from_sorted_iter`: its `Clone`
+  is `self.iter().collect()`, an ascending insert of every entry (`map.rs`,
+  `impl Clone for ExpanseMap`), so the map arm measures that path;
+- the heap the `clone()` call requests on top of what was live before it, from
+  a counting global allocator (requested bytes, net of `realloc`, without the
+  system allocator's chunk overhead).
+
+Every figure below is an exact count with no interval (§8.4), and every cell's
+§1 fields reproduce the Step 0a artifact byte for byte: all 42 cells, every
+field (measured: Apple M1, macOS, rustc 1.98.1, `a154bc57`; workload:
+example_remove_retention; artifact
+[`results/census_rebuild.json`](results/census_rebuild.json)). Peak RSS of the
+full grid was 534 MB (measured: Apple M1, `/usr/bin/time -l`, `a154bc57`).
+
+**Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/census_rebuild.json`.
+
+### 3.1 Held against a fresh build, after shrink and after a rebuild
+
+`held_fresh` is the fresh build's `mem_held()` without `shrink_to_fit()`, the
+denominator the phase-3 comparison used. "Shrunk ÷ held_fresh" is `main` after
+`shrink_to_fit()`; "rebuilt ÷ held_fresh" is the `clone()` of that tree, read
+after the drained tree is dropped. Peak held is both trees' `mem_held()` at the
+end of `clone()` (`mem_held()` falls only on `shrink_to_fit`, `clear` or drop,
+so neither term is higher earlier in the call). All figures (measured: Apple
+M1, `a154bc57`; workload: example_remove_retention; artifact
+`results/census_rebuild.json`).
+
+| Cell | Flavor | R | used drained / fresh / rebuilt (MB) | held shrunk / fresh / rebuilt (MB) | shrunk ÷ held_fresh | rebuilt ÷ held_fresh | peak held (MB) | heap added by `clone()` (MB) |
+|---|---|---|---|---|---|---|---|---|
+| `headline` | set | 3.297 | 27.08 / 8.21 / 8.21 | 67.48 / 12.69 / 8.37 | 5.318 | 0.659 | 75.85 | 16.76 |
+| `headline` | map | 1.700 | 29.90 / 17.58 / 17.58 | 78.08 / 24.67 / 17.74 | 3.164 | 0.719 | 95.82 | 17.63 |
+| `r64_sorted` | set | 3.297 | 27.08 / 8.21 / 8.21 | 63.20 / 12.69 / 8.37 | 4.981 | 0.659 | 71.57 | 16.76 |
+| `r64_sorted` | map | 1.700 | 29.90 / 17.58 / 17.58 | 73.52 / 24.67 / 17.74 | 2.980 | 0.719 | 91.26 | 17.63 |
+| `r64_range` | set | 1.000 | 20.99 / 20.99 / 20.99 | 70.54 / 26.64 / 21.58 | 2.647 | 0.810 | 92.12 | 29.97 |
+| `r64_range` | map | 1.000 | 23.89 / 23.89 / 23.89 | 79.75 / 29.21 / 24.55 | 2.731 | 0.841 | 104.31 | 24.55 |
+| `r64_2m_to_1m` | set | 1.915 | 15.72 / 8.21 / 8.21 | 34.74 / 12.68 / 8.36 | 2.740 | 0.660 | 43.11 | 16.76 |
+| `r64_2m_to_1m` | map | 1.251 | 22.00 / 17.58 / 17.58 | 38.85 / 24.66 / 17.73 | 1.576 | 0.719 | 56.58 | 17.62 |
+| `r64_4m_to_1m` | set | 3.309 | 27.17 / 8.21 / 8.21 | 67.51 / 12.70 / 8.36 | 5.316 | 0.658 | 75.86 | 16.75 |
+| `r64_4m_to_1m` | map | 1.739 | 30.57 / 17.58 / 17.58 | 84.25 / 24.67 / 17.73 | 3.415 | 0.719 | 101.99 | 17.62 |
+| `r64_to_2m` | set | 1.706 | 46.85 / 27.46 / 27.46 | 77.19 / 40.82 / 28.11 | 1.891 | 0.689 | 105.30 | 44.89 |
+| `r64_to_2m` | map | 1.328 | 52.52 / 39.56 / 39.56 | 86.87 / 52.65 / 40.15 | 1.650 | 0.762 | 127.02 | 40.15 |
+| `r64_to_320k` | set | 2.991 | 10.70 / 3.58 / 3.58 | 31.87 / 4.35 / 3.63 | 7.327 | 0.834 | 35.50 | 7.83 |
+| `r64_to_320k` | map | 1.695 | 11.60 / 6.84 / 6.84 | 40.87 / 8.20 / 6.98 | 4.985 | 0.851 | 47.84 | 6.95 |
+| `r64_1m_to_312k` | set | 1.029 | 3.62 / 3.52 / 3.52 | 6.77 / 4.28 / 3.57 | 1.583 | 0.834 | 10.34 | 7.77 |
+| `r64_1m_to_312k` | map | 1.006 | 6.75 / 6.71 / 6.71 | 8.71 / 8.01 / 6.85 | 1.087 | 0.854 | 15.55 | 6.82 |
+| `r62` | set | 1.005 | 19.78 / 19.68 / 19.68 | 31.55 / 25.55 / 20.21 | 1.235 | 0.791 | 51.76 | 28.60 |
+| `r62` | map | 1.222 | 28.33 / 23.18 / 23.18 | 65.41 / 28.81 / 23.80 | 2.270 | 0.826 | 89.21 | 23.80 |
+| `r56` | set | 3.769 | 27.07 / 7.18 / 7.18 | 67.17 / 11.17 / 7.38 | 6.014 | 0.661 | 74.56 | 15.77 |
+| `r56` | map | 1.806 | 29.89 / 16.56 / 16.56 | 77.65 / 23.77 / 16.83 | 3.268 | 0.708 | 94.48 | 16.59 |
+| `r56_sorted` | set | 3.769 | 27.07 / 7.18 / 7.18 | 62.93 / 11.17 / 7.38 | 5.634 | 0.661 | 70.31 | 15.77 |
+| `r56_sorted` | map | 1.806 | 29.89 / 16.56 / 16.56 | 73.14 / 23.77 / 16.83 | 3.078 | 0.708 | 89.97 | 16.59 |
+| `r56_range` | set | 1.000 | 21.00 / 21.00 / 21.00 | 71.02 / 27.90 / 21.59 | 2.546 | 0.774 | 92.61 | 29.97 |
+| `r56_range` | map | 1.000 | 23.81 / 23.81 / 23.81 | 79.51 / 29.10 / 24.49 | 2.733 | 0.842 | 104.00 | 24.49 |
+| `seq_shuffled` | set | 1.000 | 1.00 / 1.00 / 1.00 | 1.02 / 1.08 / 1.02 | 0.951 | 0.951 | 2.05 | 9.41 |
+| `seq_shuffled` | map | 1.000 | 11.03 / 11.03 / 11.03 | 19.08 / 11.32 / 11.32 | 1.686 | 1.000 | 30.40 | 11.32 |
+| `seq_sorted` | set | 1.000 | 1.00 / 1.00 / 1.00 | 1.02 / 1.08 / 1.02 | 0.951 | 0.951 | 2.05 | 9.41 |
+| `seq_sorted` | map | 1.000 | 11.03 / 11.03 / 11.03 | 11.28 / 11.32 / 11.32 | 0.997 | 1.000 | 22.61 | 11.32 |
+| `seq_range` | set | 1.000 | 0.07 / 0.07 / 0.06 | 0.07 / 0.13 / 0.07 | 0.577 | 0.577 | 0.15 | 8.47 |
+| `seq_range` | map | 1.000 | 8.56 / 8.56 / 8.56 | 8.60 / 8.65 / 8.65 | 0.994 | 1.000 | 17.26 | 8.65 |
+| `sparse_shuffled` | set | 1.000 | 20.25 / 20.25 / 20.25 | 20.73 / 20.64 / 20.60 | 1.004 | 0.998 | 41.33 | 28.99 |
+| `sparse_shuffled` | map | 1.000 | 20.25 / 20.25 / 20.25 | 20.73 / 20.64 / 20.64 | 1.005 | 1.000 | 41.37 | 20.64 |
+| `sparse_sorted` | set | 1.000 | 20.25 / 20.25 / 20.25 | 20.60 / 20.64 / 20.60 | 0.998 | 0.998 | 41.20 | 28.99 |
+| `sparse_sorted` | map | 1.000 | 20.25 / 20.25 / 20.25 | 20.60 / 20.64 / 20.64 | 0.998 | 1.000 | 41.24 | 20.64 |
+| `sparse_range` | set | 1.000 | 16.31 / 16.31 / 16.31 | 16.32 / 16.38 / 16.32 | 0.996 | 0.996 | 32.64 | 24.71 |
+| `sparse_range` | map | 1.000 | 16.31 / 16.31 / 16.31 | 16.32 / 16.38 / 16.38 | 0.997 | 1.000 | 32.69 | 16.38 |
+| `clust_shuffled` | set | 1.000 | 1.13 / 1.13 / 1.13 | 1.21 / 1.28 / 1.16 | 0.949 | 0.910 | 2.38 | 9.56 |
+| `clust_shuffled` | map | 1.000 | 11.15 / 11.15 / 11.15 | 19.26 / 11.48 / 11.47 | 1.677 | 0.999 | 30.73 | 11.48 |
+| `clust_sorted` | set | 1.000 | 1.13 / 1.13 / 1.13 | 1.21 / 1.28 / 1.16 | 0.949 | 0.910 | 2.38 | 9.56 |
+| `clust_sorted` | map | 1.000 | 11.15 / 11.15 / 11.15 | 11.42 / 11.48 / 11.47 | 0.995 | 0.999 | 22.89 | 11.48 |
+| `clust_range` | set | 1.000 | 0.35 / 0.35 / 0.35 | 1.21 / 0.45 / 0.37 | 2.675 | 0.819 | 1.58 | 8.76 |
+| `clust_range` | map | 1.000 | 8.60 / 8.60 / 8.60 | 10.05 / 8.72 / 8.71 | 1.153 | 0.999 | 18.76 | 8.71 |
+
+
+What the table shows (same artifact):
+
+- The rebuilt tree holds less than a fresh build of the same keys on every
+  uniform random cell: rebuilt ÷ held_fresh is 0.658 to 0.854, against 1.087 to
+  7.327 for `main` after `shrink_to_fit()`. On the headline cell the set goes
+  from 5.318 to 0.659 and the map from 3.164 to 0.719; on `r64_range` from
+  2.647 to 0.810 (set) and 2.731 to 0.841 (map).
+- On the construction-fixed distributions the rebuild reads 0.577 to 1.000:
+  the set is at or below a fresh build everywhere, and the map equals one or
+  sits at most 0.15% below it.
+- The rebuilt tree's `mem_used()` equals the fresh build's on every map cell,
+  as order invariance requires, and on every set cell but `seq_range`, where
+  `from_sorted_iter` builds 64,832 B against the fresh 65,792 B.
+- `seq_shuffled` and `clust_shuffled` maps have R = 1.000 but hold 1.686 and
+  1.677 times a fresh build after shrink, with no excess `mem_used()`.
+- For comparison with condensing, from §2's phase-3 artifact
+  ([`results/phase3_retention_h1.json`](results/phase3_retention_h1.json), engine
+  `1e2b31df`, H1 arm; a different build from the one measured here, whose
+  `main` baseline `phase3_retention_main.json` reads the same headline
+  `held_shrunk`, 67,481,664 B): H1 leaves the headline set at 1.380 and the map
+  at 0.895, and `r64_range` unchanged at 2.647 and 2.731 (measured: Apple M1,
+  `1e2b31df`; workload: example_remove_retention).
+
+### 3.2 Census verdict on slab-page pinning
+
+The hypothesis: `release_free` frees a slab page only when every block carved
+from it is free (`crates/expanse/src/alloc.rs`, `NodeAlloc::release_free`, the
+`is_free` test), live nodes never move, so survivors of random removals keep
+most of the peak's pages. The census reads the pages directly.
+
+(measured: Apple M1, `a154bc57`; workload: example_remove_retention; artifact
+`results/census_rebuild.json`. "Dense floor" is Σ over classes of
+⌈live blocks ÷ blocks per page⌉, the fewest pages the live blocks fit on.
+"Pages ≤ 10% live" is `live_hist[1]`. Occupancy is slab live bytes ÷ slab page
+bytes.)
+
+| Cell | Flavor | Tree | slab pages | dense floor | partly used / full / free | pages ≤ 10% live | live (MB) | free blocks (MB) | page overhead (MB) | system live (MB) | slab occupancy |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `headline` | set | shrunk | 16,214 | 6,499 | 13,140 / 3,074 / 0 | 8,399 | 26.01 | 38.69 | 1.71 | 1.07 | 0.392 |
+| `headline` | set | fresh | 2,837 | 1,782 | 1,485 / 1,103 / 249 | 481 | 7.14 | 4.27 | 0.20 | 1.07 | 0.615 |
+| `headline` | set | rebuilt | 1,782 | 1,782 | 11 / 1,771 / 0 | 5 | 7.14 | 0.03 | 0.12 | 1.07 | 0.979 |
+| `headline` | map | shrunk | 18,790 | 7,188 | 15,716 / 3,074 / 0 | 9,363 | 28.79 | 46.31 | 1.87 | 1.11 | 0.374 |
+| `headline` | map | fresh | 3,198 | 1,499 | 1,372 / 1,040 / 786 | 892 | 6.01 | 6.88 | 0.21 | 11.58 | 0.459 |
+| `headline` | map | rebuilt | 1,505 | 1,499 | 10 / 1,489 / 6 | 8 | 6.01 | 0.06 | 0.10 | 11.58 | 0.975 |
+| `r64_range` | set | shrunk | 17,120 | 5,168 | 17,120 / 0 / 0 | 708 | 20.58 | 47.68 | 1.86 | 0.41 | 0.294 |
+| `r64_range` | set | fresh | 6,404 | 5,168 | 924 / 4,425 / 1,055 | 3 | 20.58 | 5.00 | 0.65 | 0.41 | 0.785 |
+| `r64_range` | set | rebuilt | 5,168 | 5,168 | 8 / 5,160 / 0 | 2 | 20.58 | 0.02 | 0.57 | 0.41 | 0.972 |
+| `r64_range` | map | shrunk | 19,355 | 5,869 | 19,355 / 0 / 0 | 692 | 23.41 | 53.86 | 2.00 | 0.48 | 0.295 |
+| `r64_range` | map | fresh | 7,014 | 5,869 | 925 / 5,125 / 964 | 1 | 23.41 | 4.63 | 0.69 | 0.48 | 0.815 |
+| `r64_range` | map | rebuilt | 5,878 | 5,869 | 10 / 5,859 / 9 | 0 | 23.41 | 0.05 | 0.62 | 0.48 | 0.972 |
+| `r64_to_320k` | set | shrunk | 7,520 | 2,422 | 7,370 / 150 / 0 | 3,568 | 9.63 | 20.55 | 0.63 | 1.07 | 0.313 |
+| `r64_to_320k` | set | fresh | 801 | 625 | 215 / 450 / 136 | 1 | 2.51 | 0.72 | 0.06 | 1.07 | 0.765 |
+| `r64_to_320k` | set | rebuilt | 625 | 625 | 5 / 620 / 0 | 1 | 2.51 | 0.01 | 0.04 | 1.07 | 0.980 |
+| `r64_to_320k` | map | shrunk | 9,716 | 2,647 | 9,566 / 150 / 0 | 5,238 | 10.53 | 28.50 | 0.77 | 1.07 | 0.265 |
+| `r64_to_320k` | map | fresh | 1,573 | 1,264 | 564 / 873 / 136 | 1 | 5.09 | 1.25 | 0.11 | 1.75 | 0.790 |
+| `r64_to_320k` | map | rebuilt | 1,275 | 1,264 | 4 / 1,260 / 11 | 0 | 5.09 | 0.05 | 0.08 | 1.75 | 0.974 |
+| `r62` | set | shrunk | 7,555 | 4,810 | 4,855 / 2,700 / 0 | 127 | 19.18 | 11.08 | 0.69 | 0.60 | 0.620 |
+| `r62` | set | fresh | 6,090 | 4,786 | 1,390 / 3,854 / 846 | 2 | 19.08 | 5.27 | 0.60 | 0.60 | 0.765 |
+| `r62` | set | rebuilt | 4,786 | 4,786 | 8 / 4,778 / 0 | 1 | 19.08 | 0.02 | 0.51 | 0.60 | 0.973 |
+| `r62` | map | shrunk | 15,822 | 6,930 | 13,122 / 2,700 / 0 | 2,768 | 27.72 | 35.87 | 1.21 | 0.60 | 0.428 |
+| `r62` | map | fresh | 6,887 | 5,654 | 1,391 / 4,721 / 775 | 2 | 22.58 | 4.99 | 0.64 | 0.61 | 0.800 |
+| `r62` | map | rebuilt | 5,663 | 5,654 | 10 / 5,644 / 9 | 1 | 22.58 | 0.05 | 0.56 | 0.61 | 0.973 |
+| `r56` | set | shrunk | 16,139 | 6,500 | 13,103 / 3,036 / 0 | 8,349 | 26.00 | 38.40 | 1.70 | 1.07 | 0.393 |
+| `r56` | set | fresh | 2,466 | 1,541 | 1,356 / 910 / 200 | 478 | 6.11 | 3.76 | 0.23 | 1.07 | 0.605 |
+| `r56` | set | rebuilt | 1,541 | 1,541 | 11 / 1,530 / 0 | 4 | 6.11 | 0.03 | 0.16 | 1.07 | 0.969 |
+| `r56` | map | shrunk | 18,689 | 7,193 | 15,658 / 3,031 / 0 | 9,291 | 28.79 | 45.89 | 1.87 | 1.10 | 0.376 |
+| `r56` | map | fresh | 3,126 | 1,422 | 1,501 / 866 / 759 | 921 | 5.59 | 6.90 | 0.31 | 10.96 | 0.437 |
+| `r56` | map | rebuilt | 1,432 | 1,422 | 10 / 1,412 / 10 | 5 | 5.59 | 0.07 | 0.20 | 10.96 | 0.954 |
+| `seq_shuffled` | set | shrunk | 200 | 200 | 2 / 198 / 0 | 1 | 0.80 | 0.01 | 0.01 | 0.20 | 0.977 |
+| `seq_shuffled` | set | fresh | 213 | 200 | 2 / 198 / 13 | 1 | 0.80 | 0.06 | 0.01 | 0.20 | 0.917 |
+| `seq_shuffled` | set | rebuilt | 200 | 200 | 2 / 198 / 0 | 1 | 0.80 | 0.01 | 0.01 | 0.20 | 0.977 |
+| `seq_shuffled` | map | shrunk | 4,609 | 2,705 | 2,977 / 1,632 / 0 | 802 | 10.82 | 7.63 | 0.43 | 0.20 | 0.573 |
+| `seq_shuffled` | map | fresh | 2,714 | 2,705 | 9 / 2,696 / 9 | 2 | 10.82 | 0.06 | 0.23 | 0.20 | 0.974 |
+| `seq_shuffled` | map | rebuilt | 2,714 | 2,705 | 9 / 2,696 / 9 | 2 | 10.82 | 0.06 | 0.23 | 0.20 | 0.974 |
+| `clust_shuffled` | set | shrunk | 295 | 283 | 28 / 267 / 0 | 3 | 1.13 | 0.06 | 0.02 | 0.01 | 0.931 |
+| `clust_shuffled` | set | fresh | 311 | 283 | 28 / 267 / 16 | 3 | 1.13 | 0.13 | 0.02 | 0.01 | 0.883 |
+| `clust_shuffled` | set | rebuilt | 283 | 283 | 7 / 276 / 0 | 1 | 1.13 | 0.01 | 0.02 | 0.01 | 0.971 |
+| `clust_shuffled` | map | shrunk | 4,700 | 2,785 | 2,990 / 1,710 / 0 | 808 | 11.15 | 7.66 | 0.44 | 0.01 | 0.579 |
+| `clust_shuffled` | map | fresh | 2,802 | 2,785 | 11 / 2,776 / 15 | 2 | 11.15 | 0.09 | 0.24 | 0.01 | 0.971 |
+| `clust_shuffled` | map | rebuilt | 2,800 | 2,785 | 9 / 2,776 / 15 | 1 | 11.15 | 0.08 | 0.24 | 0.01 | 0.972 |
+| `clust_range` | set | shrunk | 295 | 90 | 295 / 0 / 0 | 13 | 0.35 | 0.84 | 0.02 | 0.00 | 0.291 |
+| `clust_range` | set | fresh | 110 | 90 | 13 / 81 / 16 | 3 | 0.35 | 0.09 | 0.01 | 0.00 | 0.779 |
+| `clust_range` | set | rebuilt | 90 | 90 | 6 / 84 / 0 | 1 | 0.35 | 0.01 | 0.01 | 0.00 | 0.953 |
+| `clust_range` | map | shrunk | 500 | 154 | 500 / 0 / 0 | 25 | 0.60 | 1.39 | 0.06 | 8.00 | 0.294 |
+| `clust_range` | map | fresh | 175 | 154 | 13 / 145 / 17 | 3 | 0.60 | 0.09 | 0.02 | 8.00 | 0.839 |
+| `clust_range` | map | rebuilt | 172 | 154 | 6 / 148 / 18 | 1 | 0.60 | 0.08 | 0.02 | 8.00 | 0.853 |
+
+
+**Verdict: confirmed.** After `shrink_to_fit()` no slab page is free, and the
+pages that stay are sparse:
+
+- The headline set holds 16,214 slab pages where its live blocks fit on 6,499;
+  13,140 are partly used, 8,399 of them with at most 10% of their blocks live,
+  and slab occupancy is 0.392. Its rebuild holds 1,782 pages, its dense floor,
+  at 0.979.
+- On `r64_range`, where R = 1.000, the set's 17,120 pages are all partly used,
+  none full, at 0.294 occupancy against a dense floor of 5,168.
+- The sparse pages concentrate in few classes. On the headline set the raw
+  128-byte class alone holds 8,369 pages, 18,501 live blocks and 30.84 MB of
+  the 38.69 MB of free-block bytes, with 7,957 of those pages at most 10% live.
+  Which node forms those blocks belong to is not attributed here.
+
+The table below splits `held_shrunk − held_fresh` by what the two censuses
+count: extra live bytes (`mem_used()`, the branch retention of §1), extra free
+blocks on slab pages, and extra page header and tail bytes. The split is exact
+(asserted per cell); cells whose difference is under 0.5 MB are omitted. System
+free blocks are 0 after shrink, and the system-served live bytes are part of the
+live column.
+
+| Cell | Flavor | held_shrunk − held_fresh (MB) | extra live bytes (MB) | extra free blocks on slab pages (MB) | extra page overhead (MB) | extra system bytes (MB) | free-block share |
+|---|---|---|---|---|---|---|---|
+| `headline` | set | 54.79 | 18.87 | 34.42 | 1.51 | 0.00 | 0.628 |
+| `headline` | map | 53.40 | 12.31 | 39.42 | 1.66 | 0.00 | 0.738 |
+| `r64_sorted` | set | 50.51 | 18.87 | 30.21 | 1.44 | 0.00 | 0.598 |
+| `r64_sorted` | map | 48.85 | 12.31 | 34.94 | 1.59 | 0.00 | 0.715 |
+| `r64_range` | set | 43.89 | 0.00 | 42.69 | 1.21 | 0.00 | 0.973 |
+| `r64_range` | map | 50.55 | 0.00 | 49.23 | 1.31 | 0.00 | 0.974 |
+| `r64_2m_to_1m` | set | 22.06 | 7.51 | 14.01 | 0.54 | 0.00 | 0.635 |
+| `r64_2m_to_1m` | map | 14.19 | 4.42 | 9.27 | 0.50 | 0.00 | 0.653 |
+| `r64_4m_to_1m` | set | 54.81 | 18.96 | 34.32 | 1.53 | 0.00 | 0.626 |
+| `r64_4m_to_1m` | map | 59.58 | 12.99 | 44.81 | 1.78 | 0.00 | 0.752 |
+| `r64_to_2m` | set | 36.37 | 19.39 | 15.87 | 1.11 | 0.00 | 0.436 |
+| `r64_to_2m` | map | 34.23 | 12.96 | 19.89 | 1.38 | 0.00 | 0.581 |
+| `r64_to_320k` | set | 27.52 | 7.12 | 19.83 | 0.57 | 0.00 | 0.721 |
+| `r64_to_320k` | map | 32.67 | 4.76 | 27.25 | 0.66 | 0.00 | 0.834 |
+| `r64_1m_to_312k` | set | 2.49 | 0.10 | 2.34 | 0.05 | 0.00 | 0.937 |
+| `r64_1m_to_312k` | map | 0.70 | 0.04 | 0.65 | 0.01 | 0.00 | 0.929 |
+| `r62` | set | 6.00 | 0.10 | 5.82 | 0.09 | 0.00 | 0.969 |
+| `r62` | map | 36.60 | 5.14 | 30.88 | 0.57 | 0.00 | 0.844 |
+| `r56` | set | 56.00 | 19.89 | 34.64 | 1.48 | 0.00 | 0.618 |
+| `r56` | map | 53.89 | 13.34 | 38.99 | 1.55 | 0.00 | 0.724 |
+| `r56_sorted` | set | 51.76 | 19.89 | 30.46 | 1.41 | 0.00 | 0.589 |
+| `r56_sorted` | map | 49.38 | 13.34 | 34.56 | 1.48 | 0.00 | 0.700 |
+| `r56_range` | set | 43.12 | 0.00 | 41.96 | 1.16 | 0.00 | 0.973 |
+| `r56_range` | map | 50.41 | 0.00 | 49.13 | 1.28 | 0.00 | 0.975 |
+| `seq_shuffled` | map | 7.76 | 0.00 | 7.57 | 0.20 | 0.00 | 0.975 |
+| `clust_shuffled` | map | 7.77 | 0.00 | 7.58 | 0.20 | 0.00 | 0.975 |
+| `clust_range` | set | 0.76 | 0.00 | 0.74 | 0.01 | 0.00 | 0.982 |
+| `clust_range` | map | 1.33 | 0.00 | 1.29 | 0.04 | 0.00 | 0.970 |
+
+
+Free blocks on partly used pages are the larger part of the excess on 23 of the
+24 uniform random rows (share 0.581 to 0.975; the exception is the
+`r64_to_2m` set at 0.436), and nearly all of it where R = 1.000 (the range
+cells at 0.973 to 0.975, the `seq_shuffled` and `clust_shuffled` maps at
+0.975). Pages retained by a few live blocks are therefore where most of the
+held bytes are, on every cell with retention.
+
+The split is an accounting of where bytes sit, **not** an attribution of what a
+fix removes. The live branch blocks of §1 also pin pages: on the headline set,
+H1 condensing lowers `mem_used()` after the drain by 18.86 MB (27,076,928 B on
+`main` against 8,217,456 B under H1) and `held_shrunk` by 49.97 MB (67,481,664 B
+against 17,510,464 B), so condensing released 31.11 MB of pages beyond the
+live bytes it removed (measured: Apple M1, `86adbf15` and `1e2b31df`;
+`results/phase3_retention_main.json` and `results/phase3_retention_h1.json`;
+engine at tag `poc/subtree-condense`). Which pages those were is not measured: no census
+of the condensing build was taken. On `r64_range` condensing removes nothing
+and the whole 43.89 MB (set) stays.
+
+### 3.3 Why a fresh build holds 1.55× its `mem_used()`
+
+The headline set's fresh build holds 12,689,472 B against 8,211,872 B used,
+1.545. The census splits the 4.48 MB: 4.27 MB of free blocks on slab pages
+(1.00 MB of them on 249 pages with no live block, 3.27 MB on partly used
+pages) and 0.20 MB of page header and tail bytes; the system-served classes
+hold no free block (measured: Apple M1, `a154bc57`; artifact
+`results/census_rebuild.json`). `shrink_to_fit()` returns the 249 free pages
+and leaves 1.421.
+
+Most of those free blocks sit in classes the finished tree barely uses: the raw
+24-, 48- and 72-byte classes hold 0.85, 1.70 and 1.30 MB of them (3.85 of the
+4.27 MB) against 39, 2,089 and 14,016 live blocks. A fresh build only inserts,
+so each of those frees is the engine replacing a block it allocated earlier
+with another. That the replacements are linear leaves stepping up their size
+classes as they fill is a **hypothesis**: no call-site attribution was taken.
+The map's fresh build is the same shape at 1.403 (6.88 MB of free blocks,
+0.21 MB of overhead). The table below gives the other censused cells (same artifact).
+
+
+| Cell | Flavor | held_fresh ÷ used_fresh | free blocks (MB) | of which on fully free pages (MB) | page overhead (MB) | held after shrink ÷ used |
+|---|---|---|---|---|---|---|
+| `headline` | set | 1.545 | 4.27 | 1.00 | 0.20 | 1.421 |
+| `headline` | map | 1.403 | 6.88 | 3.16 | 0.21 | 1.220 |
+| `r64_range` | set | 1.269 | 5.00 | 4.25 | 0.65 | 1.063 |
+| `r64_range` | map | 1.223 | 4.63 | 3.89 | 0.69 | 1.057 |
+| `r64_to_320k` | set | 1.216 | 0.72 | 0.55 | 0.06 | 1.060 |
+| `r64_to_320k` | map | 1.198 | 1.25 | 0.54 | 0.11 | 1.116 |
+| `r62` | set | 1.298 | 5.27 | 3.41 | 0.60 | 1.122 |
+| `r62` | map | 1.243 | 4.99 | 3.12 | 0.64 | 1.106 |
+| `r56` | set | 1.555 | 3.76 | 0.80 | 0.23 | 1.441 |
+| `r56` | map | 1.435 | 6.90 | 3.06 | 0.31 | 1.248 |
+| `seq_shuffled` | set | 1.072 | 0.06 | 0.05 | 0.01 | 1.019 |
+| `seq_shuffled` | map | 1.026 | 0.06 | 0.04 | 0.23 | 1.023 |
+| `clust_shuffled` | set | 1.131 | 0.13 | 0.06 | 0.02 | 1.074 |
+| `clust_shuffled` | map | 1.029 | 0.09 | 0.06 | 0.24 | 1.024 |
+| `clust_range` | set | 1.281 | 0.09 | 0.06 | 0.01 | 1.096 |
+| `clust_range` | map | 1.013 | 0.09 | 0.07 | 0.02 | 1.005 |
+
+### 3.4 The rebuild: peak and cost
+
+**Peak.** Table 1's peak held is the shrunk drained tree plus the rebuilt one:
+1.110 to 1.786 times `held_shrunk` across the uniform random cells, 75.85 MB
+for the headline set and 95.82 MB for the map. A rebuild taken before
+`shrink_to_fit()` peaks at `held_drained + held_rebuilt` instead, 103.02 MB for
+the headline set (derived from the same artifact). On top of the new tree, the
+set's `clone()` requests a transient buffer: heap added minus `held_rebuilt` is
+8,393,152 B at M = 1M, 4,198,848 B at M = 312,500 and 16,781,760 B at M = 2M,
+consistent with the `Vec<u64>` of keys that `from_sorted_iter` collects at a
+power-of-two capacity (2^20 × 8 B = 8,388,608 B). The map's `clone()` inserts
+straight into the new tree and adds at most 3,072 B beyond it. (measured:
+Apple M1, `a154bc57`; artifact `results/census_rebuild.json`.)
+
+**Cost.** Instructions per surviving key are counted by the
+`set_rebuild_drained` and `map_rebuild_drained` Callgrind arms
+(`crates/expanse/benches/instructions.rs`): the `*_remove_partial` tree
+(200,000 random 60-bit keys, drained to 62,500 in the same Fisher–Yates order)
+is cloned and the drained tree dropped inside the measured region.
+`set_rebuild_drained/random60` retires 16,960,355 instructions, 271.4 per
+surviving key, and `map_rebuild_drained/random60` 40,329,898, 645.3 per
+surviving key (measured: CI `instruction-counts`, x86_64 Callgrind,
+[run 36205856578](https://github.com/orieg/expanse/actions/runs/36205856578/job/108303982725)
+at `f9782220`, whose `crates/` tree is identical to `a154bc57`'s; exact
+counts, no interval). The map's figure is the ascending-insert `Clone`; a map
+bulk builder would be a different arm and does not exist. These are counts on
+the 62,500-key arm, not on the 1M-key grid cells, and no per-key figure is
+carried to the grid. No wall-clock figure is claimed.
+
+### 3.5 What the numbers support
+
+No option is chosen here. The ones the measurements bear on:
+
+1. **An explicit `compact()` / `rebuild()` API.** The measured effect is the
+   rebuild arm above: held at 0.658 to 0.854 of a fresh build on every uniform
+   random cell, including the range cells condensing does not move, at the
+   cost of one transient peak of both trees and the instruction count above.
+   It is a new contract: nodes move, so the value pointers the C ABI hands
+   out (`JudyLGet` / `JudyLIns` slots) are
+   invalidated, it is O(n), and it peaks at old plus new. `shrink_to_fit()`
+   keeps its contract that nothing moves (`crates/expanse/src/set.rs`,
+   `shrink_to_fit` rustdoc) and is not changed by it.
+2. **A sweep-condense.** Condensing drained subtrees during a sweep rather than
+   on each remove. Its effect on held bytes is measured only through H1, which
+   condenses on remove: 1.380 on the headline set, no change on `r64_range`.
+   The census puts `r64_range`'s excess in sparse pages, with no excess
+   `mem_used()` for condensing to remove.
+3. **No change.** `shrink_to_fit()` already returns every page with no live
+   block. What it cannot return is measured above: on the headline set,
+   38.69 MB of free blocks on 13,140 partly used pages.
+
+Next measurements the numbers name, none of them run here: a census of the H1
+build, to see which pages condensing frees; a node-form attribution of the
+sparse classes (the raw 128-byte class on the headline set); a call-site
+attribution of the fresh build's free blocks (§3.3).

@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exception: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -545,6 +545,49 @@ fn map_remove_partial(built: (ExpanseMap, Vec<u64>)) -> u64 {
     }
     core::mem::forget(map);
     black_box(removed)
+}
+
+/// The `*_remove_partial` set after its removes: 62,500 keys left in a tree
+/// grown to 200,000 (`docs/benchmarks/remove_retention/README.md`, "Allocator
+/// census and rebuild").
+fn drained_partial_set(arg: &str) -> ExpanseSet {
+    let (mut set, removals) = built_partial_set(arg);
+    for &k in &removals {
+        assert!(set.remove(k));
+    }
+    set
+}
+
+fn drained_partial_map(arg: &str) -> ExpanseMap {
+    let (mut map, removals) = built_partial_map(arg);
+    for &k in &removals {
+        assert!(map.remove(k).is_some());
+    }
+    map
+}
+
+// The rebuild arm of the remove-retention census: `clone()` the drained tree
+// (the set through `from_sorted_iter`, the map by an ascending insert of every
+// entry) and drop the drained one, so the arm counts the copy and the free of
+// the old tree. The copy is leaked. Counted per surviving key (62,500).
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_set)]
+fn set_rebuild_drained(drained: ExpanseSet) -> u64 {
+    let rebuilt = black_box(&drained).clone();
+    drop(drained);
+    let n = rebuilt.len();
+    core::mem::forget(rebuilt);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_map)]
+fn map_rebuild_drained(drained: ExpanseMap) -> u64 {
+    let rebuilt = black_box(&drained).clone();
+    drop(drained);
+    let n = rebuilt.len();
+    core::mem::forget(rebuilt);
+    black_box(n)
 }
 
 /// Level-6 expanses the subtree arms drive (METHODOLOGY §7.3, §7.4: E).
@@ -2642,6 +2685,8 @@ library_benchmark_group!(
         set_clear_refill,
         set_remove_partial,
         map_remove_partial,
+        set_rebuild_drained,
+        map_rebuild_drained,
         set_subtree_boundary_oscillate,
         set_subtree_split,
         set_subtree_split_control,

@@ -10,7 +10,19 @@
 //! * `R = mem_used(insert N, remove down to M) / mem_used(fresh insert of the
 //!   same M keys)`;
 //! * `mem_held()` after `shrink_to_fit()` on the drained tree, against the
-//!   fresh build's `mem_used()` and `mem_held()`.
+//!   fresh build's `mem_used()` and `mem_held()`;
+//! * an allocator census (`NodeAlloc::census`, read-only) of the drained tree,
+//!   of the drained tree after `shrink_to_fit()`, of the fresh build and of the
+//!   rebuilt tree: per slab size class, pages total, free, partly used and
+//!   full, live and free blocks, and pages bucketed by live fraction;
+//! * a rebuild arm: `let rebuilt = drained.clone(); drop(drained);` — the
+//!   rebuilt tree's `mem_used()` / `mem_held()`, the peak `mem_held()` of the
+//!   two trees together, and the process heap the clone requested on top of
+//!   what was live before it (a counting global allocator; requested bytes,
+//!   not the system allocator's chunk overhead). The set's `Clone` is
+//!   `from_sorted_iter`; the map's is an ascending insert of every entry.
+//!   Its instruction cost is the `set_rebuild_drained` / `map_rebuild_drained`
+//!   Callgrind arms in `benches/instructions.rs`, not measured here.
 //!
 //! Both flavours (`ExpanseSet`, `ExpanseMap`), over uniform random keys at
 //! several densities and keyspace widths, the census's construction-fixed
@@ -56,18 +68,86 @@
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A — every removal hits a present key |
 //! | `miss_gen_method` | N/A |
-//! | `value_dereference` | `mem_used()` / `mem_held()` accounting, `ExpanseStats::node_bytes` per form |
-//! | `measured_region` | Clean: readings taken after the build, after the removals, after `shrink_to_fit()`, and on a separate fresh build |
-//! | `arm_symmetry` | The drained tree and the fresh build hold the identical key set (asserted); `shuffled` and `sorted` remove the identical set |
-//! | `statistics` | Exact byte counts; no interval (deterministic accounting) |
+//! | `value_dereference` | `mem_used()` / `mem_held()` accounting, `ExpanseStats::node_bytes` per form, `NodeAlloc::census` per slab class, requested heap bytes from a counting global allocator |
+//! | `measured_region` | Clean: readings taken after the build, after the removals, after `shrink_to_fit()`, on a separate fresh build, and on the rebuilt tree after `clone()` and after the drained tree is dropped; the heap peak spans exactly the `clone()` call |
+//! | `arm_symmetry` | The drained tree, the fresh build and the rebuilt tree hold the identical key set (asserted); `shuffled` and `sorted` remove the identical set |
+//! | `statistics` | Exact byte and page counts; no interval (deterministic accounting) |
 //! | `verdict` | Diagnostic census; the Step 0a gate reads the headline cell (`docs/benchmarks/remove_retention/METHODOLOGY.md`). |
 
+use expanse_trie::alloc::{AllocCensus, CENSUS_BUCKETS};
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::types::LEAF_CAP;
 use expanse_trie::validate::ExpanseStats;
+use std::alloc::{GlobalAlloc, Layout, System};
 use std::collections::HashSet;
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Requested bytes live in the process, and the most live since the last
+/// [`reset_peak`].
+static LIVE: AtomicUsize = AtomicUsize::new(0);
+static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+struct Counting;
+
+impl Counting {
+    fn grew(size: usize) {
+        let now = LIVE.fetch_add(size, Ordering::Relaxed) + size;
+        PEAK.fetch_max(now, Ordering::Relaxed);
+    }
+}
+
+// SAFETY: every method forwards to `System` unchanged; the bookkeeping is
+// atomic arithmetic and never allocates.
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        // SAFETY: forwarded with the caller's layout.
+        let p = unsafe { System.alloc(l) };
+        if !p.is_null() {
+            Self::grew(l.size());
+        }
+        p
+    }
+    unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
+        // SAFETY: forwarded with the caller's layout.
+        let p = unsafe { System.alloc_zeroed(l) };
+        if !p.is_null() {
+            Self::grew(l.size());
+        }
+        p
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        LIVE.fetch_sub(l.size(), Ordering::Relaxed);
+        // SAFETY: `p` came from `System` with this layout.
+        unsafe { System.dealloc(p, l) }
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, new_size: usize) -> *mut u8 {
+        // SAFETY: forwarded with the caller's arguments.
+        let q = unsafe { System.realloc(p, l, new_size) };
+        if !q.is_null() {
+            if new_size >= l.size() {
+                Self::grew(new_size - l.size());
+            } else {
+                LIVE.fetch_sub(l.size() - new_size, Ordering::Relaxed);
+            }
+        }
+        q
+    }
+}
+
+#[global_allocator]
+static GLOBAL: Counting = Counting;
+
+/// Requested bytes live now.
+fn live() -> usize {
+    LIVE.load(Ordering::Relaxed)
+}
+
+/// Restarts the peak at the current live figure.
+fn reset_peak() {
+    PEAK.store(live(), Ordering::Relaxed);
+}
 
 struct XorShift(u64);
 impl XorShift {
@@ -243,9 +323,29 @@ struct Reading {
     held_shrunk: usize,
     used_fresh: usize,
     held_fresh: usize,
+    /// The fresh build's `mem_held()` after its own `shrink_to_fit()`.
+    held_fresh_shrunk: usize,
+    /// The rebuilt tree (`clone()` of the shrunk drained tree), read after
+    /// the drained tree is dropped.
+    used_rebuilt: usize,
+    held_rebuilt: usize,
+    /// The rebuilt tree's `mem_held()` after its own `shrink_to_fit()`.
+    held_rebuilt_shrunk: usize,
+    /// Requested heap bytes above the live figure before `clone()`, at their
+    /// highest during the call: the new tree plus any scratch the clone
+    /// allocates, while the drained tree is still live.
+    rebuild_heap_peak_extra: usize,
 }
 
-trait Tree: Sized {
+/// The four allocator censuses of one cell.
+struct Censuses {
+    drained: AllocCensus,
+    shrunk: AllocCensus,
+    fresh: AllocCensus,
+    rebuilt: AllocCensus,
+}
+
+trait Tree: Sized + Clone {
     fn new_tree() -> Self;
     fn put(&mut self, k: u64);
     fn take(&mut self, k: u64) -> bool;
@@ -254,6 +354,7 @@ trait Tree: Sized {
     fn held(&self) -> usize;
     fn shrink(&mut self) -> usize;
     fn census(&self) -> ExpanseStats;
+    fn alloc_census(&self) -> AllocCensus;
     fn check(&self);
 }
 
@@ -281,6 +382,9 @@ impl Tree for ExpanseSet {
     }
     fn census(&self) -> ExpanseStats {
         self.stats()
+    }
+    fn alloc_census(&self) -> AllocCensus {
+        Self::alloc_census(self)
     }
     fn check(&self) {
         self.validate();
@@ -312,12 +416,22 @@ impl Tree for ExpanseMap {
     fn census(&self) -> ExpanseStats {
         self.stats()
     }
+    fn alloc_census(&self) -> AllocCensus {
+        Self::alloc_census(self)
+    }
     fn check(&self) {
         self.validate();
     }
 }
 
-fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseStats) {
+/// Asserts a census sums to the tree's own accounting.
+fn checked(c: AllocCensus, used: usize, held: usize) -> AllocCensus {
+    assert_eq!(c.used(), used, "census live bytes sum to mem_used()");
+    assert_eq!(c.held(), held, "census parts sum to mem_held()");
+    c
+}
+
+fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseStats, Censuses) {
     let m = all.len() - gone.len();
     let mut t = T::new_tree();
     for &k in all {
@@ -331,8 +445,10 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
     t.check();
     let used_drained = t.used();
     let held_drained = t.held();
+    let census_drained = checked(t.alloc_census(), used_drained, held_drained);
     let released = t.shrink();
     let held_shrunk = t.held();
+    let census_shrunk = checked(t.alloc_census(), used_drained, held_shrunk);
     assert_eq!(
         t.used(),
         used_drained,
@@ -359,6 +475,24 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
     f.check();
     let fresh_stats = f.census();
     assert_eq!(fresh_stats.node_bytes.total(), f.used());
+    let (used_fresh, held_fresh) = (f.used(), f.held());
+    let census_fresh = checked(f.alloc_census(), used_fresh, held_fresh);
+    f.shrink();
+    let held_fresh_shrunk = f.held();
+    drop(f);
+
+    // The rebuild arm: copy the (shrunk) drained tree, then free it.
+    let live_before = live();
+    reset_peak();
+    let mut rebuilt = t.clone();
+    let rebuild_heap_peak_extra = PEAK.load(Ordering::Relaxed) - live_before;
+    drop(t);
+    assert_eq!(rebuilt.count(), m as u64, "the rebuilt tree holds the set");
+    rebuilt.check();
+    let (used_rebuilt, held_rebuilt) = (rebuilt.used(), rebuilt.held());
+    let census_rebuilt = checked(rebuilt.alloc_census(), used_rebuilt, held_rebuilt);
+    rebuilt.shrink();
+    let held_rebuilt_shrunk = rebuilt.held();
     (
         Reading {
             used_full,
@@ -366,11 +500,79 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
             held_drained,
             released,
             held_shrunk,
-            used_fresh: f.used(),
-            held_fresh: f.held(),
+            used_fresh,
+            held_fresh,
+            held_fresh_shrunk,
+            used_rebuilt,
+            held_rebuilt,
+            held_rebuilt_shrunk,
+            rebuild_heap_peak_extra,
         },
         drained_stats,
         fresh_stats,
+        Censuses {
+            drained: census_drained,
+            shrunk: census_shrunk,
+            fresh: census_fresh,
+            rebuilt: census_rebuilt,
+        },
+    )
+}
+
+/// One census as JSON: totals, the dense-page floor, the page histogram over
+/// every slab class, and the per-class rows.
+fn census_json(c: &AllocCensus) -> String {
+    let pages: usize = c.slab.iter().map(|k| k.pages).sum();
+    // The fewest pages the live blocks fit on, class by class.
+    let dense: usize = c
+        .slab
+        .iter()
+        .map(|k| k.live_blocks.div_ceil(k.blocks_per_page))
+        .sum();
+    let sum = |f: fn(&expanse_trie::alloc::SlabClassCensus) -> usize| -> usize {
+        c.slab.iter().map(f).sum()
+    };
+    let mut hist = [0usize; CENSUS_BUCKETS];
+    for k in &c.slab {
+        for (h, v) in hist.iter_mut().zip(k.live_hist) {
+            *h += v;
+        }
+    }
+    let mut classes = String::new();
+    for k in &c.slab {
+        write!(
+            classes,
+            "{}{{\"bytes\": {}, \"align\": {}, \"block\": {}, \"blocks_per_page\": {}, \"pages\": {}, \
+             \"pages_free\": {}, \"pages_partial\": {}, \"pages_full\": {}, \"live_blocks\": {}, \
+             \"free_blocks\": {}, \"live_hist\": {:?}}}",
+            if classes.is_empty() { "" } else { ", " },
+            k.bytes,
+            k.align,
+            k.block,
+            k.blocks_per_page,
+            k.pages,
+            k.pages_free,
+            k.pages_partial,
+            k.pages_full,
+            k.live_blocks,
+            k.free_blocks,
+            k.live_hist,
+        )
+        .expect("write to a String");
+    }
+    format!(
+        "{{\"slab_pages\": {pages}, \"slab_pages_dense_floor\": {dense}, \"pages_free\": {}, \
+         \"pages_partial\": {}, \"pages_full\": {}, \"slab_live_bytes\": {}, \"slab_free_bytes\": {}, \
+         \"slab_overhead_bytes\": {}, \"system_live_bytes\": {}, \"system_free_bytes\": {}, \
+         \"live_hist\": {hist:?},\n        \"classes\": [{classes}]}}",
+        sum(|k| k.pages_free),
+        sum(|k| k.pages_partial),
+        sum(|k| k.pages_full),
+        c.slab_live_bytes(),
+        c.slab_free_bytes(),
+        c.slab_overhead_bytes(),
+        c.system_live_bytes,
+        c.system_free_bytes(),
     )
 }
 
@@ -572,8 +774,19 @@ fn main() {
         }
     );
     println!(
-        "{:<20} {:<3} {:>9} {:>9} {:<8} {:>9} {:>9} {:>7} {:>9} {:>7}",
-        "cell", "fl", "N", "M", "order", "drained", "fresh", "R", "shrunk", "H/fresh"
+        "{:<20} {:<3} {:>9} {:>9} {:<8} {:>9} {:>9} {:>7} {:>9} {:>7} {:>7} {:>7}",
+        "cell",
+        "fl",
+        "N",
+        "M",
+        "order",
+        "drained",
+        "fresh",
+        "R",
+        "shrunk",
+        "H/fresh",
+        "S/HF",
+        "RB/HF"
     );
     let pins = model_pins();
     let mut pins_json = String::new();
@@ -596,15 +809,18 @@ fn main() {
         let all = keys(dist, n);
         let gone = removals(&all, m, order);
         for flavor in ["set", "map"] {
-            let (r, ds, fs) = if flavor == "set" {
+            let (r, ds, fs, cs) = if flavor == "set" {
                 run::<ExpanseSet>(&all, &gone)
             } else {
                 run::<ExpanseMap>(&all, &gone)
             };
             let ratio = r.used_drained as f64 / r.used_fresh as f64;
             let held_ratio = r.held_shrunk as f64 / r.used_fresh as f64;
+            let shrunk_over_held_fresh = r.held_shrunk as f64 / r.held_fresh as f64;
+            let rebuilt_over_held_fresh = r.held_rebuilt as f64 / r.held_fresh as f64;
+            let peak_held = r.held_shrunk + r.held_rebuilt;
             println!(
-                "{id:<20} {flavor:<3} {n:>9} {m:>9} {:<8} {:>9.2} {:>9.2} {ratio:>7.3} {:>9.2} {held_ratio:>7.3}",
+                "{id:<20} {flavor:<3} {n:>9} {m:>9} {:<8} {:>9.2} {:>9.2} {ratio:>7.3} {:>9.2} {held_ratio:>7.3} {shrunk_over_held_fresh:>7.3} {rebuilt_over_held_fresh:>7.3}",
                 order.name(),
                 r.used_drained as f64 / m as f64,
                 r.used_fresh as f64 / m as f64,
@@ -624,7 +840,11 @@ fn main() {
                  \"removal_order\": \"{}\", {lam}\"used_full\": {}, \"used_drained\": {}, \"held_drained\": {}, \
                  \"released_by_shrink\": {}, \"held_shrunk\": {}, \"used_fresh\": {}, \"held_fresh\": {}, \
                  \"r\": {}, \"held_shrunk_over_used_fresh\": {}, \"bpk_drained\": {}, \"bpk_fresh\": {},\n      \
-                 \"drained\": {},\n      \"fresh\": {}}},",
+                 \"held_fresh_shrunk\": {}, \"used_rebuilt\": {}, \"held_rebuilt\": {}, \"held_rebuilt_shrunk\": {}, \
+                 \"held_shrunk_over_held_fresh\": {}, \"held_rebuilt_over_held_fresh\": {}, \
+                 \"rebuild_peak_held\": {peak_held}, \"rebuild_heap_peak_extra\": {},\n      \
+                 \"drained\": {},\n      \"fresh\": {},\n      \
+                 \"census\": {{\"drained\": {},\n        \"shrunk\": {},\n        \"fresh\": {},\n        \"rebuilt\": {}}}}},",
                 dist.name(),
                 order.name(),
                 r.used_full,
@@ -638,8 +858,19 @@ fn main() {
                 r4(held_ratio),
                 r4(r.used_drained as f64 / m as f64),
                 r4(r.used_fresh as f64 / m as f64),
+                r.held_fresh_shrunk,
+                r.used_rebuilt,
+                r.held_rebuilt,
+                r.held_rebuilt_shrunk,
+                r4(shrunk_over_held_fresh),
+                r4(rebuilt_over_held_fresh),
+                r.rebuild_heap_peak_extra,
                 bytes_json(&ds),
                 bytes_json(&fs),
+                census_json(&cs.drained),
+                census_json(&cs.shrunk),
+                census_json(&cs.fresh),
+                census_json(&cs.rebuilt),
             )
             .expect("write to a String");
         }
@@ -658,7 +889,13 @@ fn main() {
              \"profile\": \"release\",\n    \"host\": {host},\n    \
              \"estimators\": {{\"kind\": \"deterministic count\", \"interval\": \"none: mem_used()/mem_held() are exact byte counts of the engine's own accounting; a cell has no rounds and no interval (AGENTS.md section 8.4) and reproduces to the byte on any 64-bit host at the same commit\", \
              \"r\": \"used_drained / used_fresh: the drained tree against a fresh build of the identical surviving key set\", \
-             \"held_shrunk_over_used_fresh\": \"mem_held() after shrink_to_fit() on the drained tree / the fresh build's mem_used()\"}},\n    \
+             \"held_shrunk_over_used_fresh\": \"mem_held() after shrink_to_fit() on the drained tree / the fresh build's mem_used()\", \
+             \"held_shrunk_over_held_fresh\": \"mem_held() after shrink_to_fit() on the drained tree / the fresh build's mem_held() (no shrink)\", \
+             \"held_rebuilt_over_held_fresh\": \"mem_held() of clone() of the shrunk drained tree, read after the drained tree is dropped, no shrink / the fresh build's mem_held() (no shrink)\", \
+             \"rebuild_peak_held\": \"held_shrunk + held_rebuilt: both trees live at the end of clone(); mem_held() only falls on shrink_to_fit, clear or drop, so neither term is higher earlier in the call\", \
+             \"rebuild_heap_peak_extra\": \"requested bytes from a counting global allocator, at their highest during clone(), minus the live figure before it: the new tree plus the clone's scratch; excludes the system allocator's chunk overhead; deterministic for a given toolchain\", \
+             \"census\": \"NodeAlloc::census, read-only, per slab size class; live_hist buckets pages by live fraction: [0] no live block, [1..=10] deciles of live/blocks_per_page, [11] every block live; slab_pages_dense_floor is the sum over classes of ceil(live_blocks / blocks_per_page); each census is asserted to sum to mem_used() and mem_held()\", \
+             \"cost\": \"not measured here; instructions come from the set_rebuild_drained / map_rebuild_drained Callgrind arms (crates/expanse/benches/instructions.rs, instruction-counts CI job)\"}},\n    \
              \"load\": \"not recorded: a byte count does not depend on host load\",\n    \
              \"generator\": \"XorShift64(0x0DDB_1A5E_5EED_0001) for keys (distinct, generator order); removal permutation Fisher-Yates from XorShift64(0x5EED_0DE1_E7E5_0002)\",\n    \
              \"leaf_cap\": {LEAF_CAP}\n  }},\n  \"model_pins\": [{pins_json}],\n  \"cells\": [\n{}\n  ]\n}}\n",

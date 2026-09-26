@@ -373,6 +373,15 @@ impl ExpanseSet {
         self.alloc.release_free()
     }
 
+    /// A read-only census of the allocator's slab pages and freelists, for
+    /// the remove-retention instrument (`examples/remove_retention.rs`).
+    /// Not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn alloc_census(&self) -> crate::alloc::AllocCensus {
+        self.alloc.census()
+    }
+
     /// Cumulative node/leaf allocations made by this container since it
     /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
     /// subtracts these from the process-wide count to isolate
