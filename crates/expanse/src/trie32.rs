@@ -3975,30 +3975,65 @@ pub(crate) fn map_remove_mode<const SHARED: bool>(
             }
             Some(old)
         }
-        Kind::MapBitmap => {
+        Kind::MapBitmap if SHARED => {
+            // A shared tree edits a copy and publishes it (#1187); a miss
+            // returns before copying.
             let h = edge_handle(e);
-            {
-                let digit = rem as u8;
-                let word = a.map_bitmap(h).header.bitmap[(digit >> 6) as usize];
-                if (word & (1u64 << (digit & 63))) == 0 {
-                    return None;
-                }
+            let digit = rem as u8;
+            let w = (digit >> 6) as usize;
+            let bit_mask = 1u64 << (digit & 63);
+            if (a.map_bitmap(h).header.bitmap[w] & bit_mask) == 0 {
+                return None;
             }
-            // A shared tree edits a copy and publishes it (#1187).
-            let mut copy = if SHARED {
-                Some(a.map_bitmap(h).deep_clone())
-            } else {
-                None
+            let mut copy = a.map_bitmap(h).deep_clone();
+            let (old_val, pop) = {
+                let b = &mut copy;
+                let word = b.header.bitmap[w];
+                let rank = bitmap_sub_rank(word, digit);
+                let sub = (digit >> 5) as usize;
+                // Subexpanse population before the removal, off the
+                // *pre-clear* word (#615).
+                let sub_pop = bitmap_sub_pop(word, digit);
+                b.header.bitmap[w] &= !bit_mask;
+                let old_val = b.subarrays[sub].as_ref().expect("live subarray")[rank];
+                let retired = subarray_remove(&mut b.subarrays[sub], sub_pop, rank, 0u32);
+                let pop = b.header.pop0 as usize;
+                if pop > 0 {
+                    b.header.pop0 -= 1;
+                }
+                // Never published: the copy's replaced subarray is freed now.
+                drop(retired);
+                (old_val, pop)
             };
-            let (old_val, pop, retired_sub, bytes_delta) = {
-                let b = match copy.as_mut() {
-                    Some(c) => c,
-                    None => a.map_bitmap_mut(h),
+            let nh = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(copy))));
+            a.free(h);
+            *e = rehandle(e, nh);
+            if pop == 0 {
+                let old = edge_handle(e);
+                a.free(old);
+                *e = Edge32::null();
+            } else if pop <= MAP_BITMAP_LEAVE {
+                let entries = read_map_bitmap(a, e);
+                let old = edge_handle(e);
+                *e = if entries.len() == 1 {
+                    map_immed_edge(1, entries[0].0, entries[0].1)
+                } else {
+                    make_map_leaf(a, 1, &entries)
                 };
+                a.free(old);
+            }
+            Some(old_val)
+        }
+        Kind::MapBitmap => {
+            let (old_val, pop, retired_sub, bytes_delta) = {
+                let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
                 let word = b.header.bitmap[w];
                 let bit_mask = 1u64 << (digit & 63);
+                if (word & bit_mask) == 0 {
+                    return None;
+                }
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
                 // Subexpanse population before the removal, off the
@@ -4018,16 +4053,8 @@ pub(crate) fn map_remove_mode<const SHARED: bool>(
                     subarray_bytes_delta::<u32>(sub_pop, sub_pop - 1),
                 )
             };
-            if let Some(c) = copy {
-                // Never published: the copy's replaced subarray is freed now.
-                drop(retired_sub);
-                let nh = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(c))));
-                a.free(h);
-                *e = rehandle(e, nh);
-            } else {
-                a.retire_vals(retired_sub);
-                a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
-            }
+            a.retire_vals(retired_sub);
+            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
             if pop == 0 {
                 let old = edge_handle(e);
                 a.free(old);
