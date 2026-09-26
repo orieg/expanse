@@ -522,32 +522,6 @@ fn leaf_state_insert<const OCC: bool, const NESTED: bool>(
     }
 }
 
-/// The slot of `key` among a root leaf's sorted `keys`: the search
-/// `<[u64]>::binary_search` runs, written out so that it is always inlined.
-/// The library's is an ordinary `#[inline]` function whose inlining LLVM
-/// decides by the size of the caller; inside the string map's plain removal
-/// it was outlined once that body changed, and the call cost the
-/// `strmap_oscillate` arm instructions on every removal (#1191).
-#[inline(always)]
-fn root_leaf_find(keys: &[u64], key: Key) -> Option<usize> {
-    let mut size = keys.len();
-    if size == 0 {
-        return None;
-    }
-    let mut base = 0usize;
-    while size > 1 {
-        let half = size / 2;
-        let mid = base + half;
-        // SAFETY: `mid < base + size <= keys.len()`.
-        let probe = unsafe { *keys.get_unchecked(mid) };
-        // As the library: a select, not a branch the key order would train.
-        base = core::hint::select_unpredictable(probe > key, base, mid);
-        size -= half;
-    }
-    // SAFETY: `base < keys.len()`, which is not 0.
-    (unsafe { *keys.get_unchecked(base) } == key).then_some(base)
-}
-
 /// The removal of `key` from `root`, which is empty or a root leaf, as a
 /// value: the value removed, and the root to store (`None`: unchanged). The
 /// twin of [`leaf_state_insert`].
@@ -561,8 +535,16 @@ fn leaf_state_remove<const OCC: bool>(
         Root::Empty => (None, None),
         Root::Leaf { ptr, pop } => {
             let (keys, vals) = MapCore::leaf_parts(ptr, pop);
-            let Some(at) = root_leaf_find(keys, key) else {
-                return (None, None);
+            // The last key first, as `leaf_state_insert` tests it: a key
+            // removed right after its insert is usually the last, and the
+            // search is then skipped (#1191).
+            let at = if keys.last() == Some(&key) {
+                pop - 1
+            } else {
+                let Ok(at) = keys.binary_search(&key) else {
+                    return (None, None);
+                };
+                at
             };
             // SAFETY: in-bounds value read.
             let old = unsafe { *vals.add(at) };
@@ -4773,24 +4755,6 @@ impl Drop for ExpanseMap {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-
-    /// `root_leaf_find` answers what `<[u64]>::binary_search` answers, for
-    /// every length up to a root leaf's capacity and more, and for probes
-    /// below, between, on and above the keys.
-    #[test]
-    fn root_leaf_find_agrees_with_binary_search() {
-        for len in 0..=(2 * ROOT_LEAF_CAP) {
-            let keys: Vec<u64> = (0..len as u64).map(|i| 3 * i + 1).collect();
-            for probe in 0..=(3 * len as u64 + 2) {
-                assert_eq!(
-                    root_leaf_find(&keys, probe),
-                    keys.binary_search(&probe).ok(),
-                    "len {len}, probe {probe}"
-                );
-            }
-            assert_eq!(root_leaf_find(&keys, u64::MAX), None);
-        }
-    }
 
     /// Pins the hazard `docs/ARCHITECTURE.md` "Snapshots" documents (#1103):
     /// a copy of the root edge is not a snapshot. The engine mutates nodes in
