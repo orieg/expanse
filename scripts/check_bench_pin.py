@@ -62,6 +62,9 @@ DIRECT_HARNESSES = {
         "samples the #802 locate path under perf on the reference host",
     "docs/benchmarks/concurrency/scripts/writer_scaling.py":
         "the Expanse-native writer scaling instrument for Phase 1.5D and multi-writer OLC gating (#568)",
+    "docs/benchmarks/concurrency/scripts/rcpc_ab.py":
+        "the #1191 AArch64 default-vs-+rcpc A/B, dispatched on a hosted arm runner; "
+        "a by-hand run on a hybrid host would otherwise take no pin",
     "docs/benchmarks/concurrency/scripts/ycsb_concurrent.py":
         "the concurrent YCSB scaling instrument across physical P-cores (#1006)",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py":

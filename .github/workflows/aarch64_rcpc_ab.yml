@@ -1,0 +1,117 @@
+name: AArch64 rcpc A/B (writer_scaling)
+
+# Refs #1191. Does a writer's `stlr` followed by an `ldar` cost wall-clock
+# throughput on the `Sync*` paths of a Linux AArch64 build, against the same
+# code built with `-C target-feature=+rcpc` (`ldapr`)?
+#
+# `aarch64-unknown-linux-gnu` enables neither `rcpc` nor `lse` by default, so
+# the shipped Linux build lowers every Acquire load to `ldar`. This workflow
+# builds the writer_scaling harness three ways (default, +rcpc, +rcpc,+lse),
+# interleaves the builds cell by cell within every round, and uploads the raw
+# JSON. It also records the acquire/release instruction census of the library
+# at the same commit and toolchain.
+#
+# Dispatch-only, like bench_aarch64.yml: it gates nothing, runs on no push or
+# pull request, and is not part of ci.yml's `ci-gate` rollup. A single run
+# cannot confirm a delta (docs/BENCHMARKING.md rule 18): dispatch it twice and
+# read the two artifacts together (docs/benchmarks/concurrency/README.md §28).
+
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Rounds (Williams rows) per arm"
+        required: false
+        default: "12"
+      with_lse:
+        description: "Add the +rcpc,+lse arm"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aarch64-rcpc-ab-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  rcpc-ab:
+    name: Bench / AArch64 rcpc A/B (Neoverse N2)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Runner census
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -a
+          nproc
+          grep -E '^(CPU implementer|CPU part|CPU variant|CPU revision|Features)' /proc/cpuinfo | sort -u
+          rustc --version
+          rustc --print cfg --target aarch64-unknown-linux-gnu | grep -E 'target_feature="(rcpc|rcpc2|lse)"' || echo "no rcpc/lse in the default target features"
+          uptime
+          top -b -n 1 | head -15
+          part=$(awk -F': ' '/^CPU part/{print $2; exit}' /proc/cpuinfo)
+          # Record, and name a fleet change rather than pass silently (AGENTS.md §8.1).
+          if [ "$part" != "0xd49" ]; then
+            echo "::warning::CPU part is $part, not 0xd49 (Neoverse-N2); label this run's figures with the part it ran on."
+          fi
+          grep -qw lrcpc /proc/cpuinfo || { echo "::error::lrcpc absent: a +rcpc build cannot run here"; exit 1; }
+
+      - name: Acquire/release census of the library (default, +rcpc, +rcpc,+lse)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install rustfilt --locked --quiet
+          mkdir -p rcpc-out
+          for arm in default rcpc rcpc_lse; do
+            case "$arm" in
+              default)  rf="" ;;
+              rcpc)     rf="-C target-feature=+rcpc" ;;
+              rcpc_lse) rf="-C target-feature=+rcpc,+lse" ;;
+            esac
+            CARGO_TARGET_DIR="target/rcpc-asm-$arm" RUSTFLAGS="$rf" \
+              cargo rustc -q -p expanse-trie --lib --release --target aarch64-unknown-linux-gnu -- --emit asm
+            s=$(ls target/rcpc-asm-$arm/aarch64-unknown-linux-gnu/release/deps/expanse_trie-*.s)
+            echo "=== $arm ($rf)"
+            python3 docs/benchmarks/concurrency/scripts/rcpc_asm_census.py "$s" --pairs 12 --json "rcpc-out/census_$arm.json"
+          done
+
+      - name: Interleaved A/B
+        shell: bash
+        run: |
+          set -euo pipefail
+          lse=""
+          if [ "${{ inputs.with_lse }}" = "true" ]; then lse="--with-lse"; fi
+          python3 docs/benchmarks/concurrency/scripts/rcpc_ab.py \
+            --rounds "${{ inputs.rounds }}" $lse \
+            --out "rcpc-out/rcpc_ab_${GITHUB_SHA:0:8}_run${GITHUB_RUN_ID}.json" | tee rcpc-out/rcpc_ab.log
+          uptime
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## AArch64 rcpc A/B — one run"
+            echo
+            echo "Commit \`${GITHUB_SHA:0:8}\`, runner \`$(awk -F': ' '/^CPU part/{print $2; exit}' /proc/cpuinfo)\` part, $(nproc) CPUs, \`$(rustc --version)\`."
+            echo "One run supports no claim on its own (docs/BENCHMARKING.md rule 18)."
+            echo
+            echo '```'
+            grep -E '/default:' rcpc-out/rcpc_ab.log || echo "no comparison lines (the A/B step did not finish)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: rcpc-ab-${{ github.run_id }}
+          path: rcpc-out/
+          if-no-files-found: error
