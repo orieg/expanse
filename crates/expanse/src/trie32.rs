@@ -33,6 +33,8 @@
 //! allocation is never narrower than the keys it holds — is asserted by
 //! `cap_class_never_underallocates`.
 
+use core::ptr::NonNull;
+use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
 use core_alloc::{boxed::Box, vec::Vec};
 
 use core::ops::FnMut;
@@ -299,14 +301,67 @@ pub(crate) struct LeafBitmapL32Data {
 /// sized to the RFC's on-target byte layout, so [`Arena::bytes_in_use`]
 /// is an exact memory figure.
 pub enum NodeBox {
-    L2(Box<BranchL2_32>),
-    L6(Box<BranchL6_32>),
-    B(Box<BranchB32Data>),
-    U(Box<BranchU32>),
-    Bitmap(Box<LeafBitmap1_32>),
-    MapBitmap(Box<LeafBitmapL32Data>),
-    Leaf(Box<[u8]>),
+    L2(Raw<BranchL2_32>),
+    L6(Raw<BranchL6_32>),
+    B(Raw<BranchB32Data>),
+    U(Raw<BranchU32>),
+    Bitmap(Raw<LeafBitmap1_32>),
+    MapBitmap(Raw<LeafBitmapL32Data>),
+    Leaf(Raw<[u8]>),
 }
+
+/// A node allocation owned through the raw pointer `Box::into_raw` returned
+/// (#1187). A fixed arena publishes that pointer to the concurrent wrapper's
+/// readers, and the writer derives every reference it forms from the same
+/// pointer, so a reference the writer takes and drops does not invalidate
+/// the published one. A `Box` would: under Stacked Borrows, reborrowing a
+/// `Box` mutably retags its whole allocation, invalidating any pointer
+/// derived from an earlier borrow of it.
+pub struct Raw<T: ?Sized>(NonNull<T>);
+
+impl<T: ?Sized> Raw<T> {
+    #[inline]
+    fn new(b: Box<T>) -> Self {
+        // SAFETY: `Box::into_raw` never returns null.
+        Self(unsafe { NonNull::new_unchecked(Box::into_raw(b)) })
+    }
+
+    /// The owning pointer, with the allocation's base provenance.
+    #[inline]
+    fn as_ptr(&self) -> *mut T {
+        self.0.as_ptr()
+    }
+}
+
+impl<T: ?Sized> core::ops::Deref for Raw<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        // SAFETY: a live allocation this value owns; `&self` rules out a
+        // concurrent `&mut` from the owner.
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<T: ?Sized> core::ops::DerefMut for Raw<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut T {
+        // SAFETY: as `deref`, with `&mut self` for exclusivity.
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl<T: ?Sized> Drop for Raw<T> {
+    fn drop(&mut self) {
+        // SAFETY: made by `Box::into_raw` in `new` and freed only here.
+        drop(unsafe { Box::from_raw(self.0.as_ptr()) });
+    }
+}
+
+// SAFETY: `Raw<T>` owns its allocation exactly as `Box<T>` does.
+unsafe impl<T: ?Sized + Send> Send for Raw<T> {}
+// SAFETY: see `Send`.
+unsafe impl<T: ?Sized + Sync> Sync for Raw<T> {}
 
 impl NodeBox {
     #[inline]
@@ -337,6 +392,168 @@ impl NodeBox {
     }
 }
 
+/// One slot of a fixed arena's published table (#1187): the node kind,
+/// its address and, for a leaf, its byte length, each a word of its own.
+/// The single writer stores them inside its seqlock bracket; a reader loads
+/// them racily and validates the tree version before dereferencing the
+/// address, so a torn triple is discarded, never followed. The engine's own
+/// `Option<NodeBox>` is two or three words no atomic load can read.
+pub(crate) struct PubSlot {
+    kind: AtomicU32,
+    ptr: AtomicPtr<u8>,
+    len: AtomicU32,
+}
+
+/// [`PubSlot::kind`] of an empty slot.
+const PUB_EMPTY: u32 = 0;
+
+/// The published kind of each [`NodeBox`] variant.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PubKind {
+    L2 = 1,
+    L6,
+    B,
+    U,
+    Bitmap,
+    MapBitmap,
+    Leaf,
+}
+
+impl PubSlot {
+    fn empty() -> Self {
+        Self {
+            kind: AtomicU32::new(PUB_EMPTY),
+            ptr: AtomicPtr::new(core::ptr::null_mut()),
+            len: AtomicU32::new(0),
+        }
+    }
+
+    /// Publishes `node` into this slot: address and length first, then the
+    /// kind, so a reader that sees the kind sees them too.
+    fn publish(&self, node: &NodeBox) {
+        let (kind, ptr, len) = match node {
+            NodeBox::L2(b) => (PubKind::L2, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::L6(b) => (PubKind::L6, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::B(b) => (PubKind::B, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::U(b) => (PubKind::U, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::Bitmap(b) => (PubKind::Bitmap, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::MapBitmap(b) => (PubKind::MapBitmap, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::Leaf(b) => (PubKind::Leaf, b.as_ptr().cast::<u8>(), b.len() as u32),
+        };
+        self.ptr.store(ptr, Ordering::Relaxed);
+        self.len.store(len, Ordering::Relaxed);
+        self.kind.store(kind as u32, Ordering::Release);
+    }
+
+    fn clear(&self) {
+        self.kind.store(PUB_EMPTY, Ordering::Release);
+    }
+}
+
+/// A fixed arena's published slot table, as the concurrent wrapper's readers
+/// hold it: the base of [`Arena::published`] and its length. The table never
+/// moves or shrinks while the arena lives.
+#[derive(Clone, Copy)]
+pub(crate) struct PubTable {
+    slots: NonNull<PubSlot>,
+    n: usize,
+}
+
+/// A node as a published slot names it. Racily loaded: the caller validates
+/// the tree version before dereferencing `ptr`.
+#[derive(Clone, Copy)]
+pub(crate) struct NodeRef {
+    kind: u32,
+    ptr: *const u8,
+    len: usize,
+}
+
+impl NodeRef {
+    /// `ptr` as a `T` if this slot is published as `kind`.
+    ///
+    /// # Safety
+    ///
+    /// The caller has validated the tree version since loading this slot,
+    /// and `kind` is the kind whose node type is `T`.
+    #[inline]
+    unsafe fn as_node<'a, T>(self, kind: PubKind) -> Result<&'a T, Torn> {
+        if self.kind != kind as u32 {
+            return Err(Torn);
+        }
+        // SAFETY: per the contract, the slot was stable across the load and
+        // the validation, so it names a live node of type `T`, kept alive by
+        // the reader's pin.
+        Ok(unsafe { &*self.ptr.cast::<T>() })
+    }
+
+    /// The leaf bytes this slot names.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::as_node`].
+    #[inline]
+    unsafe fn as_leaf<'a>(self) -> Result<&'a [u8], Torn> {
+        if self.kind != PubKind::Leaf as u32 {
+            return Err(Torn);
+        }
+        // SAFETY: as in `as_node`; `len` is the published buffer's length.
+        Ok(unsafe { core::slice::from_raw_parts(self.ptr, self.len) })
+    }
+}
+
+impl PubTable {
+    /// Non-panicking slot resolution for the optimistic read path. A racy
+    /// walk can fabricate garbage handles, so out-of-bounds handles and
+    /// empty slots report [`Torn`] instead of panicking.
+    #[inline]
+    fn try_node(self, h: u32) -> Result<NodeRef, Torn> {
+        if h as usize >= self.n {
+            return Err(Torn);
+        }
+        // SAFETY: `h < n`, the table's length; its entries are atomics.
+        let s = unsafe { &*self.slots.as_ptr().add(h as usize) };
+        let kind = s.kind.load(Ordering::Acquire);
+        if kind == PUB_EMPTY {
+            return Err(Torn);
+        }
+        Ok(NodeRef {
+            kind,
+            ptr: s.ptr.load(Ordering::Relaxed),
+            len: s.len.load(Ordering::Relaxed) as usize,
+        })
+    }
+}
+
+// SAFETY: the published table is owned by the arena alone (allocated in
+// `with_capacity`, freed in `Drop`) and holds only atomics, so moving the
+// arena or sharing `&Arena` across threads is as sound as it is for the
+// arena's `Vec` fields, which is what the auto traits held before it.
+unsafe impl Send for Arena {}
+// SAFETY: see `Send`.
+unsafe impl Sync for Arena {}
+
+// SAFETY: a view of atomics a fixed arena owns and never moves; the wrapper
+// that holds it keeps the arena alive for as long as any reader uses it.
+unsafe impl Send for PubTable {}
+// SAFETY: see `Send`.
+unsafe impl Sync for PubTable {}
+
+impl Drop for Arena {
+    fn drop(&mut self) {
+        if let Some(table) = self.published.take() {
+            // SAFETY: `with_capacity` made this pointer from a boxed slice of
+            // `slots.len()` entries, which a fixed arena never changes, and
+            // `take` leaves nothing to free it twice.
+            drop(unsafe {
+                Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+                    table.as_ptr(),
+                    self.slots.len(),
+                ))
+            });
+        }
+    }
+}
+
 /// Per-tree node arena. Hands out 32-bit handles (indices) and keeps
 /// byte-exact accounting of live node allocations. Mirrors the role of the
 /// 64-bit `NodeAlloc`, adapted to be pointer-width-independent.
@@ -359,6 +576,12 @@ pub struct Arena {
     pending: Vec<Retired>,
     /// Bytes parked in `pending` (observability; not part of `bytes`).
     pending_bytes: usize,
+    /// The published slot table of a fixed arena (#1187): one [`PubSlot`]
+    /// per slot, written by [`Arena::alloc`] and [`Arena::free`], read by the
+    /// concurrent wrapper's readers instead of `slots`. Owned through a raw
+    /// pointer, so no `&mut Arena` the writer forms covers it, and freed in
+    /// `Drop`. `None` on a growable arena.
+    published: Option<NonNull<PubSlot>>,
     /// Arena allocations since the last watermark reset (validates
     /// [`MUTATION_HEADROOM`] in the sync32 tests).
     #[cfg(test)]
@@ -418,6 +641,7 @@ impl Arena {
             deferred: false,
             pending: Vec::new(),
             pending_bytes: 0,
+            published: None,
             #[cfg(test)]
             mut_allocs: 0,
             #[cfg(test)]
@@ -434,6 +658,9 @@ impl Arena {
         slots.resize_with(cap, || None);
         // Low handles handed out first: pop from the back.
         let free: Vec<u32> = (0..cap as u32).rev().collect();
+        let table: Box<[PubSlot]> = (0..cap).map(|_| PubSlot::empty()).collect();
+        // A `cap` of zero leaves a dangling (never dereferenced) base.
+        let published = NonNull::new(Box::into_raw(table).cast::<PubSlot>());
         Self {
             slots,
             free,
@@ -442,6 +669,7 @@ impl Arena {
             deferred: true,
             pending: Vec::with_capacity(pending_cap),
             pending_bytes: 0,
+            published,
             #[cfg(test)]
             mut_allocs: 0,
             #[cfg(test)]
@@ -465,6 +693,16 @@ impl Arena {
     #[inline]
     pub(crate) fn pending_len(&self) -> usize {
         self.pending.len()
+    }
+
+    /// The published slot table a fixed arena's readers resolve handles
+    /// through, or `None` on a growable arena.
+    #[inline]
+    pub(crate) fn published(&self) -> Option<PubTable> {
+        self.published.map(|slots| PubTable {
+            slots,
+            n: self.slots.len(),
+        })
     }
 
     /// Bytes parked in the pending list.
@@ -599,6 +837,11 @@ impl Arena {
         }
         self.bytes += node.heap_bytes();
         if let Some(h) = self.free.pop() {
+            if let Some(table) = self.published {
+                // SAFETY: a fixed arena's table has one entry per slot, and
+                // `h` came off its free stack, so it is in bounds.
+                unsafe { (*table.as_ptr().add(h as usize)).publish(&node) };
+            }
             self.slots[h as usize] = Some(node);
             h
         } else {
@@ -618,6 +861,10 @@ impl Arena {
         let node = self.slots[h as usize]
             .take()
             .expect("free of an empty arena slot (double free)");
+        if let Some(table) = self.published {
+            // SAFETY: as in `alloc`: `h` named a live slot of this table.
+            unsafe { (*table.as_ptr().add(h as usize)).clear() };
+        }
         self.bytes -= node.heap_bytes();
         if self.deferred {
             // The handle can be reused immediately (a stale handle resolves
@@ -841,7 +1088,7 @@ fn make_set_leaf(a: &mut Arena, kb: u8, keys: &[u32]) -> Edge32 {
     for (i, &k) in keys.iter().enumerate() {
         write_rem(&mut buf, i, kb as usize, k);
     }
-    let h = a.alloc(NodeBox::Leaf(buf));
+    let h = a.alloc(NodeBox::Leaf(Raw::new(buf)));
     leaf_edge(h, pop, t_set_leaf(kb))
 }
 
@@ -876,7 +1123,7 @@ fn set_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
         nb[..pos * kbz].copy_from_slice(&old[..pos * kbz]);
         nb[(pos + 1) * kbz..new_pop * kbz].copy_from_slice(&old[pos * kbz..pop * kbz]);
         write_rem(&mut nb, pos, kbz, rem);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
     }
@@ -909,7 +1156,7 @@ fn set_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: us
         let old = a.leaf(h);
         nb[..i0 * kbz].copy_from_slice(&old[..i0 * kbz]);
         nb[i0 * kbz..new_pop * kbz].copy_from_slice(&old[i1 * kbz..pop * kbz]);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
     }
@@ -928,7 +1175,7 @@ fn make_map_leaf(a: &mut Arena, kb: u8, entries: &[(u32, u32)]) -> Edge32 {
         buf[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
         write_rem(&mut buf[keys_off..], i, kb as usize, k);
     }
-    let h = a.alloc(NodeBox::Leaf(buf));
+    let h = a.alloc(NodeBox::Leaf(Raw::new(buf)));
     leaf_edge(h, pop, t_map_leaf(kb))
 }
 
@@ -977,7 +1224,7 @@ fn map_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
         nb[new_off + (pos + 1) * kbz..new_off + new_pop * kbz]
             .copy_from_slice(&old[old_off + pos * kbz..old_off + pop * kbz]);
         write_rem(&mut nb[new_off..], pos, kbz, rem);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
     }
@@ -1014,7 +1261,7 @@ fn map_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: us
         nb[new_off..new_off + i0 * kbz].copy_from_slice(&old[old_off..old_off + i0 * kbz]);
         nb[new_off + i0 * kbz..new_off + new_pop * kbz]
             .copy_from_slice(&old[old_off + i1 * kbz..old_off + pop * kbz]);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
     }
@@ -1037,7 +1284,7 @@ fn bitmap_from_keys(a: &mut Arena, keys: &[u32]) -> Edge32 {
     for &k in keys {
         leaf.set(k as u8);
     }
-    let h = a.alloc(NodeBox::Bitmap(Box::new(leaf)));
+    let h = a.alloc(NodeBox::Bitmap(Raw::new(Box::new(leaf))));
     node_edge(h, T_BITMAP)
 }
 
@@ -1164,7 +1411,7 @@ fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
             data.subarrays[sub] = Some(sub_vals.into_boxed_slice());
         }
     }
-    let h = a.alloc(NodeBox::MapBitmap(Box::new(data)));
+    let h = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(data))));
     node_edge(h, T_MAP_BITMAP)
 }
 
@@ -1677,7 +1924,7 @@ fn make_l2(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge
         b.digits[i] = d;
         b.edges[i] = c;
     }
-    let h = a.alloc(NodeBox::L2(Box::new(b)));
+    let h = a.alloc(NodeBox::L2(Raw::new(Box::new(b))));
     node_edge(h, T_L2)
 }
 
@@ -1690,7 +1937,7 @@ fn make_l6(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge
         b.digits[i] = d;
         b.edges[i] = c;
     }
-    let h = a.alloc(NodeBox::L6(Box::new(b)));
+    let h = a.alloc(NodeBox::L6(Raw::new(Box::new(b))));
     node_edge(h, T_L6)
 }
 
@@ -1724,7 +1971,7 @@ fn make_b(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge3
             data.subarrays[sub] = Some(sub_edges.into_boxed_slice());
         }
     }
-    let h = a.alloc(NodeBox::B(Box::new(data)));
+    let h = a.alloc(NodeBox::B(Raw::new(Box::new(data))));
     node_edge(h, T_B)
 }
 
@@ -1735,7 +1982,7 @@ fn make_u(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge3
     for &(d, c) in pairs {
         b.edges[d as usize] = c;
     }
-    let h = a.alloc(NodeBox::U(Box::new(b)));
+    let h = a.alloc(NodeBox::U(Raw::new(Box::new(b))));
     node_edge(h, T_U)
 }
 
@@ -2700,19 +2947,6 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
 /// or report `Busy`.
 pub(crate) struct Torn;
 
-impl Arena {
-    /// Non-panicking slot resolution for the optimistic read path. A racy
-    /// walk can fabricate garbage handles, so out-of-bounds handles and
-    /// empty slots report [`Torn`] instead of panicking.
-    #[inline]
-    fn try_node(&self, h: u32) -> Result<&NodeBox, Torn> {
-        self.slots
-            .get(h as usize)
-            .and_then(|s| s.as_ref())
-            .ok_or(Torn)
-    }
-}
-
 /// `Ok(v)` if the caller's version word is still unchanged, else [`Torn`].
 #[inline]
 fn seal<F: Fn() -> bool, T>(still_valid: &F, v: T) -> Result<T, Torn> {
@@ -2726,15 +2960,17 @@ fn seal<F: Fn() -> bool, T>(still_valid: &F, v: T) -> Result<T, Torn> {
 /// content-derived index is bounds-checked, and an "absent" answer is
 /// validated before it is trusted (torn content may misreport absence).
 fn branch_child_validated<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     e: &Edge32,
     digit: u8,
     still_valid: &F,
 ) -> Result<Option<Edge32>, Torn> {
     let node = a.try_node(edge_handle(e))?;
-    match (kind(e), node) {
-        (Kind::BranchL2, NodeBox::L2(bx)) => {
-            let b: &BranchL2_32 = bx;
+    match kind(e) {
+        Kind::BranchL2 => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchL2_32 = unsafe { node.as_node::<BranchL2_32>(PubKind::L2) }?;
             if !still_valid() {
                 return Err(Torn);
             }
@@ -2746,8 +2982,10 @@ fn branch_child_validated<F: Fn() -> bool>(
             }
             seal(still_valid, None)
         }
-        (Kind::BranchL6, NodeBox::L6(bx)) => {
-            let b: &BranchL6_32 = bx;
+        Kind::BranchL6 => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchL6_32 = unsafe { node.as_node::<BranchL6_32>(PubKind::L6) }?;
             if !still_valid() {
                 return Err(Torn);
             }
@@ -2759,8 +2997,10 @@ fn branch_child_validated<F: Fn() -> bool>(
             }
             seal(still_valid, None)
         }
-        (Kind::BranchB, NodeBox::B(bx)) => {
-            let b: &BranchB32Data = bx;
+        Kind::BranchB => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchB32Data = unsafe { node.as_node::<BranchB32Data>(PubKind::B) }?;
             if !still_valid() {
                 return Err(Torn);
             }
@@ -2784,8 +3024,10 @@ fn branch_child_validated<F: Fn() -> bool>(
             };
             seal(still_valid, Some(c))
         }
-        (Kind::BranchU, NodeBox::U(bx)) => {
-            let b: &BranchU32 = bx;
+        Kind::BranchU => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchU32 = unsafe { node.as_node::<BranchU32>(PubKind::U) }?;
             if !still_valid() {
                 return Err(Torn);
             }
@@ -2812,7 +3054,7 @@ fn branch_child_validated<F: Fn() -> bool>(
 /// branch hops resolve any 32-bit key, so deeper structures are torn by
 /// definition.
 pub(crate) fn map_get_validated<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     root: Edge32,
     key: u32,
     still_valid: &F,
@@ -2834,10 +3076,9 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
                 let pop = edge_pop(&edge);
                 let cap = cap_class(pop);
                 let node = a.try_node(edge_handle(&edge))?;
-                let NodeBox::Leaf(bx) = node else {
-                    return Err(Torn);
-                };
-                let buf: &[u8] = bx;
+                // SAFETY: the reader is pinned, so the node the slot names stays
+                // allocated; every value read from it is validated before it is used.
+                let buf: &[u8] = unsafe { node.as_leaf() }?;
                 if !still_valid() {
                     return Err(Torn);
                 }
@@ -2861,10 +3102,10 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
             }
             Kind::MapBitmap => {
                 let node = a.try_node(edge_handle(&edge))?;
-                let NodeBox::MapBitmap(bx) = node else {
-                    return Err(Torn);
-                };
-                let b: &LeafBitmapL32Data = bx;
+                // SAFETY: the reader is pinned, so the node the slot names stays
+                // allocated; every value read from it is validated before it is used.
+                let b: &LeafBitmapL32Data =
+                    unsafe { node.as_node::<LeafBitmapL32Data>(PubKind::MapBitmap) }?;
                 if !still_valid() {
                     return Err(Torn);
                 }
@@ -2913,7 +3154,7 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
 /// Validated optimistic set membership test. Same contract and discipline
 /// as [`map_get_validated`].
 pub(crate) fn set_contains_validated<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     root: Edge32,
     key: u32,
     still_valid: &F,
@@ -2934,10 +3175,9 @@ pub(crate) fn set_contains_validated<F: Fn() -> bool>(
             Kind::SetLeaf(_) => {
                 let pop = edge_pop(&edge);
                 let node = a.try_node(edge_handle(&edge))?;
-                let NodeBox::Leaf(bx) = node else {
-                    return Err(Torn);
-                };
-                let buf: &[u8] = bx;
+                // SAFETY: the reader is pinned, so the node the slot names stays
+                // allocated; every value read from it is validated before it is used.
+                let buf: &[u8] = unsafe { node.as_leaf() }?;
                 if !still_valid() {
                     return Err(Torn);
                 }
@@ -2952,10 +3192,10 @@ pub(crate) fn set_contains_validated<F: Fn() -> bool>(
             }
             Kind::Bitmap => {
                 let node = a.try_node(edge_handle(&edge))?;
-                let NodeBox::Bitmap(bx) = node else {
-                    return Err(Torn);
-                };
-                let b: &LeafBitmap1_32 = bx;
+                // SAFETY: the reader is pinned, so the node the slot names stays
+                // allocated; every value read from it is validated before it is used.
+                let b: &LeafBitmap1_32 =
+                    unsafe { node.as_node::<LeafBitmap1_32>(PubKind::Bitmap) }?;
                 if !still_valid() {
                     return Err(Torn);
                 }
@@ -3001,7 +3241,7 @@ pub(crate) enum Seek32 {
 /// bounded by the key bytes left (a branch with fewer than two is torn) and a
 /// branch visits at most its 256 digits, so the walk ends on any data.
 pub(crate) fn map_seek_validated<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     root: Edge32,
     seek: Seek32,
     still_valid: &F,
@@ -3023,17 +3263,17 @@ pub(crate) fn map_seek_validated<F: Fn() -> bool>(
 /// before any index into it, with every content-derived bound checked against
 /// the live allocation.
 fn seek_leaf<'a, F: Fn() -> bool>(
-    a: &'a Arena,
+    a: PubTable,
     e: &Edge32,
     kb: u8,
     still_valid: &F,
 ) -> Result<(&'a [u8], usize, usize), Torn> {
     let pop = edge_pop(e);
     let cap = cap_class(pop);
-    let NodeBox::Leaf(bx) = a.try_node(edge_handle(e))? else {
-        return Err(Torn);
-    };
-    let buf: &[u8] = bx;
+    let node = a.try_node(edge_handle(e))?;
+    // SAFETY: the reader is pinned, so the node the slot names stays
+    // allocated; every value read from it is validated before it is used.
+    let buf: &[u8] = unsafe { node.as_leaf() }?;
     if !still_valid() {
         return Err(Torn);
     }
@@ -3050,14 +3290,14 @@ fn seek_leaf<'a, F: Fn() -> bool>(
 
 /// A map bitmap leaf and a copy of its bitmap, validated.
 fn seek_bitmap<'a, F: Fn() -> bool>(
-    a: &'a Arena,
+    a: PubTable,
     e: &Edge32,
     still_valid: &F,
 ) -> Result<(&'a LeafBitmapL32Data, [u64; 4]), Torn> {
-    let NodeBox::MapBitmap(bx) = a.try_node(edge_handle(e))? else {
-        return Err(Torn);
-    };
-    let b: &LeafBitmapL32Data = bx;
+    let node = a.try_node(edge_handle(e))?;
+    // SAFETY: the reader is pinned, so the node the slot names stays
+    // allocated; every value read from it is validated before it is used.
+    let b: &LeafBitmapL32Data = unsafe { node.as_node::<LeafBitmapL32Data>(PubKind::MapBitmap) }?;
     let bitmap = b.header.bitmap;
     if !still_valid() {
         return Err(Torn);
@@ -3116,7 +3356,7 @@ fn seek_linear<R, V: FnMut(u8, Edge32) -> Result<Option<R>, Torn>>(
 /// ascending order when `forward` and descending otherwise, until `visit`
 /// answers. Every child edge is validated before `visit` follows it.
 fn seek_children<F, R, V>(
-    a: &Arena,
+    a: PubTable,
     e: &Edge32,
     forward: bool,
     lo: u8,
@@ -3128,17 +3368,22 @@ where
     F: Fn() -> bool,
     V: FnMut(u8, Edge32) -> Result<Option<R>, Torn>,
 {
-    match (kind(e), a.try_node(edge_handle(e))?) {
-        (Kind::BranchL2, NodeBox::L2(bx)) => {
-            let b: &BranchL2_32 = bx;
+    let node = a.try_node(edge_handle(e))?;
+    match kind(e) {
+        Kind::BranchL2 => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchL2_32 = unsafe { node.as_node::<BranchL2_32>(PubKind::L2) }?;
             let (n, digits, edges) = (b.header.num_edges as usize, b.digits, b.edges);
             if !still_valid() {
                 return Err(Torn);
             }
             seek_linear(&digits[..n.min(2)], &edges, forward, lo, hi, visit)
         }
-        (Kind::BranchL6, NodeBox::L6(bx)) => {
-            let b: &BranchL6_32 = bx;
+        Kind::BranchL6 => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchL6_32 = unsafe { node.as_node::<BranchL6_32>(PubKind::L6) }?;
             let (n, digits, edges) = (b.header.num_edges as usize, b.digits, b.edges);
             if !still_valid() {
                 return Err(Torn);
@@ -3152,8 +3397,10 @@ where
                 visit,
             )
         }
-        (Kind::BranchB, NodeBox::B(bx)) => {
-            let b: &BranchB32Data = bx;
+        Kind::BranchB => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchB32Data = unsafe { node.as_node::<BranchB32Data>(PubKind::B) }?;
             let bitmap = b.header.bitmap;
             if !still_valid() {
                 return Err(Torn);
@@ -3192,8 +3439,10 @@ where
             }
             Ok(None)
         }
-        (Kind::BranchU, NodeBox::U(bx)) => {
-            let b: &BranchU32 = bx;
+        Kind::BranchU => {
+            // SAFETY: the reader is pinned, so the node the slot names stays
+            // allocated; every value read from it is validated before it is used.
+            let b: &BranchU32 = unsafe { node.as_node::<BranchU32>(PubKind::U) }?;
             if !still_valid() {
                 return Err(Torn);
             }
@@ -3228,7 +3477,7 @@ where
 
 /// [`first_entry`] under the optimistic-read discipline.
 fn seek_first<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     e: &Edge32,
     kb: u8,
     still_valid: &F,
@@ -3267,7 +3516,7 @@ fn seek_first<F: Fn() -> bool>(
 
 /// [`last_entry`] under the optimistic-read discipline.
 fn seek_last<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     e: &Edge32,
     kb: u8,
     still_valid: &F,
@@ -3306,7 +3555,7 @@ fn seek_last<F: Fn() -> bool>(
 
 /// [`next_entry`] under the optimistic-read discipline.
 fn seek_after<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     e: &Edge32,
     kb: u8,
     after: u32,
@@ -3360,7 +3609,7 @@ fn seek_after<F: Fn() -> bool>(
 
 /// [`prev_entry`] under the optimistic-read discipline.
 fn seek_before<F: Fn() -> bool>(
-    a: &Arena,
+    a: PubTable,
     e: &Edge32,
     kb: u8,
     before: u32,

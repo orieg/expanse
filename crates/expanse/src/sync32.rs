@@ -81,14 +81,20 @@
 //!
 //! Readers walk tree memory the writer may be mutating; the racy loads
 //! are validated before use per the seqlock pattern (Boehm, "Can seqlocks
-//! get along with programming language memory models?", MSPC 2012). Under
-//! the Rust memory model those plain loads are data races, and a reader
-//! also holds `&` to the engine while the writer holds `&mut` to it: both
-//! classes of undefined behaviour #1086 names, still reachable from safe
-//! code here. The 64-bit `sync` module no longer makes this trade (its
-//! shared accesses are atomic words and its writers use raw pointers); this
-//! module has not been converted, no census workload covers it, and the
-//! concurrent stress tests are excluded under Miri. The reclamation-fence
+//! get along with programming language memory models?", MSPC 2012). A
+//! reader never borrows the container: it loads the root edge and the
+//! length the writer publishes as atomic words inside its bracket, and
+//! resolves node handles through the arena's published slot table
+//! (`trie32::PubSlot`), whose kind, address and length words the writer
+//! stores on every allocation and free. What remains is node contents:
+//! a reader reads leaf bytes and branch fields through references while
+//! the writer edits the same nodes in place, which under the Rust memory
+//! model is a data race and an aliasing violation, both classes #1086
+//! names and still reachable from safe code here (#1187). The Miri census
+//! records them: `sync32::map_reader_writer` and `sync32::set_reader_writer`
+//! in `.github/miri-ub-sites.json`. The 64-bit `sync` module no longer makes
+//! this trade (its shared accesses are atomic words and its writers use raw
+//! pointers). The reclamation-fence
 //! construction (reader: store the odd counter then `SeqCst` fence then
 //! sample; writer: mutate/unlink, close bracket, `SeqCst` fence, then
 //! load the counters) mirrors the store-buffer pairing the 64-bit `occ`
@@ -126,14 +132,14 @@
 //! capacity-class boundaries and structural conversions.
 
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicU32, Ordering, fence};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering, fence};
 
 use core_alloc::{boxed::Box, vec::Vec};
 
 use crate::map32::ExpanseMap32;
 use crate::occ32::SeqVersion32;
 use crate::set32::ExpanseSet32;
-use crate::trie32::{self, Arena, Seek32, Torn};
+use crate::trie32::{self, Arena, PubTable, Seek32, Torn};
 use crate::types32::{Edge32, Key32, Value32};
 
 /// Worst-case arena allocations (and retirements) a single mutation may
@@ -178,12 +184,14 @@ struct PaddedVersion(SeqVersion32);
 pub trait Container32: sealed::Sealed {}
 
 mod sealed {
-    use super::{Arena, ExpanseMap32, ExpanseSet32};
+    use super::{Arena, Edge32, ExpanseMap32, ExpanseSet32};
 
     pub trait Sealed: Send + Sync {
         fn with_fixed_arena(node_cap: usize, pending_cap: usize) -> Self;
         fn arena(&self) -> &Arena;
         fn arena_mut(&mut self) -> &mut Arena;
+        fn root_edge(&self) -> Edge32;
+        fn len(&self) -> usize;
     }
 
     impl Sealed for ExpanseMap32 {
@@ -196,6 +204,12 @@ mod sealed {
         fn arena_mut(&mut self) -> &mut Arena {
             self.arena_mut()
         }
+        fn root_edge(&self) -> Edge32 {
+            self.root_edge()
+        }
+        fn len(&self) -> usize {
+            self.len()
+        }
     }
 
     impl Sealed for ExpanseSet32 {
@@ -207,6 +221,12 @@ mod sealed {
         }
         fn arena_mut(&mut self) -> &mut Arena {
             self.arena_mut()
+        }
+        fn root_edge(&self) -> Edge32 {
+            self.root_edge()
+        }
+        fn len(&self) -> usize {
+            self.len()
         }
     }
 }
@@ -221,6 +241,45 @@ pub struct Sync32<T: Container32> {
     inner: UnsafeCell<T>,
     version: PaddedVersion,
     readers: Box<[ReaderSlot]>,
+    /// What readers load instead of touching `inner` (#1187): the root edge
+    /// and the length as the writer publishes them inside its bracket, and
+    /// the arena's published slot table. A reader never forms a reference
+    /// to the container the writer holds `&mut` to.
+    root: PubEdge,
+    len: AtomicUsize,
+    table: PubTable,
+}
+
+/// An [`Edge32`] as two atomic words: the node word, then the aux bytes and
+/// the tag. Stored by the writer inside its bracket; a reader's torn pair is
+/// discarded by the version check.
+struct PubEdge([AtomicU32; 2]);
+
+impl PubEdge {
+    fn new(e: Edge32) -> Self {
+        let (w0, w1) = Self::words(e);
+        Self([AtomicU32::new(w0), AtomicU32::new(w1)])
+    }
+
+    fn words(e: Edge32) -> (u32, u32) {
+        let a = e.aux_raw();
+        (
+            e.w0_raw(),
+            u32::from_le_bytes([a[0], a[1], a[2], e.raw_tag()]),
+        )
+    }
+
+    fn store(&self, e: Edge32) {
+        let (w0, w1) = Self::words(e);
+        self.0[0].store(w0, Ordering::Relaxed);
+        self.0[1].store(w1, Ordering::Relaxed);
+    }
+
+    fn load(&self) -> Edge32 {
+        let w0 = self.0[0].load(Ordering::Relaxed);
+        let [a0, a1, a2, tag] = self.0[1].load(Ordering::Relaxed).to_le_bytes();
+        Edge32::from_parts(w0, [a0, a1, a2], tag)
+    }
 }
 
 // SAFETY: shared access is governed by the module's protocol — exactly one
@@ -259,8 +318,16 @@ impl<T: Container32> Sync32<T> {
         slots.resize_with(max_readers, || ReaderSlot {
             walk: AtomicU32::new(0),
         });
+        let inner = T::with_fixed_arena(node_cap, pending_cap);
+        let table = inner
+            .arena()
+            .published()
+            .expect("a fixed arena publishes its slot table");
         Self {
-            inner: UnsafeCell::new(T::with_fixed_arena(node_cap, pending_cap)),
+            root: PubEdge::new(inner.root_edge()),
+            len: AtomicUsize::new(inner.len()),
+            table,
+            inner: UnsafeCell::new(inner),
             version: PaddedVersion(SeqVersion32::new()),
             readers: slots.into_boxed_slice(),
         }
@@ -480,6 +547,11 @@ impl<T: Container32> Writer32<'_, T> {
         self.inner_mut().arena_mut().reset_mutation_watermark();
         self.owner.version.0.begin();
         let r = f(self.inner_mut());
+        // Republished inside the bracket, so a reader that loads either one
+        // mid-change fails its validation.
+        let (root, len) = (self.inner().root_edge(), self.inner().len());
+        self.owner.root.store(root);
+        self.owner.len.store(len, Ordering::Relaxed);
         self.owner.version.0.end();
         #[cfg(test)]
         {
@@ -650,15 +722,12 @@ impl Reader32<'_, ExpanseMap32> {
             let Some(snap) = owner.version.0.try_sample() else {
                 return Err(Busy);
             };
-            // SAFETY: validated racy read per the module memory-model
-            // caveat; the pin keeps racily-reachable memory alive.
-            let m = unsafe { &*owner.inner.get() };
-            let root: Edge32 = m.root_edge();
+            let root = owner.root.load();
             if !owner.version.0.validate(snap) {
                 return Err(Busy);
             }
             let still_valid = || owner.version.0.validate(snap);
-            trie32::map_get_validated(m.arena(), root, key, &still_valid).map_err(|Torn| Busy)
+            trie32::map_get_validated(owner.table, root, key, &still_valid).map_err(|Torn| Busy)
         })
     }
 
@@ -668,8 +737,7 @@ impl Reader32<'_, ExpanseMap32> {
             let Some(snap) = owner.version.0.try_sample() else {
                 return Err(Busy);
             };
-            // SAFETY: as in `try_get`.
-            let n = unsafe { &*owner.inner.get() }.len();
+            let n = owner.len.load(Ordering::Relaxed);
             if owner.version.0.validate(snap) {
                 Ok(n)
             } else {
@@ -687,14 +755,12 @@ impl Reader32<'_, ExpanseMap32> {
             let Some(snap) = owner.version.0.try_sample() else {
                 return Err(Busy);
             };
-            // SAFETY: as in `try_get`.
-            let m = unsafe { &*owner.inner.get() };
-            let root: Edge32 = m.root_edge();
+            let root = owner.root.load();
             if !owner.version.0.validate(snap) {
                 return Err(Busy);
             }
             let still_valid = || owner.version.0.validate(snap);
-            trie32::map_seek_validated(m.arena(), root, seek, &still_valid).map_err(|Torn| Busy)
+            trie32::map_seek_validated(owner.table, root, seek, &still_valid).map_err(|Torn| Busy)
         })
     }
 
@@ -746,15 +812,13 @@ impl Reader32<'_, ExpanseSet32> {
             let Some(snap) = owner.version.0.try_sample() else {
                 return Err(Busy);
             };
-            // SAFETY: validated racy read per the module memory-model
-            // caveat; the pin keeps racily-reachable memory alive.
-            let s = unsafe { &*owner.inner.get() };
-            let root: Edge32 = s.root_edge();
+            let root = owner.root.load();
             if !owner.version.0.validate(snap) {
                 return Err(Busy);
             }
             let still_valid = || owner.version.0.validate(snap);
-            trie32::set_contains_validated(s.arena(), root, key, &still_valid).map_err(|Torn| Busy)
+            trie32::set_contains_validated(owner.table, root, key, &still_valid)
+                .map_err(|Torn| Busy)
         })
     }
 
@@ -764,8 +828,7 @@ impl Reader32<'_, ExpanseSet32> {
             let Some(snap) = owner.version.0.try_sample() else {
                 return Err(Busy);
             };
-            // SAFETY: as in `try_contains`.
-            let n = unsafe { &*owner.inner.get() }.len();
+            let n = owner.len.load(Ordering::Relaxed);
             if owner.version.0.validate(snap) {
                 Ok(n)
             } else {
@@ -1126,5 +1189,123 @@ mod tests {
         assert_eq!(r.try_first(), Ok(Some((7, 42))));
         assert_eq!(r.try_prev_before(7), Ok(None));
         assert_eq!(r.try_next_after(7), Ok(None));
+    }
+}
+
+/// The threaded workloads the Miri UB-site census runs for the 32-bit
+/// wrappers (#1086, #1187): `scripts/miri_ub_sites.py` names them
+/// `sync32::<test>` in `.github/miri-ub-sites.json`. Each runs one writer
+/// against one reader, so every schedule overlaps the two.
+#[cfg(test)]
+mod miri_ub_sites {
+    use super::*;
+    use core::sync::atomic::AtomicBool;
+    use std::thread;
+
+    /// Keys a workload keeps: two linear leaves of `KEYS / 2` under a root
+    /// branch (two top bytes), so the writer's overwrites, removals and
+    /// reinsertions edit a published leaf in place.
+    const KEYS: u32 = 24;
+    const _: () = assert!(KEYS / 2 <= crate::types32::MAP_LEAF_MAX_32 as u32);
+    /// Keys the writer adds and removes again: in pairs under fresh top
+    /// bytes, so each pair allocates a leaf node and its removal frees it,
+    /// and the next pair reuses the freed handle.
+    const CHURN: u32 = 8;
+
+    fn key(i: u32) -> u32 {
+        if i < KEYS {
+            ((i % 2) << 24) | 0x0042_0000 | i
+        } else {
+            let j = i - KEYS;
+            ((2 + j / 2) << 24) | 0x0042_0000 | j
+        }
+    }
+
+    /// Runs `pass` until the writer signals `done`, then once more.
+    fn read_until(done: &AtomicBool, mut pass: impl FnMut()) {
+        loop {
+            let finished = done.load(Ordering::Acquire);
+            pass();
+            if finished {
+                break;
+            }
+        }
+    }
+
+    /// A reader under the map writer's in-place overwrites, removals and
+    /// reinsertions, and under the node frees and handle reuse that
+    /// inserting and removing the churn keys cause.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1187)")]
+    fn map_reader_writer() {
+        let mut m = SyncExpanseMap32::with_capacity(MUTATION_HEADROOM * 2, 1);
+        let (mut w, mut pool) = m.split();
+        for i in 0..KEYS {
+            w.try_insert(key(i), i).expect("prefill");
+        }
+        let mut r = pool.take().expect("one reader");
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    assert_eq!(w.try_insert(key(i), i + 100), Ok(Some(i)));
+                    assert_eq!(w.try_remove(key(i)), Ok(Some(i + 100)));
+                    assert_eq!(w.try_insert(key(i), i), Ok(None));
+                }
+                for i in KEYS..KEYS + CHURN {
+                    assert_eq!(w.try_insert(key(i), i), Ok(None));
+                }
+                for i in KEYS..KEYS + CHURN {
+                    assert_eq!(w.try_remove(key(i)), Ok(Some(i)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..KEYS {
+                        if let Ok(Some(v)) = r.try_get(key(i)) {
+                            assert!(v == i || v == i + 100);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(w.len(), KEYS as usize);
+    }
+
+    /// The set twin of `map_reader_writer`.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1187)")]
+    fn set_reader_writer() {
+        let mut m = SyncExpanseSet32::with_capacity(MUTATION_HEADROOM * 2, 1);
+        let (mut w, mut pool) = m.split();
+        for i in 0..KEYS {
+            w.try_insert(key(i)).expect("prefill");
+        }
+        let mut r = pool.take().expect("one reader");
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    assert_eq!(w.try_remove(key(i)), Ok(true));
+                    assert_eq!(w.try_insert(key(i)), Ok(true));
+                }
+                for i in KEYS..KEYS + CHURN {
+                    assert_eq!(w.try_insert(key(i)), Ok(true));
+                }
+                for i in KEYS..KEYS + CHURN {
+                    assert_eq!(w.try_remove(key(i)), Ok(true));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..KEYS + CHURN {
+                        let _ = r.try_contains(key(i));
+                    }
+                });
+            });
+        });
+        assert_eq!(w.len(), KEYS as usize);
     }
 }
