@@ -186,7 +186,7 @@ def census_tests() -> List[str]:
         PREFIX32 + t for t in module_tests(SYNC32_RS.read_text())]
 
 
-def test_path(test: str) -> str:
+def libtest_path(test: str) -> str:
     """The libtest path of a manifest `test`."""
     if test.startswith(PREFIX32):
         return f"sync32::miri_ub_sites::{test[len(PREFIX32):]}"
@@ -304,7 +304,7 @@ def run_seed(entry: Entry, seed: int, toolchain: Optional[str]) -> Observation:
     if toolchain:
         cmd.append(f"+{toolchain}")
     cmd += ["miri", "test", "-p", "expanse-trie", "--lib", "--",
-            "--ignored", "--exact", test_path(entry.test)]
+            "--ignored", "--exact", libtest_path(entry.test)]
     env = dict(os.environ)
     env["MIRIFLAGS"] = f"{CHECKS[entry.check]} -Zmiri-seed={seed}"
     try:
@@ -549,9 +549,9 @@ def self_test() -> int:
              "  bench-report:\n    runs-on: x\n")
     check("matrix shards read", workflow_shards(wf_ok), [1, 2, 3])
     check("matrix N must match the list", workflow_shards(wf_ok.replace("}}/3", "}}/4")), [])
-    check("sync32 workloads get the sync32 module path", test_path("sync32::map_reader_writer"),
+    check("sync32 workloads get the sync32 module path", libtest_path("sync32::map_reader_writer"),
           "sync32::miri_ub_sites::map_reader_writer")
-    check("sync workloads keep the sync module path", test_path("map_leaf_two_writers"),
+    check("sync workloads keep the sync module path", libtest_path("map_leaf_two_writers"),
           "sync::miri_ub_sites::map_leaf_two_writers")
     check("the census finds the sync32 workloads", "sync32::map_reader_writer" in census_tests(), True)
     shards = workflow_shards(NIGHTLY.read_text())
