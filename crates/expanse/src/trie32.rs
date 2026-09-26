@@ -1939,6 +1939,10 @@ fn subarray_insert<T: Copy>(
 /// stays inside the capacity class compacts in place (the vacated tail slot
 /// is reset to `filler`), and only a class crossing reallocates. Returns
 /// the replaced box for the caller to retire.
+// Forced inline (#1187): the shared instantiation gave this helper a second
+// caller, and wasm32 stopped inlining it into the plain remove walk (fuel
+// +4.63 % on `map_remove/sequential`); `main` inlined it into its one caller.
+#[inline(always)]
 fn subarray_remove<T: Copy>(
     slot: &mut Option<Box<[T]>>,
     pop: usize,
