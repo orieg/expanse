@@ -81,14 +81,20 @@
 //!
 //! Readers walk tree memory the writer may be mutating; the racy loads
 //! are validated before use per the seqlock pattern (Boehm, "Can seqlocks
-//! get along with programming language memory models?", MSPC 2012). Under
-//! the Rust memory model those plain loads are data races, and a reader
-//! also holds `&` to the engine while the writer holds `&mut` to it: both
-//! classes of undefined behaviour #1086 names, still reachable from safe
-//! code here. The 64-bit `sync` module no longer makes this trade (its
-//! shared accesses are atomic words and its writers use raw pointers); this
-//! module has not been converted, no census workload covers it, and the
-//! concurrent stress tests are excluded under Miri. The reclamation-fence
+//! get along with programming language memory models?", MSPC 2012). A
+//! reader never borrows the container: it loads the root edge and the
+//! length the writer publishes as atomic words inside its bracket, and
+//! resolves node handles through the arena's published slot table
+//! (`trie32::PubSlot`), whose kind, address and length words the writer
+//! stores on every allocation and free. What remains is node contents:
+//! a reader reads leaf bytes and branch fields through references while
+//! the writer edits the same nodes in place, which under the Rust memory
+//! model is a data race and an aliasing violation, both classes #1086
+//! names and still reachable from safe code here (#1187). The Miri census
+//! records them: `sync32::map_reader_writer` and `sync32::set_reader_writer`
+//! in `.github/miri-ub-sites.json`. The 64-bit `sync` module no longer makes
+//! this trade (its shared accesses are atomic words and its writers use raw
+//! pointers). The reclamation-fence
 //! construction (reader: store the odd counter then `SeqCst` fence then
 //! sample; writer: mutate/unlink, close bracket, `SeqCst` fence, then
 //! load the counters) mirrors the store-buffer pairing the 64-bit `occ`
