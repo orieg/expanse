@@ -539,9 +539,9 @@ fn root_leaf_find(keys: &[u64], key: Key) -> Option<usize> {
         let half = size / 2;
         let mid = base + half;
         // SAFETY: `mid < base + size <= keys.len()`.
-        let probe = unsafe { *keys.get_unchecked(mid) };
-        // As the library: a select, not a branch the key order would train.
-        base = core::hint::select_unpredictable(probe > key, base, mid);
+        if unsafe { *keys.get_unchecked(mid) } <= key {
+            base = mid;
+        }
         size -= half;
     }
     // SAFETY: `base < keys.len()`, which is not 0.
