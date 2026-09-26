@@ -1174,14 +1174,20 @@ pub(crate) mod fold_edges {
 ///
 /// # Safety
 ///
-/// `node` is an EBR-live `BranchU` reached through a pointer with write
-/// provenance (the shared load forms atomic views of its edges), kept
-/// mapped by the caller's epoch pin.
+/// `node` is non-null and points to a `BranchU` that is EBR-live for the
+/// whole call: the caller loaded it from a published edge while holding its
+/// writer pin, and a node retired after that load is freed only once every
+/// pin taken before the retirement is released. The pointer carries write
+/// provenance (it comes from an edge's node pointer, never from a shared
+/// reference), which the shared load needs to form atomic views of the
+/// edges. Nothing else is required: the node's contents may change during
+/// the scan, and the caller's lock by snapshot rejects a count they tore.
 #[cfg(feature = "std")]
 #[cold]
 #[inline(never)]
 unsafe fn branch_u_digits_shared(node: *mut BranchU) -> usize {
-    // SAFETY: `node` is live (contract); the projection reads no memory.
+    // SAFETY: `node` is non-null and its allocation is live (contract); the
+    // place projection reads no memory.
     let edges = unsafe { (&raw mut (*node).edges).cast::<Edge>() };
     let mut n = 0usize;
     for i in 0..BRANCH_FANOUT {
@@ -1247,8 +1253,15 @@ unsafe fn null_branch_u_slot<T, R>(
 ) -> Result<R, OlcOutcome<T>> {
     debug_assert_eq!(parent.edge_type, EdgeType::BranchU);
     let branch = parent.node.cast::<BranchU>();
-    // SAFETY: `parent.node` is the EBR-live `BranchU` the descent loaded,
-    // a node pointer with write provenance, kept mapped by the pin.
+    // SAFETY: `parent` is `ancestors[anc_depth - 1]` with `anc_depth >= 1`
+    // (every caller returns before this on `anc_depth == 0`), so it is a
+    // frame the descent wrote, not one of the array's null placeholders:
+    // the descent wrote it when it met a `BranchU` edge, storing that edge's
+    // node pointer after sampling the node's version through it. The node is
+    // EBR-live under this writer's pin, taken before that load, and the
+    // pointer has the edge's write provenance. The version snapshot is not
+    // what keeps the memory valid; it is what the lock below checks the
+    // count against.
     let digits = unsafe { branch_u_digits_shared(branch) };
     if crate::mutate::branch_u_below_floor(digits.saturating_sub(1)) {
         return Err(branch_split(BranchSplitKind::DemoteU));
