@@ -134,6 +134,12 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_map_compare_exchange": 50_000,
     "sync_set_churn": 50_000,
     "sync_set_remove": 50_000,
+    # A shared top `BranchU` across its demotion floor (#1079): the drain arms
+    # remove its `FLOOR_DIGITS` (200) one-key digits; the thrash arm counts
+    # band crossings, two per cycle over `THRASH_CYCLES` (100).
+    "sync_map_drain_floor": 200,
+    "sync_set_drain_floor": 200,
+    "sync_map_branchu_thrash": 200,
     "set32_insert": 10_000,
     "map32_insert": 10_000,
     "map32_remove": 2_000,
@@ -387,6 +393,9 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_map_write_twin",
             "sync_set_churn",
             "sync_set_remove",
+            "sync_map_drain_floor",
+            "sync_set_drain_floor",
+            "sync_map_branchu_thrash",
             "set32_insert",
             "map32_remove",
             "set32_remove",
