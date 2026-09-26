@@ -12,7 +12,7 @@ losses) is [`METHODOLOGY.md`](METHODOLOGY.md).
 | 2 | Pre-registration, `METHODOLOGY.md` | committed; frozen once merged |
 | 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | evaluated; **negative**, nothing promoted (§2); the engine code is kept at tag `poc/subtree-condense`, not on `main` |
 | — | Allocator census and rebuild arm (`NodeAlloc::census`, `set_rebuild_drained` / `map_rebuild_drained`) | measured; pinning confirmed, no option chosen (§3) |
-| — | Explicit `compact()` for the 64-bit `ExpanseSet` / `ExpanseMap`: bounds in `scripts/compact_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §12 | G-held and G-peak met; G-cost, G-ins and G-valid read from CI (§4) |
+| — | Explicit `compact()` for the 64-bit `ExpanseSet` / `ExpanseMap`: bounds in `scripts/compact_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §12 | evaluated: G-held, G-peak, G-cost and G-valid met; **G-ins not met** (three `from_sorted_iter` arms moved down by more than 0.1%), so not at the bar to ship (§4) |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/step0a_retention.json`.
 Single-threaded and deterministic: any 64-bit host reproduces every byte at the
@@ -737,15 +737,17 @@ attribution of the fresh build's free blocks (§3.3).
 surviving keys into a new allocator and drop the old tree. The gates,
 predictions and expected losses were locked in [`METHODOLOGY.md`](METHODOLOGY.md)
 §12 before any `compact()` code existed; none was changed after results were
-seen.
+seen. **Verdict (METHODOLOGY §12.5): G-ins is not met, so `compact()` does not
+meet the pre-registered bar to ship**; the other four gates are met. Whether
+to accept the G-ins outcome is a maintainer decision, recorded in §4.2.
 
 | Gate | Verdict | Instrument |
 |---|---|---|
 | G-held | **met**: 0.5770–0.9982 of held_fresh on all 42 cells; `mem_used()` clause met on all 42 | `remove_retention.rs`, laptop, §4.1 |
 | G-peak | **met** on all 42 cells; no-free clause met on all 42 | `remove_retention.rs`, laptop, §4.1 |
-| G-cost | pending: read from the PR's `instruction-counts` job (§4.2) | CI x86_64 Callgrind |
-| G-ins | pending: read from the PR's `instruction-counts` and `callgrind-smoke` jobs (§4.2) | CI Callgrind |
-| G-valid | pending: CI (§4.3) | CI |
+| G-cost | **met**: set 16,261,644 against 16,681,923 instructions, map 16,833,877 against 40,334,038, each compact arm against the rebuild arm of the same run | CI x86_64 Callgrind, §4.2 |
+| G-ins | **not met**: three existing arms moved by more than 0.1%, all downward (§4.2) | CI Callgrind, §4.2 |
+| G-valid | **met** (§4.3) | CI, §4.3 |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/compact_retention.json`.
 
@@ -848,3 +850,66 @@ What the table shows (same artifact):
   not attributed here. At M = 1M keys the buffer is 8.00 MB (set) and
   16.00 MB (map), 0.96 and 0.90 of the new tree's held bytes on the headline
   cell.
+
+### 4.2 G-cost and G-ins
+
+Instruction counts from the x86_64 `instruction-counts` job of [run 36215845201](https://github.com/orieg/expanse/actions/runs/36215845201) at
+`1e6bd27b`, the PR head it ran on (measured: CI x86_64 Callgrind,
+deterministic exact counts, no interval). Every count below is the job's
+PR-head pass against its `main_base` pass in the same job.
+
+**G-cost: met.** Same run, per surviving key (62,500):
+
+| Flavor | `*_compact_drained` | `*_rebuild_drained` | compact per key | rebuild per key | compact ÷ rebuild |
+|---|---|---|---|---|---|
+| set | 16,261,644 | 16,681,923 | 260.2 | 266.9 | 0.975 |
+| map | 16,833,877 | 40,334,038 | 269.3 | 645.3 | 0.417 |
+
+The set arm is the `from_sorted_iter` builder without the sort check and with
+an exact-capacity buffer. The map arm is the bulk builder against the
+rebuild's one insert per entry. Where the saved instructions go is not
+attributed here.
+
+**G-ins: not met.** Of the 169 existing arms of the `instructions` harness, 15
+moved against `main_base`, three by more than the 0.1% review threshold, all
+downward:
+
+| Arm | head | `main_base` | change |
+|---|---|---|---|
+| `set_clone/sequential` | 2,598,886 | 2,799,992 | −7.182% |
+| `set_clone/random` | 15,482,213 | 15,870,083 | −2.444% |
+| `set_rebuild_drained/random60` | 16,681,923 | 16,960,355 | −1.642% |
+
+The other twelve moved by at most 0.043% (`map_clone/random` +0.043%,
+`blobmap_insert_inline/random` +0.043%, `blobmap_insert/random` +0.039%,
+`map_rebuild_drained/random60` +0.010%, the rest under 0.004%). The 50 arms of
+the search harness are unchanged. `callgrind-smoke`: one of its arms moved,
+`strmap_insert/routes` +0.00006%; the AArch64 Callgrind job: one,
+`strmap_insert/routes` +0.00012%.
+
+The three arms all build a set through `ExpanseSet::from_sorted_iter`
+(`Clone` is `from_sorted_iter`), whose builder `compact()` now also calls. No
+function on that path changed its source; the change is therefore in code
+generation (AGENTS.md §6), and which function's instructions it removed is
+**not attributed**: no base-against-head `callgrind_annotate` or `objdump` diff
+was taken. The pre-registered falsifier counts a move in either direction, so
+the gate is recorded as not met, not re-thresholded (§8.19). The options it
+leaves are the maintainer's: accept the outcome as a change to the gate
+(which relabels this result `INTERMEDIATE`), or change the code so the
+existing arms stay within 0.1% and re-measure against the same gate.
+
+### 4.3 G-valid
+
+Met on the same run ([run 36215845201](https://github.com/orieg/expanse/actions/runs/36215845201), conclusion `success`, `CI Gate / All Checks Passed`
+green at `1e6bd27b`):
+
+- the Tier-1 Miri shards ran the six `compact_` tests: shard 1
+  (`set::tests::compact_*`) 36 passed in 488 s of test time, shard 2
+  (`map::tests::compact_*`) 76 passed in 587 s, each under the job's
+  15-minute limit;
+- the workspace test jobs ran `set_matches_btreeset_with_compact` and
+  `map_matches_btreemap_with_compact` at `PROPTEST_CASES=500`, and the
+  `compact_` unit tests, which run the structural validator after every
+  `compact()`;
+- the ASan job is green;
+- the instrument ran the validator after `compact()` on all 42 cells (§4.1).
