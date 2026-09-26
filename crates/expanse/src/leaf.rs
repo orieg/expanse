@@ -854,23 +854,6 @@ pub(crate) mod shared_keys {
         }
     }
 
-    /// [`word`]'s store.
-    ///
-    /// # Safety
-    ///
-    /// As [`word`], and the caller is the area's one writer.
-    #[inline(always)]
-    unsafe fn set_word(keys: *mut u8, w: usize, area: usize, v: u64) {
-        let p = keys.wrapping_add(w * 8);
-        if w * 8 + 8 <= area {
-            // SAFETY: as in `word`.
-            unsafe { shared_word::store::<true>(p.cast::<u64>(), v) }
-        } else {
-            // SAFETY: as in `word`.
-            unsafe { tail_store(p, area - w * 8, v) }
-        }
-    }
-
     /// Key `i` of `kb` bytes in an area of `area` bytes.
     ///
     /// # Safety
@@ -1035,41 +1018,62 @@ pub(crate) mod shared_keys {
         hit.then_some(at)
     }
 
-    /// Rewrites bytes `from..to` of an area of `area` bytes through `edit` on
-    /// a local copy of the words that cover them, then stores those words
-    /// back.
+    /// The low `n` bytes of a word, for `n` in `0..=8`.
+    #[inline(always)]
+    const fn low_bytes(n: usize) -> u64 {
+        if n >= 8 { !0 } else { (1u64 << (n * 8)) - 1 }
+    }
+
+    /// The bytes of the word at area byte `base` that lie below area byte
+    /// `lim`.
+    #[inline(always)]
+    const fn below(lim: usize, base: usize) -> u64 {
+        low_bytes(lim.saturating_sub(base))
+    }
+
+    /// Word `w` of an area whose first `whole` words are whole: one 8-byte
+    /// atomic below `whole`, the tail's pieces at `whole` itself. The
+    /// callers walk the words upwards, so only their last word can be the
+    /// tail, and the test is against a bound held in a register.
     ///
     /// # Safety
     ///
-    /// `to <= area`; the caller is the area's one writer.
+    /// As [`word`], with `whole == area / 8`.
     #[inline(always)]
-    unsafe fn rewrite(
-        keys: *mut u8,
-        from: usize,
-        to: usize,
-        area: usize,
-        edit: impl FnOnce(&mut [u8], usize),
-    ) {
-        debug_assert!(to <= area, "a rewrite past the key area");
-        let w0 = from / 8;
-        let w1 = to.div_ceil(8);
-        // A key area holds at most `LEAF_CAP` keys of 7 bytes: 224 bytes.
-        let mut buf = [0u8; 256];
-        for w in w0..w1 {
-            // SAFETY: caller contract; `w * 8 < to <= area`.
-            let v = unsafe { word(keys, w, area) };
-            buf[(w - w0) * 8..(w - w0 + 1) * 8].copy_from_slice(&v.to_le_bytes());
+    unsafe fn load_w(keys: *const u8, w: usize, whole: usize, area: usize) -> u64 {
+        let p = keys.wrapping_add(w * 8);
+        if w < whole {
+            // SAFETY: caller contract; a whole word inside the area.
+            unsafe { shared_word::load::<true>(p.cast::<u64>().cast_mut()) }
+        } else {
+            // SAFETY: caller contract; the `area - w * 8` bytes that remain.
+            unsafe { tail_load(p, area - w * 8) }
         }
-        edit(&mut buf[..(w1 - w0) * 8], w0 * 8);
-        for w in w0..w1 {
-            let mut b = [0u8; 8];
-            b.copy_from_slice(&buf[(w - w0) * 8..(w - w0 + 1) * 8]);
-            // SAFETY: as above.
-            unsafe { set_word(keys, w, area, u64::from_le_bytes(b)) };
+    }
+
+    /// [`load_w`]'s store.
+    ///
+    /// # Safety
+    ///
+    /// As [`load_w`], and the caller is the area's one writer.
+    #[inline(always)]
+    unsafe fn store_w(keys: *mut u8, w: usize, whole: usize, area: usize, v: u64) {
+        let p = keys.wrapping_add(w * 8);
+        if w < whole {
+            // SAFETY: as in `load_w`.
+            unsafe { shared_word::store::<true>(p.cast::<u64>(), v) }
+        } else {
+            // SAFETY: as in `load_w`.
+            unsafe { tail_store(p, area - w * 8, v) }
         }
     }
 
     /// Inserts `key` at `pos` among `pop` keys, shifting the tail up.
+    ///
+    /// Each word that covers bytes `pos * kb..(pop + 1) * kb` is loaded
+    /// once, rebuilt in a register from itself, the word below it and the
+    /// key, and stored once: the loads and stores of a copy through a
+    /// buffer, word for word, without the buffer (#1191).
     ///
     /// # Safety
     ///
@@ -1077,19 +1081,48 @@ pub(crate) mod shared_keys {
     /// and the caller is its one writer.
     #[inline]
     pub(crate) unsafe fn insert_at(keys: *mut u8, kb: usize, pop: usize, pos: usize, key: u64) {
-        // SAFETY: caller contract; bytes up to `(pop + 1) * kb` are inside
-        // the area, whose class `pop + 1` shares.
-        unsafe {
-            rewrite(keys, pos * kb, (pop + 1) * kb, area(kb, pop), |b, base| {
-                let at = pos * kb - base;
-                let end = (pop + 1) * kb - base;
-                b.copy_within(at..end - kb, at + kb);
-                b[at..at + kb].copy_from_slice(&key.to_le_bytes()[..kb]);
-            });
+        let area = area(kb, pop);
+        let whole = area / 8;
+        let at = pos * kb;
+        let kend = at + kb;
+        let end = (pop + 1) * kb;
+        debug_assert!(end <= area, "an insert past the key area");
+        let s = kb * 8;
+        // The key's bit offset in its first word; it spills into the next
+        // word when `o + s > 64`.
+        let o = (at & 7) * 8;
+        let key = key & low_bytes(kb);
+        let w0 = at / 8;
+        // The old word below the current one. The first word takes no byte
+        // from below: its shifted bytes start at `kend`, a key above `base`.
+        let mut prev = 0u64;
+        for w in w0..end.div_ceil(8) {
+            // SAFETY: caller contract; `w * 8 < end <= area`.
+            let old = unsafe { load_w(keys, w, whole, area) };
+            let base = w * 8;
+            // Every byte moved up by one key.
+            let shifted = (old << s) | (prev >> (64 - s));
+            // The key's bytes in this word (masked to the key's range below).
+            let kp = if w == w0 {
+                key << o
+            } else if o == 0 {
+                0
+            } else {
+                key >> (64 - o)
+            };
+            let mb = below(at, base);
+            let mk = below(kend, base);
+            let me = below(end, base);
+            let new = (old & (mb | !me)) | (kp & mk & !mb) | (shifted & me & !mk);
+            // SAFETY: as the load; the caller is the area's one writer.
+            unsafe { store_w(keys, w, whole, area, new) };
+            prev = old;
         }
     }
 
     /// Removes the key at `pos` among `pop` keys, shifting the tail down.
+    /// The twin of [`insert_at`]: each word is rebuilt from itself and the
+    /// word above it, which is loaded before the word is stored.
     ///
     /// # Safety
     ///
@@ -1099,13 +1132,33 @@ pub(crate) mod shared_keys {
         if pos + 1 >= pop {
             return;
         }
-        // SAFETY: caller contract; bytes up to `pop * kb` are inside.
-        unsafe {
-            rewrite(keys, pos * kb, pop * kb, area(kb, pop), |b, base| {
-                let at = pos * kb - base;
-                let end = pop * kb - base;
-                b.copy_within(at + kb..end, at);
-            });
+        let area = area(kb, pop);
+        let whole = area / 8;
+        let at = pos * kb;
+        let end = pop * kb;
+        // Bytes `at..lim` take the bytes one key above them; the bytes from
+        // `lim` to `end` keep the last key, as the plain removal leaves them.
+        let lim = end - kb;
+        let s = kb * 8;
+        let w0 = at / 8;
+        // SAFETY: caller contract; `at < end <= area`.
+        let mut cur = unsafe { load_w(keys, w0, whole, area) };
+        for w in w0..lim.div_ceil(8) {
+            let base = w * 8;
+            // The word above is read only when it holds a byte below `end`.
+            let next = if base + 8 < end {
+                // SAFETY: `(w + 1) * 8 < end <= area`.
+                unsafe { load_w(keys, w + 1, whole, area) }
+            } else {
+                0
+            };
+            let shifted = (cur >> s) | (next << (64 - s));
+            let mb = below(at, base);
+            let ml = below(lim, base);
+            let new = (cur & (mb | !ml)) | (shifted & ml & !mb);
+            // SAFETY: `w * 8 < lim < end <= area`; the caller is the writer.
+            unsafe { store_w(keys, w, whole, area, new) };
+            cur = next;
         }
     }
 
@@ -1315,6 +1368,80 @@ mod tests {
         fn drop(&mut self) {
             // SAFETY: allocated in `new` with this layout, freed once.
             unsafe { std::alloc::dealloc(self.0, self.1) };
+        }
+    }
+
+    /// The shared in-place insert and removal, at every position of every
+    /// population up to 32 keys, over an allocation of exactly the key area,
+    /// leave the bytes the plain ones leave. Each word is rebuilt in a
+    /// register (#1191), so this pins the masks at the key's first and last
+    /// word and at the area's partial last word; an access past the area
+    /// is out of bounds, which the Tier-1 Miri run over `leaf::` reports.
+    #[test]
+    fn shared_rewrite_matches_plain_in_exact_area() {
+        use super::shared_keys as sk;
+        for kb in 1..=7usize {
+            let m = (1u64 << (kb * 8)) - 1;
+            for pop in 1..=32usize {
+                let exact = kb * cap_class(pop);
+                // Keys whose bytes vary with the slot, so a byte moved to
+                // the wrong place shows. Order does not matter to a shift.
+                let keys: Vec<u64> = (0..pop as u64)
+                    .map(|i| (0x0101_0101_0101_0101u64.wrapping_mul(2 * i + 1) ^ i) & m)
+                    .collect();
+                let mut plain = vec![0u8; exact + 16];
+                for (i, &k) in keys.iter().enumerate() {
+                    // SAFETY: in bounds of `plain`.
+                    unsafe { crate::mutate::write_packed(plain.as_mut_ptr(), i, kb, k) };
+                }
+                let load = |buf: &ExactArea| {
+                    // SAFETY: `buf` holds `exact` bytes.
+                    unsafe { core::slice::from_raw_parts(buf.0, exact) }.to_vec()
+                };
+                let fresh = || {
+                    let buf = ExactArea::new(exact);
+                    // SAFETY: both hold at least `exact` bytes.
+                    unsafe { core::ptr::copy_nonoverlapping(plain.as_ptr(), buf.0, exact) };
+                    buf
+                };
+                if cap_class(pop + 1) == cap_class(pop) {
+                    for pos in 0..=pop {
+                        let key = 0xA5A5_A5A5_A5A5_A5A5u64 & m;
+                        let mut want = plain.clone();
+                        let got = fresh();
+                        // SAFETY: the class holds `pop + 1` keys; `pos <= pop`.
+                        unsafe {
+                            set_insert_at(want.as_mut_ptr(), kb as u8, pop, pos, key);
+                            sk::set_insert_at(got.0, kb as u8, pop, pos, key);
+                        }
+                        let got_bytes = load(&got);
+                        got.free();
+                        assert_eq!(
+                            got_bytes[..(pop + 1) * kb],
+                            want[..(pop + 1) * kb],
+                            "insert kb {kb} pop {pop} pos {pos}"
+                        );
+                    }
+                }
+                for pos in 0..pop {
+                    let mut want = plain.clone();
+                    let got = fresh();
+                    // SAFETY: `pos < pop`.
+                    unsafe {
+                        set_remove_at(want.as_mut_ptr(), kb as u8, pop, pos);
+                        sk::set_remove_at(got.0, kb as u8, pop, pos);
+                    }
+                    let got_bytes = load(&got);
+                    got.free();
+                    // The whole area: the bytes past the survivors are left
+                    // as the plain removal leaves them too.
+                    assert_eq!(
+                        got_bytes,
+                        want[..exact],
+                        "remove kb {kb} pop {pop} pos {pos}"
+                    );
+                }
+            }
         }
     }
 
