@@ -62,9 +62,8 @@
 //! telemetry table is the point. The single-threaded `ExpanseMap32` /
 //! `ExpanseSet32` are untouched. (Structural conversions still use
 //! transient scratch allocations internally, exactly as the
-//! single-threaded engine does; steady-state leaf inserts and removes
-//! mutate node buffers in place (#577), and the fixed arena bounds
-//! *retained* memory.)
+//! single-threaded engine does; the writer replaces each leaf it edits
+//! (#1187), and the fixed arena bounds *retained* memory.)
 //!
 //! # No batched removal on the writer
 //!
@@ -93,15 +92,17 @@
 //! sides (`trie32::word`), and the branch owner has no `DerefMut`, so the
 //! writer cannot form `&mut` to a published branch. The writer runs the
 //! shared instantiation of the engine's walks (`insert_shared`,
-//! `remove_shared`); the plain containers keep their plain stores. What remains is leaf
-//! contents: a reader reads leaf bytes and bitmap-leaf fields through
-//! references while the writer edits the same leaves in place, which under
-//! the Rust memory model is a data race and an aliasing violation, both
-//! classes #1086 names and still reachable from safe code here (#1187). The
-//! Miri census records them (`sync32::map_reader_writer`,
-//! `sync32::set_reader_writer` in `.github/miri-ub-sites.json`) and shows the
-//! branch paths clean (`sync32::map_branch_reader_writer`). The 64-bit `sync` module no longer makes
-//! this trade (its shared accesses are atomic words and its writers use raw
+//! `remove_shared`); the plain containers keep their plain stores. Leaves
+//! are copy-on-write in that instantiation: the writer never edits a
+//! published leaf, linear or bitmap, but builds the edited copy, publishes
+//! it through a fresh slot, rehandles the parent edge and retires the old
+//! node, so a reader's references into leaf bytes and bitmap-leaf fields
+//! only ever point at memory no one writes. The Miri census runs the
+//! threaded workloads (`sync32::map_reader_writer`,
+//! `sync32::set_reader_writer`, `sync32::map_branch_reader_writer` in
+//! `.github/miri-ub-sites.json`) and records them clean. The 64-bit `sync`
+//! module makes the same guarantee by other means (its shared accesses are
+//! atomic words and its writers use raw
 //! pointers). The reclamation-fence
 //! construction (reader: store the odd counter then `SeqCst` fence then
 //! sample; writer: mutate/unlink, close bracket, `SeqCst` fence, then
@@ -119,25 +120,20 @@
 //! the later counter), so that walk sampled the version after the unlink
 //! and the bracket close, and cannot reach the node either.
 //!
-//! In-place mutation covers linear leaves and the bitmap/branch subarray
-//! stores alike: linear-leaf inserts, removes, and value overwrites shift
-//! or store into the leaf's byte buffer in place while the population
-//! stays inside its capacity class (#577), and a bitmap node's rank-ordered
-//! subarray does the same (#615) — it is allocated at `cap_class` of its
-//! population, so a growth or shrink inside the class shifts the entries
-//! rather than replacing the box. A validated reader may therefore observe
-//! a mid-shift subarray, or read one of the trailing spare slots, from the
-//! very array it is scanning. That is safe under the same argument as every
-//! other racy load here: the spare slots always hold initialised filler
-//! (`0` for values, a null `Edge32` for children) so nothing uninitialised
-//! is ever observable; leaf buffers hold plain bytes (never pointers);
-//! every content-derived index on the validated walks is bounds-checked
-//! against the live allocation; and the version seal rejects any read that
-//! overlapped a write bracket before its result can escape — including one
-//! that resolved a child edge out of a spare slot, since only a concurrent
-//! mutation can put a rank there. Node and subarray replacement — with the
-//! old allocation retired for stalled readers — now happens only at
-//! capacity-class boundaries and structural conversions.
+//! In-place mutation remains on branch subarrays: a bitmap branch's
+//! rank-ordered subarray is allocated at `cap_class` of its population
+//! (#615), so a growth or shrink inside the class shifts its entries, as
+//! atomic words, rather than replacing it. A validated reader may therefore
+//! observe a mid-shift subarray, or read one of the trailing spare slots.
+//! That is safe under the same argument as every other racy load here: the
+//! spare slots always hold initialised filler (a null `Edge32`), so nothing
+//! uninitialised is ever observable; every content-derived index on the
+//! validated walks is bounds-checked against the live allocation; and the
+//! version seal rejects any read that overlapped a write bracket before its
+//! result can escape — including one that resolved a child edge out of a
+//! spare slot, since only a concurrent mutation can put a rank there. The
+//! single-threaded containers keep editing leaves in place (#577); the
+//! shared writer pays an allocation and a retirement per leaf edit instead.
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering, fence};
@@ -1212,7 +1208,7 @@ mod miri_ub_sites {
 
     /// Keys a workload keeps: two linear leaves of `KEYS / 2` under a root
     /// branch (two top bytes), so the writer's overwrites, removals and
-    /// reinsertions edit a published leaf in place.
+    /// reinsertions each replace a published leaf the reader may be in.
     const KEYS: u32 = 24;
     const _: () = assert!(KEYS / 2 <= crate::types32::MAP_LEAF_MAX_32 as u32);
     /// Keys the writer adds and removes again: in pairs under fresh top
