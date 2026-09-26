@@ -967,8 +967,8 @@ pub(crate) mod shared_keys {
     /// [`seek_fixed`] over an area whose last word is partial. The keys
     /// that lie wholly inside the area's whole words are searched by
     /// whole-word reads; the keys that reach the partial word, at most
-    /// seven, are scanned after them, when the needle is above the last of
-    /// the others. The tail test is then taken once per search instead of on
+    /// seven, are scanned after them, when the needle is above all of the
+    /// others. The tail test is then taken once per search instead of on
     /// every read (#1191).
     ///
     /// # Safety
@@ -988,14 +988,10 @@ pub(crate) mod shared_keys {
         }
         // Keys `0..whole_keys` end at or below the area's last whole word.
         let whole_keys = ((area & !7) / KB).min(pop);
-        if whole_keys > 0 {
-            // SAFETY: `whole_keys - 1 < pop`, and its bytes lie in whole
-            // words of the area.
-            let v = unsafe { read_fixed::<KB, true>(keys, whole_keys - 1, area) };
-            if v >= needle {
-                // SAFETY: every key below `whole_keys` lies in whole words.
-                return unsafe { seek_fixed::<KB, true>(keys, whole_keys, area, needle) };
-            }
+        // SAFETY: every key below `whole_keys` lies in whole words.
+        let (at, hit) = unsafe { seek_fixed::<KB, true>(keys, whole_keys, area, needle) };
+        if at < whole_keys {
+            return (at, hit);
         }
         for i in whole_keys..pop {
             // SAFETY: `i < pop`.
