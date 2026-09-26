@@ -598,14 +598,15 @@ impl ExpanseSet {
     /// mode once, before anything else, as every insert did before.
     #[inline(always)]
     fn insert_checked(&mut self, key: Key) -> bool {
-        if let Root::Tree { .. } = self.root {
+        let root = self.root;
+        if let Root::Tree { .. } = root {
             return self.insert_tree::<true>(key);
         }
         #[cfg(feature = "std")]
         if self.alloc.occ_enabled() {
             return self.insert_deferred(key);
         }
-        self.insert_inner_plain(key)
+        self.insert_root_leaf(root, key)
     }
 
     /// [`Self::insert`] on a set whose allocator defers to a collector,
@@ -1000,7 +1001,18 @@ impl ExpanseSet {
 
     #[inline(always)]
     fn insert_inner_plain(&mut self, key: Key) -> bool {
-        match &mut self.root {
+        match self.root {
+            Root::Tree { .. } => self.insert_tree::<false>(key),
+            root => self.insert_root_leaf(root, key),
+        }
+    }
+
+    /// The empty and root-leaf arms of [`Self::insert_inner_plain`], from a
+    /// copy of the root: [`Self::insert_checked`] reads the root once, before
+    /// its test of the mode, and the arms then need no second read (#1191).
+    #[inline(always)]
+    fn insert_root_leaf(&mut self, root: Root, key: Key) -> bool {
+        match root {
             Root::Empty => {
                 let keys = self.alloc.alloc_bytes_plain(root_leaf_size(1));
                 // SAFETY: fresh 8-byte allocation, cache-line aligned.
@@ -1009,7 +1021,6 @@ impl ExpanseSet {
                 true
             }
             Root::Leaf { keys, pop } => {
-                let (keys, pop) = (*keys, *pop);
                 // SAFETY: root leaf holds `pop` keys.
                 let slice =
                     unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
@@ -1071,7 +1082,7 @@ impl ExpanseSet {
                 }
                 true
             }
-            Root::Tree { .. } => self.insert_tree::<false>(key),
+            Root::Tree { .. } => unreachable!("insert_root_leaf on a tree root"),
         }
     }
 
