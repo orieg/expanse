@@ -151,11 +151,13 @@ def summarise(per_func: dict[str, dict], filt: str) -> dict:
 
 def provenance(invocation: str | None) -> dict:
     """What produced the census (AGENTS.md §8.7): commit, toolchain, command."""
-    def out(cmd: list[str]) -> str | None:
+    def out(cmd: list[str]) -> str:
+        # A field that cannot be read is recorded as the failure, never left
+        # blank (AGENTS.md §8.1).
         try:
             return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
-        except (OSError, subprocess.CalledProcessError):
-            return None
+        except (OSError, subprocess.CalledProcessError) as exc:
+            return f"unavailable: {exc}"
     commit = os.environ.get("EXPANSE_BENCH_COMMIT") or out(["git", "rev-parse", "--short=8", "HEAD"])
     return {
         "issue": 1191,

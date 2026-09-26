@@ -51,10 +51,10 @@ REPO_ROOT = HERE.parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(HERE))
 
-import bench_pin  # noqa: E402
-from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
-from bench_provenance import begin_cell, end_cell, new_provenance  # noqa: E402
-from writer_scaling import williams_positions, writer_cell_argv, writer_cell_row  # noqa: E402
+import bench_pin
+from bca_bootstrap import bca_bootstrap_ci_with_method
+from bench_provenance import begin_cell, end_cell, new_provenance
+from writer_scaling import williams_positions, writer_cell_argv, writer_cell_row
 
 BUILDS = {
     "default": "",
@@ -176,12 +176,12 @@ def host_census() -> dict[str, Any]:
                 if line.startswith(key):
                     info[key.lower().replace(" ", "_")] = line.split(":", 1)[1].strip()
                     break
-    except OSError:
-        info["cpuinfo"] = None
-    try:
-        info["rustc"] = subprocess.check_output(["rustc", "--version"], text=True).strip()
-    except (OSError, subprocess.CalledProcessError):
-        info["rustc"] = None
+    except OSError as exc:
+        # Off Linux there is no /proc/cpuinfo; the field says so, and `run`
+        # refuses a timed run without it unless the run is a --quick smoke.
+        info["cpuinfo_error"] = str(exc)
+    # rustc is on PATH wherever the harness just built; a failure here is loud.
+    info["rustc"] = subprocess.check_output(["rustc", "--version"], text=True).strip()
     return info
 
 
