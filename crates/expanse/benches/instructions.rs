@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exception: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -587,6 +587,31 @@ fn map_rebuild_drained(drained: ExpanseMap) -> u64 {
     drop(drained);
     let n = rebuilt.len();
     core::mem::forget(rebuilt);
+    black_box(n)
+}
+
+// The compact arm of the remove-retention suite (METHODOLOGY §12.7): the same
+// drained tree as `*_rebuild_drained`, compacted in place, so the arm counts
+// the ordered walk, the bottom-up build of the new tree and the drop of the
+// old one. The compacted tree is leaked. Counted per surviving key (62,500);
+// G-cost compares it with the rebuild arm of the same run.
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_set)]
+fn set_compact_drained(drained: ExpanseSet) -> u64 {
+    let mut set = drained;
+    black_box(&mut set).compact();
+    let n = set.len();
+    core::mem::forget(set);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_map)]
+fn map_compact_drained(drained: ExpanseMap) -> u64 {
+    let mut map = drained;
+    black_box(&mut map).compact();
+    let n = map.len();
+    core::mem::forget(map);
     black_box(n)
 }
 
@@ -2687,6 +2712,8 @@ library_benchmark_group!(
         map_remove_partial,
         set_rebuild_drained,
         map_rebuild_drained,
+        set_compact_drained,
+        map_compact_drained,
         set_subtree_boundary_oscillate,
         set_subtree_split,
         set_subtree_split_control,

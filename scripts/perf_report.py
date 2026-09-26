@@ -104,6 +104,10 @@ BENCH_N_MAP: Dict[str, int] = {
     # clone of it plus the drop of the drained tree.
     "set_rebuild_drained": 62_500,
     "map_rebuild_drained": 62_500,
+    # `*_compact_drained` counts the same 62,500 keys: one compact() of the
+    # drained tree (METHODOLOGY section 12.7).
+    "set_compact_drained": 62_500,
+    "map_compact_drained": 62_500,
     "set_subtree_boundary_oscillate": 32_768,
     "set_subtree_boundary_oscillate/band9": 147_456,
     "set_subtree_split": 1_024,
@@ -368,6 +372,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_remove_partial",
             "set_rebuild_drained",
             "map_rebuild_drained",
+            "set_compact_drained",
+            "map_compact_drained",
             "set_subtree_boundary_oscillate",
             "set_subtree_split",
             "set_subtree_split_control",
