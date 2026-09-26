@@ -389,6 +389,100 @@ mod word {
         }
     }
 
+    /// `load_edge` on a shared tree, a plain read otherwise: the plain
+    /// engine keeps the compiler's freedom to merge and move its accesses
+    /// (#1187; the STM32 pairing measured the unconditional word form at
+    /// +2.7 % to +5.7 % on a plain insert).
+    ///
+    /// # Safety
+    ///
+    /// As [`load_edge`].
+    #[inline(always)]
+    pub(super) unsafe fn get_edge<const SHARED: bool>(p: *const Edge32) -> Edge32 {
+        // SAFETY: per the contract.
+        unsafe { if SHARED { load_edge(p) } else { p.read() } }
+    }
+
+    /// `store_edge` on a shared tree, a plain write otherwise.
+    ///
+    /// # Safety
+    ///
+    /// As [`store_edge`].
+    #[inline(always)]
+    pub(super) unsafe fn put_edge<const SHARED: bool>(p: *mut Edge32, e: Edge32) {
+        // SAFETY: per the contract.
+        unsafe {
+            if SHARED {
+                store_edge(p, e);
+            } else {
+                p.write(e);
+            }
+        }
+    }
+
+    /// # Safety
+    ///
+    /// As [`load_bytes8`].
+    #[inline(always)]
+    pub(super) unsafe fn get_bytes8<const SHARED: bool>(p: *const u8) -> [u8; 8] {
+        // SAFETY: per the contract.
+        unsafe {
+            if SHARED {
+                load_bytes8(p)
+            } else {
+                p.cast::<[u8; 8]>().read()
+            }
+        }
+    }
+
+    /// # Safety
+    ///
+    /// As [`store_bytes8`].
+    #[inline(always)]
+    pub(super) unsafe fn put_bytes8<const SHARED: bool>(p: *mut u8, v: [u8; 8]) {
+        // SAFETY: per the contract.
+        unsafe {
+            if SHARED {
+                store_bytes8(p, v);
+            } else {
+                p.cast::<[u8; 8]>().write(v);
+            }
+        }
+    }
+
+    /// # Safety
+    ///
+    /// As [`load`].
+    #[inline(always)]
+    pub(super) unsafe fn get_u32<const SHARED: bool>(p: *const u32) -> u32 {
+        // SAFETY: per the contract.
+        unsafe { if SHARED { load(p) } else { p.read() } }
+    }
+
+    /// # Safety
+    ///
+    /// As [`load_u64`].
+    #[inline(always)]
+    pub(super) unsafe fn get_u64<const SHARED: bool>(p: *const u64) -> u64 {
+        // SAFETY: per the contract.
+        unsafe { if SHARED { load_u64(p) } else { p.read() } }
+    }
+
+    /// # Safety
+    ///
+    /// As [`store_u64`].
+    #[inline(always)]
+    pub(super) unsafe fn put_u64<const SHARED: bool>(p: *mut u64, v: u64) {
+        // SAFETY: per the contract.
+        unsafe {
+            if SHARED {
+                store_u64(p, v);
+            } else {
+                p.write(v);
+            }
+        }
+    }
+
     /// A `u64` read as two words, in memory order.
     ///
     /// # Safety
@@ -443,8 +537,15 @@ impl SubEdges {
     /// The allocation, for the writer or a single-threaded caller.
     #[inline]
     fn get(&self) -> Option<(*mut Edge32, usize)> {
-        let p = self.ptr.load(Ordering::Relaxed);
-        (!p.is_null()).then(|| (p, self.len.load(Ordering::Relaxed) as usize))
+        // Plain reads: this runs only on the thread that writes these words
+        // (the writer, or an unshared tree's owner), and a read never races
+        // a concurrent reader's load. Atomic loads here cost the plain
+        // engine's remove and scan paths 3 % to 5 % on the STM32 M4 (#1187).
+        // SAFETY: `as_ptr` addresses the atomics' own words; no thread writes
+        // them concurrently with this one.
+        let p = unsafe { *self.ptr.as_ptr() };
+        // SAFETY: as above.
+        (!p.is_null()).then(|| (p, unsafe { *self.len.as_ptr() } as usize))
     }
 
     /// The allocation as a slice, for single-threaded read paths. The
@@ -454,6 +555,16 @@ impl SubEdges {
         // SAFETY: a live allocation of `len` edges this subarray owns.
         self.get()
             .map(|(p, n)| unsafe { core::slice::from_raw_parts(p.cast_const(), n) })
+    }
+
+    /// The allocation as a mutable slice, for the plain walks.
+    #[inline]
+    fn as_mut_slice(&mut self) -> Option<&mut [Edge32]> {
+        let p = *self.ptr.get_mut();
+        let n = *self.len.get_mut() as usize;
+        // SAFETY: a live allocation of `n` edges this subarray owns, borrowed
+        // through `&mut self`.
+        (!p.is_null()).then(|| unsafe { core::slice::from_raw_parts_mut(p, n) })
     }
 
     /// Installs `new`, returning the allocation it replaces for the caller
@@ -478,7 +589,13 @@ impl SubEdges {
 
 impl Drop for SubEdges {
     fn drop(&mut self) {
-        drop(self.replace(None));
+        // `&mut self`: no reader remains, so no store is needed to unpublish.
+        let p = *self.ptr.get_mut();
+        if !p.is_null() {
+            // SAFETY: installed by `replace` from `Box::into_raw` with this
+            // length, and owned by this subarray alone.
+            drop(unsafe { Raw::from_raw_slice(p, *self.len.get_mut() as usize) });
+        }
     }
 }
 
@@ -931,6 +1048,13 @@ impl Arena {
         self.pending.capacity() - self.pending.len()
     }
 
+    /// Whether this arena defers reclamation: the concurrent wrapper's
+    /// arena, whose mutations must run the shared (`SHARED = true`) walks.
+    #[inline]
+    pub(crate) fn is_deferred(&self) -> bool {
+        self.deferred
+    }
+
     /// Number of retired allocations awaiting reclamation.
     #[inline]
     pub(crate) fn pending_len(&self) -> usize {
@@ -1136,6 +1260,18 @@ impl Arena {
     /// The published node's address, for the writer's raw-pointer edits
     /// (#1187): the writer never forms `&mut` to a published branch, whose
     /// fields concurrent readers load.
+    /// The node, mutably, for the plain walks only: an unshared tree has
+    /// no concurrent reader a `&mut` could alias.
+    fn l2_mut_plain(&mut self, h: u32) -> &mut BranchL2_32 {
+        debug_assert!(
+            !self.deferred,
+            "a shared tree's branch is never borrowed mutably"
+        );
+        // SAFETY: the node `h` names is live and owned by this arena, and an
+        // unshared tree has no other reference to it while `&mut self` lives.
+        unsafe { &mut *self.l2_ptr(h) }
+    }
+
     fn l2_ptr(&self, h: u32) -> *mut BranchL2_32 {
         match self.get(h) {
             NodeBox::L2(b) => b.as_ptr(),
@@ -1151,6 +1287,18 @@ impl Arena {
     /// The published node's address, for the writer's raw-pointer edits
     /// (#1187): the writer never forms `&mut` to a published branch, whose
     /// fields concurrent readers load.
+    /// The node, mutably, for the plain walks only: an unshared tree has
+    /// no concurrent reader a `&mut` could alias.
+    fn l6_mut_plain(&mut self, h: u32) -> &mut BranchL6_32 {
+        debug_assert!(
+            !self.deferred,
+            "a shared tree's branch is never borrowed mutably"
+        );
+        // SAFETY: the node `h` names is live and owned by this arena, and an
+        // unshared tree has no other reference to it while `&mut self` lives.
+        unsafe { &mut *self.l6_ptr(h) }
+    }
+
     fn l6_ptr(&self, h: u32) -> *mut BranchL6_32 {
         match self.get(h) {
             NodeBox::L6(b) => b.as_ptr(),
@@ -1166,6 +1314,18 @@ impl Arena {
     /// The published node's address, for the writer's raw-pointer edits
     /// (#1187): the writer never forms `&mut` to a published branch, whose
     /// fields concurrent readers load.
+    /// The node, mutably, for the plain walks only: an unshared tree has
+    /// no concurrent reader a `&mut` could alias.
+    fn b_mut_plain(&mut self, h: u32) -> &mut BranchB32Data {
+        debug_assert!(
+            !self.deferred,
+            "a shared tree's branch is never borrowed mutably"
+        );
+        // SAFETY: the node `h` names is live and owned by this arena, and an
+        // unshared tree has no other reference to it while `&mut self` lives.
+        unsafe { &mut *self.b_ptr(h) }
+    }
+
     fn b_ptr(&self, h: u32) -> *mut BranchB32Data {
         match self.get(h) {
             NodeBox::B(b) => b.as_ptr(),
@@ -1181,6 +1341,18 @@ impl Arena {
     /// The published node's address, for the writer's raw-pointer edits
     /// (#1187): the writer never forms `&mut` to a published branch, whose
     /// fields concurrent readers load.
+    /// The node, mutably, for the plain walks only: an unshared tree has
+    /// no concurrent reader a `&mut` could alias.
+    fn u_mut_plain(&mut self, h: u32) -> &mut BranchU32 {
+        debug_assert!(
+            !self.deferred,
+            "a shared tree's branch is never borrowed mutably"
+        );
+        // SAFETY: the node `h` names is live and owned by this arena, and an
+        // unshared tree has no other reference to it while `&mut self` lives.
+        unsafe { &mut *self.u_ptr(h) }
+    }
+
     fn u_ptr(&self, h: u32) -> *mut BranchU32 {
         match self.get(h) {
             NodeBox::U(b) => b.as_ptr(),
@@ -1902,40 +2074,47 @@ impl Lin {
     /// Live digit count and digit bytes. The writer's own reads race with
     /// nothing, but go through the same words.
     #[inline(always)]
-    fn load(self) -> (usize, [u8; 8]) {
+    fn load<const SHARED: bool>(self) -> (usize, [u8; 8]) {
         // SAFETY: `hdr` and `digits` are live, 4-aligned field addresses
         // (the `offset_of!` assertions above).
         unsafe {
-            let w1 = word::load((&raw const (*self.hdr).num_edges).cast::<u32>());
-            (w1.to_ne_bytes()[0] as usize, word::load_bytes8(self.digits))
+            let w1 = word::get_u32::<SHARED>((&raw const (*self.hdr).num_edges).cast::<u32>());
+            (
+                w1.to_ne_bytes()[0] as usize,
+                word::get_bytes8::<SHARED>(self.digits),
+            )
         }
     }
 
     #[inline(always)]
-    fn edge(self, i: usize) -> Edge32 {
+    fn edge<const SHARED: bool>(self, i: usize) -> Edge32 {
         debug_assert!(i < self.cap);
         // SAFETY: `i < cap`, an edge of a live node.
-        unsafe { word::load_edge(self.edges.add(i)) }
+        unsafe { word::get_edge::<SHARED>(self.edges.add(i)) }
     }
 
     #[inline(always)]
-    fn set_edge(self, i: usize, c: Edge32) {
+    fn set_edge<const SHARED: bool>(self, i: usize, c: Edge32) {
         debug_assert!(i < self.cap);
         // SAFETY: as `edge`.
-        unsafe { word::store_edge(self.edges.add(i), c) }
+        unsafe { word::put_edge::<SHARED>(self.edges.add(i), c) }
     }
 
     /// Stores the digits and the live count, each as the words a reader
     /// loads.
     #[inline(always)]
-    fn set_digits(self, n: usize, digits: [u8; 8]) {
+    fn set_digits<const SHARED: bool>(self, n: usize, digits: [u8; 8]) {
         // SAFETY: as `load`.
         unsafe {
-            word::store_bytes8(self.digits, digits);
-            let w1p = (&raw mut (*self.hdr).num_edges).cast::<u32>();
-            let mut w1 = word::load(w1p).to_ne_bytes();
-            w1[0] = n as u8;
-            word::store(w1p, u32::from_ne_bytes(w1));
+            word::put_bytes8::<SHARED>(self.digits, digits);
+            if SHARED {
+                let w1p = (&raw mut (*self.hdr).num_edges).cast::<u32>();
+                let mut w1 = word::load(w1p).to_ne_bytes();
+                w1[0] = n as u8;
+                word::store(w1p, u32::from_ne_bytes(w1));
+            } else {
+                (*self.hdr).num_edges = n as u8;
+            }
         }
     }
 
@@ -1947,12 +2126,330 @@ impl Lin {
     }
 }
 
+/// The plain walks' branch helpers (#1187): `main`'s bodies, forming `&mut`
+/// to the node, which is sound on an unshared tree (nothing reads it
+/// concurrently) and compiles to the code the plain engine had before the
+/// shared form existed. The STM32 pairing measured a single raw-pointer,
+/// word-store body at +2.7 % to +5.7 % cycles per plain insert.
+fn branch_add_keys_plain(a: &mut Arena, e: &Edge32, delta: i64) {
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2_mut_plain(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
+        }
+        Kind::BranchL6 => {
+            let b = a.l6_mut_plain(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
+        }
+        Kind::BranchB => {
+            let b = a.b_mut_plain(edge_handle(e));
+            b.count = (b.count as i64 + delta) as u32;
+        }
+        Kind::BranchU => {
+            let b = a.u_mut_plain(edge_handle(e));
+            b.count = (b.count as i64 + delta) as u32;
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[inline(always)]
+fn branch_commit_plain(a: &mut Arena, e: &Edge32, digit: u8, child: Option<Edge32>, delta: i64) {
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2_mut_plain(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
+            let Some(c) = child else { return };
+            let n = b.header.num_edges as usize;
+            if n > 0 && b.digits[0] == digit {
+                b.edges[0] = c;
+            } else if n > 1 && b.digits[1] == digit {
+                b.edges[1] = c;
+            } else {
+                unreachable!("branch_commit: digit not present");
+            }
+        }
+        Kind::BranchL6 => {
+            let b = a.l6_mut_plain(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
+            let Some(c) = child else { return };
+            let n = b.header.num_edges as usize;
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    b.edges[i] = c;
+                    return;
+                }
+            }
+            unreachable!("branch_commit: digit not present");
+        }
+        Kind::BranchB => {
+            let b = a.b_mut_plain(edge_handle(e));
+            b.count = (b.count as i64 + delta) as u32;
+            let Some(c) = child else { return };
+            let w = (digit >> 6) as usize;
+            let word = b.header.bitmap[w];
+            let rank = bitmap_sub_rank(word, digit);
+            let sub = (digit >> 5) as usize;
+            b.subarrays[sub].as_mut_slice().expect("live subarray")[rank] = c;
+        }
+        Kind::BranchU => {
+            let b = a.u_mut_plain(edge_handle(e));
+            b.count = (b.count as i64 + delta) as u32;
+            if let Some(c) = child {
+                b.edges[digit as usize] = c;
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn branch_insert_new_plain(
+    a: &mut Arena,
+    e: &mut Edge32,
+    digit: u8,
+    child: Edge32,
+    keys_added: u32,
+) {
+    let level = branch_level(a, e);
+    match kind(e) {
+        Kind::BranchL2 => {
+            let n = a.l2(edge_handle(e)).header.num_edges as usize;
+            if n < 2 {
+                let b = a.l2_mut_plain(edge_handle(e));
+                // insert sorted
+                let mut pos = 0;
+                while pos < n && b.digits[pos] < digit {
+                    pos += 1;
+                }
+                let mut i = n;
+                while i > pos {
+                    b.digits[i] = b.digits[i - 1];
+                    b.edges[i] = b.edges[i - 1];
+                    i -= 1;
+                }
+                b.digits[pos] = digit;
+                b.edges[pos] = child;
+                b.header.num_edges = (n + 1) as u8;
+                b.header.pop0 += keys_added;
+            } else {
+                let total = a.l2(edge_handle(e)).header.pop0 + keys_added;
+                let mut pairs = branch_pairs(a, e);
+                insert_pair_sorted(&mut pairs, digit, child);
+                let old = edge_handle(e);
+                *e = make_l6(a, level, &pairs, total);
+                a.free(old);
+            }
+        }
+        Kind::BranchL6 => {
+            let n = a.l6(edge_handle(e)).header.num_edges as usize;
+            if n < BRANCH_L6_CAP {
+                let b = a.l6_mut_plain(edge_handle(e));
+                let mut pos = 0;
+                while pos < n && b.digits[pos] < digit {
+                    pos += 1;
+                }
+                let mut i = n;
+                while i > pos {
+                    b.digits[i] = b.digits[i - 1];
+                    b.edges[i] = b.edges[i - 1];
+                    i -= 1;
+                }
+                b.digits[pos] = digit;
+                b.edges[pos] = child;
+                b.header.num_edges = (n + 1) as u8;
+                b.header.pop0 += keys_added;
+            } else {
+                // 7th child promotes BranchL6_32 -> BranchB32 (Band 1: 64B vs 96B, 1.5x)
+                let total = a.l6(edge_handle(e)).header.pop0 + keys_added;
+                let mut pairs = branch_pairs(a, e);
+                insert_pair_sorted(&mut pairs, digit, child);
+                let old = edge_handle(e);
+                *e = make_b(a, level, &pairs, total);
+                a.free(old);
+            }
+        }
+        Kind::BranchB => {
+            let (promoted, retired_sub, bytes_delta) = {
+                let b = a.b_mut_plain(edge_handle(e));
+                let n = b.num_children as usize;
+                if n < BRANCH_B_TO_UNCOMPRESSED {
+                    let w = (digit >> 6) as usize;
+                    let bit64 = digit & 63;
+                    let bit_mask = 1u64 << bit64;
+                    debug_assert!((b.header.bitmap[w] & bit_mask) == 0);
+                    let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+                    b.header.bitmap[w] |= bit_mask;
+                    let sub = (digit >> 5) as usize;
+
+                    // Population before the insert: `pop_counts`, never
+                    // `subarrays[sub].len()` — that is the cap-classed
+                    // allocation length (#615).
+                    let pop = b.header.pop_counts[sub] as usize;
+                    let retired = sub_edges_insert::<false>(&b.subarrays[sub], pop, rank, child);
+                    b.header.pop_counts[sub] += 1;
+                    b.num_children += 1;
+                    b.count += keys_added;
+                    (None, retired, subarray_bytes_delta::<Edge32>(pop, pop + 1))
+                } else {
+                    (Some(b.count + keys_added), None, 0)
+                }
+            };
+            // Replaced subarrays must outlive concurrent readers exactly
+            // like freed nodes (a no-op outside deferred mode).
+            a.retire_edges(retired_sub);
+            if let Some(total) = promoted {
+                let mut pairs = branch_pairs(a, e);
+                insert_pair_sorted(&mut pairs, digit, child);
+                let old = edge_handle(e);
+                *e = make_u(a, level, &pairs, total);
+                a.free(old);
+            } else {
+                a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
+            }
+        }
+        Kind::BranchU => {
+            let b = a.u_mut_plain(edge_handle(e));
+            debug_assert!(b.edges[digit as usize].is_null());
+            b.edges[digit as usize] = child;
+            b.num_children += 1;
+            b.count += keys_added;
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn branch_remove_digit_plain(a: &mut Arena, e: &mut Edge32, digit: u8) {
+    let level = branch_level(a, e);
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2_mut_plain(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            let mut pos = None;
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    pos = Some(i);
+                    break;
+                }
+            }
+            let pos = pos.expect("branch_remove_digit: digit not present");
+            for i in pos..n - 1 {
+                b.digits[i] = b.digits[i + 1];
+                b.edges[i] = b.edges[i + 1];
+            }
+            b.digits[n - 1] = 0;
+            b.edges[n - 1] = Edge32::null();
+            b.header.num_edges = (n - 1) as u8;
+            if n - 1 == 0 {
+                let old = edge_handle(e);
+                *e = Edge32::null();
+                a.free(old);
+            }
+        }
+        Kind::BranchL6 => {
+            let b = a.l6_mut_plain(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            let mut pos = None;
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    pos = Some(i);
+                    break;
+                }
+            }
+            let pos = pos.expect("branch_remove_digit: digit not present");
+            for i in pos..n - 1 {
+                b.digits[i] = b.digits[i + 1];
+                b.edges[i] = b.edges[i + 1];
+            }
+            b.digits[n - 1] = 0;
+            b.edges[n - 1] = Edge32::null();
+            b.header.num_edges = (n - 1) as u8;
+            let new_n = n - 1;
+            // Hysteresis band of 1 (demotes at <= 1).
+            if new_n <= BRANCH_L6_DOWN {
+                let total = a.l6(edge_handle(e)).header.pop0;
+                let pairs = branch_pairs(a, e);
+                let old = edge_handle(e);
+                *e = if pairs.is_empty() {
+                    Edge32::null()
+                } else {
+                    make_l2(a, level, &pairs, total)
+                };
+                a.free(old);
+            }
+        }
+        Kind::BranchB => {
+            let (new_n, total, retired_sub, bytes_delta) = {
+                let b = a.b_mut_plain(edge_handle(e));
+                let w = (digit >> 6) as usize;
+                let bit64 = digit & 63;
+                let bit_mask = 1u64 << bit64;
+                debug_assert!((b.header.bitmap[w] & bit_mask) != 0);
+                let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+                let sub = (digit >> 5) as usize;
+                b.header.bitmap[w] &= !bit_mask;
+                // Population before the removal: `pop_counts`, never
+                // `subarrays[sub].len()` (#615).
+                let pop = b.header.pop_counts[sub] as usize;
+                b.header.pop_counts[sub] -= 1;
+                b.num_children -= 1;
+
+                let retired = sub_edges_remove::<false>(&b.subarrays[sub], pop, rank);
+                (
+                    b.num_children as usize,
+                    b.count,
+                    retired,
+                    subarray_bytes_delta::<Edge32>(pop, pop - 1),
+                )
+            };
+            a.retire_edges(retired_sub);
+            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
+
+            // Demote BranchB32 -> BranchL6_32 when new_n <= 5 (Band 1, 64B vs 96B).
+            if new_n <= BRANCH_B_DOWN {
+                let pairs = branch_pairs(a, e);
+                let old = edge_handle(e);
+                *e = if pairs.is_empty() {
+                    Edge32::null()
+                } else {
+                    make_l6(a, level, &pairs, total)
+                };
+                a.free(old);
+            }
+        }
+        Kind::BranchU => {
+            let b = a.u_mut_plain(edge_handle(e));
+            debug_assert!(!b.edges[digit as usize].is_null());
+            b.edges[digit as usize] = Edge32::null();
+            b.num_children -= 1;
+            let new_n = b.num_children as usize;
+            // Demote BranchU32 -> BranchB32 when new_n <= 190 (Band 2: 96B vs 2080B, 21.7x).
+            if new_n <= BRANCH_U_DOWN {
+                let total = a.u(edge_handle(e)).count;
+                let pairs = branch_pairs(a, e);
+                let old = edge_handle(e);
+                *e = if pairs.is_empty() {
+                    Edge32::null()
+                } else {
+                    make_b(a, level, &pairs, total)
+                };
+                a.free(old);
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
 /// Inserts `val` at rank `rank` of a bitmap branch's edge subarray holding
 /// `pop` live edges: the [`subarray_insert`] of #615 for the published
 /// representation (#1187), shifting in place, edge by edge through the
 /// words readers load, while the capacity class holds, and otherwise
 /// installing a new allocation and returning the old one for retirement.
-fn sub_edges_insert(sub: &SubEdges, pop: usize, rank: usize, val: Edge32) -> Option<Raw<[Edge32]>> {
+fn sub_edges_insert<const SHARED: bool>(
+    sub: &SubEdges,
+    pop: usize,
+    rank: usize,
+    val: Edge32,
+) -> Option<Raw<[Edge32]>> {
     debug_assert!(rank <= pop);
     let new_cap = cap_class(pop + 1);
     let cur = sub.get();
@@ -1961,21 +2458,33 @@ fn sub_edges_insert(sub: &SubEdges, pop: usize, rank: usize, val: Edge32) -> Opt
         if len == new_cap {
             // SAFETY: `rank <= pop < len`, edges of the live allocation.
             unsafe {
-                for i in (rank..pop).rev() {
-                    word::store_edge(p.add(i + 1), word::load_edge(p.add(i)));
+                if SHARED {
+                    for i in (rank..pop).rev() {
+                        word::store_edge(p.add(i + 1), word::load_edge(p.add(i)));
+                    }
+                } else {
+                    core::ptr::copy(p.add(rank), p.add(rank + 1), pop - rank);
                 }
-                word::store_edge(p.add(rank), val);
+                word::put_edge::<SHARED>(p.add(rank), val);
             }
             return None;
         }
     }
     let mut new_sub: Vec<Edge32> = Vec::with_capacity(new_cap);
     if let Some((p, _)) = cur {
-        // SAFETY: `pop` live edges of the live allocation.
-        unsafe {
-            new_sub.extend((0..rank).map(|i| word::load_edge(p.add(i))));
+        if SHARED {
+            // SAFETY: `pop` live edges of the live allocation.
+            unsafe {
+                new_sub.extend((0..rank).map(|i| word::load_edge(p.add(i))));
+                new_sub.push(val);
+                new_sub.extend((rank..pop).map(|i| word::load_edge(p.add(i))));
+            }
+        } else {
+            // SAFETY: `pop` live edges of an unshared tree's allocation.
+            let live = unsafe { core::slice::from_raw_parts(p.cast_const(), pop) };
+            new_sub.extend_from_slice(&live[..rank]);
             new_sub.push(val);
-            new_sub.extend((rank..pop).map(|i| word::load_edge(p.add(i))));
+            new_sub.extend_from_slice(&live[rank..]);
         }
     } else {
         new_sub.push(val);
@@ -1987,7 +2496,11 @@ fn sub_edges_insert(sub: &SubEdges, pop: usize, rank: usize, val: Edge32) -> Opt
 /// Removes rank `rank` from a bitmap branch's edge subarray holding `pop`
 /// live edges: the [`subarray_remove`] of #615 for the published
 /// representation. Returns the replaced allocation for retirement.
-fn sub_edges_remove(sub: &SubEdges, pop: usize, rank: usize) -> Option<Raw<[Edge32]>> {
+fn sub_edges_remove<const SHARED: bool>(
+    sub: &SubEdges,
+    pop: usize,
+    rank: usize,
+) -> Option<Raw<[Edge32]>> {
     debug_assert!(pop > 0 && rank < pop);
     let new_pop = pop - 1;
     if new_pop == 0 {
@@ -1999,24 +2512,38 @@ fn sub_edges_remove(sub: &SubEdges, pop: usize, rank: usize) -> Option<Raw<[Edge
     if len == new_cap {
         // SAFETY: `rank < pop <= len`, edges of the live allocation.
         unsafe {
-            for i in rank..new_pop {
-                word::store_edge(p.add(i), word::load_edge(p.add(i + 1)));
+            if SHARED {
+                for i in rank..new_pop {
+                    word::store_edge(p.add(i), word::load_edge(p.add(i + 1)));
+                }
+            } else {
+                core::ptr::copy(p.add(rank + 1), p.add(rank), new_pop - rank);
             }
-            word::store_edge(p.add(new_pop), Edge32::null());
+            word::put_edge::<SHARED>(p.add(new_pop), Edge32::null());
         }
         return None;
     }
     let mut new_sub: Vec<Edge32> = Vec::with_capacity(new_cap);
-    // SAFETY: `pop` live edges of the live allocation.
-    unsafe {
-        new_sub.extend((0..rank).map(|i| word::load_edge(p.add(i))));
-        new_sub.extend((rank + 1..pop).map(|i| word::load_edge(p.add(i))));
+    if SHARED {
+        // SAFETY: `pop` live edges of the live allocation.
+        unsafe {
+            new_sub.extend((0..rank).map(|i| word::load_edge(p.add(i))));
+            new_sub.extend((rank + 1..pop).map(|i| word::load_edge(p.add(i))));
+        }
+    } else {
+        // SAFETY: `pop` live edges of an unshared tree's allocation.
+        let live = unsafe { core::slice::from_raw_parts(p.cast_const(), pop) };
+        new_sub.extend_from_slice(&live[..rank]);
+        new_sub.extend_from_slice(&live[rank + 1..]);
     }
     new_sub.resize(new_cap, Edge32::null());
     sub.replace(Some(new_sub.into_boxed_slice()))
 }
 
-fn branch_add_keys(a: &mut Arena, e: &Edge32, delta: i64) {
+fn branch_add_keys<const SHARED: bool>(a: &mut Arena, e: &Edge32, delta: i64) {
+    if !SHARED {
+        return branch_add_keys_plain(a, e, delta);
+    }
     match kind(e) {
         Kind::BranchL2 | Kind::BranchL6 => Lin::of(a, e).add_keys(delta),
         Kind::BranchB => {
@@ -2039,16 +2566,25 @@ fn branch_add_keys(a: &mut Arena, e: &Edge32, delta: i64) {
 /// subtree key-count delta. The separate helpers remain for the cold
 /// paths that need only one of the two (#577).
 #[inline(always)]
-fn branch_commit(a: &mut Arena, e: &Edge32, digit: u8, child: Option<Edge32>, delta: i64) {
+fn branch_commit<const SHARED: bool>(
+    a: &mut Arena,
+    e: &Edge32,
+    digit: u8,
+    child: Option<Edge32>,
+    delta: i64,
+) {
+    if !SHARED {
+        return branch_commit_plain(a, e, digit, child, delta);
+    }
     match kind(e) {
         Kind::BranchL2 | Kind::BranchL6 => {
             let l = Lin::of(a, e);
             l.add_keys(delta);
             let Some(c) = child else { return };
-            let (n, digits) = l.load();
+            let (n, digits) = l.load::<SHARED>();
             for (i, &d) in digits[..n.min(l.cap)].iter().enumerate() {
                 if d == digit {
-                    l.set_edge(i, c);
+                    l.set_edge::<SHARED>(i, c);
                     return;
                 }
             }
@@ -2061,13 +2597,14 @@ fn branch_commit(a: &mut Arena, e: &Edge32, digit: u8, child: Option<Edge32>, de
             unsafe {
                 (*p).count = ((*p).count as i64 + delta) as u32;
                 let Some(c) = child else { return };
-                let word = word::load_u64(&raw const (*p).header.bitmap[(digit >> 6) as usize]);
+                let word =
+                    word::get_u64::<SHARED>(&raw const (*p).header.bitmap[(digit >> 6) as usize]);
                 let rank = bitmap_sub_rank(word, digit);
                 let (sp, len) = (*p).subarrays[(digit >> 5) as usize]
                     .get()
                     .expect("live subarray");
                 debug_assert!(rank < len);
-                word::store_edge(sp.add(rank), c);
+                word::put_edge::<SHARED>(sp.add(rank), c);
             }
         }
         Kind::BranchU => {
@@ -2076,7 +2613,7 @@ fn branch_commit(a: &mut Arena, e: &Edge32, digit: u8, child: Option<Edge32>, de
             unsafe {
                 (*p).count = ((*p).count as i64 + delta) as u32;
                 if let Some(c) = child {
-                    word::store_edge(&raw mut (*p).edges[digit as usize], c);
+                    word::put_edge::<SHARED>(&raw mut (*p).edges[digit as usize], c);
                 }
             }
         }
@@ -2409,23 +2946,32 @@ fn make_u(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge3
 /// Insert a `(digit, child)` for a digit **not currently present**,
 /// growing the branch flavour if needed. `child` already carries its own
 /// key(s); `keys_added` is the number of keys `child` contributes.
-fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, keys_added: u32) {
+fn branch_insert_new<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    digit: u8,
+    child: Edge32,
+    keys_added: u32,
+) {
+    if !SHARED {
+        return branch_insert_new_plain(a, e, digit, child, keys_added);
+    }
     let level = branch_level(a, e);
     match kind(e) {
         Kind::BranchL2 | Kind::BranchL6 => {
             let l = Lin::of(a, e);
-            let (n, mut digits) = l.load();
+            let (n, mut digits) = l.load::<SHARED>();
             if n < l.cap {
                 // Insert sorted, in place: shift the tail up one slot, edge by
                 // edge through the words readers load (#1187).
                 let pos = digits[..n].partition_point(|&d| d < digit);
                 for i in (pos..n).rev() {
                     digits[i + 1] = digits[i];
-                    l.set_edge(i + 1, l.edge(i));
+                    l.set_edge::<SHARED>(i + 1, l.edge::<SHARED>(i));
                 }
                 digits[pos] = digit;
-                l.set_edge(pos, child);
-                l.set_digits(n + 1, digits);
+                l.set_edge::<SHARED>(pos, child);
+                l.set_digits::<SHARED>(n + 1, digits);
                 l.add_keys(i64::from(keys_added));
             } else {
                 let total = branch_total_keys(a, e) + keys_added;
@@ -2451,15 +2997,16 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
                     let w = (digit >> 6) as usize;
                     let bit_mask = 1u64 << (digit & 63);
                     let bp = &raw mut (*p).header.bitmap[w];
-                    let word = word::load_u64(bp);
+                    let word = word::get_u64::<SHARED>(bp);
                     debug_assert!((word & bit_mask) == 0);
                     let rank = bitmap_sub_rank(word, digit);
-                    word::store_u64(bp, word | bit_mask);
+                    word::put_u64::<SHARED>(bp, word | bit_mask);
                     let sub = (digit >> 5) as usize;
                     // Population before the insert: `pop_counts`, never the
                     // subarray's allocation length (#615).
                     let pop = (*p).header.pop_counts[sub] as usize;
-                    let retired = sub_edges_insert(&(*p).subarrays[sub], pop, rank, child);
+                    let retired =
+                        sub_edges_insert::<SHARED>(&(*p).subarrays[sub], pop, rank, child);
                     (*p).header.pop_counts[sub] += 1;
                     (*p).num_children += 1;
                     (*p).count += keys_added;
@@ -2486,8 +3033,8 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
             // SAFETY: fields of a live node, through raw places and words.
             unsafe {
                 let ep = &raw mut (*p).edges[digit as usize];
-                debug_assert!(word::load_edge(ep).is_null());
-                word::store_edge(ep, child);
+                debug_assert!(word::get_edge::<SHARED>(ep).is_null());
+                word::put_edge::<SHARED>(ep, child);
                 (*p).num_children += 1;
                 (*p).count += keys_added;
             }
@@ -2504,13 +3051,16 @@ fn insert_pair_sorted(pairs: &mut Vec<(u8, Edge32)>, digit: u8, child: Edge32) {
 /// Remove `(digit, child)` from a branch. Returns `true` if the branch
 /// was modified. The caller is responsible for freeing the child node
 /// if applicable.
-fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
+fn branch_remove_digit<const SHARED: bool>(a: &mut Arena, e: &mut Edge32, digit: u8) {
+    if !SHARED {
+        return branch_remove_digit_plain(a, e, digit);
+    }
     let level = branch_level(a, e);
     match kind(e) {
         Kind::BranchL2 | Kind::BranchL6 => {
             let is_l2 = kind(e) == Kind::BranchL2;
             let l = Lin::of(a, e);
-            let (n, mut digits) = l.load();
+            let (n, mut digits) = l.load::<SHARED>();
             let pos = digits[..n]
                 .iter()
                 .position(|&d| d == digit)
@@ -2519,11 +3069,11 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
             // readers load (#1187).
             for i in pos..n - 1 {
                 digits[i] = digits[i + 1];
-                l.set_edge(i, l.edge(i + 1));
+                l.set_edge::<SHARED>(i, l.edge::<SHARED>(i + 1));
             }
             digits[n - 1] = 0;
-            l.set_edge(n - 1, Edge32::null());
-            l.set_digits(n - 1, digits);
+            l.set_edge::<SHARED>(n - 1, Edge32::null());
+            l.set_digits::<SHARED>(n - 1, digits);
             let new_n = n - 1;
             if is_l2 {
                 if new_n == 0 {
@@ -2552,17 +3102,17 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
                 let w = (digit >> 6) as usize;
                 let bit_mask = 1u64 << (digit & 63);
                 let bp = &raw mut (*p).header.bitmap[w];
-                let word = word::load_u64(bp);
+                let word = word::get_u64::<SHARED>(bp);
                 debug_assert!((word & bit_mask) != 0);
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
-                word::store_u64(bp, word & !bit_mask);
+                word::put_u64::<SHARED>(bp, word & !bit_mask);
                 // Population before the removal: `pop_counts`, never the
                 // subarray's allocation length (#615).
                 let pop = (*p).header.pop_counts[sub] as usize;
                 (*p).header.pop_counts[sub] -= 1;
                 (*p).num_children -= 1;
-                let retired = sub_edges_remove(&(*p).subarrays[sub], pop, rank);
+                let retired = sub_edges_remove::<SHARED>(&(*p).subarrays[sub], pop, rank);
                 (
                     (*p).num_children as usize,
                     (*p).count,
@@ -2590,8 +3140,8 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
             // SAFETY: fields of a live node, through raw places and words.
             let (new_n, total) = unsafe {
                 let ep = &raw mut (*p).edges[digit as usize];
-                debug_assert!(!word::load_edge(ep).is_null());
-                word::store_edge(ep, Edge32::null());
+                debug_assert!(!word::get_edge::<SHARED>(ep).is_null());
+                word::put_edge::<SHARED>(ep, Edge32::null());
                 (*p).num_children -= 1;
                 ((*p).num_children as usize, (*p).count)
             };
@@ -2697,7 +3247,12 @@ fn leaf_insert_pos(buf: &[u8], pop: usize, kb: u8, needle: u32) -> usize {
     leaf_lower_bound(buf, pop, kb, needle).unwrap()
 }
 
-pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> bool {
+pub(crate) fn set_insert_mode<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    rem: u32,
+) -> bool {
     match kind(e) {
         Kind::Null => {
             *e = set_immed_edge(kb, &[rem]);
@@ -2742,9 +3297,9 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
                 let old = edge_handle(e);
                 *e = make_l2(a, kb, &[], 0);
                 for &k in &keys {
-                    set_insert(a, e, kb, k);
+                    set_insert_mode::<SHARED>(a, e, kb, k);
                 }
-                set_insert(a, e, kb, rem);
+                set_insert_mode::<SHARED>(a, e, kb, rem);
                 a.free(old);
             } else {
                 set_leaf_insert_at(a, e, kb, pos, rem);
@@ -2758,16 +3313,16 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             match branch_child(a, e, d) {
                 Some(mut child) => {
                     let old_child = child;
-                    let inserted = set_insert(a, &mut child, kb - 1, cr);
+                    let inserted = set_insert_mode::<SHARED>(a, &mut child, kb - 1, cr);
                     if inserted {
-                        branch_commit(a, e, d, (child != old_child).then_some(child), 1);
+                        branch_commit::<SHARED>(a, e, d, (child != old_child).then_some(child), 1);
                     }
                     inserted
                 }
                 None => {
                     let mut child = Edge32::null();
-                    set_insert(a, &mut child, kb - 1, cr);
-                    branch_insert_new(a, e, d, child, 1);
+                    set_insert_mode::<SHARED>(a, &mut child, kb - 1, cr);
+                    branch_insert_new::<SHARED>(a, e, d, child, 1);
                     true
                 }
             }
@@ -2778,7 +3333,12 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
     }
 }
 
-pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> bool {
+pub(crate) fn set_remove_mode<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    rem: u32,
+) -> bool {
     match kind(e) {
         Kind::Null => false,
         Kind::SetImmed { kb: _, count } => {
@@ -2856,13 +3416,13 @@ pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             match branch_child(a, e, d) {
                 None => false,
                 Some(mut child) => {
-                    let removed = set_remove(a, &mut child, kb - 1, cr);
+                    let removed = set_remove_mode::<SHARED>(a, &mut child, kb - 1, cr);
                     if removed {
                         if child.is_null() {
-                            branch_add_keys(a, e, -1);
-                            branch_remove_digit(a, e, d);
+                            branch_add_keys::<SHARED>(a, e, -1);
+                            branch_remove_digit::<SHARED>(a, e, d);
                         } else {
-                            branch_commit(a, e, d, Some(child), -1);
+                            branch_commit::<SHARED>(a, e, d, Some(child), -1);
                         }
                     }
                     removed
@@ -3013,7 +3573,7 @@ impl Finger32 {
 /// `branch_child` arena resolutions and three `branch_commit` ones. What
 /// remains is the leaf store plus one count bump per ancestor.
 #[inline(always)]
-pub(crate) fn map_insert_via_finger(
+pub(crate) fn map_insert_via_finger_mode<const SHARED: bool>(
     a: &mut Arena,
     key: u32,
     val: u32,
@@ -3049,21 +3609,34 @@ pub(crate) fn map_insert_via_finger(
     // Subtree counts, the only thing the skipped descent still owed. The
     // digit is unused for a count-only commit.
     for i in 0..f.depth as usize {
-        branch_commit(a, &f.ancestors[i], 0, None, 1);
+        branch_commit::<SHARED>(a, &f.ancestors[i], 0, None, 1);
     }
     Some(old)
 }
 
 /// Insert without a finger, for callers that hold no cached path (bulk
 /// rebuilds, promotions, the blob map's index).
-pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u32) -> Option<u32> {
+pub(crate) fn map_insert_mode<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    rem: u32,
+    val: u32,
+) -> Option<u32> {
     let mut scratch = Finger32::new();
-    map_insert_f(a, e, kb, rem, val, &mut scratch)
+    map_insert_f_mode::<SHARED>(a, e, kb, rem, val, &mut scratch)
+}
+
+/// [`map_insert_mode`] on an unshared tree: plain stores throughout.
+#[cfg(test)]
+#[inline(always)]
+pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u32) -> Option<u32> {
+    map_insert_mode::<false>(a, e, kb, rem, val)
 }
 
 /// Insert, recording the descent in `f` when it terminates somewhere the
 /// finger can be reused. Any other outcome disarms it.
-pub(crate) fn map_insert_f(
+pub(crate) fn map_insert_f_mode<const SHARED: bool>(
     a: &mut Arena,
     e: &mut Edge32,
     kb: u8,
@@ -3128,9 +3701,9 @@ pub(crate) fn map_insert_f(
                 let oldh = edge_handle(e);
                 *e = make_l2(a, kb, &[], 0);
                 for &(k, v) in &entries {
-                    map_insert(a, e, kb, k, v);
+                    map_insert_mode::<SHARED>(a, e, kb, k, v);
                 }
-                map_insert(a, e, kb, rem, val);
+                map_insert_mode::<SHARED>(a, e, kb, rem, val);
                 a.free(oldh);
             } else {
                 map_leaf_insert_at(a, e, kb, pos, rem, val);
@@ -3175,10 +3748,16 @@ pub(crate) fn map_insert_f(
             match branch_child(a, e, d) {
                 Some(mut child) => {
                     let old_child = child;
-                    let old = map_insert_f(a, &mut child, kb - 1, cr, val, f);
+                    let old = map_insert_f_mode::<SHARED>(a, &mut child, kb - 1, cr, val, f);
                     let changed = child != old_child;
                     if changed || old.is_none() {
-                        branch_commit(a, e, d, changed.then_some(child), i64::from(old.is_none()));
+                        branch_commit::<SHARED>(
+                            a,
+                            e,
+                            d,
+                            changed.then_some(child),
+                            i64::from(old.is_none()),
+                        );
                     }
                     if changed {
                         // The child edge moved, so a cached path through it
@@ -3190,11 +3769,11 @@ pub(crate) fn map_insert_f(
                 }
                 None => {
                     let mut child = Edge32::null();
-                    map_insert_f(a, &mut child, kb - 1, cr, val, f);
+                    map_insert_f_mode::<SHARED>(a, &mut child, kb - 1, cr, val, f);
                     // A new digit can upgrade this branch, replacing the node
                     // the finger would cache.
                     f.clear();
-                    branch_insert_new(a, e, d, child, 1);
+                    branch_insert_new::<SHARED>(a, e, d, child, 1);
                     None
                 }
             }
@@ -3203,7 +3782,12 @@ pub(crate) fn map_insert_f(
     }
 }
 
-pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Option<u32> {
+pub(crate) fn map_remove_mode<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    rem: u32,
+) -> Option<u32> {
     match kind(e) {
         Kind::Null => None,
         Kind::MapImmed { kb: _ } => {
@@ -3299,13 +3883,13 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             match branch_child(a, e, d) {
                 None => None,
                 Some(mut child) => {
-                    let old = map_remove(a, &mut child, kb - 1, cr);
+                    let old = map_remove_mode::<SHARED>(a, &mut child, kb - 1, cr);
                     if old.is_some() {
                         if child.is_null() {
-                            branch_add_keys(a, e, -1);
-                            branch_remove_digit(a, e, d);
+                            branch_add_keys::<SHARED>(a, e, -1);
+                            branch_remove_digit::<SHARED>(a, e, d);
                         } else {
-                            branch_commit(a, e, d, Some(child), -1);
+                            branch_commit::<SHARED>(a, e, d, Some(child), -1);
                         }
                     }
                     old
@@ -4363,6 +4947,88 @@ pub(crate) fn prev_entry(a: &Arena, e: &Edge32, kb: u8, before: u32) -> Option<(
         }
     }
 }
+// The walks' entry points, one non-generic function per mode (#1187). Like
+// `main`'s non-generic walks they are compiled in this crate: a caller in
+// another crate reaching `*_mode::<false>` through an inlined generic would
+// instantiate it there, under that crate's inlining decisions, so the plain
+// engine would no longer run the code it ran before the shared mode existed.
+
+/// [`set_insert_mode`] on an unshared tree.
+pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> bool {
+    set_insert_mode::<false>(a, e, kb, rem)
+}
+
+/// [`set_insert_mode`] on the concurrent wrapper's tree.
+pub(crate) fn set_insert_shared(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> bool {
+    set_insert_mode::<true>(a, e, kb, rem)
+}
+
+/// [`set_remove_mode`] on an unshared tree.
+pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> bool {
+    set_remove_mode::<false>(a, e, kb, rem)
+}
+
+/// [`set_remove_mode`] on the concurrent wrapper's tree.
+pub(crate) fn set_remove_shared(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> bool {
+    set_remove_mode::<true>(a, e, kb, rem)
+}
+
+/// [`map_insert_via_finger_mode`] on an unshared tree (inlined into its
+/// caller, as `main`'s was).
+#[inline(always)]
+pub(crate) fn map_insert_via_finger(
+    a: &mut Arena,
+    key: u32,
+    val: u32,
+    f: &Finger32,
+) -> Option<Option<u32>> {
+    map_insert_via_finger_mode::<false>(a, key, val, f)
+}
+
+/// [`map_insert_via_finger_mode`] on the concurrent wrapper's tree.
+#[inline(always)]
+pub(crate) fn map_insert_via_finger_shared(
+    a: &mut Arena,
+    key: u32,
+    val: u32,
+    f: &Finger32,
+) -> Option<Option<u32>> {
+    map_insert_via_finger_mode::<true>(a, key, val, f)
+}
+
+/// [`map_insert_f_mode`] on an unshared tree.
+pub(crate) fn map_insert_f(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    rem: u32,
+    val: u32,
+    f: &mut Finger32,
+) -> Option<u32> {
+    map_insert_f_mode::<false>(a, e, kb, rem, val, f)
+}
+
+/// [`map_insert_f_mode`] on the concurrent wrapper's tree.
+pub(crate) fn map_insert_f_shared(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    rem: u32,
+    val: u32,
+    f: &mut Finger32,
+) -> Option<u32> {
+    map_insert_f_mode::<true>(a, e, kb, rem, val, f)
+}
+
+/// [`map_remove_mode`] on an unshared tree.
+pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Option<u32> {
+    map_remove_mode::<false>(a, e, kb, rem)
+}
+
+/// [`map_remove_mode`] on the concurrent wrapper's tree.
+pub(crate) fn map_remove_shared(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Option<u32> {
+    map_remove_mode::<true>(a, e, kb, rem)
+}
 
 /// Remove every map entry whose remainder lies in `lo..=hi` under `e`,
 /// calling `f(key, value)` for each in ascending key order; returns the
@@ -4533,15 +5199,21 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                 }
                 total += n;
                 if child.is_null() {
-                    branch_add_keys(a, e, -(n as i64));
+                    branch_add_keys::<false>(a, e, -(n as i64));
                     // May demote or empty the branch, so the next iteration
                     // re-dispatches on the rewritten edge.
-                    branch_remove_digit(a, e, d);
+                    branch_remove_digit::<false>(a, e, d);
                     if e.is_null() {
                         break;
                     }
                 } else {
-                    branch_commit(a, e, d, (child != before).then_some(child), -(n as i64));
+                    branch_commit::<false>(
+                        a,
+                        e,
+                        d,
+                        (child != before).then_some(child),
+                        -(n as i64),
+                    );
                 }
             }
             total
@@ -4686,13 +5358,19 @@ pub(crate) fn set_remove_range<F: FnMut(u32)>(
                 }
                 total += n;
                 if child.is_null() {
-                    branch_add_keys(a, e, -(n as i64));
-                    branch_remove_digit(a, e, d);
+                    branch_add_keys::<false>(a, e, -(n as i64));
+                    branch_remove_digit::<false>(a, e, d);
                     if e.is_null() {
                         break;
                     }
                 } else {
-                    branch_commit(a, e, d, (child != before).then_some(child), -(n as i64));
+                    branch_commit::<false>(
+                        a,
+                        e,
+                        d,
+                        (child != before).then_some(child),
+                        -(n as i64),
+                    );
                 }
             }
             total

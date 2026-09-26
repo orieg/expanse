@@ -91,7 +91,9 @@
 //! count, edges, the bitmap and each bitmap branch's subarray address and
 //! length) are loaded and stored as atomic words of the same size on both
 //! sides (`trie32::word`), and the branch owner has no `DerefMut`, so the
-//! writer cannot form `&mut` to a published branch. What remains is leaf
+//! writer cannot form `&mut` to a published branch. The writer runs the
+//! shared instantiation of the engine's walks (`insert_shared`,
+//! `remove_shared`); the plain containers keep their plain stores. What remains is leaf
 //! contents: a reader reads leaf bytes and bitmap-leaf fields through
 //! references while the writer edits the same leaves in place, which under
 //! the Rust memory model is a data race and an aliasing violation, both
@@ -601,13 +603,13 @@ impl Writer32<'_, ExpanseMap32> {
         value: Value32,
     ) -> Result<Option<Value32>, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|m| m.insert(key, value)))
+        Ok(self.write(|m| m.insert_shared(key, value)))
     }
 
     /// Removes `key`; returns its value, or an error if refused.
     pub fn try_remove(&mut self, key: Key32) -> Result<Option<Value32>, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|m| m.remove(key)))
+        Ok(self.write(|m| m.remove_shared(key)))
     }
 
     /// Point lookup through the writer (always consistent; never `Busy`).
@@ -685,14 +687,14 @@ impl Writer32<'_, ExpanseSet32> {
     /// if the mutation was refused (tree untouched).
     pub fn try_insert(&mut self, key: Key32) -> Result<bool, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|s| s.insert(key)))
+        Ok(self.write(|s| s.insert_shared(key)))
     }
 
     /// Removes `key`; returns whether it was present, or an error if
     /// refused.
     pub fn try_remove(&mut self, key: Key32) -> Result<bool, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|s| s.remove(key)))
+        Ok(self.write(|s| s.remove_shared(key)))
     }
 
     /// Membership test through the writer (always consistent).

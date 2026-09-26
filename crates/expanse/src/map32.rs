@@ -88,12 +88,32 @@ impl ExpanseMap32 {
     /// newly inserted.
     #[inline]
     pub fn insert(&mut self, key: Key32, value: Value32) -> Option<Value32> {
+        self.insert_mode::<false>(key, value)
+    }
+
+    /// [`Self::insert`] for the concurrent wrapper's tree (#1187): the walk
+    /// whose stores to published nodes are the atomic words its readers load.
+    #[inline]
+    pub(crate) fn insert_shared(&mut self, key: Key32, value: Value32) -> Option<Value32> {
+        self.insert_mode::<true>(key, value)
+    }
+
+    #[inline(always)]
+    fn insert_mode<const SHARED: bool>(&mut self, key: Key32, value: Value32) -> Option<Value32> {
+        debug_assert_eq!(
+            self.alloc.is_deferred(),
+            SHARED,
+            "a shared tree takes the shared walk"
+        );
         // The cached path answers a key in the same expanse as the last
         // insert -- the shape a monotonic stream produces -- without the
         // descent. It reports a miss rather than guessing, so a stale or
         // inapplicable finger costs one compare.
-        if let Some(old) = trie32::map_insert_via_finger(&mut self.alloc, key, value, &self.finger)
-        {
+        if let Some(old) = if SHARED {
+            trie32::map_insert_via_finger_shared(&mut self.alloc, key, value, &self.finger)
+        } else {
+            trie32::map_insert_via_finger(&mut self.alloc, key, value, &self.finger)
+        } {
             #[cfg(test)]
             finger_census::hit();
             if old.is_none() {
@@ -103,14 +123,25 @@ impl ExpanseMap32 {
         }
         #[cfg(test)]
         finger_census::miss();
-        let old = trie32::map_insert_f(
-            &mut self.alloc,
-            &mut self.root,
-            4,
-            key,
-            value,
-            &mut self.finger,
-        );
+        let old = if SHARED {
+            trie32::map_insert_f_shared(
+                &mut self.alloc,
+                &mut self.root,
+                4,
+                key,
+                value,
+                &mut self.finger,
+            )
+        } else {
+            trie32::map_insert_f(
+                &mut self.alloc,
+                &mut self.root,
+                4,
+                key,
+                value,
+                &mut self.finger,
+            )
+        };
         self.finger.set_prefix(key >> 8);
         if old.is_none() {
             self.len += 1;
@@ -155,8 +186,29 @@ impl ExpanseMap32 {
     /// Remove a key from the map, returning its value if present.
     #[inline]
     pub fn remove(&mut self, key: Key32) -> Option<Value32> {
+        self.remove_mode::<false>(key)
+    }
+
+    /// [`Self::remove`] for the concurrent wrapper's tree; see
+    /// [`Self::insert_shared`].
+    #[inline]
+    pub(crate) fn remove_shared(&mut self, key: Key32) -> Option<Value32> {
+        self.remove_mode::<true>(key)
+    }
+
+    #[inline(always)]
+    fn remove_mode<const SHARED: bool>(&mut self, key: Key32) -> Option<Value32> {
+        debug_assert_eq!(
+            self.alloc.is_deferred(),
+            SHARED,
+            "a shared tree takes the shared walk"
+        );
         self.finger.clear();
-        let old = trie32::map_remove(&mut self.alloc, &mut self.root, 4, key);
+        let old = if SHARED {
+            trie32::map_remove_shared(&mut self.alloc, &mut self.root, 4, key)
+        } else {
+            trie32::map_remove(&mut self.alloc, &mut self.root, 4, key)
+        };
         if old.is_some() {
             self.len -= 1;
         }

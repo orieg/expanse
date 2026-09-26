@@ -112,7 +112,28 @@ impl ExpanseSet32 {
     /// existed.
     #[inline]
     pub fn insert(&mut self, key: Key32) -> bool {
-        let inserted = trie32::set_insert(&mut self.alloc, &mut self.root, 4, key);
+        self.insert_mode::<false>(key)
+    }
+
+    /// [`Self::insert`] for the concurrent wrapper's tree (#1187): the walk
+    /// whose stores to published nodes are the atomic words its readers load.
+    #[inline]
+    pub(crate) fn insert_shared(&mut self, key: Key32) -> bool {
+        self.insert_mode::<true>(key)
+    }
+
+    #[inline(always)]
+    fn insert_mode<const SHARED: bool>(&mut self, key: Key32) -> bool {
+        debug_assert_eq!(
+            self.alloc.is_deferred(),
+            SHARED,
+            "a shared tree takes the shared walk"
+        );
+        let inserted = if SHARED {
+            trie32::set_insert_shared(&mut self.alloc, &mut self.root, 4, key)
+        } else {
+            trie32::set_insert(&mut self.alloc, &mut self.root, 4, key)
+        };
         if inserted {
             self.len += 1;
         }
@@ -157,7 +178,28 @@ impl ExpanseSet32 {
     /// Returns `true` if the key was present, `false` otherwise.
     #[inline]
     pub fn remove(&mut self, key: Key32) -> bool {
-        let removed = trie32::set_remove(&mut self.alloc, &mut self.root, 4, key);
+        self.remove_mode::<false>(key)
+    }
+
+    /// [`Self::remove`] for the concurrent wrapper's tree; see
+    /// [`Self::insert_shared`].
+    #[inline]
+    pub(crate) fn remove_shared(&mut self, key: Key32) -> bool {
+        self.remove_mode::<true>(key)
+    }
+
+    #[inline(always)]
+    fn remove_mode<const SHARED: bool>(&mut self, key: Key32) -> bool {
+        debug_assert_eq!(
+            self.alloc.is_deferred(),
+            SHARED,
+            "a shared tree takes the shared walk"
+        );
+        let removed = if SHARED {
+            trie32::set_remove_shared(&mut self.alloc, &mut self.root, 4, key)
+        } else {
+            trie32::set_remove(&mut self.alloc, &mut self.root, 4, key)
+        };
         if removed {
             self.len -= 1;
         }
