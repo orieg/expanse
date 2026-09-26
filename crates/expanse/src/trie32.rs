@@ -301,14 +301,67 @@ pub(crate) struct LeafBitmapL32Data {
 /// sized to the RFC's on-target byte layout, so [`Arena::bytes_in_use`]
 /// is an exact memory figure.
 pub enum NodeBox {
-    L2(Box<BranchL2_32>),
-    L6(Box<BranchL6_32>),
-    B(Box<BranchB32Data>),
-    U(Box<BranchU32>),
-    Bitmap(Box<LeafBitmap1_32>),
-    MapBitmap(Box<LeafBitmapL32Data>),
-    Leaf(Box<[u8]>),
+    L2(Raw<BranchL2_32>),
+    L6(Raw<BranchL6_32>),
+    B(Raw<BranchB32Data>),
+    U(Raw<BranchU32>),
+    Bitmap(Raw<LeafBitmap1_32>),
+    MapBitmap(Raw<LeafBitmapL32Data>),
+    Leaf(Raw<[u8]>),
 }
+
+/// A node allocation owned through the raw pointer `Box::into_raw` returned
+/// (#1187). A fixed arena publishes that pointer to the concurrent wrapper's
+/// readers, and the writer derives every reference it forms from the same
+/// pointer, so a reference the writer takes and drops does not invalidate
+/// the published one. A `Box` would: under Stacked Borrows, reborrowing a
+/// `Box` mutably retags its whole allocation, invalidating any pointer
+/// derived from an earlier borrow of it.
+pub struct Raw<T: ?Sized>(NonNull<T>);
+
+impl<T: ?Sized> Raw<T> {
+    #[inline]
+    fn new(b: Box<T>) -> Self {
+        // SAFETY: `Box::into_raw` never returns null.
+        Self(unsafe { NonNull::new_unchecked(Box::into_raw(b)) })
+    }
+
+    /// The owning pointer, with the allocation's base provenance.
+    #[inline]
+    fn as_ptr(&self) -> *mut T {
+        self.0.as_ptr()
+    }
+}
+
+impl<T: ?Sized> core::ops::Deref for Raw<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        // SAFETY: a live allocation this value owns; `&self` rules out a
+        // concurrent `&mut` from the owner.
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<T: ?Sized> core::ops::DerefMut for Raw<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut T {
+        // SAFETY: as `deref`, with `&mut self` for exclusivity.
+        unsafe { self.0.as_mut() }
+    }
+}
+
+impl<T: ?Sized> Drop for Raw<T> {
+    fn drop(&mut self) {
+        // SAFETY: made by `Box::into_raw` in `new` and freed only here.
+        drop(unsafe { Box::from_raw(self.0.as_ptr()) });
+    }
+}
+
+// SAFETY: `Raw<T>` owns its allocation exactly as `Box<T>` does.
+unsafe impl<T: ?Sized + Send> Send for Raw<T> {}
+// SAFETY: see `Send`.
+unsafe impl<T: ?Sized + Sync> Sync for Raw<T> {}
 
 impl NodeBox {
     #[inline]
@@ -379,39 +432,15 @@ impl PubSlot {
     /// kind, so a reader that sees the kind sees them too.
     fn publish(&self, node: &NodeBox) {
         let (kind, ptr, len) = match node {
-            NodeBox::L2(b) => (
-                PubKind::L2,
-                core::ptr::from_ref::<BranchL2_32>(b).cast::<u8>(),
-                0,
-            ),
-            NodeBox::L6(b) => (
-                PubKind::L6,
-                core::ptr::from_ref::<BranchL6_32>(b).cast::<u8>(),
-                0,
-            ),
-            NodeBox::B(b) => (
-                PubKind::B,
-                core::ptr::from_ref::<BranchB32Data>(b).cast::<u8>(),
-                0,
-            ),
-            NodeBox::U(b) => (
-                PubKind::U,
-                core::ptr::from_ref::<BranchU32>(b).cast::<u8>(),
-                0,
-            ),
-            NodeBox::Bitmap(b) => (
-                PubKind::Bitmap,
-                core::ptr::from_ref::<LeafBitmap1_32>(b).cast::<u8>(),
-                0,
-            ),
-            NodeBox::MapBitmap(b) => (
-                PubKind::MapBitmap,
-                core::ptr::from_ref::<LeafBitmapL32Data>(b).cast::<u8>(),
-                0,
-            ),
-            NodeBox::Leaf(b) => (PubKind::Leaf, b.as_ptr(), b.len() as u32),
+            NodeBox::L2(b) => (PubKind::L2, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::L6(b) => (PubKind::L6, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::B(b) => (PubKind::B, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::U(b) => (PubKind::U, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::Bitmap(b) => (PubKind::Bitmap, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::MapBitmap(b) => (PubKind::MapBitmap, b.as_ptr().cast::<u8>(), 0),
+            NodeBox::Leaf(b) => (PubKind::Leaf, b.as_ptr().cast::<u8>(), b.len() as u32),
         };
-        self.ptr.store(ptr.cast_mut(), Ordering::Relaxed);
+        self.ptr.store(ptr, Ordering::Relaxed);
         self.len.store(len, Ordering::Relaxed);
         self.kind.store(kind as u32, Ordering::Release);
     }
@@ -1059,7 +1088,7 @@ fn make_set_leaf(a: &mut Arena, kb: u8, keys: &[u32]) -> Edge32 {
     for (i, &k) in keys.iter().enumerate() {
         write_rem(&mut buf, i, kb as usize, k);
     }
-    let h = a.alloc(NodeBox::Leaf(buf));
+    let h = a.alloc(NodeBox::Leaf(Raw::new(buf)));
     leaf_edge(h, pop, t_set_leaf(kb))
 }
 
@@ -1094,7 +1123,7 @@ fn set_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
         nb[..pos * kbz].copy_from_slice(&old[..pos * kbz]);
         nb[(pos + 1) * kbz..new_pop * kbz].copy_from_slice(&old[pos * kbz..pop * kbz]);
         write_rem(&mut nb, pos, kbz, rem);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
     }
@@ -1127,7 +1156,7 @@ fn set_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: us
         let old = a.leaf(h);
         nb[..i0 * kbz].copy_from_slice(&old[..i0 * kbz]);
         nb[i0 * kbz..new_pop * kbz].copy_from_slice(&old[i1 * kbz..pop * kbz]);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
     }
@@ -1146,7 +1175,7 @@ fn make_map_leaf(a: &mut Arena, kb: u8, entries: &[(u32, u32)]) -> Edge32 {
         buf[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
         write_rem(&mut buf[keys_off..], i, kb as usize, k);
     }
-    let h = a.alloc(NodeBox::Leaf(buf));
+    let h = a.alloc(NodeBox::Leaf(Raw::new(buf)));
     leaf_edge(h, pop, t_map_leaf(kb))
 }
 
@@ -1195,7 +1224,7 @@ fn map_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
         nb[new_off + (pos + 1) * kbz..new_off + new_pop * kbz]
             .copy_from_slice(&old[old_off + pos * kbz..old_off + pop * kbz]);
         write_rem(&mut nb[new_off..], pos, kbz, rem);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
     }
@@ -1232,7 +1261,7 @@ fn map_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: us
         nb[new_off..new_off + i0 * kbz].copy_from_slice(&old[old_off..old_off + i0 * kbz]);
         nb[new_off + i0 * kbz..new_off + new_pop * kbz]
             .copy_from_slice(&old[old_off + i1 * kbz..old_off + pop * kbz]);
-        let nh = a.alloc(NodeBox::Leaf(nb));
+        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
     }
@@ -1255,7 +1284,7 @@ fn bitmap_from_keys(a: &mut Arena, keys: &[u32]) -> Edge32 {
     for &k in keys {
         leaf.set(k as u8);
     }
-    let h = a.alloc(NodeBox::Bitmap(Box::new(leaf)));
+    let h = a.alloc(NodeBox::Bitmap(Raw::new(Box::new(leaf))));
     node_edge(h, T_BITMAP)
 }
 
@@ -1382,7 +1411,7 @@ fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
             data.subarrays[sub] = Some(sub_vals.into_boxed_slice());
         }
     }
-    let h = a.alloc(NodeBox::MapBitmap(Box::new(data)));
+    let h = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(data))));
     node_edge(h, T_MAP_BITMAP)
 }
 
@@ -1895,7 +1924,7 @@ fn make_l2(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge
         b.digits[i] = d;
         b.edges[i] = c;
     }
-    let h = a.alloc(NodeBox::L2(Box::new(b)));
+    let h = a.alloc(NodeBox::L2(Raw::new(Box::new(b))));
     node_edge(h, T_L2)
 }
 
@@ -1908,7 +1937,7 @@ fn make_l6(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge
         b.digits[i] = d;
         b.edges[i] = c;
     }
-    let h = a.alloc(NodeBox::L6(Box::new(b)));
+    let h = a.alloc(NodeBox::L6(Raw::new(Box::new(b))));
     node_edge(h, T_L6)
 }
 
@@ -1942,7 +1971,7 @@ fn make_b(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge3
             data.subarrays[sub] = Some(sub_edges.into_boxed_slice());
         }
     }
-    let h = a.alloc(NodeBox::B(Box::new(data)));
+    let h = a.alloc(NodeBox::B(Raw::new(Box::new(data))));
     node_edge(h, T_B)
 }
 
@@ -1953,7 +1982,7 @@ fn make_u(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge3
     for &(d, c) in pairs {
         b.edges[d as usize] = c;
     }
-    let h = a.alloc(NodeBox::U(Box::new(b)));
+    let h = a.alloc(NodeBox::U(Raw::new(Box::new(b))));
     node_edge(h, T_U)
 }
 
