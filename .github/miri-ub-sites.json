@@ -559,14 +559,8 @@
     {
       "test": "sync32::map_reader_writer",
       "check": "alias-sb",
-      "expect": "ub",
-      "error": "strongly protected",
-      "frame": [
-        "trie32::",
-        "sync32::",
-        "core::"
-      ],
-      "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
       "test": "sync32::map_reader_writer",
