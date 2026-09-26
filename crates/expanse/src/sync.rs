@@ -1891,7 +1891,7 @@ const _: () = {
 #[repr(C, align(64))]
 struct Shared<T> {
     version: Line<TreeHead>,
-    inner: UnsafeCell<T>,
+    inner: UnsafeCell<core::mem::ManuallyDrop<T>>,
     tree_pop: Line<ShardedTreePop>,
     write: Line<Mutex<()>>,
     collector: Arc<Collector>,
@@ -1931,6 +1931,14 @@ impl<T> Drop for Shared<T> {
         self.collector
             .alive
             .store(false, core::sync::atomic::Ordering::Release);
+        // The tree drops first: its allocator defers to the collector, so its
+        // nodes are retired into the collector's bins, and only the drain
+        // below frees them. Dropped after the drain, as a field, they would
+        // stay queued for as long as another `Arc<Collector>` lives — a
+        // writer thread's cached `Reader` holds one until that thread exits.
+        // SAFETY: `inner` is dropped exactly once, here; `&mut self` excludes
+        // every reader and writer, and nothing touches the tree after this.
+        unsafe { core::mem::ManuallyDrop::drop(self.inner.get_mut()) };
         self.collector.drain();
     }
 }
@@ -2012,7 +2020,7 @@ impl<T: SharedTree> Shared<T> {
         let initial_pop = inner.tree_pop();
         let shared = SharedBox::new(Self {
             version: line(TreeHead::new()),
-            inner: UnsafeCell::new(inner),
+            inner: UnsafeCell::new(core::mem::ManuallyDrop::new(inner)),
             tree_pop: line(ShardedTreePop::new(initial_pop)),
             write: line(Mutex::new(())),
             collector,
@@ -2090,13 +2098,20 @@ impl<T: SharedTree> Shared<T> {
         }
     }
 
+    /// Raw pointer to the wrapped engine. `ManuallyDrop` is
+    /// `repr(transparent)`, so the cast changes neither address nor layout.
+    #[inline(always)]
+    fn tree_ptr(&self) -> *mut T {
+        self.inner.get().cast::<T>()
+    }
+
     /// The wrapped engine, for construction-time calls that need no lock.
     #[inline(always)]
     fn inner_ref(&self) -> &T {
         // SAFETY: a shared borrow of the engine; callers use it only where
         // no writer can be running (construction).
         // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-        unsafe { &*self.inner.get() }
+        unsafe { &*self.tree_ptr() }
     }
 
     #[inline(always)]
@@ -2423,7 +2438,7 @@ impl<T: SharedTree> Shared<T> {
         crate::alloc::bracket_stack::enter(self.tree_cover_addr());
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
-        let inner = unsafe { &mut *self.inner.get() };
+        let inner = unsafe { &mut *self.tree_ptr() };
         let pop_before = inner.tree_pop();
         if T::PUBLISHES_ROOT {
             inner.hold_tree_word(true);
@@ -2558,7 +2573,7 @@ impl<T: SharedTree> Shared<T> {
         }
         crate::occ_stats::op_begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
-        let inner = unsafe { &mut *self.inner.get() };
+        let inner = unsafe { &mut *self.tree_ptr() };
         inner.clear_path();
         if EXACT_POP || COVER_ALWAYS {
             #[cfg(feature = "std")]
@@ -2639,7 +2654,7 @@ impl<T: SharedTree> Shared<T> {
         // Optimistic readers still run, and they touch the engine only where
         // the wrapper does not publish its root (`T::PUBLISHES_ROOT`, #1086);
         // this is a temporary unique reference to flush the path cursors.
-        let inner = unsafe { &mut *self.inner.get() };
+        let inner = unsafe { &mut *self.tree_ptr() };
         inner.clear_path();
         #[cfg(debug_assertions)]
         self.assert_published(inner);
@@ -2667,7 +2682,7 @@ impl<T: SharedTree> Shared<T> {
         // this unique reference flushes the path cursors and feeds the fold.
         // The fold below stores node `pop0` words those readers may load,
         // each as an atomic word (`Edge::set_pop0_at`, #1086).
-        let inner = unsafe { &mut *self.inner.get() };
+        let inner = unsafe { &mut *self.tree_ptr() };
         inner.clear_path();
         let mut mask = [0u32; 8];
         if self.dirty_digits.take(&mut mask) {
@@ -2712,7 +2727,7 @@ impl<T: SharedTree> Shared<T> {
         // SAFETY: as in `with_locked`: every writer is excluded, and
         // optimistic readers touch the engine only where the wrapper does not
         // publish its root (`T::PUBLISHES_ROOT`, #1086).
-        let inner = unsafe { &mut *self.inner.get() };
+        let inner = unsafe { &mut *self.tree_ptr() };
         inner.clear_path();
         pre(inner);
         let mut mask = [0u32; 8];
@@ -2779,7 +2794,7 @@ impl<T: SharedTree> Shared<T> {
                 // SAFETY: pinned, with a freshly sampled version; `root_of`
                 // copies the root by value, and `walk` validates every load
                 // it makes from it.
-                root_of(unsafe { &*self.inner.get() })
+                root_of(unsafe { &*self.tree_ptr() })
             };
             let attempt = walk(root, self.version(), snap);
             // Diagnostic builds: the attempt overlapped a covered write when
@@ -2812,7 +2827,7 @@ impl<T: SharedTree> Shared<T> {
                 self.published().load()
             } else {
                 // SAFETY: by-value snapshot; validated before use.
-                root_of(unsafe { &*self.inner.get() })
+                root_of(unsafe { &*self.tree_ptr() })
             };
             if self.version().validate(snap) {
                 return match root {
@@ -2925,7 +2940,7 @@ impl Shared<ExpanseSet> {
     fn engine_alloc(&self) -> &NodeAlloc {
         // SAFETY: the block outlives `&self`; an admitted optimistic writer
         // runs only while no covered writer holds `&mut` to the engine.
-        unsafe { ExpanseSet::alloc_of(self.inner.get()) }
+        unsafe { ExpanseSet::alloc_of(self.tree_ptr()) }
     }
 }
 
@@ -2946,7 +2961,7 @@ impl OlcHost for Shared<ExpanseMap> {
     fn alloc(&self) -> &NodeAlloc {
         // SAFETY: the block outlives `&self`; an admitted optimistic writer
         // runs only while no covered writer holds `&mut` to the engine.
-        unsafe { ExpanseMap::alloc_of(self.inner.get()) }
+        unsafe { ExpanseMap::alloc_of(self.tree_ptr()) }
     }
 
     #[inline(always)]
@@ -2977,7 +2992,7 @@ impl OlcHost for Shared<ExpanseBlobMap> {
     fn alloc(&self) -> &NodeAlloc {
         // SAFETY: the block outlives `&self`; an admitted optimistic writer
         // runs only while no covered writer holds `&mut` to the engine.
-        unsafe { ExpanseBlobMap::alloc_of(self.inner.get()) }
+        unsafe { ExpanseBlobMap::alloc_of(self.tree_ptr()) }
     }
 
     #[inline(always)]
@@ -3012,7 +3027,7 @@ impl<S: BuildHasher> OlcHost for Shared<ExpanseBytesMap<S>> {
     fn alloc(&self) -> &NodeAlloc {
         // SAFETY: the block outlives `&self`; an admitted optimistic writer
         // runs only while no covered writer holds `&mut` to the engine.
-        unsafe { ExpanseBytesMap::alloc_of(self.inner.get()) }
+        unsafe { ExpanseBytesMap::alloc_of(self.tree_ptr()) }
     }
 
     #[inline(always)]
@@ -9763,7 +9778,7 @@ impl SyncExpanseBlobMap {
                 // writers' grants and shared allocations take the same mutex;
                 // quiesced sections wait for this writer to leave the gate).
                 let grant =
-                    unsafe { ExpanseBlobMap::grant_private_chunk_raw(self.shared.inner.get())? };
+                    unsafe { ExpanseBlobMap::grant_private_chunk_raw(self.shared.tree_ptr())? };
                 st.chunk = Some(grant);
                 st.cursor = 0;
                 grant
@@ -9905,7 +9920,7 @@ impl SyncExpanseBlobMap {
                                 // `&mut ExpanseBlobMap` while concurrent readers hold shared references to `index`.
                                 unsafe {
                                     let arena_ptr =
-                                        core::ptr::addr_of_mut!((*self.shared.inner.get()).arena);
+                                        core::ptr::addr_of_mut!((*self.shared.tree_ptr()).arena);
                                     (*arena_ptr).prepare_slot(data, hot_meta)?
                                 }
                             }
@@ -9920,7 +9935,7 @@ impl SyncExpanseBlobMap {
                         // `&mut ExpanseBlobMap` while concurrent readers hold shared references to `index`.
                         unsafe {
                             let arena_ptr =
-                                core::ptr::addr_of_mut!((*self.shared.inner.get()).arena);
+                                core::ptr::addr_of_mut!((*self.shared.tree_ptr()).arena);
                             (*arena_ptr).prepare_slot(data, hot_meta)?
                         }
                     }
@@ -9965,7 +9980,7 @@ impl SyncExpanseBlobMap {
                                         // Access only the `arena` subfield via raw pointer, never forming `&mut ExpanseBlobMap`.
                                         unsafe {
                                             let arena_ptr = core::ptr::addr_of_mut!(
-                                                (*self.shared.inner.get()).arena
+                                                (*self.shared.tree_ptr()).arena
                                             );
                                             (*arena_ptr).record_deleted_slot(old_slot);
                                         }
@@ -10712,7 +10727,7 @@ impl SyncExpanseStrMap {
                 self.shared.str_optimistic(|| {
                     // SAFETY: the gate is entered and the epoch pinned for
                     // this closure, on a map `from_map` deferred.
-                    match unsafe { (*self.shared.inner.get()).olc_insert(key, val) } {
+                    match unsafe { (*self.shared.tree_ptr()).olc_insert(key, val) } {
                         OlcOutcome::Done(prev) => {
                             if prev.is_none() {
                                 self.shared.tree_pop.add(slot, 1);
@@ -10747,7 +10762,7 @@ impl SyncExpanseStrMap {
             let res = self.shared.with_writer_pin(|| {
                 self.shared.str_optimistic(|| {
                     // SAFETY: as in `insert`.
-                    let (outcome, prune) = unsafe { (*self.shared.inner.get()).olc_remove(key) };
+                    let (outcome, prune) = unsafe { (*self.shared.tree_ptr()).olc_remove(key) };
                     match outcome {
                         OlcOutcome::Done(prev) => {
                             if prev.is_some() {
@@ -11686,7 +11701,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             for _ in 0..MAX_RETRIES {
                 let snap = self.shared.version().sample();
                 // SAFETY: single-word racy copy; validated before use.
-                let pop = unsafe { (*self.shared.inner.get()).len() };
+                let pop = unsafe { (*self.shared.tree_ptr()).len() };
                 if self.shared.version().validate(snap) {
                     return pop;
                 }
@@ -16956,7 +16971,7 @@ mod obsolete_tests {
         // shape must actually be the one the interleaving needs.
         let probe = 0x1021u64;
         // SAFETY: no writer is running; the snapshot is read for its shape.
-        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.inner.get()).occ_root().0 }) else {
+        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.tree_ptr()).occ_root().0 }) else {
             panic!("root must be a tree")
         };
         // The keys share bytes 7..2, so the path from the top is a chain of
@@ -17060,7 +17075,7 @@ mod obsolete_tests {
         assert_eq!(set.len(), 50);
 
         // SAFETY: top_ptr obtained without taking &mut on inner.
-        let top_ptr = unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let top_ptr = unsafe { (*set.shared.tree_ptr()).root_top_ptr() };
         assert!(!top_ptr.is_null());
         // SAFETY: top_ptr is an EBR-live root edge pointer.
         let root_edge = unsafe { top_ptr.read() };
@@ -17306,7 +17321,7 @@ mod obsolete_tests {
     fn olc_set_insert_revalidates_linear_branch_after_child_edge_load() {
         let set = SyncExpanseSet::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*set.shared.tree_ptr()).root_top_ptr() };
         let digits = [0, 2, 3, 5];
         let storage =
             misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchL7);
@@ -17348,7 +17363,7 @@ mod obsolete_tests {
 
         let set = SyncExpanseSet::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*set.shared.tree_ptr()).root_top_ptr() };
         let storage =
             misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchB);
         assert!(set.contains(MISDIRECT_TWIN) && !set.contains(MISDIRECT_PROBE));
@@ -17373,7 +17388,7 @@ mod obsolete_tests {
     fn olc_map_insert_revalidates_linear_branch_after_child_edge_load() {
         let map = SyncExpanseMap::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*map.shared.tree_ptr()).root_top_ptr() };
         let digits = [0, 2, 3, 5];
         let storage = misdirect_fixture(
             |k| assert_eq!(map.insert(k, !k), None),
@@ -17406,7 +17421,7 @@ mod obsolete_tests {
     fn olc_set_remove_revalidates_linear_branch_after_child_edge_load() {
         let set = SyncExpanseSet::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*set.shared.tree_ptr()).root_top_ptr() };
         let digits = [0, 2, 3, 5];
         let storage =
             misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchL7);
@@ -17436,7 +17451,7 @@ mod obsolete_tests {
     fn olc_map_remove_revalidates_linear_branch_after_child_edge_load() {
         let map = SyncExpanseMap::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*map.shared.tree_ptr()).root_top_ptr() };
         let digits = [0, 2, 3, 5];
         let storage = misdirect_fixture(
             |k| assert_eq!(map.insert(k, !k), None),
@@ -17469,7 +17484,7 @@ mod obsolete_tests {
         let digits = misdirect_bitmap_digits();
         let map = SyncExpanseMap::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*map.shared.tree_ptr()).root_top_ptr() };
         let storage = misdirect_fixture(
             |k| assert_eq!(map.insert(k, !k), None),
             top,
@@ -17502,7 +17517,7 @@ mod obsolete_tests {
         let digits = misdirect_bitmap_digits();
         let set = SyncExpanseSet::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*set.shared.tree_ptr()).root_top_ptr() };
         let storage =
             misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchB);
         let n0 = set.len();
@@ -17532,7 +17547,7 @@ mod obsolete_tests {
         let digits = misdirect_bitmap_digits();
         let map = SyncExpanseMap::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*map.shared.tree_ptr()).root_top_ptr() };
         let storage = misdirect_fixture(
             |k| assert_eq!(map.insert(k, !k), None),
             top,
@@ -17607,7 +17622,7 @@ mod obsolete_tests {
         let digits = misdirect_bitmap_digits();
         let set = SyncExpanseSet::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*set.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*set.shared.tree_ptr()).root_top_ptr() };
         misdirect_fixture(|k| assert!(set.insert(k)), top, &digits, EdgeType::BranchB);
         assert!(set.contains(MISDIRECT_TWIN));
         let n0 = set.len();
@@ -17625,7 +17640,7 @@ mod obsolete_tests {
         let digits = misdirect_bitmap_digits();
         let map = SyncExpanseMap::new();
         // SAFETY: each call reads the root edge pointer of a live tree.
-        let top = || unsafe { (*map.shared.inner.get()).root_top_ptr() };
+        let top = || unsafe { (*map.shared.tree_ptr()).root_top_ptr() };
         misdirect_fixture(
             |k| assert_eq!(map.insert(k, !k), None),
             top,
@@ -18687,7 +18702,7 @@ mod ordered_read_tests {
     /// discrimination).
     fn backtrack_shape(map: &SyncExpanseMap) -> [*const u32; 3] {
         // SAFETY: no writer is running; the snapshot is read for its shape.
-        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.inner.get()).occ_root().0 }) else {
+        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.tree_ptr()).occ_root().0 }) else {
             panic!("root must be a tree")
         };
         let l3 = |e: &Edge| -> *const BranchL3 {
