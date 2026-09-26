@@ -743,6 +743,14 @@
       "summary": "Interned set domain on aarch64-apple-darwin, wall clock. Indicative cross-architecture check on the ingestion and resolution results; gates nothing."
     },
     {
+      "name": "rcpc_ab_aarch64",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "reason": "needs a Linux AArch64 host with `lrcpc`; the /bench host is self-hosted x86-64. Run `.github/workflows/aarch64_rcpc_ab.yml` via workflow_dispatch, twice (docs/BENCHMARKING.md rule 18).",
+      "summary": "writer_scaling map and set writer cells and a W = 1, R = 3 map get cell, default Linux AArch64 build against `+rcpc` and `+rcpc,+lse`, interleaved per round; paired ratios with BCa 95% intervals (docs/benchmarks/concurrency/README.md §23)."
+    },
+    {
       "name": "avx512_bitmap",
       "available": false,
       "kind": "wallclock",

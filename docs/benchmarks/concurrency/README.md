@@ -4963,3 +4963,164 @@ wrapper's read path exists: four dispatches at that head whose artifacts record
 (§16.5), the post-pass load snapshot §16.7 requires, and the Callgrind
 precondition on `strmap_get_short` and `sync_strmap_get_short` (§16.2). Pending
 under #730, which stays open.
+
+## 23. AArch64: the default Linux build against `+rcpc` — census and wall clock measured (Refs #1191)
+
+**The question.** On AArch64, does a writer's release store (`stlr`) followed
+by an acquire load compiled as `ldar` (RCsc) cost wall-clock throughput on the
+`Sync*` paths, against the same code with the acquire loads compiled as `ldapr`
+(RCpc)? The architecture forbids an implementation to perform an `ldar` before
+an earlier `stlr` of the same thread is observed, and permits it for `ldapr`.
+Whether a given core spends time on that ordering is a timing question; nothing
+in this section's census answers it.
+
+**Why the shipped Linux build is the `ldar` build.** `rustc 1.98.1 --print cfg`
+lists `target_feature="lse"`, `"rcpc"` and `"rcpc2"` for
+`aarch64-apple-darwin` and none of the three for `aarch64-unknown-linux-gnu`.
+The Linux target therefore lowers every `Ordering::Acquire` load to `ldar` and
+every read-modify-write atomic to a call to an out-of-line `__aarch64_*`
+helper; `-C target-feature=+rcpc` changes the first, `+lse` the second.
+
+### 23.1 The acquire/release census
+
+The library crate compiled to assembly three ways and counted by
+`scripts/rcpc_asm_census.py`. "Shared paths" is a name filter over demangled
+symbols (the `sync`, `sync32` and `occ` modules, `Sync*` types, `SharedBox`,
+`MapReader`, `mutate` and `mutate_map`), 290 functions — not a profile. A
+"straight-line pair" is an `stlr` followed by an `ldar` with no label, branch,
+call or return between them; a pair that spans a branch or a helper call is not
+counted, so that column is a floor on the static pairs and says nothing about
+how often any pair executes.
+
+*(measured: `cargo rustc -p expanse-trie --lib --release --target
+aarch64-unknown-linux-gnu -- --emit asm` with `RUSTFLAGS` unset, `-C
+target-feature=+rcpc` and `-C target-feature=+rcpc,+lse`; rustc 1.98.1
+(48a229cea 2026-09-01), cross-compiled; engine at `636340a5`;
+`results/rcpc_asm_census_{default,rcpc,rcpc_lse}_636340a5.json`)*
+
+| build | scope | `ldar` | `ldapr` | `stlr` | `bl __aarch64_*` | straight-line `stlr` → `ldar` |
+|---|---|--:|--:|--:|--:|--:|
+| default | whole crate | 1,569 | 0 | 938 | 4,245 | 8 |
+| default | shared paths | 1,357 | 0 | 905 | 3,476 | 7 |
+| `+rcpc` | whole crate | 0 | 1,569 | 938 | 4,245 | 0 |
+| `+rcpc` | shared paths | 0 | 1,357 | 905 | 3,476 | 0 |
+| `+rcpc,+lse` | whole crate | 0 | 1,571 | 955 | 0 | 0 |
+| `+rcpc,+lse` | shared paths | 0 | 1,360 | 922 | 0 | 0 |
+
+- `+rcpc` replaces every `ldar` with an `ldapr` one for one and changes no other
+  count in the table. `+lse` inlines the helper calls, which also moves the
+  whole-crate `ldapr` and `stlr` counts by 2 and 17; the `+rcpc,+lse` arm therefore changes two
+  things at once and is reported apart from the `+rcpc` arm.
+- In the default build, 58 of the 290 shared-path functions contain both an
+  `stlr` and an `ldar`, and they hold 1,201 of the 1,357 shared-path `ldar`.
+- The seven straight-line pairs on the shared paths are all in the covered
+  remove walks: four in `mutate_map::map_remove_occ::<true, true>`, one each in
+  `map_remove_occ::<true, false>`, `mutate::remove_occ::<true, false>` and
+  `mutate::remove_occ::<true, true>`. Each is a release store followed within
+  one to three instructions by a 32-bit `ldar`; in six of the seven the load
+  address is a register plus 8, for example
+  `stlr xzr, [x8] ; add x8, x27, #8 ; ldar w8, [x8]`.
+- None of the insert walks (`olc_insert_map`, `olc_insert_set`,
+  `map_insert_with_path_occ`, `insert_with_path_occ`) carries a straight-line
+  pair. They carry 15–83 `ldar` and 21–57 `stlr` each, separated by branches or
+  helper calls, so whether a store is still pending when a later `ldar` issues
+  is not something the listing can decide.
+- The most frequent helper in the default build is `__aarch64_ldadd8_relax`
+  (3,701 call sites), then `__aarch64_cas4_acq` (259), `__aarch64_ldadd8_rel`
+  (101) and `__aarch64_swp4_rel` (90). Which instruction a helper executes is
+  selected at run time and is not recorded here.
+
+The census does not make the wall-clock step moot: the shared paths hold
+acquire loads after release stores in the same functions, and one run of the
+harness is the only instrument here that can say whether that costs time.
+
+### 23.2 The wall-clock A/B — pre-registered
+
+**Instrument.** `.github/workflows/aarch64_rcpc_ab.yml`, dispatch-only on
+`ubuntu-24.04-arm`, runs `scripts/rcpc_ab.py`. It builds
+`crates/expanse/examples/writer_scaling.rs` with `RUSTFLAGS` unset (`default`),
+`-C target-feature=+rcpc` (`rcpc`) and `-C target-feature=+rcpc,+lse`
+(`rcpc_lse`), and refuses to run on a host whose `/proc/cpuinfo` lacks `lrcpc`
+(or `atomics` for the third arm). The workflow also re-takes the §23.1 census
+on the runner's own toolchain and records the CPU part, `nproc`, `uptime` and
+`top` before the cells.
+
+**Cells.** The `map` (workload: `concurrency_writer_map_64bit`) and `set`
+(workload: `concurrency_writer_set_63bit`) writer cells at W ∈ {1, 2, 4}, R = 0,
+and one reader-heavy mixed cell, `map` with W = 1 and R = 3 optimistic `get`
+readers on the uniform prefill (workload:
+`concurrency_ordered_readers_map_64bit`). One timed cell per harness process
+(METHODOLOGY §15). Within every round each arm's (build, cell) treatments run
+in that round's row of a Williams design, and the arm order rotates by round;
+12 rounds by default. Load snapshots are taken at every (round, arm) boundary
+(`bench_provenance.begin_cell` / `end_cell`, AGENTS.md §8.17).
+
+**Statistic.** Per round, the paired throughput ratio T_variant / T_default of
+each cell (`writer_mops` on the writer cells, `reader_mops` on the mixed cell,
+with its `writer_mops` ratio reported beside it), and for W ≥ 2 the scaling
+ratio C_variant(W) / C_default(W) with W = 1 as the control cell (AGENTS.md
+§8.20.2). Each carries a BCa 95% interval over the rounds with its
+construction label. A ratio above 1 means the default build is slower.
+
+**Verdict rule, fixed before any run.** Two independent dispatches at one
+commit (docs/BENCHMARKING.md rule 18). For the `rcpc` arm:
+
+- **present** in a cell when the throughput-ratio interval's lower bound
+  exceeds 1.0 in both runs;
+- **reversed** in a cell when the upper bound is below 1.0 in both runs;
+- **not resolved** otherwise, with the interval widths stated, since a hosted
+  runner may not resolve an effect of a few percent.
+
+Seven cells are read per arm with no multiplicity correction, so a single cell
+clearing its bound in both runs is reported as that cell, not as the arm. The
+`rcpc_lse` arm is read by the same rule and never pooled with `rcpc`.
+
+### 23.3 Result: no material effect
+
+Two independent dispatches of the §23.2 workflow at one commit, both on a
+GitHub `ubuntu-24.04-arm` runner reporting CPU part `0xd49` (Neoverse-N2) with
+`lrcpc` and `atomics`, 4 online CPUs, 12 rounds, one timed cell per process,
+no core pin. The highest foreign busy-CPU reading at any (round, arm) boundary
+was 0.03 in each run; the load averages (peak 2.91 and 3.05 on 4 CPUs) are the
+harness's own cells. *(measured: GitHub `ubuntu-24.04-arm` Neoverse-N2, 4
+vCPUs, rustc 1.98.1, commit `f930142f`; runs
+[36259882964](https://github.com/orieg/expanse/actions/runs/36259882964) and
+[36259888050](https://github.com/orieg/expanse/actions/runs/36259888050);
+`results/rcpc_ab_f930142f_run36259882964.json`,
+`results/rcpc_ab_f930142f_run36259888050.json`)*
+
+Throughput ratio `rcpc` / `default`, mean and BCa 95% interval (above 1 means
+the default build is slower):
+
+| Cell | Run 36259882964 | Run 36259888050 | Verdict |
+|---|---|---|---|
+| `map` W = 1 | 1.040 [1.000, 1.110] | 0.993 [0.977, 1.013] | not resolved |
+| `map` W = 2 | 1.003 [0.969, 1.035] | 1.019 [1.001, 1.031] | not resolved |
+| `map` W = 4 | 0.981 [0.952, 0.997] | 0.997 [0.978, 1.011] | not resolved |
+| `set` W = 1 | 1.009 [0.946, 1.057] | 1.014 [1.000, 1.038] | not resolved |
+| `set` W = 2 | 1.018 [0.972, 1.060] | 1.017 [1.006, 1.029] | not resolved |
+| `set` W = 4 | 1.028 [1.003, 1.057] | 1.028 [1.015, 1.048] | present |
+| mixed (W = 1, R = 3) | 1.053 [1.005, 1.143] | 1.006 [0.982, 1.037] | not resolved |
+
+(workloads: `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`,
+`concurrency_ordered_readers_map_64bit`, one row each, both builds in every
+row.)
+
+- **`rcpc` arm.** One of seven cells, `set` at W = 4, clears the rule in both
+  runs, by about 2.8%. The rule applies no multiplicity correction (§23.2), so
+  this is reported as that cell and not as the arm. The other six cells do not
+  resolve, and `map` at W = 4 leans the other way in the first run.
+- **Scaling ratio** C_rcpc(W) / C_default(W): no cell clears the rule in both
+  runs.
+- **`rcpc_lse` arm.** No throughput or scaling cell clears the rule in both
+  runs.
+- **Verdict.** On this runner and at these writer counts, compiling the
+  acquire loads as `ldapr` changes `Sync*` throughput by a few percent at most,
+  and in six of seven cells by less than two dispatches of 12 rounds resolve.
+  W above 4 was not testable on a 4-vCPU runner. No mechanism is attributed
+  (AGENTS.md §8.9): the §23.1 census counts static instructions, and no counter
+  was read.
+- **Consequence.** The shipped Linux AArch64 artifacts keep the target's
+  default features: enabling `+rcpc` would raise their minimum CPU to
+  Armv8.3-A for no resolved gain. `docs/HARDWARE.md` §2.8 records the build
+  flag for source builds on RCpc-capable cores.

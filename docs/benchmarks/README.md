@@ -67,6 +67,7 @@ suite is visible rather than silently absent from this index.
 | `large_values` | wall-clock | Blob-arena storage paths for values above the immediate capacity. |
 | `point_lookup_counters` | `perf stat` | Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be. |
 | `python_concurrency` | wall-clock | Python multi-core read scaling across the pyo3 `py.detach` GIL-releasing path, against a GIL-serialised `dict` twin (`bindings/python/bench_concurrency.py`). |
+| `rcpc_ab_aarch64` | wall-clock | writer_scaling map and set writer cells and a W = 1, R = 3 map get cell, default Linux AArch64 build against `+rcpc` and `+rcpc,+lse`, interleaved per round; paired ratios with BCa 95% intervals (docs/benchmarks/concurrency/README.md §23). |
 | `smoke_instructions` | Callgrind | Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host. |
 | `vs_libjudy` | wall-clock | Paired wall-clock comparison of `libexpanse` against a dlopen'd stock libjudy through the identical C surface, arms interleaved per round (`bench_vs_libjudy`). |
 | `vs_stock` | Callgrind | C ABI drop-in parity against the stock oracle (`expanse-capi`), dual-pass against the base ref. |
