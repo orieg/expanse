@@ -183,6 +183,19 @@ enum Kind {
     MapImmed { kb: u8 },
 }
 
+/// The branch form an edge names (`"L2"`, `"L6"`, `"B"`, `"U"`), or `None`
+/// for any other edge: the census workloads assert which forms they reached.
+#[cfg(test)]
+pub(crate) fn branch_form(e: &Edge32) -> Option<&'static str> {
+    match kind(e) {
+        Kind::BranchL2 => Some("L2"),
+        Kind::BranchL6 => Some("L6"),
+        Kind::BranchB => Some("B"),
+        Kind::BranchU => Some("U"),
+        _ => None,
+    }
+}
+
 #[inline]
 fn kind_of(tag: u8) -> Kind {
     match tag {

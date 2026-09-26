@@ -1273,6 +1273,89 @@ mod miri_ub_sites {
         assert_eq!(w.len(), KEYS as usize);
     }
 
+    /// Top-byte digits the branch workload's root branch holds at each
+    /// checkpoint: two (an `L2`), `BRANCH_L6_CAP_32`, a bitmap branch, then
+    /// past `BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32`.
+    const BRANCH_STEPS: [u32; 4] = [
+        crate::types32::BRANCH_L2_CAP_32 as u32,
+        crate::types32::BRANCH_L6_CAP_32 as u32,
+        40,
+        crate::types32::BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 as u32 + 4,
+    ];
+    /// Keys under top byte 0: a full leaf, which one more key overflows into
+    /// a root branch. The writer never edits it.
+    const BRANCH_LEAF: u32 = crate::types32::MAP_LEAF_MAX_32 as u32;
+
+    /// The key under top byte `d >= 1`: one key per digit, so each of those
+    /// children is an immediate and every edit the writer makes is to the root
+    /// branch itself.
+    fn branch_key(d: u32) -> u32 {
+        (d << 24) | 0x0042_0707
+    }
+
+    /// A reader under the root branch's in-place edits and form changes: the
+    /// writer grows the root through every branch form, removes and reinserts
+    /// a digit in each, and shrinks it back, and edits no leaf. The leaf
+    /// workloads above report their leaf sites first, so branch sites are only
+    /// observable here.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1187)")]
+    fn map_branch_reader_writer() {
+        let top = *BRANCH_STEPS.last().expect("steps");
+        let mut m = SyncExpanseMap32::with_capacity(MUTATION_HEADROOM * 2, 1);
+        let (mut w, mut pool) = m.split();
+        for i in 0..BRANCH_LEAF {
+            w.try_insert(0x0042_0700 | i, i).expect("leaf prefill");
+        }
+        // The key that overflows the leaf: the root becomes a branch with the
+        // leaf under digit 0 and an immediate under digit 1.
+        w.try_insert(branch_key(1), 1).expect("overflow");
+        let mut r = pool.take().expect("one reader");
+        let done = AtomicBool::new(false);
+        let mut forms = std::vec::Vec::new();
+        thread::scope(|s| {
+            s.spawn(|| {
+                let mut n = 2; // digits 0 and 1 are present
+                for &step in &BRANCH_STEPS {
+                    while n < step {
+                        assert_eq!(w.try_insert(branch_key(n), n), Ok(None));
+                        n += 1;
+                    }
+                    // One in-place removal and reinsertion in this form.
+                    assert_eq!(w.try_remove(branch_key(n - 1)), Ok(Some(n - 1)));
+                    assert_eq!(w.try_insert(branch_key(n - 1), n - 1), Ok(None));
+                    forms.push(trie32::branch_form(&w.inner().root_edge()));
+                }
+                for &step in BRANCH_STEPS.iter().rev().skip(1) {
+                    while n > step {
+                        n -= 1;
+                        assert_eq!(w.try_remove(branch_key(n)), Ok(Some(n)));
+                    }
+                    forms.push(trie32::branch_form(&w.inner().root_edge()));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for d in 1..top {
+                        if let Ok(Some(v)) = r.try_get(branch_key(d)) {
+                            assert_eq!(v, d);
+                        }
+                    }
+                });
+            });
+        });
+        // Every branch form was the root at some checkpoint, so each form's
+        // in-place edits ran under the reader.
+        for form in ["L2", "L6", "B", "U"] {
+            assert!(
+                forms.contains(&Some(form)),
+                "form {form} not reached: {forms:?}"
+            );
+        }
+        assert_eq!(w.len(), (BRANCH_LEAF + BRANCH_STEPS[0] - 1) as usize);
+    }
+
     /// The set twin of `map_reader_writer`.
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1187)")]

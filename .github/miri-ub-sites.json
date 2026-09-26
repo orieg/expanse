@@ -618,6 +618,45 @@
         "trie32::"
       ],
       "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
+    },
+    {
+      "test": "sync32::map_branch_reader_writer",
+      "check": "race",
+      "expect": "ub",
+      "error": "Data race detected",
+      "frame": [
+        "trie32::branch_remove_digit",
+        "trie32::branch_insert_new",
+        "trie32::branch_commit",
+        "trie32::"
+      ],
+      "note": "#1187: the root branch is edited in place through `&mut` while readers load its digits and edges; observed at seed 0 on x86_64-unknown-linux-gnu"
+    },
+    {
+      "test": "sync32::map_branch_reader_writer",
+      "check": "alias-sb",
+      "expect": "ub",
+      "error": "does not exist in the borrow stack",
+      "frame": [
+        "trie32::branch_insert_new",
+        "trie32::branch_remove_digit",
+        "trie32::branch_commit",
+        "trie32::"
+      ],
+      "note": "#1187: the root branch is edited in place through `&mut` while readers load its digits and edges; observed at seed 0 on x86_64-unknown-linux-gnu"
+    },
+    {
+      "test": "sync32::map_branch_reader_writer",
+      "check": "alias-tb",
+      "expect": "ub",
+      "error": "is forbidden",
+      "frame": [
+        "std::mem::replace",
+        "trie32::branch_insert_new",
+        "trie32::branch_remove_digit",
+        "trie32::"
+      ],
+      "note": "#1187: the root branch is edited in place through `&mut` while readers load its digits and edges; observed at seed 0 on x86_64-unknown-linux-gnu"
     }
   ]
 }
