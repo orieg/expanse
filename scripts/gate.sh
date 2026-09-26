@@ -167,6 +167,7 @@ python3 scripts/verify_release_registries.py --self-test
 python3 scripts/embedded_envelope.py
 python3 scripts/density_poisson.py --self-test
 python3 scripts/condense_bounds.py --self-test
+python3 scripts/compact_bounds.py --self-test
 python3 scripts/art_envelope.py
 python3 scripts/patricia_envelope.py
 python3 scripts/masstree_envelope.py

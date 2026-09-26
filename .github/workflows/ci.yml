@@ -506,6 +506,13 @@ jobs:
           # node sizes and function bodies it mirrors from crates/expanse/src and
           # fails when the engine moves (AGENTS.md section 8.8 commit 1).
           python3 scripts/condense_bounds.py --self-test
+          # compact_bounds.py holds the bounds behind ExpanseSet/ExpanseMap::compact()
+          # (docs/benchmarks/remove_retention/METHODOLOGY.md section 12): the held
+          # bytes of an allocator that never frees, the G-held prediction from the
+          # committed census, the G-peak ceiling and the transient key buffer. Its
+          # self-test reads the slab constants it mirrors from alloc.rs and fails
+          # when the engine moves (AGENTS.md section 8.8 commit 1).
+          python3 scripts/compact_bounds.py --self-test
           # reader_scaling_bounds.py reduces the committed readers-only string
           # rounds and counter cells (#730); its self-test also holds
           # docs/benchmarks/concurrency/README.md §13 to its own output.
