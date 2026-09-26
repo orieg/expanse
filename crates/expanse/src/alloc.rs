@@ -122,6 +122,11 @@ pub struct AllocCensus {
     /// Free blocks of the classes above the slab ceiling, kept on their
     /// freelists, as (class bytes, blocks, bytes).
     pub system_free: core_alloc::vec::Vec<(usize, usize, usize)>,
+    /// [`NodeAlloc::live_allocs`] when the census was taken.
+    pub live_allocs: usize,
+    /// [`NodeAlloc::total_allocs`] when the census was taken. Equal to
+    /// `live_allocs` exactly when the handle has never freed a block.
+    pub total_allocs: usize,
 }
 
 impl AllocCensus {
@@ -976,6 +981,8 @@ impl NodeAlloc {
             }
         }
         out.system_live_bytes = self.bytes_in_use().saturating_sub(slab_carved_live);
+        out.live_allocs = self.live_allocs();
+        out.total_allocs = self.total_allocs();
         out
     }
 

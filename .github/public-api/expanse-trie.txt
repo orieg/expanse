@@ -668,6 +668,7 @@ pub struct expanse_trie::map::ExpanseMap
 impl expanse_trie::map::ExpanseMap
 pub fn expanse_trie::map::ExpanseMap::by_count(&self, u64) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::clear(&mut self)
+pub fn expanse_trie::map::ExpanseMap::compact(&mut self)
 pub fn expanse_trie::map::ExpanseMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::map::ExpanseMap::count_below(&self, expanse_trie::types::Key) -> u64
 pub fn expanse_trie::map::ExpanseMap::count_range(&self, core::ops::range::RangeInclusive<u64>) -> u64
@@ -1324,6 +1325,7 @@ pub fn expanse_trie::set::ExpanseSet::range(&self, core::ops::range::RangeInclus
 pub fn expanse_trie::set::ExpanseSet::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::set::SetRangeRev<'_>
 impl expanse_trie::set::ExpanseSet
 pub fn expanse_trie::set::ExpanseSet::clear(&mut self)
+pub fn expanse_trie::set::ExpanseSet::compact(&mut self)
 pub fn expanse_trie::set::ExpanseSet::contains(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::set::ExpanseSet::contains_batch(&self, &[expanse_trie::types::Key], &mut [bool]) -> usize
 pub fn expanse_trie::set::ExpanseSet::contains_c_int(&self, expanse_trie::types::Key) -> core::ffi::primitives::c_int
@@ -2928,6 +2930,7 @@ pub struct expanse_trie::ExpanseMap
 impl expanse_trie::map::ExpanseMap
 pub fn expanse_trie::map::ExpanseMap::by_count(&self, u64) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::clear(&mut self)
+pub fn expanse_trie::map::ExpanseMap::compact(&mut self)
 pub fn expanse_trie::map::ExpanseMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::map::ExpanseMap::count_below(&self, expanse_trie::types::Key) -> u64
 pub fn expanse_trie::map::ExpanseMap::count_range(&self, core::ops::range::RangeInclusive<u64>) -> u64
@@ -3050,6 +3053,7 @@ pub fn expanse_trie::set::ExpanseSet::range(&self, core::ops::range::RangeInclus
 pub fn expanse_trie::set::ExpanseSet::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::set::SetRangeRev<'_>
 impl expanse_trie::set::ExpanseSet
 pub fn expanse_trie::set::ExpanseSet::clear(&mut self)
+pub fn expanse_trie::set::ExpanseSet::compact(&mut self)
 pub fn expanse_trie::set::ExpanseSet::contains(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::set::ExpanseSet::contains_batch(&self, &[expanse_trie::types::Key], &mut [bool]) -> usize
 pub fn expanse_trie::set::ExpanseSet::contains_c_int(&self, expanse_trie::types::Key) -> core::ffi::primitives::c_int

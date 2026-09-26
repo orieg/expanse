@@ -335,3 +335,209 @@ on the remove path; C_split and C_condense; each arm against `band2` and
 `band9`; the cells the model does not cover (@62, @56, the construction-fixed
 distributions, range removals) under each arm; the shared-tree paths; and
 `mem_held()` after `shrink_to_fit()` under each arm.
+
+## 12. Pre-registration: an explicit `compact()`
+
+A separate pre-registration (AGENTS.md §8.8 commit 2), appended after phase 3
+was evaluated. It does not amend §1–§11, which stay frozen as the record of
+the condensing design; this section is frozen once merged in the same way.
+Outcomes are reported in [`README.md`](README.md) §4, never reconciled into
+this section, and a threshold, method or sample changed after results are
+seen relabels the result `INTERMEDIATE` (§8.19).
+
+### 12.1 The question
+
+**Does an explicit `compact()` that rebuilds a tree's surviving keys into a
+new allocator bring `mem_held()` after bulk deletes to within 10% of a fresh
+build of the same keys, on every grid cell, at a peak and an instruction cost
+no worse than the rebuild measured in README §3?**
+
+### 12.2 What was seen before this section was written
+
+- README §3 and its artifact [`results/census_rebuild.json`](results/census_rebuild.json)
+  (measured: Apple M1, `a154bc57`; workload: example_remove_retention): after
+  `shrink_to_fit()` the headline set holds 16,214 slab pages where its live
+  blocks fit on 6,499, at 0.392 slab occupancy, and its rebuild (`clone()`,
+  then drop of the drained tree) holds 1,782 pages at 0.979. Held ÷ held_fresh
+  reads 5.318 (set) and 3.164 (map) after `shrink_to_fit()` on the headline
+  cell, and 0.658–0.854 rebuilt on every uniform random cell, 0.577–1.000 on
+  the construction-fixed cells. The rebuild's peak held was 1.110–1.786 ×
+  `held_shrunk` on the uniform random cells.
+- The rebuild arms (measured: CI `instruction-counts`, x86_64 Callgrind,
+  run 36205856578 at `f9782220`): `set_rebuild_drained/random60` 16,960,355
+  instructions (271.4 per surviving key), `map_rebuild_drained/random60`
+  40,329,898 (645.3 per surviving key). The set's `Clone` is
+  `from_sorted_iter`; the map's is `iter().collect()`, an ascending insert,
+  because the map has no bulk builder.
+- That artifact's `seq_range` set cell: `from_sorted_iter` builds 64,832 B
+  where the fresh insert build uses 65,792 B (README §3.1). `mem_used()` order
+  invariance (`tests/test_mem_used_order_invariant.rs`) covers insert-built
+  trees, not the bulk builder, which may emit the more compact `FullExpanse`.
+- The predictions of §12.4, computed from that artifact before any
+  `compact()` code existed. No `compact()` code, arm or measurement existed
+  when this section was written.
+
+### 12.3 The design under test
+
+**API.** `ExpanseSet::compact(&mut self)` and `ExpanseMap::compact(&mut self)`,
+no return value, on the 64-bit engine. Each collects the tree's ascending
+iteration into a buffer of exact capacity, builds a new tree from it into a
+new allocator, swaps the new tree in, and drops the old one.
+
+- **Set.** The buffer is a `Vec<u64>`; the build is the one
+  `from_sorted_iter` already uses (`ExpanseSet::from_sorted_keys`,
+  `algebra_build::build_subtree`), without its sortedness check, since the
+  iteration is ascending by construction.
+- **Map.** The buffer is a `Vec<(u64, u64)>`; the build is a new map bulk
+  builder that emits, bottom-up and without intermediate forms, the terminal
+  and branch forms the map insert path converges to: an immediate up to
+  `map_immed_max(kb)` entries, a linear leaf up to `LEAF_CAP` (`LEAF1_CAP` at
+  level 1), a `LeafBitmapL` at level 1 or behind a skip where the keys differ
+  only in their final byte, and otherwise a branch at the divergence level in
+  the form its child count implies. `Clone` and `FromIterator` are not changed
+  by this work; routing them through the builder is a follow-up that must hold
+  their own arms (`map_clone`) to the review threshold.
+
+**Contract** (rustdoc on both methods). Every node moves: every value pointer
+(`get_slot_ptr`, `get_value_slot`, `ins_slot`) and every pointer derived from
+the tree's nodes is invalidated, and no iterator or cursor can be live across
+the call (it takes `&mut self`). The cost is O(n) in the population. The call
+holds the old tree, the new tree and the key buffer at once: a transient peak
+of about old + new held bytes, plus 8 B per key (set) or 16 B per entry (map).
+`shrink_to_fit()` is the non-moving alternative and keeps its contract that
+nothing moves. `compact()` pays off after deleting most of a tree's keys.
+
+**Shared trees.** On a tree whose allocator is deferred to a collector (shared
+through a `Sync*` wrapper) `compact()` does nothing, as `shrink_to_fit()`
+returns 0 there. No public API hands out `&mut ExpanseSet` or
+`&mut ExpanseMap` for a shared tree, so the guard is defensive. `compact()` is
+not a tree mutation walk: it never writes a node of the old tree, and it
+writes only a private allocator that no reader can reach until the swap on
+`&mut self`, so there is no in-place write for an OCC twin to bracket
+(AGENTS.md §2.1 invariant 5). Compacting a shared tree needs writer quiesce
+and a collector-aware swap; it is out of scope.
+
+**Out of scope, as follow-ups.** The `Sync*` wrappers; the 32-bit engine;
+`ExpanseStrMap`, `ExpanseBytesMap` and `ExpanseBlobMap`; the C ABI (no
+`expanse_*_compact` symbol until a consumer asks).
+
+### 12.4 Predictions (`scripts/compact_bounds.py`, derived)
+
+`no_free_held` is the `mem_held()` of an allocator that has only allocated: a
+slab class carves a page only when its freelist is empty, so each class holds
+ceil(live blocks ÷ blocks per page) pages, and the system-served classes hold
+their live bytes. The set builder never frees (its rebuild equals the formula
+on all 21 set cells of the artifact, a pinned test); the map builder of §12.3
+is written to allocate only. With the fresh build's per-class live blocks the
+predicted held ÷ held_fresh is at most 1 on every cell
+(`predicted_compact_over_fresh`; derived from `results/census_rebuild.json`,
+workload: example_remove_retention):
+
+| Cell | set | map |
+|---|---|---|
+| `headline` | 0.6595 | 0.7180 |
+| `r64_range` | 0.8100 | 0.8394 |
+| `seq_range` | 0.5770 | 0.9924 |
+| `sparse_shuffled` | 0.9978 | 0.9982 |
+| highest over the 21 cells | 0.9978 | 0.9982 |
+
+**These are not blind.** The set's figures are the `from_sorted_iter` rebuild
+already measured in README §3; the map's assume the bulk builder emits the
+same per-class live blocks as the insert path, which the ascending-insert
+rebuild did on all 21 map cells of the artifact.
+
+**Peak.** `peak_no_free`: the old tree is only read until the new one is
+complete, and the new allocator never frees during the build, so the peak held
+by the two tree allocators is `held_before + held_after`. With the prediction
+above it is at most `held_before + held_fresh`, inside G-peak's ceiling.
+
+### 12.5 Gates
+
+Stated verbatim with their falsifiers. Each is evaluated once on the PR head.
+`held_fresh` is the fresh build's `mem_held()` without `shrink_to_fit()`, the
+denominator of README §3.
+
+**G-held.** After `compact()`, `mem_held()` ÷ held_fresh ≤ 1.10 in every grid
+cell, set and map. The map's `mem_used()` after `compact()` equals the fresh
+build's in every cell (order invariance). The set's `mem_used()` after
+`compact()` equals the `from_sorted_iter` rebuild's (`used_rebuilt`, same run)
+in every cell and is at most the fresh build's.
+*Falsifier:* any cell above 1.10 in either flavour; any map cell whose
+`mem_used()` after `compact()` differs from the fresh build's; any set cell
+whose `mem_used()` after `compact()` differs from `used_rebuilt` or exceeds
+the fresh build's. Deterministic: one run decides.
+
+**G-peak.** The peak held during `compact()` ≤ held_before + held_fresh ×
+1.10, where held_before is `mem_held()` of the tree when `compact()` is called
+(the drained tree, without `shrink_to_fit()`). Measured with the allocator
+counters: the peak is `held_before + held_after`, which holds when the
+compacted tree's allocator made no free during the build (its live allocation
+count equals its total allocation count, read from the census).
+*Falsifier:* any cell where `held_before + held_after` exceeds the ceiling, or
+any cell whose compacted allocator's live allocation count differs from its
+total allocation count (the identity above then does not bound the peak, and
+the cell is recorded not met).
+
+**G-cost.** The Callgrind `set_compact_drained` and `map_compact_drained` arms
+are at or below the matching `set_rebuild_drained` and `map_rebuild_drained`
+arms measured in the same CI run (x86_64 `instruction-counts`). A map bulk
+builder is allowed and expected to lower the map figure; `Clone` and
+`FromIterator` may use it only if their existing arms do not regress, and this
+work does not route them through it.
+*Falsifier:* either compact arm above its rebuild arm in the same run.
+
+**G-ins.** Every existing Callgrind arm unchanged within the 0.1% review
+threshold (AGENTS.md §6), in every Callgrind job of the run
+(`instruction-counts`, `callgrind-smoke`); no hot-path change.
+*Falsifier:* any existing arm whose count moves by more than 0.1% against
+`main` in either direction.
+
+**G-valid.** The structural validator after `compact()` (unit tests and every
+instrument cell); a proptest of random operations interleaved with
+`compact()`, checked against a model for equality (`PROPTEST_CASES=500` in
+CI); unit tests of `compact()` that the CI Tier-1 Miri filter selects, and
+that the nightly Miri shard census assigns; and the ASan job. All green.
+*Falsifier:* any failure in any of them, or a Tier-1 Miri shard that selects
+no `compact` test.
+
+**Verdict.** `compact()` ships only if all five gates are met. A failing gate
+is recorded as failed, never re-thresholded.
+
+### 12.6 Expected losses
+
+| Loss | Size | Consequence |
+|---|---|---|
+| Transient peak | old + new held bytes, plus the key buffer: 8 B per key (set), 16 B per entry (map), `sort_buffer_bytes` | bounded by G-peak for the tree allocators; the buffer is outside both allocators, so G-peak does not count it; it is reported per cell from a counting global allocator and not gated |
+| O(n) cost | per surviving key, at most the rebuild arm (G-cost) | a call on a tree that lost few keys pays the whole cost for little return; the rustdoc says when to call it |
+| Moved nodes | every value pointer and node-derived pointer | the contract of §12.3; `shrink_to_fit()` stays the non-moving alternative |
+
+No prediction is made for the instruction counts: the set path drops a
+sortedness check and a growing buffer from the rebuild, and the map path
+replaces one insert per entry with direct emission, but how many instructions
+that saves is unmeasured.
+
+### 12.7 Instruments
+
+- **Memory** (G-held, G-peak): `crates/expanse/examples/remove_retention.rs`,
+  the Step 0a grid unchanged, with a compact arm per cell: the drained tree is
+  built a second time with the same keys and removal order (its `mem_used()`
+  and `mem_held()` asserted equal to the first build's), `compact()` is called
+  without `shrink_to_fit()`, and the instrument records `held_before`,
+  `mem_used()` and `mem_held()` after the call, a census of the compacted
+  allocator (with its live and total allocation counts), the validator, and
+  the process heap's peak during the call from the counting global allocator.
+  Deterministic byte counts: one run on any 64-bit host decides.
+- **Instructions** (G-cost, G-ins): `set_compact_drained` and
+  `map_compact_drained` in `crates/expanse/benches/instructions.rs`, the
+  `*_rebuild_drained` setup unchanged (200,000 random 60-bit keys drained to
+  62,500), `compact()` inside the measured region, the compacted tree leaked,
+  counted per surviving key (62,500), registered in `scripts/perf_report.py`.
+
+### 12.8 Empirical residuals
+
+What only measurement decides: whether the map bulk builder emits the insert
+path's per-class node census on every cell (a unit test checks its total
+`mem_used()` against an insert build; the instrument reads the per-class
+census); the builder's own scratch on the process heap; every instruction
+count; and whether any existing arm moves, which a new function in the same
+crate can cause through inlining alone.

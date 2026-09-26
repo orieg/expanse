@@ -34,6 +34,9 @@ enum Op {
     Get(u64),
     /// Structural check plus a full ordered comparison against the model.
     Audit,
+    /// `compact()`, then the checks of `Audit` and a byte comparison with a
+    /// fresh build of the model's contents.
+    Compact,
 }
 
 /// Keys biased toward the structure's interesting regions: small dense
@@ -66,6 +69,15 @@ fn op_strategy() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// [`op_strategy`] with `compact()` interleaved: the tree it rebuilds then
+/// takes further inserts and removes.
+fn op_strategy_with_compact() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        10 => op_strategy(),
+        1 => Just(Op::Compact),
+    ]
+}
+
 /// Runs `ops` against `ExpanseSet` and a `BTreeSet` model, asserting
 /// agreement on every operation and full ordered equality at each audit.
 fn run_set(ops: &[Op]) {
@@ -76,6 +88,21 @@ fn run_set(ops: &[Op]) {
             Op::Insert(k) => assert_eq!(set.insert(k), model.insert(k), "insert {k:#x}"),
             Op::Remove(k) => assert_eq!(set.remove(k), model.remove(&k), "remove {k:#x}"),
             Op::Get(k) => assert_eq!(set.contains(k), model.contains(&k), "contains {k:#x}"),
+            Op::Compact => {
+                set.compact();
+                set.validate();
+                assert_eq!(set.len(), model.len() as u64, "len after compact");
+                assert!(
+                    set.iter().eq(model.iter().copied()),
+                    "contents after compact"
+                );
+                let built = ExpanseSet::from_sorted_iter(model.iter().copied());
+                assert_eq!(
+                    set.mem_used(),
+                    built.mem_used(),
+                    "compact vs from_sorted_iter"
+                );
+            }
             Op::Audit => {
                 set.validate();
                 assert_eq!(set.len(), model.len() as u64, "len");
@@ -140,6 +167,24 @@ fn run_map(ops: &[Op]) {
             ),
             Op::Remove(k) => assert_eq!(map.remove(k), model.remove(&k), "remove {k:#x}"),
             Op::Get(k) => assert_eq!(map.get(k), model.get(&k).copied(), "get {k:#x}"),
+            Op::Compact => {
+                map.compact();
+                map.validate();
+                assert_eq!(map.len(), model.len() as u64, "len after compact");
+                assert!(
+                    map.iter().eq(model.iter().map(|(k, v)| (*k, *v))),
+                    "contents after compact"
+                );
+                let mut fresh = ExpanseMap::new();
+                for (&k, &v) in &model {
+                    fresh.insert(k, v);
+                }
+                assert_eq!(
+                    map.mem_used(),
+                    fresh.mem_used(),
+                    "compact vs fresh insert build"
+                );
+            }
             Op::Audit => {
                 map.validate();
                 assert_eq!(map.len(), model.len() as u64, "len");
@@ -447,5 +492,30 @@ proptest! {
                 prop_assert_eq!(mc.next().map(|(k, _)| k), e, "map next @ {}", i);
             }
         }
+    }
+}
+
+// The compact() suites take their case count from `PROPTEST_CASES` (CI
+// sets 500), where the block above fixes 96: METHODOLOGY section 12.5 (G-valid)
+// pre-registers them at the CI count.
+proptest! {
+    #![proptest_config(ProptestConfig {
+        max_shrink_iters: 4096,
+        ..ProptestConfig::default()
+    })]
+
+    /// `compact()` interleaved with random operations: after each one the set
+    /// matches its model and holds the bytes of a `from_sorted_iter` build,
+    /// and the rebuilt tree keeps taking inserts and removes.
+    #[test]
+    fn set_matches_btreeset_with_compact(ops in prop::collection::vec(op_strategy_with_compact(), 0..400)) {
+        run_set(&ops);
+    }
+
+    /// Map twin: after each `compact()` the map matches its model and uses
+    /// the bytes of a fresh insert build of the same entries.
+    #[test]
+    fn map_matches_btreemap_with_compact(ops in prop::collection::vec(op_strategy_with_compact(), 0..400)) {
+        run_map(&ops);
     }
 }

@@ -22,7 +22,14 @@
 //!   not the system allocator's chunk overhead). The set's `Clone` is
 //!   `from_sorted_iter`; the map's is an ascending insert of every entry.
 //!   Its instruction cost is the `set_rebuild_drained` / `map_rebuild_drained`
-//!   Callgrind arms in `benches/instructions.rs`, not measured here.
+//!   Callgrind arms in `benches/instructions.rs`, not measured here;
+//! * a compact arm (`METHODOLOGY.md` §12): the drained tree built a second
+//!   time with the same keys and removal order (asserted byte-identical to the
+//!   first), then `compact()` without `shrink_to_fit()` — `mem_used()` /
+//!   `mem_held()` after the call, a census of the compacted allocator with its
+//!   live and total allocation counts, and the process heap's peak during the
+//!   call. Its instruction cost is the `set_compact_drained` /
+//!   `map_compact_drained` arms.
 //!
 //! Both flavours (`ExpanseSet`, `ExpanseMap`), over uniform random keys at
 //! several densities and keyspace widths, the census's construction-fixed
@@ -68,9 +75,9 @@
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A — every removal hits a present key |
 //! | `miss_gen_method` | N/A |
-//! | `value_dereference` | `mem_used()` / `mem_held()` accounting, `ExpanseStats::node_bytes` per form, `NodeAlloc::census` per slab class, requested heap bytes from a counting global allocator |
-//! | `measured_region` | Clean: readings taken after the build, after the removals, after `shrink_to_fit()`, on a separate fresh build, and on the rebuilt tree after `clone()` and after the drained tree is dropped; the heap peak spans exactly the `clone()` call |
-//! | `arm_symmetry` | The drained tree, the fresh build and the rebuilt tree hold the identical key set (asserted); `shuffled` and `sorted` remove the identical set |
+//! | `value_dereference` | `mem_used()` / `mem_held()` accounting, `ExpanseStats::node_bytes` per form, `NodeAlloc::census` per slab class (with the allocator's live and total allocation counts), requested heap bytes from a counting global allocator |
+//! | `measured_region` | Clean: readings taken after the build, after the removals, after `shrink_to_fit()`, on a separate fresh build, on the rebuilt tree after `clone()` and after the drained tree is dropped, and on a second drained tree after `compact()`; each heap peak spans exactly the `clone()` or `compact()` call |
+//! | `arm_symmetry` | The drained tree, the fresh build, the rebuilt tree and the compacted tree hold the identical key set (asserted); `shuffled` and `sorted` remove the identical set |
 //! | `statistics` | Exact byte and page counts; no interval (deterministic accounting) |
 //! | `verdict` | Diagnostic census; the Step 0a gate reads the headline cell (`docs/benchmarks/remove_retention/METHODOLOGY.md`). |
 
@@ -335,6 +342,16 @@ struct Reading {
     /// highest during the call: the new tree plus any scratch the clone
     /// allocates, while the drained tree is still live.
     rebuild_heap_peak_extra: usize,
+    /// The compact arm: `mem_held()` of the second drained tree when
+    /// `compact()` is called (no `shrink_to_fit()`), and its `mem_used()` /
+    /// `mem_held()` after the call.
+    held_before_compact: usize,
+    used_compact: usize,
+    held_compact: usize,
+    /// Requested heap bytes above the live figure before `compact()`, at their
+    /// highest during the call: the new tree, the key buffer and the build's
+    /// scratch, while the old tree is still live.
+    compact_heap_peak_extra: usize,
 }
 
 /// The four allocator censuses of one cell.
@@ -343,6 +360,7 @@ struct Censuses {
     shrunk: AllocCensus,
     fresh: AllocCensus,
     rebuilt: AllocCensus,
+    compacted: AllocCensus,
 }
 
 trait Tree: Sized + Clone {
@@ -356,6 +374,8 @@ trait Tree: Sized + Clone {
     fn census(&self) -> ExpanseStats;
     fn alloc_census(&self) -> AllocCensus;
     fn check(&self);
+    fn compact_tree(&mut self);
+    fn keys_equal(&self, sorted: &[u64]) -> bool;
 }
 
 impl Tree for ExpanseSet {
@@ -389,6 +409,12 @@ impl Tree for ExpanseSet {
     fn check(&self) {
         self.validate();
     }
+    fn compact_tree(&mut self) {
+        self.compact();
+    }
+    fn keys_equal(&self, sorted: &[u64]) -> bool {
+        self.iter().eq(sorted.iter().copied())
+    }
 }
 
 impl Tree for ExpanseMap {
@@ -421,6 +447,17 @@ impl Tree for ExpanseMap {
     }
     fn check(&self) {
         self.validate();
+    }
+    fn compact_tree(&mut self) {
+        self.compact();
+    }
+    fn keys_equal(&self, sorted: &[u64]) -> bool {
+        self.iter()
+            .map(|(k, v)| {
+                assert_eq!(v, !k, "value of {k:#x}");
+                k
+            })
+            .eq(sorted.iter().copied())
     }
 }
 
@@ -493,6 +530,41 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
     let census_rebuilt = checked(rebuilt.alloc_census(), used_rebuilt, held_rebuilt);
     rebuilt.shrink();
     let held_rebuilt_shrunk = rebuilt.held();
+    drop(rebuilt);
+
+    // The compact arm: the same drained tree again, compacted in place.
+    let mut c = T::new_tree();
+    for &k in all {
+        c.put(k);
+    }
+    for &k in gone {
+        assert!(c.take(k), "every removal hits a present key");
+    }
+    assert_eq!(c.used(), used_drained, "the second drain is byte-identical");
+    let held_before_compact = c.held();
+    assert_eq!(
+        held_before_compact, held_drained,
+        "the second drain is byte-identical"
+    );
+    let live_before = live();
+    reset_peak();
+    c.compact_tree();
+    let compact_heap_peak_extra = PEAK.load(Ordering::Relaxed) - live_before;
+    assert_eq!(c.count(), m as u64, "the compacted tree holds the set");
+    c.check();
+    let mut survivors: Vec<u64> = all
+        .iter()
+        .copied()
+        .filter(|k| !gone_set.contains(k))
+        .collect();
+    survivors.sort_unstable();
+    assert!(
+        c.keys_equal(&survivors),
+        "the compacted tree holds the surviving keys"
+    );
+    let (used_compact, held_compact) = (c.used(), c.held());
+    let census_compacted = checked(c.alloc_census(), used_compact, held_compact);
+    drop(c);
     (
         Reading {
             used_full,
@@ -507,6 +579,10 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
             held_rebuilt,
             held_rebuilt_shrunk,
             rebuild_heap_peak_extra,
+            held_before_compact,
+            used_compact,
+            held_compact,
+            compact_heap_peak_extra,
         },
         drained_stats,
         fresh_stats,
@@ -515,6 +591,7 @@ fn run<T: Tree>(all: &[u64], gone: &[u64]) -> (Reading, ExpanseStats, ExpanseSta
             shrunk: census_shrunk,
             fresh: census_fresh,
             rebuilt: census_rebuilt,
+            compacted: census_compacted,
         },
     )
 }
@@ -564,7 +641,7 @@ fn census_json(c: &AllocCensus) -> String {
         "{{\"slab_pages\": {pages}, \"slab_pages_dense_floor\": {dense}, \"pages_free\": {}, \
          \"pages_partial\": {}, \"pages_full\": {}, \"slab_live_bytes\": {}, \"slab_free_bytes\": {}, \
          \"slab_overhead_bytes\": {}, \"system_live_bytes\": {}, \"system_free_bytes\": {}, \
-         \"live_hist\": {hist:?},\n        \"classes\": [{classes}]}}",
+         \"live_allocs\": {}, \"total_allocs\": {}, \"live_hist\": {hist:?},\n        \"classes\": [{classes}]}}",
         sum(|k| k.pages_free),
         sum(|k| k.pages_partial),
         sum(|k| k.pages_full),
@@ -573,6 +650,8 @@ fn census_json(c: &AllocCensus) -> String {
         c.slab_overhead_bytes(),
         c.system_live_bytes,
         c.system_free_bytes(),
+        c.live_allocs,
+        c.total_allocs,
     )
 }
 
@@ -804,6 +883,14 @@ fn main() {
         .expect("write to a String");
     }
     let mut rows = String::new();
+    // METHODOLOGY §12.5: the G-held and G-peak slack, and the cells failing
+    // each clause of the two gates.
+    const G_SLACK: f64 = 1.10;
+    let mut g_held_fail: Vec<String> = Vec::new();
+    let mut g_used_fail: Vec<String> = Vec::new();
+    let mut g_peak_fail: Vec<String> = Vec::new();
+    let mut g_no_free_fail: Vec<String> = Vec::new();
+    let (mut compact_min, mut compact_max) = (f64::MAX, 0f64);
     for (id, dist, n, m, order) in GRID {
         let (n, m) = (n / scale, m / scale);
         let all = keys(dist, n);
@@ -819,12 +906,46 @@ fn main() {
             let shrunk_over_held_fresh = r.held_shrunk as f64 / r.held_fresh as f64;
             let rebuilt_over_held_fresh = r.held_rebuilt as f64 / r.held_fresh as f64;
             let peak_held = r.held_shrunk + r.held_rebuilt;
+            let compact_over_held_fresh = r.held_compact as f64 / r.held_fresh as f64;
+            compact_min = compact_min.min(compact_over_held_fresh);
+            compact_max = compact_max.max(compact_over_held_fresh);
+            let compact_peak_held = r.held_before_compact + r.held_compact;
+            let peak_ceiling = r.held_before_compact as f64 + G_SLACK * r.held_fresh as f64;
+            let no_free = cs.compacted.live_allocs == cs.compacted.total_allocs;
+            let used_ok = if flavor == "map" {
+                r.used_compact == r.used_fresh
+            } else {
+                r.used_compact == r.used_rebuilt && r.used_compact <= r.used_fresh
+            };
+            let tag = format!("{id}/{flavor}");
+            if compact_over_held_fresh > G_SLACK {
+                g_held_fail.push(tag.clone());
+            }
+            if !used_ok {
+                g_used_fail.push(tag.clone());
+            }
+            if compact_peak_held as f64 > peak_ceiling {
+                g_peak_fail.push(tag.clone());
+            }
+            if !no_free {
+                g_no_free_fail.push(tag);
+            }
             println!(
                 "{id:<20} {flavor:<3} {n:>9} {m:>9} {:<8} {:>9.2} {:>9.2} {ratio:>7.3} {:>9.2} {held_ratio:>7.3} {shrunk_over_held_fresh:>7.3} {rebuilt_over_held_fresh:>7.3}",
                 order.name(),
                 r.used_drained as f64 / m as f64,
                 r.used_fresh as f64 / m as f64,
                 r.held_shrunk as f64 / m as f64,
+            );
+            println!(
+                "{:<20} {flavor:<3} compact: held {} -> {} B, / held_fresh {compact_over_held_fresh:.4}, used {} (fresh {}, rebuilt {}), peak {compact_peak_held} B (ceiling {peak_ceiling:.0}), heap peak +{} B, no free {no_free}",
+                "",
+                r.held_before_compact,
+                r.held_compact,
+                r.used_compact,
+                r.used_fresh,
+                r.used_rebuilt,
+                r.compact_heap_peak_extra,
             );
             let lam = match dist {
                 Dist::Random(bits) => format!(
@@ -843,8 +964,12 @@ fn main() {
                  \"held_fresh_shrunk\": {}, \"used_rebuilt\": {}, \"held_rebuilt\": {}, \"held_rebuilt_shrunk\": {}, \
                  \"held_shrunk_over_held_fresh\": {}, \"held_rebuilt_over_held_fresh\": {}, \
                  \"rebuild_peak_held\": {peak_held}, \"rebuild_heap_peak_extra\": {},\n      \
+                 \"held_before_compact\": {}, \"used_compact\": {}, \"held_compact\": {}, \
+                 \"held_compact_over_held_fresh\": {}, \"compact_peak_held\": {compact_peak_held}, \
+                 \"compact_peak_ceiling\": {}, \"compact_no_free\": {no_free}, \"compact_used_ok\": {used_ok}, \
+                 \"compact_heap_peak_extra\": {},\n      \
                  \"drained\": {},\n      \"fresh\": {},\n      \
-                 \"census\": {{\"drained\": {},\n        \"shrunk\": {},\n        \"fresh\": {},\n        \"rebuilt\": {}}}}},",
+                 \"census\": {{\"drained\": {},\n        \"shrunk\": {},\n        \"fresh\": {},\n        \"rebuilt\": {},\n        \"compacted\": {}}}}},",
                 dist.name(),
                 order.name(),
                 r.used_full,
@@ -865,17 +990,50 @@ fn main() {
                 r4(shrunk_over_held_fresh),
                 r4(rebuilt_over_held_fresh),
                 r.rebuild_heap_peak_extra,
+                r.held_before_compact,
+                r.used_compact,
+                r.held_compact,
+                r4(compact_over_held_fresh),
+                peak_ceiling.round() as u64,
+                r.compact_heap_peak_extra,
                 bytes_json(&ds),
                 bytes_json(&fs),
                 census_json(&cs.drained),
                 census_json(&cs.shrunk),
                 census_json(&cs.fresh),
                 census_json(&cs.rebuilt),
+                census_json(&cs.compacted),
             )
             .expect("write to a String");
         }
     }
 
+    let verdict = |fails: &[String]| {
+        if fails.is_empty() {
+            "met".to_string()
+        } else {
+            format!("NOT MET in {} cell(s): {}", fails.len(), fails.join(", "))
+        }
+    };
+    let g_held = verdict(&[g_held_fail.clone(), g_used_fail.clone()].concat());
+    let g_peak = verdict(&[g_peak_fail.clone(), g_no_free_fail.clone()].concat());
+    println!(
+        "\ncompact (METHODOLOGY §12.5): held / held_fresh {compact_min:.4}..{compact_max:.4}; \
+         G-held ratio clause: {}; mem_used clause: {}; G-held: {g_held}",
+        verdict(&g_held_fail),
+        verdict(&g_used_fail)
+    );
+    println!(
+        "compact: G-peak ceiling clause: {}; no-free clause: {}; G-peak: {g_peak}",
+        verdict(&g_peak_fail),
+        verdict(&g_no_free_fail)
+    );
+    let gates_json = format!(
+        "{{\"slack\": {G_SLACK}, \"held_compact_over_held_fresh_min\": {}, \"held_compact_over_held_fresh_max\": {}, \
+         \"g_held\": \"{g_held}\", \"g_peak\": \"{g_peak}\"}}",
+        r4(compact_min),
+        r4(compact_max)
+    );
     if let Some(path) = json_path {
         assert!(
             !quick,
@@ -895,10 +1053,11 @@ fn main() {
              \"rebuild_peak_held\": \"held_shrunk + held_rebuilt: both trees live at the end of clone(); mem_held() only falls on shrink_to_fit, clear or drop, so neither term is higher earlier in the call\", \
              \"rebuild_heap_peak_extra\": \"requested bytes from a counting global allocator, at their highest during clone(), minus the live figure before it: the new tree plus the clone's scratch; excludes the system allocator's chunk overhead; deterministic for a given toolchain\", \
              \"census\": \"NodeAlloc::census, read-only, per slab size class; live_hist buckets pages by live fraction: [0] no live block, [1..=10] deciles of live/blocks_per_page, [11] every block live; slab_pages_dense_floor is the sum over classes of ceil(live_blocks / blocks_per_page); each census is asserted to sum to mem_used() and mem_held()\", \
-             \"cost\": \"not measured here; instructions come from the set_rebuild_drained / map_rebuild_drained Callgrind arms (crates/expanse/benches/instructions.rs, instruction-counts CI job)\"}},\n    \
+             \"compact\": \"a second drained tree (same keys and removal order, asserted byte-identical), compact() without shrink_to_fit(); held_before_compact is its mem_held() at the call; compact_peak_held = held_before_compact + held_compact, the peak held by the two tree allocators when the compacted allocator made no free (compact_no_free: its census live_allocs == total_allocs); compact_peak_ceiling = held_before_compact + 1.10 * held_fresh; compact_used_ok: map used_compact == used_fresh, set used_compact == used_rebuilt and <= used_fresh (METHODOLOGY section 12.5); compact_heap_peak_extra as rebuild_heap_peak_extra, over the compact() call\", \
+             \"cost\": \"not measured here; instructions come from the set_rebuild_drained / map_rebuild_drained and set_compact_drained / map_compact_drained Callgrind arms (crates/expanse/benches/instructions.rs, instruction-counts CI job)\"}},\n    \
              \"load\": \"not recorded: a byte count does not depend on host load\",\n    \
              \"generator\": \"XorShift64(0x0DDB_1A5E_5EED_0001) for keys (distinct, generator order); removal permutation Fisher-Yates from XorShift64(0x5EED_0DE1_E7E5_0002)\",\n    \
-             \"leaf_cap\": {LEAF_CAP}\n  }},\n  \"model_pins\": [{pins_json}],\n  \"cells\": [\n{}\n  ]\n}}\n",
+             \"leaf_cap\": {LEAF_CAP}\n  }},\n  \"model_pins\": [{pins_json}],\n  \"compact_gates\": {gates_json},\n  \"cells\": [\n{}\n  ]\n}}\n",
             rows.trim_end_matches(",\n")
         );
         std::fs::write(&path, doc).expect("write --json output");

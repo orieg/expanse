@@ -372,6 +372,121 @@ pub(crate) unsafe fn build_subtree(a: &NodeAlloc, keys: &[u64], level: u8) -> Ed
     unsafe { build_branch_from_keys(a, keys, level, bl) }
 }
 
+// ===========================================================================
+// Map bulk builder — the map-flavor twin of `build_subtree`, used by
+// `ExpanseMap::compact`. It emits, bottom-up and with no intermediate form,
+// the shapes the map insert path converges to for the same entries:
+// an immediate up to `map_immed_max(level)` entries, a linear leaf up to
+// `LEAF_CAP` (`LEAF1_CAP` at level 1), a `LeafBitmapL` at level 1 or behind a
+// skip where the keys differ only in their final byte, and otherwise a branch
+// at the divergence level, its form set by its child count. There is no map
+// full expanse. The branches reuse `build_branch` and `wrap_u_narrow`, the
+// terminals the map engine's own constructors, and nothing here frees: every
+// block the build allocates is live in the result.
+// ===========================================================================
+
+/// Builds the canonical map subtree for `entries` inside a `level`-byte
+/// expanse.
+///
+/// Preconditions: `entries` is sorted by key, the keys are distinct, the
+/// slice is non-empty, and every key shares its digits above `level`. At
+/// `level == 8` the result is always a branch (level-8 slots cannot skip).
+///
+/// # Safety
+///
+/// The preconditions above hold and `a` owns the tree the edge is spliced
+/// into.
+pub(crate) unsafe fn build_map_subtree(a: &NodeAlloc, entries: &[(u64, u64)], level: u8) -> Edge {
+    let n = entries.len();
+    debug_assert!(n >= 1);
+    debug_assert!(entries.windows(2).all(|w| w[0].0 < w[1].0));
+
+    if level == 8 {
+        // SAFETY: forwarded contract.
+        return unsafe { build_map_branch(a, entries, 8, 8) };
+    }
+    if n <= mutate::map_immed_max(level) {
+        // Immediate: the low `level` bytes of each key in the aux bytes, the
+        // value in word 0 (one entry) or in a class-sized value array.
+        let mut e = Edge::NULL;
+        crate::mutate_map::write_map_immed::<false>(a, &mut e, level, entries);
+        return e;
+    }
+    let leaf_cap = if level == 1 {
+        mutate::LEAF1_CAP
+    } else {
+        mutate::LEAF_CAP
+    };
+    if n <= leaf_cap {
+        // Linear leaf at `kb == level`: full remainders, no skip.
+        let mut e = Edge::NULL;
+        crate::mutate_map::build_map_leaf::<false>(a, &mut e, level, entries);
+        return e;
+    }
+    let bl = if level == 1 {
+        1
+    } else {
+        mutate::divergence_level(entries[0].0, entries[n - 1].0, level)
+    };
+    if bl == 1 {
+        // Overflows the linear leaf and differs only in the final byte: a
+        // bitmap leaf, carrying the shared digits above it as a skip.
+        let low: Vec<(u64, u64)> = entries
+            .iter()
+            .map(|&(k, v)| (mutate::key_low(k, 1), v))
+            .collect();
+        let mut e = Edge::NULL;
+        crate::mutate_map::build_bitmap_leaf_map::<false>(a, &mut e, &low);
+        if level > 1 {
+            mutate::write_decode(&mut e, 1, level, entries[0].0);
+        }
+        return e;
+    }
+    // SAFETY: forwarded contract.
+    unsafe { build_map_branch(a, entries, level, bl) }
+}
+
+/// The map twin of `build_branch_from_keys`: partitions `entries` by their
+/// `bl` digit, builds each run at `bl - 1`, and stamps the branch edge's
+/// `pop0` and skip decode for a slot at `slot_level`.
+///
+/// # Safety
+///
+/// `entries` is sorted, distinct, non-empty, spans at least two digits at
+/// `bl` (or `bl == 8`), and shares digits above `slot_level`; `a` owns the
+/// tree.
+unsafe fn build_map_branch(a: &NodeAlloc, entries: &[(u64, u64)], slot_level: u8, bl: u8) -> Edge {
+    let n = entries.len();
+    let mut digits: Vec<u8> = Vec::new();
+    let mut children: Vec<Edge> = Vec::new();
+    let mut i = 0;
+    while i < n {
+        let d = digit(entries[i].0, bl);
+        let start = i;
+        while i < n && digit(entries[i].0, bl) == d {
+            i += 1;
+        }
+        // SAFETY: the run shares digits above `bl - 1`; `a` owns the tree.
+        let child = unsafe { build_map_subtree(a, &entries[start..i], bl - 1) };
+        digits.push(d);
+        children.push(child);
+    }
+    // SAFETY: children are live subtrees at `bl - 1`.
+    let mut e = unsafe { build_branch(a, bl, &digits, &children) };
+    if bl <= 7 {
+        e.set_pop0(bl, n as u64 - 1);
+    }
+    if bl < slot_level {
+        if e.tag_byte() == EdgeType::BranchU as u8 {
+            // SAFETY: `e` is the freshly built non-skipping BranchU at `bl`.
+            e = unsafe { wrap_u_narrow(a, e, bl, slot_level, entries[0].0, n as u64) };
+        } else {
+            mutate::write_decode(&mut e, bl, slot_level, entries[0].0);
+        }
+    }
+    e
+}
+
 /// Deep-copies the subtree rooted at `edge` (covering `level` bytes) into `a`,
 /// preserving every form and the edge's own `pop0`/decode aux bytes.
 ///

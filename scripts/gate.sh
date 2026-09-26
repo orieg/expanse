@@ -167,6 +167,7 @@ python3 scripts/verify_release_registries.py --self-test
 python3 scripts/embedded_envelope.py
 python3 scripts/density_poisson.py --self-test
 python3 scripts/condense_bounds.py --self-test
+python3 scripts/compact_bounds.py --self-test
 python3 scripts/art_envelope.py
 python3 scripts/patricia_envelope.py
 python3 scripts/masstree_envelope.py
@@ -227,7 +228,7 @@ if [ "$MIRI" -eq 1 ]; then
   # occ::tests:: covers the OCC lock and epoch primitives; Miri fails weak
   # CASes spuriously, so a single-attempt try-lock must use a strong CAS.
   cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
-    blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move sync::miri_tests:: occ::tests::
+    blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move map::tests::compact_ set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move set::tests::compact_ sync::miri_tests:: occ::tests::
   cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_
 else
   step "6/6 Miri — skipped (pass --miri for the Tier-1 filter; CI runs it on every PR)"

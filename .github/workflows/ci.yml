@@ -506,6 +506,13 @@ jobs:
           # node sizes and function bodies it mirrors from crates/expanse/src and
           # fails when the engine moves (AGENTS.md section 8.8 commit 1).
           python3 scripts/condense_bounds.py --self-test
+          # compact_bounds.py holds the bounds behind ExpanseSet/ExpanseMap::compact()
+          # (docs/benchmarks/remove_retention/METHODOLOGY.md section 12): the held
+          # bytes of an allocator that never frees, the G-held prediction from the
+          # committed census, the G-peak ceiling and the transient key buffer. Its
+          # self-test reads the slab constants it mirrors from alloc.rs and fails
+          # when the engine moves (AGENTS.md section 8.8 commit 1).
+          python3 scripts/compact_bounds.py --self-test
           # reader_scaling_bounds.py reduces the committed readers-only string
           # rounds and counter cells (#730); its self-test also holds
           # docs/benchmarks/concurrency/README.md §13 to its own output.
@@ -1540,9 +1547,9 @@ jobs:
       matrix:
         include:
           - shard: 1 of 2
-            filter: "sync::miri_tests:: set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move alloc:: leaf::"
+            filter: "sync::miri_tests:: set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move set::tests::compact_ alloc:: leaf::"
           - shard: 2 of 2
-            filter: "map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move strmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots blobmap::tests::deferred bytesmap::tests::deferred bits:: node:: slot:: types:: occ::tests::"
+            filter: "map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move map::tests::compact_ strmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots blobmap::tests::deferred bytesmap::tests::deferred bits:: node:: slot:: types:: occ::tests::"
     steps:
       - uses: actions/checkout@v7
 
