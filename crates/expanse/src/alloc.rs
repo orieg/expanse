@@ -67,6 +67,110 @@ pub(crate) struct SlabPage {
     pub(crate) class: usize,
 }
 
+/// Buckets of [`SlabClassCensus::live_hist`]: bucket 0 is a page with no live
+/// block, the last a page whose every block is live, and buckets `1..=10` the
+/// deciles of the live fraction in between (a page with `live` of `cap` blocks
+/// live, `0 < live < cap`, is in bucket `1 + (live - 1) * 10 / cap`).
+#[doc(hidden)]
+pub const CENSUS_BUCKETS: usize = 12;
+
+/// One slab size class in an [`AllocCensus`]. Diagnostic only; not a stable
+/// API (`docs/benchmarks/remove_retention/README.md`, "Allocator census and
+/// rebuild").
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SlabClassCensus {
+    /// Index of the class in the allocator's class table.
+    pub class: usize,
+    /// Requested bytes of the class.
+    pub bytes: usize,
+    /// Alignment of the class.
+    pub align: usize,
+    /// Bytes one block occupies on a page, which is also what `mem_used()`
+    /// charges a live block of the class.
+    pub block: usize,
+    /// Blocks carved from one 4 KiB page.
+    pub blocks_per_page: usize,
+    /// Slab pages of this class.
+    pub pages: usize,
+    /// Pages with no live block (what `release_free` returns).
+    pub pages_free: usize,
+    /// Pages with at least one live and at least one free block.
+    pub pages_partial: usize,
+    /// Pages whose every block is live.
+    pub pages_full: usize,
+    /// Live blocks on this class's pages.
+    pub live_blocks: usize,
+    /// Free blocks on this class's pages (on the class's freelist).
+    pub free_blocks: usize,
+    /// Pages by live fraction, bucketed as [`CENSUS_BUCKETS`] describes.
+    pub live_hist: [usize; CENSUS_BUCKETS],
+}
+
+/// A read-only census of a [`NodeAlloc`]: per slab class, the pages and how
+/// full they are, and the system-served remainder. Its parts sum to
+/// [`NodeAlloc::bytes_held`] and [`NodeAlloc::bytes_in_use`] exactly
+/// ([`Self::held`], [`Self::used`]). Diagnostic only; not a stable API.
+#[doc(hidden)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AllocCensus {
+    /// Slab classes holding at least one page, in class-table order.
+    pub slab: core_alloc::vec::Vec<SlabClassCensus>,
+    /// Live bytes not on a slab page: blocks of the classes above the slab
+    /// ceiling, and requests no class serves.
+    pub system_live_bytes: usize,
+    /// Free blocks of the classes above the slab ceiling, kept on their
+    /// freelists, as (class bytes, blocks, bytes).
+    pub system_free: core_alloc::vec::Vec<(usize, usize, usize)>,
+}
+
+impl AllocCensus {
+    /// Live bytes on slab pages.
+    #[must_use]
+    pub fn slab_live_bytes(&self) -> usize {
+        self.slab.iter().map(|c| c.live_blocks * c.block).sum()
+    }
+
+    /// Free-block bytes on slab pages.
+    #[must_use]
+    pub fn slab_free_bytes(&self) -> usize {
+        self.slab.iter().map(|c| c.free_blocks * c.block).sum()
+    }
+
+    /// Bytes of slab pages no block can occupy: each page's header and the
+    /// tail too short for another block.
+    #[must_use]
+    pub fn slab_overhead_bytes(&self) -> usize {
+        self.slab
+            .iter()
+            .map(|c| c.pages * (SLAB_PAGE_SIZE - c.blocks_per_page * c.block))
+            .sum()
+    }
+
+    /// Bytes of free blocks of the system-served classes.
+    #[must_use]
+    pub fn system_free_bytes(&self) -> usize {
+        self.system_free.iter().map(|f| f.2).sum()
+    }
+
+    /// Equals [`NodeAlloc::bytes_in_use`] on the handle it was taken from.
+    #[must_use]
+    pub fn used(&self) -> usize {
+        self.slab_live_bytes() + self.system_live_bytes
+    }
+
+    /// Equals [`NodeAlloc::bytes_held`] on the handle it was taken from.
+    #[must_use]
+    pub fn held(&self) -> usize {
+        self.slab
+            .iter()
+            .map(|c| c.pages * SLAB_PAGE_SIZE)
+            .sum::<usize>()
+            + self.system_live_bytes
+            + self.system_free_bytes()
+    }
+}
+
 /// Bytes of a slab page's header: blocks start one cache line in.
 const SLAB_HEADER: usize = CACHE_LINE;
 /// Bytes of one slab page.
@@ -785,6 +889,94 @@ impl NodeAlloc {
             }
         }
         released
+    }
+
+    /// A read-only census of the slab pages and freelists: per slab class,
+    /// pages total, free, partly used and full, live and free blocks, and a
+    /// histogram of pages by live fraction; the system-served live and free
+    /// bytes besides. Out of line, and it only reads allocator state: nothing
+    /// on the allocation path changes. O(slab pages · log slab pages + free
+    /// blocks), plus a scratch vector. Diagnostic only; not a stable API.
+    ///
+    /// A tree shared through a concurrent wrapper allocates from its
+    /// collector's pools, which this does not see (as [`Self::bytes_held`]).
+    #[doc(hidden)]
+    #[inline(never)]
+    #[must_use]
+    pub fn census(&self) -> AllocCensus {
+        // (base, class, free blocks on the page), sorted by base address so a
+        // free block finds its page by binary search, as in `release_free`.
+        let mut pages: core_alloc::vec::Vec<(usize, usize, usize)> = core_alloc::vec::Vec::new();
+        let mut page = self.slab_pages.load(Ordering::Relaxed);
+        while !page.is_null() {
+            // SAFETY: every entry of the slab list is a live page this handle
+            // carved, with its header written before it was linked. The list
+            // is single-writer and `&self` excludes a plain tree's writer.
+            unsafe {
+                pages.push((page as usize, (*page).class, 0));
+                page = (*page).next;
+            }
+        }
+        pages.sort_unstable_by_key(|p| p.0);
+        let mut out = AllocCensus::default();
+        let mut slab_carved_live = 0;
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            let step = accounted_size(bytes, align);
+            let mut free = 0usize;
+            let mut cur = self.freelists[class].load(Ordering::Relaxed);
+            while !cur.is_null() {
+                free += 1;
+                if is_slab_class(class) {
+                    let i = pages.partition_point(|p| p.0 <= cur as usize) - 1;
+                    debug_assert!(
+                        (cur as usize) < pages[i].0 + SLAB_PAGE_SIZE && pages[i].1 == class,
+                        "free block outside every slab page of its class"
+                    );
+                    pages[i].2 += 1;
+                }
+                // SAFETY: freelist entries are free blocks of this class owned
+                // by this handle; `next` was written when each was pushed.
+                cur = unsafe { (*cur).next };
+            }
+            if !is_slab_class(class) {
+                if free > 0 {
+                    out.system_free.push((bytes, free, free * step));
+                }
+                continue;
+            }
+            let cap = slab_blocks(class);
+            let mut c = SlabClassCensus {
+                class,
+                bytes,
+                align,
+                block: step,
+                blocks_per_page: cap,
+                ..SlabClassCensus::default()
+            };
+            for p in pages.iter().filter(|p| p.1 == class) {
+                let live = cap - p.2;
+                c.pages += 1;
+                c.live_blocks += live;
+                c.free_blocks += p.2;
+                let bucket = if live == 0 {
+                    c.pages_free += 1;
+                    0
+                } else if live == cap {
+                    c.pages_full += 1;
+                    CENSUS_BUCKETS - 1
+                } else {
+                    c.pages_partial += 1;
+                    1 + (live - 1) * 10 / cap
+                };
+                c.live_hist[bucket] += 1;
+            }
+            if c.pages > 0 {
+                slab_carved_live += c.live_blocks * step;
+                out.slab.push(c);
+            }
+        }
+        out.system_live_bytes = self.bytes_in_use().saturating_sub(slab_carved_live);
+        out
     }
 
     /// Number of live allocations (diagnostics / leak assertions in tests).
@@ -2081,6 +2273,78 @@ mod tests {
         );
         assert_eq!(a.bytes_held(), 0);
         assert_eq!(a.bytes_in_use(), 0);
+    }
+
+    /// The census classifies each page by its live blocks and its parts sum
+    /// to `bytes_held` and `bytes_in_use` exactly.
+    #[test]
+    fn census_classifies_pages_and_sums_to_held() {
+        let class = class_for_raw(64).expect("64 is a raw class");
+        let per_page = slab_blocks(class);
+        let mut a = NodeAlloc::new();
+        // Four pages of 64-byte blocks: page 0 full, page 1 with one live
+        // block, page 2 with none, page 3 holding the last block alone.
+        let n = 3 * per_page + 1;
+        let blocks: core_alloc::vec::Vec<_> = (0..n).map(|_| a.alloc_bytes(64)).collect();
+        let big = a.alloc_bytes(300);
+        let kept_system = a.alloc_bytes(300);
+        // SAFETY: each block came from `alloc_bytes` with the size it is
+        // freed with and is freed once; `blocks[i]` for i in the freed ranges
+        // are not used again.
+        unsafe {
+            a.free_bytes(big, 300);
+            for &b in &blocks[per_page + 1..3 * per_page] {
+                a.free_bytes(b, 64);
+            }
+        }
+        let c = a.census();
+        assert_eq!(c.held(), a.bytes_held());
+        assert_eq!(c.used(), a.bytes_in_use());
+        let k = c
+            .slab
+            .iter()
+            .find(|s| s.class == class)
+            .expect("class censused");
+        assert_eq!(k.blocks_per_page, per_page);
+        assert_eq!(
+            (k.pages, k.pages_full, k.pages_partial, k.pages_free),
+            (4, 1, 2, 1)
+        );
+        assert_eq!(k.live_blocks, per_page + 2);
+        assert_eq!(k.free_blocks, 4 * per_page - (per_page + 2));
+        let mut hist = [0usize; CENSUS_BUCKETS];
+        hist[0] = 1;
+        hist[1] = 2;
+        hist[CENSUS_BUCKETS - 1] = 1;
+        assert_eq!(k.live_hist, hist);
+        assert_eq!(c.system_live_bytes, accounted_size(300, RAW_ALIGN));
+        assert_eq!(c.system_free_bytes(), accounted_size(300, RAW_ALIGN));
+        assert_eq!(
+            c.slab_live_bytes() + c.slab_free_bytes() + c.slab_overhead_bytes(),
+            4 * SLAB_PAGE_SIZE
+        );
+
+        // `release_free` returns exactly the free page and the system block.
+        let released = a.release_free();
+        assert_eq!(released, SLAB_PAGE_SIZE + accounted_size(300, RAW_ALIGN));
+        let c = a.census();
+        assert_eq!(c.held(), a.bytes_held());
+        let k = c
+            .slab
+            .iter()
+            .find(|s| s.class == class)
+            .expect("class censused");
+        assert_eq!((k.pages, k.pages_free), (3, 0));
+        assert!(c.system_free.is_empty());
+
+        // SAFETY: the remaining live blocks, each freed once.
+        unsafe {
+            a.free_bytes(kept_system, 300);
+            for &b in blocks[..=per_page].iter().chain(&blocks[3 * per_page..]) {
+                a.free_bytes(b, 64);
+            }
+        }
+        assert_eq!(a.census().used(), 0);
     }
 
     #[cfg(feature = "std")]
