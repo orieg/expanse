@@ -98,9 +98,9 @@ def schedule(arm: str, writers: list[int], builds: list[str], rounds: int) -> li
     return out
 
 
-def run_cell(binary: Path, cell: dict[str, Any], mixed_readers: int) -> dict[str, Any]:
+def run_cell(binary: Path, cell: dict[str, Any], mixed_readers: int, quick: bool = False) -> dict[str, Any]:
     if cell["arm"] != "mixed":
-        cmd = writer_cell_argv(binary, cell["arm"], cell, quick=False)
+        cmd = writer_cell_argv(binary, cell["arm"], cell, quick=quick)
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if proc.returncode != 0:
             raise RuntimeError(f"cell {cell} failed (exit {proc.returncode}):\n{proc.stderr}")
@@ -109,6 +109,8 @@ def run_cell(binary: Path, cell: dict[str, Any], mixed_readers: int) -> dict[str
     cmd = [str(binary), "--role", "throughput", "--arm", "map", "--writers", "1",
            "--readers", str(mixed_readers), "--read-op", "get", "--probe", "uniform",
            "--round", str(cell["round"]), "--position", str(cell["position"])]
+    if quick:
+        cmd.append("--quick")
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(f"cell {cell} failed (exit {proc.returncode}):\n{proc.stderr}")
@@ -194,11 +196,15 @@ def run(args: argparse.Namespace) -> int:
     builds = ["default", "rcpc"] + (["rcpc_lse"] if args.with_lse else [])
     census = host_census()
     feats = set((census.get("features") or "").split())
-    if "lrcpc" not in feats:
+    if args.quick and census.get("features") is None:
+        # A smoke run off Linux (no /proc/cpuinfo): exercises the driver end to
+        # end and publishes nothing.
+        sys.stderr.write("warning: --quick off Linux: host feature check skipped; not publishable\n")
+    elif "lrcpc" not in feats:
         sys.stderr.write(f"error: host does not report lrcpc (Features: {census.get('features')!r}); "
                          "a +rcpc build would fault or measure nothing (AGENTS.md §8.1)\n")
         return 1
-    if args.with_lse and "atomics" not in feats:
+    if args.with_lse and census.get("features") is not None and "atomics" not in feats:
         sys.stderr.write("error: host does not report atomics (LSE); refusing the rcpc_lse arm\n")
         return 1
     pin = bench_pin.apply("rcpc_ab")
@@ -221,7 +227,7 @@ def run(args: argparse.Namespace) -> int:
         for a in order:
             snap = begin_cell(prov, f"round:{r}:arm:{a}")
             for cell in (c for c in scheds[a] if c["round"] == r):
-                res = run_cell(binaries[cell["build"]], cell, args.mixed_readers)
+                res = run_cell(binaries[cell["build"]], cell, args.mixed_readers, args.quick)
                 row = {k: cell[k] for k in ("arm", "cell", "build", "round", "position")}
                 row["value"] = res["value"]
                 if "writer_mops" in res:
@@ -236,6 +242,7 @@ def run(args: argparse.Namespace) -> int:
     begin_cell(prov, "end")
     art = {
         "provenance": prov,
+        "quick": args.quick,
         "design": {"writers": writers, "arms": arms, "builds": builds, "rounds": args.rounds,
                    "mixed_readers": args.mixed_readers,
                    "value": "writer cells: writer_mops; mixed cell: reader_mops (writer_mops ratio reported apart)"},
@@ -294,6 +301,8 @@ def main() -> int:
     ap.add_argument("--arms", default="map,set,mixed")
     ap.add_argument("--mixed-readers", type=int, default=3)
     ap.add_argument("--with-lse", action="store_true", help="add the rcpc_lse arm (+rcpc,+lse)")
+    ap.add_argument("--quick", action="store_true",
+                    help="smoke: the harness's reduced population; the artifact says quick and is not publishable")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
     if a.self_test:

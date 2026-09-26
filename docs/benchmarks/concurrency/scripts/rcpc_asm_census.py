@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -148,6 +149,23 @@ def summarise(per_func: dict[str, dict], filt: str) -> dict:
     return {"filter": filt, "totals": dict(tot), "hot": dict(hot), "hot_functions": hot_funcs}
 
 
+def provenance(invocation: str | None) -> dict:
+    """What produced the census (AGENTS.md §8.7): commit, toolchain, command."""
+    def out(cmd: list[str]) -> str | None:
+        try:
+            return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+        except (OSError, subprocess.CalledProcessError):
+            return None
+    commit = os.environ.get("EXPANSE_BENCH_COMMIT") or out(["git", "rev-parse", "--short=8", "HEAD"])
+    return {
+        "issue": 1191,
+        "commit": commit,
+        "rustc": out(["rustc", "--version"]),
+        "invocation": invocation,
+        "demangler": "rustfilt" if shutil.which("rustfilt") else None,
+    }
+
+
 SELF_TEST_ASM = """\
 \t.type\tf,@function
 f:
@@ -183,6 +201,8 @@ def main() -> int:
     ap.add_argument("asm", nargs="?")
     ap.add_argument("--filter", default=DEFAULT_FILTER)
     ap.add_argument("--json")
+    ap.add_argument("--invocation", default=None,
+                    help="the build command that produced the file, recorded in the JSON (AGENTS.md §8.7)")
     ap.add_argument("--pairs", type=int, default=25, help="functions to print")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
@@ -202,6 +222,7 @@ def main() -> int:
         print(f"  pairs={r['stlr_ldar_pairs']:3d} ldar={r['ldar']:3d} ldapr={r['ldapr']:3d} "
               f"stlr={r['stlr']:3d} ool={r['outline_atomics']:3d}  {r['symbol']}")
     if a.json:
+        s = {"provenance": provenance(a.invocation), **s}
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump(s, fh, indent=1)
     return 0

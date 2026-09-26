@@ -14,7 +14,7 @@ name: AArch64 rcpc A/B (writer_scaling)
 # Dispatch-only, like bench_aarch64.yml: it gates nothing, runs on no push or
 # pull request, and is not part of ci.yml's `ci-gate` rollup. A single run
 # cannot confirm a delta (docs/BENCHMARKING.md rule 18): dispatch it twice and
-# read the two artifacts together (docs/benchmarks/concurrency/README.md §28).
+# read the two artifacts together (docs/benchmarks/concurrency/README.md §23).
 
 on:
   workflow_dispatch:
