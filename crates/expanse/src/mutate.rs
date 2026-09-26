@@ -803,7 +803,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool, const NESTED: bool>(
 ) -> bool {
     if OCC {
         // SAFETY: forwarded contract.
-        unsafe { insert_with_path_occ::<OCC, NESTED>(a, edge, key, level, path, cover) }
+        unsafe { insert_with_path_occ::<true, NESTED>(a, edge, key, level, path, cover) }
     } else {
         let _ = cover;
         // SAFETY: forwarded contract.
@@ -1530,10 +1530,9 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
     path: &mut InsertPath,
     cover: Cover,
 ) -> bool {
-    debug_assert!(
-        OCC,
-        "the shared insert walk runs only on a shared tree (#1086)"
-    );
+    // The shared walk only: a plain tree takes the plain body, which
+    // edits edges in place (#1086).
+    const { assert!(OCC, "the raw-pointer walk serves shared trees only") };
     // The sequential-insert bypass caches raw edge pointers across
     // operations; under OCC every store must sit inside the bracket of the
     // node that contains it, which a cached pointer cannot name. Keep the
@@ -2512,10 +2511,9 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
     level: u8,
     cover: Cover,
 ) -> bool {
-    debug_assert!(
-        !OCC,
-        "a shared tree removes through `remove_occ`, never the plain body (#1086)"
-    );
+    // The plain walk only: it edits edges through `&mut`, which a shared
+    // tree's readers would alias (#1086); a shared tree takes the copy.
+    const { assert!(!OCC, "the plain walk serves unshared trees only") };
     debug_assert!((1..=8).contains(&level));
     let tag = edge.tag().expect("valid edge tag");
     match tag {
@@ -3043,10 +3041,9 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
     level: u8,
     cover: Cover,
 ) -> bool {
-    debug_assert!(
-        OCC,
-        "`remove_occ` is the shared tree's removal; a plain tree uses `remove` (#1086)"
-    );
+    // The shared walk only: a plain tree takes the plain body, which
+    // edits edges in place (#1086).
+    const { assert!(OCC, "the raw-pointer walk serves shared trees only") };
     debug_assert!((1..=8).contains(&level));
     // A local copy of the published edge; see `insert_with_path_occ`.
     // SAFETY: `edge_ptr` is the live edge this frame owns per contract.

@@ -4,7 +4,7 @@
 //! writer slot; the gate reopens when the `QuiesceGuard` it returns drops. Before that guard existed, reopening was a plain statement at the
 //! tail of each of the four serialised sections — `write_root_covered_with`,
 //! `read_locked`, `with_locked` and `with_locked_pre` — and an unwind skipped
-//! it. `with_locked` and `with_locked_mut` take a caller's closure, and
+//! it. `with_locked` and `with_exclusive` take a caller's closure, and
 //! `validate` panics by design, so calling the corruption checker through the
 //! escape hatch left the gate closed for the life of the tree.
 //!
@@ -103,7 +103,7 @@ fn set_with_locked_panic_leaves_the_gate_open() {
 }
 
 #[test]
-fn strmap_with_locked_mut_panic_leaves_the_gate_open() {
+fn strmap_with_exclusive_panic_leaves_the_gate_open() {
     let m = Arc::new(SyncExpanseStrMap::new());
     for k in 0..KEYS {
         let key = format!("key-{k:012}");
@@ -115,7 +115,7 @@ fn strmap_with_locked_mut_panic_leaves_the_gate_open() {
 
     let trigger = Arc::clone(&m);
     let caught = catch_unwind(AssertUnwindSafe(|| {
-        trigger.with_locked_mut(|_inner| -> u32 { panic!("a caller's closure panics") });
+        trigger.with_exclusive(|_tx| -> u32 { panic!("a caller's closure panics") });
     }));
     assert!(caught.is_err(), "the closure's panic must propagate");
 
@@ -125,6 +125,6 @@ fn strmap_with_locked_mut_panic_leaves_the_gate_open() {
             probe.insert(NulFreeStr::new(b"zzz-probe").expect("NUL-free"), 7);
         }),
         "a writer neither completed nor panicked after a panic out of \
-         SyncExpanseStrMap::with_locked_mut, which reaches with_locked_pre"
+         SyncExpanseStrMap::with_exclusive, which reaches with_locked_pre"
     );
 }

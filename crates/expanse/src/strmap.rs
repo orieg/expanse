@@ -1249,11 +1249,11 @@ struct Walk<'a, const BOUNDED: bool> {
     bound_mask: u64,
     bound_want: u64,
     /// Held for the borrow, and to keep the root reachable.
-    map: &'a mut ExpanseStrMap,
+    map: &'a ExpanseStrMap,
 }
 
 impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
-    fn new(map: &'a mut ExpanseStrMap) -> Self {
+    fn new(map: &'a ExpanseStrMap) -> Self {
         Self {
             stack: Vec::new(),
             subs: Vec::new(),
@@ -1372,7 +1372,7 @@ impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
                 push_terminal(&mut self.key, chunk);
                 // SAFETY: `node` is a live node on the path just walked, and
                 // the chunk came from its own map, so the slot is present.
-                return unsafe { &mut *node }.map.value_slot_pathless(chunk);
+                return unsafe { &*node }.map.get_slot_ptr(chunk);
             }
             if is_suffix_ptr(v) {
                 let sfx = unpack_suffix(v);
@@ -1408,8 +1408,8 @@ impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
         }
         if !self.started {
             self.started = true;
-            let root: *mut StrNode = match self.map.root.as_deref_mut() {
-                Some(r) => core::ptr::from_mut(r),
+            let root: *mut StrNode = match self.map.root.as_deref() {
+                Some(r) => core::ptr::from_ref(r).cast_mut(),
                 None => {
                     self.done = true;
                     return None;
@@ -1496,8 +1496,8 @@ impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
     /// to a single root descent overall.
     fn seek(&mut self, key: &[u8]) -> Option<NonNull<u64>> {
         self.started = true;
-        let root: *mut StrNode = match self.map.root.as_deref_mut() {
-            Some(r) => core::ptr::from_mut(r),
+        let root: *mut StrNode = match self.map.root.as_deref() {
+            Some(r) => core::ptr::from_ref(r).cast_mut(),
             None => {
                 self.done = true;
                 return None;
@@ -2217,7 +2217,7 @@ impl ExpanseStrMap {
     /// this for scans; the positional surface stays for the JudySL contract
     /// and for callers that genuinely jump around.
     #[must_use]
-    pub fn cursor(&mut self) -> StrCursor<'_> {
+    pub fn cursor(&self) -> StrCursor<'_> {
         StrCursor {
             walk: Walk::new(self),
         }
@@ -2228,7 +2228,7 @@ impl ExpanseStrMap {
     /// The seek is the one descent a bounded range scan needs; every
     /// subsequent element is a step along the path it recorded.
     #[must_use]
-    pub fn cursor_at_or_after(&mut self, key: &NulFreeStr) -> StrCursor<'_> {
+    pub fn cursor_at_or_after(&self, key: &NulFreeStr) -> StrCursor<'_> {
         StrCursor {
             walk: self.walk_at_or_after(key.as_bytes()),
         }
@@ -2236,7 +2236,7 @@ impl ExpanseStrMap {
 
     /// The seek behind [`cursor_at_or_after`](Self::cursor_at_or_after) and
     /// [`cursor_prefix`](Self::cursor_prefix).
-    fn walk_at_or_after<const BOUNDED: bool>(&mut self, key: &[u8]) -> Walk<'_, BOUNDED> {
+    fn walk_at_or_after<const BOUNDED: bool>(&self, key: &[u8]) -> Walk<'_, BOUNDED> {
         let mut c = Walk::new(self);
         // A seek records one frame per chunk of `key` and the walk rarely
         // goes more than a level past it, so sizing the buffers from the
@@ -2258,7 +2258,7 @@ impl ExpanseStrMap {
     /// compared with the prefix byte by byte, and the key past the prefix is
     /// never built.
     #[must_use]
-    pub fn cursor_prefix(&mut self, prefix: &NulFreeStr) -> StrPrefixCursor<'_> {
+    pub fn cursor_prefix(&self, prefix: &NulFreeStr) -> StrPrefixCursor<'_> {
         let p = prefix.as_bytes();
         let mut c = self.walk_at_or_after::<true>(p);
         let rem = p.len() % CHUNK;
@@ -3514,7 +3514,7 @@ impl ExpanseStrMap {
     }
 
     /// [`Self::insert`] on a shared map: the exclusive path (the wrapper's
-    /// fallbacks, `with_locked_mut`), through raw pointers because readers
+    /// fallbacks, `with_exclusive`), through raw pointers because readers
     /// run meanwhile (see [`covered_at`]).
     ///
     /// No census re-sync (Refs #1162): an insert only adds to a sub-map's
@@ -4194,7 +4194,7 @@ mod tests {
     /// end, which must keep returning `None` rather than restarting.
     #[test]
     fn cursor_edges() {
-        let mut empty = ExpanseStrMap::new();
+        let empty = ExpanseStrMap::new();
         assert!(empty.cursor().next().is_none());
         assert!(empty.cursor_at_or_after(tk(b"anything")).next().is_none());
 
@@ -4956,7 +4956,7 @@ mod tests {
         // Exclusive removals down to a root-leaf population: the deferred
         // twin re-syncs first, and the engine condenses from the exact count.
         let keep = ROOT_LEAF_CAP - 5;
-        m.with_locked_mut(|inner| {
+        m.exclusive(|inner| {
             for k in keys.iter().skip(keep) {
                 assert!(inner.remove(tk(k)).is_some());
             }
@@ -5011,7 +5011,7 @@ mod tests {
             .map(|i| format!("y{i:06}_suffix").into_bytes())
             .collect();
         let before = fold_edges::get();
-        m.with_locked_mut(|inner| {
+        m.exclusive(|inner| {
             let dirty = inner.root.as_deref().expect("root present").dirty;
             assert_eq!(
                 dirty, 1,
@@ -5052,7 +5052,7 @@ mod tests {
         let before = fold_edges::get();
         let keep = ROOT_LEAF_CAP - 5;
         let mut all: Vec<&Vec<u8>> = base.iter().chain(&term).chain(&sfx).collect();
-        m.with_locked_mut(|inner| {
+        m.exclusive(|inner| {
             for k in all.drain(keep..) {
                 assert!(inner.remove(tk(k)).is_some());
             }
@@ -5121,7 +5121,7 @@ mod tests {
             for (i, k) in keys.iter().enumerate() {
                 assert_eq!(m.insert(tk(k), i as u64), None);
             }
-            m.with_locked_mut(|inner| {
+            m.exclusive(|inner| {
                 let mut node = inner.root.as_deref_mut().expect("root present");
                 if keys[0].len() > CHUNK {
                     let (chunk, _) = chunk_at(&keys[0], 0);

@@ -338,10 +338,13 @@ def main_run(args: argparse.Namespace) -> int:
         print(f"shard {i}/{n}: {len(entries)} entries, "
               f"{len({e.test for e in entries})} workloads", flush=True)
     if args.only:
-        entries = [e for e in entries if e.test == args.only]
-        if not entries:
-            print(f"--only {args.only}: no manifest entry", file=sys.stderr)
+        wanted = [w.strip() for w in args.only.split(",") if w.strip()]
+        missing = [w for w in wanted if w not in {e.test for e in entries}]
+        if not wanted or missing:
+            print(f"--only {args.only}: no manifest entry for {', '.join(missing) or 'an empty list'}",
+                  file=sys.stderr)
             return 2
+        entries = [e for e in entries if e.test in wanted]
     worst = 0
     for e in entries:
         obs = run_one(e, seeds, toolchain)
@@ -540,7 +543,7 @@ def main() -> int:
     mode.add_argument("--check", action="store_true", help="judge every entry against the manifest")
     mode.add_argument("--observe", action="store_true", help="print what each entry reports")
     mode.add_argument("--self-test", action="store_true")
-    ap.add_argument("--only", help="one workload")
+    ap.add_argument("--only", help="a workload, or a comma-separated list of them (the per-PR subset)")
     ap.add_argument("--shard", help="I/N: only shard I of N (whole workloads, round-robin), for the nightly matrix")
     ap.add_argument("--toolchain", help="run `cargo +TOOLCHAIN miri`")
     ap.add_argument("--seeds", help="override the manifest seed range (e.g. 0..2) for a quick development run; a verdict needs the manifest's own range")

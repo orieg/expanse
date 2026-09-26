@@ -330,6 +330,24 @@
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
+      "test": "bytes_exclusive_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "bytes_exclusive_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "bytes_exclusive_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
       "test": "blob_two_writers",
       "check": "race",
       "expect": "clean",
@@ -433,6 +451,60 @@
     },
     {
       "test": "set_tree_churn_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_branchu_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_branchu_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_branchu_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_clear_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_clear_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "map_clear_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_branchu_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_branchu_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "set_branchu_reader_writer",
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"

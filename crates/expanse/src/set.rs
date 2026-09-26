@@ -205,9 +205,15 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
     // rather than inside the plain body, which serves every plain tree.
     let removed = unsafe {
         if OCC {
-            mutate::remove_occ::<OCC, NESTED>(alloc, &raw mut *top, key, 8, crate::occ::Cover::Tree)
+            mutate::remove_occ::<true, NESTED>(
+                alloc,
+                &raw mut *top,
+                key,
+                8,
+                crate::occ::Cover::Tree,
+            )
         } else {
-            mutate::remove::<OCC, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree)
+            mutate::remove::<false, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree)
         }
     };
     let now = if !removed {

@@ -51,10 +51,11 @@
 //! `.github/miri-ub-sites.json`, where every entry is `clean`. A clean entry
 //! is what a workload showed at the manifest's seed range, not a proof: a
 //! site no workload reaches is covered only by the argument above. What
-//! stays outside: `with_locked_mut` hands the bytes and string maps' slot
-//! APIs a plain `&mut`, and a value stored through a slot they return is a
-//! plain store; and the 32-bit wrappers (`sync32`) have not been converted
-//! and still reach both classes.
+//! stays outside: the 32-bit wrappers (`sync32`) have not been converted
+//! and still reach both classes. The bytes and string wrappers' exclusive
+//! section (`with_exclusive`) hands its closure a handle over keyed
+//! operations, never the map or a value slot, so no store it makes is a
+//! plain store to memory a reader loads.
 //!
 //! The threaded tests in `sync::tests` are compiled out under Miri;
 //! `mod miri_ub_sites` holds the workloads Miri runs. The per-node version
@@ -1727,7 +1728,7 @@ impl RootState for ExpanseSet {
 /// no `RootState` for the string map, `write_root_covered` and the whole
 /// `olc_*` route could not be instantiated for `SyncExpanseStrMap` at all.
 /// It is instantiable now. Nothing routes through it yet —
-/// `SyncExpanseStrMap`'s `insert`, `remove`, `clear` and `with_locked_mut`
+/// `SyncExpanseStrMap`'s `insert`, `remove`, `clear` and `with_exclusive`
 /// still take `Shared::write` and its one writer mutex.
 impl RootState for ExpanseStrMap {
     #[inline(always)]
@@ -2496,7 +2497,7 @@ impl<T: SharedTree> Shared<T> {
     /// [`Self::write_root_covered`] with the population re-synced first,
     /// for a serialised section whose operation is not a removal but still
     /// reads or changes the population: the string wrapper's fallbacks,
-    /// `clear` and `with_locked_mut` (Refs #929), whose engine keeps its
+    /// `clear` and `with_exclusive` (Refs #929), whose engine keeps its
     /// count in a field the optimistic writers never touch. The same
     /// instantiation as [`Self::remove_root_covered`], under the name of what
     /// it does.
@@ -10614,9 +10615,9 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 /// freed memory. Long keys mean more hops per attempt; the bounded-retry
 /// fallback to the writer lock caps starvation under write storms.
 ///
-/// Ordered navigation and prefix scans take `&mut ExpanseStrMap` in the
-/// single-threaded API (they return writable slots), so they are reachable
-/// only through [`Self::with_locked_mut`].
+/// Ordered navigation and prefix scans run under [`Self::with_locked`],
+/// which excludes writers for the scan; a read-modify-write or a batch of
+/// changes runs under [`Self::with_exclusive`].
 ///
 /// # Writers
 ///
@@ -10866,15 +10867,25 @@ impl SyncExpanseStrMap {
         self.shared.with_locked(f)
     }
 
-    /// Runs `f` with exclusive access under the writer lock and version
-    /// bracket, with the optimistic writers quiesced — the escape hatch to
-    /// ordered navigation and prefix scans (`next_at_or_after`,
-    /// `prev_at_or_before`, `first`/`last`, …), which take `&mut self`
-    /// because they return writable value slots. Slots obtained inside must
-    /// not escape `f`. A mutation made through the plain API inside `f`
-    /// runs the map's deferred twin, which brackets each node's cover as
-    /// the optimistic writers do.
-    pub fn with_locked_mut<R>(&self, f: impl FnOnce(&mut ExpanseStrMap) -> R) -> R {
+    /// Runs `f` with every other writer excluded, through a handle that
+    /// reads and changes the map by key. Operations inside `f` apply as one
+    /// step: no other writer runs between them, and a reader that overlaps
+    /// the section retries until it closes. Use it for a read-modify-write
+    /// ([`StrExclusive::update`]) or a batch of changes.
+    ///
+    /// The handle never exposes the map or a value slot, so nothing inside
+    /// `f` can store to memory an optimistic reader is loading (#1086).
+    pub fn with_exclusive<R>(&self, f: impl FnOnce(&mut StrExclusive<'_>) -> R) -> R {
+        self.exclusive(|map| f(&mut StrExclusive { map }))
+    }
+
+    /// The serialised section behind [`Self::with_exclusive`]: the writer
+    /// lock and the tree word, with the optimistic writers quiesced. A
+    /// mutation through the plain API inside `f` runs the map's shared
+    /// twin, which brackets each node's cover as the optimistic writers do.
+    /// Crate-private: `f` holds `&mut` to a map readers are walking, so only
+    /// code that mutates through that API may run here.
+    pub(crate) fn exclusive<R>(&self, f: impl FnOnce(&mut ExpanseStrMap) -> R) -> R {
         #[cfg(feature = "ablation-str-serial-writers")]
         {
             self.shared.write(f)
@@ -10883,6 +10894,73 @@ impl SyncExpanseStrMap {
         {
             self.shared.write_root_covered_exact(f)
         }
+    }
+}
+
+/// The handle [`SyncExpanseStrMap::with_exclusive`] passes its closure: the
+/// map's keyed operations, run with every other writer excluded.
+///
+/// It holds the map privately and hands out values, never a value slot or
+/// the map itself, because optimistic readers keep loading from the map
+/// while the section is open (#1086).
+pub struct StrExclusive<'a> {
+    map: &'a mut ExpanseStrMap,
+}
+
+impl StrExclusive<'_> {
+    /// The value stored for `key`, if any.
+    #[must_use]
+    pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
+        self.map.get(key)
+    }
+
+    /// Whether `key` is present.
+    #[must_use]
+    pub fn contains_key(&self, key: &NulFreeStr) -> bool {
+        self.map.contains_key(key)
+    }
+
+    /// Stores `val` for `key`, returning the value it replaced.
+    pub fn insert(&mut self, key: &NulFreeStr, val: u64) -> Option<u64> {
+        self.map.insert(key, val)
+    }
+
+    /// Removes `key`, returning its value.
+    pub fn remove(&mut self, key: &NulFreeStr) -> Option<u64> {
+        self.map.remove(key)
+    }
+
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Returns the value it replaced. No other
+    /// writer runs between the read and the write.
+    pub fn update(
+        &mut self,
+        key: &NulFreeStr,
+        f: impl FnOnce(Option<u64>) -> Option<u64>,
+    ) -> Option<u64> {
+        let old = self.map.get(key);
+        match f(old) {
+            Some(v) => {
+                self.insert(key, v);
+            }
+            None if old.is_some() => {
+                self.remove(key);
+            }
+            None => {}
+        }
+        old
+    }
+
+    /// Number of keys in the map.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.map.len()
+    }
+
+    /// Whether the map is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
     }
 }
 
@@ -11685,12 +11763,23 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         }
     }
 
-    /// Runs `f` with exclusive access under the writer lock and version
-    /// bracket — the escape hatch to the compat slot API
-    /// ([`ExpanseBytesMap::ins_slot`] / [`ExpanseBytesMap::get_value_slot`],
-    /// which take `&mut self` because they return writable value slots).
-    /// Slots obtained inside must not escape `f`.
-    pub fn with_locked_mut<R>(&self, f: impl FnOnce(&mut ExpanseBytesMap<S>) -> R) -> R {
+    /// Runs `f` with every other writer excluded, through a handle that
+    /// reads and changes the map by key. Operations inside `f` apply as one
+    /// step: no other writer runs between them, and a reader that overlaps
+    /// the section retries until it closes. Use it for a read-modify-write
+    /// ([`BytesExclusive::update`]) or a batch of changes.
+    ///
+    /// The handle never exposes the map or a value slot, so nothing inside
+    /// `f` can store to memory an optimistic reader is loading (#1086).
+    pub fn with_exclusive<R>(&self, f: impl FnOnce(&mut BytesExclusive<'_, S>) -> R) -> R {
+        self.exclusive(|map| f(&mut BytesExclusive { map }))
+    }
+
+    /// The serialised section behind [`Self::with_exclusive`], under the
+    /// writer lock and the tree word. Crate-private: `f` holds `&mut` to a
+    /// map readers are loading from, so only code that mutates through the
+    /// map's own API may run here.
+    pub(crate) fn exclusive<R>(&self, f: impl FnOnce(&mut ExpanseBytesMap<S>) -> R) -> R {
         #[cfg(all(
             feature = "std",
             target_pointer_width = "64",
@@ -11712,6 +11801,83 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         {
             self.shared.write(f)
         }
+    }
+}
+
+/// The handle [`SyncExpanseBytesMap::with_exclusive`] passes its closure: the
+/// map's keyed operations, run with every other writer excluded.
+///
+/// It holds the map privately and hands out values, never a value slot or
+/// the map itself, because optimistic readers keep loading from the map
+/// while the section is open (#1086).
+pub struct BytesExclusive<'a, S: BuildHasher> {
+    map: &'a mut ExpanseBytesMap<S>,
+}
+
+impl<S: BuildHasher> BytesExclusive<'_, S> {
+    /// The value stored for `key`, if any.
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        self.map.get(key)
+    }
+
+    /// Whether `key` is present.
+    #[must_use]
+    pub fn contains_key(&self, key: &[u8]) -> bool {
+        self.map.contains_key(key)
+    }
+
+    /// Stores `val` for `key`, returning the value it replaced.
+    pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
+        // The map's shared entry, as the wrapper's own serialised writers
+        // take: readers load its index trie while the section is open.
+        #[cfg(all(target_pointer_width = "64", feature = "std"))]
+        return self.map.insert_shared(key, val);
+        #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
+        self.map.insert(key, val)
+    }
+
+    /// Removes `key`, returning its value.
+    pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
+        // As `insert`: the shared entry, whose index-trie stores are the
+        // atomic words readers load.
+        #[cfg(all(target_pointer_width = "64", feature = "std"))]
+        return self.map.remove_shared(key);
+        #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
+        self.map.remove(key)
+    }
+
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Returns the value it replaced. No other
+    /// writer runs between the read and the write.
+    pub fn update(
+        &mut self,
+        key: &[u8],
+        f: impl FnOnce(Option<u64>) -> Option<u64>,
+    ) -> Option<u64> {
+        let old = self.map.get(key);
+        match f(old) {
+            Some(v) => {
+                self.insert(key, v);
+            }
+            None if old.is_some() => {
+                self.remove(key);
+            }
+            None => {}
+        }
+        old
+    }
+
+    /// Number of keys in the map.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.map.len()
+    }
+
+    /// Whether the map is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
     }
 }
 
@@ -12516,6 +12682,143 @@ mod miri_ub_sites {
         let _ = workload;
     }
 
+    /// Top-byte digits a `BranchU` workload prefills: past
+    /// `BITMAP_TO_UNCOMPRESSED_THRESHOLD`, so the top node is an uncompressed
+    /// branch, and it stays one while the writer adds and removes a few more.
+    const BRANCHU_PREFILL: u64 = crate::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64 + 8;
+    /// Top-byte digits the writer inserts into, and then empties, null
+    /// `BranchU` slots at.
+    const BRANCHU_CHURN: u64 = 6;
+    const _: () = assert!(BRANCHU_PREFILL + BRANCHU_CHURN <= 256);
+    const _: () = assert!(BRANCHU_PREFILL > crate::types::BRANCHU_TO_B_DOWN as u64 + BRANCHU_CHURN);
+
+    /// A key whose top byte is `d`: each digit is a child of the top node.
+    fn top_key(d: u64) -> u64 {
+        (d << 56) | 0x0042
+    }
+
+    /// Whether the published root is a tree whose top node is a `BranchU`:
+    /// the precondition of the `BranchU` workloads, which drive the stores
+    /// into its null slots only while it holds.
+    fn top_is_branchu(root: RootSnapshot) -> bool {
+        matches!(
+            root,
+            RootSnapshot::Tree { top }
+                if top.tag() == Some(EdgeTag::Structural(EdgeType::BranchU))
+        )
+    }
+
+    /// A reader under inserts into, and removals that empty, null slots of an
+    /// uncompressed top branch: the `BranchU` null-slot insert and the
+    /// terminal-edge clear, which the leaf and linear-branch workloads do not
+    /// reach.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_branchu_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for d in 0..BRANCHU_PREFILL {
+            map.insert(top_key(d), d);
+        }
+        assert!(map.with_locked(|m| top_is_branchu(m.occ_root().0)));
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                let churn = BRANCHU_PREFILL..BRANCHU_PREFILL + BRANCHU_CHURN;
+                for d in churn.clone() {
+                    assert_eq!(map.insert(top_key(d), d), None);
+                }
+                for d in churn {
+                    assert_eq!(map.remove(top_key(d)), Some(d));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for d in BRANCHU_PREFILL - 2..BRANCHU_PREFILL + BRANCHU_CHURN {
+                        if let Some(v) = map.get(top_key(d)) {
+                            assert_eq!(v, d);
+                        }
+                    }
+                });
+            });
+        });
+        assert!(map.with_locked(|m| top_is_branchu(m.occ_root().0)));
+        assert_eq!(map.len(), BRANCHU_PREFILL);
+    }
+
+    /// A reader under `clear` of a tree whose top node has linear-branch
+    /// children: `clear` frees every node while pinned readers may still be
+    /// walking them, so it reaches each child through a local copy of its
+    /// edge (`mutate::free_subtree`), never through a reference into a node.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_clear_reader_writer() {
+        let map = SyncExpanseMap::new();
+        let fill = || {
+            for i in 0..TREE_PREFILL {
+                map.insert(splitmix64(i), i);
+            }
+        };
+        fill();
+        assert!(map.with_locked(|m| matches!(m.occ_root().0, RootSnapshot::Tree { .. })));
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for _ in 0..2 {
+                    map.clear();
+                    fill();
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..TREE_PREFILL {
+                        if let Some(v) = map.get(splitmix64(i)) {
+                            assert_eq!(v, i);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), TREE_PREFILL);
+    }
+
+    /// The set twin of `map_branchu_reader_writer`.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_branchu_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for d in 0..BRANCHU_PREFILL {
+            set.insert(top_key(d));
+        }
+        assert!(set.with_locked(|m| top_is_branchu(m.occ_root().0)));
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                let churn = BRANCHU_PREFILL..BRANCHU_PREFILL + BRANCHU_CHURN;
+                for d in churn.clone() {
+                    assert!(set.insert(top_key(d)));
+                }
+                for d in churn {
+                    assert!(set.remove(top_key(d)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for d in BRANCHU_PREFILL - 2..BRANCHU_PREFILL {
+                        assert!(set.contains(top_key(d)));
+                    }
+                    for d in BRANCHU_PREFILL..BRANCHU_PREFILL + BRANCHU_CHURN {
+                        let _ = set.contains(top_key(d));
+                    }
+                });
+            });
+        });
+        assert!(set.with_locked(|m| top_is_branchu(m.occ_root().0)));
+        assert_eq!(set.len(), BRANCHU_PREFILL);
+    }
+
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn map_covered_reader_writer() {
@@ -12654,7 +12957,7 @@ mod miri_ub_sites {
     }
 
     /// The string map's serialised path under a reader: the writer
-    /// overwrites, removes and reinserts keys through `with_locked_mut`, the
+    /// overwrites, removes and reinserts keys through `with_exclusive`, the
     /// covered path the fallbacks and `prune_empty_path` take (the string
     /// twin of `map_covered_reader_writer`). The keys share a prefix longer
     /// than a chunk, so they sit in a nested sub-map below the root node.
@@ -12672,7 +12975,7 @@ mod miri_ub_sites {
         thread::scope(|s| {
             s.spawn(|| {
                 for i in 0..CHURN_KEYS {
-                    map.with_locked_mut(|m| {
+                    map.with_exclusive(|m| {
                         assert_eq!(m.insert(nf(&k(i)), i + 100), Some(i));
                         assert_eq!(m.remove(nf(&k(i))), Some(i + 100));
                         assert_eq!(m.insert(nf(&k(i)), i), None);
@@ -12713,7 +13016,7 @@ mod miri_ub_sites {
         fn deep(j: u64) -> std::string::String {
             std::format!("deep-chain-00-tail{j}")
         }
-        fn fill(m: &mut ExpanseStrMap) {
+        fn fill(m: &mut StrExclusive<'_>) {
             for i in 0..WIDE {
                 m.insert(nf(&wide(i)), i);
             }
@@ -12722,11 +13025,11 @@ mod miri_ub_sites {
             }
         }
         let map = SyncExpanseStrMap::new();
-        map.with_locked_mut(fill);
+        map.with_exclusive(fill);
         let done = AtomicBool::new(false);
         thread::scope(|s| {
             s.spawn(|| {
-                map.with_locked_mut(|m| {
+                map.with_exclusive(|m| {
                     for i in HALF..WIDE {
                         assert_eq!(m.remove(nf(&wide(i))), Some(i));
                     }
@@ -12734,7 +13037,7 @@ mod miri_ub_sites {
                         assert_eq!(m.insert(nf(&wide(i)), i), None);
                     }
                 });
-                map.with_locked_mut(|m| {
+                map.with_exclusive(|m| {
                     for j in 0..2 {
                         assert_eq!(m.remove(nf(&deep(j))), Some(j));
                     }
@@ -12743,7 +13046,7 @@ mod miri_ub_sites {
                     }
                 });
                 map.clear();
-                map.with_locked_mut(fill);
+                map.with_exclusive(fill);
                 done.store(true, Ordering::Release);
             });
             s.spawn(|| {
@@ -12805,6 +13108,43 @@ mod miri_ub_sites {
                     for i in 0..KEYS {
                         if let Some(v) = map.get(&key(0, i).to_le_bytes()) {
                             assert_eq!(v, i);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), KEYS);
+    }
+
+    /// A reader under the bytes wrapper's exclusive section: a
+    /// read-modify-write, a removal and a reinsertion per key through
+    /// `with_exclusive`, the covered path the `ExpanseBytesMap` slot API used
+    /// to be reached through.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn bytes_exclusive_reader_writer() {
+        let map = SyncExpanseBytesMap::new();
+        for i in 0..KEYS {
+            map.insert(&key(0, i).to_le_bytes(), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    let k = key(0, i).to_le_bytes();
+                    map.with_exclusive(|tx| {
+                        assert_eq!(tx.update(&k, |v| v.map(|v| v + KEYS)), Some(i));
+                        assert_eq!(tx.remove(&k), Some(i + KEYS));
+                        assert_eq!(tx.insert(&k, i), None);
+                    });
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..KEYS {
+                        if let Some(v) = map.get(&key(0, i).to_le_bytes()) {
+                            assert!(v == i || v == i + KEYS);
                         }
                     }
                 });
@@ -14176,7 +14516,7 @@ mod tests {
             assert_eq!(m.len(), model.len() as u64);
         }
         // Navigation still works through the locked escape hatch.
-        m.with_locked_mut(|inner| {
+        m.with_locked(|inner| {
             let mut cursor = inner.first();
             for (mk, mv) in &model {
                 let (k, slot) = cursor.expect("sweep entry");
@@ -15085,13 +15425,23 @@ mod tests {
             });
         });
         assert_eq!(seen, model.len() as u64);
-        // The compat slot API through the exclusive escape hatch.
-        m.with_locked_mut(|inner| {
-            let slot = inner.ins_slot(b"slot-key");
-            // SAFETY: slot valid until the next mutation; none happens.
-            unsafe { slot.as_ptr().write(77) };
+        // A read-modify-write through the exclusive handle: an absent key
+        // is inserted, a present one updated, and `None` removes it.
+        m.with_exclusive(|tx| {
+            assert_eq!(tx.update(b"slot-key", |v| Some(v.unwrap_or(70) + 7)), None);
+            assert_eq!(tx.update(b"slot-key", |v| v.map(|v| v * 11)), Some(77));
+            assert_eq!(tx.get(b"slot-key"), Some(847));
         });
-        assert_eq!(m.get(b"slot-key"), Some(77));
+        assert_eq!(m.get(b"slot-key"), Some(847));
+        assert_eq!(
+            m.with_exclusive(|tx| tx.update(b"slot-key", |_| None)),
+            Some(847)
+        );
+        assert_eq!(m.get(b"slot-key"), None);
+        assert_eq!(
+            m.with_exclusive(|tx| tx.update(b"slot-key", |_| None)),
+            None
+        );
     }
 
     /// The issue #362 gate: readers hammer optimistic point lookups while
@@ -16266,7 +16616,7 @@ mod diagnostics_tests {
         // for one thread" assertion is not.)
         //
         // Multi-writer OLC insert only acquires the serial lock on fallbacks or
-        // root-leaf state, so `with_locked_mut` is used to exercise the exclusive
+        // root-leaf state, so `with_exclusive` is used to exercise the exclusive
         // writer lock path directly.
         const ROUNDS: u64 = 200;
         let m = std::sync::Arc::new(SyncExpanseBytesMap::new());
@@ -16276,7 +16626,7 @@ mod diagnostics_tests {
         let mb = std::sync::Arc::clone(&m);
         let b = std::thread::spawn(move || {
             for k in from_a {
-                mb.with_locked_mut(|m| {
+                mb.with_exclusive(|m| {
                     m.insert(&k.to_le_bytes(), k);
                 });
                 if to_a.send(k).is_err() {
@@ -16285,7 +16635,7 @@ mod diagnostics_tests {
             }
         });
         for k in 0..ROUNDS {
-            m.with_locked_mut(|m| {
+            m.with_exclusive(|m| {
                 m.insert(&(1_000_000 + k).to_le_bytes(), k);
             });
             to_b.send(k).unwrap();

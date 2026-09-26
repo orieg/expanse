@@ -362,7 +362,7 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
     // rather than inside the plain body, which serves every plain tree.
     let old = unsafe {
         if OCC {
-            mutate_map::map_remove_occ::<OCC, NESTED>(
+            mutate_map::map_remove_occ::<true, NESTED>(
                 alloc,
                 &raw mut *top,
                 key,
@@ -370,7 +370,7 @@ fn tree_remove<const OCC: bool, const NESTED: bool>(
                 crate::occ::Cover::Tree,
             )
         } else {
-            mutate_map::map_remove::<OCC, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree)
+            mutate_map::map_remove::<false, NESTED>(alloc, top, key, 8, crate::occ::Cover::Tree)
         }
     };
     let now = if old.is_none() {
@@ -4176,11 +4176,6 @@ impl MapCore {
         key: Key,
     ) -> core::ptr::NonNull<u64> {
         by_mode!(alloc, self.ins_slot_pathless_dispatch(alloc, key))
-    }
-
-    #[inline(always)]
-    pub(crate) fn value_slot_pathless(&mut self, key: Key) -> Option<core::ptr::NonNull<u64>> {
-        self.get_value_slot(key, &mut crate::mutate_map::InsertPathMap::empty())
     }
 
     #[inline(always)]

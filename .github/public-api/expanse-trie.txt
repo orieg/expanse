@@ -1691,9 +1691,9 @@ pub struct expanse_trie::strmap::ExpanseStrMap
 impl expanse_trie::strmap::ExpanseStrMap
 pub fn expanse_trie::strmap::ExpanseStrMap::clear(&mut self) -> u64
 pub fn expanse_trie::strmap::ExpanseStrMap::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
-pub fn expanse_trie::strmap::ExpanseStrMap::cursor(&mut self) -> expanse_trie::strmap::StrCursor<'_>
-pub fn expanse_trie::strmap::ExpanseStrMap::cursor_at_or_after(&mut self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::strmap::StrCursor<'_>
-pub fn expanse_trie::strmap::ExpanseStrMap::cursor_prefix(&mut self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::strmap::StrPrefixCursor<'_>
+pub fn expanse_trie::strmap::ExpanseStrMap::cursor(&self) -> expanse_trie::strmap::StrCursor<'_>
+pub fn expanse_trie::strmap::ExpanseStrMap::cursor_at_or_after(&self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::strmap::StrCursor<'_>
+pub fn expanse_trie::strmap::ExpanseStrMap::cursor_prefix(&self, &expanse_trie::strmap::NulFreeStr) -> expanse_trie::strmap::StrPrefixCursor<'_>
 pub fn expanse_trie::strmap::ExpanseStrMap::first(&self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::strmap::ExpanseStrMap::get_slot_ptr(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
@@ -1784,7 +1784,7 @@ impl<'a> !core::marker::Sync for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::marker::Unpin for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::StrCursor<'a>
-impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::StrCursor<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::StrCursor<'a>
 pub struct expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> expanse_trie::strmap::StrPrefixCursor<'a>
 pub fn expanse_trie::strmap::StrPrefixCursor<'a>::next(&mut self) -> core::option::Option<(&[u8], core::ptr::non_null::NonNull<u64>)>
@@ -1794,7 +1794,7 @@ impl<'a> !core::marker::Sync for expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> core::marker::Unpin for expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::StrPrefixCursor<'a>
-impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::StrPrefixCursor<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::StrPrefixCursor<'a>
 pub mod expanse_trie::sync
 pub enum expanse_trie::sync::SyncBlobView<'g>
 pub expanse_trie::sync::SyncBlobView::Arena(&'g [u8])
@@ -1851,6 +1851,22 @@ impl<'a> core::marker::Unpin for expanse_trie::sync::BlobReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::BlobReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BlobReader<'a>
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BlobReader<'a>
+pub struct expanse_trie::sync::BytesExclusive<'a, S: core::hash::BuildHasher>
+impl<S: core::hash::BuildHasher> expanse_trie::sync::BytesExclusive<'_, S>
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::contains_key(&self, &[u8]) -> bool
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::get(&self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::insert(&mut self, &[u8], u64) -> core::option::Option<u64>
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::is_empty(&self) -> bool
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::len(&self) -> u64
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::remove(&mut self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::update(&mut self, &[u8], impl core::ops::function::FnOnce(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
+impl<'a, S> core::marker::Freeze for expanse_trie::sync::BytesExclusive<'a, S> where &'a mut expanse_trie::bytesmap::ExpanseBytesMap<S>: core::marker::Freeze
+impl<'a, S> core::marker::Send for expanse_trie::sync::BytesExclusive<'a, S> where &'a mut expanse_trie::bytesmap::ExpanseBytesMap<S>: core::marker::Send
+impl<'a, S> !core::marker::Sync for expanse_trie::sync::BytesExclusive<'a, S>
+impl<'a, S> core::marker::Unpin for expanse_trie::sync::BytesExclusive<'a, S> where &'a mut expanse_trie::bytesmap::ExpanseBytesMap<S>: core::marker::Unpin
+impl<'a, S> core::marker::UnsafeUnpin for expanse_trie::sync::BytesExclusive<'a, S> where &'a mut expanse_trie::bytesmap::ExpanseBytesMap<S>: core::marker::UnsafeUnpin
+impl<'a, S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BytesExclusive<'a, S>
+impl<'a, S> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BytesExclusive<'a, S>
 pub struct expanse_trie::sync::BytesReader<'a, S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>
 impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync> expanse_trie::sync::BytesReader<'_, S>
 pub fn expanse_trie::sync::BytesReader<'_, S>::contains(&self, &[u8]) -> bool
@@ -1922,6 +1938,22 @@ impl<'a> core::marker::Unpin for expanse_trie::sync::SetReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::SetReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SetReader<'a>
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SetReader<'a>
+pub struct expanse_trie::sync::StrExclusive<'a>
+impl expanse_trie::sync::StrExclusive<'_>
+pub fn expanse_trie::sync::StrExclusive<'_>::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::StrExclusive<'_>::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::sync::StrExclusive<'_>::insert(&mut self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
+pub fn expanse_trie::sync::StrExclusive<'_>::is_empty(&self) -> bool
+pub fn expanse_trie::sync::StrExclusive<'_>::len(&self) -> u64
+pub fn expanse_trie::sync::StrExclusive<'_>::remove(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::sync::StrExclusive<'_>::update(&mut self, &expanse_trie::strmap::NulFreeStr, impl core::ops::function::FnOnce(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
+impl<'a> core::marker::Freeze for expanse_trie::sync::StrExclusive<'a>
+impl<'a> core::marker::Send for expanse_trie::sync::StrExclusive<'a>
+impl<'a> !core::marker::Sync for expanse_trie::sync::StrExclusive<'a>
+impl<'a> core::marker::Unpin for expanse_trie::sync::StrExclusive<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::StrExclusive<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::StrExclusive<'a>
+impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::StrExclusive<'a>
 pub struct expanse_trie::sync::StrReader<'a>
 impl expanse_trie::sync::StrReader<'_>
 pub fn expanse_trie::sync::StrReader<'_>::contains(&self, &expanse_trie::strmap::NulFreeStr) -> bool
@@ -1980,8 +2012,8 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::reader(&self) -> expanse_trie::sync::BytesReader<'_, S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::remove(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::shrink_to_fit(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::BytesExclusive<'_, S>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
-pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked_mut<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>::default() -> Self
 impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core::marker::Sync + core::default::Default> core::convert::From<expanse_trie::bytesmap::ExpanseBytesMap<S>> for expanse_trie::sync::SyncExpanseBytesMap<S>
@@ -2054,8 +2086,8 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseStrMap::reader(&self) -> expanse_trie::sync::StrReader<'_>
 pub fn expanse_trie::sync::SyncExpanseStrMap::remove(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::shrink_to_fit(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseStrMap::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::StrExclusive<'_>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::strmap::ExpanseStrMap) -> R) -> R
-pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked_mut<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::strmap::ExpanseStrMap) -> R) -> R
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::from(expanse_trie::strmap::ExpanseStrMap) -> Self
 impl core::default::Default for expanse_trie::sync::SyncExpanseStrMap
