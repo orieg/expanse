@@ -604,6 +604,17 @@ pub(crate) struct LeafBitmapL32Data {
     pub(crate) subarrays: [Option<Box<[u32]>>; 8],
 }
 
+impl LeafBitmapL32Data {
+    /// A deep copy, for a shared tree's copy-on-write edit (#1187): the
+    /// writer edits the copy while readers keep the published node.
+    fn deep_clone(&self) -> Self {
+        Self {
+            header: self.header,
+            subarrays: core::array::from_fn(|i| self.subarrays[i].clone()),
+        }
+    }
+}
+
 /// One arena-owned node. Each variant is an independent heap allocation
 /// sized to the RFC's on-target byte layout, so [`Arena::bytes_in_use`]
 /// is an exact memory figure.
@@ -1423,6 +1434,13 @@ fn node_edge(handle: u32, tag: u8) -> Edge32 {
     Edge32::from_parts(handle, [0, 0, 0], tag)
 }
 
+/// `e` pointing at `handle` instead: the same tag and aux bytes (a leaf's
+/// population, say), for a copy-on-write replacement of the node (#1187).
+#[inline]
+fn rehandle(e: &Edge32, handle: u32) -> Edge32 {
+    Edge32::from_parts(handle, e.aux_raw(), e.raw_tag())
+}
+
 #[inline]
 fn leaf_edge(handle: u32, pop: usize, tag: u8) -> Edge32 {
     Edge32::from_parts(handle, [pop as u8, (pop >> 8) as u8, 0], tag)
@@ -1533,12 +1551,20 @@ fn read_set_leaf(a: &Arena, e: &Edge32, kb: u8) -> Vec<u32> {
 /// current capacity class and copying region-to-region into a
 /// next-class node otherwise. Replaces the scratch-`Vec` rebuild that
 /// dominated the 32-bit write-path instruction profile (#577).
-fn set_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u32) {
+fn set_leaf_insert_at<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    pos: usize,
+    rem: u32,
+) {
     let pop = edge_pop(e);
     let new_pop = pop + 1;
     let kbz = kb as usize;
     let h = edge_handle(e);
-    if cap_class(new_pop) == cap_class(pop) {
+    // A shared tree's published leaf is immutable (#1187): its writer
+    // always takes the copy, which the class-boundary path already is.
+    if !SHARED && cap_class(new_pop) == cap_class(pop) {
         let buf = a.leaf_mut(h);
         buf.copy_within(pos * kbz..pop * kbz, (pos + 1) * kbz);
         write_rem(buf, pos, kbz, rem);
@@ -1557,8 +1583,8 @@ fn set_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
 
 /// Remove the element at `pos` of the set leaf behind `e`; see
 /// [`set_leaf_remove_span`].
-fn set_leaf_remove_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
-    set_leaf_remove_span(a, e, kb, pos, pos + 1);
+fn set_leaf_remove_at<const SHARED: bool>(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
+    set_leaf_remove_span::<SHARED>(a, e, kb, pos, pos + 1);
 }
 
 /// Remove the contiguous run `i0..i1` of the set leaf behind `e`, in
@@ -1568,12 +1594,18 @@ fn set_leaf_remove_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
 /// an immediate or to null. One structural fix-up per touched leaf is
 /// what makes a batched range removal cheaper than per-key removes
 /// (#578).
-fn set_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: usize) {
+fn set_leaf_remove_span<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    i0: usize,
+    i1: usize,
+) {
     let pop = edge_pop(e);
     let new_pop = pop - (i1 - i0);
     let kbz = kb as usize;
     let h = edge_handle(e);
-    if cap_class(new_pop) == cap_class(pop) {
+    if !SHARED && cap_class(new_pop) == cap_class(pop) {
         let buf = a.leaf_mut(h);
         buf.copy_within(i1 * kbz..pop * kbz, i0 * kbz);
         *e = leaf_edge(h, new_pop, t_set_leaf(kb));
@@ -1624,12 +1656,19 @@ fn read_map_leaf(a: &Arena, e: &Edge32, kb: u8) -> Vec<(u32, u32)> {
 /// Map-flavour sibling of [`set_leaf_insert_at`]: values then keys, both
 /// capacity-class-sized regions. `keys_off` is unchanged inside a class
 /// and recomputed for the next class on growth.
-fn map_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u32, val: u32) {
+fn map_leaf_insert_at<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    pos: usize,
+    rem: u32,
+    val: u32,
+) {
     let pop = edge_pop(e);
     let new_pop = pop + 1;
     let kbz = kb as usize;
     let h = edge_handle(e);
-    if cap_class(new_pop) == cap_class(pop) {
+    if !SHARED && cap_class(new_pop) == cap_class(pop) {
         let keys_off = 4 * cap_class(pop);
         let buf = a.leaf_mut(h);
         buf.copy_within(pos * 4..pop * 4, (pos + 1) * 4);
@@ -1658,19 +1697,25 @@ fn map_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
 
 /// Map-flavour sibling of [`set_leaf_remove_at`]; see
 /// [`map_leaf_remove_span`].
-fn map_leaf_remove_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
-    map_leaf_remove_span(a, e, kb, pos, pos + 1);
+fn map_leaf_remove_at<const SHARED: bool>(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
+    map_leaf_remove_span::<SHARED>(a, e, kb, pos, pos + 1);
 }
 
 /// Map-flavour sibling of [`set_leaf_remove_span`]: values then keys,
 /// both capacity-class-sized regions. The caller has already ruled out
 /// demotion to an immediate or to null.
-fn map_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: usize) {
+fn map_leaf_remove_span<const SHARED: bool>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    i0: usize,
+    i1: usize,
+) {
     let pop = edge_pop(e);
     let new_pop = pop - (i1 - i0);
     let kbz = kb as usize;
     let h = edge_handle(e);
-    if cap_class(new_pop) == cap_class(pop) {
+    if !SHARED && cap_class(new_pop) == cap_class(pop) {
         let keys_off = 4 * cap_class(pop);
         let buf = a.leaf_mut(h);
         buf.copy_within(i1 * 4..pop * 4, i0 * 4);
@@ -3315,9 +3360,21 @@ pub(crate) fn set_insert_mode<const SHARED: bool>(
                 })(a, e, kb, rem);
                 a.free(old);
             } else {
-                set_leaf_insert_at(a, e, kb, pos, rem);
+                set_leaf_insert_at::<SHARED>(a, e, kb, pos, rem);
             }
             true
+        }
+        Kind::Bitmap if SHARED => {
+            // Copy-on-write (#1187): edit a copy, then publish it.
+            let h = edge_handle(e);
+            let mut copy = *a.bitmap(h);
+            let inserted = copy.set(rem as u8);
+            if inserted {
+                let nh = a.alloc(NodeBox::Bitmap(Raw::new(Box::new(copy))));
+                a.free(h);
+                *e = rehandle(e, nh);
+            }
+            inserted
         }
         Kind::Bitmap => a.bitmap_mut(edge_handle(e)).set(rem as u8),
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
@@ -3407,12 +3464,25 @@ pub(crate) fn set_remove_mode<const SHARED: bool>(
                 *e = set_immed_edge(kb, &v[..n]);
                 a.free(old);
             } else {
-                set_leaf_remove_at(a, e, kb, pos);
+                set_leaf_remove_at::<SHARED>(a, e, kb, pos);
             }
             true
         }
         Kind::Bitmap => {
-            let removed = a.bitmap_mut(edge_handle(e)).unset(rem as u8);
+            let removed = if SHARED {
+                // Copy-on-write (#1187): edit a copy, then publish it.
+                let h = edge_handle(e);
+                let mut copy = *a.bitmap(h);
+                let removed = copy.unset(rem as u8);
+                if removed {
+                    let nh = a.alloc(NodeBox::Bitmap(Raw::new(Box::new(copy))));
+                    a.free(h);
+                    *e = rehandle(e, nh);
+                }
+                removed
+            } else {
+                a.bitmap_mut(edge_handle(e)).unset(rem as u8)
+            };
             if removed {
                 let pop = a.bitmap(edge_handle(e)).pop0 as usize;
                 if pop == 0 {
@@ -3605,7 +3675,9 @@ pub(crate) fn map_insert_via_finger_mode<const SHARED: bool>(
     val: u32,
     f: &Finger32,
 ) -> Option<Option<u32>> {
-    if !f.valid || f.prefix != key >> 8 {
+    // The fast path edits the cached leaf in place; a shared tree's leaves
+    // are copy-on-write (#1187), so its writer always descends.
+    if SHARED || !f.valid || f.prefix != key >> 8 {
         return None;
     }
     let digit = key as u8;
@@ -3713,12 +3785,22 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
             let buf = a.leaf(edge_handle(e));
             let pos = leaf_insert_pos(&buf[keys_off..], pop, kb, rem);
             if pos < pop && read_rem(&buf[keys_off..], pos, kb as usize) == rem {
-                // Value overwrite: a single in-place word store; the edge
-                // (handle, pop) is unchanged.
-                let buf = a.leaf_mut(edge_handle(e));
                 let mut vb = [0u8; 4];
                 vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
-                buf[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
+                if SHARED {
+                    // Copy-on-write (#1187): the published leaf is immutable.
+                    let mut nb: Box<[u8]> = buf.into();
+                    nb[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
+                    let oldh = edge_handle(e);
+                    let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
+                    a.free(oldh);
+                    *e = rehandle(e, nh);
+                } else {
+                    // Value overwrite: a single in-place word store; the
+                    // edge (handle, pop) is unchanged.
+                    let buf = a.leaf_mut(edge_handle(e));
+                    buf[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
+                }
                 return Some(u32::from_le_bytes(vb));
             }
             let new_pop = pop + 1;
@@ -3738,7 +3820,7 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                 map_insert_mode::<SHARED>(a, e, kb, rem, val);
                 a.free(oldh);
             } else {
-                map_leaf_insert_at(a, e, kb, pos, rem, val);
+                map_leaf_insert_at::<SHARED>(a, e, kb, pos, rem, val);
             }
             None
         }
@@ -3746,9 +3828,22 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
             // The one terminal an insert cannot restructure: the bit is set in
             // place and the handle and tag are unchanged, so the path stays
             // valid for every other key of this expanse.
-            f.arm(edge_handle(e));
+            // A shared tree copies the node (#1187), so the handle moves and
+            // the finger (disabled on the shared walk) is not armed.
+            if !SHARED {
+                f.arm(edge_handle(e));
+            }
+            let h = edge_handle(e);
+            let mut copy = if SHARED {
+                Some(a.map_bitmap(h).deep_clone())
+            } else {
+                None
+            };
             let (old, bytes_delta, retired_sub) = {
-                let b = a.map_bitmap_mut(edge_handle(e));
+                let b = match copy.as_mut() {
+                    Some(c) => c,
+                    None => a.map_bitmap_mut(h),
+                };
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
                 let word = b.header.bitmap[w];
@@ -3770,8 +3865,17 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                     (None, subarray_bytes_delta::<u32>(pop, pop + 1), retired)
                 }
             };
-            a.retire_vals(retired_sub);
-            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
+            if let Some(c) = copy {
+                // The copy was never published: its replaced subarray is
+                // freed now, and alloc/free account the whole node.
+                drop(retired_sub);
+                let nh = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(c))));
+                a.free(h);
+                *e = rehandle(e, nh);
+            } else {
+                a.retire_vals(retired_sub);
+                a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
+            }
             old
         }
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
@@ -3867,20 +3971,34 @@ pub(crate) fn map_remove_mode<const SHARED: bool>(
                 *e = map_immed_edge(kb, k, u32::from_le_bytes(sb));
                 a.free(oldh);
             } else {
-                map_leaf_remove_at(a, e, kb, pos);
+                map_leaf_remove_at::<SHARED>(a, e, kb, pos);
             }
             Some(old)
         }
         Kind::MapBitmap => {
+            let h = edge_handle(e);
+            {
+                let digit = rem as u8;
+                let word = a.map_bitmap(h).header.bitmap[(digit >> 6) as usize];
+                if (word & (1u64 << (digit & 63))) == 0 {
+                    return None;
+                }
+            }
+            // A shared tree edits a copy and publishes it (#1187).
+            let mut copy = if SHARED {
+                Some(a.map_bitmap(h).deep_clone())
+            } else {
+                None
+            };
             let (old_val, pop, retired_sub, bytes_delta) = {
-                let b = a.map_bitmap_mut(edge_handle(e));
+                let b = match copy.as_mut() {
+                    Some(c) => c,
+                    None => a.map_bitmap_mut(h),
+                };
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
                 let word = b.header.bitmap[w];
                 let bit_mask = 1u64 << (digit & 63);
-                if (word & bit_mask) == 0 {
-                    return None;
-                }
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
                 // Subexpanse population before the removal, off the
@@ -3900,8 +4018,16 @@ pub(crate) fn map_remove_mode<const SHARED: bool>(
                     subarray_bytes_delta::<u32>(sub_pop, sub_pop - 1),
                 )
             };
-            a.retire_vals(retired_sub);
-            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
+            if let Some(c) = copy {
+                // Never published: the copy's replaced subarray is freed now.
+                drop(retired_sub);
+                let nh = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(c))));
+                a.free(h);
+                *e = rehandle(e, nh);
+            } else {
+                a.retire_vals(retired_sub);
+                a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
+            }
             if pop == 0 {
                 let old = edge_handle(e);
                 a.free(old);
@@ -5137,7 +5263,7 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                 *e = map_immed_edge(kb, k, u32::from_le_bytes(sb));
                 a.free(h);
             } else {
-                map_leaf_remove_span(a, e, kb, i0, i1);
+                map_leaf_remove_span::<false>(a, e, kb, i0, i1);
             }
             removed
         }
@@ -5338,7 +5464,7 @@ pub(crate) fn set_remove_range<F: FnMut(u32)>(
                 *e = set_immed_edge(kb, &v[..m]);
                 a.free(h);
             } else {
-                set_leaf_remove_span(a, e, kb, i0, i1);
+                set_leaf_remove_span::<false>(a, e, kb, i0, i1);
             }
             removed
         }
@@ -6724,15 +6850,19 @@ mod seek_tests {
         );
     }
 
-    /// The negative control, which makes the test above discriminating.
+    /// What the final seal no longer has to catch here (#1187): the shared
+    /// writer copies a published leaf instead of shifting it, so a reader
+    /// that skips the seal still reads the leaf as it was, whole. Before
+    /// copy-on-write the same interleaving returned a key that was never
+    /// last (the tail had shifted under the reader); the test above still
+    /// pins that the seal reports the overlap.
     #[test]
-    fn ordered_read_without_its_final_seal_returns_a_key_that_was_never_last() {
-        let second = prefill_key(PREFILL - 2);
+    fn ordered_read_without_its_final_seal_reads_the_leaf_it_started_on() {
+        let last = prefill_key(PREFILL - 1);
         assert_eq!(
             leaf_shift_interleaving(true),
-            Ok(Some((second, !second))),
-            "{:#x} is the last key before and after the insert",
-            prefill_key(PREFILL - 1)
+            Ok(Some((last, !last))),
+            "the pre-insert last key, read whole from the copied-away leaf"
         );
     }
 }
