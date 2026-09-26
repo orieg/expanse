@@ -964,45 +964,6 @@ pub(crate) mod shared_keys {
         (lo, false)
     }
 
-    /// [`seek_fixed`] over an area whose last word is partial. The keys
-    /// that lie wholly inside the area's whole words are searched by
-    /// whole-word reads; the keys that reach the partial word, at most
-    /// seven, are scanned after them, when the needle is above all of the
-    /// others. The tail test is then taken once per search instead of on
-    /// every read (#1191).
-    ///
-    /// # Safety
-    ///
-    /// As [`seek_fixed`].
-    #[cfg(feature = "std")]
-    #[inline(always)]
-    unsafe fn seek_split<const KB: usize>(
-        keys: *const u8,
-        pop: usize,
-        area: usize,
-        needle: u64,
-    ) -> (usize, bool) {
-        if pop <= 4 {
-            // SAFETY: forwarded.
-            return unsafe { seek_fixed::<KB, false>(keys, pop, area, needle) };
-        }
-        // Keys `0..whole_keys` end at or below the area's last whole word.
-        let whole_keys = ((area & !7) / KB).min(pop);
-        // SAFETY: every key below `whole_keys` lies in whole words.
-        let (at, hit) = unsafe { seek_fixed::<KB, true>(keys, whole_keys, area, needle) };
-        if at < whole_keys {
-            return (at, hit);
-        }
-        for i in whole_keys..pop {
-            // SAFETY: `i < pop`.
-            let v = unsafe { read_in(keys, i, KB, area) };
-            if v >= needle {
-                return (i, v == needle);
-            }
-        }
-        (pop, false)
-    }
-
     /// [`seek_fixed`] for a key width known only at run time.
     ///
     /// # Safety
@@ -1021,7 +982,7 @@ pub(crate) mod shared_keys {
                             if area & 7 == 0 {
                                 seek_fixed::<$k, true>(keys, pop, area, needle)
                             } else {
-                                seek_split::<$k>(keys, pop, area, needle)
+                                seek_fixed::<$k, false>(keys, pop, area, needle)
                             }
                         }
                     })*
@@ -1441,9 +1402,9 @@ mod tests {
 
     /// The shared search answers what the plain one answers, for every
     /// population up to 32 keys of every width, over an allocation of
-    /// exactly the key area: a partial last word is searched apart from the
-    /// whole ones (#1191), so every needle position relative to the keys
-    /// that reach it is probed.
+    /// exactly the key area, with every key, both of its neighbours, and
+    /// both ends of the key range as needles: the keys that reach the
+    /// area's partial last word are probed from below, on and above.
     #[test]
     fn shared_search_matches_plain_in_exact_area() {
         use super::shared_keys as sk;
