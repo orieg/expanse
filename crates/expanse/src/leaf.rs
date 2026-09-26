@@ -1061,62 +1061,66 @@ pub(crate) mod shared_keys {
         hit.then_some(at)
     }
 
-    /// The low `n` bytes of a word, for `n` in `0..=8`.
-    #[inline(always)]
-    const fn low_bytes(n: usize) -> u64 {
-        if n >= 8 { !0 } else { (1u64 << (n * 8)) - 1 }
-    }
-
-    /// The bytes of the word at area byte `base` that lie below area byte
-    /// `lim`.
-    #[inline(always)]
-    const fn below(lim: usize, base: usize) -> u64 {
-        low_bytes(lim.saturating_sub(base))
-    }
-
-    /// Word `w` of an area whose first `whole` words are whole: one 8-byte
-    /// atomic below `whole`, the tail's pieces at `whole` itself. The
-    /// callers walk the words upwards, so only their last word can be the
-    /// tail, and the test is against a bound held in a register.
+    /// Rewrites bytes `from..to` of an area of `area` bytes through `edit` on
+    /// a local copy of the words that cover them, then stores those words
+    /// back.
+    ///
+    /// Only the last covering word can be the area's partial word, so the
+    /// whole words are copied without a test and the tail, if any, once; and
+    /// the copy is not zero-filled first, since every byte `edit` sees is
+    /// loaded before it runs (#1191).
     ///
     /// # Safety
     ///
-    /// As [`word`], with `whole == area / 8`.
+    /// `from < to <= area`; the caller is the area's one writer.
     #[inline(always)]
-    unsafe fn load_w(keys: *const u8, w: usize, whole: usize, area: usize) -> u64 {
-        let p = keys.wrapping_add(w * 8);
-        if w < whole {
-            // SAFETY: caller contract; a whole word inside the area.
-            unsafe { shared_word::load::<true>(p.cast::<u64>().cast_mut()) }
-        } else {
-            // SAFETY: caller contract; the `area - w * 8` bytes that remain.
-            unsafe { tail_load(p, area - w * 8) }
+    unsafe fn rewrite(
+        keys: *mut u8,
+        from: usize,
+        to: usize,
+        area: usize,
+        edit: impl FnOnce(&mut [u8], usize),
+    ) {
+        debug_assert!(from < to && to <= area, "a rewrite past the key area");
+        let w0 = from / 8;
+        let w1 = to.div_ceil(8);
+        // Words below `whole` are whole; `w1 - 1` is the tail when
+        // `w1 > whole`, since `(w1 - 1) * 8 < to <= area`.
+        let whole = area / 8;
+        let last = w1.min(whole);
+        // A key area holds at most `LEAF_CAP` keys of 7 bytes: 224 bytes.
+        let mut buf = [core::mem::MaybeUninit::<u64>::uninit(); 32];
+        for w in w0..last {
+            // SAFETY: caller contract; word `w` is whole and in the area.
+            let v = unsafe { shared_word::load::<true>(keys.add(w * 8).cast::<u64>()) };
+            buf[w - w0].write(v.to_le());
         }
-    }
-
-    /// [`load_w`]'s store.
-    ///
-    /// # Safety
-    ///
-    /// As [`load_w`], and the caller is the area's one writer.
-    #[inline(always)]
-    unsafe fn store_w(keys: *mut u8, w: usize, whole: usize, area: usize, v: u64) {
-        let p = keys.wrapping_add(w * 8);
-        if w < whole {
-            // SAFETY: as in `load_w`.
-            unsafe { shared_word::store::<true>(p.cast::<u64>(), v) }
-        } else {
-            // SAFETY: as in `load_w`.
-            unsafe { tail_store(p, area - w * 8, v) }
+        if w1 > whole {
+            // SAFETY: caller contract; the `area - whole * 8` bytes that remain.
+            let v = unsafe { tail_load(keys.add(whole * 8), area - whole * 8) };
+            buf[whole - w0].write(v.to_le());
+        }
+        // SAFETY: words `0..w1 - w0` of `buf` were written above, and `u8`
+        // has no invalid values or alignment requirement.
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<u8>(), (w1 - w0) * 8)
+        };
+        edit(bytes, w0 * 8);
+        for w in w0..last {
+            // SAFETY: initialised above; as the load.
+            let v = u64::from_le(unsafe { buf[w - w0].assume_init() });
+            // SAFETY: as the load; the caller is the area's one writer.
+            unsafe { shared_word::store::<true>(keys.add(w * 8).cast::<u64>(), v) };
+        }
+        if w1 > whole {
+            // SAFETY: as above.
+            let v = u64::from_le(unsafe { buf[whole - w0].assume_init() });
+            // SAFETY: as the tail's load; the caller is the writer.
+            unsafe { tail_store(keys.add(whole * 8), area - whole * 8, v) };
         }
     }
 
     /// Inserts `key` at `pos` among `pop` keys, shifting the tail up.
-    ///
-    /// Each word that covers bytes `pos * kb..(pop + 1) * kb` is loaded
-    /// once, rebuilt in a register from itself, the word below it and the
-    /// key, and stored once: the loads and stores of a copy through a
-    /// buffer, word for word, without the buffer (#1191).
     ///
     /// # Safety
     ///
@@ -1124,48 +1128,19 @@ pub(crate) mod shared_keys {
     /// and the caller is its one writer.
     #[inline]
     pub(crate) unsafe fn insert_at(keys: *mut u8, kb: usize, pop: usize, pos: usize, key: u64) {
-        let area = area(kb, pop);
-        let whole = area / 8;
-        let at = pos * kb;
-        let kend = at + kb;
-        let end = (pop + 1) * kb;
-        debug_assert!(end <= area, "an insert past the key area");
-        let s = kb * 8;
-        // The key's bit offset in its first word; it spills into the next
-        // word when `o + s > 64`.
-        let o = (at & 7) * 8;
-        let key = key & low_bytes(kb);
-        let w0 = at / 8;
-        // The old word below the current one. The first word takes no byte
-        // from below: its shifted bytes start at `kend`, a key above `base`.
-        let mut prev = 0u64;
-        for w in w0..end.div_ceil(8) {
-            // SAFETY: caller contract; `w * 8 < end <= area`.
-            let old = unsafe { load_w(keys, w, whole, area) };
-            let base = w * 8;
-            // Every byte moved up by one key.
-            let shifted = (old << s) | (prev >> (64 - s));
-            // The key's bytes in this word (masked to the key's range below).
-            let kp = if w == w0 {
-                key << o
-            } else if o == 0 {
-                0
-            } else {
-                key >> (64 - o)
-            };
-            let mb = below(at, base);
-            let mk = below(kend, base);
-            let me = below(end, base);
-            let new = (old & (mb | !me)) | (kp & mk & !mb) | (shifted & me & !mk);
-            // SAFETY: as the load; the caller is the area's one writer.
-            unsafe { store_w(keys, w, whole, area, new) };
-            prev = old;
+        // SAFETY: caller contract; bytes up to `(pop + 1) * kb` are inside
+        // the area, whose class `pop + 1` shares.
+        unsafe {
+            rewrite(keys, pos * kb, (pop + 1) * kb, area(kb, pop), |b, base| {
+                let at = pos * kb - base;
+                let end = (pop + 1) * kb - base;
+                b.copy_within(at..end - kb, at + kb);
+                b[at..at + kb].copy_from_slice(&key.to_le_bytes()[..kb]);
+            });
         }
     }
 
     /// Removes the key at `pos` among `pop` keys, shifting the tail down.
-    /// The twin of [`insert_at`]: each word is rebuilt from itself and the
-    /// word above it, which is loaded before the word is stored.
     ///
     /// # Safety
     ///
@@ -1175,33 +1150,13 @@ pub(crate) mod shared_keys {
         if pos + 1 >= pop {
             return;
         }
-        let area = area(kb, pop);
-        let whole = area / 8;
-        let at = pos * kb;
-        let end = pop * kb;
-        // Bytes `at..lim` take the bytes one key above them; the bytes from
-        // `lim` to `end` keep the last key, as the plain removal leaves them.
-        let lim = end - kb;
-        let s = kb * 8;
-        let w0 = at / 8;
-        // SAFETY: caller contract; `at < end <= area`.
-        let mut cur = unsafe { load_w(keys, w0, whole, area) };
-        for w in w0..lim.div_ceil(8) {
-            let base = w * 8;
-            // The word above is read only when it holds a byte below `end`.
-            let next = if base + 8 < end {
-                // SAFETY: `(w + 1) * 8 < end <= area`.
-                unsafe { load_w(keys, w + 1, whole, area) }
-            } else {
-                0
-            };
-            let shifted = (cur >> s) | (next << (64 - s));
-            let mb = below(at, base);
-            let ml = below(lim, base);
-            let new = (cur & (mb | !ml)) | (shifted & ml & !mb);
-            // SAFETY: `w * 8 < lim < end <= area`; the caller is the writer.
-            unsafe { store_w(keys, w, whole, area, new) };
-            cur = next;
+        // SAFETY: caller contract; bytes up to `pop * kb` are inside.
+        unsafe {
+            rewrite(keys, pos * kb, pop * kb, area(kb, pop), |b, base| {
+                let at = pos * kb - base;
+                let end = pop * kb - base;
+                b.copy_within(at + kb..end, at);
+            });
         }
     }
 
