@@ -272,6 +272,26 @@ adoption must be measured per-microarch and guarded.
 
 ---
 
+### 2.8 RCpc acquire loads (`+rcpc`) on Linux AArch64 — **MEASURED, no material effect**
+
+`aarch64-unknown-linux-gnu` enables neither `rcpc` nor `lse` by default, so the
+Linux build lowers every `Ordering::Acquire` load to `ldar`, where
+`aarch64-apple-darwin` (which enables both) emits `ldapr`. On the `Sync*`
+paths that puts acquire loads after release stores in the same writer
+functions (census: `docs/benchmarks/concurrency/README.md` §23.1). Two paired
+wall-clock dispatches of the default build against `-C target-feature=+rcpc`
+on a Neoverse-N2 runner resolved a difference in one of seven cells, about
+2.8% on `SyncExpanseSet` at 4 writers, and none elsewhere *(measured: GitHub
+`ubuntu-24.04-arm` Neoverse-N2, 4 vCPUs, commit `f930142f`; runs 36259882964
+and 36259888050; `docs/benchmarks/concurrency/README.md` §23.3)*.
+
+The shipped Linux artifacts keep the target defaults, which run on every
+Armv8.0-A core. A source build for a known RCpc-capable server (Neoverse-N1
+or later, Graviton2 or later) may add `RUSTFLAGS="-C target-cpu=neoverse-n1"`,
+or `-C target-feature=+rcpc` alone. The measured gain is at most a few percent
+on the concurrent paths, and none was resolved on the plain paths, which this
+A/B did not time.
+
 ## 3. RISC-V (RV64 + RV32)
 
 ### 3.1 Population count & count-zeros — ⚠️ **SOFTWARE on the shipped 32-bit config**
