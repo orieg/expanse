@@ -554,18 +554,19 @@
         "trie32::map_leaf_remove_span",
         "trie32::"
       ],
-      "note": "#1187: readers still read node contents the single writer edits in place, through references into Box-owned nodes; observed at seed 0 on x86_64-unknown-linux-gnu"
+      "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
     },
     {
       "test": "sync32::map_reader_writer",
       "check": "alias-sb",
       "expect": "ub",
-      "error": "does not exist in the borrow stack",
+      "error": "strongly protected",
       "frame": [
-        "trie32::NodeRef::as_node",
-        "trie32::NodeRef::as_leaf"
+        "trie32::",
+        "sync32::",
+        "core::"
       ],
-      "note": "#1187: readers still read node contents the single writer edits in place, through references into Box-owned nodes; observed at seed 0 on x86_64-unknown-linux-gnu"
+      "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
     },
     {
       "test": "sync32::map_reader_writer",
@@ -573,10 +574,13 @@
       "expect": "ub",
       "error": "is forbidden",
       "frame": [
+        "trie32::set_leaf_remove_span",
+        "trie32::map_get_validated",
+        "trie32::NodeRef::as_leaf",
         "trie32::NodeRef::as_node",
-        "trie32::NodeRef::as_leaf"
+        "trie32::"
       ],
-      "note": "#1187: readers still read node contents the single writer edits in place, through references into Box-owned nodes; observed at seed 0 on x86_64-unknown-linux-gnu"
+      "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
     },
     {
       "test": "sync32::set_reader_writer",
@@ -587,18 +591,19 @@
         "trie32::set_leaf_remove_span",
         "trie32::"
       ],
-      "note": "#1187: readers still read node contents the single writer edits in place, through references into Box-owned nodes; observed at seed 0 on x86_64-unknown-linux-gnu"
+      "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
     },
     {
       "test": "sync32::set_reader_writer",
       "check": "alias-sb",
       "expect": "ub",
-      "error": "does not exist in the borrow stack",
+      "error": "strongly protected",
       "frame": [
-        "trie32::NodeRef::as_leaf",
-        "trie32::NodeRef::as_node"
+        "trie32::",
+        "sync32::",
+        "core::"
       ],
-      "note": "#1187: readers still read node contents the single writer edits in place, through references into Box-owned nodes; observed at seed 0 on x86_64-unknown-linux-gnu"
+      "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
     },
     {
       "test": "sync32::set_reader_writer",
@@ -606,10 +611,13 @@
       "expect": "ub",
       "error": "is forbidden",
       "frame": [
+        "trie32::set_leaf_remove_span",
+        "trie32::map_get_validated",
         "trie32::NodeRef::as_leaf",
-        "trie32::NodeRef::as_node"
+        "trie32::NodeRef::as_node",
+        "trie32::"
       ],
-      "note": "#1187: readers still read node contents the single writer edits in place, through references into Box-owned nodes; observed at seed 0 on x86_64-unknown-linux-gnu"
+      "note": "#1187: readers still read node contents the single writer edits in place; observed on aarch64-apple-darwin in the nightly census (run 36220598666)"
     }
   ]
 }
