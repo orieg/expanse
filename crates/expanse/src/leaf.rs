@@ -842,6 +842,7 @@ pub(crate) mod shared_keys {
     ///
     /// `keys` is an 8-aligned area of `area` bytes with write permission, and
     /// `w * 8 < area`.
+    #[cfg(feature = "std")]
     #[inline(always)]
     unsafe fn word(keys: *const u8, w: usize, area: usize) -> u64 {
         let p = keys.wrapping_add(w * 8);
@@ -1077,6 +1078,23 @@ pub(crate) mod shared_keys {
         }
     }
 
+    /// Writes the low `kb` bytes of `key`, little-endian, at `b[at..]`, as a
+    /// copy of a length fixed per key width: a copy of a length known only at
+    /// run time is a `memcpy` call (#1191).
+    #[inline(always)]
+    fn put_key(b: &mut [u8], at: usize, kb: usize, key: u64) {
+        let k = key.to_le_bytes();
+        macro_rules! by_width {
+            ($($n:literal)*) => {
+                match kb {
+                    $($n => b[at..at + $n].copy_from_slice(&k[..$n]),)*
+                    _ => unreachable!("a packed leaf key is 1..=7 bytes"),
+                }
+            };
+        }
+        by_width!(1 2 3 4 5 6 7)
+    }
+
     /// Inserts `key` at `pos` among `pop` keys, shifting the tail up.
     ///
     /// # Safety
@@ -1092,7 +1110,7 @@ pub(crate) mod shared_keys {
                 let at = pos * kb - base;
                 let end = (pop + 1) * kb - base;
                 b.copy_within(at..end - kb, at + kb);
-                b[at..at + kb].copy_from_slice(&key.to_le_bytes()[..kb]);
+                put_key(b, at, kb, key);
             });
         }
     }
