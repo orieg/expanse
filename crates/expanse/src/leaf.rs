@@ -842,6 +842,7 @@ pub(crate) mod shared_keys {
     ///
     /// `keys` is an 8-aligned area of `area` bytes with write permission, and
     /// `w * 8 < area`.
+    #[cfg(feature = "std")]
     #[inline(always)]
     unsafe fn word(keys: *const u8, w: usize, area: usize) -> u64 {
         let p = keys.wrapping_add(w * 8);
@@ -851,23 +852,6 @@ pub(crate) mod shared_keys {
         } else {
             // SAFETY: caller contract; the `area - w * 8` bytes that remain.
             unsafe { tail_load(p, area - w * 8) }
-        }
-    }
-
-    /// [`word`]'s store.
-    ///
-    /// # Safety
-    ///
-    /// As [`word`], and the caller is the area's one writer.
-    #[inline(always)]
-    unsafe fn set_word(keys: *mut u8, w: usize, area: usize, v: u64) {
-        let p = keys.wrapping_add(w * 8);
-        if w * 8 + 8 <= area {
-            // SAFETY: as in `word`.
-            unsafe { shared_word::store::<true>(p.cast::<u64>(), v) }
-        } else {
-            // SAFETY: as in `word`.
-            unsafe { tail_store(p, area - w * 8, v) }
         }
     }
 
@@ -1039,9 +1023,14 @@ pub(crate) mod shared_keys {
     /// a local copy of the words that cover them, then stores those words
     /// back.
     ///
+    /// Only the last covering word can be the area's partial word, so the
+    /// whole words are copied without a test and the tail, if any, once; and
+    /// the copy is not zero-filled first, since every byte `edit` sees is
+    /// loaded before it runs (#1191).
+    ///
     /// # Safety
     ///
-    /// `to <= area`; the caller is the area's one writer.
+    /// `from < to <= area`; the caller is the area's one writer.
     #[inline(always)]
     unsafe fn rewrite(
         keys: *mut u8,
@@ -1050,23 +1039,60 @@ pub(crate) mod shared_keys {
         area: usize,
         edit: impl FnOnce(&mut [u8], usize),
     ) {
-        debug_assert!(to <= area, "a rewrite past the key area");
+        debug_assert!(from < to && to <= area, "a rewrite past the key area");
         let w0 = from / 8;
         let w1 = to.div_ceil(8);
+        // Words below `whole` are whole; `w1 - 1` is the tail when
+        // `w1 > whole`, since `(w1 - 1) * 8 < to <= area`.
+        let whole = area / 8;
+        let last = w1.min(whole);
         // A key area holds at most `LEAF_CAP` keys of 7 bytes: 224 bytes.
-        let mut buf = [0u8; 256];
-        for w in w0..w1 {
-            // SAFETY: caller contract; `w * 8 < to <= area`.
-            let v = unsafe { word(keys, w, area) };
-            buf[(w - w0) * 8..(w - w0 + 1) * 8].copy_from_slice(&v.to_le_bytes());
+        let mut buf = [core::mem::MaybeUninit::<u64>::uninit(); 32];
+        for w in w0..last {
+            // SAFETY: caller contract; word `w` is whole and in the area.
+            let v = unsafe { shared_word::load::<true>(keys.add(w * 8).cast::<u64>()) };
+            buf[w - w0].write(v.to_le());
         }
-        edit(&mut buf[..(w1 - w0) * 8], w0 * 8);
-        for w in w0..w1 {
-            let mut b = [0u8; 8];
-            b.copy_from_slice(&buf[(w - w0) * 8..(w - w0 + 1) * 8]);
+        if w1 > whole {
+            // SAFETY: caller contract; the `area - whole * 8` bytes that remain.
+            let v = unsafe { tail_load(keys.add(whole * 8), area - whole * 8) };
+            buf[whole - w0].write(v.to_le());
+        }
+        // SAFETY: words `0..w1 - w0` of `buf` were written above, and `u8`
+        // has no invalid values or alignment requirement.
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<u8>(), (w1 - w0) * 8)
+        };
+        edit(bytes, w0 * 8);
+        for w in w0..last {
+            // SAFETY: initialised above; as the load.
+            let v = u64::from_le(unsafe { buf[w - w0].assume_init() });
+            // SAFETY: as the load; the caller is the area's one writer.
+            unsafe { shared_word::store::<true>(keys.add(w * 8).cast::<u64>(), v) };
+        }
+        if w1 > whole {
             // SAFETY: as above.
-            unsafe { set_word(keys, w, area, u64::from_le_bytes(b)) };
+            let v = u64::from_le(unsafe { buf[whole - w0].assume_init() });
+            // SAFETY: as the tail's load; the caller is the writer.
+            unsafe { tail_store(keys.add(whole * 8), area - whole * 8, v) };
         }
+    }
+
+    /// Writes the low `kb` bytes of `key`, little-endian, at `b[at..]`, as a
+    /// copy of a length fixed per key width: a copy of a length known only at
+    /// run time is a `memcpy` call (#1191).
+    #[inline(always)]
+    fn put_key(b: &mut [u8], at: usize, kb: usize, key: u64) {
+        let k = key.to_le_bytes();
+        macro_rules! by_width {
+            ($($n:literal)*) => {
+                match kb {
+                    $($n => b[at..at + $n].copy_from_slice(&k[..$n]),)*
+                    _ => unreachable!("a packed leaf key is 1..=7 bytes"),
+                }
+            };
+        }
+        by_width!(1 2 3 4 5 6 7)
     }
 
     /// Inserts `key` at `pos` among `pop` keys, shifting the tail up.
@@ -1084,7 +1110,7 @@ pub(crate) mod shared_keys {
                 let at = pos * kb - base;
                 let end = (pop + 1) * kb - base;
                 b.copy_within(at..end - kb, at + kb);
-                b[at..at + kb].copy_from_slice(&key.to_le_bytes()[..kb]);
+                put_key(b, at, kb, key);
             });
         }
     }
@@ -1315,6 +1341,128 @@ mod tests {
         fn drop(&mut self) {
             // SAFETY: allocated in `new` with this layout, freed once.
             unsafe { std::alloc::dealloc(self.0, self.1) };
+        }
+    }
+
+    /// The shared in-place insert and removal, at every position of every
+    /// population up to 32 keys, over an allocation of exactly the key area,
+    /// leave the bytes the plain ones leave. Each word is rebuilt in a
+    /// register (#1191), so this pins the masks at the key's first and last
+    /// word and at the area's partial last word; an access past the area
+    /// is out of bounds, which the Tier-1 Miri run over `leaf::` reports.
+    #[test]
+    fn shared_rewrite_matches_plain_in_exact_area() {
+        use super::shared_keys as sk;
+        for kb in 1..=7usize {
+            let m = (1u64 << (kb * 8)) - 1;
+            for pop in 1..=32usize {
+                let exact = kb * cap_class(pop);
+                // Keys whose bytes vary with the slot, so a byte moved to
+                // the wrong place shows. Order does not matter to a shift.
+                let keys: Vec<u64> = (0..pop as u64)
+                    .map(|i| (0x0101_0101_0101_0101u64.wrapping_mul(2 * i + 1) ^ i) & m)
+                    .collect();
+                let mut plain = vec![0u8; exact + 16];
+                for (i, &k) in keys.iter().enumerate() {
+                    // SAFETY: in bounds of `plain`.
+                    unsafe { crate::mutate::write_packed(plain.as_mut_ptr(), i, kb, k) };
+                }
+                let load = |buf: &ExactArea| {
+                    // SAFETY: `buf` holds `exact` bytes.
+                    unsafe { core::slice::from_raw_parts(buf.0, exact) }.to_vec()
+                };
+                let fresh = || {
+                    let buf = ExactArea::new(exact);
+                    // SAFETY: both hold at least `exact` bytes.
+                    unsafe { core::ptr::copy_nonoverlapping(plain.as_ptr(), buf.0, exact) };
+                    buf
+                };
+                if cap_class(pop + 1) == cap_class(pop) {
+                    for pos in 0..=pop {
+                        let key = 0xA5A5_A5A5_A5A5_A5A5u64 & m;
+                        let mut want = plain.clone();
+                        let got = fresh();
+                        // SAFETY: the class holds `pop + 1` keys; `pos <= pop`.
+                        unsafe {
+                            set_insert_at(want.as_mut_ptr(), kb as u8, pop, pos, key);
+                            sk::set_insert_at(got.0, kb as u8, pop, pos, key);
+                        }
+                        let got_bytes = load(&got);
+                        got.free();
+                        assert_eq!(
+                            got_bytes[..(pop + 1) * kb],
+                            want[..(pop + 1) * kb],
+                            "insert kb {kb} pop {pop} pos {pos}"
+                        );
+                    }
+                }
+                for pos in 0..pop {
+                    let mut want = plain.clone();
+                    let got = fresh();
+                    // SAFETY: `pos < pop`.
+                    unsafe {
+                        set_remove_at(want.as_mut_ptr(), kb as u8, pop, pos);
+                        sk::set_remove_at(got.0, kb as u8, pop, pos);
+                    }
+                    let got_bytes = load(&got);
+                    got.free();
+                    // The whole area: the bytes past the survivors are left
+                    // as the plain removal leaves them too.
+                    assert_eq!(
+                        got_bytes,
+                        want[..exact],
+                        "remove kb {kb} pop {pop} pos {pos}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The shared search answers what the plain one answers, for every
+    /// population up to 32 keys of every width, over an allocation of
+    /// exactly the key area, with every key, both of its neighbours, and
+    /// both ends of the key range as needles: the keys that reach the
+    /// area's partial last word are probed from below, on and above.
+    #[test]
+    fn shared_search_matches_plain_in_exact_area() {
+        use super::shared_keys as sk;
+        for kb in 1..=7usize {
+            let m = (1u64 << (kb * 8)) - 1;
+            for pop in 1..=32usize {
+                let exact = kb * cap_class(pop);
+                // Ascending: every byte of key `i` is `7 * i + 1`.
+                let keys: Vec<u64> = (0..pop as u64)
+                    .map(|i| (7 * i + 1).wrapping_mul(0x0101_0101_0101_0101) & m)
+                    .collect();
+                let mut plain = vec![0u8; exact + 16];
+                for (i, &k) in keys.iter().enumerate() {
+                    // SAFETY: in bounds of `plain`.
+                    unsafe { crate::mutate::write_packed(plain.as_mut_ptr(), i, kb, k) };
+                }
+                let buf = ExactArea::new(exact);
+                // SAFETY: both hold at least `exact` bytes.
+                unsafe { core::ptr::copy_nonoverlapping(plain.as_ptr(), buf.0, exact) };
+                let mut needles = vec![0, m];
+                for &k in &keys {
+                    needles.extend([k.saturating_sub(1), k, (k + 1) & m]);
+                }
+                for n in needles {
+                    // SAFETY: `pop` keys in both areas.
+                    unsafe {
+                        assert_eq!(
+                            sk::lower_bound(buf.0, pop, kb, n),
+                            lower_bound(plain.as_ptr(), pop, kb as u8, n),
+                            "lower_bound kb {kb} pop {pop} n {n:#x}"
+                        );
+                        assert_eq!(
+                            sk::find(buf.0, pop, kb, n),
+                            search(plain.as_ptr(), pop, kb as u8, n),
+                            "find kb {kb} pop {pop} n {n:#x}"
+                        );
+                    }
+                }
+                buf.free();
+            }
         }
     }
 
