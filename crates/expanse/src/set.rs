@@ -596,6 +596,7 @@ impl ExpanseSet {
     /// from the first point at which the plain body would diverge from it.
     /// The caller has changed nothing, so the body starts over.
     #[cfg(feature = "std")]
+    #[cold]
     #[inline(never)]
     fn insert_deferred(&mut self, key: Key) -> bool {
         self.insert_inner(key)
