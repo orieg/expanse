@@ -14,9 +14,9 @@
 //! forever. Hard hang, watchdog reset, no core dump.
 //!
 //! Every sampling entry point here is therefore **single-attempt and
-//! bounded** — [`SeqVersion32::try_sample`] and [`try_node_sample`] return
-//! `None` rather than spinning, and the caller decides what to do. This
-//! mirrors the 64-bit `occ::node_sample`, which is already `Option`-shaped.
+//! bounded** — [`SeqVersion32::try_sample`] returns `None` rather than
+//! spinning, and the caller decides what to do. This mirrors the 64-bit
+//! `occ::node_sample`, which is already `Option`-shaped.
 //! A caller in an interrupt handler must surface the `None` (as a `Busy`
 //! result) rather than retry in place.
 //!
@@ -96,73 +96,6 @@ impl SeqVersion32 {
     }
 }
 
-/// Begin node-level in-place mutation on a raw pointer to a version word.
-///
-/// # Safety
-///
-/// `version_ptr` must point to an aligned, readable/writable `u32` within a live node.
-#[inline(always)]
-pub unsafe fn node_version_begin(version_ptr: *mut u32) {
-    // SAFETY: caller guarantees pointer validity per contract.
-    unsafe {
-        let v = core::ptr::read_volatile(version_ptr);
-        debug_assert!(v.is_multiple_of(2), "node version already in mutation");
-        core::ptr::write_volatile(version_ptr, v.wrapping_add(1));
-        fence(Ordering::Release);
-    }
-}
-
-/// End node-level in-place mutation on a raw pointer to a version word.
-///
-/// # Safety
-///
-/// `version_ptr` must point to an aligned, readable/writable `u32` within a live node.
-#[inline(always)]
-pub unsafe fn node_version_end(version_ptr: *mut u32) {
-    // SAFETY: caller guarantees pointer validity per contract.
-    unsafe {
-        fence(Ordering::Release);
-        let v = core::ptr::read_volatile(version_ptr);
-        debug_assert!(!v.is_multiple_of(2), "node version end without begin");
-        core::ptr::write_volatile(version_ptr, v.wrapping_add(1));
-    }
-}
-
-/// Reader: one bounded attempt at a node-level version word.
-///
-/// `Some(even)` on a stable snapshot, `None` while that node's bracket is
-/// open. Never spins — see the module's interrupt-handler contract. Same
-/// shape as the 64-bit `occ::node_sample`.
-///
-/// # Safety
-///
-/// `version_ptr` must point to an aligned readable `u32`.
-#[inline(always)]
-#[must_use]
-pub unsafe fn try_node_sample(version_ptr: *const u32) -> Option<u32> {
-    // SAFETY: caller guarantees pointer validity per contract.
-    let v = unsafe { core::ptr::read_volatile(version_ptr) };
-    if v.is_multiple_of(2) {
-        fence(Ordering::Acquire);
-        Some(v)
-    } else {
-        None
-    }
-}
-
-/// Reader: validate node-level version word against snapshot.
-///
-/// # Safety
-///
-/// `version_ptr` must point to an aligned readable `u32`.
-#[inline(always)]
-#[must_use]
-pub unsafe fn node_validate(version_ptr: *const u32, snapshot: u32) -> bool {
-    fence(Ordering::Acquire);
-    // SAFETY: caller guarantees pointer validity per contract.
-    unsafe { core::ptr::read_volatile(version_ptr) == snapshot }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,22 +119,6 @@ mod tests {
         assert_eq!(seq.try_sample(), Some(2));
     }
 
-    /// Same contract at node level.
-    #[test]
-    fn try_node_sample_reports_open_bracket() {
-        let mut version = 0u32;
-        let ptr = &raw mut version;
-
-        // SAFETY: ptr points to a valid local u32 on the stack.
-        unsafe {
-            assert_eq!(try_node_sample(ptr), Some(0));
-            node_version_begin(ptr);
-            assert_eq!(try_node_sample(ptr), None, "open bracket must yield None");
-            node_version_end(ptr);
-            assert_eq!(try_node_sample(ptr), Some(2));
-        }
-    }
-
     #[test]
     fn test_seq_version32_transitions() {
         let seq = SeqVersion32::new();
@@ -218,34 +135,5 @@ mod tests {
         assert_eq!(s1, 2);
         assert!(seq.validate(s1));
         assert!(!seq.validate(s0));
-    }
-
-    #[test]
-    fn test_node_version_raw_transitions() {
-        let mut version = 0u32;
-        let ptr = &mut version as *mut u32;
-
-        // SAFETY: ptr points to a valid local u32 on stack.
-        let s0 = unsafe { try_node_sample(ptr) }.expect("stable");
-        assert_eq!(s0, 0);
-        // SAFETY: ptr points to a valid local u32 on stack.
-        assert!(unsafe { node_validate(ptr, s0) });
-
-        // SAFETY: ptr points to a valid local u32 on stack.
-        unsafe { node_version_begin(ptr) };
-        assert_eq!(version, 1);
-        // SAFETY: ptr points to a valid local u32 on stack.
-        assert!(!unsafe { node_validate(ptr, s0) });
-
-        // SAFETY: ptr points to a valid local u32 on stack.
-        unsafe { node_version_end(ptr) };
-        assert_eq!(version, 2);
-        // SAFETY: ptr points to a valid local u32 on stack.
-        let s1 = unsafe { try_node_sample(ptr) }.expect("stable");
-        assert_eq!(s1, 2);
-        // SAFETY: ptr points to a valid local u32 on stack.
-        assert!(unsafe { node_validate(ptr, s1) });
-        // SAFETY: ptr points to a valid local u32 on stack.
-        assert!(!unsafe { node_validate(ptr, s0) });
     }
 }

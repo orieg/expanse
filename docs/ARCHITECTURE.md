@@ -599,7 +599,7 @@ Three divergences from the 64-bit `Edge` matter:
 
 1. **Word 0 is a handle, not a pointer, in the shipped engine.** `Edge32::new_node` (`crates/expanse/src/types32.rs:210`) will store a truncated `*mut u8`, but the real 32-bit trie keeps nodes in a per-tree arena and stores a 32-bit arena index in word 0 instead, so the engine behaves identically on a 64-bit host and on RV32 — and so `Arena::bytes_in_use` is an exact memory figure. The rationale is stated beside `Arena::bytes_in_use` (`crates/expanse/src/trie32.rs:13`–`24`).
 2. **The aux field is 3 bytes, not 7**, and `Edge32::aux_u24` (`crates/expanse/src/types32.rs:232`) reads it as one little-endian 24-bit value. There are only 4 decode levels (`MAX_LEVEL_32 = 4`, `crates/expanse/src/types32.rs:18`), so the level-split budget is correspondingly smaller.
-3. **The tag space is different, and there are two of them.** `Tag32` (`crates/expanse/src/types32.rs:95`) is the design-document enumeration; the shipped engine writes its own raw tag bytes (`T_NULL` … `T_MAP_IMMED_BASE`, `crates/expanse/src/trie32.rs:135`–`149`) and decodes them with `kind_of` (`crates/expanse/src/trie32.rs:185`). Nothing outside its own module uses `Tag32`; the crate root only re-exports it. Both are tabulated in §10.3.3 so neither is mistaken for the other.
+3. **The tag space is different, and there are two of them.** `Tag32` (`crates/expanse/src/types32.rs:95`) is the design-document enumeration; the shipped engine writes its own raw tag bytes (`T_NULL` … `T_MAP_IMMED_BASE`, `crates/expanse/src/trie32.rs:137`–`151`) and decodes them with `kind_of` (`crates/expanse/src/trie32.rs:187`). Nothing outside its own module uses `Tag32`; the crate root only re-exports it. Both are tabulated in §10.3.3 so neither is mistaken for the other.
 
 ### 10.3 Tag discriminants
 
@@ -673,7 +673,7 @@ The structural and immediate tags fall inside the 7-bit envelope `0x00..=0x7F` (
 
 `Tag32::from_u8` maps every unlisted byte to `Custom`, so `Custom` is a catch-all rather than a reserved value.
 
-The tags the shipped 32-bit engine actually writes are module-private constants (`T_NULL` … `T_MAP_IMMED_BASE`, `crates/expanse/src/trie32.rs:135`–`149`). They are gated by a source scan rather than by symbol reference, because the engine deliberately keeps them private:
+The tags the shipped 32-bit engine actually writes are module-private constants (`T_NULL` … `T_MAP_IMMED_BASE`, `crates/expanse/src/trie32.rs:137`–`151`). They are gated by a source scan rather than by symbol reference, because the engine deliberately keeps them private:
 
 <!-- ENCODING-TABLE trie32_tags -->
 
@@ -693,7 +693,7 @@ The tags the shipped 32-bit engine actually writes are module-private constants 
 
 <!-- /ENCODING-TABLE -->
 
-`kind_of` (`crates/expanse/src/trie32.rs:185`) decodes these back into a `Kind`; any byte outside the listed ranges decodes as `Kind::Null`.
+`kind_of` (`crates/expanse/src/trie32.rs:187`) decodes these back into a `Kind`; any byte outside the listed ranges decodes as `Kind::Null`.
 
 ### 10.4 Immediate capacity
 
@@ -701,8 +701,8 @@ The budget rule is a byte count, not a key count. This is the fact most often re
 
 - **Set flavor, 64-bit.** Keys pack across word 0 and the aux bytes — bytes 0..14 of the edge, 15 usable bytes, byte 15 being the tag (`Edge::imm_payload`, `crates/expanse/src/node.rs:214`; writer `write_immed`, `crates/expanse/src/mutate.rs:295`). Capacity is `IMMED_PAYLOAD_BYTES / key_bytes`, i.e. `ImmedType::max_count` (`crates/expanse/src/types.rs:280`).
 - **Map flavor, 64-bit.** Keys live in the 7 aux bytes only, because word 0 is spent on the value (one key) or on the value-array pointer (two or more) — `write_map_immed`, `crates/expanse/src/mutate_map.rs:79`. Capacity is `7 / key_bytes`, `mutate::map_immed_max` (`crates/expanse/src/mutate.rs:319`). The gate derives the 7 from the compiled length of `Edge::aux_bytes()` rather than from this sentence.
-- **Set flavor, 32-bit.** Keys pack across word 0 and the 3 aux bytes — 7 usable bytes of an 8-byte edge. Capacity is `7 / key_bytes`, `trie32::set_immed_cap` (`crates/expanse/src/trie32.rs:96`), for `key_bytes` in 1..=4.
-- **Map flavor, 32-bit.** A map immediate is single-entry by construction: the tag encodes only `key_bytes` (1..=3) and word 0 is the value (`T_MAP_IMMED_BASE`, `crates/expanse/src/trie32.rs:149`; `Edge32::new_immed_map_u8`, `crates/expanse/src/types32.rs:282`).
+- **Set flavor, 32-bit.** Keys pack across word 0 and the 3 aux bytes — 7 usable bytes of an 8-byte edge. Capacity is `7 / key_bytes`, `trie32::set_immed_cap` (`crates/expanse/src/trie32.rs:98`), for `key_bytes` in 1..=4.
+- **Map flavor, 32-bit.** A map immediate is single-entry by construction: the tag encodes only `key_bytes` (1..=3) and word 0 is the value (`T_MAP_IMMED_BASE`, `crates/expanse/src/trie32.rs:151`; `Edge32::new_immed_map_u8`, `crates/expanse/src/types32.rs:282`).
 
 <!-- ENCODING-TABLE immediate_capacity -->
 
@@ -720,7 +720,7 @@ The budget rule is a byte count, not a key count. This is the fact most often re
 
 The `n/a` rows are widths a 32-bit key cannot produce: a 4-level trie leaves at most 4 undecoded bytes.
 
-Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src/types.rs:387`), `tag_spaces_are_disjoint_and_total` (`crates/expanse/src/types.rs:363`) and `immediate_payload_round_trips_all_widths` (`crates/expanse/src/trie32.rs:5177`), in addition to the doc gate.
+Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src/types.rs:387`), `tag_spaces_are_disjoint_and_total` (`crates/expanse/src/types.rs:363`) and `immediate_payload_round_trips_all_widths` (`crates/expanse/src/trie32.rs:5397`), in addition to the doc gate.
 
 ### 10.5 `ValueSlot` — the 8-byte polymorphic value word
 
@@ -817,9 +817,9 @@ Both bitmap branches and bitmap map-leaves partition those 256 values into **eig
 
 **`LeafBitmap1`** (`crates/expanse/src/node.rs:850`) is the set-flavor level-1 leaf, 64 bytes: the bitmap *is* the membership answer, so there is no subarray and no rank on the lookup path.
 
-The 32-bit bitmap leaf `LeafBitmap1_32` (`crates/expanse/src/node32.rs:208`) stores its 256-bit mask as `[u64; 4]` plus a `u16` population and a level byte. Its declared fields total 36 bytes but `#[repr(C, align(32))]` rounds the type to 64 bytes, and 64 is the figure the engine's own accounting uses (`size_of::<LeafBitmap1_32>()`, `crates/expanse/src/trie32.rs:326`) and its conversion threshold is set at (`SET_BITMAP_ENTER_32`, `crates/expanse/src/types32.rs:78`).
+The 32-bit bitmap leaf `LeafBitmap1_32` (`crates/expanse/src/node32.rs:208`) stores its 256-bit mask as `[u64; 4]` plus a `u16` population and a level byte. Its declared fields total 36 bytes but `#[repr(C, align(32))]` rounds the type to 64 bytes, and 64 is the figure the engine's own accounting uses (`size_of::<LeafBitmap1_32>()`, `crates/expanse/src/trie32.rs:328`) and its conversion threshold is set at (`SET_BITMAP_ENTER_32`, `crates/expanse/src/types32.rs:78`).
 
-**Subarray allocation sizing.** A subexpanse's packed array is allocated at `cap_class(pop)` slots, not `pop` slots — the live entries occupy `[0, pop)` and the trailing spare slots hold filler, so a growth or shrink that stays inside a capacity class shifts in place instead of reallocating. On 64-bit that is the value-subarray sizing in `sub_vals_size` (`crates/expanse/src/mutate.rs:467`); on 32-bit, `BranchB32Data::subarrays` and `LeafBitmapL32Data::subarrays` are `Box<[Edge32]>` / `Box<[u32]>` sized the same way by `subarray_insert` (`crates/expanse/src/trie32.rs:1231`) and `subarray_remove` (`crates/expanse/src/trie32.rs:1269`), with `cap_class` (`crates/expanse/src/trie32.rs:60`) pinned to the 64-bit schedule. `cap_class(pop)` is exact for `pop ≤ 2`, rounds in 4-slot steps for `pop ≤ 16` (4, 8, 12, 16), and coarsens to 8-slot steps in the mature tail (24, 32), halving mature boundary crossings while keeping memory within gate ceilings.
+**Subarray allocation sizing.** A subexpanse's packed array is allocated at `cap_class(pop)` slots, not `pop` slots — the live entries occupy `[0, pop)` and the trailing spare slots hold filler, so a growth or shrink that stays inside a capacity class shifts in place instead of reallocating. On 64-bit that is the value-subarray sizing in `sub_vals_size` (`crates/expanse/src/mutate.rs:467`); on 32-bit, `BranchB32Data::subarrays` and `LeafBitmapL32Data::subarrays` are `Box<[Edge32]>` / `Box<[u32]>` sized the same way by `subarray_insert` (`crates/expanse/src/trie32.rs:1449`) and `subarray_remove` (`crates/expanse/src/trie32.rs:1487`), with `cap_class` (`crates/expanse/src/trie32.rs:62`) pinned to the 64-bit schedule. `cap_class(pop)` is exact for `pop ≤ 2`, rounds in 4-slot steps for `pop ≤ 16` (4, 8, 12, 16), and coarsens to 8-slot steps in the mature tail (24, 32), halving mature boundary crossings while keeping memory within gate ceilings.
 
 The consequence for readers is that a subarray's **length is its allocation size, never its population**. Population comes from the node's own bitmap popcount (bitmap leaves) or `pop_counts[sub]` (bitmap branches); every slot access is by a bitmap-derived rank, which is `< pop` by construction, so the spare slots are unreachable through any ordinary path. They are nonetheless always initialised (`0` for a value, `Edge32::null()` for a child) because an optimistic reader racing an in-place shift may load one before the version seal rejects its result.
 

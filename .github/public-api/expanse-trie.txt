@@ -1217,10 +1217,6 @@ impl core::marker::Unpin for expanse_trie::occ32::SeqVersion32
 impl core::marker::UnsafeUnpin for expanse_trie::occ32::SeqVersion32
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ32::SeqVersion32
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ32::SeqVersion32
-pub unsafe fn expanse_trie::occ32::node_validate(*const u32, u32) -> bool
-pub unsafe fn expanse_trie::occ32::node_version_begin(*mut u32)
-pub unsafe fn expanse_trie::occ32::node_version_end(*mut u32)
-pub unsafe fn expanse_trie::occ32::try_node_sample(*const u32) -> core::option::Option<u32>
 pub mod expanse_trie::occ_stats
 #[non_exhaustive] #[repr(usize)] pub enum expanse_trie::occ_stats::Stat
 pub expanse_trie::occ_stats::Stat::AdvanceCalls = 4

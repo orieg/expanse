@@ -544,6 +544,42 @@
       "check": "alias-tb",
       "expect": "clean",
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "sync32::map_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "sync32::map_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "sync32::map_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "sync32::set_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "sync32::set_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "sync32::set_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     }
   ]
 }

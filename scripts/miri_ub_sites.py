@@ -78,8 +78,12 @@ from typing import Dict, List, Optional, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / ".github" / "miri-ub-sites.json"
 SYNC_RS = ROOT / "crates" / "expanse" / "src" / "sync.rs"
+SYNC32_RS = ROOT / "crates" / "expanse" / "src" / "sync32.rs"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 MODULE = "sync::miri_ub_sites"
+# The 32-bit wrappers' workloads live in `sync32::miri_ub_sites`; the manifest
+# names them with this prefix (`sync32::map_reader_writer`).
+PREFIX32 = "sync32::"
 
 CHECKS: Dict[str, str] = {
     "race": "-Zmiri-disable-stacked-borrows",
@@ -173,6 +177,20 @@ def module_tests(source: str) -> List[str]:
                 names.append(m.group(1))
             pending = False
     return names
+
+
+def census_tests() -> List[str]:
+    """Every census workload: `sync`'s by bare name, `sync32`'s with
+    `PREFIX32`."""
+    return module_tests(SYNC_RS.read_text()) + [
+        PREFIX32 + t for t in module_tests(SYNC32_RS.read_text())]
+
+
+def test_path(test: str) -> str:
+    """The libtest path of a manifest `test`."""
+    if test.startswith(PREFIX32):
+        return f"sync32::miri_ub_sites::{test[len(PREFIX32):]}"
+    return f"{MODULE}::{test}"
 
 
 def load_manifest(data: dict, tests: List[str]) -> Tuple[List[Entry], str, List[str]]:
@@ -286,7 +304,7 @@ def run_seed(entry: Entry, seed: int, toolchain: Optional[str]) -> Observation:
     if toolchain:
         cmd.append(f"+{toolchain}")
     cmd += ["miri", "test", "-p", "expanse-trie", "--lib", "--",
-            "--ignored", "--exact", f"{MODULE}::{entry.test}"]
+            "--ignored", "--exact", test_path(entry.test)]
     env = dict(os.environ)
     env["MIRIFLAGS"] = f"{CHECKS[entry.check]} -Zmiri-seed={seed}"
     try:
@@ -309,7 +327,7 @@ def main_run(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError) as exc:
         print(f"cannot read {MANIFEST.relative_to(ROOT)}: {exc}", file=sys.stderr)
         return 2
-    entries, seeds, errors = load_manifest(data, module_tests(SYNC_RS.read_text()))
+    entries, seeds, errors = load_manifest(data, census_tests())
     if args.seeds:
         if not re.fullmatch(r"\d+\.\.\d+", args.seeds):
             print(f"--seeds must look like 0..4, got {args.seeds}", file=sys.stderr)
@@ -506,7 +524,7 @@ def self_test() -> int:
     runner, tc = workflow_pin(NIGHTLY.read_text())
     check("nightly job toolchain is the manifest's", tc, committed.get("toolchain"))
     check("nightly job runner provides the manifest's target", runner, RUNNERS.get(committed.get("target")))
-    entries, _, errors = load_manifest(committed, module_tests(SYNC_RS.read_text()))
+    entries, _, errors = load_manifest(committed, census_tests())
     check("committed manifest valid", errors, [])
     check("committed manifest non-empty", len(entries) > 0, True)
 
@@ -531,6 +549,11 @@ def self_test() -> int:
              "  bench-report:\n    runs-on: x\n")
     check("matrix shards read", workflow_shards(wf_ok), [1, 2, 3])
     check("matrix N must match the list", workflow_shards(wf_ok.replace("}}/3", "}}/4")), [])
+    check("sync32 workloads get the sync32 module path", test_path("sync32::map_reader_writer"),
+          "sync32::miri_ub_sites::map_reader_writer")
+    check("sync workloads keep the sync module path", test_path("map_leaf_two_writers"),
+          "sync::miri_ub_sites::map_leaf_two_writers")
+    check("the census finds the sync32 workloads", "sync32::map_reader_writer" in census_tests(), True)
     shards = workflow_shards(NIGHTLY.read_text())
     check("nightly job is a shard matrix covering 1..N", bool(shards) and shards == list(range(1, len(shards) + 1)), True)
     print(f"miri_ub_sites self-test OK ({len(entries)} manifest entries)")
