@@ -76,7 +76,7 @@ pub(crate) unsafe fn leaf_locate_fixed(
 }
 
 /// Builds a fresh map immediate from sorted entries.
-fn write_map_immed<const OCC: bool>(
+pub(crate) fn write_map_immed<const OCC: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     kb: u8,
@@ -212,7 +212,12 @@ pub(crate) fn build_bitmap_leaf_map<const OCC: bool>(
 }
 
 /// Allocates a map leaf from sorted entries and points `edge` at it.
-fn build_map_leaf<const OCC: bool>(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
+pub(crate) fn build_map_leaf<const OCC: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    kb: u8,
+    entries: &[(u64, u64)],
+) {
     let pop = entries.len();
     let ptr = a.alloc_bytes_dispatch::<OCC>(leaf::size_map(kb, pop));
     let vals = ptr.as_ptr().cast::<u64>();

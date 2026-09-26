@@ -373,6 +373,43 @@ impl ExpanseSet {
         self.alloc.release_free()
     }
 
+    /// Rebuilds the set's keys into freshly allocated nodes and frees the old
+    /// tree, returning to the system allocator every page and block the old
+    /// tree held. Use it after deleting most of a set's keys: removals leave
+    /// the surviving nodes spread over slab pages that
+    /// [`Self::shrink_to_fit`] cannot return, because each still holds a
+    /// live node. After `compact` the set holds what a set built from its
+    /// keys by [`Self::from_sorted_iter`] holds.
+    ///
+    /// **Every node moves.** Unlike [`Self::shrink_to_fit`], which moves
+    /// nothing, this invalidates every pointer derived from the set's nodes.
+    ///
+    /// **Cost.** O(n) in the population: one ordered walk of the old tree,
+    /// one bottom-up build of the new one, and the old tree's drop. While it
+    /// runs, the old tree, the new tree and a buffer of the keys (8 bytes per
+    /// key) are all allocated, so the transient peak is about the old
+    /// [`Self::mem_held`] plus the new one plus the buffer.
+    ///
+    /// A no-op on a set shared through a concurrent wrapper, whose readers
+    /// may hold the old nodes.
+    pub fn compact(&mut self) {
+        if self.alloc.occ_enabled() {
+            return;
+        }
+        let mut keys = Vec::with_capacity(self.len() as usize);
+        keys.extend(self.iter());
+        // Ascending by construction, so the builder's sort check is skipped.
+        let compacted = Self::from_sorted_keys(keys);
+        // Nothing the build allocated was freed: the peak of the new tree's
+        // held bytes is its final `mem_held`.
+        debug_assert_eq!(
+            compacted.alloc.live_allocs(),
+            compacted.alloc.total_allocs()
+        );
+        // The old tree is dropped only once the new one is complete.
+        drop(core::mem::replace(self, compacted));
+    }
+
     /// A read-only census of the allocator's slab pages and freelists, for
     /// the remove-retention instrument (`examples/remove_retention.rs`).
     /// Not a stable API.
@@ -2723,6 +2760,154 @@ mod tests {
             #[cfg(debug_assertions)]
             s.occ_root().1.bracket_leave_any();
         }
+        #[cfg(debug_assertions)]
+        assert!(crate::alloc::bracket_stack::open().is_empty());
+    }
+
+    /// Key shapes for the `compact_` tests, each reaching a different form of
+    /// the bulk builder at a size Miri runs: random 64-bit keys, a dense run
+    /// (bitmap leaves and a full expanse), 250 runs of two keys under one
+    /// skipped prefix (a `BranchU` wrapped under a narrow `BranchL3`), 40
+    /// keys differing only in their final byte behind a skip (a bitmap leaf
+    /// with decode bytes), and sparse high-digit keys (single-key chains).
+    fn compact_shapes() -> Vec<Vec<u64>> {
+        let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+        let random: Vec<u64> = (0..600).map(|_| rng.next()).collect();
+        let dense: Vec<u64> = (0..600u64).collect();
+        let wrapped: Vec<u64> = (0..250u64)
+            .flat_map(|d| [(0x42u64 << 56) | (d << 8), (0x42u64 << 56) | (d << 8) | 1])
+            .collect();
+        let mut skipped: Vec<u64> = (0..40u64).map(|i| 0x1234_5678_9ABC_DE00 | i).collect();
+        skipped.extend((0..40u64).map(|i| (i + 1) << 56));
+        let sparse: Vec<u64> = (0..300u64).map(|i| i << 40).collect();
+        vec![random, dense, wrapped, skipped, sparse]
+    }
+
+    /// Builds `keys`, removes all but every `stride`-th, compacts, and checks
+    /// the result against the model, the validator, a `from_sorted_iter`
+    /// build of the survivors (same bytes) and a fresh insert build (never
+    /// fewer bytes), and that the build freed nothing.
+    fn compact_check(keys: &[u64], stride: usize) {
+        let mut s = ExpanseSet::new();
+        let mut model = BTreeSet::new();
+        for &k in keys {
+            s.insert(k);
+            model.insert(k);
+        }
+        for (i, &k) in keys.iter().enumerate() {
+            if i % stride != 0 {
+                assert_eq!(s.remove(k), model.remove(&k));
+            }
+        }
+        s.compact();
+        s.validate();
+        assert_eq!(s.len(), model.len() as u64);
+        assert!(s.iter().eq(model.iter().copied()), "contents after compact");
+        let built = ExpanseSet::from_sorted_iter(model.iter().copied());
+        assert_eq!(
+            s.mem_used(),
+            built.mem_used(),
+            "compact vs from_sorted_iter"
+        );
+        let mut fresh = ExpanseSet::new();
+        for &k in &model {
+            fresh.insert(k);
+        }
+        assert!(
+            s.mem_used() <= fresh.mem_used(),
+            "compact vs fresh insert build"
+        );
+        assert_eq!(
+            s.alloc.live_allocs(),
+            s.alloc.total_allocs(),
+            "no free during the build"
+        );
+        // A freshly compacted allocator holds exactly the pages its live
+        // blocks fit on: nothing idle for `shrink_to_fit` to return.
+        assert_eq!(s.shrink_to_fit(), 0);
+        // The compacted set keeps working: remove the rest, then refill.
+        let survivors: Vec<u64> = model.iter().copied().collect();
+        for &k in &survivors {
+            assert!(s.remove(k), "remove {k:#x} after compact");
+        }
+        assert!(s.is_empty());
+        assert_eq!(s.mem_used(), 0);
+        for &k in &survivors {
+            assert!(s.insert(k));
+        }
+        s.validate();
+    }
+
+    /// Keep every `stride`-th key: all of them (a `BranchU` survives in the
+    /// wrapped shape), a third, and a seventeenth (drained expanses). Miri
+    /// runs the first two, sized for the Tier-1 lane.
+    #[cfg(not(miri))]
+    const COMPACT_STRIDES: &[usize] = &[1, 3, 17];
+    #[cfg(miri)]
+    const COMPACT_STRIDES: &[usize] = &[1, 3];
+
+    #[test]
+    fn compact_matches_a_sorted_build() {
+        for keys in compact_shapes() {
+            for &stride in COMPACT_STRIDES {
+                compact_check(&keys, stride);
+            }
+        }
+    }
+
+    /// The empty set, a root leaf, and a tree drained back below the
+    /// root-leaf boundary: compact keeps each correct and holds no more than
+    /// the set's own `from_sorted_iter` build.
+    #[test]
+    fn compact_small_and_empty() {
+        let mut s = ExpanseSet::new();
+        s.compact();
+        assert!(s.is_empty());
+        assert_eq!(s.mem_used(), 0);
+        assert_eq!(s.mem_held(), 0);
+        for k in 0..(ROOT_LEAF_CAP as u64) {
+            s.insert(k * 3);
+        }
+        s.compact();
+        s.validate();
+        assert_eq!(s.len(), ROOT_LEAF_CAP as u64);
+        let mut t = ExpanseSet::new();
+        for k in 0..(4 * ROOT_LEAF_CAP as u64) {
+            t.insert(k << 20);
+        }
+        for k in ROOT_LEAF_CAP as u64..(4 * ROOT_LEAF_CAP as u64) {
+            assert!(t.remove(k << 20));
+        }
+        t.compact();
+        t.validate();
+        assert!(t.iter().eq((0..ROOT_LEAF_CAP as u64).map(|k| k << 20)));
+        let built = ExpanseSet::from_sorted_iter(t.iter());
+        assert_eq!(t.mem_used(), built.mem_used());
+    }
+
+    /// On a set whose allocator is deferred to a collector (a shared tree),
+    /// compact does nothing: readers may hold the old nodes.
+    #[test]
+    fn compact_is_a_no_op_on_a_shared_tree() {
+        // The wrapper would own the tree word beside the tree; declared first
+        // so it outlives the tree.
+        let word = crate::occ::SeqVersion::new();
+        let mut s = ExpanseSet::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        s.occ_root().1.defer_to(collector);
+        // SAFETY: `word` is declared before the tree, so it drops after it.
+        unsafe { s.occ_root().1.bind_tree_word(core::ptr::from_ref(&word)) };
+        s.occ_root().1.cover_root();
+        for k in 0..200u64 {
+            s.insert(k << 12);
+        }
+        let used = s.mem_used();
+        let allocs = s.alloc.total_allocs();
+        s.compact();
+        assert_eq!(s.mem_used(), used);
+        assert_eq!(s.alloc.total_allocs(), allocs, "nothing rebuilt");
+        assert!(s.iter().eq((0..200u64).map(|k| k << 12)));
+        s.validate();
         #[cfg(debug_assertions)]
         assert!(crate::alloc::bracket_stack::open().is_empty());
     }

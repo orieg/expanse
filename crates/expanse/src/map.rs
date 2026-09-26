@@ -23,6 +23,8 @@ use core::ptr::NonNull;
 use core_alloc::format;
 #[cfg(not(feature = "std"))]
 use core_alloc::string::String;
+#[cfg(not(feature = "std"))]
+use core_alloc::vec::Vec;
 
 /// `repr(u64)` fixes the layout the concurrent string paths read through a
 /// raw pointer (`MapCore::occ_snapshot_of`, #1086): a tag word, then the
@@ -4300,6 +4302,78 @@ impl ExpanseMap {
         self.alloc.release_free()
     }
 
+    /// Rebuilds the map's entries into freshly allocated nodes and frees the
+    /// old tree, returning to the system allocator every page and block the
+    /// old tree held. Use it after deleting most of a map's keys: removals
+    /// leave the surviving nodes spread over slab pages that
+    /// [`Self::shrink_to_fit`] cannot return, because each still holds a
+    /// live node. After `compact` the map's [`Self::mem_used`] equals that of
+    /// a map built by inserting the same entries.
+    ///
+    /// **Every node moves.** Unlike [`Self::shrink_to_fit`], which moves
+    /// nothing, this invalidates every value pointer
+    /// ([`Self::get_slot_ptr`], [`Self::get_value_slot`], [`Self::ins_slot`])
+    /// and every other pointer derived from the map's nodes.
+    ///
+    /// **Cost.** O(n) in the population: one ordered walk of the old tree,
+    /// one bottom-up build of the new one, and the old tree's drop. While it
+    /// runs, the old tree, the new tree and a buffer of the entries (16 bytes
+    /// per entry) are all allocated, so the transient peak is about the old
+    /// [`Self::mem_held`] plus the new one plus the buffer.
+    ///
+    /// A no-op on a map shared through a concurrent wrapper, whose readers
+    /// may hold the old nodes.
+    pub fn compact(&mut self) {
+        if self.alloc.occ_enabled() {
+            return;
+        }
+        let mut entries = Vec::with_capacity(self.len() as usize);
+        entries.extend(self.iter());
+        let compacted = Self::from_sorted_entries(&entries);
+        drop(entries);
+        // Nothing the build allocated was freed: the peak of the new tree's
+        // held bytes is its final `mem_held`.
+        debug_assert_eq!(
+            compacted.alloc.live_allocs(),
+            compacted.alloc.total_allocs()
+        );
+        // The old tree is dropped only once the new one is complete.
+        drop(core::mem::replace(self, compacted));
+    }
+
+    /// Builds a map from entries sorted by key with distinct keys, choosing
+    /// the root-leaf or trie form by population as the insert path would, and
+    /// emitting the trie bottom-up (`algebra_build::build_map_subtree`).
+    fn from_sorted_entries(entries: &[(u64, u64)]) -> Self {
+        debug_assert!(entries.windows(2).all(|w| w[0].0 < w[1].0));
+        let mut out = Self::new();
+        let n = entries.len();
+        if n == 0 {
+            return out;
+        }
+        if n <= ROOT_LEAF_CAP {
+            let ptr = out.alloc.alloc_bytes(leaf_size(n));
+            // SAFETY: a fresh root leaf of `leaf_size(n)` bytes holds `n` keys
+            // from offset 0 and `n` values from `leaf_values_offset(n)`.
+            unsafe {
+                let keys = ptr.as_ptr().cast::<u64>();
+                let vals = ptr.as_ptr().add(leaf_values_offset(n)).cast::<u64>();
+                for (i, &(k, v)) in entries.iter().enumerate() {
+                    keys.add(i).write(k);
+                    vals.add(i).write(v);
+                }
+            }
+            out.core.root = Root::Leaf { ptr, pop: n };
+            return out;
+        }
+        // SAFETY: `entries` is sorted with distinct keys; `out.alloc` owns
+        // the built trie.
+        let top = unsafe { crate::algebra_build::build_map_subtree(&out.alloc, entries, 8) };
+        out.core.root = Root::Tree { top };
+        out.core.tree_pop = n as u64;
+        out
+    }
+
     /// A read-only census of the allocator's slab pages and freelists, for
     /// the remove-retention instrument (`examples/remove_retention.rs`).
     /// Not a stable API.
@@ -4714,6 +4788,174 @@ mod tests {
         let snapshot = map.clone();
         map.insert(7, 7_000);
         assert_eq!(snapshot.get(7), Some(700));
+    }
+
+    /// Key shapes for the `compact_` tests, each reaching a different form of
+    /// the map bulk builder at a size Miri runs: random 64-bit keys (leaves
+    /// and cascades), a dense run (`LeafBitmapL` at level 1), 250 runs of two
+    /// keys under one skipped prefix (a `BranchU` wrapped under a narrow
+    /// `BranchL3`), 40 keys differing only in their final byte behind a skip
+    /// (a `LeafBitmapL` with decode bytes), and sparse high-digit keys
+    /// (immediates at every level).
+    fn compact_shapes() -> Vec<Vec<u64>> {
+        let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+        let random: Vec<u64> = (0..600).map(|_| rng.next()).collect();
+        let dense: Vec<u64> = (0..600u64).collect();
+        let wrapped: Vec<u64> = (0..250u64)
+            .flat_map(|d| [(0x42u64 << 56) | (d << 8), (0x42u64 << 56) | (d << 8) | 1])
+            .collect();
+        let mut skipped: Vec<u64> = (0..40u64).map(|i| 0x1234_5678_9ABC_DE00 | i).collect();
+        skipped.extend((0..40u64).map(|i| (i + 1) << 56));
+        let sparse: Vec<u64> = (0..300u64).map(|i| i << 40).collect();
+        vec![random, dense, wrapped, skipped, sparse]
+    }
+
+    /// Per-class live blocks of an allocator census.
+    fn live_by_class(c: &crate::alloc::AllocCensus) -> Vec<(usize, usize)> {
+        c.slab
+            .iter()
+            .filter(|k| k.live_blocks > 0)
+            .map(|k| (k.class, k.live_blocks))
+            .collect()
+    }
+
+    /// Builds `keys`, removes all but every `stride`-th, compacts, and checks
+    /// the result against the model and the validator, and against a fresh
+    /// insert build of the survivors: the same `mem_used()` and the same live
+    /// blocks in every size class. The build must free nothing.
+    fn compact_check(keys: &[u64], stride: usize) {
+        let val = |k: u64| !k ^ 0x5EED;
+        let mut m = ExpanseMap::new();
+        let mut model = BTreeMap::new();
+        for &k in keys {
+            m.insert(k, val(k));
+            model.insert(k, val(k));
+        }
+        for (i, &k) in keys.iter().enumerate() {
+            if i % stride != 0 {
+                assert_eq!(m.remove(k), model.remove(&k));
+            }
+        }
+        m.compact();
+        m.validate();
+        assert_eq!(m.len(), model.len() as u64);
+        assert!(
+            m.iter().eq(model.iter().map(|(k, v)| (*k, *v))),
+            "contents after compact"
+        );
+        let mut fresh = ExpanseMap::new();
+        for (&k, &v) in &model {
+            fresh.insert(k, v);
+        }
+        assert_eq!(
+            m.mem_used(),
+            fresh.mem_used(),
+            "compact vs fresh insert build"
+        );
+        assert_eq!(
+            live_by_class(&m.alloc.census()),
+            live_by_class(&fresh.alloc.census()),
+            "per-class live blocks"
+        );
+        assert_eq!(
+            m.alloc.live_allocs(),
+            m.alloc.total_allocs(),
+            "no free during the build"
+        );
+        assert_eq!(m.shrink_to_fit(), 0);
+        // The compacted map keeps working: overwrite, remove, refill.
+        for (&k, v) in model.iter_mut() {
+            *v = k.wrapping_mul(3);
+            assert_eq!(m.insert(k, *v), Some(val(k)));
+        }
+        let survivors: Vec<(u64, u64)> = model.iter().map(|(k, v)| (*k, *v)).collect();
+        for &(k, v) in &survivors {
+            assert_eq!(m.remove(k), Some(v), "remove {k:#x} after compact");
+        }
+        assert!(m.is_empty());
+        assert_eq!(m.mem_used(), 0);
+        for &(k, v) in &survivors {
+            assert_eq!(m.insert(k, v), None);
+        }
+        m.validate();
+    }
+
+    /// Keep every `stride`-th key: all of them (a `BranchU` survives in the
+    /// wrapped shape), a third, and a seventeenth (drained expanses). Miri
+    /// runs the first two, sized for the Tier-1 lane.
+    #[cfg(not(miri))]
+    const COMPACT_STRIDES: &[usize] = &[1, 3, 17];
+    #[cfg(miri)]
+    const COMPACT_STRIDES: &[usize] = &[1, 3];
+
+    #[test]
+    fn compact_matches_a_fresh_build() {
+        for keys in compact_shapes() {
+            for &stride in COMPACT_STRIDES {
+                compact_check(&keys, stride);
+            }
+        }
+    }
+
+    /// The empty map, a root leaf, and a tree drained back below the
+    /// root-leaf boundary.
+    #[test]
+    fn compact_small_and_empty() {
+        let mut m = ExpanseMap::new();
+        m.compact();
+        assert!(m.is_empty());
+        assert_eq!(m.mem_used(), 0);
+        assert_eq!(m.mem_held(), 0);
+        for k in 0..(ROOT_LEAF_CAP as u64) {
+            m.insert(k * 3, k);
+        }
+        let used = m.mem_used();
+        m.compact();
+        m.validate();
+        assert_eq!(m.mem_used(), used);
+        assert!(m.iter().eq((0..ROOT_LEAF_CAP as u64).map(|k| (k * 3, k))));
+        let mut t = ExpanseMap::new();
+        for k in 0..(4 * ROOT_LEAF_CAP as u64) {
+            t.insert(k << 20, k);
+        }
+        for k in ROOT_LEAF_CAP as u64..(4 * ROOT_LEAF_CAP as u64) {
+            assert_eq!(t.remove(k << 20), Some(k));
+        }
+        t.compact();
+        t.validate();
+        assert!(t.iter().eq((0..ROOT_LEAF_CAP as u64).map(|k| (k << 20, k))));
+        let mut fresh = ExpanseMap::new();
+        for k in 0..ROOT_LEAF_CAP as u64 {
+            fresh.insert(k << 20, k);
+        }
+        assert_eq!(t.mem_used(), fresh.mem_used());
+    }
+
+    /// On a map whose allocator is deferred to a collector (a shared tree),
+    /// compact does nothing: readers may hold the old nodes.
+    #[test]
+    fn compact_is_a_no_op_on_a_shared_tree() {
+        // The wrapper would own the tree word beside the tree; declared first
+        // so it outlives the tree.
+        let word = crate::occ::SeqVersion::new();
+        let mut m = ExpanseMap::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        m.occ_root().1.defer_to(collector);
+        // SAFETY: `word` is declared before the tree, so it drops after it.
+        unsafe { m.occ_root().1.bind_tree_word(core::ptr::from_ref(&word)) };
+        m.occ_root().1.cover_root();
+        for k in 0..200u64 {
+            m.insert(k << 12, k);
+        }
+        let used = m.mem_used();
+        let allocs = m.alloc.total_allocs();
+        m.compact();
+        assert_eq!(m.mem_used(), used);
+        assert_eq!(m.alloc.total_allocs(), allocs, "nothing rebuilt");
+        assert!(m.iter().eq((0..200u64).map(|k| (k << 12, k))));
+        m.validate();
+        #[cfg(debug_assertions)]
+        assert!(crate::alloc::bracket_stack::open().is_empty());
     }
 
     /// The shared-tree engine (`OCC = true`) on one thread, so Miri can see
