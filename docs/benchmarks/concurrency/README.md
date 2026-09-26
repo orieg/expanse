@@ -4964,7 +4964,7 @@ wrapper's read path exists: four dispatches at that head whose artifacts record
 precondition on `strmap_get_short` and `sync_strmap_get_short` (§16.2). Pending
 under #730, which stays open.
 
-## 23. AArch64: the default Linux build against `+rcpc` — census measured, wall clock pending (Refs #1191)
+## 23. AArch64: the default Linux build against `+rcpc` — census and wall clock measured (Refs #1191)
 
 **The question.** On AArch64, does a writer's release store (`stlr`) followed
 by an acquire load compiled as `ldar` (RCsc) cost wall-clock throughput on the
@@ -5034,7 +5034,7 @@ The census does not make the wall-clock step moot: the shared paths hold
 acquire loads after release stores in the same functions, and one run of the
 harness is the only instrument here that can say whether that costs time.
 
-### 23.2 The wall-clock A/B — pre-registered, not yet run
+### 23.2 The wall-clock A/B — pre-registered
 
 **Instrument.** `.github/workflows/aarch64_rcpc_ab.yml`, dispatch-only on
 `ubuntu-24.04-arm`, runs `scripts/rcpc_ab.py`. It builds
@@ -5075,9 +5075,52 @@ Seven cells are read per arm with no multiplicity correction, so a single cell
 clearing its bound in both runs is reported as that cell, not as the arm. The
 `rcpc_lse` arm is read by the same rule and never pooled with `rcpc`.
 
-**Status: not run.** GitHub accepts a `workflow_dispatch` only for a workflow
-file present on the default branch: `gh workflow run aarch64_rcpc_ab.yml --ref
-bench/aarch64-rcpc-ab` returned `HTTP 404: workflow aarch64_rcpc_ab.yml not found
-on the default branch`. The two runs are taken once the workflow file is on
-`main`; this subsection then gains the per-run table and the verdict. Pending
-under #1191, which stays open.
+### 23.3 Result: no material effect
+
+Two independent dispatches of the §23.2 workflow at one commit, both on a
+GitHub `ubuntu-24.04-arm` runner reporting CPU part `0xd49` (Neoverse-N2) with
+`lrcpc` and `atomics`, 4 online CPUs, 12 rounds, one timed cell per process,
+no core pin. The highest foreign busy-CPU reading at any (round, arm) boundary
+was 0.03 in each run; the load averages (peak 2.91 and 3.05 on 4 CPUs) are the
+harness's own cells. *(measured: GitHub `ubuntu-24.04-arm` Neoverse-N2, 4
+vCPUs, rustc 1.98.1, commit `f930142f`; runs
+[36259882964](https://github.com/orieg/expanse/actions/runs/36259882964) and
+[36259888050](https://github.com/orieg/expanse/actions/runs/36259888050);
+`results/rcpc_ab_f930142f_run36259882964.json`,
+`results/rcpc_ab_f930142f_run36259888050.json`)*
+
+Throughput ratio `rcpc` / `default`, mean and BCa 95% interval (above 1 means
+the default build is slower):
+
+| Cell | Run 36259882964 | Run 36259888050 | Verdict |
+|---|---|---|---|
+| `map` W = 1 | 1.040 [1.000, 1.110] | 0.993 [0.977, 1.013] | not resolved |
+| `map` W = 2 | 1.003 [0.969, 1.035] | 1.019 [1.001, 1.031] | not resolved |
+| `map` W = 4 | 0.981 [0.952, 0.997] | 0.997 [0.978, 1.011] | not resolved |
+| `set` W = 1 | 1.009 [0.946, 1.057] | 1.014 [1.000, 1.038] | not resolved |
+| `set` W = 2 | 1.018 [0.972, 1.060] | 1.017 [1.006, 1.029] | not resolved |
+| `set` W = 4 | 1.028 [1.003, 1.057] | 1.028 [1.015, 1.048] | present |
+| mixed (W = 1, R = 3) | 1.053 [1.005, 1.143] | 1.006 [0.982, 1.037] | not resolved |
+
+(workloads: `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`,
+`concurrency_ordered_readers_map_64bit`, one row each, both builds in every
+row.)
+
+- **`rcpc` arm.** One of seven cells, `set` at W = 4, clears the rule in both
+  runs, by about 2.8%. The rule applies no multiplicity correction (§23.2), so
+  this is reported as that cell and not as the arm. The other six cells do not
+  resolve, and `map` at W = 4 leans the other way in the first run.
+- **Scaling ratio** C_rcpc(W) / C_default(W): no cell clears the rule in both
+  runs.
+- **`rcpc_lse` arm.** No throughput or scaling cell clears the rule in both
+  runs.
+- **Verdict.** On this runner and at these writer counts, compiling the
+  acquire loads as `ldapr` changes `Sync*` throughput by a few percent at most,
+  and in six of seven cells by less than two dispatches of 12 rounds resolve.
+  W above 4 was not testable on a 4-vCPU runner. No mechanism is attributed
+  (AGENTS.md §8.9): the §23.1 census counts static instructions, and no counter
+  was read.
+- **Consequence.** The shipped Linux AArch64 artifacts keep the target's
+  default features: enabling `+rcpc` would raise their minimum CPU to
+  Armv8.3-A for no resolved gain. `docs/HARDWARE.md` §2.8 records the build
+  flag for source builds on RCpc-capable cores.
