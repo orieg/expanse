@@ -596,7 +596,6 @@ impl ExpanseSet {
     /// from the first point at which the plain body would diverge from it.
     /// The caller has changed nothing, so the body starts over.
     #[cfg(feature = "std")]
-    #[cold]
     #[inline(never)]
     fn insert_deferred(&mut self, key: Key) -> bool {
         self.insert_inner(key)
@@ -999,6 +998,9 @@ impl ExpanseSet {
                 }
             };
         }
+        if CHECK && matches!(self.root, Root::Tree { .. }) {
+            return self.insert_tree::<true>(key);
+        }
         match &mut self.root {
             Root::Empty => {
                 divert_if_shared!();
@@ -1073,98 +1075,115 @@ impl ExpanseSet {
                 }
                 true
             }
-            Root::Tree { top } => {
-                let prefix = key >> 8;
-                let path = self.path.get_mut();
-                if path.prefix == prefix {
-                    self.alloc.assert_bracketed();
-                    if let Some(mut leaf_ptr) = core::ptr::NonNull::new(path.leaf) {
-                        let d = (key & 0xFF) as u8;
-                        // SAFETY: path holds valid live LeafBitmap1 pointer.
-                        let leaf = unsafe { leaf_ptr.as_mut() };
-                        if leaf.bitmap.set(d) {
-                            path.pending_pop += 1;
-                            path.terminal_pop += 1;
+            Root::Tree { .. } => self.insert_tree::<CHECK>(key),
+        }
+    }
+
+    /// The tree arm of [`Self::insert_inner_plain`]. With `CHECK`, the insert
+    /// takes it before matching the other root states: a tree is the state
+    /// of every insert that is not one of a set's first `ROOT_LEAF_CAP`, so
+    /// the test that selects it comes first (#1191).
+    #[inline(always)]
+    fn insert_tree<const CHECK: bool>(&mut self, key: Key) -> bool {
+        // As in `insert_inner_plain`.
+        macro_rules! divert_if_shared {
+            () => {
+                #[cfg(feature = "std")]
+                if CHECK && self.alloc.occ_enabled() {
+                    return self.insert_deferred(key);
+                }
+            };
+        }
+        let Root::Tree { top } = &mut self.root else {
+            unreachable!("insert_tree on a root that is not a tree")
+        };
+        let prefix = key >> 8;
+        let path = self.path.get_mut();
+        if path.prefix == prefix {
+            self.alloc.assert_bracketed();
+            if let Some(mut leaf_ptr) = core::ptr::NonNull::new(path.leaf) {
+                let d = (key & 0xFF) as u8;
+                // SAFETY: path holds valid live LeafBitmap1 pointer.
+                let leaf = unsafe { leaf_ptr.as_mut() };
+                if leaf.bitmap.set(d) {
+                    path.pending_pop += 1;
+                    path.terminal_pop += 1;
+                    debug_assert!(!path.edges[0].is_null());
+                    // SAFETY: keep terminal edge pop0 up to date. The warm path is
+                    // armed only where `edges[0]` is set beside `prefix`,
+                    // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
+                    // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                    // `key >> 8`, so a cleared path never reaches here.
+                    unsafe {
+                        core::ptr::NonNull::new_unchecked(path.edges[0])
+                            .as_mut()
+                            .set_pop0(1, (path.terminal_pop - 1) as u64);
+                    }
+                    if path.terminal_pop == 256 {
+                        // SAFETY: terminal edge is valid and rewritten to FullExpanse.
+                        unsafe {
+                            path.flush();
+                            let ptr = core::ptr::NonNull::new(leaf);
+                            // `free_node` dispatches on the mode
+                            // itself, as `insert_inner` frees here.
+                            if CHECK {
+                                self.alloc.free_node(ptr.expect("leaf ptr"));
+                            } else {
+                                self.alloc.free_node_plain(ptr.expect("leaf ptr"));
+                            }
                             debug_assert!(!path.edges[0].is_null());
-                            // SAFETY: keep terminal edge pop0 up to date. The warm path is
-                            // armed only where `edges[0]` is set beside `prefix`,
-                            // `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860, 922);
-                            // `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                            // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                            // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
                             // `key >> 8`, so a cleared path never reaches here.
-                            unsafe {
-                                core::ptr::NonNull::new_unchecked(path.edges[0])
-                                    .as_mut()
-                                    .set_pop0(1, (path.terminal_pop - 1) as u64);
-                            }
-                            if path.terminal_pop == 256 {
-                                // SAFETY: terminal edge is valid and rewritten to FullExpanse.
-                                unsafe {
-                                    path.flush();
-                                    let ptr = core::ptr::NonNull::new(leaf);
-                                    // `free_node` dispatches on the mode
-                                    // itself, as `insert_inner` frees here.
-                                    if CHECK {
-                                        self.alloc.free_node(ptr.expect("leaf ptr"));
-                                    } else {
-                                        self.alloc.free_node_plain(ptr.expect("leaf ptr"));
-                                    }
-                                    debug_assert!(!path.edges[0].is_null());
-                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
-                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
-                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
-                                    // `key >> 8`, so a cleared path never reaches here.
-                                    let terminal_edge =
-                                        core::ptr::NonNull::new_unchecked(path.edges[0]).as_mut();
-                                    *terminal_edge = Edge::NULL;
-                                    terminal_edge
-                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
-                                    terminal_edge.set_pop0(1, 255);
-                                    path.clear();
-                                }
-                            }
-                            self.tree_pop += 1;
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    } else if let Some(leaf1_ptr) = core::ptr::NonNull::new(path.leaf1) {
-                        let d = (key & 0xFF) as u8;
-                        let cur_pop = path.terminal_pop as usize;
-                        let leaf1 = leaf1_ptr.as_ptr();
-                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                        let last = unsafe { *leaf1.add(cur_pop - 1) };
-                        if d > last {
-                            if cur_pop < crate::mutate::LEAF1_CAP
-                                && crate::leaf::cap_class(cur_pop + 1)
-                                    == crate::leaf::cap_class(cur_pop)
-                            {
-                                // SAFETY: spare class capacity in the live Leaf1 allocation.
-                                unsafe {
-                                    *leaf1.add(cur_pop) = d;
-                                    debug_assert!(!path.edges[0].is_null());
-                                    // SAFETY: the warm path is armed only where `edges[0]` is set beside
-                                    // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
-                                    // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
-                                    // `key >> 8`, so a cleared path never reaches here.
-                                    core::ptr::NonNull::new_unchecked(path.edges[0])
-                                        .as_mut()
-                                        .set_pop0(1, cur_pop as u64);
-                                }
-                                path.terminal_pop += 1;
-                                path.pending_pop += 1;
-                                self.tree_pop += 1;
-                                return true;
-                            }
-                        } else if d == last {
-                            return false;
+                            let terminal_edge =
+                                core::ptr::NonNull::new_unchecked(path.edges[0]).as_mut();
+                            *terminal_edge = Edge::NULL;
+                            terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                            terminal_edge.set_pop0(1, 255);
+                            path.clear();
                         }
                     }
+                    self.tree_pop += 1;
+                    return true;
+                } else {
+                    return false;
                 }
-                path.clear();
-                divert_if_shared!();
-                tree_insert::<false, false>(&self.alloc, &mut self.tree_pop, path, top, key)
+            } else if let Some(leaf1_ptr) = core::ptr::NonNull::new(path.leaf1) {
+                let d = (key & 0xFF) as u8;
+                let cur_pop = path.terminal_pop as usize;
+                let leaf1 = leaf1_ptr.as_ptr();
+                // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                let last = unsafe { *leaf1.add(cur_pop - 1) };
+                if d > last {
+                    if cur_pop < crate::mutate::LEAF1_CAP
+                        && crate::leaf::cap_class(cur_pop + 1) == crate::leaf::cap_class(cur_pop)
+                    {
+                        // SAFETY: spare class capacity in the live Leaf1 allocation.
+                        unsafe {
+                            *leaf1.add(cur_pop) = d;
+                            debug_assert!(!path.edges[0].is_null());
+                            // SAFETY: the warm path is armed only where `edges[0]` is set beside
+                            // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
+                            // 922); `clear()` resets `prefix` to `u64::MAX`, which matches no
+                            // `key >> 8`, so a cleared path never reaches here.
+                            core::ptr::NonNull::new_unchecked(path.edges[0])
+                                .as_mut()
+                                .set_pop0(1, cur_pop as u64);
+                        }
+                        path.terminal_pop += 1;
+                        path.pending_pop += 1;
+                        self.tree_pop += 1;
+                        return true;
+                    }
+                } else if d == last {
+                    return false;
+                }
             }
         }
+        path.clear();
+        divert_if_shared!();
+        tree_insert::<false, false>(&self.alloc, &mut self.tree_pop, path, top, key)
     }
 
     /// Whether the root is a level-8 trie (#568 PR 3): on a shared tree the
