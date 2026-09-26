@@ -12,7 +12,7 @@ losses) is [`METHODOLOGY.md`](METHODOLOGY.md).
 | 2 | Pre-registration, `METHODOLOGY.md` | committed; frozen once merged |
 | 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | evaluated; **negative**, nothing promoted (§2); the engine code is kept at tag `poc/subtree-condense`, not on `main` |
 | — | Allocator census and rebuild arm (`NodeAlloc::census`, `set_rebuild_drained` / `map_rebuild_drained`) | measured; pinning confirmed, no option chosen (§3) |
-| — | Explicit `compact()` for the 64-bit `ExpanseSet` / `ExpanseMap`: bounds in `scripts/compact_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §12 | evaluated: G-held, G-peak, G-cost and G-valid met; **G-ins not met** (three `from_sorted_iter` arms moved down by more than 0.1%), so not at the bar to ship (§4) |
+| — | Explicit `compact()` for the 64-bit `ExpanseSet` / `ExpanseMap`: bounds in `scripts/compact_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §12 | evaluated: G-held, G-peak, G-cost and G-valid met; **G-ins not met** (three `from_sorted_iter` arms moved down by more than 0.1%, attributed to code generation); result `INTERMEDIATE` (§4) |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/step0a_retention.json`.
 Single-threaded and deterministic: any 64-bit host reproduces every byte at the
@@ -737,16 +737,20 @@ attribution of the fresh build's free blocks (§3.3).
 surviving keys into a new allocator and drop the old tree. The gates,
 predictions and expected losses were locked in [`METHODOLOGY.md`](METHODOLOGY.md)
 §12 before any `compact()` code existed; none was changed after results were
-seen. **Verdict (METHODOLOGY §12.5): G-ins is not met, so `compact()` does not
-meet the pre-registered bar to ship**; the other four gates are met. Whether
-to accept the G-ins outcome is a maintainer decision, recorded in §4.2.
+seen. **Verdict (METHODOLOGY §12.5): G-ins is not met under its locked
+falsifier; the other four gates are met. The overall result is relabelled
+`INTERMEDIATE`**: the three moved arms are attributed (§4.2) to a code-generation
+side effect of the refactor, fewer register reloads in the unchanged
+`from_sorted_iter` builder once `build_branch` is no longer inlined into it, with
+no work skipped. The relabel was pre-approved by the maintainer on that
+condition; the G-ins threshold itself is not changed.
 
 | Gate | Verdict | Instrument |
 |---|---|---|
 | G-held | **met**: 0.5770–0.9982 of held_fresh on all 42 cells; `mem_used()` clause met on all 42 | `remove_retention.rs`, laptop, §4.1 |
 | G-peak | **met** on all 42 cells; no-free clause met on all 42 | `remove_retention.rs`, laptop, §4.1 |
 | G-cost | **met**: set 16,261,644 against 16,681,923 instructions, map 16,833,877 against 40,334,038, each compact arm against the rebuild arm of the same run | CI x86_64 Callgrind, §4.2 |
-| G-ins | **not met**: three existing arms moved by more than 0.1%, all downward (§4.2) | CI Callgrind, §4.2 |
+| G-ins | **not met**: three existing arms moved by more than 0.1%, all downward; attributed to code generation in the `from_sorted_iter` builder (§4.2) | CI Callgrind, §4.2 |
 | G-valid | **met** (§4.3) | CI, §4.3 |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/compact_retention.json`.
@@ -887,16 +891,54 @@ the search harness are unchanged. `callgrind-smoke`: one of its arms moved,
 `strmap_insert/routes` +0.00006%; the AArch64 Callgrind job: one,
 `strmap_insert/routes` +0.00012%.
 
-The three arms all build a set through `ExpanseSet::from_sorted_iter`
-(`Clone` is `from_sorted_iter`), whose builder `compact()` now also calls. No
-function on that path changed its source; the change is therefore in code
-generation (AGENTS.md §6), and which function's instructions it removed is
-**not attributed**: no base-against-head `callgrind_annotate` or `objdump` diff
-was taken. The pre-registered falsifier counts a move in either direction, so
-the gate is recorded as not met, not re-thresholded (§8.19). The options it
-leaves are the maintainer's: accept the outcome as a change to the gate
-(which relabels this result `INTERMEDIATE`), or change the code so the
-existing arms stay within 0.1% and re-measure against the same gate.
+**Attribution.** The three arms all build a set through
+`ExpanseSet::from_sorted_iter` (`Clone` is `from_sorted_iter`). No function on
+that path changed its source, so the change is in code generation (AGENTS.md
+§6). Base (`2b2822f6`, the merge base) and head (`1e6bd27b`) were re-run on an
+x86_64 host with Valgrind in Docker (`rust:1.98`, `CARGO_PROFILE_BENCH_DEBUG=1`),
+then compared with `callgrind_annotate --inclusive=no`, `--auto=yes` and
+`objdump -d -C` of both bench binaries (exact counts, no interval).
+
+- **The deltas reproduce CI's to the instruction.** `set_clone/sequential`
+  2,799,468 → 2,598,362 (−201,106), `set_clone/random` 15,511,970 →
+  15,124,100 (−387,870), `set_rebuild_drained/random60` 16,851,388 →
+  16,572,956 (−278,432), against CI's −201,106, −387,870 and −278,432. The
+  absolute counts sit a few hundred instructions from CI's on both builds
+  (another host and toolchain build); the differences do not.
+- **Per function**, the saving is in `algebra_build::build_branch_from_keys`:
+  −194,739 (sequential), −1,374,352 offset by +976,287 in a now out-of-line
+  `build_branch` (random), −320,289 offset by +25,304 in `build_branch`
+  (rebuild). The rest of each delta is spread over functions below
+  `callgrind_annotate`'s display threshold, plus +8,908 in
+  `mutate::write_immed` (random) and +13,004 in
+  `Vec::<u64>::extend_desugared::<SetIter>` (rebuild), which are not
+  attributed further.
+- **What changed in the binary.** On the base, `build_branch` and
+  `wrap_u_narrow` are inlined into `build_branch_from_keys` (2,140
+  instructions, a 0x1a8-byte frame, 161 stack reloads). On the head,
+  `build_map_branch` is a second caller of both, and LLVM keeps them out of
+  line: `build_branch_from_keys` is 988 instructions with a 0x188-byte frame
+  and 82 stack reloads.
+- **Where the instructions went.** The partition loop that splits the sorted
+  keys by digit (`while i < n && digit(keys[i], bl) == d`) is 9 instructions per
+  key on the base: it reloads the keys pointer from the stack
+  (`mov 0x68(%rsp),%rcx`) and then re-moves the shift count into `%cl` on every
+  iteration. On the head it is 7: the pointer stays in `%rdx` and the shift
+  count in `%cl`. Per line, the `digit()` expression drops from 200,802 to
+  100,607 on `set_clone/sequential` (134,968 and 129,095 fewer on the other
+  two arms), and the builder's instructions with no line information (the
+  stack reloads among them) drop by 100,391, 192,209 and 133,156; on
+  `set_clone/sequential` the two together are 200,586 of the 201,106.
+- **No work is skipped.** The loop visits the same keys and computes the same
+  digits; only register allocation differs. The contents, validator and byte
+  counts of every built set are unchanged (§4.1, §4.3).
+
+The pre-registered falsifier counts a move in either direction, so G-ins stays
+**not met** and its threshold is not changed (§8.19). The moves are an
+understood side effect of the refactor (a second caller of `build_branch`
+changing an inlining decision in the set builder), which is the condition under
+which the maintainer pre-approved relabelling the overall result
+**`INTERMEDIATE`**.
 
 ### 4.3 G-valid
 
