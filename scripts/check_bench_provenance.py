@@ -127,6 +127,8 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/art_comparison/scripts/recompute_and_patch_json.py",
     "docs/benchmarks/concurrency/scripts/ablations.py",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py",
+    # The #1191 AArch64 default-vs-+rcpc A/B: per-cell paired ratios.
+    "docs/benchmarks/concurrency/scripts/rcpc_ab.py",
     # README §11.8's paired throughput ratio: the interval goes into the README
     # table, which names the construction whenever it is not BCa.
     "docs/benchmarks/concurrency/scripts/tables.py",

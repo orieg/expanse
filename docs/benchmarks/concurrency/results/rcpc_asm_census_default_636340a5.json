@@ -1,0 +1,2980 @@
+{
+ "provenance": {
+  "issue": 1191,
+  "commit": "636340a5",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "invocation": "cargo rustc -p expanse-trie --lib --release --target aarch64-unknown-linux-gnu -- --emit asm",
+  "demangler": "rustfilt"
+ },
+ "filter": "expanse_trie(::|\\.\\.)(sync|sync32|occ)\\b|Sync[A-Z]\\w*|SharedBox|MapReader|mutate_map|mutate\\b",
+ "totals": {
+  "ldar": 1569,
+  "ldapr": 0,
+  "stlr": 938,
+  "outline_atomics": 4245,
+  "pairs": 8
+ },
+ "hot": {
+  "ldar": 1357,
+  "ldapr": 0,
+  "stlr": 905,
+  "outline_atomics": 3476,
+  "pairs": 7,
+  "functions": 290,
+  "functions_with_stlr_and_ldar": 58,
+  "ldar_in_functions_with_stlr": 1201
+ },
+ "hot_functions": [
+  {
+   "symbol": "expanse_trie::mutate_map::map_remove_occ::<true, true>",
+   "ldar": 21,
+   "ldapr": 0,
+   "stlr": 21,
+   "outline_atomics": 72,
+   "stlr_ldar_pairs": 4,
+   "pair_distances": [
+    1,
+    2,
+    2,
+    3
+   ],
+   "pair_sequences": [
+    [
+     "stlr x22, [x21]",
+     "ldar w8, [x8]"
+    ],
+    [
+     "stlr xzr, [x8]",
+     "add x8, x28, #8",
+     "ldar w8, [x8]"
+    ],
+    [
+     "stlr xzr, [x21]",
+     "add x8, x19, #8",
+     "ldar w8, [x8]"
+    ],
+    [
+     "stlr xzr, [x8]",
+     "ldr x19, [sp, #88]",
+     "add x8, x19, #8",
+     "ldar w8, [x8]"
+    ]
+   ]
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_remove_occ::<true, false>",
+   "ldar": 21,
+   "ldapr": 0,
+   "stlr": 35,
+   "outline_atomics": 72,
+   "stlr_ldar_pairs": 1,
+   "pair_distances": [
+    2
+   ],
+   "pair_sequences": [
+    [
+     "stlr xzr, [x8]",
+     "add x8, x24, #8",
+     "ldar w8, [x8]"
+    ]
+   ]
+  },
+  {
+   "symbol": "expanse_trie::mutate::remove_occ::<true, false>",
+   "ldar": 15,
+   "ldapr": 0,
+   "stlr": 32,
+   "outline_atomics": 53,
+   "stlr_ldar_pairs": 1,
+   "pair_distances": [
+    2
+   ],
+   "pair_sequences": [
+    [
+     "stlr xzr, [x8]",
+     "add x8, x27, #8",
+     "ldar w8, [x8]"
+    ]
+   ]
+  },
+  {
+   "symbol": "expanse_trie::mutate::remove_occ::<true, true>",
+   "ldar": 15,
+   "ldapr": 0,
+   "stlr": 17,
+   "outline_atomics": 53,
+   "stlr_ldar_pairs": 1,
+   "pair_distances": [
+    3
+   ],
+   "pair_sequences": [
+    [
+     "stlr xzr, [x8]",
+     "ldr x20, [sp, #56]",
+     "add x8, x20, #8",
+     "ldar w8, [x8]"
+    ]
+   ]
+  },
+  {
+   "symbol": "expanse_trie::sync::olc_insert_map::<expanse_trie::strmap::olc::StrHost, false>",
+   "ldar": 83,
+   "ldapr": 0,
+   "stlr": 57,
+   "outline_atomics": 195,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::olc_insert_map::<expanse_trie::strmap::olc::StrHost, true>",
+   "ldar": 82,
+   "ldapr": 0,
+   "stlr": 55,
+   "outline_atomics": 195,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::olc_insert_map::<expanse_trie::sync::Shared<expanse_trie::blobmap::ExpanseBlobMap>, false>",
+   "ldar": 81,
+   "ldapr": 0,
+   "stlr": 56,
+   "outline_atomics": 174,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::olc_cas_publish_map",
+   "ldar": 74,
+   "ldapr": 0,
+   "stlr": 57,
+   "outline_atomics": 171,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::olc_insert_map",
+   "ldar": 74,
+   "ldapr": 0,
+   "stlr": 54,
+   "outline_atomics": 174,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::olc_remove_map::<expanse_trie::strmap::olc::StrRemoveHost>",
+   "ldar": 67,
+   "ldapr": 0,
+   "stlr": 43,
+   "outline_atomics": 154,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::olc_remove_map",
+   "ldar": 66,
+   "ldapr": 0,
+   "stlr": 46,
+   "outline_atomics": 164,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::olc_cas_remove_map",
+   "ldar": 62,
+   "ldapr": 0,
+   "stlr": 45,
+   "outline_atomics": 149,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::remove",
+   "ldar": 56,
+   "ldapr": 0,
+   "stlr": 37,
+   "outline_atomics": 110,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::olc_insert_set",
+   "ldar": 54,
+   "ldapr": 0,
+   "stlr": 34,
+   "outline_atomics": 115,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::remove",
+   "ldar": 29,
+   "ldapr": 0,
+   "stlr": 10,
+   "outline_atomics": 38,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::remove",
+   "ldar": 26,
+   "ldapr": 0,
+   "stlr": 7,
+   "outline_atomics": 66,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_subtree::<true, true>",
+   "ldar": 25,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 30,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::insert",
+   "ldar": 24,
+   "ldapr": 0,
+   "stlr": 5,
+   "outline_atomics": 63,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::insert",
+   "ldar": 22,
+   "ldapr": 0,
+   "stlr": 7,
+   "outline_atomics": 72,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_subtree::<true, false>",
+   "ldar": 22,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 24,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::insert",
+   "ldar": 20,
+   "ldapr": 0,
+   "stlr": 11,
+   "outline_atomics": 60,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_subtree_unpublished::<true>",
+   "ldar": 20,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 44,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, false>",
+   "ldar": 19,
+   "ldapr": 0,
+   "stlr": 52,
+   "outline_atomics": 78,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_insert_with_path_occ::<false, true, true>",
+   "ldar": 19,
+   "ldapr": 0,
+   "stlr": 25,
+   "outline_atomics": 78,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_insert_with_path_occ::<true, true, false>",
+   "ldar": 19,
+   "ldapr": 0,
+   "stlr": 23,
+   "outline_atomics": 78,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_insert_with_path_occ::<true, true, true>",
+   "ldar": 19,
+   "ldapr": 0,
+   "stlr": 22,
+   "outline_atomics": 78,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::BlobReadGuard>::get",
+   "ldar": 17,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::StrReader>::get",
+   "ldar": 17,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::compare_exchange_observed::{closure#0}",
+   "ldar": 17,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 54,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_subtree_unpublished::<false>",
+   "ldar": 16,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 36,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::insert_with_path_occ::<true, false>",
+   "ldar": 15,
+   "ldapr": 0,
+   "stlr": 39,
+   "outline_atomics": 58,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::insert_with_path_occ::<true, true>",
+   "ldar": 15,
+   "ldapr": 0,
+   "stlr": 21,
+   "outline_atomics": 58,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::map_get_with",
+   "ldar": 13,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SetReader>::contains",
+   "ldar": 12,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::remove",
+   "ldar": 12,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 33,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::BlobReader>::lookup_slot",
+   "ldar": 10,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::insert",
+   "ldar": 7,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 13,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::downgrade_b_to_l7::<true>",
+   "ldar": 6,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 14,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::downgrade_u_to_b::<true>",
+   "ldar": 6,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 16,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::upgrade_b_to_u::<true>",
+   "ldar": 6,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 13,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::upgrade_l7_to_b::<true>",
+   "ldar": 6,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 16,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::try_reclaim",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::set32::ExpanseSet32>>::try_reclaim",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::blobmap::ExpanseBlobMap>>::read_locked::<usize, <expanse_trie::blobmap::ExpanseBlobMap>::mem_used>",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::map::ExpanseMap>>::write_root_covered_with::<true, false, core::option::Option<u64>, <expanse_trie::sync::SyncExpanseMap>::compare_exchange_observed::{closure#0}>",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 3,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::clear",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 6,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::compact",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 8,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::len",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::len",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::mem_used",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::len",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::clear",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 3,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::write_map_immed::<true>",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 6,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::map_next_with",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::map_prev_with",
+   "ldar": 5,
+   "ldapr": 0,
+   "stlr": 4,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_get",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::set32::ExpanseSet32>>::try_contains",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::BlobReader>::contains",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::BlobReader>::get_meta",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::clear",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 3,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::mem_held",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::clear",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 3,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::mem_held",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::mem_held",
+   "ldar": 4,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_after::<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>",
+   "ldar": 3,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_before::<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>",
+   "ldar": 3,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_first::<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>",
+   "ldar": 3,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_last::<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>",
+   "ldar": 3,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::try_advance",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 11,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::SeqVersion>::sample",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::from_map",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::compare_exchange",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 11,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::new",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::downgrade_l7_to_l3::<true>",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 10,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::upgrade_l3_to_l7::<true>",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 10,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::build_bitmap_leaf_map::<true>",
+   "ldar": 2,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 12,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_len",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::set32::ExpanseSet32>>::try_len",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBytesMap>::new",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::new",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::from_map",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 7,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::initialize::<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::get_or_init<<expanse_trie::bytesmap::ExpanseBytesMap>::defer_to::{closure#0}>::{closure#0}, !>",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::initialize::<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::get_or_init<<expanse_trie::strmap::ExpanseStrMap>::defer_to::{closure#0}>::{closure#0}, !>",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::build_leaf::<true>",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 6,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_branch_node::<true>",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 8,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::wrap_skip_level::<true>",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 6,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::build_map_leaf::<true>",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 6,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::occ::node_sample",
+   "ldar": 1,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<<expanse_trie::occ::Collector>::try_advance::AdvancingGuard as core::ops::drop::Drop>::drop",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<<std::sync::once::Once>::call_once_force<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::initialize<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::get_or_init<<expanse_trie::bytesmap::ExpanseBytesMap>::defer_to::{closure#0}>::{closure#0}, !>::{closure#0}>::{closure#0} as core::ops::function::FnOnce<(&std::sync::once::OnceState,)>>::call_once::{shim:vtable#0}",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<<std::sync::once::Once>::call_once_force<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::initialize<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::get_or_init<<expanse_trie::strmap::ExpanseStrMap>::defer_to::{closure#0}>::{closure#0}, !>::{closure#0}>::{closure#0} as core::ops::function::FnOnce<(&std::sync::once::OnceState,)>>::call_once::{shim:vtable#0}",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::raw_vec::RawVec<(usize, expanse_trie::occ::Reader)>>::grow_one",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::raw_vec::RawVec<expanse_trie::occ::Garbage>>::grow_one",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::sync::Arc<expanse_trie::occ::Collector>>::drop_slow",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::mutate_map::map_insert_with_path_flat<false>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::mutate_map::map_insert_with_path_flat<true>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::mutate_map::map_insert_with_path_occ<false, true, false>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::mutate_map::map_insert_with_path_occ<false, true, true>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::mutate_map::map_insert_with_path_occ<true, true, false>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::mutate_map::map_insert_with_path_occ<true, true, true>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::sync::olc_insert_map<expanse_trie::strmap::olc::StrHost, false>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::sync::olc_insert_map<expanse_trie::strmap::olc::StrHost, true>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter::SpecFromIter<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, expanse_trie::sync::olc_insert_map<expanse_trie::sync::Shared<expanse_trie::blobmap::ExpanseBlobMap>, false>::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, <expanse_trie::sync::SyncExpanseMap>::olc_cas_publish_map::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<alloc::vec::Vec<(u64, u64)> as alloc::vec::spec_from_iter_nested::SpecFromIterNested<(u64, u64), core::iter::adapters::map::Map<core::slice::iter::Iter<(u64, u64)>, <expanse_trie::sync::SyncExpanseMap>::olc_insert_map::{closure#0}>>>::from_iter",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<core::ops::range::Range<usize> as core::iter::traits::iterator::Iterator>::try_fold::<(), core::iter::traits::iterator::Iterator::find::check<usize, <expanse_trie::sync::SyncExpanseSet>::olc_insert_set::{closure#1}>::{closure#0}, core::ops::control_flow::ControlFlow<usize>>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::blobmap::ExpanseBlobMap as expanse_trie::sync::SharedTree>::bind_tree_word",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::blobmap::ExpanseBlobMap as expanse_trie::sync::SharedTree>::clear_path",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::blobmap::ExpanseBlobMap as expanse_trie::sync::SharedTree>::hold_tree_word",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::map32::ExpanseMap32 as expanse_trie::sync32::sealed::Sealed>::with_fixed_arena",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::map::ExpanseMap as expanse_trie::sync::SharedTree>::bind_tree_word",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::map::ExpanseMap as expanse_trie::sync::SharedTree>::clear_path",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::map::ExpanseMap as expanse_trie::sync::SharedTree>::hold_tree_word",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector as core::default::Default>::default",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector as core::ops::drop::Drop>::drop",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::drain",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 9,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::free_list_bytes",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::new",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::pop_freelist",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::recycle_unpublished",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::register",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::release_free_lists",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::retained_bytes",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Collector>::retire",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::LockSet as core::ops::drop::Drop>::drop",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 2,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Pin as core::ops::drop::Drop>::drop",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Reader as core::ops::drop::Drop>::drop",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::Reader>::pin",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::SeqVersion>::begin",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::SeqVersion>::end",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::occ::SeqVersion>::validate",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::set32::ExpanseSet32 as expanse_trie::sync32::sealed::Sealed>::with_fixed_arena",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::set::ExpanseSet as expanse_trie::sync::SharedTree>::bind_tree_word",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::set::ExpanseSet as expanse_trie::sync::SharedTree>::clear_path",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::set::ExpanseSet as expanse_trie::sync::SharedTree>::hold_tree_word",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::strmap::ExpanseStrMap as expanse_trie::sync::SharedTree>::bind_tree_word",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::strmap::ExpanseStrMap as expanse_trie::sync::SharedTree>::publish_snapshot",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_first",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_last",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_next_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_next_at_or_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_prev_at_or_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_prev_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::first",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::last",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::next_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::next_at_or_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::prev_at_or_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::prev_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::try_insert",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::map32::ExpanseMap32>>::try_remove",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::set32::ExpanseSet32>>::contains",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::set32::ExpanseSet32>>::try_insert",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync32::Writer32<expanse_trie::set32::ExpanseSet32>>::try_remove",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::BlobReader>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::BlobReader>::pin",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DetachedMapReader>::first",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DetachedMapReader>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DetachedMapReader>::last",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DetachedMapReader>::next_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DetachedMapReader>::next_at_or_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DetachedMapReader>::prev_at_or_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DetachedMapReader>::prev_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::DirtyDigits>::take",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 8,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::MapReader>::first",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::MapReader>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::MapReader>::last",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::MapReader>::next_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::MapReader>::next_at_or_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::MapReader>::prev_at_or_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::MapReader>::prev_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::OwnedMapReader>::first",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::OwnedMapReader>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::OwnedMapReader>::last",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::OwnedMapReader>::next_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::OwnedMapReader>::next_at_or_after",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::OwnedMapReader>::prev_at_or_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::OwnedMapReader>::prev_before",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::PublishedRoot>::store",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::QuiesceGuard as core::ops::drop::Drop>::drop",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::ShardedTreePop>::flush_and_set",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::ShardedTreePop>::load",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::ShardedTreePop>::load_slots",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::ShardedTreePop>::new",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::blobmap::ExpanseBlobMap>>::collector_held",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::blobmap::ExpanseBlobMap>>::release_collector",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::map::ExpanseMap>>::collector_held",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::map::ExpanseMap>>::enter_writer",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::map::ExpanseMap>>::release_collector",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::set::ExpanseSet>>::collector_held",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::set::ExpanseSet>>::enter_writer",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::set::ExpanseSet>>::release_collector",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::strmap::ExpanseStrMap>>::collector_held",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::strmap::ExpanseStrMap>>::enter_writer",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 4,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::Shared<expanse_trie::strmap::ExpanseStrMap>>::release_collector",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::StrExclusive>::contains_key",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::StrExclusive>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::StrExclusive>::insert",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::StrExclusive>::remove",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::StrReader>::contains",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap as core::convert::From<expanse_trie::blobmap::ExpanseBlobMap>>::from",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap as core::default::Default>::default",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::contains_key",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::get_meta",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::is_empty",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::mem_held",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::mem_used",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::new",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::reader",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::shrink_to_fit",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::with_chunk_size",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBlobMap>::with_chunk_size_and_max_capacity",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseBytesMap as core::default::Default>::default",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap as core::default::Default>::default",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::detached_reader",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::is_empty",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::owned_reader",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::reader",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseMap>::shrink_to_fit",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet as core::default::Default>::default",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::contains",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::is_empty",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::reader",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseSet>::shrink_to_fit",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap as core::convert::From<expanse_trie::strmap::ExpanseStrMap>>::from",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap as core::default::Default>::default",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::contains_key",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::get",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::is_empty",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::len",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::new",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::reader",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::SyncExpanseStrMap>::shrink_to_fit",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::WriterArenaOwner as core::ops::drop::Drop>::drop",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 1,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::WriterTable>::allocate_slot",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<expanse_trie::sync::WriterTable>::new",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<std::sync::once::Once>::call_once_force::<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::initialize<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::get_or_init<<expanse_trie::bytesmap::ExpanseBytesMap>::defer_to::{closure#0}>::{closure#0}, !>::{closure#0}>::{closure#0}",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<std::sync::once::Once>::call_once_force::<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::initialize<<std::sync::once_lock::OnceLock<alloc::sync::Arc<expanse_trie::occ::Collector>>>::get_or_init<<expanse_trie::strmap::ExpanseStrMap>::defer_to::{closure#0}>::{closure#0}, !>::{closure#0}>::{closure#0}",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<std::sync::poison::PoisonError<std::sync::poison::mutex::MutexGuard<alloc::vec::Vec<expanse_trie::occ::Garbage>>> as core::fmt::Debug>::fmt",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "<std::sync::poison::PoisonError<std::sync::poison::mutex::MutexGuard<expanse_trie::occ::FreeListHead>> as core::fmt::Debug>::fmt",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "core::ptr::drop_glue::<(usize, expanse_trie::occ::Reader)>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "core::ptr::drop_glue::<std::sync::poison::PoisonError<std::sync::poison::mutex::MutexGuard<alloc::vec::Vec<expanse_trie::occ::Garbage>>>>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "core::ptr::drop_glue::<std::sync::poison::PoisonError<std::sync::poison::mutex::MutexGuard<expanse_trie::occ::FreeListHead>>>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::build_leaf::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::decode_value",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::downgrade_b_to_l7::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 9,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::downgrade_l7_to_l3::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::downgrade_u_to_b::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 11,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_branch_node::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_subtree::<false, false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 14,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::free_subtree::<false, true>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 20,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::immed_keys",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::immed_map_keys",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::insert_with_path_flat",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 38,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::leaf_keys",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::linear_insert_slot",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::linear_remove_slot",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::remove::<false, false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 38,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::restore_decode",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::upgrade_b_to_u::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 9,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::upgrade_l3_to_l7::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 5,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::upgrade_l7_to_b::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 11,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::wrap_skip_level::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::write_decode",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate::write_immed",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::build_bitmap_leaf_map::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 6,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::build_map_leaf::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 41,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_insert_with_path_flat::<true>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 41,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::map_remove::<false, false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 46,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::read_map_leaf",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::mutate_map::write_map_immed::<false>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::occ::claim_writer_slot",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 2,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::occ::node_validate",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::branch_u_all_null",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::edge_tag_out_of_line",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::fold_branch_pop0",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::fold_branch_pop0_selective",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::sync::subtree_vacant",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_bitmap_entry::<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_linear::<(u32, u32), expanse_trie::trie32::seek_after<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>::{closure#1}>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_linear::<(u32, u32), expanse_trie::trie32::seek_before<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>::{closure#1}>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_linear::<(u32, u32), expanse_trie::trie32::seek_first<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>::{closure#0}>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "expanse_trie::trie32::seek_linear::<(u32, u32), expanse_trie::trie32::seek_last<<expanse_trie::sync32::Reader32<expanse_trie::map32::ExpanseMap32>>::try_seek::{closure#0}::{closure#0}>::{closure#0}>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 0,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "std::sys::thread_local::native::eager::destroy::<core::cell::RefCell<alloc::vec::Vec<(usize, expanse_trie::occ::Reader)>>>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 3,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  },
+  {
+   "symbol": "std::sys::thread_local::native::eager::destroy::<expanse_trie::occ::SlotRegistration>",
+   "ldar": 0,
+   "ldapr": 0,
+   "stlr": 0,
+   "outline_atomics": 1,
+   "stlr_ldar_pairs": 0,
+   "pair_distances": [],
+   "pair_sequences": []
+  }
+ ]
+}
