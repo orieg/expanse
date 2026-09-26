@@ -2997,7 +2997,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 }
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
-                if digits <= crate::types::BRANCHU_TO_B_DOWN {
+                if crate::mutate::branch_u_below_floor(digits) {
                     // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 1.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
@@ -3583,7 +3583,7 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                 }
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
-                if digits <= crate::types::BRANCHU_TO_B_DOWN {
+                if crate::mutate::branch_u_below_floor(digits) {
                     // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 1.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
@@ -3738,6 +3738,18 @@ pub(crate) unsafe fn downgrade_b_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mu
     };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchL7.as_u8());
     edge.set_aux_bytes(aux);
+}
+
+/// Whether an uncompressed branch holding `digits` non-null slots is at or
+/// below its demotion floor ([`crate::types::BRANCHU_TO_B_DOWN`]), where it
+/// becomes a bitmap branch ([`downgrade_u_to_b`]). The one statement of that
+/// rule: the exclusive walks' U → B demotion, the validator, and the
+/// optimistic removal that declines to null a slot past the floor
+/// (`sync::null_branch_u_slot`, Refs #1079) all ask it here, so the three
+/// cannot drift apart.
+#[inline(always)]
+pub(crate) const fn branch_u_below_floor(digits: usize) -> bool {
+    digits <= crate::types::BRANCHU_TO_B_DOWN
 }
 
 /// # Safety

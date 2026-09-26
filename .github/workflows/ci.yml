@@ -2215,7 +2215,7 @@ jobs:
       - name: The shared-path workloads are in the state the manifest records (seed 0)
         run: >-
           python3 scripts/miri_ub_sites.py --check --seeds 0..1
-          --only map_tree_churn_reader_writer,map_branchu_reader_writer,str_covered_reader_writer,bytes_exclusive_reader_writer
+          --only map_tree_churn_reader_writer,map_branchu_reader_writer,map_branchu_floor_reader_writer,str_covered_reader_writer,bytes_exclusive_reader_writer
 
   fuzz-smoke:
     name: Safety / Fuzz Invariants Smoke

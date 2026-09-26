@@ -2752,7 +2752,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 }
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
-                if digits <= crate::types::BRANCHU_TO_B_DOWN {
+                if crate::mutate::branch_u_below_floor(digits) {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
@@ -3437,7 +3437,7 @@ pub(crate) unsafe fn map_remove_occ<const OCC: bool, const NESTED: bool>(
                 }
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
-                if digits <= crate::types::BRANCHU_TO_B_DOWN {
+                if crate::mutate::branch_u_below_floor(digits) {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }

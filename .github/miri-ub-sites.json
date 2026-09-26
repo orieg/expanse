@@ -474,6 +474,24 @@
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
+      "test": "map_branchu_floor_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "entered without an observation: no Miri run on the manifest's target was available when the workload was added (Refs #1079); the next census run is its first observation"
+    },
+    {
+      "test": "map_branchu_floor_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "entered without an observation: no Miri run on the manifest's target was available when the workload was added (Refs #1079); the next census run is its first observation"
+    },
+    {
+      "test": "map_branchu_floor_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "entered without an observation: no Miri run on the manifest's target was available when the workload was added (Refs #1079); the next census run is its first observation"
+    },
+    {
       "test": "map_clear_reader_writer",
       "check": "race",
       "expect": "clean",

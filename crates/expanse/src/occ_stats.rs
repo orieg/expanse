@@ -205,10 +205,17 @@ pub enum Stat {
     /// nodes a covered writer is mutating; a workload that should exercise
     /// it is checked against this being non-zero.
     ReadCoverOverlaps = 47,
+    /// Branch structural mutations on remove paths that would leave a
+    /// `BranchU` at its demotion floor: the optimistic removal declines to
+    /// null the slot and the exclusive remove demotes the branch to a
+    /// `BranchB` (Refs #1079). One per U → B crossing on the shared path;
+    /// kept apart from [`Stat::BranchSplitRemove`] so the crossings are
+    /// attributable.
+    BranchSplitDemoteU = 48,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 48;
+pub const NUM_STATS: usize = 49;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -260,6 +267,7 @@ pub const NAMES: [&str; NUM_STATS] = [
     "cap_expansion_remove",
     "fallback_forced",
     "read_cover_overlaps",
+    "branch_split_demote_u",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -535,7 +543,11 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::ReadCoverOverlaps as usize + 1, NUM_STATS);
+        assert_eq!(Stat::BranchSplitDemoteU as usize + 1, NUM_STATS);
+        assert_eq!(
+            NAMES[Stat::BranchSplitDemoteU as usize],
+            "branch_split_demote_u"
+        );
         assert_eq!(
             NAMES[Stat::ReadCoverOverlaps as usize],
             "read_cover_overlaps"

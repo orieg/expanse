@@ -3888,6 +3888,106 @@ mod loom_tests {
         cas_two_writers_model(CasCompare::BeforeLockExpectingNothing);
     }
 
+    /// `sync::null_branch_u_slot` reduced to its words (Refs #1079): a
+    /// `BranchU`'s slots, each 0 (null) or non-zero, and the branch's
+    /// version. [`FLOOR`] stands in for `BRANCHU_TO_B_DOWN`.
+    const FLOOR: usize = 2;
+    const SLOTS: usize = FLOOR + 2;
+
+    /// What one optimistic null store did.
+    #[derive(Debug, PartialEq)]
+    enum NullStore {
+        Stored,
+        Retry,
+        DemoteU,
+    }
+
+    /// One attempt, no retry loop: sample the branch, count its slots before
+    /// any lock (then the acquire fence), fall back when nulling slot `i`
+    /// would leave the branch at the floor, lock, re-check the slot, store.
+    /// `expect_snapshot` false takes the lock against no snapshot, which is
+    /// the negative control: the count is then never validated.
+    fn null_store(
+        v: &VersionCell,
+        slots: &[AtomicU64],
+        i: usize,
+        expect_snapshot: bool,
+    ) -> NullStore {
+        let Some(snap) = node_sample(v) else {
+            return NullStore::Retry;
+        };
+        let seen = slots[i].load(Ordering::Acquire);
+        if seen == 0 || !node_validate(v, snap) {
+            return NullStore::Retry;
+        }
+        let count = slots
+            .iter()
+            .filter(|s| s.load(Ordering::Acquire) != 0)
+            .count();
+        fence(Ordering::Acquire);
+        if count - 1 <= FLOOR {
+            return NullStore::DemoteU;
+        }
+        let locked = if expect_snapshot {
+            version_try_lock_expect(v, snap)
+        } else {
+            version_try_lock(v)
+        };
+        let Ok(old_v) = locked else {
+            return NullStore::Retry;
+        };
+        if slots[i].load(Ordering::Relaxed) != seen {
+            version_unlock(v, old_v, false);
+            return NullStore::Retry;
+        }
+        slots[i].store(0, Ordering::Release);
+        version_unlock(v, old_v, true);
+        NullStore::Stored
+    }
+
+    /// Two writers null two different slots of a branch one digit above the
+    /// point where either store alone is allowed and both together are not.
+    fn branch_u_floor_model(expect_snapshot: bool) {
+        loom::model(move || {
+            let v = Arc::new(VersionCell::new(0));
+            let slots: Arc<[AtomicU64; SLOTS]> =
+                Arc::new(core::array::from_fn(|_| AtomicU64::new(1)));
+            let (v1, s1) = (Arc::clone(&v), Arc::clone(&slots));
+            let t = loom::thread::spawn(move || null_store(&v1, &s1[..], 0, expect_snapshot));
+            let mine = null_store(&v, &slots[..], 1, expect_snapshot);
+            let theirs = t.join().unwrap();
+            let left = slots
+                .iter()
+                .filter(|s| s.load(Ordering::Relaxed) != 0)
+                .count();
+            assert!(
+                left > FLOOR,
+                "optimistic stores left the branch at its floor ({mine:?}, {theirs:?})"
+            );
+            let stored = [&mine, &theirs]
+                .iter()
+                .filter(|o| ***o == NullStore::Stored)
+                .count();
+            assert_eq!(left, SLOTS - stored, "a store was lost or invented");
+        });
+    }
+
+    /// Two optimistic null stores on one branch never take it to its floor:
+    /// the lock expects the snapshot the count was read under, so the
+    /// second writer's count is rejected once the first has stored.
+    #[test]
+    fn loom_branch_u_null_stores_stay_above_the_floor() {
+        branch_u_floor_model(true);
+    }
+
+    /// The negative control: a lock that expects no snapshot leaves the
+    /// count unvalidated, and both writers store.
+    #[test]
+    #[should_panic(expected = "optimistic stores left the branch at its floor")]
+    fn loom_branch_u_null_stores_without_the_snapshot_reach_the_floor() {
+        branch_u_floor_model(false);
+    }
+
     /// The bytes wrapper's two bucket writers (#929), reduced to the two
     /// words they contend on: `word` is the trie slot naming the published
     /// bucket, and each bucket is one value word.

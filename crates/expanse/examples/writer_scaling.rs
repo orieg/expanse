@@ -267,6 +267,7 @@ struct Counters {
     branch_split_prefix: u64,
     branch_split_remove: u64,
     branch_split_upgrade: u64,
+    branch_split_demote_u: u64,
     cap_expansion_class: u64,
     cap_expansion_leaf_full: u64,
     cap_expansion_bitmap_near_full: u64,
@@ -372,6 +373,7 @@ impl Counters {
             branch_split_prefix: snap[Stat::BranchSplitPrefix as usize],
             branch_split_remove: snap[Stat::BranchSplitRemove as usize],
             branch_split_upgrade: snap[Stat::BranchSplitUpgrade as usize],
+            branch_split_demote_u: snap[Stat::BranchSplitDemoteU as usize],
             cap_expansion_class: snap[Stat::CapExpansionClass as usize],
             cap_expansion_leaf_full: snap[Stat::CapExpansionLeafFull as usize],
             cap_expansion_bitmap_near_full: snap[Stat::CapExpansionBitmapNearFull as usize],
@@ -457,7 +459,7 @@ impl Counters {
              \"quiesce_calls\":{q_calls},\"quiesce_drain_cycles\":{q_drain},\
              \"branch_split_subarray\":{bs_sub},\"branch_split_linear\":{bs_lin},\
              \"branch_split_prefix\":{bs_pfx},\"branch_split_remove\":{bs_rem},\
-             \"branch_split_upgrade\":{bs_upg},\
+             \"branch_split_upgrade\":{bs_upg},\"branch_split_demote_u\":{bs_dmu},\
              \"cap_expansion_class\":{ce_cls},\"cap_expansion_leaf_full\":{ce_full},\
              \"cap_expansion_bitmap_near_full\":{ce_bm},\"cap_expansion_map_bitmap_sub\":{ce_sub},\
              \"cap_expansion_remove\":{ce_rem},\
@@ -474,6 +476,7 @@ impl Counters {
             bs_pfx = self.branch_split_prefix,
             bs_rem = self.branch_split_remove,
             bs_upg = self.branch_split_upgrade,
+            bs_dmu = self.branch_split_demote_u,
             ce_cls = self.cap_expansion_class,
             ce_full = self.cap_expansion_leaf_full,
             ce_bm = self.cap_expansion_bitmap_near_full,
@@ -527,15 +530,17 @@ impl Counters {
             + self.branch_split_linear
             + self.branch_split_prefix
             + self.branch_split_remove
-            + self.branch_split_upgrade;
+            + self.branch_split_upgrade
+            + self.branch_split_demote_u;
         if branch_sub != branch_split {
             return Err(format!(
-                "{cell}: branch split subsets sum to {branch_sub} (subarray={}, linear={}, prefix={}, remove={}, upgrade={}), but branch_split = {}",
+                "{cell}: branch split subsets sum to {branch_sub} (subarray={}, linear={}, prefix={}, remove={}, upgrade={}, demote_u={}), but branch_split = {}",
                 self.branch_split_subarray,
                 self.branch_split_linear,
                 self.branch_split_prefix,
                 self.branch_split_remove,
                 self.branch_split_upgrade,
+                self.branch_split_demote_u,
                 branch_split
             ));
         }
