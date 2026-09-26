@@ -2184,6 +2184,32 @@ jobs:
         env:
           RUSTFLAGS: --cfg loom
 
+  miri-ub-sites-pr:
+    # The per-PR subset of the nightly Miri UB-site census (#1086,
+    # `nightly.yml` `miri-ub-sites`): the workloads that drive every shared
+    # helper, one seed each, so a shared path that regresses to a plain
+    # access or a reference over reader-visible memory fails on its own PR
+    # rather than on the next night. Each helper revert recorded in
+    # `docs/ARCHITECTURE.md` §4.2 reproduced at seed 0. The full seed range
+    # and every workload stay nightly. Pinned like the nightly job: the
+    # manifest's toolchain and host target.
+    name: Safety / Miri UB-site census subset (Sync*)
+    needs: [detect-changes, fast-lane]
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|miri-ub-sites-pr|')
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          toolchain: nightly-2026-09-05
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - name: The shared-path workloads are in the state the manifest records (seed 0)
+        run: >-
+          python3 scripts/miri_ub_sites.py --check --seeds 0..1
+          --only map_tree_churn_reader_writer,map_branchu_reader_writer,str_covered_reader_writer,bytes_exclusive_reader_writer
+
   fuzz-smoke:
     name: Safety / Fuzz Invariants Smoke
     needs: [detect-changes, fast-lane]
@@ -3310,6 +3336,7 @@ jobs:
       - writer-scaling-selftest
       - ycsb-concurrent-selftest
       - loom
+      - miri-ub-sites-pr
       - wasm-fuel
       - fuzz-smoke
       - test-python

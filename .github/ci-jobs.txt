@@ -11,6 +11,7 @@ loom
 man-examples
 memory-budget
 miri
+miri-ub-sites-pr
 msrv
 pack-dotnet
 pack-java

@@ -1398,7 +1398,7 @@ fn strmap_prefix_scan(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
 #[bench::paths(args = ("paths",), setup = built_path_strmap)]
 #[bench::paths_dense(args = ("paths_dense",), setup = built_path_strmap)]
 fn strmap_prefix_bounded(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
-    let (mut map, prefixes) = built;
+    let (map, prefixes) = built;
     let mut sink = 0u64;
     for p in &prefixes {
         let mut cur = map.cursor_prefix(tk(black_box(p)));
@@ -1422,7 +1422,7 @@ fn strmap_prefix_bounded(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
 #[bench::paths(args = ("paths",), setup = built_path_strmap)]
 #[bench::paths_dense(args = ("paths_dense",), setup = built_path_strmap)]
 fn strmap_prefix_seek(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
-    let (mut map, prefixes) = built;
+    let (map, prefixes) = built;
     let mut sink = 0u64;
     for p in &prefixes {
         let mut cur = map.cursor_at_or_after(tk(black_box(p)));
@@ -1442,7 +1442,7 @@ fn strmap_prefix_seek(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
 #[bench::paths(args = ("paths",), setup = built_path_strmap)]
 #[bench::paths_dense(args = ("paths_dense",), setup = built_path_strmap)]
 fn strmap_cursor_scan(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
-    let (mut map, _) = built;
+    let (map, _) = built;
     let (mut n, mut sink) = (0u64, 0u64);
     let mut cur = map.cursor();
     while let Some((k, slot)) = cur.next() {
