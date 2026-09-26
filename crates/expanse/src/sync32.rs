@@ -86,13 +86,19 @@
 //! length the writer publishes as atomic words inside its bracket, and
 //! resolves node handles through the arena's published slot table
 //! (`trie32::PubSlot`), whose kind, address and length words the writer
-//! stores on every allocation and free. What remains is node contents:
-//! a reader reads leaf bytes and branch fields through references while
-//! the writer edits the same nodes in place, which under the Rust memory
-//! model is a data race and an aliasing violation, both classes #1086
-//! names and still reachable from safe code here (#1187). The Miri census
-//! records them: `sync32::map_reader_writer` and `sync32::set_reader_writer`
-//! in `.github/miri-ub-sites.json`. The 64-bit `sync` module no longer makes
+//! stores on every allocation and free. Branch nodes are read and edited
+//! through raw pointers only: the fields a walk loads (digits, the live
+//! count, edges, the bitmap and each bitmap branch's subarray address and
+//! length) are loaded and stored as atomic words of the same size on both
+//! sides (`trie32::word`), and the branch owner has no `DerefMut`, so the
+//! writer cannot form `&mut` to a published branch. What remains is leaf
+//! contents: a reader reads leaf bytes and bitmap-leaf fields through
+//! references while the writer edits the same leaves in place, which under
+//! the Rust memory model is a data race and an aliasing violation, both
+//! classes #1086 names and still reachable from safe code here (#1187). The
+//! Miri census records them (`sync32::map_reader_writer`,
+//! `sync32::set_reader_writer` in `.github/miri-ub-sites.json`) and shows the
+//! branch paths clean (`sync32::map_branch_reader_writer`). The 64-bit `sync` module no longer makes
 //! this trade (its shared accesses are atomic words and its writers use raw
 //! pointers). The reclamation-fence
 //! construction (reader: store the odd counter then `SeqCst` fence then
@@ -1282,6 +1288,8 @@ mod miri_ub_sites {
         40,
         crate::types32::BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 as u32 + 4,
     ];
+    /// Remove-and-reinsert rounds per branch form.
+    const BRANCH_CHURN: u32 = 12;
     /// Keys under top byte 0: a full leaf, which one more key overflows into
     /// a root branch. The writer never edits it.
     const BRANCH_LEAF: u32 = crate::types32::MAP_LEAF_MAX_32 as u32;
@@ -1321,9 +1329,12 @@ mod miri_ub_sites {
                         assert_eq!(w.try_insert(branch_key(n), n), Ok(None));
                         n += 1;
                     }
-                    // One in-place removal and reinsertion in this form.
-                    assert_eq!(w.try_remove(branch_key(n - 1)), Ok(Some(n - 1)));
-                    assert_eq!(w.try_insert(branch_key(n - 1), n - 1), Ok(None));
+                    // In-place removals and reinsertions in this form, repeated
+                    // so the reader overlaps each of the form's stores.
+                    for _ in 0..BRANCH_CHURN {
+                        assert_eq!(w.try_remove(branch_key(n - 1)), Ok(Some(n - 1)));
+                        assert_eq!(w.try_insert(branch_key(n - 1), n - 1), Ok(None));
+                    }
                     forms.push(trie32::branch_form(&w.inner().root_edge()));
                 }
                 for &step in BRANCH_STEPS.iter().rev().skip(1) {
@@ -1340,6 +1351,15 @@ mod miri_ub_sites {
                     for d in 1..top {
                         if let Ok(Some(v)) = r.try_get(branch_key(d)) {
                             assert_eq!(v, d);
+                        }
+                    }
+                    // The digits the writer churns, again, since each form's
+                    // in-place stores land on or next to them.
+                    for &step in &BRANCH_STEPS {
+                        for d in step.saturating_sub(2).max(1)..step {
+                            if let Ok(Some(v)) = r.try_get(branch_key(d)) {
+                                assert_eq!(v, d);
+                            }
                         }
                     }
                 });
