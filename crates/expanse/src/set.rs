@@ -605,7 +605,9 @@ impl ExpanseSet {
         if self.alloc.occ_enabled() {
             return self.insert_deferred(key);
         }
-        self.insert_inner_plain(key)
+        // SAFETY: the root was tested not to be a tree above, and the test of
+        // the mode reads only the allocator.
+        unsafe { self.insert_root_leaf(key) }
     }
 
     /// [`Self::insert`] on a set whose allocator defers to a collector,
@@ -1000,6 +1002,22 @@ impl ExpanseSet {
 
     #[inline(always)]
     fn insert_inner_plain(&mut self, key: Key) -> bool {
+        if let Root::Tree { .. } = self.root {
+            return self.insert_tree::<false>(key);
+        }
+        // SAFETY: the root was just tested not to be a tree.
+        unsafe { self.insert_root_leaf(key) }
+    }
+
+    /// The empty and root-leaf arms of [`Self::insert_inner_plain`].
+    ///
+    /// # Safety
+    ///
+    /// The root is not a tree. The arms then match on two states, where a
+    /// test of the mode between the caller's test and this one would
+    /// otherwise make the match test for a tree again (#1191).
+    #[inline(always)]
+    unsafe fn insert_root_leaf(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
                 let keys = self.alloc.alloc_bytes_plain(root_leaf_size(1));
@@ -1071,7 +1089,8 @@ impl ExpanseSet {
                 }
                 true
             }
-            Root::Tree { .. } => self.insert_tree::<false>(key),
+            // SAFETY: the caller's contract.
+            Root::Tree { .. } => unsafe { core::hint::unreachable_unchecked() },
         }
     }
 
