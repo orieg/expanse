@@ -33,10 +33,15 @@ What this module answers, each as a function with pinned reference values:
   * `predicted_retention` — the drained-vs-fresh bytes ratio R of a uniform
     random 64-bit tree, from Poisson occupancy (the law `density_poisson.py`
     uses; Feller vol. 1, ch. VI §5) and binomial thinning of the survivors.
+  * `partial_arm_condenses`, `max_condense_cost` — the phase 3 outcome: how
+    many condenses eager condensing performs on the `*_remove_partial` arms
+    (replayed from the arm's own keys and removal order), and the largest
+    per-condense cost that keeps such an arm within G-ins's +5% ceiling.
 
 Every constant mirrors the engine. `test_engine_sync` reads each one, the node
 sizes and the function bodies the model re-implements from the Rust source and
-fails when the engine moves (with one negative control per kind of check);
+fails when the engine moves (with one negative control per kind of check),
+`test_bench_sync` does the same for the partial-remove arm's harness, and
 `test_pins` fails when the model moves:
 
   LEAF_CAP, LEAF1_CAP, RAW_ALIGN, BRANCH_L3_CAP, BRANCH_L7_CAP,
@@ -48,6 +53,8 @@ fails when the engine moves (with one negative control per kind of check);
   BranchL3 64, BranchL7 128, BranchB 128, BranchU 4160    crates/expanse/src/node.rs (const asserts)
   B -> L7 at digits <= 6, L7 -> L3 at num < 3             crates/expanse/src/mutate_map.rs (remove)
   a map leaf above map_immed_max stays a leaf down to 1   crates/expanse/src/mutate_map.rs (remove)
+  PARTIAL_N, PARTIAL_M, PARTIAL_BITS, partial_keys seeds,
+  XorShift::next (13, 7, 17)                              crates/expanse/benches/instructions.rs
 
 Usage:
   python3 scripts/condense_bounds.py            # run the pinned tests, then print the tables
@@ -343,6 +350,164 @@ def isolated_cost(ir_event: int, ir_control: int, events: int) -> float:
     if ir_control > ir_event:
         raise ValueError("control arm exceeds event arm: the pair does not isolate the event")
     return (ir_event - ir_control) / events
+
+
+# ---------------------------------------------------------------------------
+# Feasibility of eager condensing under G-ins (phase 3 outcome)
+# ---------------------------------------------------------------------------
+# The `*_remove_partial` Callgrind arms (crates/expanse/benches/instructions.rs,
+# METHODOLOGY §7.2), mirrored here so the condense count on them is derived
+# from the arm's own keys rather than assumed. `test_bench_sync` reads each
+# value back from the harness.
+PARTIAL_N = 200_000
+PARTIAL_M = 62_500
+PARTIAL_BITS = 60
+PARTIAL_KEY_SEED = 0x0DDB_1A5E_5EED_0001
+PARTIAL_PERM_SEED = 0x5EED_0DE1_E7E5_0002
+G_INS_TARGET_CEILING = 0.05  # METHODOLOGY §6 G-ins: any target arm above +5% blocks promotion
+_MASK64 = (1 << 64) - 1
+
+
+def _xorshift64(state: int):
+    """The harness's `XorShift::next` (13, 7, 17), as an endless generator."""
+    if not 0 < state <= _MASK64:
+        raise ValueError("a non-zero 64-bit seed")
+    x = state
+    while True:
+        x ^= (x << 13) & _MASK64
+        x ^= x >> 7
+        x ^= (x << 17) & _MASK64
+        yield x
+
+
+@functools.lru_cache(maxsize=1)
+def partial_arm_keys() -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """`partial_keys()` of instructions.rs: PARTIAL_N distinct PARTIAL_BITS-bit
+    keys in generator order, and the PARTIAL_N - PARTIAL_M keys the arm removes,
+    in its Fisher-Yates order."""
+    mask = (1 << PARTIAL_BITS) - 1
+    rng = _xorshift64(PARTIAL_KEY_SEED)
+    seen: set[int] = set()
+    keys: list[int] = []
+    while len(keys) < PARTIAL_N:
+        k = next(rng) & mask
+        if k not in seen:
+            seen.add(k)
+            keys.append(k)
+    perm = list(keys)
+    prng = _xorshift64(PARTIAL_PERM_SEED)
+    for i in range(len(perm) - 1, 0, -1):
+        j = next(prng) % (i + 1)
+        perm[i], perm[j] = perm[j], perm[i]
+    return tuple(keys), tuple(perm[: PARTIAL_N - PARTIAL_M])
+
+
+def partial_arm_condenses(threshold: int, flavor: str) -> dict:
+    """Condense events the `{set,map}_remove_partial` arm performs under the
+    arm of `threshold`, replayed from the arm's own keys and removal order.
+
+    Replay. At 60 bits the 2-byte expanses are level-6 subtrees. One that holds
+    more than LEAF_CAP keys at build cascaded into a branch over level-5
+    children (a fresh build's form). Each removal lowers its population by one;
+    at every evaluation point (`evaluation_points(threshold)`) while it is
+    still a branch, the byte rule (`condense_saves`) compares the packed Leaf6
+    with the branch in its drained form (`drained_form` of the children left)
+    over those children in their fresh form (`child_bytes`, kb 5). An accepted
+    evaluation is one condense and the subtree is a leaf from then on, never
+    evaluated again (the engine evaluates branch frames only).
+
+    Checked, not assumed: no level-7 subtree (one per top byte) falls to
+    LEAF_CAP or below, and no level-5 child exceeds LEAF_CAP, so level 6 is
+    the only level where a condense can occur on this arm.
+
+    Approximation, stated: a drained child is priced in its fresh form. A set
+    child left at 3 keys from 4 or more is a Leaf5 in the engine (priced 0 B
+    here), and a map child that was a leaf stays one down to 1 key (priced as
+    an immediate). Both make the branch look cheaper than it is, so the replay
+    can only under-count accepted evaluations, never over-count them."""
+    if flavor not in FLAVORS:
+        raise ValueError("flavor set or map")
+    if not 1 <= threshold <= LEAF_CAP:
+        raise ValueError("threshold in 1..=LEAF_CAP")
+    keys, removals = partial_arm_keys()
+    shift6 = 48  # a level-6 subtree is one 2-byte prefix of the 64-bit word
+    by_expanse: dict[int, set[int]] = {}
+    top: dict[int, int] = {}
+    for k in keys:
+        by_expanse.setdefault(k >> shift6, set()).add(k)
+    removed = set(removals)
+    for k in keys:
+        if k not in removed:
+            t = k >> (shift6 + 8)
+            top[t] = top.get(t, 0) + 1
+    child_max = 0
+    for ks in by_expanse.values():
+        pops: dict[int, int] = {}
+        for k in ks:
+            pops[k >> (shift6 - 8)] = pops.get(k >> (shift6 - 8), 0) + 1
+        child_max = max(child_max, max(pops.values()))
+    if min(top.values()) <= LEAF_CAP or child_max > LEAF_CAP:
+        raise ValueError("a condense could occur off level 6: the replay does not cover this arm")
+    points = set(evaluation_points(threshold))
+    live = {e: set(ks) for e, ks in by_expanse.items() if len(ks) > LEAF_CAP}
+    cascaded = len(live)
+    branch = set(live)
+    condenses = declined = 0
+    for k in removals:
+        e = k >> shift6
+        if e not in branch:
+            continue
+        s = live[e]
+        s.discard(k)
+        p = len(s)
+        if p not in points:
+            continue
+        pops: dict[int, int] = {}
+        for kk in s:
+            d = (kk >> (shift6 - 8)) & 0xFF
+            pops[d] = pops.get(d, 0) + 1
+        if not pops:
+            continue
+        sub = branch_subtree_bytes(list(pops.values()), list(pops), 5, flavor, drained_form(len(pops)))
+        if condense_saves(packed_leaf_bytes(p, 6, flavor), sub):
+            condenses += 1
+            branch.discard(e)
+        else:
+            declined += 1
+    return {
+        "expanses": len(by_expanse),
+        "cascaded": cascaded,
+        "condenses": condenses,
+        "declined": declined,
+        "removes": len(removals),
+        "min_level7_survivors": min(top.values()),
+        "max_level5_child": child_max,
+    }
+
+
+def max_condense_cost(base_ir: int, removes: int, condenses: int,
+                      per_remove_overhead: float = 0.0,
+                      ceiling: float = G_INS_TARGET_CEILING) -> float:
+    """Largest instruction cost per condense event that keeps an arm within
+    G-ins's target-arm ceiling (+5%):
+
+        C_max = (ceiling * base_ir - removes * per_remove_overhead) / condenses
+
+    `base_ir` is main's instruction count for the arm, `removes` the operations
+    it counts, `condenses` the condense events eager condensing performs on it
+    (`partial_arm_condenses`), and `per_remove_overhead` any added cost every
+    remove pays whether or not it condenses (the evaluation check). A
+    negative result means the overhead alone exceeds the ceiling, so no
+    condense cost is feasible; it is returned signed, never clamped.
+
+    Model, stated: head = base + removes * overhead + condenses * C. It
+    ignores that removes from a condensed leaf may cost more or less than the
+    same removes from the branch it replaced; that difference is unmeasured."""
+    if base_ir <= 0 or removes <= 0 or condenses <= 0:
+        raise ValueError("base_ir, removes and condenses must be positive")
+    if per_remove_overhead < 0 or not 0 < ceiling < 1:
+        raise ValueError("overhead >= 0, ceiling in (0, 1)")
+    return (ceiling * base_ir - removes * per_remove_overhead) / condenses
 
 
 # ---------------------------------------------------------------------------
@@ -661,6 +826,48 @@ def test_engine_sync() -> None:
         assert any(expect in p for p in found), f"mutation {old!r} -> {new!r} not reported: {found}"
 
 
+BENCH_FILE = "crates/expanse/benches/instructions.rs"
+
+
+def bench_source_problems(text: str) -> list[str]:
+    """Every mismatch between the partial-remove arm mirrored above and the
+    harness source: its three constants, the two seeds `partial_keys` draws
+    from, and the `XorShift::next` shifts."""
+    problems = []
+    src = _strip_comments(text)
+    for name, want in (("PARTIAL_N", PARTIAL_N), ("PARTIAL_M", PARTIAL_M), ("PARTIAL_BITS", PARTIAL_BITS)):
+        m = re.search(rf"^const {name}: (?:usize|u32) = ([0-9_]+);", src, re.M)
+        got = int(m.group(1).replace("_", "")) if m else None
+        if got != want:
+            problems.append(f"{BENCH_FILE}: {name} = {got}, model has {want}")
+    body = _fn_body(text, "partial_keys") or ""
+    seeds = [int(s.replace("_", ""), 16) for s in re.findall(r"XorShift\((0x[0-9A-Fa-f_]+)\)", body)]
+    if seeds != [PARTIAL_KEY_SEED, PARTIAL_PERM_SEED]:
+        problems.append(f"{BENCH_FILE}: partial_keys seeds {[hex(s) for s in seeds]}, model has "
+                        f"{[hex(PARTIAL_KEY_SEED), hex(PARTIAL_PERM_SEED)]}")
+    m = re.search(r"impl XorShift \{(.*?)\n\}", src, re.S)
+    step = re.sub(r"\s+", "", m.group(1)) if m else ""
+    if "x^=x<<13;x^=x>>7;x^=x<<17;" not in step:
+        problems.append(f"{BENCH_FILE}: XorShift::next is not the (13, 7, 17) step the model replays")
+    return problems
+
+
+def test_bench_sync() -> None:
+    """The partial-remove arm against its harness, then one negative control
+    per kind of check."""
+    text = (REPO / BENCH_FILE).read_text()
+    problems = bench_source_problems(text)
+    assert not problems, "\n".join(problems)
+    for old, new, expect in (
+        ("const PARTIAL_M: usize = 62_500;", "const PARTIAL_M: usize = 62_501;", "PARTIAL_M"),
+        ("XorShift(0x5EED_0DE1_E7E5_0002)", "XorShift(0x5EED_0DE1_E7E5_0003)", "seeds"),
+        ("x ^= x >> 7;", "x ^= x >> 9;", "XorShift::next"),
+    ):
+        assert old in text, f"negative control out of date: {old!r} not in {BENCH_FILE}"
+        found = bench_source_problems(text.replace(old, new, 1))
+        assert any(expect in p for p in found), f"mutation {old!r} -> {new!r} not reported: {found}"
+
+
 def test_pins() -> None:
     """Reference values; a drift on either side fails here."""
     assert [cap_class(p) for p in (0, 1, 2, 3, 16, 17, 24, 25, 32, 33)] == [0, 1, 2, 4, 16, 24, 24, 32, 32, 36]
@@ -757,8 +964,36 @@ def test_pins() -> None:
     assert rc(3_200_000, 2_000_000, "map", WIDE_THRESHOLD) == 1.290
     # No retention without a cascade to retain: 1M -> 312.5k (lambda_n = 15.26).
     assert abs(predicted_retention(1_000_000, 312_500, "set")["r"] - 1.0) < 0.01
+    # G-ins feasibility of eager condensing (phase 3 outcome, README §2.2).
+    # The harness's generator, first draw from seed 1 by hand:
+    # x ^= x << 13 -> 0x2001; x ^= x >> 7 -> 0x2041; x ^= x << 17 -> 0x4082_2041.
+    assert next(_xorshift64(1)) == 0x4082_2041
+    keys, removals = partial_arm_keys()
+    assert (len(keys), len(set(keys)), len(removals)) == (PARTIAL_N, PARTIAL_N, PARTIAL_N - PARTIAL_M)
+    assert max(keys) < 1 << PARTIAL_BITS and set(removals) <= set(keys)
+    # Under H1 every one of the 4,074 cascaded 2-byte expanses (of 4,096)
+    # drains to at most 31 keys and condenses once, at 31; none is declined.
+    ev = partial_arm_condenses(H1_THRESHOLD, "set")
+    assert ev == {"expanses": 4096, "cascaded": 4074, "condenses": 4074, "declined": 0,
+                  "removes": 137_500, "min_level7_survivors": 3836, "max_level5_child": 5}, ev
+    # main's counts for the arms (CI run 36192522024, instruction-counts,
+    # base 86adbf15): set 78,397,685, map 69,718,456. With no per-remove
+    # overhead, the +5% budget over 4,074 condenses:
+    assert round(max_condense_cost(78_397_685, 137_500, 4074), 1) == 962.2
+    assert round(max_condense_cost(69_718_456, 137_500, 4074), 1) == 855.7
+    # With the control pair's per-remove rise (743,459 - 646,179) / 1,024 =
+    # 95.0 charged to every remove, the budget is already spent: infeasible.
+    assert max_condense_cost(78_397_685, 137_500, 4074, (743_459 - 646_179) / 1024) < 0
+    assert max_condense_cost(100, 1, 1, ceiling=0.5) == 50.0
     # Input validation is a ValueError, never a silent number.
     for bad in (
+        lambda: max_condense_cost(0, 1, 1),
+        lambda: max_condense_cost(1, 1, 0),
+        lambda: max_condense_cost(1, 1, 1, -1.0),
+        lambda: max_condense_cost(1, 1, 1, ceiling=1.0),
+        lambda: partial_arm_condenses(0, "set"),
+        lambda: partial_arm_condenses(H1_THRESHOLD, "blob"),
+        lambda: next(_xorshift64(0)),
         lambda: cap_class(-1),
         lambda: child_bytes(0, 6, "set"),
         lambda: child_bytes(5, 0, "set"),
@@ -789,6 +1024,7 @@ def test_pins() -> None:
 
 def main(argv: list[str]) -> int:
     test_engine_sync()
+    test_bench_sync()
     test_pins()
     if "--self-test" in argv:
         print("condense_bounds: self-test OK")
