@@ -583,30 +583,29 @@ impl ExpanseSet {
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
-        // One test, then a body with no shared code in it: an unshared set
-        // runs the plain body alone, and a shared one the out-of-line body
-        // that dispatches on the sharing mode. Inlined beside the shared
-        // arms, the plain path's code moved with every change to them
-        // (#1086, AGENTS.md §2.1 invariant 5).
-        #[cfg(feature = "std")]
-        if self.alloc.occ_enabled() {
-            return self.insert_deferred(key);
-        }
-        noting_root_rewrite!(self, t => t.insert_inner_plain(key))
+        // The plain body, which tests the sharing mode only where it would
+        // do something different on a shared set, and there leaves for the
+        // out-of-line body that dispatches on the mode. An unshared set's
+        // inline code then holds no shared arm (#1086, AGENTS.md §2.1
+        // invariant 5), and the warm path, taken by most inserts of a
+        // clustered load, pays no test at all (#1191).
+        noting_root_rewrite!(self, t => t.insert_inner_plain::<true>(key))
     }
 
-    /// [`Self::insert`] on a set whose allocator defers to a collector.
+    /// [`Self::insert`] on a set whose allocator defers to a collector,
+    /// from the first point at which the plain body would diverge from it.
+    /// The caller has changed nothing, so the body starts over.
     #[cfg(feature = "std")]
     #[inline(never)]
     fn insert_deferred(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.insert_inner(key))
+        self.insert_inner(key)
     }
 
     /// Single-threaded insert, bypassing OCC checks.
     #[doc(hidden)]
     #[inline(always)]
     pub fn insert_plain(&mut self, key: Key) -> bool {
-        noting_root_rewrite!(self, t => t.insert_inner_plain(key))
+        noting_root_rewrite!(self, t => t.insert_inner_plain::<false>(key))
     }
 
     /// [`Self::insert`] for the concurrent wrapper, whose readers load the
@@ -983,10 +982,25 @@ impl ExpanseSet {
         }
     }
 
+    /// The plain insert. With `CHECK`, it tests the sharing mode at each
+    /// point where [`Self::insert_inner`] would do something else (an
+    /// allocation, a free, a promotion, a tree walk) and leaves for that
+    /// body on a shared set, before it has changed anything. Every other
+    /// step is the same code in both.
     #[inline(always)]
-    fn insert_inner_plain(&mut self, key: Key) -> bool {
+    fn insert_inner_plain<const CHECK: bool>(&mut self, key: Key) -> bool {
+        // Leaves for the shared body when `CHECK` and the set is shared.
+        macro_rules! divert_if_shared {
+            () => {
+                #[cfg(feature = "std")]
+                if CHECK && self.alloc.occ_enabled() {
+                    return self.insert_deferred(key);
+                }
+            };
+        }
         match &mut self.root {
             Root::Empty => {
+                divert_if_shared!();
                 let keys = self.alloc.alloc_bytes_plain(root_leaf_size(1));
                 // SAFETY: fresh 8-byte allocation, cache-line aligned.
                 unsafe { keys.as_ptr().cast::<u64>().write(key) };
@@ -1031,6 +1045,7 @@ impl ExpanseSet {
                         self.root = Root::Leaf { keys, pop: pop + 1 };
                         return true;
                     }
+                    divert_if_shared!();
                     let new = self.alloc.alloc_bytes_plain(root_leaf_size(pop + 1));
                     // SAFETY: copy `pop` keys around the insertion point
                     // into the fresh (pop + 1)-slot allocation.
@@ -1047,6 +1062,7 @@ impl ExpanseSet {
                         pop: pop + 1,
                     };
                 } else {
+                    divert_if_shared!();
                     let top =
                         promote_leaf::<false, false>(&self.alloc, slice, key, self.path.get_mut());
                     // SAFETY: old root leaf no longer referenced.
@@ -1084,7 +1100,13 @@ impl ExpanseSet {
                                 unsafe {
                                     path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
-                                    self.alloc.free_node_plain(ptr.expect("leaf ptr"));
+                                    // `free_node` dispatches on the mode
+                                    // itself, as `insert_inner` frees here.
+                                    if CHECK {
+                                        self.alloc.free_node(ptr.expect("leaf ptr"));
+                                    } else {
+                                        self.alloc.free_node_plain(ptr.expect("leaf ptr"));
+                                    }
                                     debug_assert!(!path.edges[0].is_null());
                                     // SAFETY: the warm path is armed only where `edges[0]` is set beside
                                     // `prefix`, `leaf`/`leaf1` and `depth` (mutate_map.rs:742, 821, 860,
@@ -1138,6 +1160,7 @@ impl ExpanseSet {
                     }
                 }
                 path.clear();
+                divert_if_shared!();
                 tree_insert::<false, false>(&self.alloc, &mut self.tree_pop, path, top, key)
             }
         }
