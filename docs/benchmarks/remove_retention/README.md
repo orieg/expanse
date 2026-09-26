@@ -12,7 +12,7 @@ losses) is [`METHODOLOGY.md`](METHODOLOGY.md).
 | 2 | Pre-registration, `METHODOLOGY.md` | committed; frozen once merged |
 | 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | evaluated; **negative**, nothing promoted (§2); the engine code is kept at tag `poc/subtree-condense`, not on `main` |
 | — | Allocator census and rebuild arm (`NodeAlloc::census`, `set_rebuild_drained` / `map_rebuild_drained`) | measured; pinning confirmed, no option chosen (§3) |
-| — | Explicit `compact()` for the 64-bit `ExpanseSet` / `ExpanseMap`: bounds in `scripts/compact_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §12 | pre-registered; not yet measured |
+| — | Explicit `compact()` for the 64-bit `ExpanseSet` / `ExpanseMap`: bounds in `scripts/compact_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §12 | G-held and G-peak met; G-cost, G-ins and G-valid read from CI (§4) |
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/step0a_retention.json`.
 Single-threaded and deterministic: any 64-bit host reproduces every byte at the
@@ -730,3 +730,121 @@ Next measurements the numbers name, none of them run here: a census of the H1
 build, to see which pages condensing frees; a node-form attribution of the
 sparse classes (the raw 128-byte class on the headline set); a call-site
 attribution of the fresh build's free blocks (§3.3).
+
+## 4. Explicit `compact()`: gate evaluation
+
+`ExpanseSet::compact()` and `ExpanseMap::compact()` (64-bit) rebuild the
+surviving keys into a new allocator and drop the old tree. The gates,
+predictions and expected losses were locked in [`METHODOLOGY.md`](METHODOLOGY.md)
+§12 before any `compact()` code existed; none was changed after results were
+seen.
+
+| Gate | Verdict | Instrument |
+|---|---|---|
+| G-held | **met**: 0.5770–0.9982 of held_fresh on all 42 cells; `mem_used()` clause met on all 42 | `remove_retention.rs`, laptop, §4.1 |
+| G-peak | **met** on all 42 cells; no-free clause met on all 42 | `remove_retention.rs`, laptop, §4.1 |
+| G-cost | pending: read from the PR's `instruction-counts` job (§4.2) | CI x86_64 Callgrind |
+| G-ins | pending: read from the PR's `instruction-counts` and `callgrind-smoke` jobs (§4.2) | CI Callgrind |
+| G-valid | pending: CI (§4.3) | CI |
+
+**Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/compact_retention.json`.
+
+### 4.1 G-held and G-peak
+
+The same grid, keys and removal orders as §1 and §3. Per cell the drained tree
+is built a second time (asserted byte-identical to the first drain), and
+`compact()` is called on it without `shrink_to_fit()`; held before is its
+`mem_held()` at the call. Every §1 and §3 field of the 42 cells reproduces
+`results/census_rebuild.json` exactly, census objects included (derived: field
+by field comparison of the two artifacts; the new censuses add only
+`live_allocs` and `total_allocs`). Every figure is an exact count with no
+interval (§8.4) (measured: Apple M1, macOS, rustc 1.98.1, `c953ea80`; workload:
+example_remove_retention; artifact
+[`results/compact_retention.json`](results/compact_retention.json)). Peak RSS
+of the full grid was 1,005 MB (measured: Apple M1, `/usr/bin/time -l`,
+`c953ea80`).
+
+"Predicted" is `compact_bounds.predicted_compact_over_fresh` over the fresh
+build's census in `results/census_rebuild.json` (METHODOLOGY §12.4). "Peak" is
+held before plus held after compact, the G-peak reading; the ceiling is held
+before + 1.10 × held_fresh. "Heap peak added" is the counting global
+allocator's highest requested bytes during `compact()` above the live figure
+before it, and "buffer" the key buffer `sort_buffer_bytes` derives (8 B per
+key, 16 B per entry).
+
+| Cell | Flavor | held before (MB) | held after compact (MB) | held_fresh (MB) | compact ÷ held_fresh | predicted | rebuilt ÷ held_fresh | used compact / fresh / rebuilt (B) | peak (MB) | G-peak ceiling (MB) | heap peak added (MB) | buffer (MB) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `headline` | set | 94.65 | 8.37 | 12.69 | 0.6595 | 0.6595 | 0.6595 | 8,211,872 / 8,211,872 / 8,211,872 | 103.02 | 108.61 | 16.37 | 8.00 |
+| `headline` | map | 104.79 | 17.72 | 24.67 | 0.7180 | 0.7180 | 0.7190 | 17,583,680 / 17,583,680 / 17,583,680 | 122.51 | 131.94 | 33.61 | 16.00 |
+| `r64_sorted` | set | 90.63 | 8.37 | 12.69 | 0.6595 | 0.6595 | 0.6595 | 8,211,872 / 8,211,872 / 8,211,872 | 99.00 | 104.59 | 16.37 | 8.00 |
+| `r64_sorted` | map | 100.50 | 17.72 | 24.67 | 0.7180 | 0.7180 | 0.7190 | 17,583,680 / 17,583,680 / 17,583,680 | 118.22 | 127.64 | 33.61 | 16.00 |
+| `r64_range` | set | 84.36 | 21.58 | 26.64 | 0.8100 | 0.8100 | 0.8100 | 20,993,296 / 20,993,296 / 20,993,296 | 105.94 | 113.67 | 29.59 | 8.00 |
+| `r64_range` | map | 92.37 | 24.52 | 29.21 | 0.8394 | 0.8394 | 0.8407 | 23,886,704 / 23,886,704 / 23,886,704 | 116.89 | 124.50 | 40.52 | 16.00 |
+| `r64_2m_to_1m` | set | 42.85 | 8.36 | 12.68 | 0.6596 | 0.6596 | 0.6596 | 8,210,688 / 8,210,688 / 8,210,688 | 51.22 | 56.80 | 16.37 | 8.00 |
+| `r64_2m_to_1m` | map | 42.11 | 17.71 | 24.66 | 0.7182 | 0.7182 | 0.7192 | 17,581,376 / 17,581,376 / 17,581,376 | 59.82 | 69.23 | 33.60 | 16.00 |
+| `r64_4m_to_1m` | set | 110.33 | 8.36 | 12.70 | 0.6581 | 0.6581 | 0.6581 | 8,209,904 / 8,209,904 / 8,209,904 | 118.69 | 124.30 | 16.36 | 8.00 |
+| `r64_4m_to_1m` | map | 126.57 | 17.70 | 24.67 | 0.7176 | 0.7176 | 0.7187 | 17,576,560 / 17,576,560 / 17,576,560 | 144.28 | 153.71 | 33.59 | 16.00 |
+| `r64_to_2m` | set | 91.09 | 28.11 | 40.82 | 0.6886 | 0.6886 | 0.6886 | 27,459,984 / 27,459,984 / 27,459,984 | 119.20 | 135.99 | 44.11 | 16.00 |
+| `r64_to_2m` | map | 101.17 | 40.11 | 52.65 | 0.7619 | 0.7619 | 0.7625 | 39,558,096 / 39,558,096 / 39,558,096 | 141.29 | 159.08 | 72.12 | 32.00 |
+| `r64_to_320k` | set | 95.50 | 3.63 | 4.35 | 0.8343 | 0.8343 | 0.8343 | 3,577,424 / 3,577,424 / 3,577,424 | 99.13 | 100.29 | 6.19 | 2.56 |
+| `r64_to_320k` | map | 105.60 | 6.93 | 8.20 | 0.8456 | 0.8456 | 0.8511 | 6,843,344 / 6,843,344 / 6,843,344 | 112.53 | 114.62 | 12.03 | 5.12 |
+| `r64_1m_to_312k` | set | 12.82 | 3.57 | 4.28 | 0.8343 | 0.8343 | 0.8343 | 3,515,696 / 3,515,696 / 3,515,696 | 16.39 | 17.52 | 6.07 | 2.50 |
+| `r64_1m_to_312k` | map | 14.81 | 6.80 | 8.01 | 0.8487 | 0.8487 | 0.8543 | 6,710,480 / 6,710,480 / 6,710,480 | 21.61 | 23.63 | 11.78 | 5.00 |
+| `r62` | set | 35.20 | 20.21 | 25.55 | 0.7909 | 0.7909 | 0.7909 | 19,683,696 / 19,683,696 / 19,683,696 | 55.41 | 63.30 | 28.21 | 8.00 |
+| `r62` | map | 69.70 | 23.76 | 28.81 | 0.8247 | 0.8247 | 0.8260 | 23,183,824 / 23,183,824 / 23,183,824 | 93.46 | 101.39 | 39.77 | 16.00 |
+| `r56` | set | 98.55 | 7.38 | 11.17 | 0.6608 | 0.6608 | 0.6608 | 7,183,920 / 7,183,920 / 7,183,920 | 105.93 | 110.83 | 15.38 | 8.00 |
+| `r56` | map | 104.29 | 16.79 | 23.77 | 0.7063 | 0.7063 | 0.7080 | 16,555,312 / 16,555,312 / 16,555,312 | 121.08 | 130.43 | 32.55 | 16.00 |
+| `r56_sorted` | set | 94.54 | 7.38 | 11.17 | 0.6608 | 0.6608 | 0.6608 | 7,183,920 / 7,183,920 / 7,183,920 | 101.92 | 106.82 | 15.38 | 8.00 |
+| `r56_sorted` | map | 100.02 | 16.79 | 23.77 | 0.7063 | 0.7063 | 0.7080 | 16,555,312 / 16,555,312 / 16,555,312 | 116.80 | 126.16 | 32.55 | 16.00 |
+| `r56_range` | set | 88.26 | 21.59 | 27.90 | 0.7736 | 0.7736 | 0.7736 | 20,999,104 / 20,999,104 / 20,999,104 | 109.84 | 118.95 | 29.59 | 8.00 |
+| `r56_range` | map | 91.88 | 24.44 | 29.10 | 0.8401 | 0.8401 | 0.8418 | 23,810,672 / 23,810,672 / 23,810,672 | 116.32 | 123.89 | 40.44 | 16.00 |
+| `seq_shuffled` | set | 1.08 | 1.02 | 1.08 | 0.9506 | 0.9506 | 0.9506 | 1,004,928 / 1,004,928 / 1,004,928 | 2.10 | 2.26 | 9.03 | 8.00 |
+| `seq_shuffled` | map | 32.75 | 11.28 | 11.32 | 0.9967 | 0.9967 | 1.0000 | 11,029,344 / 11,029,344 / 11,029,344 | 44.04 | 45.20 | 27.28 | 16.00 |
+| `seq_sorted` | set | 1.08 | 1.02 | 1.08 | 0.9506 | 0.9506 | 0.9506 | 1,004,928 / 1,004,928 / 1,004,928 | 2.10 | 2.26 | 9.03 | 8.00 |
+| `seq_sorted` | map | 11.32 | 11.28 | 11.32 | 0.9967 | 0.9967 | 1.0000 | 11,029,344 / 11,029,344 / 11,029,344 | 22.61 | 23.77 | 27.28 | 16.00 |
+| `seq_range` | set | 0.13 | 0.07 | 0.13 | 0.5770 | 0.5770 | 0.5770 | 64,832 / 65,792 / 64,832 | 0.20 | 0.26 | 8.08 | 8.00 |
+| `seq_range` | map | 9.79 | 8.59 | 8.65 | 0.9924 | 0.9924 | 1.0000 | 8,564,864 / 8,564,864 / 8,564,864 | 18.38 | 19.31 | 24.59 | 16.00 |
+| `sparse_shuffled` | set | 20.78 | 20.60 | 20.64 | 0.9978 | 0.9978 | 0.9978 | 20,253,632 / 20,253,632 / 20,253,632 | 41.38 | 43.49 | 28.60 | 8.00 |
+| `sparse_shuffled` | map | 20.77 | 20.60 | 20.64 | 0.9982 | 0.9982 | 1.0000 | 20,253,632 / 20,253,632 / 20,253,632 | 41.37 | 43.47 | 36.60 | 16.00 |
+| `sparse_sorted` | set | 20.64 | 20.60 | 20.64 | 0.9978 | 0.9978 | 0.9978 | 20,253,632 / 20,253,632 / 20,253,632 | 41.24 | 43.35 | 28.60 | 8.00 |
+| `sparse_sorted` | map | 20.64 | 20.60 | 20.64 | 0.9982 | 0.9982 | 1.0000 | 20,253,632 / 20,253,632 / 20,253,632 | 41.24 | 43.34 | 36.60 | 16.00 |
+| `sparse_range` | set | 16.38 | 16.32 | 16.38 | 0.9960 | 0.9960 | 0.9960 | 16,314,816 / 16,314,816 / 16,314,816 | 32.70 | 34.41 | 24.32 | 8.00 |
+| `sparse_range` | map | 16.38 | 16.32 | 16.38 | 0.9965 | 0.9965 | 1.0000 | 16,314,816 / 16,314,816 / 16,314,816 | 32.69 | 34.39 | 32.32 | 16.00 |
+| `clust_shuffled` | set | 1.28 | 1.16 | 1.28 | 0.9103 | 0.9103 | 0.9103 | 1,130,400 / 1,130,400 / 1,130,400 | 2.44 | 2.69 | 9.17 | 8.00 |
+| `clust_shuffled` | map | 32.91 | 11.41 | 11.48 | 0.9939 | 0.9939 | 0.9993 | 11,154,816 / 11,154,816 / 11,154,816 | 44.32 | 45.54 | 27.42 | 16.00 |
+| `clust_sorted` | set | 1.28 | 1.16 | 1.28 | 0.9103 | 0.9103 | 0.9103 | 1,130,400 / 1,130,400 / 1,130,400 | 2.44 | 2.69 | 9.17 | 8.00 |
+| `clust_sorted` | map | 11.48 | 11.41 | 11.48 | 0.9939 | 0.9939 | 0.9993 | 11,154,816 / 11,154,816 / 11,154,816 | 22.89 | 24.11 | 27.42 | 16.00 |
+| `clust_range` | set | 1.28 | 0.37 | 0.45 | 0.8190 | 0.8190 | 0.8190 | 353,088 / 353,088 / 353,088 | 1.65 | 1.78 | 8.37 | 8.00 |
+| `clust_range` | map | 10.14 | 8.63 | 8.72 | 0.9901 | 0.9901 | 0.9986 | 8,603,136 / 8,603,136 / 8,603,136 | 18.77 | 19.73 | 24.64 | 16.00 |
+
+What the table shows (same artifact):
+
+- **G-held.** held ÷ held_fresh after `compact()` is 0.5770 to 0.9982, the
+  pre-registered prediction to four decimals on every cell. On the headline
+  cell the set goes from 5.318 after `shrink_to_fit()` (§3.1) to 0.6595 and the
+  map from 3.164 to 0.7180; on `r64_range`, where condensing moved nothing
+  (§2), from 2.647 to 0.8100 (set) and 2.731 to 0.8394 (map). The map's
+  `mem_used()` after `compact()` equals the fresh build's on all 21 map cells.
+  The set's equals the `from_sorted_iter` rebuild's on all 21 set cells and the
+  fresh build's on 20; on `seq_range` it is 64,832 B against the fresh
+  65,792 B, the difference seen before the lock (METHODOLOGY §12.2).
+- **The map holds less than its ascending-insert rebuild** on all 21 map
+  cells, by up to 0.0085 of held_fresh (`clust_range`, 0.9901 against
+  0.9986): the bulk builder frees nothing, the insert path does.
+- **No free during the build.** On all 42 cells the compacted allocator's live
+  allocation count equals its total allocation count, and its `mem_held()`
+  equals `compact_bounds.no_free_held` of its own census, the fewest pages its
+  live blocks fit on.
+- **G-peak.** The peak is held before plus held after, so with no free the
+  gate reduces to held after ≤ 1.10 × held_fresh, the G-held ratio clause.
+  The closest cell is the `r64_to_320k` set, 99.13 MB against a ceiling of
+  100.29 MB, because held before is large there and the ceiling adds only
+  1.10 × held_fresh.
+- **The key buffer is outside G-peak, as pre-registered.** The heap peak
+  added by the call equals held after plus the buffer to within −0.24 MB to
+  +0.01 MB on every cell (derived: `compact_heap_peak_extra − held_compact −
+  sort_buffer_bytes`). The negative side is on map cells, where requested
+  bytes run below `mem_held()`'s accounting; which requests account for it is
+  not attributed here. At M = 1M keys the buffer is 8.00 MB (set) and
+  16.00 MB (map), 0.96 and 0.90 of the new tree's held bytes on the headline
+  cell.
