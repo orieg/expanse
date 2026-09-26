@@ -86,13 +86,21 @@
 //! length the writer publishes as atomic words inside its bracket, and
 //! resolves node handles through the arena's published slot table
 //! (`trie32::PubSlot`), whose kind, address and length words the writer
-//! stores on every allocation and free. What remains is node contents:
-//! a reader reads leaf bytes and branch fields through references while
-//! the writer edits the same nodes in place, which under the Rust memory
-//! model is a data race and an aliasing violation, both classes #1086
-//! names and still reachable from safe code here (#1187). The Miri census
-//! records them: `sync32::map_reader_writer` and `sync32::set_reader_writer`
-//! in `.github/miri-ub-sites.json`. The 64-bit `sync` module no longer makes
+//! stores on every allocation and free. Branch nodes are read and edited
+//! through raw pointers only: the fields a walk loads (digits, the live
+//! count, edges, the bitmap and each bitmap branch's subarray address and
+//! length) are loaded and stored as atomic words of the same size on both
+//! sides (`trie32::word`), and the branch owner has no `DerefMut`, so the
+//! writer cannot form `&mut` to a published branch. The writer runs the
+//! shared instantiation of the engine's walks (`insert_shared`,
+//! `remove_shared`); the plain containers keep their plain stores. What remains is leaf
+//! contents: a reader reads leaf bytes and bitmap-leaf fields through
+//! references while the writer edits the same leaves in place, which under
+//! the Rust memory model is a data race and an aliasing violation, both
+//! classes #1086 names and still reachable from safe code here (#1187). The
+//! Miri census records them (`sync32::map_reader_writer`,
+//! `sync32::set_reader_writer` in `.github/miri-ub-sites.json`) and shows the
+//! branch paths clean (`sync32::map_branch_reader_writer`). The 64-bit `sync` module no longer makes
 //! this trade (its shared accesses are atomic words and its writers use raw
 //! pointers). The reclamation-fence
 //! construction (reader: store the odd counter then `SeqCst` fence then
@@ -595,13 +603,13 @@ impl Writer32<'_, ExpanseMap32> {
         value: Value32,
     ) -> Result<Option<Value32>, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|m| m.insert(key, value)))
+        Ok(self.write(|m| m.insert_shared(key, value)))
     }
 
     /// Removes `key`; returns its value, or an error if refused.
     pub fn try_remove(&mut self, key: Key32) -> Result<Option<Value32>, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|m| m.remove(key)))
+        Ok(self.write(|m| m.remove_shared(key)))
     }
 
     /// Point lookup through the writer (always consistent; never `Busy`).
@@ -679,14 +687,14 @@ impl Writer32<'_, ExpanseSet32> {
     /// if the mutation was refused (tree untouched).
     pub fn try_insert(&mut self, key: Key32) -> Result<bool, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|s| s.insert(key)))
+        Ok(self.write(|s| s.insert_shared(key)))
     }
 
     /// Removes `key`; returns whether it was present, or an error if
     /// refused.
     pub fn try_remove(&mut self, key: Key32) -> Result<bool, WriteError> {
         self.ensure_headroom()?;
-        Ok(self.write(|s| s.remove(key)))
+        Ok(self.write(|s| s.remove_shared(key)))
     }
 
     /// Membership test through the writer (always consistent).
@@ -1271,6 +1279,103 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(w.len(), KEYS as usize);
+    }
+
+    /// Top-byte digits the branch workload's root branch holds at each
+    /// checkpoint: two (an `L2`), `BRANCH_L6_CAP_32`, a bitmap branch, then
+    /// past `BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32`.
+    const BRANCH_STEPS: [u32; 4] = [
+        crate::types32::BRANCH_L2_CAP_32 as u32,
+        crate::types32::BRANCH_L6_CAP_32 as u32,
+        40,
+        crate::types32::BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 as u32 + 4,
+    ];
+    /// Remove-and-reinsert rounds per branch form.
+    const BRANCH_CHURN: u32 = 12;
+    /// Keys under top byte 0: a full leaf, which one more key overflows into
+    /// a root branch. The writer never edits it.
+    const BRANCH_LEAF: u32 = crate::types32::MAP_LEAF_MAX_32 as u32;
+
+    /// The key under top byte `d >= 1`: one key per digit, so each of those
+    /// children is an immediate and every edit the writer makes is to the root
+    /// branch itself.
+    fn branch_key(d: u32) -> u32 {
+        (d << 24) | 0x0042_0707
+    }
+
+    /// A reader under the root branch's in-place edits and form changes: the
+    /// writer grows the root through every branch form, removes and reinserts
+    /// a digit in each, and shrinks it back, and edits no leaf. The leaf
+    /// workloads above report their leaf sites first, so branch sites are only
+    /// observable here.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1187)")]
+    fn map_branch_reader_writer() {
+        let top = *BRANCH_STEPS.last().expect("steps");
+        let mut m = SyncExpanseMap32::with_capacity(MUTATION_HEADROOM * 2, 1);
+        let (mut w, mut pool) = m.split();
+        for i in 0..BRANCH_LEAF {
+            w.try_insert(0x0042_0700 | i, i).expect("leaf prefill");
+        }
+        // The key that overflows the leaf: the root becomes a branch with the
+        // leaf under digit 0 and an immediate under digit 1.
+        w.try_insert(branch_key(1), 1).expect("overflow");
+        let mut r = pool.take().expect("one reader");
+        let done = AtomicBool::new(false);
+        let mut forms = std::vec::Vec::new();
+        thread::scope(|s| {
+            s.spawn(|| {
+                let mut n = 2; // digits 0 and 1 are present
+                for &step in &BRANCH_STEPS {
+                    while n < step {
+                        assert_eq!(w.try_insert(branch_key(n), n), Ok(None));
+                        n += 1;
+                    }
+                    // In-place removals and reinsertions in this form, repeated
+                    // so the reader overlaps each of the form's stores.
+                    for _ in 0..BRANCH_CHURN {
+                        assert_eq!(w.try_remove(branch_key(n - 1)), Ok(Some(n - 1)));
+                        assert_eq!(w.try_insert(branch_key(n - 1), n - 1), Ok(None));
+                    }
+                    forms.push(trie32::branch_form(&w.inner().root_edge()));
+                }
+                for &step in BRANCH_STEPS.iter().rev().skip(1) {
+                    while n > step {
+                        n -= 1;
+                        assert_eq!(w.try_remove(branch_key(n)), Ok(Some(n)));
+                    }
+                    forms.push(trie32::branch_form(&w.inner().root_edge()));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for d in 1..top {
+                        if let Ok(Some(v)) = r.try_get(branch_key(d)) {
+                            assert_eq!(v, d);
+                        }
+                    }
+                    // The digits the writer churns, again, since each form's
+                    // in-place stores land on or next to them.
+                    for &step in &BRANCH_STEPS {
+                        for d in step.saturating_sub(2).max(1)..step {
+                            if let Ok(Some(v)) = r.try_get(branch_key(d)) {
+                                assert_eq!(v, d);
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        // Every branch form was the root at some checkpoint, so each form's
+        // in-place edits ran under the reader.
+        for form in ["L2", "L6", "B", "U"] {
+            assert!(
+                forms.contains(&Some(form)),
+                "form {form} not reached: {forms:?}"
+            );
+        }
+        assert_eq!(w.len(), (BRANCH_LEAF + BRANCH_STEPS[0] - 1) as usize);
     }
 
     /// The set twin of `map_reader_writer`.
