@@ -964,6 +964,49 @@ pub(crate) mod shared_keys {
         (lo, false)
     }
 
+    /// [`seek_fixed`] over an area whose last word is partial. The keys
+    /// that lie wholly inside the area's whole words are searched by
+    /// whole-word reads; the keys that reach the partial word, at most
+    /// seven, are scanned after them, when the needle is above the last of
+    /// the others. The tail test is then taken once per search instead of on
+    /// every read (#1191).
+    ///
+    /// # Safety
+    ///
+    /// As [`seek_fixed`].
+    #[cfg(feature = "std")]
+    #[inline(always)]
+    unsafe fn seek_split<const KB: usize>(
+        keys: *const u8,
+        pop: usize,
+        area: usize,
+        needle: u64,
+    ) -> (usize, bool) {
+        if pop <= 4 {
+            // SAFETY: forwarded.
+            return unsafe { seek_fixed::<KB, false>(keys, pop, area, needle) };
+        }
+        // Keys `0..whole_keys` end at or below the area's last whole word.
+        let whole_keys = ((area & !7) / KB).min(pop);
+        if whole_keys > 0 {
+            // SAFETY: `whole_keys - 1 < pop`, and its bytes lie in whole
+            // words of the area.
+            let v = unsafe { read_fixed::<KB, true>(keys, whole_keys - 1, area) };
+            if v >= needle {
+                // SAFETY: every key below `whole_keys` lies in whole words.
+                return unsafe { seek_fixed::<KB, true>(keys, whole_keys, area, needle) };
+            }
+        }
+        for i in whole_keys..pop {
+            // SAFETY: `i < pop`.
+            let v = unsafe { read_in(keys, i, KB, area) };
+            if v >= needle {
+                return (i, v == needle);
+            }
+        }
+        (pop, false)
+    }
+
     /// [`seek_fixed`] for a key width known only at run time.
     ///
     /// # Safety
@@ -982,7 +1025,7 @@ pub(crate) mod shared_keys {
                             if area & 7 == 0 {
                                 seek_fixed::<$k, true>(keys, pop, area, needle)
                             } else {
-                                seek_fixed::<$k, false>(keys, pop, area, needle)
+                                seek_split::<$k>(keys, pop, area, needle)
                             }
                         }
                     })*
@@ -1441,6 +1484,54 @@ mod tests {
                         "remove kb {kb} pop {pop} pos {pos}"
                     );
                 }
+            }
+        }
+    }
+
+    /// The shared search answers what the plain one answers, for every
+    /// population up to 32 keys of every width, over an allocation of
+    /// exactly the key area: a partial last word is searched apart from the
+    /// whole ones (#1191), so every needle position relative to the keys
+    /// that reach it is probed.
+    #[test]
+    fn shared_search_matches_plain_in_exact_area() {
+        use super::shared_keys as sk;
+        for kb in 1..=7usize {
+            let m = (1u64 << (kb * 8)) - 1;
+            for pop in 1..=32usize {
+                let exact = kb * cap_class(pop);
+                // Ascending: every byte of key `i` is `7 * i + 1`.
+                let keys: Vec<u64> = (0..pop as u64)
+                    .map(|i| (7 * i + 1).wrapping_mul(0x0101_0101_0101_0101) & m)
+                    .collect();
+                let mut plain = vec![0u8; exact + 16];
+                for (i, &k) in keys.iter().enumerate() {
+                    // SAFETY: in bounds of `plain`.
+                    unsafe { crate::mutate::write_packed(plain.as_mut_ptr(), i, kb, k) };
+                }
+                let buf = ExactArea::new(exact);
+                // SAFETY: both hold at least `exact` bytes.
+                unsafe { core::ptr::copy_nonoverlapping(plain.as_ptr(), buf.0, exact) };
+                let mut needles = vec![0, m];
+                for &k in &keys {
+                    needles.extend([k.saturating_sub(1), k, (k + 1) & m]);
+                }
+                for n in needles {
+                    // SAFETY: `pop` keys in both areas.
+                    unsafe {
+                        assert_eq!(
+                            sk::lower_bound(buf.0, pop, kb, n),
+                            lower_bound(plain.as_ptr(), pop, kb as u8, n),
+                            "lower_bound kb {kb} pop {pop} n {n:#x}"
+                        );
+                        assert_eq!(
+                            sk::find(buf.0, pop, kb, n),
+                            search(plain.as_ptr(), pop, kb as u8, n),
+                            "find kb {kb} pop {pop} n {n:#x}"
+                        );
+                    }
+                }
+                buf.free();
             }
         }
     }
