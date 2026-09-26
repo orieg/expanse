@@ -477,19 +477,19 @@
       "test": "map_branchu_floor_reader_writer",
       "check": "race",
       "expect": "clean",
-      "note": "entered without an observation: no Miri run on the manifest's target was available when the workload was added (Refs #1079); the next census run is its first observation"
+      "note": "observed clean at seed 0 by the per-PR subset (CI run 36256715324, Refs #1079); the nightly seed range is not yet observed"
     },
     {
       "test": "map_branchu_floor_reader_writer",
       "check": "alias-sb",
       "expect": "clean",
-      "note": "entered without an observation: no Miri run on the manifest's target was available when the workload was added (Refs #1079); the next census run is its first observation"
+      "note": "observed clean at seed 0 by the per-PR subset (CI run 36256715324, Refs #1079); the nightly seed range is not yet observed"
     },
     {
       "test": "map_branchu_floor_reader_writer",
       "check": "alias-tb",
       "expect": "clean",
-      "note": "entered without an observation: no Miri run on the manifest's target was available when the workload was added (Refs #1079); the next census run is its first observation"
+      "note": "observed clean at seed 0 by the per-PR subset (CI run 36256715324, Refs #1079); the nightly seed range is not yet observed"
     },
     {
       "test": "map_clear_reader_writer",
