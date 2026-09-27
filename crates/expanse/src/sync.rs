@@ -232,6 +232,9 @@ impl Cover<'_> {
 macro_rules! walk_validated_body {
     ($cover:expr, $root:ident, $key:ident, $map:ident) => {{
     let mut cover = $cover;
+    // Every answer below, an absence included, is returned after a
+    // validation that follows its last load (`docs/ARCHITECTURE.md` §4.1,
+    // S5); `tests/test_validated_answers.rs` checks each return site.
     macro_rules! chk {
         () => {
             if !cover.ok() {
@@ -259,6 +262,8 @@ macro_rules! walk_validated_body {
                 // Unvalidated: it only steers the probe, which stays below
                 // `pop`; the search's outcome is validated below.
                 let k = unsafe { shared_word::load::<true>(keys.add(mid)) };
+                #[cfg(test)]
+                test_hooks::at(test_hooks::Site::RootLeafProbe);
                 if k < $key {
                     lo = mid + 1;
                 } else {
@@ -504,6 +509,8 @@ macro_rules! walk_validated_body {
                     let node = edge.node_ptr().cast::<LeafBitmap1>();
                     // SAFETY: EBR-live LeafBitmap1.
                     let bit = unsafe { crate::bits::shared_bitmap::test::<true>(&raw const (*node).bitmap, d) };
+                    #[cfg(test)]
+                    test_hooks::at(test_hooks::Site::SetBitmapLeaf);
                     chk!();
                     return Ok(bit.then_some(0));
                 }
@@ -534,6 +541,8 @@ macro_rules! walk_validated_body {
                     // the slot is validated before the value read.
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     let found = unsafe { leaf::shared_keys::find(keys, pop, kb as usize, $key) };
+                    #[cfg(test)]
+                    test_hooks::at(test_hooks::Site::LeafFind);
                     chk!();
                     let Some(slot) = found else {
                         return Ok(None);
@@ -16916,6 +16925,45 @@ pub(crate) mod test_hooks {
         }
     }
 
+    /// The validation sites an optimistic reader's answer passes before it
+    /// is returned (#1189). A test arms one with a writer, which then runs on
+    /// the reader's own thread at that point of the walk, and asserts the
+    /// walk answers `Err(Retry)`: removing that site's validation turns the
+    /// test red.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum Site {
+        /// Inside the root-leaf binary search, after a key load.
+        RootLeafProbe,
+        /// After `shared_keys::find` in a linear leaf.
+        LeafFind,
+        /// After the bit test in a set bitmap leaf.
+        SetBitmapLeaf,
+        /// Before an ordered read's final validation (`sync_nav`).
+        OrderedFinal,
+    }
+
+    /// The armed site and the write it runs there.
+    type ArmedSite = Option<(Site, Box<dyn FnOnce()>)>;
+
+    thread_local! {
+        static ARMED_SITE: Cell<ArmedSite> = const { Cell::new(None) };
+    }
+
+    /// The next time *this thread's* walk reaches `site`, it runs `write`
+    /// there (once).
+    pub(crate) fn arm_site(site: Site, write: Box<dyn FnOnce()>) {
+        ARMED_SITE.with(|c| c.set(Some((site, write))));
+    }
+
+    /// A validation site; runs the armed write when `site` is the armed one.
+    #[inline(always)]
+    pub(crate) fn at(site: Site) {
+        ARMED_SITE.with(|c| match c.take() {
+            Some((s, write)) if s == site => write(),
+            other => c.set(other),
+        });
+    }
+
     thread_local! {
         static ARMED_BACKTRACK: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
         static DROP_CHILD_SNAPSHOTS: Cell<bool> = const { Cell::new(false) };
@@ -19216,5 +19264,298 @@ mod compare_exchange_tests {
         assert_eq!(map.len(), 1_000);
         assert_eq!(map.compare_exchange(5, Some(2), None), Err(None));
         assert_eq!(map.len(), 1_000);
+    }
+}
+
+/// Every answer an optimistic reader returns, an absence included, is
+/// validated after the loads it rests on (#1189, `docs/ARCHITECTURE.md`
+/// §4.1). Each test arms one validation site with a writer that runs on the
+/// reader's own thread at that point of the walk, and asserts that the walk
+/// answers `Err(Retry)`; the control arm runs the same walk with a no-op and
+/// asserts the answer, which also proves the walk reaches the site.
+#[cfg(all(test, not(miri)))]
+mod validated_answer_tests {
+    use super::*;
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    /// A walk's answer (`None` for a retry), the root and version sample it
+    /// ran from, and whether the armed write ran.
+    type Walked<R> = (Option<R>, RootSnapshot, u64, bool);
+
+    /// Runs one `walk` pinned, from a freshly sampled version and published
+    /// root, with `write` armed at `site`. Returns the walk's result and
+    /// whether `write` ran.
+    fn walk_with<T: SharedTree, R>(
+        shared: &Shared<T>,
+        reader: &Reader,
+        site: test_hooks::Site,
+        write: impl FnOnce() + 'static,
+        walk: impl FnOnce(RootSnapshot, &SeqVersion, u64) -> Result<R, Retry>,
+    ) -> Walked<R> {
+        let ran = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&ran);
+        let _pin = reader.pin();
+        let snap = shared.version().sample();
+        let root = shared.published().load();
+        test_hooks::arm_site(
+            site,
+            Box::new(move || {
+                write();
+                flag.store(true, Ordering::Relaxed);
+            }),
+        );
+        let r = walk(root, shared.version(), snap);
+        // Disarm, in case the walk never reached the site.
+        test_hooks::arm_site(site, Box::new(|| {}));
+        test_hooks::at(site);
+        // `Retry` has no `Debug` or `PartialEq`: a retry reads as `None`.
+        (r.ok(), root, snap, ran.load(Ordering::Relaxed))
+    }
+
+    /// A root leaf of five keys (capacity class 8), probed for its largest.
+    /// The writer inserts a smaller key mid-search, which shifts the keys
+    /// right in place: without the validation before `lo >= pop`, the
+    /// search runs off the end of the snapshot's population and answers
+    /// `None` for a key that was present throughout.
+    #[test]
+    fn root_leaf_search_answer_is_validated() {
+        let map = Arc::new(SyncExpanseMap::new());
+        for k in [10u64, 20, 30, 40, 50] {
+            map.insert(k, !k);
+        }
+        let rd = map.reader();
+        let (control, ..) = walk_with(
+            &map.shared,
+            &rd.reader,
+            test_hooks::Site::RootLeafProbe,
+            || {},
+            // SAFETY: `walk_with` calls the walk pinned, with a version
+            // sampled after the pin and a root copied under it.
+            |root, ver, snap| unsafe { walk_validated::<true>(root, 50, ver, snap) },
+        );
+        assert_eq!(
+            control,
+            Some(Some(!50)),
+            "control: the unmodified walk answers"
+        );
+
+        let m = Arc::clone(&map);
+        let (r, root, _, ran) = walk_with(
+            &map.shared,
+            &rd.reader,
+            test_hooks::Site::RootLeafProbe,
+            move || {
+                m.insert(5, !5);
+            },
+            // SAFETY: as above.
+            |root, ver, snap| unsafe { walk_validated::<true>(root, 50, ver, snap) },
+        );
+        assert!(ran, "the walk must reach the root-leaf probe");
+        // Precondition: the insert shifted the reader's leaf in place, so an
+        // unvalidated search would have read the shifted keys.
+        let (RootSnapshot::Leaf { ptr: before, pop }, RootSnapshot::Leaf { ptr: after, .. }) =
+            (root, map.shared.published().load())
+        else {
+            panic!("root must stay a leaf")
+        };
+        assert_eq!(
+            (pop, before),
+            (5, after),
+            "root leaf of 5 keys, edited in place"
+        );
+        assert!(r.is_none(), "a search the writer moved must retry");
+    }
+
+    /// Seventeen keys under each of three level-2 digits: linear leaves of 17
+    /// under a full `BranchL3`. The probe misses in its leaf, and the writer
+    /// inserts the probe into that leaf after `shared_keys::find`.
+    #[test]
+    fn linear_leaf_miss_is_validated() {
+        let map = Arc::new(SyncExpanseMap::new());
+        for d in [0x10u64, 0x20, 0x30] {
+            for i in 0..17u64 {
+                let k = (d << 8) | (1 + 2 * i);
+                map.insert(k, !k);
+            }
+        }
+        let probe = 0x1022u64;
+        let rd = map.reader();
+        let (control, ..) = walk_with(
+            &map.shared,
+            &rd.reader,
+            test_hooks::Site::LeafFind,
+            || {},
+            // SAFETY: as in `root_leaf_search_answer_is_validated`.
+            |root, ver, snap| unsafe { walk_validated::<true>(root, probe, ver, snap) },
+        );
+        assert_eq!(control, Some(None), "control: the probe misses");
+
+        let m = Arc::clone(&map);
+        let (r, _, _, ran) = walk_with(
+            &map.shared,
+            &rd.reader,
+            test_hooks::Site::LeafFind,
+            move || {
+                m.insert(probe, !probe);
+            },
+            // SAFETY: as above.
+            |root, ver, snap| unsafe { walk_validated::<true>(root, probe, ver, snap) },
+        );
+        assert!(ran, "the walk must reach the linear-leaf find");
+        assert!(r.is_none(), "a miss the writer overtook must retry");
+    }
+
+    /// 200 consecutive keys under one level-1 prefix: a set bitmap leaf. The
+    /// probe misses, and the writer inserts it after the bit test.
+    #[test]
+    fn set_bitmap_leaf_miss_is_validated() {
+        let set = Arc::new(SyncExpanseSet::new());
+        for i in 0..200u64 {
+            set.insert(0x1000 | i);
+        }
+        let probe = 0x10F0u64;
+        let rd = set.reader();
+        let (control, ..) = walk_with(
+            &set.shared,
+            &rd.reader,
+            test_hooks::Site::SetBitmapLeaf,
+            || {},
+            // SAFETY: as in `root_leaf_search_answer_is_validated`.
+            |root, ver, snap| unsafe { walk_validated::<false>(root, probe, ver, snap) },
+        );
+        assert_eq!(control, Some(None), "control: the probe misses");
+
+        let s = Arc::clone(&set);
+        let (r, _, _, ran) = walk_with(
+            &set.shared,
+            &rd.reader,
+            test_hooks::Site::SetBitmapLeaf,
+            move || {
+                s.insert(probe);
+            },
+            // SAFETY: as above.
+            |root, ver, snap| unsafe { walk_validated::<false>(root, probe, ver, snap) },
+        );
+        assert!(ran, "the walk must reach the set bitmap-leaf test");
+        assert!(r.is_none(), "a miss the writer overtook must retry");
+    }
+
+    /// An ordered read over a root leaf: the writer inserts between the probe
+    /// and its successor before the final validation, which the tree version
+    /// alone covers here.
+    #[test]
+    fn ordered_root_leaf_answer_is_validated() {
+        for forward in [true, false] {
+            let map = Arc::new(SyncExpanseMap::new());
+            for k in [10u64, 20, 30, 40, 50] {
+                map.insert(k, !k);
+            }
+            let rd = map.reader();
+            let walk = move |root, ver: &SeqVersion, snap| {
+                // SAFETY: as in `root_leaf_search_answer_is_validated`.
+                unsafe {
+                    if forward {
+                        crate::sync_nav::next_validated::<true>(root, 25, ver, snap)
+                    } else {
+                        crate::sync_nav::prev_validated::<true>(root, 25, ver, snap)
+                    }
+                }
+            };
+            let want = if forward { (30, !30) } else { (20, !20) };
+            let (control, ..) = walk_with(
+                &map.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedFinal,
+                || {},
+                walk,
+            );
+            assert_eq!(control, Some(Some(want)), "control ({forward})");
+
+            let m = Arc::clone(&map);
+            let (r, _, _, ran) = walk_with(
+                &map.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedFinal,
+                move || {
+                    m.insert(26, !26);
+                },
+                walk,
+            );
+            assert!(
+                ran,
+                "the ordered read must reach its final validation ({forward})"
+            );
+            assert!(
+                r.is_none(),
+                "an answer the writer overtook must retry ({forward})"
+            );
+        }
+    }
+
+    /// An ordered read under a branch: the writer inserts into the leaf that
+    /// holds the answer, which moves that leaf's branch version and not the
+    /// tree version, so only the retained read set can see it.
+    #[test]
+    fn ordered_tree_answer_is_validated() {
+        for forward in [true, false] {
+            let map = Arc::new(SyncExpanseMap::new());
+            for d in [0x10u64, 0x20, 0x30] {
+                for i in 0..17u64 {
+                    let k = (d << 8) | (1 + 2 * i);
+                    map.insert(k, !k);
+                }
+            }
+            let rd = map.reader();
+            let probe = 0x1010u64;
+            let walk = move |root, ver: &SeqVersion, snap| {
+                // SAFETY: as in `root_leaf_search_answer_is_validated`.
+                unsafe {
+                    if forward {
+                        crate::sync_nav::next_validated::<true>(root, probe, ver, snap)
+                    } else {
+                        crate::sync_nav::prev_validated::<true>(root, probe, ver, snap)
+                    }
+                }
+            };
+            let want = if forward {
+                (0x1011, !0x1011u64)
+            } else {
+                (0x100F, !0x100Fu64)
+            };
+            let (control, ..) = walk_with(
+                &map.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedFinal,
+                || {},
+                walk,
+            );
+            assert_eq!(control, Some(Some(want)), "control ({forward})");
+
+            let m = Arc::clone(&map);
+            let (r, _, snap, ran) = walk_with(
+                &map.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedFinal,
+                move || {
+                    m.insert(probe, !probe);
+                },
+                walk,
+            );
+            assert!(
+                ran,
+                "the ordered read must reach its final validation ({forward})"
+            );
+            // Precondition: the write left the tree version alone, so the
+            // retry below comes from the retained branch versions.
+            assert!(
+                map.shared.version().validate(snap),
+                "the insert must not move the tree version ({forward})"
+            );
+            assert!(
+                r.is_none(),
+                "an answer the writer overtook must retry ({forward})"
+            );
+        }
     }
 }

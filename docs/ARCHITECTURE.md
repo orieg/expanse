@@ -197,6 +197,7 @@ The properties the design rests on, each with the instrument that falsifies it:
 | S2 | every store to an address in a shared tree is bracketed by the version of the node containing it | `assert_bracketed_by` at every leaf, immediate and subarray store (debug builds, per-thread bracket stack); `negative_control_wrong_node_bracket_must_fire` |
 | S3 | a node that ceases to be reachable is obsolete before the slot pointing at it changes | `loom_obsolete_mark_covers_replaced_node`, `reader_restarts_after_its_cover_is_replaced` |
 | S4 | a pinned reader never dereferences freed memory | `loom_pin_blocks_second_advance`, ASan, the nightly TSan shard |
+| S5 | every answer a validated read returns, an absence included, depends only on loads a successful validation covers: in a point lookup the check follows the answer's last load on its path, and an ordered read validates its whole retained read set and the tree version before answering | `test_validated_answers` (every answer site of `walk_validated_body!` and of the two `sync_nav` entry points, read from the source), `sync::validated_answer_tests` (a writer injected at the root-leaf search, a linear-leaf find, a set bitmap-leaf test and an ordered read's final check must produce a retry). The 64-bit walks only: the 32-bit `trie32` validated readers are not scanned |
 | S4a | a live pin stays registered until its own `Pin` drops: a reader handle is used by one thread at a time | by type: `occ::Reader` is `Send` and not `Sync`, and so is every `sync` handle that embeds one — `assert_not_sync!` at the definitions and a `compile_fail` doctest on each public handle type; `loom_separate_reader_handles_sibling_pin_drop_keeps_pin`, and `loom_shared_reader_handle_sibling_pin_drop_clears_pin`, which expects the violation when one handle is shared |
 | L1 | a reader completes once no bracket it samples is open (the protocol is blocking, §2.2) | `MAX_RETRIES` fallback to the writer mutex, `read_fallbacks` counter |
 | L2 | a writer never waits for a reader | by construction: readers take no lock on the common path |
@@ -833,7 +834,7 @@ Each version word is a plain `u32` seqlock counter: even means stable, odd means
 
 | Node type | Field | Byte offset | In the read protocol? |
 |---|---|---|---|
-| `BranchL3` / `BranchL7` | `hdr.version` | 0 | yes — `crates/expanse/src/sync.rs:319` |
+| `BranchL3` / `BranchL7` | `hdr.version` | 0 | yes — `crates/expanse/src/sync.rs:324` |
 | `BranchB` | `version` | 112 | yes |
 | `BranchU` | `version` | 0 | yes |
 | `LeafBitmap1` | `version` | 32 | no — field present, never bracketed |

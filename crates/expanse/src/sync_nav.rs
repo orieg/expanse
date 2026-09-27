@@ -201,6 +201,10 @@ pub(crate) unsafe fn next_validated<const MAP: bool>(
             unsafe { next_in::<MAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
         }
     };
+    #[cfg(test)]
+    crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedFinal);
+    // The answer is returned only after this check (`docs/ARCHITECTURE.md`
+    // §4.1, S5).
     // SAFETY: same pin as every sample.
     if !unsafe { rs.validate_all() } || !ver.validate(snap) {
         return Err(Retry);
@@ -232,6 +236,10 @@ pub(crate) unsafe fn prev_validated<const MAP: bool>(
             unsafe { prev_in::<MAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
         }
     };
+    #[cfg(test)]
+    crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedFinal);
+    // The answer is returned only after this check (`docs/ARCHITECTURE.md`
+    // §4.1, S5).
     // SAFETY: same pin as every sample.
     if !unsafe { rs.validate_all() } || !ver.validate(snap) {
         return Err(Retry);
