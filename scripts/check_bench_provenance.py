@@ -491,16 +491,28 @@ def has_measured_window(obj: dict) -> bool:
     as null when it has no predecessor, off Linux, or over a window shorter
     than `MIN_WINDOW_S`, and an artifact whose every value is null records no
     host activity at all (#1214). A window counts when a later snapshot in
-    `loads` carries the number, or when every cell carries it on its `load`,
-    which is where `end_cell` puts it rather than in `loads`.
+    `loads` carries the number, or when every cell carries it: on its own
+    `load`, which is where `end_cell` puts it rather than in `loads`, or on
+    every one of its round rows, where a runner that takes one window per
+    round process puts it (`ycsb_bench.py`, `single_threaded_bench.py`).
     """
     loads = obj["provenance"]["loads"]
     if any(isinstance(s, dict) and _number(s.get("busy_cpus_since_prev")) for s in loads[1:]):
         return True
-    cells = [c for _, cl in cell_lists(obj) for c in cl]
-    return bool(cells) and all(
-        isinstance(c.get("load"), dict) and _number(c["load"].get("busy_cpus_since_prev"))
-        for c in cells)
+
+    def measured(entry) -> bool:
+        return (isinstance(entry, dict) and isinstance(entry.get("load"), dict)
+                and _number(entry["load"].get("busy_cpus_since_prev")))
+
+    def windowed(cell) -> bool:
+        rows = cell.get("rounds_raw") if isinstance(cell, dict) else None
+        return measured(cell) or (isinstance(rows, list) and bool(rows)
+                                  and all(measured(r) for r in rows))
+
+    # A memory census is exact byte counts with no timed window, exempt here
+    # for the reason it is exempt from `rounds_raw`.
+    cells = [c for k, cl in cell_lists(obj) if k not in CENSUS_KEYS for c in cl]
+    return bool(cells) and all(windowed(c) for c in cells)
 
 
 def window_problems(rel: str, obj: dict) -> list[str]:
@@ -1116,6 +1128,18 @@ def _self_test() -> int:
     cell_partial["cells"].append({"pillar": "insert", "rounds_raw": [{"round": 0}]})
     expect("one cell of two windowed, none in loads", cell_partial,
            "no load window was measured")
+    # One window per round process, stored on each round row: finer than a
+    # cell window, and the shape the ycsb and rocksdb drivers write.
+    round_rows = copy.deepcopy(cell_only)
+    del round_rows["cells"][0]["load"]
+    round_rows["cells"][0]["rounds_raw"][0]["load"] = {"busy_cpus_since_prev": 1.1,
+                                                       "foreign_busy_cpus": 0.1}
+    expect("windows measured on every round row", round_rows, None)
+    round_rows["cells"][0]["rounds_raw"].append({"round": 1})
+    expect("one round row of two unwindowed", round_rows, "no load window was measured")
+    census = copy.deepcopy(cell_only)
+    census["memory"] = [{"id": "memory", "bytes_total": 1320704}]
+    expect("an untimed census cell owes no window", census, None)
 
     # An artifact that declares per-window load owes it on every window: one
     # closing snapshot is what #1214 replaced.
