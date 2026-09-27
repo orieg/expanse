@@ -26,8 +26,8 @@ DIR=/opt/expanse-provision
 
 case "$PROFILE" in reference|avx512) ;; *) echo "profile must be reference or avx512" >&2; exit 2 ;; esac
 [[ "$NAME" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "bad runner name: $NAME" >&2; exit 2; }
-gh api "repos/$REPO/actions/runners" --jq '.runners[].name' | grep -qx "$NAME" \
-  || { echo "no runner named $NAME is registered on $REPO" >&2; exit 1; }
+names="$(gh api "repos/$REPO/actions/runners" --jq '.runners[].name')"
+grep -qx "$NAME" <<< "$names" || { echo "no runner named $NAME is registered on $REPO" >&2; exit 1; }
 
 echo "== $HOST: checkout and prepare"
 ssh "$HOST" "set -e
