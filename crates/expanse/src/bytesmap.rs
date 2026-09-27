@@ -1537,7 +1537,11 @@ mod tests {
     /// an exclusive section too. With a one-digit band (demotion at 191) 18
     /// to 51 of the 257 branches were `BranchB` at every checkpoint of a
     /// 4,000,000-write run; with the 32-digit band none is past 800,000
-    /// writes. A fixed hasher makes the trie shape deterministic.
+    /// writes. A fixed hasher makes the trie shape deterministic. Under the
+    /// diagnostic `ablation-one-digit-band` feature (AGENTS.md §2.7) the same
+    /// workload must show the one-digit band's shape instead: some level-7
+    /// branches sit as `BranchB`, so the ablation cannot compile to the
+    /// default unnoticed.
     #[cfg(all(feature = "std", target_pointer_width = "64"))]
     #[test]
     fn sync_bytes_map_hash_trie_settles_uncompressed() {
@@ -1577,13 +1581,29 @@ mod tests {
                 .expect("the churn left a valid hash trie");
             b.map.stats().node_counts
         });
-        assert_eq!(
-            counts.branch_u, 257,
-            "the root and every level-7 branch are uncompressed ({counts:?})"
-        );
-        assert_eq!(
-            counts.branch_b, 0,
-            "a level-7 branch sits as a BranchB, so its removals fall back ({counts:?})"
-        );
+        #[cfg(not(feature = "ablation-one-digit-band"))]
+        {
+            assert_eq!(
+                counts.branch_u, 257,
+                "the root and every level-7 branch are uncompressed ({counts:?})"
+            );
+            assert_eq!(
+                counts.branch_b, 0,
+                "a level-7 branch sits as a BranchB, so its removals fall back ({counts:?})"
+            );
+        }
+        #[cfg(feature = "ablation-one-digit-band")]
+        {
+            assert_eq!(
+                counts.branch_u + counts.branch_b,
+                257,
+                "the root and every level-7 branch are a BranchU or a BranchB ({counts:?})"
+            );
+            assert!(
+                counts.branch_b > 0,
+                "under the one-digit band no level-7 branch sits as a BranchB, so the \
+                 ablation did not restore the band #1221 widened ({counts:?})"
+            );
+        }
     }
 }

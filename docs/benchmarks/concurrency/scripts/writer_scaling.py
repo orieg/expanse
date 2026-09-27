@@ -54,10 +54,22 @@ arm, under the same pin and interleaving:
   at W in {1, 4} for each probe, with a BCa 95% interval; no magnitude is
   predicted.
 
+`--band-cells` (#1208, `METHODOLOGY.md` §24) is a separate sweep on the map
+arm, under the same pin:
+- cells run build in {default, ablation-one-digit-band} x duty in {1, 0} x
+  (W, R) in {(1,0), (1,1), (2,0), (2,1), (4,0), (4,1), (8,0)}; one owner
+  writer carries a shared BranchU across its demotion floor and back (duty 1)
+  or cycles the same count of digits far above it (duty 0, the twin), while
+  W - 1 writers overwrite values on the same branch and R readers `get`;
+- it writes, per (build, W, R), the per-round paired band excess per crossing
+  `(t_band - t_twin) / crossings` and `t_band / t_twin`, each with a BCa 95%
+  interval, and P24.1.
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --ordered-readers
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --count-cells
+    python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --band-cells
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
 
 `--self-test` is run by the `writer-scaling-selftest` CI job, gated on the
@@ -872,6 +884,8 @@ def summarize_arm(
         total_bs_pfx = sum(int(r.get("branch_split_prefix", 0)) for r in c_rows_w)
         total_bs_rem = sum(int(r.get("branch_split_remove", 0)) for r in c_rows_w)
         total_bs_upg = sum(int(r.get("branch_split_upgrade", 0)) for r in c_rows_w)
+        # Absent from artifacts recorded before the kind existed (Refs #1079).
+        total_bs_dmu = sum(int(r.get("branch_split_demote_u", 0)) for r in c_rows_w)
         total_ce_cls = sum(int(r.get("cap_expansion_class", 0)) for r in c_rows_w)
         total_ce_full = sum(int(r.get("cap_expansion_leaf_full", 0)) for r in c_rows_w)
         total_ce_bm = sum(int(r.get("cap_expansion_bitmap_near_full", 0)) for r in c_rows_w)
@@ -910,6 +924,7 @@ def summarize_arm(
             "prefix": total_bs_pfx,
             "remove": total_bs_rem,
             "upgrade": total_bs_upg,
+            "demote_u": total_bs_dmu,
         }
         branch_split_subset_share = {
             "subarray": (
@@ -934,6 +949,11 @@ def summarize_arm(
             ),
             "upgrade": (
                 round(total_bs_upg / cause_totals["branch_split"], 6)
+                if cause_totals["branch_split"] > 0
+                else 0.0
+            ),
+            "demote_u": (
+                round(total_bs_dmu / cause_totals["branch_split"], 6)
                 if cause_totals["branch_split"] > 0
                 else 0.0
             ),
@@ -1057,6 +1077,7 @@ def summarize_arm(
                     "branch_split_prefix": r["branch_split_prefix"],
                     "branch_split_remove": r["branch_split_remove"],
                     "branch_split_upgrade": r.get("branch_split_upgrade", 0),
+                    "branch_split_demote_u": r.get("branch_split_demote_u", 0),
                     "cap_expansion_class": r.get("cap_expansion_class", 0),
                     "cap_expansion_leaf_full": r.get("cap_expansion_leaf_full", 0),
                     "cap_expansion_bitmap_near_full": r.get("cap_expansion_bitmap_near_full", 0),
@@ -2412,6 +2433,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         *(p.resolve() for p in ABLATION_RESULTS_PATHS),
         ORDERED_READERS_RESULTS_PATH.resolve(),
         COUNT_CELLS_RESULTS_PATH.resolve(),
+        BAND_CELLS_RESULTS_PATH.resolve(),
         READERS_ONLY_RESULTS_PATH.resolve(),
         GATE_929_STR_RESULTS_PATH.resolve(),
         GATE_929_STR_V2_RESULTS_PATH.resolve(),
@@ -3279,6 +3301,472 @@ def run_count_cells(args: argparse.Namespace) -> int:
               f"[{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}]")
     for reason in report["void"]:
         sys.stderr.write(f"::warning:: this run is void as a §23.3 measurement: {reason}\n")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nWrote artifact to {out_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# A shared BranchU crossing its demotion floor (#1208, METHODOLOGY.md §24)
+# ---------------------------------------------------------------------------
+
+BAND_CELLS_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "branchu_band_writer_scaling.json"
+)
+# §24.3: the ordered-reader pin, one thread per physical P-core; a cell holds at
+# most eight threads, so every thread has a core of its own.
+BAND_CELLS_PIN = ORDERED_READERS_PIN
+BAND_WORKLOAD_ID = "concurrency_branchu_band_map_64bit"
+# The inverse #1221 never added (AGENTS.md §2.7): the one-digit band.
+BAND_FEATURE = "ablation-one-digit-band"
+BAND_BUILDS = (DEFAULT_BUILD, BAND_FEATURE)
+# Duty 1 crosses the band twice per owner cycle; duty 0 is its twin.
+BAND_DUTIES = (1, 0)
+# (W, R). W = 8 with a reader would put a ninth thread on the eight-core pin.
+BAND_WR = ((1, 0), (1, 1), (2, 0), (2, 1), (4, 0), (4, 1), (8, 0))
+BAND_CYCLES = 8192
+BAND_CYCLES_QUICK = 64
+# §24.4: at W >= 2 the counters must attribute this share of the scheduled
+# crossings to DemoteU and Upgrade, or the cell is marked unattributed.
+BAND_CROSSING_ATTRIBUTION_FLOOR = 0.95
+BAND_BLOCK = tuple(
+    (build, duty, w, r) for build in BAND_BUILDS for duty in BAND_DUTIES for (w, r) in BAND_WR
+)
+BAND_TIMING_FIELDS = ("owner_elapsed_s", "owner_loop_s", "ns_per_cycle", "reader_elapsed_s", "reader_mops")
+BAND_COUNTER_FIELDS = (
+    "lock_fallbacks", "inserts", "stat_write_ops", "quiesce_calls", "gate_wait_cycles",
+    "quiesce_drain_cycles", "gate_blocked_entries", "lock_restarts", "branch_split_subarray",
+    "branch_split_linear", "branch_split_prefix", "branch_split_remove", "branch_split_upgrade",
+    "branch_split_demote_u", "cap_expansion_class", "cap_expansion_leaf_full",
+    "cap_expansion_bitmap_near_full", "cap_expansion_map_bitmap_sub", "cap_expansion_remove",
+    "contention_gate_closed", "contention_retry_exhausted", *READER_COUNTER_FIELDS,
+)
+
+
+def band_cells_schedule(rounds: int) -> list[dict[str, Any]]:
+    """Every harness invocation of a band sweep, in execution order.
+
+    Within round r the 28 (build, duty, W, R) cells follow row r of the Williams
+    construction over them. 8 rounds do not balance 28 positions; every row is
+    still a permutation of the block, so each round holds each cell once and the
+    band and twin cells of a (build, W, R) always share a round.
+    """
+    out: list[dict[str, Any]] = []
+    n = len(BAND_BLOCK)
+    for r in range(rounds):
+        for pos, idx in enumerate(williams_positions(n, r)):
+            build, duty, w, rd = BAND_BLOCK[idx]
+            out.append({"round": r, "position": pos, "build": build, "duty": duty,
+                        "writers": w, "readers": rd})
+    return out
+
+
+def run_band_invocation(
+    binary: Path, role: str, run: dict[str, Any], quick: bool
+) -> dict[str, Any]:
+    """One band cell from the harness, checked against the schedule that asked for it."""
+    cmd = [
+        str(binary), "--role", role, "--band-cells", "--duty", str(run["duty"]),
+        "--writers", str(run["writers"]), "--readers", str(run["readers"]),
+        "--round", str(run["round"]), "--position", str(run["position"]),
+    ]
+    if quick:
+        cmd.append("--quick")
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"writer_scaling band cell ({role}, {run}) failed (exit {proc.returncode}):\n{proc.stderr}"
+        )
+    rows = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            row = json.loads(line)
+            if row.get("role") == role and row.get("workload_id") == BAND_WORKLOAD_ID:
+                rows.append(row)
+    if len(rows) != 1:
+        raise RuntimeError(f"band cell ({role}, {run}) emitted {len(rows)} rows, expected 1")
+    row = rows[0]
+    for key in ("round", "position", "duty", "writers", "readers"):
+        if row.get(key) != run[key]:
+            raise RuntimeError(
+                f"band cell ({role}, {run}): the row carries {key}={row.get(key)!r}, "
+                f"the schedule ran {run[key]!r}"
+            )
+    want_one_digit = run["build"] == BAND_FEATURE
+    if row.get("one_digit_band") is not want_one_digit:
+        raise RuntimeError(
+            f"band cell ({role}, {run}): the row reports one_digit_band={row.get('one_digit_band')!r}, "
+            f"but the schedule asked for the {run['build']} build"
+        )
+    row["build"] = run["build"]
+    return row
+
+
+def check_band_throughput_row(row: dict[str, Any], cycles: int) -> None:
+    """A band throughput row: owner timing, reader timing when R >= 1, no counters (§24.4)."""
+    ctx = f"{row.get('build')} {row.get('cell')} round {row.get('round')}"
+    leaked = [k for k in (*READER_COUNTER_FIELDS, "lock_fallbacks", "inserts", "stat_write_ops") if k in row]
+    if leaked:
+        raise ValueError(f"{ctx}: throughput row carries counter field(s) {leaked}; the two roles never share a binary")
+    check_band_schedule(row, cycles, ctx)
+    positive = ["owner_elapsed_s", "owner_loop_s"]
+    if int(row["readers"]) > 0:
+        positive += ["reader_ops", "reader_elapsed_s", "reader_mops"]
+    elif row.get("reader_ops") != 0:
+        raise ValueError(f"{ctx}: an R = 0 row made {row.get('reader_ops')!r} reader probes, expected 0")
+    for k in positive:
+        v = row.get(k)
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+            raise ValueError(f"{ctx}: throughput row {k} = {v!r}, expected a positive number")
+
+
+def check_band_schedule(row: dict[str, Any], cycles: int, ctx: str) -> None:
+    """The owner ran the registered cycles, and its crossings follow the duty."""
+    oc = int(row["owner_cycles"])
+    if oc != cycles or int(row["cycles"]) != cycles:
+        raise ValueError(f"{ctx}: {oc} owner cycles of {row['cycles']} scheduled, the sweep runs {cycles}")
+    span = int(row["band_span"])
+    if int(row["owner_removes"]) != oc * span or int(row["owner_inserts"]) != oc * span:
+        raise ValueError(f"{ctx}: the owner made {row['owner_removes']} removals and "
+                         f"{row['owner_inserts']} insertions, not {oc} cycles of {span}")
+    if int(row["crossings"]) != 2 * oc * int(row["duty"]):
+        raise ValueError(f"{ctx}: {row['crossings']} crossings for {oc} cycles at duty {row['duty']}")
+    if int(row["branch_u_after"]) != 1:
+        raise ValueError(f"{ctx}: {row['branch_u_after']} BranchU nodes after the cell, expected 1")
+
+
+def check_band_counters_row(row: dict[str, Any], cycles: int) -> None:
+    """The identities a band counters row owes, re-checked on the driver side (§24.4, §8.1).
+
+    A mismatch at W = 1 or at duty 0 means the cell did not run the registered
+    workload, and voids the run.
+    """
+    ctx = f"{row.get('build')} {row.get('cell')} round {row.get('round')}"
+    missing = [k for k in (*BAND_COUNTER_FIELDS, "fallback_causes") if k not in row]
+    if missing:
+        raise ValueError(f"{ctx}: counters row lacks {missing}")
+    leaked = [k for k in BAND_TIMING_FIELDS if k in row]
+    if leaked:
+        raise ValueError(f"{ctx}: counters row carries timing field(s) {leaked}; the two roles never share a binary")
+    check_band_schedule(row, cycles, ctx)
+    causes = row["fallback_causes"]
+    if not isinstance(causes, dict) or set(causes) != set(CAUSE_NAMES):
+        raise ValueError(f"{ctx}: fallback_causes must carry exactly {CAUSE_NAMES}, got {causes!r}")
+    fb = int(row["lock_fallbacks"])
+    if sum(int(v) for v in causes.values()) != fb:
+        raise ValueError(f"{ctx}: causes sum to {sum(int(v) for v in causes.values())}, lock_fallbacks = {fb}")
+    bs = sum(int(row[k]) for k in ("branch_split_subarray", "branch_split_linear", "branch_split_prefix",
+                                   "branch_split_remove", "branch_split_upgrade", "branch_split_demote_u"))
+    if bs != int(causes["branch_split"]):
+        raise ValueError(f"{ctx}: branch-split kinds sum to {bs}, causes['branch_split'] = {causes['branch_split']}")
+    inserts = int(row["owner_inserts"]) + int(row["overwrite_ops"])
+    if int(row["inserts"]) != inserts:
+        raise ValueError(f"{ctx}: Stat::Inserts = {row['inserts']}, the cell inserted {inserts}")
+    want_wo = int(row["inserts"]) + int(row["owner_removes"]) + fb
+    if int(row["stat_write_ops"]) != want_wo:
+        raise ValueError(f"{ctx}: Stat::WriteOps = {row['stat_write_ops']}, expected inserts + removes + "
+                         f"lock_fallbacks = {want_wo}")
+    if int(row["quiesce_calls"]) != fb + int(row["locked_reads"]):
+        raise ValueError(f"{ctx}: quiesce_calls ({row['quiesce_calls']}) != lock_fallbacks ({fb}) "
+                         f"+ locked_reads ({row['locked_reads']})")
+    if int(row["read_ops"]) != int(row["reader_ops"]) or int(row["locked_reads"]) != int(row["read_fallbacks"]):
+        raise ValueError(f"{ctx}: an optimistic reader cell needs read_ops == reader_ops and locked_reads == "
+                         f"read_fallbacks, got {row['read_ops']}, {row['reader_ops']}, {row['locked_reads']}, "
+                         f"{row['read_fallbacks']}")
+    dmu, upg, oc = int(row["branch_split_demote_u"]), int(row["branch_split_upgrade"]), int(row["owner_cycles"])
+    if int(row["duty"]) == 0 and (dmu, upg) != (0, 0):
+        raise ValueError(f"{ctx}: the twin counted DemoteU {dmu} and Upgrade {upg}; it must cross nothing "
+                         f"(§24.4 voids the run)")
+    if int(row["duty"]) == 1 and int(row["writers"]) == 1 and (dmu, upg) != (oc, oc):
+        raise ValueError(f"{ctx}: DemoteU {dmu} and Upgrade {upg} at W = 1 over {oc} cycles; each must equal "
+                         f"the cycles (§24.4 voids the run)")
+    if dmu > oc or upg > oc:
+        raise ValueError(f"{ctx}: DemoteU {dmu} or Upgrade {upg} exceeds the {oc} cycles the owner ran")
+
+
+def _named_mean_ci(xs: list[float], prefix: str) -> dict[str, Any]:
+    """Mean over rounds with its BCa 95% interval and construction label, under `prefix`."""
+    mean, lo, hi, method = bca_bootstrap_ci_with_method(xs, confidence=0.95)
+    return {
+        f"{prefix}mean": round(mean, 6),
+        f"{prefix}ci_lower": round(lo, 6),
+        f"{prefix}ci_upper": round(hi, 6),
+        f"{prefix}ci_method": method,
+        f"{prefix}median": round(sorted(xs)[len(xs) // 2], 6),
+    }
+
+
+def _worst_load(loads: list[dict[str, Any]]) -> dict[str, Any]:
+    """The load window of a cell's rounds with the most foreign CPU; a window
+    that could not attribute stands for the cell, so the gate sees it (§8.1)."""
+    for window in loads:
+        if not isinstance(window.get("foreign_busy_cpus"), (int, float)):
+            return window
+    return max(loads, key=lambda w: float(w["foreign_busy_cpus"]))
+
+
+def summarize_band_cells(
+    throughput_rows: list[dict[str, Any]],
+    counters_rows: list[dict[str, Any]],
+    rounds: int,
+    cycles: int,
+) -> list[dict[str, Any]]:
+    """One cell per (build, duty, W, R), each carrying every round of both roles."""
+    if rounds < 3:
+        raise ValueError(f"band cells: need at least 3 rounds for a BCa interval, got {rounds}")
+    cells: list[dict[str, Any]] = []
+    for build, duty, w, r in BAND_BLOCK:
+        label = f"{build} duty={duty} W={w} R={r}"
+
+        def matches(row: dict[str, Any]) -> bool:
+            return (row["build"], int(row["duty"]), int(row["writers"]), int(row["readers"])) == (build, duty, w, r)
+
+        t = sorted((x for x in throughput_rows if matches(x)), key=lambda x: int(x["round"]))
+        c = sorted((x for x in counters_rows if matches(x)), key=lambda x: int(x["round"]))
+        for role, got in (("throughput", t), ("counters", c)):
+            seen = [int(x["round"]) for x in got]
+            if seen != list(range(rounds)):
+                raise ValueError(f"{label}: {role} rows cover rounds {seen}, expected each of 0..{rounds - 1} once")
+        for x in t:
+            check_band_throughput_row(x, cycles)
+            if not isinstance(x.get("load"), dict):
+                raise ValueError(f"{label} round {x['round']}: throughput row carries no load window")
+        for x in c:
+            check_band_counters_row(x, cycles)
+        totals = {k: sum(int(x[k]) for x in c) for k in BAND_COUNTER_FIELDS}
+        totals["owner_cycles"] = sum(int(x["owner_cycles"]) for x in c)
+        totals["crossings"] = sum(int(x["crossings"]) for x in c)
+        cell: dict[str, Any] = {
+            "workload_id": t[0]["workload_id"],
+            "arm": "map",
+            "build": build,
+            "duty": duty,
+            "writers": w,
+            "readers": r,
+            "band_floor": t[0]["band_floor"],
+            "band_up": t[0]["band_up"],
+            "band_span": t[0]["band_span"],
+            "twin_low": t[0]["twin_low"],
+            "cycles": cycles,
+            "rounds": rounds,
+            "cpu_pin": t[0]["cpu_pin"],
+        }
+        cell.update(_named_mean_ci([float(x["owner_elapsed_s"]) for x in t], "owner_elapsed_s_"))
+        if r > 0:
+            cell.update(_named_mean_ci([float(x["reader_mops"]) for x in t], "reader_mops_"))
+        per_cycle = max(totals["owner_cycles"], 1)
+        crossings = totals["crossings"]
+        cell.update({
+            "counters_total": totals,
+            "fallbacks_per_owner_cycle": round(totals["lock_fallbacks"] / per_cycle, 6),
+            "demote_u_per_owner_cycle": round(totals["branch_split_demote_u"] / per_cycle, 6),
+            "upgrade_per_owner_cycle": round(totals["branch_split_upgrade"] / per_cycle, 6),
+            "gate_wait_cycles_per_crossing": (
+                round(totals["gate_wait_cycles"] / crossings, 3) if crossings else None),
+            "gate_wait_cycles_per_crossing_writer": (
+                round(totals["gate_wait_cycles"] / (crossings * w), 3) if crossings else None),
+            "quiesce_drain_cycles_per_crossing": (
+                round(totals["quiesce_drain_cycles"] / crossings, 3) if crossings else None),
+            "crossings_attributed_share": (
+                round((totals["branch_split_demote_u"] + totals["branch_split_upgrade"]) / crossings, 6)
+                if crossings else None),
+            "build_provenance": {
+                "throughput": f"{get_throughput_target(None if build == DEFAULT_BUILD else build).relative_to(REPO_ROOT)}"
+                              f"/release/examples/writer_scaling",
+                "counters": f"{get_counters_target(None if build == DEFAULT_BUILD else build).relative_to(REPO_ROOT)}"
+                            f"/release/examples/writer_scaling (--features occ-stats)",
+            },
+            "rounds_raw": [
+                {k: x.get(k) for k in (
+                    "round", "position", "owner_elapsed_s", "owner_loop_s", "ns_per_cycle", "owner_cycles",
+                    "crossings", "overwrite_ops", "reader_ops", "reader_elapsed_s", "reader_mops",
+                    "population_after", "cpu_pin", "tsc_hz", "load",
+                )}
+                for x in t
+            ],
+            "counters_raw": [
+                {k: x.get(k) for k in (
+                    "round", "position", "owner_cycles", "crossings", "owner_removes", "owner_inserts",
+                    "overwrite_ops", "reader_ops", *BAND_COUNTER_FIELDS, "fallback_causes", "cpu_pin",
+                )}
+                for x in c
+            ],
+            "load": _worst_load([x["load"] for x in t]),
+        })
+        cells.append(cell)
+    return cells
+
+
+def band_excess(
+    throughput_rows: list[dict[str, Any]], cells: list[dict[str, Any]], build: str, w: int, r: int, rounds: int
+) -> dict[str, Any]:
+    """§24.2: `(t_band - t_twin) / crossings` per round, and `t_band / t_twin`, each with a BCa 95% interval."""
+    label = f"{build} W={w} R={r}"
+    by_round: dict[tuple[int, int], dict[str, Any]] = {}
+    for row in throughput_rows:
+        if (row["build"], int(row["writers"]), int(row["readers"])) != (build, w, r):
+            continue
+        key = (int(row["round"]), int(row["duty"]))
+        if key in by_round:
+            raise ValueError(f"band excess {label}: round {key[0]} holds two duty-{key[1]} rows")
+        by_round[key] = row
+    deltas: list[float] = []
+    ratios: list[float] = []
+    for rr in range(rounds):
+        band, twin = by_round.get((rr, 1)), by_round.get((rr, 0))
+        if band is None or twin is None:
+            raise ValueError(f"band excess {label}: round {rr} is unpaired")
+        tb, tt, x = float(band["owner_elapsed_s"]), float(twin["owner_elapsed_s"]), int(band["crossings"])
+        if tb <= 0 or tt <= 0 or x <= 0:
+            raise ValueError(f"band excess {label}: round {rr} has t_band {tb}, t_twin {tt}, {x} crossings")
+        deltas.append((tb - tt) * 1e9 / x)
+        ratios.append(tb / tt)
+    if len(deltas) < 3:
+        raise ValueError(f"band excess {label}: need at least 3 paired rounds for a BCa interval, got {len(deltas)}")
+    band_cell = next(c for c in cells if (c["build"], c["duty"], c["writers"], c["readers"]) == (build, 1, w, r))
+    share = band_cell["crossings_attributed_share"]
+    attributed = w == 1 or (share is not None and share >= BAND_CROSSING_ATTRIBUTION_FLOOR)
+    out: dict[str, Any] = {"cell": label, "build": build, "writers": w, "readers": r}
+    out.update(_named_mean_ci(deltas, "delta_ns_per_crossing_"))
+    out.update(_named_mean_ci(ratios, "ratio_"))
+    out.update({
+        "delta_ns_per_crossing_raw": [round(v, 3) for v in deltas],
+        "ratio_raw": [round(v, 6) for v in ratios],
+        "crossings_attributed_share": share,
+        "crossings_unattributed": not attributed,
+    })
+    return out
+
+
+def p24_1_verdict(excess: list[dict[str, Any]]) -> dict[str, Any]:
+    """P24.1: at W = 1, R = 0, default build, the ratio's BCa lower bound is above 1.0."""
+    e = next(x for x in excess if (x["build"], x["writers"], x["readers"]) == (DEFAULT_BUILD, 1, 0))
+    return {
+        "cell": e["cell"],
+        "ratio_ci_lower": e["ratio_ci_lower"],
+        "ratio_ci_method": e["ratio_ci_method"],
+        "verdict": "PASS_this_run" if e["ratio_ci_lower"] > 1.0 else "REFUTED_this_run",
+        "note": "P24.1 is met only when both runs of §24.3 read PASS_this_run",
+    }
+
+
+def build_band_cells_artifact(
+    prov: dict[str, Any],
+    cells: list[dict[str, Any]],
+    excess: list[dict[str, Any]],
+    rounds: int,
+    cycles: int,
+    applied_pin: str,
+    quick: bool,
+) -> dict[str, Any]:
+    """The committed shape: provenance, the cells, the per-crossing excess, and P24.1."""
+    conforms = pins_equal(applied_pin, BAND_CELLS_PIN)
+    void: list[str] = []
+    if not conforms:
+        void.append(f"applied pin {applied_pin!r} is not {BAND_CELLS_PIN} (METHODOLOGY.md §24.4)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §24.3 cells")
+    if cycles != BAND_CYCLES:
+        void.append(f"{cycles} owner cycles per cell, not the registered {BAND_CYCLES} (§24.4)")
+    return {
+        "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
+        "throughput": cells,
+        "band_cells": {
+            "issue": 1208,
+            "preregistration": "docs/benchmarks/concurrency/METHODOLOGY.md §24",
+            "pin": {"required": BAND_CELLS_PIN, "applied": applied_pin, "conforms": conforms},
+            "rounds": rounds,
+            "cycles": cycles,
+            "quick": quick,
+            "builds": list(BAND_BUILDS),
+            "schedule": "within round r the 28 (build, duty, W, R) cells follow row r of the Williams "
+                        "construction over them; one harness process per cell with a load window around "
+                        "each; the throughput pass runs every round before the counters pass",
+            "void": void,
+            "excess": excess,
+            "p24_1": p24_1_verdict(excess),
+            "predicted": "P24.1's direction only; no magnitude (METHODOLOGY.md §24.2, §24.6)",
+        },
+    }
+
+
+def run_band_cells(args: argparse.Namespace) -> int:
+    """`--band-cells`: the §24.3 cells, both roles and both builds, and the per-crossing excess."""
+    out_path = Path(args.out) if args.out else BAND_CELLS_RESULTS_PATH
+    committed = out_path.resolve().is_relative_to((REPO_ROOT / "docs" / "benchmarks").resolve())
+    smoke = bool(args.quick) and not committed
+    try:
+        notice = resolve_ordered_readers_pin(os.environ, smoke, "--band-cells", "§24.3", "§24.4")
+    except ValueError as exc:
+        sys.stderr.write(f"refusing to start: {exc}\nNo benchmark was run and no numbers were produced.\n")
+        return 1
+    if notice:
+        sys.stderr.write(f"::notice:: smoke run: {notice}; nothing this run produces is a §24.3 cell\n")
+    applied = bench_pin.apply("writer_scaling.py --band-cells")
+    if not pins_equal(applied, BAND_CELLS_PIN) and not smoke:
+        sys.stderr.write(f"refusing to start: the applied pin is {applied!r}, not {BAND_CELLS_PIN} (§24.4)\n")
+        return 1
+
+    bins = {DEFAULT_BUILD: build_binaries(verbose=True), BAND_FEATURE: build_binaries(BAND_FEATURE, verbose=True)}
+    cycles = BAND_CYCLES_QUICK if args.quick else BAND_CYCLES
+    ratio = ("per (build, W, R): mean over rounds of (t_band - t_twin) / crossings and of t_band / t_twin, "
+             "band and twin paired within each round, BCa 95% interval (METHODOLOGY.md §24.2)")
+    prov = new_provenance(
+        suite="concurrency",
+        issue=1208,
+        ratio=ratio,
+        repo_root=REPO_ROOT,
+        core_pin=applied,
+        estimators=estimators(
+            ratio,
+            columns="per-cell owner elapsed seconds and reader Mops/s are means over rounds with a BCa 95% "
+                    "interval; medians are auxiliary; counters are summed over rounds",
+        ),
+    )
+    schedule = band_cells_schedule(args.rounds)
+    print("========================================================================")
+    print(" A shared BranchU crossing its floor (#1208, METHODOLOGY.md §24)")
+    print(f" Cells: {len(BAND_BLOCK)} | Rounds: {args.rounds} | Cycles: {cycles} | "
+          f"Pin: {applied} | Quick: {bool(args.quick)}")
+    print("========================================================================")
+    try:
+        t_rows = []
+        for i, run in enumerate(schedule):
+            label = f"cell:band:{run['build']}:d{run['duty']}:W{run['writers']}:R{run['readers']}:r{run['round']}"
+            start = begin_cell(prov, label)
+            row = run_band_invocation(bins[run["build"]][0], "throughput", run, args.quick)
+            row["load"] = end_cell(start)
+            t_rows.append(row)
+            if (i + 1) % len(BAND_BLOCK) == 0:
+                print(f"  [throughput] {i + 1}/{len(schedule)} cells")
+        start = begin_cell(prov, "band_cells:counters")
+        c_rows = []
+        for i, run in enumerate(schedule):
+            c_rows.append(run_band_invocation(bins[run["build"]][1], "counters", run, args.quick))
+            if (i + 1) % len(BAND_BLOCK) == 0:
+                print(f"  [counters] {i + 1}/{len(schedule)} cells")
+        end_cell(start)
+        check_row_pins(t_rows + c_rows, applied)
+        cells = summarize_band_cells(t_rows, c_rows, args.rounds, cycles)
+        excess = [band_excess(t_rows, cells, build, w, r, args.rounds)
+                  for build in BAND_BUILDS for (w, r) in BAND_WR]
+        artifact = build_band_cells_artifact(prov, cells, excess, args.rounds, cycles, applied, bool(args.quick))
+    except (RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"band cells failed: {exc} (AGENTS.md §8.1)\n")
+        return 1
+
+    report = artifact["band_cells"]
+    for e in excess:
+        flag = " (crossings_unattributed)" if e["crossings_unattributed"] else ""
+        print(f"  {e['cell']:>36} | excess ns/crossing {e['delta_ns_per_crossing_mean']:.1f} "
+              f"[{e['delta_ns_per_crossing_ci_lower']:.1f}, {e['delta_ns_per_crossing_ci_upper']:.1f}] "
+              f"| t_band/t_twin {e['ratio_mean']:.4f} [{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}]{flag}")
+    print(f"  P24.1 ({report['p24_1']['cell']}): {report['p24_1']['verdict']}")
+    for reason in report["void"]:
+        sys.stderr.write(f"::warning:: this run is void as a §24.3 measurement: {reason}\n")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(artifact, indent=2) + "\n")
@@ -4563,6 +5051,242 @@ def _self_test_count_cells(throughput_bin: Path, counters_bin: Path, pin: str) -
                               capture_output=True, text=True, check=False)
         assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
     sys.stderr.write("Count-cell instrument PASSED\n")
+
+
+def _synthetic_band_rows(
+    rounds: int, owner_s: Any, pin: str, cycles: int = BAND_CYCLES_QUICK
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Rows in the harness's band schema for every scheduled run; every identity holds.
+
+    `owner_s(run)` gives a throughput row's owner elapsed seconds. The counters
+    rows cross exactly as the schedule does: one DemoteU and one Upgrade per
+    duty-1 cycle, none at duty 0.
+    """
+    t_rows: list[dict[str, Any]] = []
+    c_rows: list[dict[str, Any]] = []
+    for run in band_cells_schedule(rounds):
+        one_digit = run["build"] == BAND_FEATURE
+        floor = 191 if one_digit else 160
+        span = 193 - floor
+        crossings = 2 * cycles * run["duty"]
+        overwrites = 1000 * (run["writers"] - 1)
+        reads = 5000 * run["readers"]
+        base = {
+            "workload_id": BAND_WORKLOAD_ID, "arm": "expanse",
+            "cell": f"band_d{run['duty']}_w{run['writers']}_r{run['readers']}",
+            "keyspace_bits": 64, "band_floor": floor, "band_up": 192, "band_span": span, "twin_low": 194,
+            "one_digit_band": one_digit, "fixed_digits": floor, "cycles": cycles, "owner_cycles": cycles,
+            "crossings": crossings, "owner_ops": 2 * cycles * span, "owner_removes": cycles * span,
+            "owner_inserts": cycles * span, "overwrite_ops": overwrites, "reader_ops": reads,
+            "cpu_pin": pin, "tsc_hz": 1, "population_after": 193 if run["duty"] else 194 + span,
+            "branch_u_after": 1, **run,
+        }
+        t_rows.append({
+            **base, "role": "throughput", "owner_elapsed_s": owner_s(run), "owner_loop_s": owner_s(run),
+            "ns_per_cycle": owner_s(run) * 1e9 / cycles,
+            "reader_elapsed_s": 1.0 if reads else None, "reader_thread_elapsed_s": [1.0] * run["readers"],
+            "reader_mops": reads / 1e6 if reads else None,
+            "load": {"since": "cell", "wall_s": 1.0, "busy_cpus_since_prev": 1.0,
+                     "own_busy_cpus": 1.0, "foreign_busy_cpus": 0.0},
+        })
+        crossed = cycles * run["duty"]
+        fb = 2 * crossed
+        causes = {name: 0 for name in CAUSE_NAMES}
+        causes["branch_split"] = fb
+        inserts = cycles * span + overwrites
+        c_rows.append({
+            **base, "role": "counters", "lock_fallbacks": fb, "inserts": inserts,
+            "stat_write_ops": inserts + cycles * span + fb, "quiesce_calls": fb,
+            "gate_wait_cycles": 10 * crossed * run["writers"], "quiesce_drain_cycles": 5 * crossed,
+            "gate_blocked_entries": 0, "lock_restarts": 0, "branch_split_subarray": 0,
+            "branch_split_linear": 0, "branch_split_prefix": 0, "branch_split_remove": 0,
+            "branch_split_upgrade": crossed, "branch_split_demote_u": crossed, "cap_expansion_class": 0,
+            "cap_expansion_leaf_full": 0, "cap_expansion_bitmap_near_full": 0,
+            "cap_expansion_map_bitmap_sub": 0, "cap_expansion_remove": 0, "contention_gate_closed": 0,
+            "contention_retry_exhausted": 0, "read_ops": reads, "read_attempts": reads,
+            "read_fallbacks": 0, "locked_reads": 0, "fallback_causes": causes,
+        })
+    return t_rows, c_rows
+
+
+def _self_test_band_cells(throughput_bin: Path, counters_bin: Path, pin: str) -> None:
+    """The band-cell instrument (#1208): schedule, excess, refusals, artifact, harness seam."""
+    import check_bench_provenance as cbp  # noqa: PLC0415 -- the gate's own functions judge the artifact
+
+    sys.stderr.write("Testing the band-cell instrument (#1208, METHODOLOGY.md §24)...\n")
+    rounds = 8
+    n = len(BAND_BLOCK)
+    assert n == 28, n
+    sched = band_cells_schedule(rounds)
+    assert len(sched) == rounds * n, len(sched)
+    for r in range(rounds):
+        block = sorted((x for x in sched if x["round"] == r), key=lambda x: x["position"])
+        assert [x["position"] for x in block] == list(range(n)), block
+        assert sorted((x["build"], x["duty"], x["writers"], x["readers"]) for x in block) == sorted(BAND_BLOCK)
+    assert all(w + r <= 8 for _, _, w, r in BAND_BLOCK), BAND_BLOCK
+
+    # The band takes 1.5x the twin's time in every round of the default build's
+    # W = 1, R = 0 cell and 0.9x in the ablation's; rounds differ eightfold, so
+    # only a statistic paired within the round lands on the factor.
+    base = [1.0, 5.0, 2.0, 8.0, 3.0, 7.0, 4.0, 6.0]
+
+    def owner_s(run: dict[str, Any]) -> float:
+        factor = 1.0
+        if run["duty"] == 1:
+            factor = 0.9 if run["build"] == BAND_FEATURE else 1.5
+        return base[run["round"]] * factor
+
+    cycles = BAND_CYCLES_QUICK
+    t, c = _synthetic_band_rows(rounds, owner_s, pin, cycles)
+    cells = summarize_band_cells(t, c, rounds, cycles)
+    assert len(cells) == n, len(cells)
+    excess = [band_excess(t, cells, b, w, r, rounds) for b in BAND_BUILDS for (w, r) in BAND_WR]
+    for e in excess:
+        want = 0.9 if e["build"] == BAND_FEATURE else 1.5
+        assert abs(e["ratio_mean"] - want) < 1e-9, e
+        assert e["ratio_ci_method"] in CI_METHODS and e["delta_ns_per_crossing_ci_method"] in CI_METHODS, e
+        want_delta = sum((want - 1.0) * b * 1e9 / (2 * cycles) for b in base) / rounds
+        assert abs(e["delta_ns_per_crossing_mean"] - want_delta) < 1e-3 * abs(want_delta), (e, want_delta)
+        assert not e["crossings_unattributed"], e
+    assert p24_1_verdict(excess)["verdict"] == "PASS_this_run", p24_1_verdict(excess)
+    flipped = [dict(e) for e in excess]
+    for e in flipped:
+        e["ratio_ci_lower"] = 0.95
+    assert p24_1_verdict(flipped)["verdict"] == "REFUTED_this_run"
+    band_w1 = next(x for x in cells if (x["build"], x["duty"], x["writers"], x["readers"]) == (DEFAULT_BUILD, 1, 1, 0))
+    assert band_w1["counters_total"]["branch_split_demote_u"] == rounds * cycles, band_w1["counters_total"]
+    assert band_w1["demote_u_per_owner_cycle"] == 1.0 and band_w1["upgrade_per_owner_cycle"] == 1.0, band_w1
+    assert band_w1["counters_raw"][0]["branch_split_demote_u"] == cycles, band_w1["counters_raw"][0]
+    twin_w1 = next(x for x in cells if (x["build"], x["duty"], x["writers"], x["readers"]) == (DEFAULT_BUILD, 0, 1, 0))
+    assert twin_w1["gate_wait_cycles_per_crossing"] is None and twin_w1["crossings_attributed_share"] is None, twin_w1
+
+    # A W >= 2 crossing taken by another cause: below the 0.95 floor the cell
+    # is marked unattributed, and still reported.
+    def key(x: dict[str, Any]) -> tuple[Any, ...]:
+        return (x["build"], x["duty"], x["writers"], x["readers"])
+
+    starved = [dict(x) for x in c]
+    for x in starved:
+        if key(x) == (DEFAULT_BUILD, 1, 2, 0):
+            x["fallback_causes"] = dict(x["fallback_causes"])
+            moved = x["branch_split_demote_u"] // 5
+            x["branch_split_demote_u"] -= moved
+            x["fallback_causes"]["branch_split"] -= moved
+            x["fallback_causes"]["contention"] += moved
+            x["contention_retry_exhausted"] += moved
+    cells_s = summarize_band_cells(t, starved, rounds, cycles)
+    e_s = band_excess(t, cells_s, DEFAULT_BUILD, 2, 0, rounds)
+    assert e_s["crossings_unattributed"] and e_s["crossings_attributed_share"] < BAND_CROSSING_ATTRIBUTION_FLOOR, e_s
+
+    # Refusals: a missing round, an unpaired excess, a twin that crossed, a W = 1
+    # cell whose crossings the counters do not see, a broken removal identity.
+    _expect_value_error(lambda: summarize_band_cells(t, c[1:], rounds, cycles), "counters rows cover rounds")
+    unpaired = [x for x in t if (key(x), x["round"]) != ((DEFAULT_BUILD, 0, 4, 1), 3)]
+    _expect_value_error(lambda: band_excess(unpaired, cells, DEFAULT_BUILD, 4, 1, rounds), "round 3 is unpaired")
+
+    def broken(mutate: Any) -> list[dict[str, Any]]:
+        out = [dict(x) for x in c]
+        i = next(i for i, x in enumerate(out) if mutate(out[i], probe=True))
+        mutate(out[i], probe=False)
+        return out
+
+    def twin_crossed(x: dict[str, Any], probe: bool) -> bool:
+        if probe:
+            return key(x) == (DEFAULT_BUILD, 0, 2, 1)
+        x["branch_split_demote_u"] += 1
+        x["fallback_causes"] = {**x["fallback_causes"], "branch_split": x["fallback_causes"]["branch_split"] + 1}
+        x["lock_fallbacks"] += 1
+        x["quiesce_calls"] += 1
+        x["stat_write_ops"] += 1
+        return True
+
+    _expect_value_error(lambda: summarize_band_cells(t, broken(twin_crossed), rounds, cycles), "the twin counted")
+
+    def w1_uncounted(x: dict[str, Any], probe: bool) -> bool:
+        if probe:
+            return key(x) == (BAND_FEATURE, 1, 1, 1)
+        x["branch_split_upgrade"] -= 1
+        x["fallback_causes"] = {**x["fallback_causes"], "branch_split": x["fallback_causes"]["branch_split"] - 1,
+                                "contention": x["fallback_causes"]["contention"] + 1}
+        x["contention_retry_exhausted"] += 1
+        return True
+
+    _expect_value_error(lambda: summarize_band_cells(t, broken(w1_uncounted), rounds, cycles), "at W = 1 over")
+
+    def no_removal_identity(x: dict[str, Any], probe: bool) -> bool:
+        if probe:
+            return key(x) == (DEFAULT_BUILD, 1, 4, 0)
+        x["stat_write_ops"] -= x["owner_removes"]
+        return True
+
+    _expect_value_error(lambda: summarize_band_cells(t, broken(no_removal_identity), rounds, cycles),
+                        "Stat::WriteOps")
+    env: dict[str, str] = {}
+    assert resolve_ordered_readers_pin(env, False, "--band-cells", "§24.3", "§24.4") is None
+    _expect_value_error(
+        lambda: resolve_ordered_readers_pin({"EXPANSE_BENCH_PIN": "0-15"}, False, "--band-cells", "§24.3", "§24.4"),
+        "--band-cells measures under the pin")
+
+    # The artifact, judged by the provenance gate's own functions.
+    prov = new_provenance(suite="concurrency", issue=1208, ratio="self-test", repo_root=REPO_ROOT,
+                          core_pin=pin, estimators=estimators("self-test"))
+    rel = BAND_CELLS_RESULTS_PATH.relative_to(cbp.BENCH).as_posix()
+    assert any(Path(rel).match(g) for g in cbp.ARTIFACT_GLOBS), (rel, cbp.ARTIFACT_GLOBS)
+    art = build_band_cells_artifact(prov, cells, excess, rounds, cycles, pin, quick=True)
+    assert cbp.findings_for(rel, art) == [], cbp.findings_for(rel, art)
+    void = art["band_cells"]["void"]
+    assert any("--quick" in v for v in void) and any("owner cycles" in v for v in void), void
+    unlabelled = json.loads(json.dumps(art))
+    del unlabelled["band_cells"]["excess"][0]["ratio_ci_method"]
+    assert any("construction label" in f for f in cbp.findings_for(rel, unlabelled)), "a dropped CI label must be seen"
+    unloaded = json.loads(json.dumps(art))
+    unloaded["throughput"][0]["load"] = {"foreign_busy_cpus": None}
+    assert cbp.findings_for(rel, unloaded), "a cell with no load attribution must be seen"
+    assert str(REPO_ROOT) not in json.dumps(art), "absolute repo path leaked into the artifact (AGENTS.md §7)"
+
+    # The seam: real default-build harness rows spliced into a synthetic sweep
+    # (AGENTS.md §8.20.7). The ablation build is not built here; its rows'
+    # build check is exercised by asking the default binary for it.
+    short = 3
+    wanted = {(DEFAULT_BUILD, 1, 1, 0), (DEFAULT_BUILD, 0, 1, 0), (DEFAULT_BUILD, 1, 2, 1)}
+    real_runs = [x for x in band_cells_schedule(short) if x["round"] == 0 and key(x) in wanted]
+    assert len(real_runs) == len(wanted), real_runs
+    t3, c3 = _synthetic_band_rows(short, owner_s, pin, cycles)
+    for run in real_runs:
+        rt = run_band_invocation(throughput_bin, "throughput", run, quick=True)
+        rt["load"] = t3[0]["load"]
+        rc = run_band_invocation(counters_bin, "counters", run, quick=True)
+        check_row_pins([rt, rc], pin)
+        t3 = [rt if (key(x), x["round"]) == (key(run), 0) else x for x in t3]
+        c3 = [rc if (key(x), x["round"]) == (key(run), 0) else x for x in c3]
+    cells3 = summarize_band_cells(t3, c3, short, cycles)
+    real_band = next(x for x in cells3 if key(x) == (DEFAULT_BUILD, 1, 1, 0))
+    raw = real_band["counters_raw"][0]
+    assert raw["branch_split_demote_u"] == raw["branch_split_upgrade"] == raw["owner_cycles"] == cycles, raw
+    assert real_band["rounds_raw"][0]["owner_elapsed_s"] > 0 and real_band["band_floor"] == 160, real_band
+    real_twin = next(x for x in cells3 if key(x) == (DEFAULT_BUILD, 0, 1, 0))
+    assert real_twin["counters_raw"][0]["branch_split_demote_u"] == 0, real_twin["counters_raw"][0]
+    real_rd = next(x for x in cells3 if key(x) == (DEFAULT_BUILD, 1, 2, 1))
+    assert real_rd["counters_raw"][0]["reader_ops"] > 0 and real_rd["counters_raw"][0]["overwrite_ops"] > 0, real_rd
+    mislabelled = {**real_runs[0], "build": BAND_FEATURE}
+    try:
+        run_band_invocation(throughput_bin, "throughput", mislabelled, quick=True)
+    except RuntimeError as exc:
+        assert "one_digit_band" in str(exc), exc
+    else:
+        raise AssertionError("a default-build row accepted as the ablation build")
+
+    # The harness refuses a cell it cannot run, by name.
+    for extra, needle in (
+        (["--band-cells", "--duty", "1", "--writers", "8", "--readers", "1"], "more than the"),
+        (["--band-cells", "--duty", "1", "--writers", "0"], "owner writer"),
+        (["--band-cells", "--duty", "1", "--writers", "1", "--probe", "uniform"], "not a band-cell flag"),
+        (["--band-cells", "--writers", "1"], "--duty"),
+    ):
+        proc = subprocess.run([str(throughput_bin), "--role", "throughput", *extra, "--quick"],
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
+    sys.stderr.write("Band-cell instrument PASSED\n")
 
 
 def _synthetic_readers_only_rows(
@@ -6313,6 +7037,21 @@ def self_test() -> int:
 
     # 5. Reduction test
     cells = summarize_arm("map", [1, 2], 3, t_rows_map, c_rows_map, load)
+    # DemoteU reaches the artifact (#1208): the partition check reads it, and
+    # the cell once dropped it from its totals and its counters_raw.
+    dmu_rows = [dict(r) for r in c_rows_map]
+    for r in dmu_rows:
+        r["fallback_causes"] = {**r["fallback_causes"],
+                                "branch_split": int(r["fallback_causes"]["branch_split"]) + 3}
+        r["branch_split_demote_u"] = int(r.get("branch_split_demote_u", 0)) + 3
+        r["lock_fallbacks"] = int(r["lock_fallbacks"]) + 3
+        r["quiesce_calls"] = int(r["quiesce_calls"]) + 3
+    for c in summarize_arm("map", [1, 2], 3, t_rows_map, dmu_rows, load):
+        src = [r for r in dmu_rows if int(r["writers"]) == c["writers"]]
+        assert sorted(r["branch_split_demote_u"] for r in c["counters_raw"]) == \
+            sorted(r["branch_split_demote_u"] for r in src), c["counters_raw"]
+        assert c["branch_split_subsets_total"]["demote_u"] == sum(r["branch_split_demote_u"] for r in src) > 0, c
+        assert "demote_u" in c["branch_split_subset_share"], c["branch_split_subset_share"]
     assert len(cells) == 2
     cell_w1 = cells[0]
     cell_w2 = cells[1]
@@ -6744,6 +7483,7 @@ def self_test() -> int:
     # 10. The ordered-reader instrument (#900).
     _self_test_ordered_readers(throughput_bin, counters_bin, pin)
     _self_test_count_cells(throughput_bin, counters_bin, pin)
+    _self_test_band_cells(throughput_bin, counters_bin, pin)
     _self_test_readers_only(throughput_bin, counters_bin, pin)
 
     eprintln("writer_scaling.py self-test PASSED\n")
@@ -6861,6 +7601,13 @@ def build_parser() -> argparse.ArgumentParser:
              "ratios (default output count_cells_writer_scaling.json)",
     )
     comparison.add_argument(
+        "--band-cells",
+        action="store_true",
+        help="A shared BranchU crossing its demotion floor (#1208, METHODOLOGY.md §24): build x duty x "
+             f"(W, R) cells, default build and {BAND_FEATURE}, under the pin 0,2,4,6,8,10,12,14, with "
+             "the per-crossing band excess (default output branchu_band_writer_scaling.json)",
+    )
+    comparison.add_argument(
         "--ordered-readers",
         action="store_true",
         help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
@@ -6967,6 +7714,32 @@ def main() -> int:
             )
             return 1
         return run_count_cells(args)
+
+    if args.band_cells:
+        # A sweep of its own, as `--count-cells` is.
+        conflicts = [
+            flag for flag, on in (
+                ("--diagnostic", args.diagnostic), ("--pmu", args.pmu), ("--c2c", args.c2c),
+                ("--features", args.features is not None), ("--arm", args.arm != "all"),
+                ("--writers", args.writers != "1,2,4,8"),
+            ) if on
+        ]
+        if conflicts:
+            sys.stderr.write(f"error: --band-cells does not combine with {', '.join(conflicts)}\n")
+            return 1
+        if args.rounds < 3:
+            sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
+            return 1
+        if not args.out:
+            args.out = str(BAND_CELLS_RESULTS_PATH)
+        if (args.quick and Path(args.out).resolve() in committed_result_paths()
+                and not args.force_quick_out):
+            sys.stderr.write(
+                "error: --quick output cannot overwrite committed results path "
+                f"{Path(args.out).resolve()} without --force-quick-out\n"
+            )
+            return 1
+        return run_band_cells(args)
 
     if args.ordered_readers:
         # A sweep of its own: none of the writer sweep's selectors apply, and

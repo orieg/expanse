@@ -131,6 +131,40 @@
 //! cargo run --release -p expanse-trie --example writer_scaling -- --arm map --writers <W> --readers <R> --read-op count_locked --probe <uniform|one_top_byte> [--round <r>] [--position <p>] [--quick]
 //! ```
 //!
+//! ## Band cells: a shared `BranchU` crossing its floor (#1208, `METHODOLOGY.md` §24)
+//!
+//! `--band-cells --duty <0|1> --writers W --readers R` runs one cell on a
+//! `SyncExpanseMap` whose one branch under the top byte `0x01` holds one key
+//! per second-byte digit (`band_key`). With `F` = `BRANCHU_TO_B_DOWN` and `U` =
+//! `BITMAP_TO_UNCOMPRESSED_THRESHOLD`, digits `0..F` are fixed and the band is
+//! `F..=U`, so the layout follows the build: 33 band digits by default, 2
+//! under `ablation-one-digit-band`.
+//!
+//! - **Duty 1.** The branch starts at `U + 1` digits. One owner writer runs
+//!   `--cycles` cycles (8,192; 64 under `--quick`), each removing the band's
+//!   digits in descending order, the last demoting the branch (`DemoteU`), then
+//!   reinserting them, the last promoting it (`Upgrade`): two crossings per
+//!   cycle. The self-test checks the node form after every step of a cycle.
+//! - **Duty 0, the twin.** Digits `0..U + 2` are fixed and the owner cycles as
+//!   many digits from `U + 2` upward, so the branch never reaches either
+//!   threshold.
+//! - The other W − 1 writers overwrite the values of fixed-digit keys, and the
+//!   R readers `get` fixed-digit keys, each at least once and then until the
+//!   owner joins. Every answer is checked. W + R is at most 8, one thread per
+//!   core of the pin.
+//! - Rows: `workload_id` `concurrency_branchu_band_map_64bit`, cell
+//!   `band_d<duty>_w<W>_r<R>`, the layout (`band_floor`, `band_span`,
+//!   `one_digit_band`), `owner_cycles` counted by the owner, `crossings`,
+//!   `owner_elapsed_s` (barrier release to the owner's join, measured by main)
+//!   and reader timing. A counters row adds `stat_write_ops` and is checked
+//!   against `write_ops = inserts + removes + lock_fallbacks`, the removal
+//!   identity only this mode needs. `writer_scaling.py --band-cells` drives the
+//!   cells.
+//!
+//! ```text
+//! cargo run --release -p expanse-trie [--features ablation-one-digit-band] --example writer_scaling -- --band-cells --duty <0|1> --writers <W> --readers <R> [--cycles <N>] [--round <r>] [--position <p>] [--quick]
+//! ```
+//!
 //! ## Readers-only mode on the set and string arms (#730)
 //!
 //! `--arm set` and `--arm str` with `--readers R` run the readers-only cell:
@@ -205,16 +239,16 @@
 //! |---|---|
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
-//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_bytes_overwrite`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing; a `one_top_byte` cell (#1144) prefills 2^20 keys under one top byte and inserts 2^20 fresh keys of that shape, with no hotspot keys. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key |
-//! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled; blob overwrite targets in per-writer stream draw order over a Fisher–Yates rank table |
-//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` or `count_below` under `with_locked`, over the identical stream; a `one_top_byte` cell's readers cycle permutations of its own prefill; a `count_locked` cell may run with R = 0 as its writers-only control. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle |
-//! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100% |
+//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_bytes_overwrite`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str`, `concurrency_branchu_band_map_64bit` |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing; a `one_top_byte` cell (#1144) prefills 2^20 keys under one top byte and inserts 2^20 fresh keys of that shape, with no hotspot keys. Band mode (#1208) holds one branch of 193 (duty 1) or 194 + band-span (duty 0) one-key digits under one top byte and inserts nothing it does not remove. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key |
+//! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled; blob overwrite targets in per-writer stream draw order over a Fisher–Yates rank table; band mode prefills its digits ascending and the owner removes them descending and reinserts them ascending |
+//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` or `count_below` under `with_locked`, over the identical stream; a `one_top_byte` cell's readers cycle permutations of its own prefill; a `count_locked` cell may run with R = 0 as its writers-only control. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle. Band mode: one owner writer cycles its band (or twin) digits `--cycles` times, W − 1 writers overwrite fixed-digit values and R readers `get` fixed-digit keys, each in its own Fisher–Yates order, cycled until the owner joins |
+//! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100%. Band mode: 100% — owner removals and overwrites target present keys, owner insertions absent ones, readers fixed keys; every answer is checked |
 //! | `miss_gen_method` | same-generator rejection sampling against prefill; reader probes draw no misses |
 //! | `value_dereference` | map arms check stored values against key-derived expectation; the blob arm checks payload bytes and metadata, and its overwrite cell that each read-back key holds its prefill or exactly one overwrite that targeted it; reader results fold key and value into a `black_box` accumulator |
-//! | `measured_region` | writer mode: barrier release to last-writer join; the blob overwrite cell's prefill, Zipfian table, rank draws and read-back check are outside. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time |
-//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver |
-//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, the #1144 per-round paired writer Mops/s with and without a counting reader with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters |
+//! | `measured_region` | writer mode: barrier release to last-writer join; the blob overwrite cell's prefill, Zipfian table, rank draws and read-back check are outside. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time. Band mode: barrier release to the owner's join; prefill, node-form checks, answer checks and teardown outside |
+//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver; band mode: duty 1 and its duty-0 twin at the same owner operation count, both builds, interleaved within each round by the driver |
+//! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, the #1144 per-round paired writer Mops/s with and without a counting reader with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters; band mode: the per-round paired band excess per crossing `(t_band - t_twin) / crossings` and `t_band / t_twin` with BCa 95% CIs, and DemoteU / Upgrade per owner cycle from the counters pass |
 //! | `verdict` | pending measurement |
 
 use std::collections::HashSet;
@@ -284,6 +318,9 @@ struct Counters {
     /// Reads under the writer mutex by any route: `read_locked` and
     /// `with_locked` both count here (`Stat::LockedReads`). Reader rows only.
     locked_reads: u64,
+    /// `Stat::WriteOps`: one per optimistic mutation attempt, and one more per
+    /// serialised section. Checked and emitted by band rows only.
+    write_ops_stat: u64,
 }
 
 struct PerfControl {
@@ -385,6 +422,7 @@ impl Counters {
             read_attempts: snap[Stat::ReadAttempts as usize],
             read_fallbacks: snap[Stat::ReadFallbacks as usize],
             locked_reads: snap[Stat::LockedReads as usize],
+            write_ops_stat: snap[Stat::WriteOps as usize],
         }
     }
 
@@ -434,6 +472,27 @@ impl Counters {
                     ));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// The removal identity of a band row (#1208), on top of [`Self::check`].
+    ///
+    /// No counter ticks per public removal, so the band cells count their own
+    /// (`owner_removes`) and check them through `Stat::WriteOps`: on a tree
+    /// root every public `insert` and `remove` bumps it once on entering the
+    /// optimistic path, and a fallback bumps it once more in the serialised
+    /// section it takes. So `write_ops = inserts + removes + lock_fallbacks`.
+    /// Band mode only: the other modes never remove, and their checks are
+    /// unchanged.
+    fn check_band_removes(&self, removes: u64, cell: &str) -> Result<(), String> {
+        let want = self.inserts + removes + self.lock_fallbacks;
+        if self.write_ops_stat != want {
+            return Err(format!(
+                "{cell}: Stat::WriteOps = {}, expected inserts ({}) + removes ({removes}) + \
+                 lock_fallbacks ({}) = {want}",
+                self.write_ops_stat, self.inserts, self.lock_fallbacks
+            ));
         }
         Ok(())
     }
@@ -2499,6 +2558,388 @@ fn run_str_readers_cell(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Band cells: a shared `BranchU` crossing its demotion floor (#1208,
+// docs/benchmarks/concurrency/METHODOLOGY.md §24)
+// ---------------------------------------------------------------------------
+
+/// Top byte of every band-cell key. The boundary branch is the node that
+/// decodes the second byte under it; each of its digits holds one key.
+pub const BAND_TOP_BYTE: u64 = 0x01 << 56;
+/// A branch holding more digits than this is a `BranchU`: the insert that
+/// takes a `BranchB` past it promotes the branch (`Upgrade`).
+const BAND_UP: usize = expanse_trie::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD;
+/// The demotion floor: the removal that would leave a `BranchU` holding this
+/// many digits demotes it (`DemoteU`). 160 by default, 191 under the
+/// `ablation-one-digit-band` feature.
+const BAND_FLOOR: usize = expanse_trie::types::BRANCHU_TO_B_DOWN;
+/// Digits one owner cycle removes and reinserts: `BAND_FLOOR..=BAND_UP`, so a
+/// duty-1 cycle runs the branch from `BAND_UP + 1` digits down to the floor
+/// and back, crossing the band once each way.
+const BAND_SPAN: usize = BAND_UP + 1 - BAND_FLOOR;
+/// First digit the duty-0 owner cycles. Digits `0..TWIN_LOW` are always
+/// present in a duty-0 cell, so its branch holds `TWIN_LOW` to
+/// `TWIN_LOW + BAND_SPAN` digits and never reaches either threshold.
+const TWIN_LOW: usize = BAND_UP + 2;
+const _: () = assert!(TWIN_LOW + BAND_SPAN <= expanse_trie::types::BRANCH_FANOUT);
+const _: () = assert!(TWIN_LOW > BAND_UP + 1 && BAND_FLOOR >= 2);
+/// Owner cycles per cell; `--cycles` overrides, `--quick` uses
+/// [`BAND_CYCLES_QUICK`].
+pub const BAND_CYCLES: u64 = 8192;
+/// Owner cycles per cell under `--quick`.
+pub const BAND_CYCLES_QUICK: u64 = 64;
+/// Threads a band cell may run: one per core of the eight-core §24 pin.
+pub const BAND_MAX_THREADS: usize = 8;
+/// Base of the value overwriters' key-order seeds.
+pub const SEED_BAND_WRITER: u64 = SEED_PREFILL ^ 0x5EED_C0DE_0000_1208;
+/// The band cells' row family.
+pub const BAND_WORKLOAD_ID: &str = "concurrency_branchu_band_map_64bit";
+
+/// The key of digit `d` of the boundary branch.
+fn band_key(d: usize) -> u64 {
+    BAND_TOP_BYTE | ((d as u64) << 48) | 0x42
+}
+
+/// The owner's digits for `duty`: the band itself at duty 1, the twin's
+/// digits at duty 0. Both are `BAND_SPAN` long.
+fn band_owner_digits(duty: u8) -> std::ops::Range<usize> {
+    if duty == 1 {
+        BAND_FLOOR..BAND_UP + 1
+    } else {
+        TWIN_LOW..TWIN_LOW + BAND_SPAN
+    }
+}
+
+/// Digits present when an owner cycle starts (and ends): `0..BAND_UP + 1` at
+/// duty 1, `0..TWIN_LOW + BAND_SPAN` at duty 0.
+fn band_initial_digits(duty: u8) -> std::ops::Range<usize> {
+    0..band_owner_digits(duty).end
+}
+
+/// The fixed digits' keys, which the value overwriters and the readers touch:
+/// digits `0..BAND_FLOOR`, present throughout both duties.
+fn band_fixed_keys() -> Vec<u64> {
+    (0..BAND_FLOOR).map(band_key).collect()
+}
+
+/// `BranchU` nodes in the tree, read under the writer lock. Untimed.
+fn band_branch_u_count(map: &SyncExpanseMap) -> usize {
+    map.with_locked(|m| m.stats().node_counts.branch_u)
+}
+
+/// One band cell.
+#[derive(Clone, Copy)]
+struct BandCell {
+    writers: usize,
+    readers: usize,
+    duty: u8,
+    cycles: u64,
+}
+
+impl BandCell {
+    fn label(self) -> String {
+        format!("band_d{}_w{}_r{}", self.duty, self.writers, self.readers)
+    }
+
+    /// Crossings the schedule makes: two per cycle at duty 1, none at duty 0.
+    fn crossings(self, owner_cycles: u64) -> u64 {
+        2 * owner_cycles * u64::from(self.duty)
+    }
+}
+
+/// What one band cell measured.
+struct BandOutcome {
+    /// Barrier release to the owner's join, measured by main.
+    owner_elapsed_s: f64,
+    /// The owner's own loop time.
+    owner_loop_s: f64,
+    /// Cycles the owner completed, counted by the owner.
+    owner_cycles: u64,
+    owner_removes: u64,
+    owner_inserts: u64,
+    overwrite_ops: u64,
+    reader_ops: u64,
+    /// Barrier release to the last reader's join; `None` at R = 0.
+    reader_elapsed_s: Option<f64>,
+    thread_elapsed_s: Vec<f64>,
+    final_pop: u64,
+    branch_u_after: usize,
+    counters: Counters,
+}
+
+/// The owner thread's own tally.
+#[derive(Default)]
+struct OwnerTally {
+    cycles: u64,
+    removes: u64,
+    inserts: u64,
+    wrong: u64,
+    secs: f64,
+}
+
+/// What the threads of a band cell returned, before the untimed checks.
+struct BandThreads {
+    owner_elapsed_s: f64,
+    owner: OwnerTally,
+    overwrite_ops: u64,
+    overwrite_wrong: u64,
+    reader_ops: u64,
+    reader_misses: u64,
+    reader_elapsed_s: Option<f64>,
+    thread_elapsed_s: Vec<f64>,
+}
+
+/// Seeds one value overwriter's key order: `SEED_BAND_WRITER ^ w * φ64`, for
+/// writer `w >= 1` (writer 0 is the owner).
+fn band_overwriter_seed(w: usize) -> u64 {
+    SEED_BAND_WRITER ^ (w as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+}
+
+fn run_band_cell(
+    cell: BandCell,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> Result<BandOutcome, String> {
+    let ctx = format!("{} round {round}", cell.label());
+    if cell.writers == 0 {
+        return Err(format!(
+            "{ctx}: a band cell needs the owner writer (W >= 1)"
+        ));
+    }
+    if cell.writers + cell.readers > BAND_MAX_THREADS {
+        return Err(format!(
+            "{ctx}: W + R = {} threads, more than the {BAND_MAX_THREADS} cores of the pin",
+            cell.writers + cell.readers
+        ));
+    }
+    if cell.duty > 1 || cell.cycles == 0 {
+        return Err(format!(
+            "{ctx}: duty {} and {} cycles (duty is 0 or 1, cycles at least 1)",
+            cell.duty, cell.cycles
+        ));
+    }
+    let map = SyncExpanseMap::new();
+    let initial = band_initial_digits(cell.duty);
+    for d in initial.clone() {
+        let k = band_key(d);
+        map.insert(k, value_of(k));
+    }
+    let initial_pop = initial.len() as u64;
+    // Both duties start and end every cycle with the boundary branch a
+    // `BranchU`; checked here, before the counters are reset.
+    let branch_u_before = band_branch_u_count(&map);
+    if branch_u_before != 1 {
+        return Err(format!(
+            "{ctx}: {branch_u_before} BranchU nodes after the prefill of {initial_pop} digits, \
+             expected 1"
+        ));
+    }
+    let owner_keys: Vec<u64> = band_owner_digits(cell.duty).map(band_key).collect();
+    let fixed = band_fixed_keys();
+    let overwriter_orders: Vec<Vec<u64>> = (1..cell.writers)
+        .map(|w| {
+            let mut v = fixed.clone();
+            fisher_yates(&mut v, band_overwriter_seed(w));
+            v
+        })
+        .collect();
+    let reader_orders: Vec<Vec<u64>> = (0..cell.readers)
+        .map(|r| {
+            let mut v = fixed.clone();
+            fisher_yates(&mut v, reader_seed(r));
+            v
+        })
+        .collect();
+    let stop = AtomicBool::new(false);
+    let barrier = Barrier::new(cell.writers + cell.readers + 1);
+
+    // Nothing but the cell's own threads runs between here and the snapshot.
+    if is_counters {
+        occ_stats::reset();
+    }
+
+    let t = std::thread::scope(|s| {
+        let m = &map;
+        let b = &barrier;
+        let stop = &stop;
+        let owner_keys = owner_keys.as_slice();
+        let owner = s.spawn(move || {
+            let mut tally = OwnerTally::default();
+            b.wait();
+            let t0 = Instant::now();
+            for _ in 0..cell.cycles {
+                for &k in owner_keys.iter().rev() {
+                    if m.remove(black_box(k)) != Some(value_of(k)) {
+                        tally.wrong += 1;
+                    }
+                    tally.removes += 1;
+                }
+                for &k in owner_keys {
+                    if m.insert(black_box(k), value_of(k)).is_some() {
+                        tally.wrong += 1;
+                    }
+                    tally.inserts += 1;
+                }
+                tally.cycles += 1;
+            }
+            tally.secs = t0.elapsed().as_secs_f64();
+            tally
+        });
+        let overwriters: Vec<_> = overwriter_orders
+            .iter()
+            .map(|keys| {
+                let keys = keys.as_slice();
+                s.spawn(move || {
+                    b.wait();
+                    let (mut ops, mut wrong, mut i) = (0u64, 0u64, 0usize);
+                    // At least one overwrite, then until the owner joins: a
+                    // short cell's owner can finish before this thread is
+                    // scheduled, and a cell with W - 1 idle writers is not the
+                    // cell its row names.
+                    loop {
+                        let k = keys[i];
+                        // An overwrite of a present key: the digit count never
+                        // changes, so no crossing is this thread's.
+                        if m.insert(black_box(k), value_of(k)) != Some(value_of(k)) {
+                            wrong += 1;
+                        }
+                        ops += 1;
+                        i += 1;
+                        if i == keys.len() {
+                            i = 0;
+                        }
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    (ops, wrong)
+                })
+            })
+            .collect();
+        let readers: Vec<_> = reader_orders
+            .iter()
+            .map(|keys| {
+                let keys = keys.as_slice();
+                s.spawn(move || {
+                    let rd = m.reader();
+                    b.wait();
+                    let t0 = Instant::now();
+                    // At least one probe, then until the owner joins, for the
+                    // reason the overwriters give; every answer is folded into
+                    // a `black_box`ed sink (AGENTS.md §8.6).
+                    let (mut n, mut misses, mut sink, mut i) = (0u64, 0u64, 0u64, 0usize);
+                    loop {
+                        match rd.get(keys[i]) {
+                            Some(v) => sink = sink.wrapping_add(v),
+                            None => misses += 1,
+                        }
+                        n += 1;
+                        i += 1;
+                        if i == keys.len() {
+                            i = 0;
+                        }
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    black_box(sink);
+                    (n, misses, t0.elapsed().as_secs_f64())
+                })
+            })
+            .collect();
+
+        perf_ctl.enable();
+        b.wait();
+        let start = Instant::now();
+        let guard = StopOnDrop(stop);
+        let owner = owner.join().expect("owner thread panicked");
+        let owner_elapsed_s = start.elapsed().as_secs_f64();
+        drop(guard);
+        let (mut overwrite_ops, mut overwrite_wrong) = (0u64, 0u64);
+        for h in overwriters {
+            let (ops, wrong) = h.join().expect("overwriter thread panicked");
+            overwrite_ops += ops;
+            overwrite_wrong += wrong;
+        }
+        let (mut reader_ops, mut reader_misses) = (0u64, 0u64);
+        let mut thread_elapsed_s = Vec::with_capacity(cell.readers);
+        for h in readers {
+            let (n, misses, secs) = h.join().expect("reader thread panicked");
+            reader_ops += n;
+            reader_misses += misses;
+            thread_elapsed_s.push(secs);
+        }
+        BandThreads {
+            owner_elapsed_s,
+            owner,
+            overwrite_ops,
+            overwrite_wrong,
+            reader_ops,
+            reader_misses,
+            reader_elapsed_s: (cell.readers > 0).then(|| start.elapsed().as_secs_f64()),
+            thread_elapsed_s,
+        }
+    });
+    perf_ctl.disable();
+
+    let counters = Counters::read(is_counters);
+    if t.owner.wrong + t.overwrite_wrong + t.reader_misses != 0 {
+        return Err(format!(
+            "{ctx}: {} owner answers, {} overwrite answers and {} reader probes disagreed with \
+             the schedule",
+            t.owner.wrong, t.overwrite_wrong, t.reader_misses
+        ));
+    }
+    let span = BAND_SPAN as u64;
+    if t.owner.cycles != cell.cycles
+        || t.owner.removes != cell.cycles * span
+        || t.owner.inserts != cell.cycles * span
+    {
+        return Err(format!(
+            "{ctx}: the owner counted {} cycles, {} removals and {} insertions; the schedule is \
+             {} cycles of {span} each",
+            t.owner.cycles, t.owner.removes, t.owner.inserts, cell.cycles
+        ));
+    }
+    if cell.readers > 0 && t.reader_ops == 0 {
+        return Err(format!("{ctx}: the readers made no probes"));
+    }
+    let final_pop = map.len();
+    if final_pop != initial_pop {
+        return Err(format!(
+            "{ctx}: population {final_pop} after the cell, expected {initial_pop}"
+        ));
+    }
+    let branch_u_after = band_branch_u_count(&map);
+    if branch_u_after != 1 {
+        return Err(format!(
+            "{ctx}: {branch_u_after} BranchU nodes after the cell, expected 1"
+        ));
+    }
+    let reader = map.reader();
+    for d in initial {
+        let k = band_key(d);
+        if reader.get(k) != Some(value_of(k)) {
+            return Err(format!("{ctx}: key {k:#x} lost or changed"));
+        }
+    }
+    Ok(BandOutcome {
+        owner_elapsed_s: t.owner_elapsed_s,
+        owner_loop_s: t.owner.secs,
+        owner_cycles: t.owner.cycles,
+        owner_removes: t.owner.removes,
+        owner_inserts: t.owner.inserts,
+        overwrite_ops: t.overwrite_ops,
+        reader_ops: t.reader_ops,
+        reader_elapsed_s: t.reader_elapsed_s,
+        thread_elapsed_s: t.thread_elapsed_s,
+        final_pop,
+        branch_u_after,
+        counters,
+    })
+}
+
 /// Per-thread loop times as a JSON array.
 fn f64_array_json(v: &[f64]) -> String {
     let items: Vec<String> = v.iter().map(|x| format!("{x:.6}")).collect();
@@ -2849,6 +3290,124 @@ fn readers_only_main(
                  \"reader_mops\":{reader_mops:.6},\"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
                  \"population_after\":{final_pop}}}",
                 te = f64_array_json(&out.thread_elapsed_s),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Band mode (#1208, METHODOLOGY §24): one (duty, W, R) cell over `--round` or
+/// `--rounds`. Every flag another mode owns is refused by name rather than
+/// ignored, so a row cannot describe a cell that did not run (AGENTS.md §8.1).
+fn band_main(args: &[String], is_counters: bool) -> Result<(), String> {
+    for flag in [
+        "--read-op",
+        "--probe",
+        "--blob-op",
+        "--bytes-op",
+        "--key-dist",
+    ] {
+        if args.iter().any(|a| a == flag) {
+            return Err(format!("{flag} is not a band-cell flag"));
+        }
+    }
+    let arm = flag_value(args, "--arm")?.unwrap_or("map");
+    if arm != "map" {
+        return Err(format!(
+            "--band-cells runs the map arm only, got --arm {arm}"
+        ));
+    }
+    let writers: usize = parse_flag(args, "--writers")?
+        .ok_or_else(|| "--band-cells needs --writers <W>, a single count >= 1".to_string())?;
+    let readers: usize = parse_flag(args, "--readers")?.unwrap_or(0);
+    let duty: u8 =
+        parse_flag(args, "--duty")?.ok_or_else(|| "--band-cells needs --duty <0|1>".to_string())?;
+    let is_quick = args.iter().any(|a| a == "--quick");
+    let cycles: u64 = parse_flag(args, "--cycles")?.unwrap_or(if is_quick {
+        BAND_CYCLES_QUICK
+    } else {
+        BAND_CYCLES
+    });
+    let position: usize = parse_flag(args, "--position")?.unwrap_or(0);
+    let rounds: usize = parse_flag(args, "--rounds")?.unwrap_or(8);
+    let (round_start, round_end) = match parse_flag::<usize>(args, "--round")? {
+        Some(r) => (r, r + 1),
+        None => (0, rounds),
+    };
+    let cell = BandCell {
+        writers,
+        readers,
+        duty,
+        cycles,
+    };
+    let label = cell.label();
+    let tsc_hz = occ_stats::cycles_hz(std::time::Duration::from_millis(200));
+    let mut perf_ctl = PerfControl::new(
+        flag_value(args, "--perf-ctl-fifo")?,
+        flag_value(args, "--perf-ack-fifo")?,
+    );
+    let pin = cpu_pin_json();
+    let one_digit = cfg!(feature = "ablation-one-digit-band");
+    let shape = format!(
+        "\"keyspace_bits\":64,\"band_floor\":{BAND_FLOOR},\"band_up\":{BAND_UP},\
+         \"band_span\":{BAND_SPAN},\"twin_low\":{TWIN_LOW},\"one_digit_band\":{one_digit},\
+         \"fixed_digits\":{BAND_FLOOR},\"duty\":{duty},\"writers\":{writers},\"readers\":{readers}"
+    );
+    for round in round_start..round_end {
+        let out = run_band_cell(cell, round, is_counters, &mut perf_ctl)?;
+        let crossings = cell.crossings(out.owner_cycles);
+        let owner_ops = out.owner_removes + out.owner_inserts;
+        let common = format!(
+            "\"workload_id\":\"{BAND_WORKLOAD_ID}\",\"arm\":\"expanse\",\"cell\":\"{label}\",{shape},\
+             \"round\":{round},\"position\":{position},\"cycles\":{cycles},\
+             \"owner_cycles\":{oc},\"crossings\":{crossings},\"owner_ops\":{owner_ops},\
+             \"owner_removes\":{orm},\"owner_inserts\":{oin},\"overwrite_ops\":{ow},\
+             \"reader_ops\":{rops},\"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
+             \"population_after\":{pop},\"branch_u_after\":{bu}",
+            oc = out.owner_cycles,
+            orm = out.owner_removes,
+            oin = out.owner_inserts,
+            ow = out.overwrite_ops,
+            rops = out.reader_ops,
+            pop = out.final_pop,
+            bu = out.branch_u_after,
+        );
+        if is_counters {
+            let ctx = format!("{label} round {round}");
+            out.counters.check(
+                out.owner_inserts + out.overwrite_ops,
+                out.counters.locked_reads,
+                &ctx,
+            )?;
+            out.counters.check_band_removes(out.owner_removes, &ctx)?;
+            out.counters
+                .check_reader(ReadOp::Get, out.reader_ops, &ctx)?;
+            println!(
+                "{{{common},\"role\":\"counters\",\"stat_write_ops\":{wo},\
+                 \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},{reads},\
+                 \"fallback_causes\":{causes}}}",
+                wo = out.counters.write_ops_stat,
+                fb = out.counters.lock_fallbacks,
+                ins = out.counters.inserts,
+                extra = out.counters.extra_counters_json(),
+                reads = out.counters.reader_counters_json(),
+                causes = out.counters.causes_json(),
+            );
+        } else {
+            let reader_mops = out
+                .reader_elapsed_s
+                .map(|e| out.reader_ops as f64 / e / 1e6);
+            println!(
+                "{{{common},\"role\":\"throughput\",\"owner_elapsed_s\":{oe:.6},\
+                 \"owner_loop_s\":{ol:.6},\"ns_per_cycle\":{npc:.3},\
+                 \"reader_elapsed_s\":{re},\"reader_thread_elapsed_s\":{te},\
+                 \"reader_mops\":{rm}}}",
+                oe = out.owner_elapsed_s,
+                ol = out.owner_loop_s,
+                npc = out.owner_elapsed_s * 1e9 / out.owner_cycles as f64,
+                re = opt_f64_json(out.reader_elapsed_s),
+                te = f64_array_json(&out.thread_elapsed_s),
+                rm = opt_f64_json(reader_mops),
             );
         }
     }
@@ -3473,6 +4032,8 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         }
     }
 
+    band_self_test(is_counters, &mut dummy_ctl)?;
+
     let mode_str = if is_counters {
         "counters"
     } else {
@@ -3523,6 +4084,134 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     }
 
     eprintln!("writer_scaling {mode_str} self-test PASSED");
+    Ok(())
+}
+
+/// The band cells' self-test (#1208): the schedule crosses the band exactly
+/// once each way per duty-1 cycle and never at duty 0, checked on the tree's
+/// node forms; the cells run and satisfy their identities; and the counters
+/// build sees one `DemoteU` and one `Upgrade` per duty-1 cycle at W = 1.
+fn band_self_test(is_counters: bool, ctl: &mut PerfControl) -> Result<(), String> {
+    // The layout the constants derive, in both builds.
+    let one_digit = cfg!(feature = "ablation-one-digit-band");
+    let (floor, span) = if one_digit { (191, 2) } else { (160, 33) };
+    if (BAND_FLOOR, BAND_SPAN, BAND_UP) != (floor, span, 192) {
+        return Err(format!(
+            "band layout: floor {BAND_FLOOR}, span {BAND_SPAN}, up {BAND_UP}; this build \
+             (one_digit_band = {one_digit}) derives {floor}, {span}, 192"
+        ));
+    }
+    // The node forms along one cycle of each duty, from the harness's own
+    // digit ranges: a duty-1 cycle demotes on its last removal and promotes
+    // on its last insertion; a duty-0 cycle does neither.
+    for duty in [1u8, 0] {
+        let map = SyncExpanseMap::new();
+        for d in band_initial_digits(duty) {
+            map.insert(band_key(d), value_of(band_key(d)));
+        }
+        let owner: Vec<usize> = band_owner_digits(duty).collect();
+        let crossing = u8::from(duty == 1);
+        for (i, &d) in owner.iter().rev().enumerate() {
+            map.remove(band_key(d));
+            let want = if i + 1 == owner.len() {
+                1 - crossing
+            } else {
+                1
+            };
+            if band_branch_u_count(&map) != usize::from(want) {
+                return Err(format!(
+                    "band duty {duty}: after removing digit {d} ({} of {}) the tree holds {} \
+                     BranchU nodes, expected {want}",
+                    i + 1,
+                    owner.len(),
+                    band_branch_u_count(&map)
+                ));
+            }
+        }
+        for (i, &d) in owner.iter().enumerate() {
+            map.insert(band_key(d), value_of(band_key(d)));
+            let want = if i + 1 == owner.len() {
+                1
+            } else {
+                1 - crossing
+            };
+            if band_branch_u_count(&map) != usize::from(want) {
+                return Err(format!(
+                    "band duty {duty}: after reinserting digit {d} ({} of {}) the tree holds {} \
+                     BranchU nodes, expected {want}",
+                    i + 1,
+                    owner.len(),
+                    band_branch_u_count(&map)
+                ));
+            }
+        }
+    }
+    // The cells, and their identities.
+    let cycles = 4;
+    for (duty, writers, readers) in [(1u8, 1, 0), (0, 1, 0), (1, 2, 1), (0, 2, 1)] {
+        let cell = BandCell {
+            writers,
+            readers,
+            duty,
+            cycles,
+        };
+        let ctx = format!("self-test {}", cell.label());
+        let out = run_band_cell(cell, 0, is_counters, ctl).map_err(|e| format!("{ctx}: {e}"))?;
+        if cell.crossings(out.owner_cycles) != 2 * cycles * u64::from(duty) {
+            return Err(format!("{ctx}: crossings do not follow the duty"));
+        }
+        if is_counters {
+            out.counters.check(
+                out.owner_inserts + out.overwrite_ops,
+                out.counters.locked_reads,
+                &ctx,
+            )?;
+            out.counters.check_band_removes(out.owner_removes, &ctx)?;
+            out.counters
+                .check_reader(ReadOp::Get, out.reader_ops, &ctx)?;
+            let (dmu, upg) = (
+                out.counters.branch_split_demote_u,
+                out.counters.branch_split_upgrade,
+            );
+            let want = cycles * u64::from(duty);
+            if writers == 1 && (dmu, upg) != (want, want) {
+                return Err(format!(
+                    "{ctx}: DemoteU {dmu} and Upgrade {upg} at W = 1, expected {want} each"
+                ));
+            }
+            if duty == 0 && (dmu, upg) != (0, 0) {
+                return Err(format!(
+                    "{ctx}: DemoteU {dmu} and Upgrade {upg} on the twin, expected none"
+                ));
+            }
+        } else if out.owner_elapsed_s <= 0.0 || out.owner_loop_s <= 0.0 {
+            return Err(format!(
+                "{ctx}: owner elapsed {} and loop {}",
+                out.owner_elapsed_s, out.owner_loop_s
+            ));
+        }
+        if readers > 0 && (out.reader_ops == 0 || out.reader_elapsed_s.is_none()) {
+            return Err(format!("{ctx}: no reader probes or reader time"));
+        }
+    }
+    // Refused by name: no owner, and more threads than the pin has cores.
+    for (writers, readers, needle) in [(0, 1, "owner writer"), (8, 1, "more than the")] {
+        let cell = BandCell {
+            writers,
+            readers,
+            duty: 1,
+            cycles,
+        };
+        match run_band_cell(cell, 0, is_counters, ctl) {
+            Err(e) if e.contains(needle) => {}
+            Err(e) => return Err(format!("band W={writers} R={readers}: wrong refusal {e}")),
+            Ok(_) => {
+                return Err(format!(
+                    "band W={writers} R={readers} ran; expected a refusal"
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -3589,6 +4278,15 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // Band mode (#1208, METHODOLOGY §24) is a separate row family.
+    if args.iter().any(|a| a == "--band-cells") {
+        if let Err(e) = band_main(&args, is_counters) {
+            eprintln!("band mode: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     // Reader mode (#900) is a separate row family; without `--readers` (or
     // with `--readers 0`) everything below is the writer sweep, unchanged.

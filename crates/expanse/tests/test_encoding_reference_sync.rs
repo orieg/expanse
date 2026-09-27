@@ -57,6 +57,18 @@ use expanse_trie::types::{
 };
 use expanse_trie::types32::{CACHE_LINE_32, Edge32, MAX_LEVEL_32, Tag32};
 
+/// The `BranchU` demotion floor the documents publish. It is the compiled
+/// floor, except under the diagnostic `ablation-one-digit-band` feature, which
+/// compiles the one-digit band #1221 widened (AGENTS.md §2.7) while every
+/// document describes the default: there the published value is the
+/// default's derivation, and the compiled floor is pinned to the ablation's.
+#[cfg(not(feature = "ablation-one-digit-band"))]
+const PUBLISHED_BRANCHU_TO_B_DOWN: usize = BRANCHU_TO_B_DOWN;
+#[cfg(feature = "ablation-one-digit-band")]
+const PUBLISHED_BRANCHU_TO_B_DOWN: usize = BITMAP_TO_UNCOMPRESSED_THRESHOLD - 32;
+#[cfg(feature = "ablation-one-digit-band")]
+const _: () = assert!(BRANCHU_TO_B_DOWN == BITMAP_TO_UNCOMPRESSED_THRESHOLD - 1);
+
 // ---------------------------------------------------------------------------
 // Shared helpers (mirroring `test_visualizer_sync.rs`)
 // ---------------------------------------------------------------------------
@@ -236,7 +248,7 @@ fn pinned_constants() -> BTreeMap<&'static str, u64> {
         "BITMAP_TO_UNCOMPRESSED_THRESHOLD",
         BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64,
     );
-    m.insert("BRANCHU_TO_B_DOWN", BRANCHU_TO_B_DOWN as u64);
+    m.insert("BRANCHU_TO_B_DOWN", PUBLISHED_BRANCHU_TO_B_DOWN as u64);
     m.insert("LEAF1_CAP", LEAF1_CAP as u64);
     m.insert("LEAFB1_DOWN", LEAFB1_DOWN as u64);
     m.insert("LEAF_CAP", LEAF_CAP as u64);

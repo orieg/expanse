@@ -80,8 +80,8 @@ pub const BRANCHB_TO_L7_DOWN: usize = BRANCH_L7_CAP - 1;
 /// uncompressed (flat 256-slot) branch.
 pub const BITMAP_TO_UNCOMPRESSED_THRESHOLD: usize = 192;
 
-/// Demotion threshold from BranchU to BranchB (32-digit hysteresis band: 192 up / 160 down; `docs/ARCHITECTURE.md` §4.2).
-pub const BRANCHU_TO_B_DOWN: usize = BITMAP_TO_UNCOMPRESSED_THRESHOLD - 32;
+/// Demotion threshold from BranchU to BranchB (`BRANCHU_BAND_WIDTH` = 32-digit band: 192 up / 160 down; `docs/ARCHITECTURE.md` §4.2).
+pub const BRANCHU_TO_B_DOWN: usize = BITMAP_TO_UNCOMPRESSED_THRESHOLD - BRANCHU_BAND_WIDTH;
 
 /// Bytes available inside a 16-byte edge for immediately stored keys
 /// (payload word + decode/pop bytes, excluding the 1-byte type tag).
@@ -326,6 +326,15 @@ pub const fn digit(key: Key, level: u8) -> u8 {
     debug_assert!(level >= 1 && level <= MAX_LEVEL);
     (key >> ((level - 1) * 8)) as u8
 }
+
+/// Width in digits of the `BranchU` -> `BranchB` hysteresis band below
+/// [`BITMAP_TO_UNCOMPRESSED_THRESHOLD`]: 32 by default (#1221). The diagnostic
+/// `ablation-one-digit-band` feature restores the one-digit band #1221
+/// widened, so the widened default can itself be ablated (AGENTS.md §2.7).
+#[cfg(not(feature = "ablation-one-digit-band"))]
+const BRANCHU_BAND_WIDTH: usize = 32;
+#[cfg(feature = "ablation-one-digit-band")]
+const BRANCHU_BAND_WIDTH: usize = 1;
 
 // Layout invariants the rest of the implementation relies on.
 const _: () = assert!(size_of::<usize>() == 8, "64-bit targets only");
