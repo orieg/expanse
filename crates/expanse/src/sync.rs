@@ -1171,15 +1171,20 @@ pub(crate) mod fold_edges {
     }
 }
 
-/// The non-null slots of a `BranchU`, each read with the shared edge load,
-/// then an acquire fence: what [`null_branch_u_slot`] decides the floor
-/// from before it locks the branch. The loads may race a writer. A count
-/// they tear is rejected by the lock's compare-exchange from the descent's
-/// snapshot (the fence orders every load before it, as
-/// [`crate::occ::node_validate`]'s does), or it only makes the removal fall
-/// back, which is always safe. All 256 slots, including the one the caller
-/// is about to null. Out of line and cold, so a removal body carries one
-/// call on its null-store branch, and no plain-tree path reaches it.
+/// The non-null slots of a `BranchU`, counted up to `cap`: the scan stops
+/// once it has seen `cap` of them, so the result is the exact count when it
+/// is below `cap` and `cap` otherwise. What [`null_branch_u_slot`] decides
+/// the floor from before it locks the branch, where only whether the count
+/// exceeds the floor matters. Each slot's `aux`/tag word is read with the
+/// shared word load (the tag is its high byte, `Edge::aux_word`), then an
+/// acquire fence; word 0 is not needed to tell a null edge. The loads may
+/// race a writer. A count they tear is rejected by the lock's
+/// compare-exchange from the descent's snapshot (the fence orders every
+/// load before it, as [`crate::occ::node_validate`]'s does), or it only
+/// makes the removal fall back, which is always safe. The slot the caller
+/// is about to null is counted. Out of line and cold, so a removal body
+/// carries one call on its null-store branch, and no plain-tree path
+/// reaches it.
 ///
 /// # Safety
 ///
@@ -1189,21 +1194,26 @@ pub(crate) mod fold_edges {
 /// pin taken before the retirement is released. The pointer carries write
 /// provenance (it comes from an edge's node pointer, never from a shared
 /// reference), which the shared load needs to form atomic views of the
-/// edges. Nothing else is required: the node's contents may change during
+/// words. Nothing else is required: the node's contents may change during
 /// the scan, and the caller's lock by snapshot rejects a count they tore.
 #[cfg(feature = "std")]
 #[cold]
 #[inline(never)]
-unsafe fn branch_u_digits_shared(node: *mut BranchU) -> usize {
+unsafe fn branch_u_digits_shared(node: *mut BranchU, cap: usize) -> usize {
     // SAFETY: `node` is non-null and its allocation is live (contract); the
     // place projection reads no memory.
     let edges = unsafe { (&raw mut (*node).edges).cast::<Edge>() };
     let mut n = 0usize;
     for i in 0..BRANCH_FANOUT {
-        // SAFETY: `i < BRANCH_FANOUT`: a 16-aligned edge inside the live
-        // branch's edge array, reached from a pointer with write provenance.
-        if !unsafe { Edge::load_at::<true>(edges.add(i)) }.is_null() {
+        // SAFETY: `i < BRANCH_FANOUT`: the second 8-aligned word of a
+        // 16-aligned edge inside the live branch's edge array, reached from
+        // a pointer with write provenance.
+        let aux = unsafe { shared_word::load::<true>(edges.add(i).cast::<u64>().add(1)) };
+        if aux.to_ne_bytes()[7] != EdgeType::Null as u8 {
             n += 1;
+            if n == cap {
+                break;
+            }
         }
     }
     core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
@@ -1224,9 +1234,11 @@ unsafe fn branch_u_digits_shared(node: *mut BranchU) -> usize {
 /// branch. The sequence:
 ///
 /// 1. Count the branch's non-null slots ([`branch_u_digits_shared`]) before
-///    any lock. If nulling one would leave the branch at or below the floor
-///    ([`crate::mutate::branch_u_below_floor`]), fall back without locking.
-///    A count a concurrent writer tore can only cause a spurious fallback.
+///    any lock, stopping two past the floor: that is enough to tell whether
+///    nulling one would leave the branch at or below the floor
+///    ([`crate::mutate::branch_u_below_floor`]), and if it would, fall back
+///    without locking. A count a concurrent writer tore can only cause a
+///    spurious fallback.
 /// 2. Otherwise lock the branch by compare-exchange from the version the
 ///    descent sampled. Success validates the count. Every change of a
 ///    `BranchU` slot between null and non-null is a store under that
@@ -1262,6 +1274,8 @@ unsafe fn null_branch_u_slot<T, R>(
 ) -> Result<R, OlcOutcome<T>> {
     debug_assert_eq!(parent.edge_type, EdgeType::BranchU);
     let branch = parent.node.cast::<BranchU>();
+    // The count is capped two past the floor: a branch holding more digits
+    // reads as that many, and nulling one still leaves it above the floor.
     // SAFETY: `parent` is `ancestors[anc_depth - 1]` with `anc_depth >= 1`
     // (every caller returns before this on `anc_depth == 0`), so it is a
     // frame the descent wrote, not one of the array's null placeholders:
@@ -1271,10 +1285,15 @@ unsafe fn null_branch_u_slot<T, R>(
     // pointer has the edge's write provenance. The version snapshot is not
     // what keeps the memory valid; it is what the lock below checks the
     // count against.
-    let digits = unsafe { branch_u_digits_shared(branch) };
+    let digits = unsafe { branch_u_digits_shared(branch, crate::types::BRANCHU_TO_B_DOWN + 2) };
     if crate::mutate::branch_u_below_floor(digits.saturating_sub(1)) {
         return Err(branch_split(BranchSplitKind::DemoteU));
     }
+    // The exact count, for the check after the store: read before the lock,
+    // like the capped one, so the lock validates it the same way.
+    #[cfg(debug_assertions)]
+    // SAFETY: as for the capped count above.
+    let exact = unsafe { branch_u_digits_shared(branch, BRANCH_FANOUT) };
     // SAFETY: version cell is within an EBR-live node allocation.
     let p_cell = unsafe { crate::occ::version_cell(parent.version_ptr) };
     let Ok((old_v, lock_t0)) = version_try_lock_expect_timed(p_cell, parent.version_snap) else {
@@ -1292,10 +1311,11 @@ unsafe fn null_branch_u_slot<T, R>(
     unsafe { Edge::store_at::<true>(edge_ptr, Edge::NULL) };
     // The lock validated the count (step 2): the branch holds exactly one
     // digit fewer, above the floor, so in particular it is not all null.
+    #[cfg(debug_assertions)]
     debug_assert_eq!(
         // SAFETY: as for the count above; the branch is now locked.
-        unsafe { branch_u_digits_shared(branch) },
-        digits - 1,
+        unsafe { branch_u_digits_shared(branch, BRANCH_FANOUT) },
+        exact - 1,
         "a BranchU slot changed between null and non-null without its version lock"
     );
     version_unlock_timed(p_cell, old_v, true, lock_t0);
