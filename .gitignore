@@ -44,8 +44,13 @@ docs/benchmarks/*/results/quick/
 # Local git worktrees
 /.worktrees/
 
-# Local agent metadata / plans
-/.claude/
+# Local agent metadata / plans. The discipline hooks (settings.json and its
+# bootstrap script) are shared configuration and are tracked.
+/.claude/*
+!/.claude/settings.json
+!/.claude/hooks/
+/.claude/hooks/*
+!/.claude/hooks/discipline-bootstrap.sh
 /scratch/
 
 integrations/stm32h747/*.elf
