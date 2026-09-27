@@ -1510,14 +1510,33 @@ jobs:
               BYTES32_ARGS="--bytes32 bytes-per-key-32.txt"
             fi
 
+            # A base the dispatcher named explicitly (`base_ref` input) that
+            # counted 0 instructions is fatal: that comparison was the point of
+            # the run (#1216, run 36265221866 rendered 133 zero-count base arms
+            # as a green gate). An auto-resolved merge base follows ci.yml's
+            # policy instead and degrades to a loud NO BASELINE.
+            ZERO_BASE=no-baseline
+            [ -n "$BASE_REF_IN" ] && ZERO_BASE=fatal
+            # `set +e` around the report: the step shell carries -e, and an
+            # integrity failure must still write the report the terminal
+            # comment step posts before the step fails with it.
+            set +e
             python3 scripts/perf_report.py \
               --head head-instructions.txt \
               $BASE_ARGS \
+              --zero-base "$ZERO_BASE" \
               $HEAD_TO_HEAD_ARGS \
               $BYTES_ARGS \
               $BYTES32_ARGS \
               $VS_STOCK_ARGS \
               > baremetal-report.md
+            REPORT_STATUS=$?
+            set -e
+            if [ "$REPORT_STATUS" -ne 0 ]; then
+              echo "::error::perf_report.py found an integrity failure in the Callgrind output (zero counts, empty or crashed pass); see the report"
+              echo "fail_reason=callgrind_integrity" >> "$GITHUB_OUTPUT"
+              INTEGRITY_FAIL=1
+            fi
           fi
 
           # Per-run Callgrind artifact (#382 item 8). `bench_baseline.py
@@ -1643,6 +1662,12 @@ jobs:
             if [ -f system-load.md ]; then
               cat system-load.md >> "$GITHUB_STEP_SUMMARY"
             fi
+          fi
+
+          # Integrity failures found above are raised only now, after the
+          # report exists, so the terminal comment step can post it.
+          if [ "${INTEGRITY_FAIL:-0}" -ne 0 ]; then
+            exit 1
           fi
 
       # The baseline artifact is the committable half of a wall-clock claim
@@ -1895,6 +1920,10 @@ jobs:
               let icon = '❌';
               let label = 'no results';
               let cause;
+              // Integrity failures ran to completion: the report exists and
+              // shows what was wrong, so it is posted under the failure
+              // notice rather than dropped (#1211, #1212, #1216).
+              let attachReport = false;
               if (cancelled) {
                 icon = '🛑';
                 label = 'cancelled';
@@ -1942,6 +1971,17 @@ jobs:
                   '',
                   'That is a repository fault, not a request fault. `scripts/check_bench_suites.py` is the guard that should have caught it before merge.',
                 ].join('\n');
+              } else if (reason === 'callgrind_integrity') {
+                label = 'integrity failure';
+                cause = 'The benchmarks ran, but the **Callgrind output failed an integrity check** — a pass counted 0 instructions, or parsed empty or partial. Those counts are not measurements and nothing below is a valid comparison. The report names the pass and the arms.';
+                attachReport = true;
+              } else if (reason.startsWith('no_results:')) {
+                label = 'integrity failure';
+                cause = `The benchmark step exited cleanly, but its output holds **no result line** matching suite \`${suite}\`'s declared \`result_pattern\` in \`.github/bench-suites.json\`. A run that printed no results measured nothing. The captured output is below.`;
+                attachReport = true;
+              } else if (reason === 'stale_output') {
+                label = 'integrity failure';
+                cause = 'The benchmark ran, but a file it wrote carries **provenance for a different commit** than the one measured, so it cannot be published as this run\'s result. The staging step names the file in the job log.';
               } else if (outcome === 'failure') {
                 cause = 'The benchmark step **failed** - build error, benchmark crash, or a host problem. The failing command is in the job log.';
               } else if (outcome === 'success') {
@@ -1959,6 +1999,7 @@ jobs:
                 '',
                 `[View run](${runUrl})`,
               ];
+              if (attachReport && report) lines.push('', report);
               if (prior) lines.push('', prior);
               body = lines.join('\n') + '\n';
             }

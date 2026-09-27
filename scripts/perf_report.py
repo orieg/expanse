@@ -793,7 +793,17 @@ def render_baseline_ledger(
 
 
 def pct(head: int, base: int) -> float:
-    return 0.0 if base == 0 else (head - base) / base * 100.0
+    """Percent change of `head` over `base`.
+
+    A zero base is refused rather than rendered as "no change": a count of 0
+    is a broken instrument, and the old `0.0` return turned a base pass that
+    counted nothing into a green gate over every arm (#1216). Zero-count arms
+    are removed at the parse boundary (`apply_zero_count_policy`), so nothing
+    reaching this function should carry one.
+    """
+    if base == 0:
+        raise ValueError(f"pct: zero base (head={head}); a zero count must be rejected before comparison")
+    return (head - base) / base * 100.0
 
 
 def parse_allow_regression(pr_body: str) -> str | None:
@@ -1559,6 +1569,68 @@ def head_parse_fatals(
     return fatals
 
 
+def zero_count_arms(parsed: dict[str, dict[str, int]] | None) -> list[str]:
+    """Arms whose `Instructions` count parsed as 0.
+
+    No arm executes zero instructions. A 0 means Callgrind collected nothing
+    for that arm (#1216: all 133 arms of a base pass read 0 while the workload
+    ran under valgrind), so the count is not a measurement.
+    """
+    return sorted(n for n, m in (parsed or {}).items() if m.get("Instructions") == 0)
+
+
+ZERO_BASE_POLICIES = ("no-baseline", "fatal")
+
+
+def apply_zero_count_policy(
+    head: dict[str, dict[str, int]],
+    base: dict[str, dict[str, int]] | None,
+    zero_base: str = "no-baseline",
+) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]] | None, list[str], list[str]]:
+    """Removes zero-count arms before anything compares them.
+
+    Returns `(head, base, fatals, notes)`:
+
+    - a zero **head** arm is always fatal: the run under review measured
+      nothing for it;
+    - a zero **base** arm is fatal under `zero_base="fatal"` (a dispatch that
+      named its base explicitly) and otherwise dropped from the comparison
+      with a note, so a broken merge base degrades to NO BASELINE instead of
+      blocking every pull request. A base left with no arm becomes `None`,
+      which renders the NO BASELINE section.
+    """
+    if zero_base not in ZERO_BASE_POLICIES:
+        raise ValueError(f"zero_base must be one of {ZERO_BASE_POLICIES}, not {zero_base!r}")
+    fatals: list[str] = []
+    notes: list[str] = []
+
+    zero_head = zero_count_arms(head)
+    if zero_head:
+        fatals.append(
+            f"head pass counted 0 instructions on {len(zero_head)}/{len(head)} arm(s) "
+            f"({', '.join(f'`{n}`' for n in zero_head[:5])}{', …' if len(zero_head) > 5 else ''}) "
+            "— Callgrind collected nothing for them, so they are not measurements"
+        )
+        head = {n: m for n, m in head.items() if n not in set(zero_head)}
+
+    zero_base_arms = zero_count_arms(base)
+    if base and zero_base_arms:
+        summary = (
+            f"base pass counted 0 instructions on {len(zero_base_arms)}/{len(base)} arm(s) "
+            f"({', '.join(f'`{n}`' for n in zero_base_arms[:5])}{', …' if len(zero_base_arms) > 5 else ''})"
+        )
+        if zero_base == "fatal":
+            fatals.append(
+                f"{summary} — the base comparison measured nothing and cannot be reported"
+            )
+        else:
+            notes.append(
+                f"{summary}; those arms are excluded from the comparison"
+            )
+        base = {n: m for n, m in base.items() if n not in set(zero_base_arms)} or None
+    return head, base, fatals, notes
+
+
 def missing_arms(
     head: dict[str, dict[str, int]],
     base: dict[str, dict[str, int]] | None,
@@ -2018,8 +2090,12 @@ def render_v3(
         v3_ins = v3_metrics.get("Instructions", 0)
         v1_cyc = h.get("Estimated Cycles", 0)
         v3_cyc = v3_metrics.get("Estimated Cycles", 0)
+        if not v1_ins or not v3_ins:
+            # An arm with no (or a zero) count on either build is not a
+            # comparison; `pct` refuses a zero base rather than call it flat.
+            continue
         d_ins = pct(v3_ins, v1_ins)
-        d_cyc = pct(v3_cyc, v1_cyc)
+        d_cyc = pct(v3_cyc, v1_cyc) if v1_cyc else 0.0
         lines.append(
             f"| {verdict(d_ins)} | `{name}` | {v1_ins:,} | {v3_ins:,} | {fmt_delta(d_ins)} | {fmt_delta(d_cyc)} |"
         )
@@ -2232,6 +2308,7 @@ def render(
     base_requested: bool = False,
     gate_armed: bool = False,
     head_fatals: list[str] | None = None,
+    base_notes: list[str] | None = None,
     origins: dict[str, tuple[str, str]] | None = None,
     baseline_arms: set[str] | None = None,
     undeclared_arms: list[str] | None = None,
@@ -2287,7 +2364,12 @@ def render(
                     worst = d_ins
 
     # 3. Build Executive Header Chips
-    if not base:
+    if head_fatals:
+        # A run that failed an integrity check measured nothing trustworthy,
+        # so no chip below may read green over it (#1216).
+        reg_chip = "🔴 **Integrity failure — no valid comparison**"
+        opt_chip = "—"
+    elif not base:
         if base_requested or gate_armed:
             reg_chip = "⚠️ **NO BASELINE — gate did not run**"
         else:
@@ -2349,7 +2431,11 @@ def render(
     # Loud, honest degradation: a baseline that failed to materialize means the
     # regression gate did not run — say so prominently, not via a quiet chip.
     if not base and (base_requested or gate_armed):
-        if base_requested:
+        if base_notes:
+            # Every base arm read 0 and was dropped: the base pass ran but
+            # Callgrind collected nothing, which is not the same as no output.
+            detail = "The base pass " + "; ".join(base_notes).removeprefix("base pass ") + ". "
+        elif base_requested:
             detail = (
                 "A base benchmark file was supplied but parsed to **zero benchmarks** "
                 "(the base pass failed to build, crashed, or produced no output). "
@@ -2392,6 +2478,14 @@ def render(
             f"code or a third-party baseline: {arm_list}",
             "",
         ]
+
+    if base and base_notes:
+        for note in base_notes:
+            lines += [
+                "> [!WARNING]",
+                f"> **Zero-count base arms**: {note}.",
+                "",
+            ]
 
     for fatal in head_fatals or []:
         lines += [
@@ -2439,7 +2533,7 @@ def render(
                 b_ins = b.get("Instructions", 0)
                 b_cyc = b.get("Estimated Cycles", cyc)
                 d_ins = pct(ins, b_ins)
-                d_cyc = pct(cyc, b_cyc)
+                d_cyc = pct(cyc, b_cyc) if b_cyc else 0.0
 
                 is_improved = d_ins < -NOISE_PCT
                 is_regressed = d_ins > NOISE_PCT
@@ -2649,6 +2743,121 @@ SELF_TEST_ARMS = {
         }
     ]
 }
+
+
+# The motivating defect of #1216, verbatim: the first arm of the v0.8.2 base
+# pass in bench_baremetal.yml run 36265221866 (`extended`, ref f70af2e2). All
+# 133 base arms read like this; the head pass (`SELF_TEST_ZERO_HEAD`, its first
+# arm verbatim) compared against them and the report rendered a green gate.
+SELF_TEST_ZERO_BASE = """\
+instructions::cost::map_insert sequential:keys("sequential")
+  Baselines:                 baremetal_base|baremetal_base (old)
+  Instructions:                           0|N/A                  (*********)
+  L1 Hits:                                0|N/A                  (*********)
+  LL Hits:                                0|N/A                  (*********)
+  RAM Hits:                               0|N/A                  (*********)
+  Total read+write:                       0|N/A                  (*********)
+  Estimated Cycles:                       0|N/A                  (*********)
+"""
+SELF_TEST_ZERO_HEAD = """\
+instructions::cost::map_insert sequential:keys("sequential")
+  Baselines:                               |baremetal_base
+  Instructions:                     8939376|0                    (+++inf+++)
+  Estimated Cycles:                13183588|0                    (+++inf+++)
+"""
+
+
+def _self_test_zero_counts() -> None:
+    """A pass that counted 0 instructions never renders as a result (#1216)."""
+    import contextlib
+    import io
+    import tempfile
+
+    head = parse(SELF_TEST_ZERO_HEAD)
+    base = parse(SELF_TEST_ZERO_BASE)
+    # The parser reads the verbatim zero as 0, so the fixture exercises the
+    # real path rather than an unparsed file.
+    assert base == {"map_insert/sequential": base["map_insert/sequential"]}, base
+    assert base["map_insert/sequential"]["Instructions"] == 0, base
+    assert zero_count_arms(base) == ["map_insert/sequential"]
+    assert zero_count_arms(head) == []
+
+    # `pct` refuses a zero base instead of calling it "no change".
+    try:
+        pct(8939376, 0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("pct must refuse a zero base")
+
+    # Dispatch policy: an explicitly requested base that counted nothing is
+    # fatal, and nothing is left to compare against.
+    h, b, fatals, notes = apply_zero_count_policy(head, base, "fatal")
+    assert b is None and fatals and not notes, (b, fatals, notes)
+    assert "base pass counted 0 instructions on 1/1 arm(s)" in fatals[0], fatals
+    out = render(head=h, base=b, bytes_table=None, base_ref="v0.8.2",
+                 base_requested=True, head_fatals=fatals)
+    assert "🟢 **0 Regressions**" not in out, out
+    assert "🔴 **Integrity failure" in out, out
+
+    # Merge-base policy (ci.yml): the same base degrades to NO BASELINE, which
+    # names the zero counts, and is not an integrity failure.
+    h, b, fatals, notes = apply_zero_count_policy(head, base, "no-baseline")
+    assert b is None and not fatals and notes, (b, fatals, notes)
+    out = render(head=h, base=b, bytes_table=None, base_ref="origin/main",
+                 base_requested=True, base_notes=notes)
+    assert "NO BASELINE — regression gate did not run" in out, out
+    assert "counted 0 instructions" in out, out
+    assert "🟢 **0 Regressions**" not in out, out
+
+    # A partly zero base keeps its valid arms and says which were dropped.
+    good = parse(SELF_TEST_HEAD)
+    mixed = dict(good)
+    mixed.update(base)
+    h, b, fatals, notes = apply_zero_count_policy(good, mixed, "no-baseline")
+    assert set(b) == set(good) and notes and not fatals, (b, notes, fatals)
+    out = render(head=h, base=b, bytes_table=None, base_ref="origin/main", base_notes=notes)
+    assert "Zero-count base arms" in out, out
+
+    # A zero head arm is fatal under either policy.
+    for policy in ZERO_BASE_POLICIES:
+        h, _, fatals, _ = apply_zero_count_policy(base, good, policy)
+        assert fatals and "head pass counted 0" in fatals[0] and not h, (policy, fatals)
+
+    # End to end through `main`: the #1216 pair exits 1 under `--zero-base
+    # fatal` WITHOUT `--fail-on-regression` (the bare-metal call does not arm
+    # the gate), and 0 under the default merge-base policy.
+    with tempfile.TemporaryDirectory() as tmp:
+        hp, bp = Path(tmp, "head.txt"), Path(tmp, "base.txt")
+        hp.write_text(SELF_TEST_ZERO_HEAD)
+        bp.write_text(SELF_TEST_ZERO_BASE)
+        for policy, want in (("fatal", 1), ("no-baseline", 0)):
+            argv = ["perf_report.py", "--head", str(hp), "--base", str(bp),
+                    "--base-ref", "v0.8.2", "--zero-base", policy]
+            saved = sys.argv
+            out_buf, err_buf = io.StringIO(), io.StringIO()
+            try:
+                sys.argv = argv
+                with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                    rc = main()
+            finally:
+                sys.argv = saved
+            assert rc == want, (policy, rc, err_buf.getvalue())
+            assert "🟢 **0 Regressions**" not in out_buf.getvalue(), (policy, out_buf.getvalue())
+        # A zero head fails even under the lenient policy.
+        hp.write_text(SELF_TEST_ZERO_BASE)
+        saved = sys.argv
+        try:
+            sys.argv = ["perf_report.py", "--head", str(hp)]
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                assert main() == 1
+            # And no artifact is written from it.
+            sys.argv = ["perf_report.py", "--head", str(hp), "--emit-json", str(Path(tmp, "a.json"))]
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                assert main() == 1
+            assert not Path(tmp, "a.json").exists()
+        finally:
+            sys.argv = saved
 
 
 def _self_arm(header: str, ins: int) -> str:
@@ -3567,6 +3776,9 @@ def self_test() -> int:
     assert not okd, "unreadable density line must fail the census"
     assert any("unreadable" in r["workload"] for r in rowsd), rowsd
 
+    # 7. Zero-count passes (#1216).
+    _self_test_zero_counts()
+
     print("perf_report.py --self-test: all checks passed")
     return 0
 
@@ -3601,6 +3813,14 @@ def main() -> int:
         "--bench-suites",
         help="path to the bench-suite manifest declaring baseline arms and their twins "
         f"(default: {BENCH_SUITES})",
+    )
+    ap.add_argument(
+        "--zero-base",
+        choices=ZERO_BASE_POLICIES,
+        default="no-baseline",
+        help="how a base arm that counted 0 instructions is treated: dropped from the "
+        "comparison (NO BASELINE when every arm is), or fatal. A zero head arm is always "
+        "fatal. Default: no-baseline, so a broken merge base never blocks a pull request",
     )
     ap.add_argument("--self-test", action="store_true", help="run unit-style checks on the parsing/gating helpers and exit")
     args = ap.parse_args()
@@ -3639,6 +3859,14 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+        zero = zero_count_arms(head_parsed)
+        if zero:
+            print(
+                f"::error::--emit-json requested but {len(zero)} arm(s) in --head counted 0 "
+                "instructions; refusing to write them into an artifact as measurements",
+                file=sys.stderr,
+            )
+            return 1
         artifact = callgrind_artifact(
             head_parsed,
             head_origins,
@@ -3655,13 +3883,18 @@ def main() -> int:
     base_parsed = parse(base_text) if base_text else None
     base_requested = bool(args.base)
 
+    # Zero-count arms leave the parse here, before anything compares them.
+    fatals = head_parse_fatals(head_parsed, base_parsed)
+    head_parsed, base_parsed, zero_fatals, base_notes = apply_zero_count_policy(
+        head_parsed, base_parsed, args.zero_base
+    )
+    fatals += zero_fatals
+
     declarations = load_arm_declarations(args.bench_suites)
     baseline_arms, undeclared = classify_arms(
         list(head_parsed), head_origins, declarations
     )
     twins = twin_rows(head_parsed, head_origins, declarations, base_parsed)
-
-    fatals = head_parse_fatals(head_parsed, base_parsed)
 
     # Every measured arm must resolve to a declared workload shape (#487).
     # An unreadable declaration set is itself fatal: silently rendering numbers
@@ -3767,6 +4000,7 @@ def main() -> int:
         base_requested=base_requested,
         gate_armed=args.fail_on_regression,
         head_fatals=fatals,
+        base_notes=base_notes,
         shapes=shapes,
         ambiguous=ambiguous if shapes is not None else None,
         origins=head_origins,
@@ -3780,9 +4014,12 @@ def main() -> int:
 
     print(rendered, end="")
 
-    # A crashed/empty head parse is a hard failure when the gate is armed: a
-    # run that measured nothing must never render a green regression gate.
-    if args.fail_on_regression and fatals:
+    # An integrity failure (empty or crashed head, zero counts, unshaped
+    # arms) fails the run whether or not the regression gate is armed: the
+    # gate is a policy choice, but a run that measured nothing is not a
+    # result under any policy (#1216 passed because the bare-metal call does
+    # not arm the gate).
+    if fatals:
         for fatal in fatals:
             print(f"::error::{fatal}", file=sys.stderr)
         return 1
