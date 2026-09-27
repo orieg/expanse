@@ -15,10 +15,12 @@
 //!
 //!   * **Cardinality** (`*_count`): the Boolean population, no result built —
 //!     `ExpanseSet::intersection_len` etc. vs roaring's `*_len`.
-//!   * **Materialization** (`*_materialize`, #348): the result *set* built —
+//!   * **Materialization** (`*_build`, #348): the result *set* built —
 //!     `ExpanseSet::intersection` (v2 direct emission) and the pre-#348
 //!     ordered-merge + per-key `insert` path (v1) vs roaring `&`/`|`/`-`
-//!     returning a bitmap.
+//!     returning a bitmap. Timed by `median_ns_per_build`, which drops each
+//!     timed repetition's results after the window, so a run holds one
+//!     repetition's results at a time.
 //!
 //! Honesty note (see METHODOLOGY.md, Step 0): roaring moves 64 docIDs per word
 //! and owns the dense and symmetric cells; `ExpanseSet`'s 256-key bitmap leaf
@@ -50,15 +52,14 @@ use std::time::Duration;
 #[path = "search_common/mod.rs"]
 mod common;
 use common::{
-    build_list, expanse_and_count, expanse_and_materialize, expanse_and_materialize_v1,
-    expanse_andnot_count, expanse_andnot_materialize, expanse_andnot_materialize_v1,
-    expanse_kway_and_count, expanse_kway_and_materialize, expanse_kway_or_count,
-    expanse_kway_or_materialize, expanse_native_and_count, expanse_native_andnot_count,
-    expanse_native_or_count, expanse_or_count, expanse_or_materialize, expanse_or_materialize_v1,
-    expanse_pairwise_and_count, expanse_pairwise_or_count, median_ns_per_op,
-    roaring_and_materialize, roaring_andnot_materialize, roaring_multiops_and_count,
-    roaring_multiops_and_materialize, roaring_multiops_or_count, roaring_multiops_or_materialize,
-    roaring_or_materialize, to_expanse, to_roaring,
+    build_list, check_build_values_are_dropped, expanse_and_build, expanse_and_build_v1,
+    expanse_and_count, expanse_andnot_build, expanse_andnot_build_v1, expanse_andnot_count,
+    expanse_kway_and_build, expanse_kway_and_count, expanse_kway_or_build, expanse_kway_or_count,
+    expanse_native_and_count, expanse_native_andnot_count, expanse_native_or_count,
+    expanse_or_build, expanse_or_build_v1, expanse_or_count, expanse_pairwise_and_count,
+    expanse_pairwise_or_count, median_ns_per_build, median_ns_per_op, roaring_and_build,
+    roaring_andnot_build, roaring_multiops_and_build, roaring_multiops_and_count,
+    roaring_multiops_or_build, roaring_multiops_or_count, roaring_or_build, to_expanse, to_roaring,
 };
 
 fn universe_for(dist: &str, n: usize) -> u64 {
@@ -77,6 +78,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
     let json_mode = args.iter().any(|a| a == "--json");
+
+    // Every materializing arm is timed through `median_ns_per_build`; refuse
+    // to measure if it would keep its results live.
+    check_build_values_are_dropped();
 
     let (sizes, batches, min_batch) = if quick {
         (vec![10_000usize, 100_000], 3, Duration::from_millis(30))
@@ -128,31 +133,27 @@ fn main() {
             // ordered-merge + per-key insert; roaring returns a bitmap. Every
             // arm must produce the same cardinality as the AND/OR/AND-NOT
             // cardinality cells.
-            assert_eq!(expanse_and_materialize(&ea, &eb), and_card);
-            assert_eq!(expanse_and_materialize_v1(&ea, &eb), and_card);
-            assert_eq!(roaring_and_materialize(&ra, &rb), and_card);
-            assert_eq!(expanse_or_materialize(&ea, &eb), expanse_or_count(&ea, &eb));
+            assert_eq!(expanse_and_build(&ea, &eb).len(), and_card);
+            assert_eq!(expanse_and_build_v1(&ea, &eb).len(), and_card);
+            assert_eq!(roaring_and_build(&ra, &rb).len(), and_card);
+            assert_eq!(expanse_or_build(&ea, &eb).len(), expanse_or_count(&ea, &eb));
             assert_eq!(
-                expanse_andnot_materialize(&ea, &eb),
+                expanse_andnot_build(&ea, &eb).len(),
                 expanse_andnot_count(&ea, &eb)
             );
-            let m_and = median_ns_per_op(|| expanse_and_materialize(&ea, &eb), batches, min_batch);
+            let m_and = median_ns_per_build(|| expanse_and_build(&ea, &eb), batches, min_batch);
             let m_and_v1 =
-                median_ns_per_op(|| expanse_and_materialize_v1(&ea, &eb), batches, min_batch);
-            let rm_and = median_ns_per_op(|| roaring_and_materialize(&ra, &rb), batches, min_batch);
-            let m_or = median_ns_per_op(|| expanse_or_materialize(&ea, &eb), batches, min_batch);
-            let m_or_v1 =
-                median_ns_per_op(|| expanse_or_materialize_v1(&ea, &eb), batches, min_batch);
-            let rm_or = median_ns_per_op(|| roaring_or_materialize(&ra, &rb), batches, min_batch);
+                median_ns_per_build(|| expanse_and_build_v1(&ea, &eb), batches, min_batch);
+            let rm_and = median_ns_per_build(|| roaring_and_build(&ra, &rb), batches, min_batch);
+            let m_or = median_ns_per_build(|| expanse_or_build(&ea, &eb), batches, min_batch);
+            let m_or_v1 = median_ns_per_build(|| expanse_or_build_v1(&ea, &eb), batches, min_batch);
+            let rm_or = median_ns_per_build(|| roaring_or_build(&ra, &rb), batches, min_batch);
             let m_andnot =
-                median_ns_per_op(|| expanse_andnot_materialize(&ea, &eb), batches, min_batch);
-            let m_andnot_v1 = median_ns_per_op(
-                || expanse_andnot_materialize_v1(&ea, &eb),
-                batches,
-                min_batch,
-            );
+                median_ns_per_build(|| expanse_andnot_build(&ea, &eb), batches, min_batch);
+            let m_andnot_v1 =
+                median_ns_per_build(|| expanse_andnot_build_v1(&ea, &eb), batches, min_batch);
             let rm_andnot =
-                median_ns_per_op(|| roaring_andnot_materialize(&ra, &rb), batches, min_batch);
+                median_ns_per_build(|| roaring_andnot_build(&ra, &rb), batches, min_batch);
 
             for (op, e_ns, n_ns, r_ns, card, mat_ns, mat_v1_ns, rmat_ns) in [
                 (
@@ -295,20 +296,14 @@ fn main() {
                     median_ns_per_op(|| roaring_multiops_or_count(&r_refs), batches, min_batch);
 
                 let k_mat_and_ns =
-                    median_ns_per_op(|| expanse_kway_and_materialize(&e_refs), batches, min_batch);
-                let r_mat_and_ns = median_ns_per_op(
-                    || roaring_multiops_and_materialize(&r_refs),
-                    batches,
-                    min_batch,
-                );
+                    median_ns_per_build(|| expanse_kway_and_build(&e_refs), batches, min_batch);
+                let r_mat_and_ns =
+                    median_ns_per_build(|| roaring_multiops_and_build(&r_refs), batches, min_batch);
 
                 let k_mat_or_ns =
-                    median_ns_per_op(|| expanse_kway_or_materialize(&e_refs), batches, min_batch);
-                let r_mat_or_ns = median_ns_per_op(
-                    || roaring_multiops_or_materialize(&r_refs),
-                    batches,
-                    min_batch,
-                );
+                    median_ns_per_build(|| expanse_kway_or_build(&e_refs), batches, min_batch);
+                let r_mat_or_ns =
+                    median_ns_per_build(|| roaring_multiops_or_build(&r_refs), batches, min_batch);
 
                 results.push(json!({
                     "cell": "kway",

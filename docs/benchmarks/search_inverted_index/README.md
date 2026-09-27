@@ -41,7 +41,9 @@ skip-scan, and memory footprint.
 > are **not** met; every cell is published in §Pillar 1. The cardinality cells
 > are unchanged from #339 (this pillar's kernel did not change). A prefetch +
 > SIMD `BranchU` step was tried and **dropped** — a controlled +61 % dense
-> regression; see §2 and `ALGORITHMS.md` §3.4.
+> regression; see §2 and `ALGORITHMS.md` §3.4. The materialization figures
+> were measured under a harness that kept every result set allocated; see the
+> harness disclosure under the materialization table.
 
 ---
 
@@ -153,6 +155,25 @@ each op pays orders of magnitude more edge decodes. **The pre-registered targets
 symmetric 11.7× (≤ 2×), v2/cardinality 2.2×–6.0× (≤ 2×). Closing them needs the
 deferred level-2 65,536-key bitmap leaf, out of #348 scope (a new node form with
 its own density-crossover design note).
+
+> **⚠️ Harness methodology disclosure (materialization arms).** The
+> materialization figures in this section, and the ones quoted from it above,
+> were measured with a harness that `mem::forget`-ed each result set inside the
+> timed loop. Every repetition therefore built its result in memory the process
+> had never used, and every result of every arm stayed allocated until the
+> process exited. On the reference host, whose kernel refuses allocations past a
+> fixed commit limit rather than invoking the OOM killer, that retention aborted
+> the suite during its symmetric cells with `memory allocation of N bytes
+> failed`. The harness now times these arms with `median_ns_per_build`, which
+> keeps one timed repetition's results in a vector reserved before the window and
+> drops them after it, so teardown stays outside the window and later
+> repetitions reuse freed memory. The change applies to every materializing arm
+> (v2, v1, roaring, and the k-way arms), but how much of each arm's time was
+> first-touch allocation differs between arms, so the materialization figures
+> and ratios are retained here as measured under the old harness and are
+> withheld pending re-run under the new one (#332). The cardinality and
+> skewed-size cells build no result set and were timed by the unchanged
+> `median_ns_per_op`.
 
 **Skewed-size AND (|B| = |A|/1000)** — a tiny B intersected into a huge A; the
 native kernel drives the recursion from B's few present children, so absent

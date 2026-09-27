@@ -142,7 +142,10 @@ table is the pre-registration, not the conclusion.
   (no result materialization), so the number is algebra compute, not allocation,
   **and** — since #348 — as **materialization** (the result set built: v2 direct
   emission vs v1 ordered-merge + insert vs roaring bitmap), so the cost of
-  producing the result is measured too.
+  producing the result is measured too. Materializing arms are timed with
+  `median_ns_per_build`: a timed repetition's results are kept in a vector
+  reserved before the window and dropped after it, so teardown is outside the
+  window and the process holds one repetition's results at a time.
 * **ExpanseSet strategy:** adaptive — lockstep iterator **merge** when the two
   lists are within 32× in size, **leapfrog** `next_at_or_after` when one is
   ≥32× smaller (a query planner's choice). OR is an iterator merge; AND-NOT
