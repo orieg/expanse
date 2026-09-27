@@ -41,11 +41,13 @@ ssh "$HOST" "set -e
 echo "== $HOST: cutover"
 remove="$(gh api -X POST "repos/$REPO/actions/runners/remove-token" --jq .token)"
 register="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" --jq .token)"
+# The tokens travel on stdin all the way into the root shell that runs
+# provision.sh: no argv on this machine or the host ever carries them.
 printf '%s\n%s\n' "$remove" "$register" | ssh "$HOST" "set -e
   L=\"${LOGIN:-\$(id -un)}\"
-  read -r REMOVE_TOKEN; read -r REG_TOKEN
-  sudo env REMOVE_TOKEN=\"\$REMOVE_TOKEN\" REG_TOKEN=\"\$REG_TOKEN\" \
-    $DIR/scripts/bench_host/provision.sh cutover --profile $PROFILE --from-login \"\$L\" --name $NAME"
+  exec sudo sh -c 'read -r REMOVE_TOKEN; read -r REG_TOKEN; export REMOVE_TOKEN REG_TOKEN
+    exec $DIR/scripts/bench_host/provision.sh cutover --profile $PROFILE --from-login \"\$1\" --name $NAME' sh \"\$L\""
+unset remove register
 
 echo "== $HOST: check"
 ssh "$HOST" "sudo $DIR/scripts/bench_host/provision.sh check"

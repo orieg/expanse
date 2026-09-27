@@ -16,7 +16,7 @@
 #   provision.sh cutover --profile reference|avx512 --from-login <login> --name <runner-name>
 #       Stops the login account's runner, deregisters it, and registers the
 #       same name under the service account. Needs REMOVE_TOKEN and REG_TOKEN
-#       in the environment (gh api -X POST repos/<owner>/<repo>/actions/runners/{remove,registration}-token).
+#       in the environment, never on a command line (gh api -X POST repos/<owner>/<repo>/actions/runners/{remove,registration}-token).
 #       Refuses while a job runs, while the bench lock is held, or while the
 #       repository's main branch predates the workflow changes the service
 #       account needs (EXPANSE_TOOLCHAIN in the workflow, the shared lock in
@@ -201,8 +201,15 @@ prepare_toolchain() {
       install -o root -g root -m 0755 "$src" "$TC/lib/$LIBJUDY_SONAME"
       ln -sfn "$LIBJUDY_SONAME" "$TC/lib/libJudy.so.1"
       ln -sfn "$LIBJUDY_SONAME" "$TC/lib/libJudy.so"
-      [ -f "$LOGIN_HOME/.local/include/Judy.h" ] \
-        && install -o root -g root -m 0644 "$LOGIN_HOME/.local/include/Judy.h" "$TC/include/Judy.h"
+    fi
+    # The header comes out of the same job-writable directory, so it is held to
+    # a pinned hash as well: a planted one would be compiled into every build.
+    local hdr="$LOGIN_HOME/.local/include/Judy.h"
+    if [ -f "$hdr" ] && ! echo "$LIBJUDY_HEADER_SHA256  $TC/include/Judy.h" | sha256sum -c - >/dev/null 2>&1; then
+      [ -n "${LIBJUDY_HEADER_SHA256:-}" ] || die "LIBJUDY_HEADER_SHA256 is not set in toolchain.env"
+      echo "$LIBJUDY_HEADER_SHA256  $hdr" | sha256sum -c - \
+        || die "$hdr does not hash to the pinned LIBJUDY_HEADER_SHA256; refusing to install it"
+      install -o root -g root -m 0644 "$hdr" "$TC/include/Judy.h"
     fi
   fi
   chown -R root:root "$TC"
@@ -309,16 +316,21 @@ cmd_cutover() {
   pgrep -u "$FROM_LOGIN" -f 'Runner.Listener' >/dev/null && die "the login's runner is still running"
 
   cd "$RUNNER"
+  # Tokens reach config.sh through ACTIONS_RUNNER_INPUT_TOKEN, which the
+  # runner reads as its --token argument and masks as a secret. A token on
+  # a command line is readable by every local account through /proc.
   if [ -f .runner ]; then
-    runuser -u "$(stat -c %U .runner)" -- ./config.sh remove --token "$REMOVE_TOKEN"
+    ACTIONS_RUNNER_INPUT_TOKEN="$REMOVE_TOKEN" runuser -u "$(stat -c %U .runner)" -- ./config.sh remove
   fi
   # Everything in these was written under the previous account.
   rm -rf _work _diag .env .path
 
   chown -R "$SVC:$SVC" "$RUNNER"
-  runuser -u "$SVC" -- env -i HOME="$SVC_HOME" PATH=/usr/bin:/bin ./config.sh \
-    --url "$GH_REPO_URL" --token "$REG_TOKEN" --name "$NAME" "${LABEL_ARGS[@]}" \
+  ACTIONS_RUNNER_INPUT_TOKEN="$REG_TOKEN" runuser -u "$SVC" -- \
+    env HOME="$SVC_HOME" PATH=/usr/bin:/bin ./config.sh \
+    --url "$GH_REPO_URL" --name "$NAME" "${LABEL_ARGS[@]}" \
     --work _work --unattended --disableupdate
+  unset REMOVE_TOKEN REG_TOKEN
 
   chown -R root:root "$RUNNER"
   install -d -o "$SVC" -g "$SVC" -m 0750 "$RUNNER/_work" "$RUNNER/_diag"
