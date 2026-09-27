@@ -1,6 +1,6 @@
 //! Phase 6b: the map-flavor mutation engine (`ExpanseMap` core).
 //!
-//! Same least-compressed-form ladder and 1-index hysteresis as the
+//! Same least-compressed-form ladder and hysteresis bands as the
 //! set-flavor engine in `mutate` (whose branch machinery — linear slot
 //! insertion, node upgrades/downgrades, free/validate — this module
 //! shares), with the map-specific terminal forms:
@@ -2737,7 +2737,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
                 // SAFETY: live BranchU per contract.
-                let digits = unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() };
+                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
@@ -3420,7 +3420,7 @@ pub(crate) unsafe fn map_remove_occ<const OCC: bool, const NESTED: bool>(
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
                 // SAFETY: live BranchU per contract.
-                let digits = unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() };
+                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked

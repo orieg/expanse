@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `THRASH_TOP` (193) (thrash) |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exception: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the thrash arm runs `THRASH_CYCLES` (100) cycles of two removals and two reinsertions of the same two keys |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -2215,14 +2215,14 @@ fn sync_set_remove(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
 // ---- A shared `BranchU` across its demotion floor (#1079) ----------------
 //
 // An optimistic removal nulls a `BranchU` slot only while the branch stays
-// above `BRANCHU_TO_B_DOWN` (191); the removal that would reach it falls back
+// above `BRANCHU_TO_B_DOWN` (160); the removal that would reach it falls back
 // (`DemoteU`) and the exclusive remove demotes the branch. The drain arms
 // empty a top `BranchU` of `FLOOR_DIGITS` one-key digits, so the measured
 // region holds the optimistic null stores above the floor, the crossing, and
 // the removals below it, which empty children of a `BranchB` and so fall back
-// as `Remove`. The thrash arm holds a top branch at 191–193 digits and moves
-// it across the one-digit band both ways every cycle: `Upgrade` up, `DemoteU`
-// down.
+// as `Remove`. The band arm carries a top branch from 193 digits down to 160
+// and back every cycle, crossing the 32-digit band both ways: `DemoteU` down,
+// `Upgrade` up.
 
 /// Top digits of the drain arms: past the bitmap-to-uncompressed threshold
 /// (192), so the top node is a `BranchU` when the measured region starts.
@@ -2282,37 +2282,43 @@ fn sync_set_drain_floor(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
     black_box(removed)
 }
 
-/// Cycles of the thrash arm. Each cycle crosses the band twice.
-const THRASH_CYCLES: u64 = 100;
-/// Top digits the thrash arm's branch holds between cycles: one above the
+/// Cycles of the band arm. Each cycle crosses the band twice.
+const BAND_CYCLES: u64 = 100;
+/// Top digits the band arm's branch holds between cycles: one above the
 /// bitmap-to-uncompressed threshold, so it is a `BranchU`.
-const THRASH_TOP: u64 = expanse_trie::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64 + 1;
+const BAND_TOP: u64 = expanse_trie::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64 + 1;
+/// Top digits at the bottom of a cycle: the demotion floor itself, the first
+/// count at which the branch is a `BranchB` again.
+const BAND_FLOOR: u64 = expanse_trie::types::BRANCHU_TO_B_DOWN as u64;
 
-fn built_sync_map_thrash(_dist: &str) -> SyncExpanseMap {
+fn built_sync_map_band(_dist: &str) -> SyncExpanseMap {
     let map = SyncExpanseMap::new();
-    for d in 0..THRASH_TOP {
+    for d in 0..BAND_TOP {
         map.insert(floor_top_key(d), d);
     }
     map
 }
 
-// One cycle: two removals take the top `BranchU` from 193 digits to 191,
-// the second falling back (`DemoteU`) to the exclusive remove that demotes
-// it to a `BranchB`; two insertions take it back to 193, the second falling
-// back (`Upgrade`) to the exclusive insert that promotes it. Instructions
-// per crossing: the arm's count over `2 * THRASH_CYCLES`.
+// One cycle: `BAND_TOP - BAND_FLOOR` (33) removals take the top `BranchU`
+// from 193 digits to 160, the last falling back (`DemoteU`) to the exclusive
+// remove that demotes it to a `BranchB`; as many insertions take it back to
+// 193, the last falling back (`Upgrade`) to the exclusive insert that
+// promotes it. Instructions per crossing: the arm's count over
+// `2 * BAND_CYCLES`, which includes the optimistic removals and insertions
+// between the two crossings.
 #[library_benchmark]
-#[bench::top(args = ("top",), setup = built_sync_map_thrash)]
-fn sync_map_branchu_thrash(map: SyncExpanseMap) -> u64 {
-    let (a, b) = (floor_top_key(THRASH_TOP - 1), floor_top_key(THRASH_TOP - 2));
+#[bench::top(args = ("top",), setup = built_sync_map_band)]
+fn sync_map_branchu_band(map: SyncExpanseMap) -> u64 {
     let mut sink = 0u64;
-    for _ in 0..THRASH_CYCLES {
-        sink ^= map.remove(black_box(a)).unwrap_or(0);
-        sink ^= map.remove(black_box(b)).unwrap_or(0);
-        sink ^= map.insert(black_box(b), THRASH_TOP - 2).unwrap_or(0);
-        sink ^= map.insert(black_box(a), THRASH_TOP - 1).unwrap_or(0);
+    for _ in 0..BAND_CYCLES {
+        for d in (BAND_FLOOR..BAND_TOP).rev() {
+            sink ^= map.remove(black_box(floor_top_key(d))).unwrap_or(0);
+        }
+        for d in BAND_FLOOR..BAND_TOP {
+            sink ^= map.insert(black_box(floor_top_key(d)), d).unwrap_or(0);
+        }
     }
-    assert_eq!(map.len(), THRASH_TOP);
+    assert_eq!(map.len(), BAND_TOP);
     core::mem::forget(map);
     black_box(sink)
 }
@@ -2876,7 +2882,7 @@ library_benchmark_group!(
         sync_set_remove,
         sync_map_drain_floor,
         sync_set_drain_floor,
-        sync_map_branchu_thrash,
+        sync_map_branchu_band,
         strmap_get_short,
         sync_strmap_get_short,
         sync_strmap_insert_short,

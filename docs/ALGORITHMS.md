@@ -56,7 +56,7 @@ Expanse uses an adaptive least-compressed-form ladder with hysteresis bands to a
 | **BranchL3** | 1..3 child expanses | 16-bit presence filter, then scalar compares | none (≤ 3 digits) | 64 B: 16-byte header + 3 edges |
 | **BranchL7** | 4..7 child expanses; demotes to L3 below 3 | 16-bit presence filter, then 8-byte digit search (`find_byte_8`) | SSE2 (x86-64) / NEON (AArch64) byte compare; scalar elsewhere | 128 B: 16-byte header + 7 edges |
 | **BranchB** | 8..192 child expanses; demotes to L7 below 7 | 256-bit bitmap digit rank | `POPCNT` subexpanse rank | 128 B node (bitmap, 8 subarray pointers, rank cache) plus edge subarrays |
-| **BranchU** | 193..256 child expanses; demotes to B below 192 | Direct array indexing | $O(1)$ flat edge load | 4,160 B: a 64-byte version line + 256 × 16-byte edges |
+| **BranchU** | 193..256 child expanses; demotes to B at 160 | Direct array indexing | $O(1)$ flat edge load | 4,160 B: a 64-byte version line + 256 × 16-byte edges |
 
 ---
 

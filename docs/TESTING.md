@@ -45,7 +45,7 @@ A debug-only tree walker validates after mutations in tests:
 - leaf keys sorted and unique; branch digits sorted;
 - tag/level agreement (e.g. `Leaf3` only where 3 undecoded bytes remain);
 - bitmap-branch cached segment counts equal recomputed popcounts;
-- compression-ladder legality (no node below its down-convert floor or above its up-convert ceiling, modulo the 1-index hysteresis band).
+- compression-ladder legality (no node below its down-convert floor or above its up-convert ceiling, modulo the hysteresis bands).
 
 **Negative-control rule** (imported from php-judy's debug-mirror discipline): an assertion that has never fired is not known to work. CI must include a test that deliberately corrupts an invariant and **requires** the validator to abort. That is `negative_control_validator_must_fire` in `set` and `map`: it corrupts a branch `pop0` and `#[should_panic]`s on the validator. A validator job that cannot fail is deleted or fixed, never trusted.
 

@@ -5085,11 +5085,11 @@ mod tests {
             let demote_before =
                 crate::occ_stats::snapshot()[crate::occ_stats::Stat::BranchSplitDemoteU as usize];
             let half = if top_is_u { keys.len() } else { keys.len() / 2 };
-            // Twenty removals take the first 200-digit `BranchU` to 180
-            // digits, past its floor (191): the sub-map must still validate
+            // Forty-five removals take the first 200-digit `BranchU` to 155
+            // digits, past its floor (160): the sub-map must still validate
             // (Refs #1079). Red before #1079, whose optimistic removals left
-            // the branch uncompressed at 180.
-            for k in &keys[..20] {
+            // the branch uncompressed below its floor.
+            for k in &keys[..45] {
                 assert!(m.remove(tk(k)).is_some(), "remove of {k:?}");
             }
             m.exclusive(|inner| {
@@ -5106,10 +5106,10 @@ mod tests {
                 // validator compares against.
                 unsafe { resync_at(ptr) };
                 if let Err(e) = node.map.validate_defensive() {
-                    panic!("after 20 removals (keys of {} bytes): {e}", keys[0].len());
+                    panic!("after 45 removals (keys of {} bytes): {e}", keys[0].len());
                 }
             });
-            for k in &keys[20..half] {
+            for k in &keys[45..half] {
                 assert!(m.remove(tk(k)).is_some(), "remove of {k:?}");
             }
             if !top_is_u {

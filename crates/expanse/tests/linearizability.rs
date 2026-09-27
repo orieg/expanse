@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
+use expanse_trie::types::{BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCHU_TO_B_DOWN};
 
 #[path = "../benches/ycsb_common/mod.rs"]
 mod ycsb_common;
@@ -1668,29 +1669,44 @@ fn test_sync_map_compare_exchange_claim_by_removal() {
 
 /// Root digits that never move in the floor-crossing tests below: one key
 /// per top digit `0..FLOOR_FIXED`, so the root is a branch keyed on byte 7.
-const FLOOR_FIXED: u64 = 188;
+const FLOOR_FIXED: u64 = BRANCHU_TO_B_DOWN as u64 - 3;
 /// Root digits the writers insert and remove: the root's digit count moves
 /// through `FLOOR_FIXED..=FLOOR_FIXED + FLOOR_CHURN`, which spans both the
-/// `BranchU` demotion floor (191) and the bitmap-to-uncompressed threshold
-/// (192), so the root is promoted to a `BranchU` and demoted back while
-/// readers run (Refs #1079).
-const FLOOR_CHURN: u64 = 10;
-const _: () = assert!(FLOOR_FIXED <= 191 && FLOOR_FIXED + FLOOR_CHURN > 192 + 1);
+/// `BranchU` demotion floor and the bitmap-to-uncompressed threshold, so the
+/// root is promoted to a `BranchU` and demoted back while readers run (Refs
+/// #1079). The band between the two is 32 digits wide, so the schedule
+/// alternates phases that insert with phases that remove
+/// ([`floor_schedule`]); a uniform mix would hold the count mid-band.
+const FLOOR_CHURN: u64 = BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64 + 4 - FLOOR_FIXED;
+const _: () = assert!(
+    FLOOR_FIXED <= BRANCHU_TO_B_DOWN as u64
+        && FLOOR_FIXED + FLOOR_CHURN > BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64 + 1
+);
+/// Steps of one phase of [`floor_schedule`]; phases alternate between
+/// inserting and removing.
+const FLOOR_PHASE: usize = 40;
 
 fn floor_key(d: u64) -> u64 {
     (d << 56) | 0x0001
 }
 
 /// A fixed per-thread operation schedule (xorshift64), so a failure replays
-/// the same program order.
+/// the same program order. A writer inserts during an even-numbered phase
+/// of [`FLOOR_PHASE`] steps and removes during an odd-numbered one, drawing
+/// the key uniformly from the churn range, so the writers together carry
+/// the root's digit count from one end of the range towards the other
+/// within each phase.
 fn floor_schedule(t_id: u64, n: usize) -> Vec<(u64, bool)> {
     let mut x = 0x9E37_79B9_7F4A_7C15u64 ^ (t_id + 1).wrapping_mul(0xD1B5_4A32_D192_ED03);
     (0..n)
-        .map(|_| {
+        .map(|i| {
             x ^= x << 13;
             x ^= x >> 7;
             x ^= x << 17;
-            (FLOOR_FIXED + x % FLOOR_CHURN, (x >> 32) & 1 == 0)
+            (
+                FLOOR_FIXED + x % FLOOR_CHURN,
+                (i / FLOOR_PHASE).is_multiple_of(2),
+            )
         })
         .collect()
 }

@@ -2,8 +2,8 @@
 //!
 //! Insert and remove follow the **least-compressed-form ladder**: a
 //! subexpanse only decompresses when its current form overflows, and only
-//! recompresses with a **1-index hysteresis band** so an insert/delete
-//! oscillation at a boundary never thrashes allocations:
+//! recompresses below a **hysteresis band** (32 digits for U → B) so an
+//! insert/delete oscillation at a boundary never thrashes allocations:
 //!
 //! ```text
 //! grow:   Null → Immed(1 key) → Immed(n) → LinearLeaf → { level 1: BitmapLeaf → FullExpanse
@@ -2982,7 +2982,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
                 // SAFETY: live BranchU per contract.
-                let digits = unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() };
+                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
@@ -2998,7 +2998,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 if crate::mutate::branch_u_below_floor(digits) {
-                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 1.
+                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 32.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
@@ -3566,7 +3566,7 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
                 // SAFETY: live BranchU per contract.
-                let digits = unsafe { (*b).edges.iter().filter(|e| !e.is_null()).count() };
+                let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
                 if digits == 0 {
                     // SAFETY: empty node no longer referenced; marked
@@ -3584,7 +3584,7 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 if crate::mutate::branch_u_below_floor(digits) {
-                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 1.
+                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 32.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
@@ -3750,6 +3750,26 @@ pub(crate) unsafe fn downgrade_b_to_l7<const OCC: bool>(a: &NodeAlloc, edge: &mu
 #[inline(always)]
 pub(crate) const fn branch_u_below_floor(digits: usize) -> bool {
     digits <= crate::types::BRANCHU_TO_B_DOWN
+}
+
+/// The non-null slots of a `BranchU`'s edge array, for the exclusive walks'
+/// removal that has just emptied one of them: exact while the count is at or
+/// below the demotion floor, and some count above the floor otherwise. The
+/// caller asks only whether the branch is now empty and whether it is below
+/// its floor ([`branch_u_below_floor`]), and both answers read the same from
+/// either. The slots are counted in blocks of 16, and the count stops after
+/// the first block that takes it past the floor, so a branch well above the
+/// floor is not read to its end.
+#[inline(always)]
+pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOUT]) -> usize {
+    let mut n = 0usize;
+    for block in edges.as_chunks::<16>().0 {
+        n += block.iter().filter(|e| !e.is_null()).count();
+        if !branch_u_below_floor(n) {
+            break;
+        }
+    }
+    n
 }
 
 /// # Safety
