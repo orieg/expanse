@@ -830,6 +830,23 @@ jobs:
                 exit 1
               fi
             done
+            # Valgrind before 3.24.0 can skip the main executable's symbols
+            # (#1216). The kernel maps an lld-linked PIE's two RW PT_LOADs as
+            # one merged mapping when the first ends exactly where the second
+            # starts; 3.23 corrects its expected RW count for that merge only
+            # for ET_EXEC, so it waits for a second mapping that never comes
+            # and reads no symbols. `--toggle-collect` then matches nothing
+            # and every arm counts 0 instructions. Whether a binary has that
+            # layout depends on its size, so any build can hit it: v0.8.2's
+            # `instructions` bench did, f70af2e2's did not. Fixed upstream in
+            # 3.24.0 (valgrind bug 492663).
+            VG_VERSION=$(valgrind --version 2>/dev/null | sed -n 's/^valgrind-\([0-9][0-9.]*\).*/\1/p')
+            VG_FLOOR=3.24.0
+            if [ -z "$VG_VERSION" ] || [ "$(printf '%s\n%s\n' "$VG_FLOOR" "$VG_VERSION" | sort -V | head -n1)" != "$VG_FLOOR" ]; then
+              echo "::error::Suite '$SUITE' requires valgrind >= $VG_FLOOR, but this runner has '$(valgrind --version 2>&1 | head -n1)'. Valgrind before $VG_FLOOR can read no symbols for a PIE whose two RW segments the kernel maps as one, and every arm then counts 0 instructions (#1216). Upgrade valgrind before re-triggering."
+              echo "fail_reason=old_tool:valgrind:${VG_VERSION:-unknown}" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
           fi
 
           # Fail fast if the suite compares against stock libjudy and the host
@@ -2212,6 +2229,11 @@ jobs:
                 label = 'refused';
                 const tool = reason.slice('missing_tool:'.length);
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` needs Callgrind, but \`${tool}\` is not installed on the runner. Install \`valgrind\` and a version-matched \`iai-callgrind-runner\` (see the \`ci.yml\` Callgrind jobs) before re-triggering.`;
+              } else if (reason.startsWith('old_tool:valgrind:')) {
+                label = 'refused';
+                // The step writes only digits and dots, or `unknown`.
+                const version = reason.slice('old_tool:valgrind:'.length).replace(/[^0-9.a-z]/g, '');
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` needs valgrind 3.24.0 or later, and the runner has \`${version}\`. Earlier releases can read no symbols for a PIE whose two RW segments the kernel maps as one, and every arm then counts 0 instructions (#1216). Upgrade valgrind on the runner before re-triggering. No numbers were produced.`;
               } else if (reason === 'bad_descriptor' || reason === 'unwired_suite') {
                 label = 'refused';
                 cause = [
