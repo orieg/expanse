@@ -656,7 +656,25 @@ jobs:
           # requires on every published wall-clock number.
           HOST_DESC: ${{ steps.sysinfo.outputs.host_desc }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # How long a run waits for a host another holder has locked, and
+          # then for the host to go quiet, before refusing by name. Only a
+          # session outside this workflow can hold it: this job has one
+          # self-hosted runner, so two runs of it never overlap.
+          EXPANSE_BENCH_LOCK_WAIT: "600"
+          EXPANSE_BENCH_QUIET_WAIT: "300"
         run: |
+          # Host-wide benchmark lock (docs/BENCHMARKING.md rule 8, #1210): the
+          # whole step re-runs under `bench_lock.py`, which holds a flock the
+          # kernel releases when the holder dies. The mkdir lock this replaces
+          # was removed by a trap, which a cancelled run's SIGKILL skips, and
+          # a leaked lock refused every later run. The wrapper comes from the
+          # workflow's commit (see the tools step), and on a refusal it
+          # publishes fail_reason and the holder for the comment step.
+          if [ -z "${EXPANSE_BENCH_LOCK_HELD:-}" ]; then
+            exec python3 "$RUNNER_TEMP/bench-tools/scripts/bench_lock.py" \
+              --suite "ci-$SUITE" --github-output -- bash --noprofile --norc -eo pipefail "$0"
+          fi
+
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
           export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
           export LIBRARY_PATH="$HOME/.local/lib:$LIBRARY_PATH"
@@ -788,30 +806,29 @@ jobs:
               | tee vs-libjudy.txt
           }
 
-          # Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule
-          # 8): one suite at a time per machine, across every checkout.
-          # `mkdir` is atomic; the lock names its owner so a refused start
-          # says who holds the host.
-          BENCH_LOCK="${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}"
-          if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
-            LOCK_OWNER="$( { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } | head -n 1 | tr -d '\r' )"
-            [ -n "$LOCK_OWNER" ] || LOCK_OWNER="unknown (lock directory present, no owner record)"
-            echo "::error::refusing to start: benchmark lock ${BENCH_LOCK} is held by: ${LOCK_OWNER}"
-            # Publish the holder to the terminal comment step so a refused
-            # start reads as refused, and names who holds the host, instead
-            # of leaving the pending marker as the final state.
-            {
-              echo "fail_reason=lock_held"
-              echo "lock_owner=${LOCK_OWNER}"
-            } >> "$GITHUB_OUTPUT"
-            exit 75
+          # Refuse a busy host before anything is built (#1210). The lock only
+          # excludes runs that take it; a container or a build started by
+          # someone else does not. The guard samples /proc live, not the
+          # lifetime average `ps` prints, and names what it found. Its
+          # thresholds are bench_provenance.START_* (docs/BENCHMARKING.md
+          # rule 8). The snapshot replaces the start-of-job `ps` table.
+          if ! python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" check \
+            --own-root "$$" --wait "$EXPANSE_BENCH_QUIET_WAIT" \
+            --json host-guard.json --md system-load.md --github-output; then
+            # The sample and the processes it named go to the comment step.
+            if [ -f system-load.md ]; then
+              cp system-load.md "$RUNNER_TEMP/bench-report.md"
+            fi
+            exit 1
           fi
-          printf 'suite=ci-%s pid=%s start=%s\n' "$SUITE" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
-          # INT and TERM as well as EXIT: a run superseded through the job's
-          # concurrency group, or stopped by timeout-minutes, is signalled
-          # before it is killed, and a lock left behind on this host would
-          # refuse every later run.
-          trap 'rm -rf "${BENCH_LOCK}"' EXIT INT TERM
+
+          # Then watch the host for the whole run, from CPUs outside the pin
+          # set; the record is judged when the benchmarks are done, and a run
+          # the host disturbed is discarded (AGENTS.md section 8.17).
+          rm -f host-activity.jsonl
+          python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" watch \
+            --own-root "$$" --out host-activity.jsonl &
+          HOST_WATCH_PID=$!
 
           # Core pin (#639). The reference host is a hybrid part, and every
           # benchmark below is a child of this shell, so setting the affinity
@@ -1489,6 +1506,23 @@ jobs:
           echo "harvest_status=$HARVEST_STATUS" >> "$GITHUB_OUTPUT"
 
           # ====================================================================
+          # The benchmarks are done: stop the host watcher and judge its record.
+          if kill -TERM "$HOST_WATCH_PID" 2>/dev/null; then
+            wait "$HOST_WATCH_PID" || echo "::warning::the host watcher exited with status $?"
+          fi
+          set +e
+          python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" summarize \
+            --in host-activity.jsonl --md host-activity.md
+          HOST_STATUS=$?
+          set -e
+          if [ -f host-activity.md ]; then
+            cat host-activity.md >> system-load.md
+          fi
+          if [ "$HOST_STATUS" -ne 0 ]; then
+            echo "fail_reason=host_contaminated" >> "$GITHUB_OUTPUT"
+            INTEGRITY_FAIL=1
+          fi
+
           # Report Generation Step
           # ====================================================================
           # The sticky comment must not print a Base Ref for a comparison
@@ -1798,6 +1832,8 @@ jobs:
           python3 "$RUNNER_TEMP/bench-tools/scripts/stage_run_outputs.py" \
             --dest run-artifacts \
             --commit "$(git rev-parse HEAD)" \
+            host-guard.json \
+            host-activity.jsonl \
             concurrency.txt \
             writer_scaling.txt \
             ycsb_concurrent.txt \
@@ -2006,6 +2042,17 @@ jobs:
                   '',
                   'Re-trigger once the holder finishes.',
                 ].join('\n');
+              } else if (reason === 'lock_unusable') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: the host-wide bench lock file exists in a form the run must not use (a symlink, another user's file, or not a regular file): \`${process.env.LOCK_OWNER || 'see the job log'}\`. Remove or recreate it as the runner's own file, then re-trigger.`;
+              } else if (reason === 'host_busy') {
+                label = 'refused';
+                cause = 'The run was **refused before any benchmark started**: the host stayed busy with work outside this run past the wait bound (a build, a container, another benchmark). The live sample and the processes it named are below. Re-trigger once the host is quiet.';
+                attachReport = true;
+              } else if (reason === 'host_contaminated') {
+                label = 'discarded';
+                cause = 'The benchmarks ran, but **work outside this run loaded the host during it** past the void boundary (AGENTS.md section 8.17), or the pinned CPUs changed governor mid-run. A contaminated run is discarded, not reinterpreted: nothing below is a valid result. The host-activity record names when and what.';
+                attachReport = true;
               } else if (reason === 'missing_libjudy') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` compares against stock libjudy, but \`dlopen\` resolved neither \`libJudy.so.1\` nor \`libJudy.so\` on the runner. Install stock libjudy (\`libjudy-dev\`, or a local build reachable through \`LD_LIBRARY_PATH\`) before re-triggering. No numbers were produced.`;

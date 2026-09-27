@@ -239,6 +239,128 @@ def check(root: Path) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# the host lock (#1210)
+# --------------------------------------------------------------------------
+# The pin's companion precondition, checked over the same runners: every
+# wall-clock runner (a script that sources the pin) and both bare-metal
+# workflows re-run themselves under scripts/bench_lock.py, a flock the kernel
+# releases when the holder dies. The `mkdir` lock it replaced was removed by a
+# shell trap, which the SIGKILL of a cancelled run skips (run 36295887129), so
+# one is refused wherever it reappears.
+LOCK_WRAPPER = "scripts/bench_lock.py"
+LOCK_EXEMPT_SUITES = {
+    "stm32h747": "on-device timing; the host only flashes the board and reads its console, "
+                 "and the measured region never runs on a host core",
+}
+
+
+def _code_lines(text: str):
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            yield line
+
+
+def takes_lock(text: str) -> bool:
+    """True iff some non-comment line re-executes under the lock wrapper."""
+    return any(line.startswith("exec ") and "bench_lock.py" in line for line in _code_lines(text))
+
+
+def legacy_lock(text: str) -> bool:
+    """True iff some non-comment line takes the old `mkdir` lock."""
+    return any(
+        "mkdir" in line and ("BENCH_LOCK" in line or "expanse-bench.lock" in line)
+        for line in _code_lines(text)
+    )
+
+
+def check_lock(root: Path) -> list[str]:
+    problems: list[str] = []
+    if not (root / LOCK_WRAPPER).is_file():
+        return [f"{LOCK_WRAPPER} is missing; nothing holds the host-wide benchmark lock (#1210)."]
+    bench = root / "docs" / "benchmarks"
+    scripts = sorted(set(bench.glob("*/run.sh")) | set(bench.glob("**/*.sh")))
+    for path in scripts:
+        rel = path.relative_to(root)
+        suite = path.relative_to(bench).parts[0]
+        text = read(path)
+        if legacy_lock(text):
+            problems.append(
+                f"{rel} takes the old `mkdir` benchmark lock, which a SIGKILLed run leaves behind "
+                f"(#1210). Re-run the script under {LOCK_WRAPPER} instead."
+            )
+        is_runner = path.name == "run.sh" or sources_pin(text)
+        if is_runner and suite not in LOCK_EXEMPT_SUITES and not takes_lock(text):
+            problems.append(
+                f"{rel} runs benchmarks without the host-wide lock. Re-run it under the lock, "
+                f"before anything is built: `exec python3 \"$REPO_ROOT/{LOCK_WRAPPER}\" --suite "
+                f"<name> -- bash \"$0\" \"$@\"` guarded by EXPANSE_BENCH_LOCK_HELD, or record "
+                f"an exemption with its reason in LOCK_EXEMPT_SUITES."
+            )
+    for wf in WORKFLOWS:
+        path = root / wf
+        if not path.is_file():
+            continue  # check() already names a missing workflow
+        text = read(path)
+        if legacy_lock(text):
+            problems.append(f"{wf} takes the old `mkdir` benchmark lock (#1210); use {LOCK_WRAPPER}.")
+        if not takes_lock(text):
+            problems.append(
+                f"{wf} runs benchmarks without re-running its bench step under {LOCK_WRAPPER} (#1210)."
+            )
+    return problems
+
+
+def _self_test_lock() -> None:
+    assert takes_lock('  exec python3 "$REPO_ROOT/scripts/bench_lock.py" --suite a -- bash "$0" "$@"')
+    assert not takes_lock("# exec python3 scripts/bench_lock.py"), "a comment must not satisfy the gate"
+    assert not takes_lock('python3 scripts/bench_lock.py --self-test'), "only a re-exec holds the lock for the run"
+    assert legacy_lock('if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then')
+    assert not legacy_lock("# `mkdir` expanse-bench.lock was the old lock")
+    with tempfile.TemporaryDirectory() as td:
+        tree = Path(td)
+        (tree / "scripts").mkdir()
+        (tree / LOCK_WRAPPER).write_text("# wrapper\n", encoding="utf-8")
+        (tree / ".github" / "workflows").mkdir(parents=True)
+        suite = tree / "docs" / "benchmarks" / "suite_a"
+        (suite / "scripts").mkdir(parents=True)
+        good = 'exec python3 "$REPO_ROOT/scripts/bench_lock.py" --suite a -- bash "$0" "$@"\n'
+        for wf in WORKFLOWS:
+            (tree / wf).write_text("          " + good, encoding="utf-8")
+        runner = suite / "run.sh"
+        campaign = suite / "scripts" / "campaign.sh"
+        runner.write_text(good + '. "$REPO_ROOT/scripts/bench_pin.sh"\n', encoding="utf-8")
+        campaign.write_text(good + '. "$REPO_ROOT/scripts/bench_pin.sh"\n', encoding="utf-8")
+        assert check_lock(tree) == [], check_lock(tree)
+
+        # The motivating defect: the mkdir lock, anywhere, is named.
+        campaign.write_text(
+            'BENCH_LOCK=/tmp/expanse-bench.lock\nif ! mkdir "${BENCH_LOCK}"; then exit 75; fi\n'
+            '. "$REPO_ROOT/scripts/bench_pin.sh"\n', encoding="utf-8")
+        got = check_lock(tree)
+        assert len(got) == 2 and all("campaign.sh" in g for g in got), got
+
+        # A runner with no lock at all is named; an exempt suite is not.
+        campaign.write_text(good, encoding="utf-8")
+        runner.write_text('. "$REPO_ROOT/scripts/bench_pin.sh"\n', encoding="utf-8")
+        got = check_lock(tree)
+        assert len(got) == 1 and "suite_a/run.sh" in got[0], got
+        runner.write_text(good, encoding="utf-8")
+        (tree / "docs" / "benchmarks" / "stm32h747").mkdir()
+        (tree / "docs" / "benchmarks" / "stm32h747" / "run.sh").write_text("sh flash.sh\n", encoding="utf-8")
+        assert check_lock(tree) == [], check_lock(tree)
+
+        # A workflow that drops the re-exec is named.
+        (tree / WORKFLOWS[0]).write_text("run: cargo bench\n", encoding="utf-8")
+        got = check_lock(tree)
+        assert len(got) == 1 and "bench_baremetal.yml" in got[0], got
+
+        # A missing wrapper fails the whole gate.
+        (tree / LOCK_WRAPPER).unlink()
+        assert "is missing" in check_lock(tree)[0]
+
+
+# --------------------------------------------------------------------------
 # self-test
 # --------------------------------------------------------------------------
 FAKE_TASKSET = """#!/bin/sh
@@ -580,6 +702,8 @@ def self_test() -> None:
             assert r.stdout == "", f"apply() wrote to stdout ({name}): {r.stdout!r}"
             assert status in r.stderr, (name, r.stderr)
 
+    _self_test_lock()
+
     print("check_bench_pin.py --self-test: all checks passed")
 
 
@@ -596,13 +720,13 @@ def main() -> int:
         print("::error::no POSIX shell on PATH", file=sys.stderr)
         return 1
 
-    problems = check(REPO_ROOT)
+    problems = check(REPO_ROOT) + check_lock(REPO_ROOT)
     for p in problems:
         print(f"::error::{p}", file=sys.stderr)
     if problems:
-        print(f"\ncheck_bench_pin.py: {len(problems)} runner(s) do not take the core pin.", file=sys.stderr)
+        print(f"\ncheck_bench_pin.py: {len(problems)} runner(s) do not take the core pin or the host lock.", file=sys.stderr)
         return 1
-    print("check_bench_pin.py: every wall-clock runner sources scripts/bench_pin.sh")
+    print("check_bench_pin.py: every wall-clock runner sources scripts/bench_pin.sh and runs under scripts/bench_lock.py")
     return 0
 
 
