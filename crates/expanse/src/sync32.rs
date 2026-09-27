@@ -97,7 +97,12 @@
 //! published leaf, linear or bitmap, but builds the edited copy, publishes
 //! it through a fresh slot, rehandles the parent edge and retires the old
 //! node, so a reader's references into leaf bytes and bitmap-leaf fields
-//! only ever point at memory no one writes. The Miri census runs the
+//! only ever point at memory no one writes. One edit is made in place: a
+//! map bitmap leaf's value overwrite is one atomic word store into the
+//! value subarray, which both sides reach through the subarray box's own
+//! pointer rather than a reference, and readers load as one atomic word
+//! (`trie32::map_bitmap_overwrite_shared`). An overwrite with the value the
+//! key already holds opens no bracket at all. The Miri census runs the
 //! threaded workloads (`sync32::map_reader_writer`,
 //! `sync32::set_reader_writer`, `sync32::map_branch_reader_writer` in
 //! `.github/miri-ub-sites.json`) and records them clean. The 64-bit `sync`
@@ -985,8 +990,9 @@ mod tests {
     }
 
     /// An overwrite with the value already held opens no bracket and retires
-    /// nothing, in a linear leaf and in a bitmap leaf; a changed value still
-    /// does both.
+    /// nothing, in a linear leaf and in a bitmap leaf. A changed value opens
+    /// a bracket in both; the linear leaf is copied and retired, and the
+    /// bitmap leaf's value is stored in place, retiring nothing.
     #[test]
     fn identical_overwrite_opens_no_bracket() {
         let mut m = SyncExpanseMap32::with_capacity(4096, 1);
@@ -1014,7 +1020,11 @@ mod tests {
             assert_eq!(w.pending_len(), parked, "nothing retired");
             assert_eq!(w.try_insert(k, k ^ 9), Ok(Some(k ^ 7)));
             assert_ne!(m_version(&r).try_sample(), Some(v0), "a bracket");
-            assert!(w.pending_len() > parked, "the copy retired the leaf");
+            if k == linear[2] {
+                assert!(w.pending_len() > parked, "the copy retired the leaf");
+            } else {
+                assert_eq!(w.pending_len(), parked, "stored in place");
+            }
             assert_eq!(w.get(k), Some(k ^ 9));
         }
         walk_counter(&w, 0).store(2, Ordering::Release);
@@ -1074,10 +1084,10 @@ mod tests {
              pending_len {len}, pending_bytes {bytes}"
         );
         assert_eq!(refused, WriteError::ReclaimBacklog);
-        assert_eq!((writes, len), (33_775, 16_513), "pinned census");
+        assert_eq!((writes, len), (36_180, 16_513), "pinned census");
         // Node sizes, and so the bytes, follow the pointer width.
         #[cfg(target_pointer_width = "64")]
-        assert_eq!(bytes, 13_881_392, "pinned census");
+        assert_eq!(bytes, 14_033_968, "pinned census");
         walk_counter(&w, 0).store(2, Ordering::Release);
         assert!(w.try_reclaim(), "the reader's exit drains the backlog");
     }
