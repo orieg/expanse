@@ -1,0 +1,152 @@
+name: Install Valgrind (pinned source build, cached)
+description: >-
+  Build a pinned Valgrind release from the sourceware tarball, verified against
+  a pinned SHA-256, cache the installed prefix per runner OS/arch, put it first
+  on PATH, and fail unless the valgrind on PATH is that build at >= 3.24.0.
+
+# Why not the distro package: Ubuntu 24.04 ships valgrind 3.22.0, which carries
+# upstream bug 492663 ("Valgrind ignores debug info for some binaries", fixed in
+# 3.24.0). For a PIE (ET_DYN) whose first RW PT_LOAD ends exactly where the
+# second begins, the kernel maps the pair as one region, and valgrind < 3.24.0
+# waits for a second RW mapping that never arrives, so it never reads the
+# binary's symbols. iai-callgrind's `--toggle-collect` then matches nothing and
+# Callgrind collects 0 instructions on every arm. Whether a bench binary gets
+# that layout depends on its size, so any change can hit it (#1216).
+#
+# There is deliberately no fallback to the apt package: a build failure fails
+# the job, because a silent fallback would reinstate the bug unseen (AGENTS.md
+# §8.1).
+
+inputs:
+  version:
+    description: Valgrind release to build.
+    required: false
+    default: 3.27.1
+  sha256:
+    description: >-
+      SHA-256 of valgrind-<version>.tar.bz2. The default was computed from the
+      tarball at https://sourceware.org/pub/valgrind/valgrind-3.27.1.tar.bz2,
+      whose md5 (9b819b1aa88fc5936373fc624aa75723) and sha1
+      (0b113f5c80d34743195b78651c2520901ba630cf) match the checksums published
+      at https://valgrind.org/downloads/current.html. Change it together with
+      `version`.
+    required: false
+    default: 5d589152eb8071c02feab8ce6ab719e431a1fbc3e2b1700f5432632a8b9264dc
+  min-version:
+    description: Lowest version accepted on PATH (the first release with the fix for upstream bug 492663).
+    required: false
+    default: 3.24.0
+
+outputs:
+  prefix:
+    description: Install prefix of the built valgrind.
+    value: ${{ steps.prefix.outputs.prefix }}
+  cache-hit:
+    description: "'true' when the installed prefix was restored from the cache."
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the valgrind prefix and cache key
+      id: prefix
+      shell: bash
+      env:
+        VG_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        prefix="$HOME/.valgrind/$VG_VERSION"
+        # The build links against the image's libc, so the image's distro
+        # release is part of the key: a runner-image move to a new Ubuntu
+        # release must rebuild rather than restore a prefix built elsewhere.
+        . /etc/os-release
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "distro=${ID}-${VERSION_ID}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the valgrind prefix
+      id: restore
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.prefix.outputs.prefix }}
+        # Version + checksum + OS/arch + distro release + this recipe: any of
+        # them changing is a different build.
+        key: valgrind-${{ inputs.version }}-${{ inputs.sha256 }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.prefix.outputs.distro }}-${{ hashFiles('.github/actions/valgrind/action.yml') }}
+
+    - name: Build valgrind from the pinned tarball (cache miss)
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VG_VERSION: ${{ inputs.version }}
+        VG_SHA256: ${{ inputs.sha256 }}
+        VG_PREFIX: ${{ steps.prefix.outputs.prefix }}
+      run: |
+        set -euo pipefail
+        echo "cache miss: building valgrind $VG_VERSION into $VG_PREFIX"
+        work="$RUNNER_TEMP/valgrind-build"
+        rm -rf "$work" "$VG_PREFIX"
+        mkdir -p "$work"
+        cd "$work"
+        tarball="valgrind-$VG_VERSION.tar.bz2"
+        curl --proto '=https' --tlsv1.2 -fsSL --retry 4 --retry-all-errors \
+          -o "$tarball" "https://sourceware.org/pub/valgrind/$tarball"
+        echo "$VG_SHA256  $tarball" | sha256sum --check --strict
+        tar -xjf "$tarball"
+        cd "valgrind-$VG_VERSION"
+        ./configure --prefix="$VG_PREFIX"
+        make -j"$(nproc)"
+        make install
+        test -x "$VG_PREFIX/bin/valgrind" || { echo "::error::make install produced no $VG_PREFIX/bin/valgrind"; exit 1; }
+
+    - name: Save the valgrind prefix
+      # Saved here rather than in a post step, so a later failure in the job
+      # (a tripped regression guard, say) does not force the next run to rebuild.
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ steps.prefix.outputs.prefix }}
+        key: ${{ steps.restore.outputs.cache-primary-key }}
+
+    - name: Put the built valgrind first on PATH and its headers on CPATH
+      shell: bash
+      env:
+        VG_PREFIX: ${{ steps.prefix.outputs.prefix }}
+      run: |
+        set -euo pipefail
+        echo "$VG_PREFIX/bin" >> "$GITHUB_PATH"
+        # <valgrind/callgrind.h> client requests (the RocksDB bound's
+        # CALLGRIND_TOGGLE_COLLECT) must come from this build, not from a
+        # distro package that is no longer installed.
+        test -f "$VG_PREFIX/include/valgrind/callgrind.h" || { echo "::error::$VG_PREFIX/include/valgrind/callgrind.h missing"; exit 1; }
+        echo "CPATH=$VG_PREFIX/include${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
+
+    - name: Assert the valgrind on PATH is the pinned build (>= ${{ inputs.min-version }})
+      shell: bash
+      env:
+        VG_VERSION: ${{ inputs.version }}
+        VG_MIN: ${{ inputs.min-version }}
+        VG_PREFIX: ${{ steps.prefix.outputs.prefix }}
+      run: |
+        set -euo pipefail
+        if ! resolved=$(command -v valgrind); then
+          echo "::error::no valgrind on PATH, expected the pinned build at $VG_PREFIX/bin/valgrind"
+          exit 1
+        fi
+        echo "valgrind on PATH: $resolved"
+        if [ "$resolved" != "$VG_PREFIX/bin/valgrind" ]; then
+          echo "::error::valgrind on PATH is $resolved, expected the pinned build at $VG_PREFIX/bin/valgrind"
+          exit 1
+        fi
+        line=$(valgrind --version)
+        echo "$line"
+        have=${line#valgrind-}
+        if [ "$(printf '%s\n%s\n' "$VG_MIN" "$have" | sort -V | head -n1)" != "$VG_MIN" ]; then
+          echo "::error::$line is below $VG_MIN: valgrind < 3.24.0 carries upstream bug 492663 and can count 0 instructions on every Callgrind arm (#1216)"
+          exit 1
+        fi
+        if [ "$have" != "$VG_VERSION" ]; then
+          echo "::error::$line on PATH, expected valgrind-$VG_VERSION"
+          exit 1
+        fi
+        # The tool itself must start: a prefix restored from a cache that no
+        # longer matches the image would fail here rather than inside a bench.
+        valgrind --tool=callgrind --callgrind-out-file=/dev/null /bin/true

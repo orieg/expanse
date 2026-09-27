@@ -325,6 +325,10 @@ jobs:
               - 'Cargo.lock'
             integrations:
               - 'integrations/**'
+              # The pinned valgrind this filter's Callgrind bound job runs under
+              # (#1216); `rust-src` already carries `.github/actions/**` for the
+              # other Callgrind jobs.
+              - '.github/actions/valgrind/**'
               - 'crates/expanse/**'
               - 'crates/expanse-capi/**'
               - 'include/**'
@@ -949,7 +953,9 @@ jobs:
     # genuinely ran neither report script.)
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-aarch64|')
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    # Headroom for a cold valgrind source build (cache miss) on top of the
+    # workspace tests and both Callgrind passes.
+    timeout-minutes: 30
     env:
       # AGENTS.md §5 gate 4: the randomized model test at heavy iterations
       # (proptest's default is 256 cases).
@@ -1038,17 +1044,12 @@ jobs:
           /tmp/test_cpp
 
       # Step 2: Extend Callgrind instruction tracking to AArch64 (roadmap bullet docs/CI.md §11).
-      - name: Install valgrind
-        timeout-minutes: 8
-        run: |
-          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
-          for i in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
-            echo "apt attempt $i failed; retrying in 15s"
-            sleep 15
-          done
-          exit 1
+      # Pinned source build, not Ubuntu's valgrind 3.22.0: releases before
+      # 3.24.0 carry upstream bug 492663 and can count 0 instructions on every
+      # arm (#1216). The action asserts the version it put on PATH.
+      - name: Install valgrind (pinned source build)
+        timeout-minutes: 25
+        uses: ./.github/actions/valgrind
 
       - name: Install iai-callgrind-runner
         run: |
@@ -1784,17 +1785,24 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install valgrind and stock libjudy
+      - name: Install stock libjudy
         timeout-minutes: 8
         run: |
-          if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
+          if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
           for i in 1 2 3; do
             timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
+            if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
             echo "apt attempt $i failed; retrying in 15s"
             sleep 15
           done
           exit 1
+
+      # Pinned source build, not Ubuntu's valgrind 3.22.0: releases before
+      # 3.24.0 carry upstream bug 492663 and can count 0 instructions on every
+      # arm (#1216). The action asserts the version it put on PATH.
+      - name: Install valgrind (pinned source build)
+        timeout-minutes: 25
+        uses: ./.github/actions/valgrind
 
       - name: Install iai-callgrind-runner
         run: |
@@ -1985,7 +1993,8 @@ jobs:
     needs: [detect-changes, fast-lane]
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|callgrind-smoke|')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Headroom for a cold valgrind source build (cache miss).
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1995,17 +2004,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install valgrind
-        timeout-minutes: 8
-        run: |
-          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
-          for i in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
-            echo "apt attempt $i failed; retrying in 15s"
-            sleep 15
-          done
-          exit 1
+      # Pinned source build, not Ubuntu's valgrind 3.22.0: releases before
+      # 3.24.0 carry upstream bug 492663 and can count 0 instructions on every
+      # arm (#1216). The action asserts the version it put on PATH.
+      - name: Install valgrind (pinned source build)
+        timeout-minutes: 25
+        uses: ./.github/actions/valgrind
 
       - name: Install iai-callgrind-runner
         run: |
@@ -2911,17 +2915,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install valgrind
-        timeout-minutes: 8
-        run: |
-          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
-          for i in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
-            echo "apt attempt $i failed; retrying in 15s"
-            sleep 15
-          done
-          exit 1
+      # Pinned source build, not Ubuntu's valgrind 3.22.0: releases before
+      # 3.24.0 carry upstream bug 492663 and can count 0 instructions on every
+      # arm (#1216). The action asserts the version it put on PATH.
+      - name: Install valgrind (pinned source build)
+        timeout-minutes: 25
+        uses: ./.github/actions/valgrind
 
       - name: Check Out Base Twice and Head
         id: refs
