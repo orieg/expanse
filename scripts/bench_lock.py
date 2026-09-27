@@ -28,11 +28,16 @@ reason the command is sent SIGTERM when this process dies (Linux
 
 ## Paths
 
-- `${EXPANSE_BENCH_FLOCK:-/tmp/expanse-bench.flock}`: the lock. It is the path
-  sessions outside the repository already take by hand, so both exclude each
-  other. It must be a regular file owned by the caller; a symlink, or a file
-  another user created, is refused rather than opened. The file is never
-  truncated, only locked.
+- `$EXPANSE_BENCH_FLOCK`: the lock. Unset, it is the host's shared lock
+  `/run/expanse-bench/expanse-bench.flock` when that file exists, and
+  `/tmp/expanse-bench.flock` otherwise, the path sessions outside the
+  repository take by hand. It must be a regular file, and either owned by the
+  caller or the shared lock root provisions for several accounts: owned by
+  root, not writable by others, in a group the caller belongs to
+  (`docs/CI.md`, "The benchmark lock"; `scripts/bench_host/provision.sh`).
+  A symlink, or a file another non-root user created, is refused rather than
+  opened: that user could replace it and hold a different inode. The file is
+  never truncated, only locked.
 - `<lock>.owner`: who holds it, written after the lock is taken. Advisory: a
   holder killed outright leaves it behind, so it names the last holder, not
   necessarily a live one.
@@ -91,8 +96,35 @@ def sanitize(text: str, limit: int = 300) -> str:
     return _UNSAFE.sub("?", line)[:limit] or "unknown"
 
 
+# The lock a host shares between its runner's service account and human
+# sessions, created by root through tmpfiles.d (scripts/bench_host/provision.sh).
+SHARED_LOCK = Path("/run/expanse-bench/expanse-bench.flock")
+
+
 def lock_path() -> Path:
-    return Path(os.environ.get("EXPANSE_BENCH_FLOCK") or "/tmp/expanse-bench.flock")
+    env = os.environ.get("EXPANSE_BENCH_FLOCK")
+    if env:
+        return Path(env)
+    return SHARED_LOCK if SHARED_LOCK.is_file() else Path("/tmp/expanse-bench.flock")
+
+
+def owner_problem(st_uid: int, st_gid: int, st_mode: int, uid: int, groups: set[int]) -> str | None:
+    """Why a lock file with this ownership must not be used, or None.
+
+    The caller's own file is usable. So is the shared lock root provisions:
+    a non-root account cannot create a root-owned file, so root ownership
+    proves who made it, and with no write bit for others and the caller in its
+    group, the group's members are the only accounts that can open it.
+    """
+    if st_uid == uid:
+        return None
+    if st_uid == 0:
+        if st_mode & stat.S_IWOTH:
+            return "is root-owned but writable by every user"
+        if st_gid not in groups:
+            return f"is the shared lock of group {st_gid}, which this user ({uid}) is not in"
+        return None
+    return f"belongs to uid {st_uid}, not this user ({uid}); another user created it, so it is not used"
 
 
 def mirror_path() -> Path:
@@ -108,17 +140,21 @@ def open_lock(path: Path) -> int:
     except OSError as exc:
         if exc.errno == errno.ELOOP:
             raise LockConfigError(f"{path} is a symlink; the lock is never taken through a link") from exc
-        raise LockConfigError(f"{path} cannot be opened: {exc.strerror}") from exc
+        hint = ""
+        if exc.errno == errno.EACCES:
+            hint = (
+                "; another account created it. A host shared between accounts provides "
+                f"{SHARED_LOCK} (docs/CI.md, 'The benchmark lock')"
+            )
+        raise LockConfigError(f"{path} cannot be opened: {exc.strerror}{hint}") from exc
     st = os.fstat(fd)
     if not stat.S_ISREG(st.st_mode):
         os.close(fd)
         raise LockConfigError(f"{path} is not a regular file")
-    if st.st_uid != os.getuid():
+    problem = owner_problem(st.st_uid, st.st_gid, st.st_mode, os.getuid(), set(os.getgroups()) | {os.getgid()})
+    if problem:
         os.close(fd)
-        raise LockConfigError(
-            f"{path} belongs to uid {st.st_uid}, not this user ({os.getuid()}); "
-            "another user created it, so it is not used"
-        )
+        raise LockConfigError(f"{path} {problem}")
     return fd
 
 
@@ -420,6 +456,33 @@ def self_test() -> int:
             assert "fail_reason=lock_held" in text and "lock_owner=suite=holder" in text, text
         finally:
             kill_tree(holder)
+
+    # 9. Which owners are usable. The shared lock is root-owned, so this is
+    # checked as a function: the self-test does not run as root.
+    me_uid, grp = 1000, {1000, 2000}
+    assert owner_problem(1000, 1000, 0o100644, me_uid, grp) is None
+    assert owner_problem(0, 2000, 0o100660, me_uid, grp) is None
+    assert "writable by every user" in (owner_problem(0, 2000, 0o100666, me_uid, grp) or "")
+    assert "not in" in (owner_problem(0, 3000, 0o100660, me_uid, grp) or "")
+    assert "another user created it" in (owner_problem(1001, 2000, 0o100660, me_uid, grp) or "")
+
+    # 10. The default path: the shared lock when the host provides it, /tmp
+    # otherwise, and an explicit EXPANSE_BENCH_FLOCK over both.
+    global SHARED_LOCK
+    saved_env, saved_shared = os.environ.pop("EXPANSE_BENCH_FLOCK", None), SHARED_LOCK
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            SHARED_LOCK = Path(tmp, "shared.flock")
+            assert lock_path() == Path("/tmp/expanse-bench.flock"), lock_path()
+            SHARED_LOCK.write_text("")
+            assert lock_path() == SHARED_LOCK, lock_path()
+            os.environ["EXPANSE_BENCH_FLOCK"] = str(Path(tmp, "explicit"))
+            assert lock_path() == Path(tmp, "explicit"), lock_path()
+    finally:
+        SHARED_LOCK = saved_shared
+        os.environ.pop("EXPANSE_BENCH_FLOCK", None)
+        if saved_env is not None:
+            os.environ["EXPANSE_BENCH_FLOCK"] = saved_env
 
     assert sanitize("a`b\nsecond") == "a?b"
     print("bench_lock.py --self-test: all checks passed")
