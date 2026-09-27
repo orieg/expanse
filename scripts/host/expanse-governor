@@ -1,0 +1,71 @@
+#!/bin/bash
+# expanse-governor — set the cpufreq governor or energy/performance preference
+# of named CPUs on a benchmark host (#1213).
+#
+# THIS FILE IS A REFERENCE COPY. It is installed by the host's administrator,
+# as root, at /usr/local/sbin/expanse-governor, and the benchmark user may run
+# that installed copy through one NOPASSWD sudoers line naming exactly that
+# path (docs/BENCHMARKING.md, "Host setup"). Nothing ever executes it from a
+# checkout: a sudoers rule pointing into a repository would let any change to
+# that repository run as root on the host.
+#
+#     expanse-governor set {performance|powersave} CPULIST
+#     expanse-governor epp {default|performance|balance_performance|balance_power|power} CPULIST
+#
+# CPULIST is the kernel's grammar (`0-15`, `0,2,4`), every CPU in it must be
+# present, and the only files written are
+# /sys/devices/system/cpu/cpuN/cpufreq/{scaling_governor,energy_performance_preference}.
+# It reads nothing from the environment and looks nothing up on PATH.
+set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+readonly SYS=/sys/devices/system/cpu
+
+usage() {
+    echo "usage: expanse-governor set {performance|powersave} CPULIST" >&2
+    echo "       expanse-governor epp {default|performance|balance_performance|balance_power|power} CPULIST" >&2
+    exit 64
+}
+
+[ "$#" -eq 3 ] || usage
+op=$1
+value=$2
+list=$3
+
+case "$op" in
+    set)
+        case "$value" in performance | powersave) ;; *) usage ;; esac
+        file=scaling_governor
+        ;;
+    epp)
+        case "$value" in default | performance | balance_performance | balance_power | power) ;; *) usage ;; esac
+        file=energy_performance_preference
+        ;;
+    *) usage ;;
+esac
+
+[[ "$list" =~ ^[0-9]{1,4}(-[0-9]{1,4})?(,[0-9]{1,4}(-[0-9]{1,4})?)*$ ]] || usage
+
+read -r present < "$SYS/present"
+[[ "$present" =~ ([0-9]+)$ ]] || { echo "expanse-governor: cannot read $SYS/present" >&2; exit 70; }
+last=${BASH_REMATCH[1]}
+
+cpus=()
+IFS=, read -r -a parts <<< "$list"
+for part in "${parts[@]}"; do
+    lo=${part%-*}
+    hi=${part#*-}
+    lo=$((10#$lo))
+    hi=$((10#$hi))
+    if [ "$lo" -gt "$hi" ] || [ "$hi" -gt "$last" ]; then
+        echo "expanse-governor: CPU range $part is outside 0-$last" >&2
+        exit 64
+    fi
+    for ((c = lo; c <= hi; c++)); do
+        cpus+=("$c")
+    done
+done
+
+for c in "${cpus[@]}"; do
+    printf '%s\n' "$value" > "$SYS/cpu$c/cpufreq/$file"
+done

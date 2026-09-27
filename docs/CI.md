@@ -460,6 +460,35 @@ Do **not** widen the unit's `PATH` to include `$HOME/.cargo/bin` or
 inherited environment of the host every published figure resolves to is a
 behavioural change, not a convenience.
 
+#### Frequency-policy helper (required on the reference host)
+
+The workflow holds the pinned CPUs at the `performance` governor for each run
+and puts back each CPU's own policy afterwards (#1213, `scripts/bench_governor.py`).
+Only root can write cpufreq policy, so the host's administrator installs one
+helper and one sudoers line. Without them every run refuses with
+`governor_unavailable`.
+
+```bash
+sudo install -o root -g root -m 0755 scripts/host/expanse-governor /usr/local/sbin/expanse-governor
+echo "$USER ALL=(root) NOPASSWD: /usr/local/sbin/expanse-governor" \
+  | sudo tee /etc/sudoers.d/expanse-governor >/dev/null
+sudo chmod 0440 /etc/sudoers.d/expanse-governor
+sudo visudo -cf /etc/sudoers.d/expanse-governor
+sudo -n /usr/local/sbin/expanse-governor set powersave 0 && echo "helper works"
+```
+
+Run the install from a reviewed checkout of `main`. The installed copy is what
+runs; a change to `scripts/host/expanse-governor` reaches the host only when
+someone re-installs it, which is the point. The sudoers line names that one path
+and nothing else. The helper accepts two verbs:
+
+- `set {performance|powersave} CPULIST`
+- `epp {default|performance|balance_performance|balance_power|power} CPULIST`
+
+It checks every CPU against `/sys/devices/system/cpu/present`, writes only
+`cpuN/cpufreq/scaling_governor` and `energy_performance_preference`, and reads no
+environment. `USER` above is the account the runner runs as.
+
 #### Moving an existing runner
 
 A runner that has ever self-updated stores **absolute** symlinks:

@@ -611,6 +611,21 @@ Bench targets deliberately **not** reachable from a slash command:
      the run's host-activity record with the report, and uploads both as
      `host-guard.json` and `host-activity.jsonl`. A runner outside the
      workflow records its load per cell through `bench_provenance` (rule 2).
+   - **The frequency policy.** The workflow holds the pinned CPUs at the
+     `performance` governor for the run (`scripts/bench_governor.py`, #1213):
+     before any build it records each CPU's governor and energy/performance
+     preference, sets `performance` through the host's root-owned helper
+     ([`docs/CI.md`](CI.md#frequency-policy-helper-required-on-the-reference-host)),
+     reads every CPU back, and refuses (`governor_unavailable`) when that
+     fails, when turbo is off, or when the performance range is capped. After
+     the run it restores each CPU's own recorded policy, inside the lock, and
+     reports any thermal-throttle events during the run. `host-governor.json`
+     carries the before/during/after record. **Artifacts measured before
+     this change ran under `powersave` (`balance_performance`), and a pair
+     across the change is not like-for-like (AGENTS.md section 8.3):**
+     compare post-change with post-change. Frequency droop under load is
+     still measured, never assumed away (`cycles / ref-cycles`, section
+     8.20.2), since `performance` fixes the request, not the delivered clock.
 
 9. **Fail-loud harness execution (zero silent fallbacks).** If a benchmark
    dependency, runtime, or native extension (`libexpanse.so`, Node addon, Python

@@ -822,6 +822,26 @@ jobs:
             exit 1
           fi
 
+          # Frequency policy (#1213): the pinned CPUs run the `performance`
+          # governor for the run and get their own prior policy back after
+          # it, through the root-owned helper the host's administrator
+          # installed (docs/BENCHMARKING.md, "Host setup"). A host without it
+          # refuses the run (governor_unavailable) rather than measuring
+          # under whatever policy it happens to be in. The restore runs on
+          # every exit of this step, inside the lock; the `always()` step
+          # below covers a step that never reached it.
+          GOVERNOR_STATE="$RUNNER_TEMP/governor-state.json"
+          rm -f "$GOVERNOR_STATE"
+          python3 "$RUNNER_TEMP/bench-tools/scripts/bench_governor.py" apply \
+            --state "$GOVERNOR_STATE" --json host-governor.json | tee -a governor.txt
+          trap 'python3 "$RUNNER_TEMP/bench-tools/scripts/bench_governor.py" restore --state "$GOVERNOR_STATE" --json host-governor.json' EXIT
+          {
+            echo ""
+            echo '```text'
+            cat governor.txt
+            echo '```'
+          } >> system-load.md
+
           # Then watch the host for the whole run, from CPUs outside the pin
           # set; the record is judged when the benchmarks are done, and a run
           # the host disturbed is discarded (AGENTS.md section 8.17).
@@ -1816,6 +1836,25 @@ jobs:
       # by scraping the job log (#449). The harvest is now non-fatal, so that
       # path should not be reachable through a missing harvester — but a
       # completed measurement should not depend on every later step succeeding.
+      # The bench step restores the frequency policy on its own exit. A step
+      # killed outright (a cancelled run) never gets there, and a later run
+      # sets the policy itself anyway; this puts it back meanwhile, but only
+      # while no one else holds the host: a restore inside another holder's
+      # run would change the conditions it is measuring under.
+      - name: Restore the frequency policy
+        if: always()
+        shell: bash
+        run: |
+          STATE="$RUNNER_TEMP/governor-state.json"
+          if [ ! -f "$STATE" ]; then
+            echo "governor: this run never changed it"
+            exit 0
+          fi
+          if ! python3 "$RUNNER_TEMP/bench-tools/scripts/bench_lock.py" --suite ci-governor-restore --wait 0 -- \
+               python3 "$RUNNER_TEMP/bench-tools/scripts/bench_governor.py" restore --state "$STATE"; then
+            echo "::warning::the frequency policy was not restored here (another holder has the host, or the restore failed); the next run sets its own"
+          fi
+
       # Only this run's files are uploaded (#1212). The list below names every
       # file some suite may write; `stage_run_outputs.py` keeps a candidate only
       # when git shows the run created or rewrote it, so the committed results
@@ -1834,6 +1873,7 @@ jobs:
             --commit "$(git rev-parse HEAD)" \
             host-guard.json \
             host-activity.jsonl \
+            host-governor.json \
             concurrency.txt \
             writer_scaling.txt \
             ycsb_concurrent.txt \
@@ -2045,6 +2085,9 @@ jobs:
               } else if (reason === 'lock_unusable') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: the host-wide bench lock file exists in a form the run must not use (a symlink, another user's file, or not a regular file): \`${process.env.LOCK_OWNER || 'see the job log'}\`. Remove or recreate it as the runner's own file, then re-trigger.`;
+              } else if (reason === 'governor_unavailable') {
+                label = 'refused';
+                cause = 'The run was **refused before any benchmark started**: the pinned CPUs could not be held at the `performance` governor (#1213). The host needs the root-owned `expanse-governor` helper and its sudoers line (`docs/BENCHMARKING.md`, "Host setup"), with turbo enabled and no cap on the performance range. The job log names what was missing. No numbers were produced.';
               } else if (reason === 'host_busy') {
                 label = 'refused';
                 cause = 'The run was **refused before any benchmark started**: the host stayed busy with work outside this run past the wait bound (a build, a container, another benchmark). The live sample and the processes it named are below. Re-trigger once the host is quiet.';
