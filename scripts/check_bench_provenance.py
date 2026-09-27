@@ -244,6 +244,11 @@ GRANDFATHERED = {
     "masstree_comparison/results/counters_strmap_hugepage_on_1m.json": ('b18688138a81005327925dd407d1056b6fe9753d',),
     "masstree_comparison/results/counters_strmap_vs_map_lookup_1m.json": ('43c68caa3dc66fc99b61613ec8d23caa9a5e33db',),
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
+    # Its runner (`art_comparison/scripts/run_all.py`) snapshots before each
+    # bench and never after the last, so the first bench's window is never
+    # closed: both of its snapshots carry a null `busy_cpus_since_prev`
+    # (#1214). A re-run with a closing snapshot drops this entry.
+    "art_comparison/results/baseline_lookup_hit.json": ("b447dbc",),
     # hashbrown_comparison, redis_zset_engine, search_inverted_index — these
     # runners took no load snapshot at all before this change, and several of
     # their artifacts are bare JSON arrays.
@@ -475,6 +480,50 @@ def has_rounds(cell: dict) -> bool:
     return any(isinstance(v, dict) and v.get("rounds_raw") for v in cell.values())
 
 
+def _number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def has_measured_window(obj: dict) -> bool:
+    """Whether some snapshot closed a measured window.
+
+    The key alone proves nothing: `load_snapshot` writes `busy_cpus_since_prev`
+    as null when it has no predecessor, off Linux, or over a window shorter
+    than `MIN_WINDOW_S`, and an artifact whose every value is null records no
+    host activity at all (#1214). A window counts when a later snapshot in
+    `loads` carries the number, or when every cell carries it on its `load`,
+    which is where `end_cell` puts it rather than in `loads`.
+    """
+    loads = obj["provenance"]["loads"]
+    if any(isinstance(s, dict) and _number(s.get("busy_cpus_since_prev")) for s in loads[1:]):
+        return True
+    cells = [c for _, cl in cell_lists(obj) for c in cl]
+    return bool(cells) and all(
+        isinstance(c.get("load"), dict) and _number(c["load"].get("busy_cpus_since_prev"))
+        for c in cells)
+
+
+def window_problems(rel: str, obj: dict) -> list[str]:
+    """Findings for an artifact that declares per-window load (`load_windows`).
+
+    One closing snapshot over a whole run satisfies `has_measured_window` and
+    is what #1214 set out to replace, so an artifact that says it windows its
+    timed cases carries a measured host and foreign delta on every window.
+    """
+    windows = obj["provenance"].get("windows")
+    if not isinstance(windows, list) or not windows:
+        return [f"{rel}: declares `load_windows` but carries no `provenance.windows`"]
+    bad = [i for i, w in enumerate(windows)
+           if not (isinstance(w, dict) and isinstance(w.get("load"), dict)
+                   and _number(w["load"].get("busy_cpus_since_prev"))
+                   and _number(w["load"].get("foreign_busy_cpus")))]
+    if bad:
+        return [f"{rel}: {len(bad)} of {len(windows)} load windows carry no numeric "
+                f"`busy_cpus_since_prev` and `foreign_busy_cpus` (first at index {bad[0]}) "
+                f"— a window that could not attribute is not a quiet one (section 8.1)"]
+    return []
+
+
 def check_artifact(rel: str, obj) -> list[str]:
     """Findings for one artifact, already known to be non-grandfathered."""
     problems = []
@@ -494,6 +543,14 @@ def check_artifact(rel: str, obj) -> list[str]:
     elif not any("busy_cpus_since_prev" in s for s in loads if isinstance(s, dict)):
         problems.append(f"{rel}: load snapshots carry no `busy_cpus_since_prev` — "
                         f"the load average lags a heavy process by about thirty seconds")
+    elif not has_measured_window(obj):
+        problems.append(
+            f"{rel}: no load window was measured — every `busy_cpus_since_prev` is null, "
+            f"so no snapshot closed a window over a timed run (#1214); take a snapshot "
+            f"after the runs (bench_provenance.add_load) or a per-cell window "
+            f"(begin_cell / end_cell)")
+    if prov.get("load_windows"):
+        problems.extend(window_problems(rel, obj))
 
     if rel in NO_ROUNDS:
         return problems
@@ -1033,6 +1090,52 @@ def _self_test() -> int:
     one_loadavg["provenance"]["loads"] = [{"label": "start", "load1": 0.0},
                                           {"label": "end", "load1": 1.0}]
     expect("load averages with no jiffy delta", one_loadavg, "busy_cpus_since_prev")
+
+    # #1214: the key present, every value null. `art_comparison`'s lookup_hit
+    # artifact at b447dbc, verbatim in shape: a start snapshot and one taken
+    # before its bench, and none after it.
+    none_only = copy.deepcopy(_GOOD)
+    none_only["provenance"]["loads"] = [
+        {"label": "start", "load1": 0.4, "busy_cpus_since_prev": None},
+        {"label": "before art_lookup_hit", "since": "start", "load1": 0.4,
+         "busy_cpus_since_prev": None}]
+    expect("every busy_cpus_since_prev null", none_only, "no load window was measured")
+
+    # The per-cell shape the writer_scaling and c2c drivers write: `end_cell`
+    # stores the delta on the cell, and `loads` holds two snapshots taken at
+    # the same instant. That is a measured window, not a missing one.
+    cell_only = copy.deepcopy(_GOOD)
+    cell_only["provenance"]["loads"] = [
+        {"label": "start", "busy_cpus_since_prev": None},
+        {"label": "cell:lookup_hit", "since": "start", "busy_cpus_since_prev": None}]
+    cell_only["cells"][0]["load"] = {"since": "cell:lookup_hit", "wall_s": 3.0,
+                                     "busy_cpus_since_prev": 1.0, "own_busy_cpus": 0.98,
+                                     "foreign_busy_cpus": 0.02}
+    expect("windows measured on the cells", cell_only, None)
+    cell_partial = copy.deepcopy(cell_only)
+    cell_partial["cells"].append({"pillar": "insert", "rounds_raw": [{"round": 0}]})
+    expect("one cell of two windowed, none in loads", cell_partial,
+           "no load window was measured")
+
+    # An artifact that declares per-window load owes it on every window: one
+    # closing snapshot is what #1214 replaced.
+    windowed = copy.deepcopy(_GOOD)
+    windowed["provenance"]["load_windows"] = True
+    windowed["provenance"]["windows"] = [
+        {"id": "art_scan/pop=10000/full", "load": {"busy_cpus_since_prev": 1.0,
+                                                   "own_busy_cpus": 0.99,
+                                                   "foreign_busy_cpus": 0.01}}]
+    expect("every declared window measured", windowed, None)
+    one_closing = copy.deepcopy(windowed)
+    one_closing["provenance"]["windows"] = []
+    expect("load_windows with a single closing snapshot", one_closing,
+           "carries no `provenance.windows`")
+    unattributed = copy.deepcopy(windowed)
+    unattributed["provenance"]["windows"].append(
+        {"id": "art_scan/pop=100000/full", "load": {"busy_cpus_since_prev": 1.0,
+                                                    "foreign_busy_cpus": None}})
+    expect("a declared window that could not attribute", unattributed,
+           "1 of 2 load windows")
 
     no_host = copy.deepcopy(_GOOD)
     del no_host["provenance"]["host"]
