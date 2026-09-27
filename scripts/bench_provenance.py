@@ -337,7 +337,7 @@ def pid_cpu_seconds(pid: int) -> float | None:
     try:
         with open(f"/proc/{pid}/stat") as fh:
             text = fh.read()
-    except OSError:
+    except OSError:  # discipline:allow(error-swallowing) no /proc entry is the documented None: off Linux, or the process was reaped
         return None
     ticks = pid_stat_cpu_ticks(text)
     return None if ticks is None else ticks / USER_HZ
@@ -345,11 +345,13 @@ def pid_cpu_seconds(pid: int) -> float | None:
 
 def pid_stat_cpu_ticks(text: str) -> int | None:
     """utime + stime ticks from the text of a `/proc/<pid>/stat` file, or `None`."""
-    try:
-        rest = text[text.rindex(")") + 2:].split()
-        return int(rest[11]) + int(rest[12])
-    except (ValueError, IndexError):
+    close = text.rfind(")")
+    if close < 0:
         return None
+    rest = text[close + 2:].split()
+    if len(rest) < 13 or not (rest[11].isdigit() and rest[12].isdigit()):
+        return None
+    return int(rest[11]) + int(rest[12])
 
 
 def pid_load_snapshot(label: str, pid: int, prev: dict | None = None) -> dict:

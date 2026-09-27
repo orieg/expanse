@@ -155,7 +155,7 @@ def build(package: str, target: str) -> tuple[Path, Path]:
     for line in out.splitlines():
         try:
             msg = json.loads(line)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError:  # discipline:allow(error-swallowing) cargo interleaves non-JSON build lines; only compiler-artifact messages are read
             continue
         if (msg.get("reason") == "compiler-artifact" and msg.get("executable")
                 and msg["target"]["name"] == target and "bench" in msg["target"]["kind"]):

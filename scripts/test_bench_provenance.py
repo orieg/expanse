@@ -291,8 +291,10 @@ class PidWindows(unittest.TestCase):
         # The default key is the reaped-children reading, absent here.
         self.assertIsNone(bp.own_busy_cpus(prev, 2.0, 12.0))
 
-    @unittest.skipUnless(Path("/proc/self/stat").exists(), "Linux only")
-    def test_a_window_over_this_process_attributes(self):
+    def test_a_window_over_this_process_attributes_where_proc_exists(self):
+        # On Linux a busy window over this process attributes about one core
+        # to it; elsewhere there is no /proc, and every figure is None rather
+        # than a plausible zero.
         import os
         import time
         start = bp.pid_load_snapshot("window:t", os.getpid())
@@ -300,8 +302,13 @@ class PidWindows(unittest.TestCase):
         while time.monotonic() < end:
             pass
         load = bp.pid_window(start, os.getpid())
-        self.assertIsInstance(load["busy_cpus_since_prev"], float)
-        self.assertGreater(load["own_busy_cpus"], 0.5)
+        if Path("/proc/self/stat").exists():
+            self.assertIsInstance(load["busy_cpus_since_prev"], float)
+            self.assertGreater(load["own_busy_cpus"], 0.5)
+        else:
+            self.assertIsNone(load["busy_cpus_since_prev"])
+            self.assertIsNone(load["own_busy_cpus"])
+            self.assertIsNone(load["foreign_busy_cpus"])
 
 
 if __name__ == "__main__":

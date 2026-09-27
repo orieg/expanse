@@ -500,9 +500,13 @@ def has_measured_window(obj: dict) -> bool:
     if any(isinstance(s, dict) and _number(s.get("busy_cpus_since_prev")) for s in loads[1:]):
         return True
 
+    # A foreign figure is host busy minus own, so a numeric one is a measured
+    # window too: `mixed_concurrency.py` aggregates a cell's rounds into
+    # `foreign_busy_cpus` alone.
     def measured(entry) -> bool:
-        return (isinstance(entry, dict) and isinstance(entry.get("load"), dict)
-                and _number(entry["load"].get("busy_cpus_since_prev")))
+        load = entry.get("load") if isinstance(entry, dict) else None
+        return isinstance(load, dict) and (_number(load.get("busy_cpus_since_prev"))
+                                           or _number(load.get("foreign_busy_cpus")))
 
     def windowed(cell) -> bool:
         rows = cell.get("rounds_raw") if isinstance(cell, dict) else None
@@ -1137,6 +1141,11 @@ def _self_test() -> int:
     expect("windows measured on every round row", round_rows, None)
     round_rows["cells"][0]["rounds_raw"].append({"round": 1})
     expect("one round row of two unwindowed", round_rows, "no load window was measured")
+    foreign_only = copy.deepcopy(cell_only)
+    foreign_only["cells"][0]["load"] = {"scope": "round", "foreign_busy_cpus": 0.02}
+    expect("a cell aggregating its rounds' foreign CPU", foreign_only, None)
+    foreign_only["cells"][0]["load"]["foreign_busy_cpus"] = None
+    expect("an aggregate that could not attribute", foreign_only, "no load window was measured")
     census = copy.deepcopy(cell_only)
     census["memory"] = [{"id": "memory", "bytes_total": 1320704}]
     expect("an untimed census cell owes no window", census, None)
