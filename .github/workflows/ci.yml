@@ -796,6 +796,7 @@ jobs:
           python3 scripts/ci_supersede.py --self-test
           python3 scripts/push_tree_verified.py --self-test
           python3 scripts/bench_windowed.py --self-test
+          python3 scripts/branchu_band_bounds.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts
