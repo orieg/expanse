@@ -973,6 +973,67 @@ mod tests {
         w.try_insert(1, 1).expect("writes proceed after reclaim");
     }
 
+    /// The mutations a stalled reader lets through before `ReclaimBacklog`,
+    /// on the `concurrency` suite's `sync32` shape and writer stream
+    /// (`benches/concurrency.rs`: 4,096 prefill draws over 8,192 keys, a
+    /// 16,384-slot arena and 16 reader slots; the writer inserts `k -> k`
+    /// twice and removes once, over the upper half). Reader 0 is parked
+    /// inside a walk from the first mutation on, so nothing drains. Pinned,
+    /// with the pending list's size when the writer is refused, so a change to
+    /// how often a mutation retires a node, or to when the writer reclaims,
+    /// shows up here as a changed count.
+    #[test]
+    fn stalled_reader_backlog_census() {
+        struct XorShift(u64);
+        impl XorShift {
+            fn next(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+        }
+        const STABLE: u32 = 4_096;
+        let mut m = SyncExpanseMap32::with_capacity(16_384, 16);
+        let (mut w, _) = m.split();
+        let mut rng = XorShift(0x5CA1_AB1E);
+        for _ in 0..STABLE {
+            let k = (rng.next() % (2 * u64::from(STABLE))) as u32;
+            w.try_insert(k, !k).expect("prefill");
+        }
+        assert!(w.try_reclaim(), "prefill leaves nothing parked");
+        walk_counter(&w, 0).store(1, Ordering::Relaxed);
+        let mut rng = XorShift(0x5EED_5EED);
+        let mut writes = 0u64;
+        let refused = loop {
+            let k = STABLE + (rng.next() % u64::from(STABLE)) as u32;
+            let res = if writes % 3 == 2 {
+                w.try_remove(k).map(|_| ())
+            } else {
+                w.try_insert(k, k).map(|_| ())
+            };
+            match res {
+                Ok(()) => writes += 1,
+                Err(e) => break e,
+            }
+            assert!(writes < 1_000_000, "no refusal under a stalled reader");
+        };
+        let (len, bytes) = (w.pending_len(), w.pending_bytes());
+        std::println!(
+            "stalled_reader_backlog_census: {refused:?} after {writes} mutations, \
+             pending_len {len}, pending_bytes {bytes}"
+        );
+        assert_eq!(refused, WriteError::ReclaimBacklog);
+        assert_eq!((writes, len), (18_951, 16_513), "pinned census");
+        // Node sizes, and so the bytes, follow the pointer width.
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(bytes, 13_708_560, "pinned census");
+        walk_counter(&w, 0).store(2, Ordering::Release);
+        assert!(w.try_reclaim(), "the reader's exit drains the backlog");
+    }
+
     /// The #594 case the flag scheme could not handle: a reader that is
     /// never observed idle but keeps passing through quiescent states.
     /// Nodes sealed under a snapshot must drain once its counter has
