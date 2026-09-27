@@ -158,6 +158,13 @@ GOLDEN_CASES = [
         {"miri", "test-asan", "fuzz-smoke"},
     ),
     (
+        "the pinned valgrind build reaches every Callgrind job, the RocksDB "
+        "bound included (#1216)",
+        [".github/actions/valgrind/action.yml"],
+        {"instruction-counts", "callgrind-smoke", "test-aarch64", "rocksdb-locate-ir-bound"},
+        set(),
+    ),
+    (
         "a TSan suppression edit reaches the guard scripts",
         [".github/tsan-suppressions.txt"],
         {"lint"},
