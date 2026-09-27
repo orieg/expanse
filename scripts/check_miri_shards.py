@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""scripts/check_miri_shards.py — Nightly Miri shard census for `expanse-trie`.
+"""scripts/check_miri_shards.py — Miri shard census for `expanse-trie`.
+
+Covers both sharded Miri lanes: the nightly Tier-3 lane (below) and the
+per-PR Tier-1 lane (`ci.yml`, job `miri`; see "Tier 1" at the end of this
+docstring).
 
 The nightly Miri lane (`.github/workflows/nightly.yml`, job `miri-full`) runs
 the crate's tests as a matrix of shards because one job never fits the hosted
@@ -26,6 +30,16 @@ Rules (each fatal):
 - Every entry in the matrix that is not a lib shard is an existing file under
   `crates/expanse/tests/`.
 
+Tier 1 (per-PR, `ci.yml` job `miri`) is a matrix whose shards carry libtest
+*substring* filters, written out again in `scripts/gate.sh` and `AGENTS.md`
+§5 as one unsharded command. Rules (each fatal):
+- The shards are named `1 of N` .. `N of N`, and no filter word is in two.
+- The union of the shards' filter words equals the `gate.sh` list and the
+  `AGENTS.md` list.
+- Every lib test any filter word selects is selected by exactly one shard,
+  every shard selects a test, and every filter word matches a test.
+- The `ablation_` step's `if: matrix.shard == '...'` names a shard.
+
 Usage:
   python3 scripts/check_miri_shards.py                 # census (runs cargo)
   python3 scripts/check_miri_shards.py --list-file F   # census from a saved --list
@@ -47,6 +61,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
+CI = ROOT / ".github" / "workflows" / "ci.yml"
+GATE = ROOT / "scripts" / "gate.sh"
+AGENTS = ROOT / "AGENTS.md"
 TESTS_DIR = ROOT / "crates" / "expanse" / "tests"
 
 # Top-level lib module -> shard. Anything not listed runs in `lib-rest`.
@@ -144,6 +161,69 @@ def census(tests: list[str], nightly_text: str, tests_dir: Path) -> list[str]:
     return errors
 
 
+TIER1_JOB = re.compile(r"^  miri:\n(.*?)(?=^  \S)", re.M | re.S)
+TIER1_SHARD = re.compile(r'^\s*- shard:\s*(.+?)\s*\n\s*filter:\s*"([^"]*)"', re.M)
+TIER1_ABLATION_IF = re.compile(r"^\s*if:\s*matrix\.shard\s*==\s*'([^']*)'", re.M)
+# The unsharded Tier-1 command in gate.sh and AGENTS.md: the `--lib --` form
+# with no `--features`, continued over backslash-newlines.
+TIER1_CMD = re.compile(r"cargo miri test -p expanse-trie --lib -- ((?:[^\n\\]|\\\n)*)")
+
+
+def tier1_shards(ci_text: str) -> tuple[list[tuple[str, list[str]]], list[str]]:
+    """([(shard name, filter words)], ablation-step shard names) from ci.yml."""
+    m = TIER1_JOB.search(ci_text)
+    if not m:
+        raise RuntimeError("ci.yml: no `miri:` job found")
+    body = m.group(1)
+    shards = [(name, words.split()) for name, words in TIER1_SHARD.findall(body)]
+    if not shards:
+        raise RuntimeError("ci.yml: the `miri` job has no `- shard:` / `filter:` matrix entries")
+    return shards, TIER1_ABLATION_IF.findall(body)
+
+
+def tier1_command_words(text: str, where: str) -> list[str]:
+    m = TIER1_CMD.search(text)
+    if not m:
+        raise RuntimeError(f"{where}: no unsharded Tier-1 `cargo miri test -p expanse-trie --lib -- ...` command found")
+    return m.group(1).replace("\\\n", " ").split()
+
+
+def tier1_census(tests: list[str], ci_text: str, gate_text: str, agents_text: str) -> list[str]:
+    errors: list[str] = []
+    shards, ablation_ifs = tier1_shards(ci_text)
+    names = [n for n, _ in shards]
+    n = len(shards)
+    if names != [f"{i} of {n}" for i in range(1, n + 1)]:
+        errors.append(f"Tier-1 shards must be named `1 of {n}` .. `{n} of {n}` in order, found {names}")
+    owner: dict[str, str] = {}
+    for name, words in shards:
+        for w in words:
+            if w in owner:
+                errors.append(f"Tier-1 filter `{w}` is in both `{owner[w]}` and `{name}`")
+            owner.setdefault(w, name)
+    union = set(owner)
+    for where, text in (("scripts/gate.sh", gate_text), ("AGENTS.md", agents_text)):
+        listed = set(tier1_command_words(text, where))
+        for w in sorted(union - listed):
+            errors.append(f"Tier-1 filter `{w}` is in ci.yml but not in {where}")
+        for w in sorted(listed - union):
+            errors.append(f"Tier-1 filter `{w}` is in {where} but in no ci.yml shard")
+    for w in sorted(union):
+        if not any(w in t for t in tests):
+            errors.append(f"Tier-1 filter `{w}` matches no lib test — stale")
+    for name, words in shards:
+        if not any(w in t for t in tests for w in words):
+            errors.append(f"Tier-1 shard `{name}` selects no tests")
+    for t in tests:
+        hit = [name for name, words in shards if any(w in t for w in words)]
+        if len(hit) > 1:
+            errors.append(f"Tier-1 test `{t}` is selected by shards {hit}")
+    for a in ablation_ifs:
+        if a not in names:
+            errors.append(f"ci.yml `miri` step runs on shard `{a}`, which is not a Tier-1 shard")
+    return errors
+
+
 def cargo_list() -> list[str]:
     cp = subprocess.run(
         ["cargo", "test", "-q", "-p", "expanse-trie", "--lib", "--", "--list"],
@@ -231,6 +311,36 @@ def self_test() -> None:
     # A shard whose modules are all gated off Miri selects nothing; that is
     # reported, not fatal (the workflow warns and skips).
     assert select([t for t in tests if not t.startswith(("sync::", "sync32::"))], "lib-sync") == []
+    # Tier 1. A test two shards select, a filter word the other lists lack,
+    # a stale word, a misnamed shard and a dangling ablation `if:` are each
+    # fatal on their own.
+    t1 = ["map::tests::compact_a", "map::tests::occ_engine_x", "blobmap::tests::deferred_y", "leaf::tests::z"]
+    ci = (
+        "jobs:\n  miri:\n    strategy:\n      matrix:\n        include:\n"
+        '          - shard: 1 of 2\n            filter: "map::tests::compact_ leaf::"\n'
+        '          - shard: 2 of 2\n            filter: "map::tests::occ_engine_x blobmap::tests::deferred"\n'
+        "    steps:\n      - name: ab\n        if: matrix.shard == '2 of 2'\n  next:\n    x: 1\n"
+    )
+    cmd = "cargo miri test -p expanse-trie --lib -- leaf:: map::tests::compact_ \\\n  map::tests::occ_engine_x blobmap::tests::deferred\n"
+    assert tier1_census(t1, ci, cmd, cmd) == [], tier1_census(t1, ci, cmd, cmd)
+    errs = tier1_census(t1, ci.replace('"map::tests::occ_engine_x blob', '"map:: blob'), cmd.replace("occ_engine_x", "occ_engine_x map::"), cmd.replace("occ_engine_x", "occ_engine_x map::"))
+    assert any("`map::tests::compact_a` is selected by shards" in e for e in errs), errs
+    errs = tier1_census(t1, ci, cmd.replace(" leaf::", ""), cmd)
+    assert any("`leaf::` is in ci.yml but not in scripts/gate.sh" in e for e in errs), errs
+    errs = tier1_census(t1, ci, cmd, cmd.replace("leaf::", "leaf:: node::"))
+    assert any("`node::` is in AGENTS.md but in no ci.yml shard" in e for e in errs), errs
+    errs = tier1_census([x for x in t1 if not x.startswith("leaf")], ci, cmd, cmd)
+    assert any("`leaf::` matches no lib test" in e for e in errs), errs
+    errs = tier1_census(t1, ci.replace("shard: 2 of 2", "shard: 2 of 3"), cmd, cmd)
+    assert any("must be named" in e for e in errs), errs
+    errs = tier1_census(t1, ci.replace("== '2 of 2'", "== '3 of 3'"), cmd, cmd)
+    assert any("shard `3 of 3`, which is not a Tier-1 shard" in e for e in errs), errs
+    try:
+        tier1_census(t1, "jobs:\n  lint:\n    x: 1\n", cmd, cmd)
+    except RuntimeError as e:
+        assert "no `miri:` job" in str(e)
+    else:
+        raise AssertionError("missing Tier-1 job must raise")
     print("check_miri_shards.py --self-test: ok")
 
 
@@ -266,6 +376,12 @@ def main() -> int:
 
     tests = parse_list_output(args.list_file.read_text()) if args.list_file else cargo_list()
     errors = census(tests, NIGHTLY.read_text(encoding="utf-8"), TESTS_DIR)
+    errors += tier1_census(
+        tests,
+        CI.read_text(encoding="utf-8"),
+        GATE.read_text(encoding="utf-8"),
+        AGENTS.read_text(encoding="utf-8"),
+    )
     by = assign(tests)
     for shard in [*LIB_SHARDS, REST_SHARD]:
         mods = sorted({module_of(t) for t in by[shard]})
@@ -275,7 +391,11 @@ def main() -> int:
             print(f"::error::check_miri_shards.py: {e}")
         print(f"check_miri_shards.py: {len(errors)} fatal finding(s)")
         return 1
-    print(f"check_miri_shards.py: {len(tests)} lib tests in {len(LIB_SHARDS) + 1} shards, integration targets covered; ok")
+    shards, _ = tier1_shards(CI.read_text(encoding="utf-8"))
+    for name, words in shards:
+        picked = [t for t in tests if any(w in t for w in words)]
+        print(f"  Tier-1 {name:<11} {len(picked):3d} tests  filters: {' '.join(words)}")
+    print(f"check_miri_shards.py: {len(tests)} lib tests in {len(LIB_SHARDS) + 1} shards, integration targets covered; Tier-1 shards partition their filter; ok")
     return 0
 
 

@@ -1547,19 +1547,24 @@ jobs:
     if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|miri|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The Tier-1 filter (AGENTS.md §5), split in two so each half runs well
-    # inside the limit: unsharded it took 556-762 s of test time on main
-    # (median per-test wall times over 11 runs, docs/CI.md), five tests
-    # 65% of it. Each filter names whole modules or single tests, and every
-    # test the unsharded filter selected matches exactly one shard.
+    # The Tier-1 filter (AGENTS.md §5), split in three so each shard runs
+    # well inside the limit. As two shards the test time alone reached 754 s
+    # and 830 s, and the slowest job 899 s of the 900 s limit, over the 24
+    # successful runs of each shard in CI runs 36259415879-36345977718
+    # (per-test wall times from the job logs, docs/CI.md §5); two
+    # consecutive attempts were cancelled at the limit. Each filter names
+    # whole modules or single tests, and every test the unsharded filter
+    # selects matches exactly one shard (`scripts/check_miri_shards.py`).
     strategy:
       fail-fast: false
       matrix:
         include:
-          - shard: 1 of 2
-            filter: "sync::miri_tests:: set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move set::tests::compact_ alloc:: leaf::"
-          - shard: 2 of 2
-            filter: "map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move map::tests::compact_ strmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots blobmap::tests::deferred bytesmap::tests::deferred bits:: node:: slot:: types:: occ::tests::"
+          - shard: 1 of 3
+            filter: "sync::miri_tests:: map::tests::occ_engine_single_thread_under_miri set::tests::occ_engine_single_thread_under_miri map::tests::warm_insert_path_across_a_move set::tests::warm_insert_path_across_a_move map::tests::slot_calls_on_a_warm_insert_path occ::tests:: node:: bytesmap::tests::deferred"
+          - shard: 2 of 3
+            filter: "map::tests::compact_ set::tests::compact_ alloc:: bits::"
+          - shard: 3 of 3
+            filter: "strmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots leaf:: blobmap::tests::deferred slot:: types::"
     steps:
       - uses: actions/checkout@v7
 
@@ -1581,7 +1586,7 @@ jobs:
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' tier1-miri.log \
             || { echo "::error::this Tier-1 Miri shard ran zero tests"; exit 1; }
       - name: Miri (concurrency diagnostic ablations — per-stripe accounting, epoch bins and freelists)
-        if: matrix.shard == '2 of 2'
+        if: matrix.shard == '2 of 3'
         run: |
           set -o pipefail
           cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_ 2>&1 | tee ablation-miri.log
