@@ -167,13 +167,27 @@ def cmd_restore(state_path: Path, json_out: Path | None) -> int:
     # A state without `applied` may still hold a partial change (the helper
     # can fail part-way), so it is restored like a complete one.
     before = state["before"]
+    # Only CPUs whose policy differs from the record are touched: an apply
+    # that failed before changing anything leaves nothing to undo (and no
+    # helper call to make), and one that failed part-way is undone exactly.
+    current = snapshot(before["pin"])["per_cpu"]
+    changed = {
+        c: v for c, v in before["per_cpu"].items()
+        if current[c]["governor"] != v["governor"]
+        or (v["governor"] != "performance" and current[c]["epp"] != v["epp"])
+    }
+    if not changed:
+        state["restored"] = True
+        state_path.write_text(json.dumps(state, indent=2) + "\n")
+        print("governor: unchanged from the recorded policy; nothing to restore")
+        return 0
     problems = []
-    for gov, cpus in _group({c: v["governor"] for c, v in before["per_cpu"].items()}).items():
+    for gov, cpus in _group({c: v["governor"] for c, v in changed.items()}).items():
         ok, msg = helper("set", gov, cpulist(cpus))
         if not ok:
             problems.append(f"governor {gov} on {cpulist(cpus)}: {msg}")
     for epp, cpus in _group({
-        c: v["epp"] for c, v in before["per_cpu"].items() if v["governor"] != "performance"
+        c: v["epp"] for c, v in changed.items() if v["governor"] != "performance"
     }).items():
         ok, msg = helper("epp", epp, cpulist(cpus))
         if not ok:
@@ -293,6 +307,11 @@ def self_test() -> int:
             (ps / "max_perf_pct").write_text("100\n")
             HELPER = str(Path(td, "absent"))
             assert cmd_apply(Path(td, "s4.json"), None) == 1
+            # The apply that failed changed nothing, so the restore makes no
+            # helper call (run 36343978441 warned "sudo: a password is
+            # required" from a restore of nothing).
+            assert cmd_restore(Path(td, "s4.json"), None) == 0
+            assert json.loads(Path(td, "s4.json").read_text())["restored"] is True
             HELPER = str(fake)
             # A helper that "succeeds" without changing anything is caught
             # by the read-back.
