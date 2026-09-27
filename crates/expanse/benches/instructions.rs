@@ -27,8 +27,8 @@
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
 //! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace |
-//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exception: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup |
+//! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -612,6 +612,49 @@ fn map_compact_drained(drained: ExpanseMap) -> u64 {
     black_box(&mut map).compact();
     let n = map.len();
     core::mem::forget(map);
+    black_box(n)
+}
+
+// Bulk construction: `ExpanseMap::from_sorted_iter` against `collect()` (an
+// insert per entry) over the same `POP` entries `(k, !k)`. `sequential` is
+// ascending (the builder's no-sort path), `random` is generator order (the
+// builder sorts first), `random_sorted` is the same random keys ascending
+// (the no-sort path on a random shape). The entries are built in `setup`;
+// the built map is leaked, so neither arm counts a teardown (see
+// `map_insert`). Each arm drops its input `Vec` after the build — the same
+// free in both arms. Counted per entry (50,000).
+fn entries(dist: &str) -> Vec<(u64, u64)> {
+    let mut ks = match dist {
+        "random_sorted" => keys("random"),
+        other => keys(other),
+    };
+    if dist == "random_sorted" {
+        ks.sort_unstable();
+    }
+    ks.into_iter().map(|k| (k, !k)).collect()
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = entries)]
+#[bench::random(args = ("random",), setup = entries)]
+#[bench::random_sorted(args = ("random_sorted",), setup = entries)]
+fn map_from_sorted_iter(es: Vec<(u64, u64)>) -> u64 {
+    let map = ExpanseMap::from_sorted_iter(black_box(&es).iter().copied());
+    let n = map.len();
+    core::mem::forget(map);
+    drop(es);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = entries)]
+#[bench::random(args = ("random",), setup = entries)]
+#[bench::random_sorted(args = ("random_sorted",), setup = entries)]
+fn map_collect(es: Vec<(u64, u64)>) -> u64 {
+    let map: ExpanseMap = black_box(&es).iter().copied().collect();
+    let n = map.len();
+    core::mem::forget(map);
+    drop(es);
     black_box(n)
 }
 
@@ -2931,6 +2974,8 @@ library_benchmark_group!(
         map_rebuild_drained,
         set_compact_drained,
         map_compact_drained,
+        map_from_sorted_iter,
+        map_collect,
         set_subtree_boundary_oscillate,
         set_subtree_split,
         set_subtree_split_control,
