@@ -819,6 +819,18 @@ impl BranchB {
 pub struct BranchU {
     /// Phase 7 OCC version counter (odd = mutation in progress).
     pub version: u32,
+    /// The non-null slots of `edges`, kept exact by every change of a slot
+    /// between null and non-null (`ablation-branchu-header-count`, #1202).
+    /// On a shared tree it
+    /// changes only under this node's version lock or with the writer gate
+    /// closed, as the slots do. Reached through [`BranchU::child_count`] and
+    /// [`BranchU::set_child_count`] only, so every access has one width.
+    /// Absent from the default build, which keeps the pre-#1202 header.
+    #[cfg(feature = "ablation-branchu-header-count")]
+    child_count: u32,
+    #[cfg(feature = "ablation-branchu-header-count")]
+    _pad: [u8; 56],
+    #[cfg(not(feature = "ablation-branchu-header-count"))]
     _pad: [u8; 60],
     /// One edge per possible digit (null tag = empty subexpanse).
     pub edges: [Edge; BRANCH_FANOUT],
@@ -830,9 +842,40 @@ impl BranchU {
     pub const fn new() -> Self {
         Self {
             version: 0,
+            #[cfg(feature = "ablation-branchu-header-count")]
+            child_count: 0,
+            #[cfg(feature = "ablation-branchu-header-count")]
+            _pad: [0; 56],
+            #[cfg(not(feature = "ablation-branchu-header-count"))]
             _pad: [0; 60],
             edges: [Edge::NULL; BRANCH_FANOUT],
         }
+    }
+
+    /// The branch's child count (see the field).
+    ///
+    /// # Safety
+    /// `b` points to a live `BranchU` and carries write provenance (a node
+    /// pointer, never one derived from a shared reference); with `OCC` the
+    /// load is atomic, for a count read before the version lock.
+    #[cfg(feature = "ablation-branchu-header-count")]
+    #[inline(always)]
+    pub(crate) unsafe fn child_count<const OCC: bool>(b: *mut BranchU) -> u32 {
+        // SAFETY: caller contract; the field is 4-byte aligned in the node.
+        unsafe { crate::bits::shared_word::load_u32::<OCC>(&raw mut (*b).child_count) }
+    }
+
+    /// Sets the branch's child count.
+    ///
+    /// # Safety
+    /// As [`BranchU::child_count`], and the caller is the branch's one
+    /// writer: it holds the version lock, or the writer gate is closed, or
+    /// the tree is not shared.
+    #[cfg(feature = "ablation-branchu-header-count")]
+    #[inline(always)]
+    pub(crate) unsafe fn set_child_count<const OCC: bool>(b: *mut BranchU, n: u32) {
+        // SAFETY: caller contract.
+        unsafe { crate::bits::shared_word::store_u32::<OCC>(&raw mut (*b).child_count, n) }
     }
 }
 
@@ -951,11 +994,18 @@ const _: () = {
 
     assert!(size_of::<BranchU>() == 4096 + CACHE_LINE);
     assert!(align_of::<BranchU>() == CACHE_LINE);
+    // Header line: the version word, then (under the #1202 ablation) the
+    // child count on the same line.
+    assert!(offset_of!(BranchU, version) == 0);
+    assert!(offset_of!(BranchU, edges) == CACHE_LINE);
 
     assert!(size_of::<LeafBitmap1>() == CACHE_LINE);
     assert!(size_of::<LeafBitmapL>() == 2 * CACHE_LINE);
     assert!(offset_of!(LeafBitmapL, values) == 32);
 };
+
+#[cfg(feature = "ablation-branchu-header-count")]
+const _: () = assert!(core::mem::offset_of!(BranchU, child_count) == 4);
 
 impl Edge {
     /// Bit-level equality check (compares word0 and aux_word).

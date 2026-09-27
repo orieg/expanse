@@ -117,6 +117,13 @@ ablation-blob-shared-arena = []
 # `--features ablation-blob-writer-arenas` invocation; `lib.rs` turns it into a
 # compiler error naming the inverse (AGENTS.md §2.7).
 ablation-blob-writer-arenas = []
+# Diagnostic-only candidate (Refs #1202, AGENTS.md §2.7): every `BranchU`
+# keeps its non-null slot count in its header line, and the optimistic
+# removal's pre-lock floor test (`sync::null_branch_u_slot`) reads that count
+# instead of loading up to `BRANCHU_TO_B_DOWN + 2` slot tag words. Built as
+# an ablation arm first so both forms can be measured on the same commit;
+# the default keeps the scan and compiles the count's maintenance to nothing.
+ablation-branchu-header-count = []
 # Allocates `ExpanseStrMap` / `SyncExpanseStrMap` suffix leaves from the tree's
 # `NodeAlloc` size classes instead of one global allocation each (Refs #1095).
 # A suffix then costs its size rounded to 16 bytes with no system-allocator

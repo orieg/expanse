@@ -2115,6 +2115,8 @@ pub(crate) unsafe fn map_insert_with_path_occ<
                 let b = edge.node_ptr().cast::<BranchU>();
                 // SAFETY: the node is live for the frame.
                 let inner = Cover::Node(unsafe { &raw mut (*b).version });
+                // SAFETY: live branch; `d` indexes its 256 slots.
+                let was_null = OCC && unsafe { (*b).edges[d as usize].is_null() };
                 inner.nest_begin::<OCC, NESTED>(a);
                 // SAFETY: live BranchU per contract; child subtree well-formed
                 // (or null). The descent is not bracketed; the child frame
@@ -2130,6 +2132,10 @@ pub(crate) unsafe fn map_insert_with_path_occ<
                         inner,
                     )
                 };
+                if was_null && res.0.is_none() {
+                    // SAFETY: the exclusive walk is the branch's one writer.
+                    unsafe { crate::mutate::branch_u_note_fill::<OCC>(b) };
+                }
                 inner.nest_end::<OCC, NESTED>(a);
                 if res.0.is_none() {
                     cover.begin_if::<OCC, NESTED>(a);
@@ -2736,6 +2742,12 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             // SAFETY: live BranchU per contract.
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
+                // SAFETY: the exclusive walk is the branch's one writer, and
+                // the child's frame just nulled this slot.
+                unsafe {
+                    crate::mutate::branch_u_note_null::<OCC>(b);
+                    crate::mutate::branch_u_check_count::<OCC>(b);
+                }
                 // SAFETY: live BranchU per contract.
                 let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
@@ -3419,6 +3431,12 @@ pub(crate) unsafe fn map_remove_occ<const OCC: bool, const NESTED: bool>(
             // SAFETY: live BranchU per contract.
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
+                // SAFETY: the exclusive walk is the branch's one writer, and
+                // the child's frame just nulled this slot.
+                unsafe {
+                    crate::mutate::branch_u_note_null::<OCC>(b);
+                    crate::mutate::branch_u_check_count::<OCC>(b);
+                }
                 // SAFETY: live BranchU per contract.
                 let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
