@@ -46,7 +46,10 @@ fi
 wipe() {
   local dir="$1" want="$2"
   [ "$dir" = "$want" ] || { echo "job-started: $dir is not $want; not wiping it" >&2; exit 1; }
-  [ -d "$dir" ] && [ -O "$dir" ] || { echo "job-started: $dir missing or not ours" >&2; exit 1; }
+  if [ ! -d "$dir" ] || [ ! -O "$dir" ]; then
+    echo "job-started: $dir missing or not ours" >&2
+    exit 1
+  fi
   find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 }
 wipe "${CARGO_HOME:-}" /var/lib/expanse-bench/cargo

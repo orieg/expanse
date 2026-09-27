@@ -558,7 +558,10 @@ that variable is set.
 `scripts/bench_host/provision.sh` carries out this section as root on the host:
 `prepare` builds everything short of the runner itself and leaves the running
 runner alone; `cutover` moves the registration to the service account; `check`
-verifies the result, read-only. The versions it installs are pinned in
+verifies the result, read-only. `scripts/bench_host/migrate.sh <ssh-host>
+<reference|avx512> <runner-name>` runs all three from a workstation. It works
+from a root-owned checkout at `/opt/expanse-provision` and passes runner tokens
+minted by `gh` over ssh's standard input. The versions it installs are pinned in
 `scripts/bench_host/toolchain.env`. The steps below are what it runs, for a
 host set up by hand.
 
