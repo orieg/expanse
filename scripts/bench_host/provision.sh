@@ -309,9 +309,13 @@ cmd_cutover() {
   case "$lk" in *SHARED_LOCK*) ;; *) die "main's scripts/bench_lock.py does not accept the shared lock; merge that change first" ;; esac
 
   pgrep -f 'Runner.Worker' >/dev/null && die "a job is running; retry when the runner is idle"
+  # Probe through a read-only descriptor. `flock <file>` opens with O_CREAT,
+  # which fs.protected_regular refuses even to root for another user's file in
+  # a sticky /tmp, and that refusal is indistinguishable from "held".
+  lock_free() { ( exec 9<"$1" && flock -n 9 ) 2>/dev/null; }
   for l in /tmp/expanse-bench.flock "$FLOCK"; do
     [ -e "$l" ] || continue
-    flock -n "$l" true || die "$l is held; retry when no benchmark runs"
+    lock_free "$l" || die "$l is held; retry when no benchmark runs"
   done
   [ -d /tmp/expanse-bench.lock ] && die "/tmp/expanse-bench.lock (mkdir lock) exists; a benchmark holds the host"
 
