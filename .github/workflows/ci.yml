@@ -360,7 +360,10 @@ jobs:
   lint:
     name: Core / Linter & Formatting
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
+    # `wasm`: a skipped `lint` skips every job downstream of `fast-lane`
+    # (GitHub's implicit success(); observed on run 36287802296), so a
+    # wasm-only change, such as a fuel re-baseline, would run no wasm lane.
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
