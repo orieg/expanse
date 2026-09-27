@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band) |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exception: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup |
 //! | `hit_rate` | 100% |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -1242,6 +1242,112 @@ fn set32_remove(built: (ExpanseSet32, Vec<Key32>)) -> u64 {
         removed += u64::from(set.remove(black_box(k)));
     }
     black_box(removed)
+}
+
+// The single writer of `SyncExpanseMap32` on one thread (#1187): the shared
+// instantiation of the 32-bit walks, the per-write reclamation check and the
+// seqlock bracket, which no plain `map32_*` arm reaches. The tree is the
+// `concurrency` suite's `sync32` shape: `S32W_STABLE` draws over a keyspace
+// of twice that, into a wrapper with that suite's arena and `S32W_READERS`
+// reader slots, every slot idle (a registered reader outside a walk), so
+// reclamation takes its all-readers-outside path.
+//
+// - `overwrite`: `S32W_OPS` present keys, each given a value it does not hold;
+// - `overwrite_same`: the same keys, each given the value it already holds;
+// - `churn`: the suite writer's own stream (`S32W_OPS` mutations over the
+//   upper half of the keyspace: two inserts of `k -> k`, then a removal).
+
+/// `concurrency.rs`'s `S32_STABLE`: prefill draws, and half the keyspace.
+const S32W_STABLE: u32 = 4_096;
+/// `concurrency.rs`'s `S32_NODE_CAP` and `S32_MAX_READERS`.
+const S32W_NODE_CAP: usize = 16_384;
+const S32W_READERS: usize = 16;
+/// Mutations per arm.
+const S32W_OPS: usize = 2_000;
+/// Mutations of the `churn` stream applied in setup: well past the point
+/// where every prefill value in the churn range has been overwritten or
+/// removed once (the stream's steady mix, derived by replaying it: 44 %
+/// overwrites with the value already held, 22 % new keys, 22 % removals of a
+/// present key and 11 % of an absent one).
+const S32W_WARM: usize = 30_000;
+
+/// One writer operation: `(remove, key, value)`.
+type S32Op = (bool, Key32, Value32);
+
+/// The prefilled wrapper and the arm's operation stream.
+fn built_sync32_write(arm: &str) -> (expanse_trie::sync32::SyncExpanseMap32, Vec<S32Op>) {
+    let mut m = expanse_trie::sync32::SyncExpanseMap32::with_capacity(S32W_NODE_CAP, S32W_READERS);
+    let mut present = Vec::new();
+    {
+        let (mut w, mut pool) = m.split();
+        let mut rng = XorShift(0x5CA1_AB1E);
+        for _ in 0..S32W_STABLE {
+            let k = (rng.next() % (2 * u64::from(S32W_STABLE))) as Key32;
+            if w.try_insert(k, !k).expect("prefill").is_none() {
+                present.push(k);
+            }
+        }
+        assert!(pool.take().is_some(), "a registered reader");
+    }
+    let ops: Vec<S32Op> = match arm {
+        "overwrite" | "overwrite_same" => {
+            assert!(present.len() >= S32W_OPS, "{} present keys", present.len());
+            let mut rng = XorShift(0x9E37_79B9);
+            for i in (1..present.len()).rev() {
+                present.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+            }
+            let same = arm == "overwrite_same";
+            present[..S32W_OPS]
+                .iter()
+                .map(|&k| (false, k, if same { !k } else { !k ^ 1 }))
+                .collect()
+        }
+        "churn" => {
+            let mut rng = XorShift(0x5EED_5EED);
+            let mut stream = (0..S32W_WARM + S32W_OPS).map(|n| {
+                let k = S32W_STABLE + (rng.next() % u64::from(S32W_STABLE)) as Key32;
+                (n % 3 == 2, k, k)
+            });
+            // The first `S32W_WARM` mutations run here, outside the measured
+            // region, so the arm measures the stream's steady mix rather than
+            // its first overwrites of prefill values.
+            let (mut w, _) = m.split();
+            for (remove, k, v) in stream.by_ref().take(S32W_WARM) {
+                let r = if remove {
+                    w.try_remove(k)
+                } else {
+                    w.try_insert(k, v)
+                };
+                r.expect("no refusal with idle readers");
+            }
+            stream.collect()
+        }
+        _ => unreachable!("unknown sync32 writer arm {arm}"),
+    };
+    (m, ops)
+}
+
+#[library_benchmark]
+#[bench::overwrite(args = ("overwrite",), setup = built_sync32_write)]
+#[bench::overwrite_same(args = ("overwrite_same",), setup = built_sync32_write)]
+#[bench::churn(args = ("churn",), setup = built_sync32_write)]
+fn sync32_map_write(built: (expanse_trie::sync32::SyncExpanseMap32, Vec<S32Op>)) -> u64 {
+    let (mut m, ops) = built;
+    let mut sink = 0u64;
+    {
+        let (mut w, _pool) = m.split();
+        for &(remove, k, v) in &ops {
+            let r = if remove {
+                w.try_remove(black_box(k))
+            } else {
+                w.try_insert(black_box(k), black_box(v))
+            };
+            sink ^= u64::from(r.expect("no refusal with idle readers").unwrap_or(0));
+        }
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(m);
+    black_box(sink)
 }
 
 #[library_benchmark]
@@ -2850,6 +2956,7 @@ library_benchmark_group!(
         set32_range,
         map32_remove,
         set32_remove,
+        sync32_map_write,
         blobmap32_scan,
         strmap_insert,
         strmap_get,

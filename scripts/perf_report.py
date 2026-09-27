@@ -144,6 +144,9 @@ BENCH_N_MAP: Dict[str, int] = {
     "map32_insert": 10_000,
     "map32_remove": 2_000,
     "set32_remove": 2_000,
+    # The `SyncExpanseMap32` writer on one thread (#1187): `S32W_OPS`
+    # mutations per arm (`benches/instructions.rs`).
+    "sync32_map_write": 2_000,
     # 32-bit ordered walks over the 2,000-key `keys32` maps and sets.
     "map32_iterate": 2_000,
     "set32_iterate": 2_000,
@@ -399,6 +402,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "set32_insert",
             "map32_remove",
             "set32_remove",
+            "sync32_map_write",
             "judyl_insert",
             "judy1_set",
             "judyl_churn",
