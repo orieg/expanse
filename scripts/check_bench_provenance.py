@@ -578,6 +578,27 @@ def attribution_status(rel: str, obj) -> tuple[bool, str | None]:
     )
 
 
+def provenance_commit_mismatch(obj, head_sha: str) -> str | None:
+    """Why `obj` cannot be published as a measurement of `head_sha`, or None.
+
+    Producers record `provenance.commit` as a short hash (`bench_provenance.
+    git_sha`) or a full one (`bench_baseline.py`, `perf_report.py`), so a match
+    is a prefix match of at least 7 hex digits. An artifact with no
+    `provenance.commit` says nothing about its commit and is not refused here;
+    whether its file was written by the run is decided by the caller (#1212).
+    """
+    rec = obj.get("provenance", {}).get("commit") if isinstance(obj, dict) else None
+    if rec is None:
+        return None
+    rec = str(rec).strip().lower()
+    head = head_sha.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{7,40}", rec):
+        return f"provenance.commit {rec!r} is not a commit hash"
+    if not head.startswith(rec):
+        return f"provenance.commit {rec} is not the measured commit {head[:12]}"
+    return None
+
+
 def owes_cell_isolation(rel: str) -> bool:
     """A concurrency-suite writer-scaling artifact (METHODOLOGY.md §15)."""
     parts = Path(rel).parts

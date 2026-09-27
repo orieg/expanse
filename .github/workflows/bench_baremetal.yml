@@ -1736,53 +1736,70 @@ jobs:
       # by scraping the job log (#449). The harvest is now non-fatal, so that
       # path should not be reachable through a missing harvester — but a
       # completed measurement should not depend on every later step succeeding.
+      # Only this run's files are uploaded (#1212). The list below names every
+      # file some suite may write; `stage_run_outputs.py` keeps a candidate only
+      # when git shows the run created or rewrote it, so the committed results
+      # at older commits that every checkout carries stay out of the artifact.
+      # It refuses a symlink, a path outside the repository, JSON that does not
+      # parse, and JSON whose provenance names another commit - the last two
+      # fail the step (stale_output), since a result that says it measured a
+      # different commit cannot be published as this run's.
+      - name: Stage this run's output files
+        id: stage
+        if: always()
+        shell: bash
+        run: |
+          python3 scripts/stage_run_outputs.py \
+            --dest run-artifacts \
+            --commit "$(git rev-parse HEAD)" \
+            concurrency.txt \
+            writer_scaling.txt \
+            ycsb_concurrent.txt \
+            docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json \
+            docs/benchmarks/concurrency/results/baseline_writer_scaling.json \
+            docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_unpadded_lock_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json \
+            docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_bytes_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json \
+            docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json \
+            docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json \
+            ycsb.txt \
+            hashbrown-ycsb.txt \
+            docs/benchmarks/patricia_comparison/results/baseline_*.json \
+            comparative.txt \
+            bytes-per-key.txt \
+            bench-output.txt \
+            rocksdb.txt \
+            rocksdb-driver.txt \
+            rocksdb-concurrent-counters.txt \
+            rocksdb-locate-profile.txt \
+            rocksdb-concurrent-heldout.txt \
+            rocksdb-concurrent-narrowed.txt \
+            rocksdb-concurrent-optimistic.txt \
+            rocksdb-concurrent-optimistic-counters.txt \
+            python-concurrency.txt \
+            docs/benchmarks/llm_inference/results/bench_grammar_masks.json \
+            bytes-per-key-32.txt \
+            head-instructions.txt \
+            head-vs-stock.txt \
+            vs-libjudy.txt \
+            base-instructions.txt \
+            base-vs-stock.txt \
+            base-generic.txt
+
       - name: Upload non-criterion suite tables
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: suite-tables-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
-          path: |
-            concurrency.txt
-            writer_scaling.txt
-            ycsb_concurrent.txt
-            docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json
-            docs/benchmarks/concurrency/results/baseline_writer_scaling.json
-            docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_unpadded_lock_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
-            docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json
-            docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_bytes_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json
-            docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
-            docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
-            ycsb.txt
-            hashbrown-ycsb.txt
-            docs/benchmarks/patricia_comparison/results/baseline_*.json
-            comparative.txt
-            bytes-per-key.txt
-            bench-output.txt
-            rocksdb.txt
-            rocksdb-driver.txt
-            rocksdb-concurrent-counters.txt
-            rocksdb-locate-profile.txt
-            rocksdb-concurrent-heldout.txt
-            rocksdb-concurrent-narrowed.txt
-            rocksdb-concurrent-optimistic.txt
-            rocksdb-concurrent-optimistic-counters.txt
-            python-concurrency.txt
-            docs/benchmarks/llm_inference/results/bench_grammar_masks.json
-            bytes-per-key-32.txt
-            head-instructions.txt
-            head-vs-stock.txt
-            vs-libjudy.txt
-            base-instructions.txt
-            base-vs-stock.txt
-            base-generic.txt
+          path: run-artifacts/
           if-no-files-found: ignore
           retention-days: 30
 
@@ -1838,6 +1855,7 @@ jobs:
           BASE_LINE: ${{ steps.bench.outputs.base_line }}
           BENCH_OUTCOME: ${{ steps.bench.outcome }}
           FAIL_REASON: ${{ steps.bench.outputs.fail_reason }}
+          STAGE_OUTCOME: ${{ steps.stage.outcome }}
           LOCK_OWNER: ${{ steps.bench.outputs.lock_owner }}
           HARVEST_STATUS: ${{ steps.bench.outputs.harvest_status }}
           JOB_STATUS: ${{ job.status }}
@@ -1854,7 +1872,7 @@ jobs:
             const issue_number = Number(process.env.PR_NUMBER);
 
             const outcome = process.env.BENCH_OUTCOME || 'skipped';
-            const reason = process.env.FAIL_REASON || '';
+            const reason = process.env.FAIL_REASON || (process.env.STAGE_OUTCOME === 'failure' ? 'stale_output' : '');
             const cancelled = outcome === 'cancelled' || process.env.JOB_STATUS === 'cancelled';
             // The benchmark step writes its report to a file in RUNNER_TEMP,
             // never to GITHUB_ENV; the file is absent whenever that step
@@ -1913,6 +1931,7 @@ jobs:
                 `- **Run**: [${context.runId}](${runUrl})`,
                 '',
                 ...(harvestNote ? [harvestNote, ''] : []),
+                ...(process.env.STAGE_OUTCOME === 'failure' ? ['> [!CAUTION]\n> **An output file of this run was refused for upload** — it names a different commit in its provenance, does not parse, or is a symlink. The staging step in the run log names it; the job fails on it.', ''] : []),
                 report,
                 '',
               ].join('\n');
