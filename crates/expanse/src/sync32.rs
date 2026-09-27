@@ -599,6 +599,17 @@ impl Writer32<'_, ExpanseMap32> {
         value: Value32,
     ) -> Result<Option<Value32>, WriteError> {
         self.ensure_headroom()?;
+        // An overwrite with the value the key already holds changes nothing a
+        // reader can observe, so it opens no bracket: the shared walk would
+        // replace the leaf with an identical copy and retire the original
+        // (#1187). The lookup is exact, since this handle is the only writer.
+        // It runs after the headroom check, so a refused mutation is refused
+        // whatever its value.
+        if let Some(old) = self.inner().get(key)
+            && old == value
+        {
+            return Ok(Some(old));
+        }
         Ok(self.write(|m| m.insert_shared(key, value)))
     }
 
@@ -973,6 +984,43 @@ mod tests {
         w.try_insert(1, 1).expect("writes proceed after reclaim");
     }
 
+    /// An overwrite with the value already held opens no bracket and retires
+    /// nothing, in a linear leaf and in a bitmap leaf; a changed value still
+    /// does both.
+    #[test]
+    fn identical_overwrite_opens_no_bracket() {
+        let mut m = SyncExpanseMap32::with_capacity(4096, 1);
+        let (mut w, mut pool) = m.split();
+        let r = pool.take().unwrap();
+        // 0x100.. : a linear leaf of 4 keys; 0x200.. : a bitmap leaf.
+        let linear = [0x0100u32, 0x0103, 0x0107, 0x010B];
+        let bitmap: Vec<u32> = (0..100u32).map(|i| 0x0200 | i).collect();
+        for &k in linear.iter().chain(&bitmap) {
+            w.try_insert(k, k ^ 7).unwrap();
+        }
+        let form = |w: &Writer32<'_, ExpanseMap32>, k: u32| {
+            let t = w.inner();
+            trie32::terminal_form(t.arena(), &t.root_edge(), 4, k)
+        };
+        assert_eq!(form(&w, bitmap[0]), "map bitmap leaf");
+        assert_ne!(form(&w, linear[0]), "map bitmap leaf");
+        assert!(w.try_reclaim());
+        // A parked reader keeps any retirement visible in `pending_len`.
+        walk_counter(&w, 0).store(1, Ordering::Relaxed);
+        for k in [linear[2], bitmap[40]] {
+            let (v0, parked) = (m_version(&r).try_sample().unwrap(), w.pending_len());
+            assert_eq!(w.try_insert(k, k ^ 7), Ok(Some(k ^ 7)));
+            assert_eq!(m_version(&r).try_sample(), Some(v0), "no bracket");
+            assert_eq!(w.pending_len(), parked, "nothing retired");
+            assert_eq!(w.try_insert(k, k ^ 9), Ok(Some(k ^ 7)));
+            assert_ne!(m_version(&r).try_sample(), Some(v0), "a bracket");
+            assert!(w.pending_len() > parked, "the copy retired the leaf");
+            assert_eq!(w.get(k), Some(k ^ 9));
+        }
+        walk_counter(&w, 0).store(2, Ordering::Release);
+        assert!(w.try_reclaim());
+    }
+
     /// The mutations a stalled reader lets through before `ReclaimBacklog`,
     /// on the `concurrency` suite's `sync32` shape and writer stream
     /// (`benches/concurrency.rs`: 4,096 prefill draws over 8,192 keys, a
@@ -1026,10 +1074,10 @@ mod tests {
              pending_len {len}, pending_bytes {bytes}"
         );
         assert_eq!(refused, WriteError::ReclaimBacklog);
-        assert_eq!((writes, len), (18_951, 16_513), "pinned census");
+        assert_eq!((writes, len), (33_775, 16_513), "pinned census");
         // Node sizes, and so the bytes, follow the pointer width.
         #[cfg(target_pointer_width = "64")]
-        assert_eq!(bytes, 13_708_560, "pinned census");
+        assert_eq!(bytes, 13_881_392, "pinned census");
         walk_counter(&w, 0).store(2, Ordering::Release);
         assert!(w.try_reclaim(), "the reader's exit drains the backlog");
     }
