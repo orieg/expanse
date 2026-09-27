@@ -219,7 +219,8 @@ def child_cpu_seconds() -> float | None:
     return ru.ru_utime + ru.ru_stime
 
 
-def own_busy_cpus(prev: dict | None, child_cpu_s: float | None, monotonic_s: float) -> float | None:
+def own_busy_cpus(prev: dict | None, child_cpu_s: float | None, monotonic_s: float,
+                  key: str = "child_cpu_s") -> float | None:
     """Core-equivalents the runner's own children consumed since `prev`.
 
     `(child CPU seconds now - then) / (wall seconds now - then)`. `None` when
@@ -230,7 +231,7 @@ def own_busy_cpus(prev: dict | None, child_cpu_s: float | None, monotonic_s: flo
     if not prev or child_cpu_s is None:
         return None
     # Raw against raw where `prev` still carries its readings (see `Snapshot`).
-    p_child, p_mono = _reading(prev, "child_cpu_s"), _reading(prev, "monotonic_s")
+    p_child, p_mono = _reading(prev, key), _reading(prev, "monotonic_s")
     if p_child is None or p_mono is None:
         return None
     wall = monotonic_s - p_mono
@@ -321,6 +322,80 @@ def end_cell(start: dict) -> dict:
         "busy_cpus_since_prev": host,
         "own_busy_cpus": own,
         "foreign_busy_cpus": foreign_busy_cpus(host, own),
+    }
+
+
+def pid_cpu_seconds(pid: int) -> float | None:
+    """User plus system CPU seconds of the live (or not yet reaped) process `pid`.
+
+    Fields 14 and 15 of `/proc/<pid>/stat`, in USER_HZ ticks, which is the grid
+    `/proc/stat` counts on. The command name (field 2) may contain spaces and
+    parentheses, so the fields are counted from the last `)`. A process that
+    has exited but not been reaped still reports its final times. `None` off
+    Linux or once the process is gone.
+    """
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            text = fh.read()
+    except OSError:  # discipline:allow(error-swallowing) no /proc entry is the documented None: off Linux, or the process was reaped
+        return None
+    ticks = pid_stat_cpu_ticks(text)
+    return None if ticks is None else ticks / USER_HZ
+
+
+def pid_stat_cpu_ticks(text: str) -> int | None:
+    """utime + stime ticks from the text of a `/proc/<pid>/stat` file, or `None`."""
+    close = text.rfind(")")
+    if close < 0:
+        return None
+    rest = text[close + 2:].split()
+    if len(rest) < 13 or not (rest[11].isdigit() and rest[12].isdigit()):
+        return None
+    return int(rest[11]) + int(rest[12])
+
+
+def pid_load_snapshot(label: str, pid: int, prev: dict | None = None) -> dict:
+    """A load snapshot whose "own" CPU is the running process `pid`, not reaped children.
+
+    `load_snapshot` attributes own CPU through `RUSAGE_CHILDREN`, which advances
+    only when a child is reaped, so it can window only a whole child process.
+    A harness that marks its timed cases while it runs is windowed here
+    instead: its own CPU is read from `/proc/<pid>/stat` at each marker, and
+    host busy from `/proc/stat` as before (#1214).
+    """
+    busy, total = cpu_jiffies()
+    cpu = pid_cpu_seconds(pid)
+    mono = time.monotonic()
+    host = busy_cpus(prev, busy, total)
+    own = own_busy_cpus(prev, cpu, mono, key="pid_cpu_s")
+    return Snapshot({
+        "label": label,
+        "since": prev.get("label") if prev else None,
+        "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "stat_busy_jiffies": busy, "stat_total_jiffies": total,
+        "pid_cpu_s": None if cpu is None else round(cpu, 3),
+        "monotonic_s": round(mono, 3),
+        "busy_cpus_since_prev": host,
+        "own_busy_cpus_since_prev": own,
+        "foreign_busy_cpus_since_prev": foreign_busy_cpus(host, own),
+    }, raw={"monotonic_s": mono, "pid_cpu_s": cpu})
+
+
+def pid_window(start: dict, pid: int) -> dict:
+    """Attribution over a window of the running process `pid` that opened at `start`.
+
+    The `end_cell` shape, with own CPU read from the process rather than from
+    reaped children: `busy_cpus_since_prev` is the host over the window,
+    `own_busy_cpus` the harness over the same wall time, and their difference
+    is what else was resident.
+    """
+    end = pid_load_snapshot(start.get("label", ""), pid, start)
+    return {
+        "since": start.get("label"),
+        "wall_s": round(_reading(end, "monotonic_s") - _reading(start, "monotonic_s"), 3),
+        "busy_cpus_since_prev": end["busy_cpus_since_prev"],
+        "own_busy_cpus": end["own_busy_cpus_since_prev"],
+        "foreign_busy_cpus": end["foreign_busy_cpus_since_prev"],
     }
 
 

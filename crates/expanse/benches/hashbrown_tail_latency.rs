@@ -73,6 +73,16 @@ fn extract_percentiles(hist: &Histogram<u64>) -> serde_json::Value {
     })
 }
 
+/// Runs one timed case between two window markers on stderr, which
+/// `scripts/bench_windowed.py` reads to snapshot the host's busy CPU and this
+/// process's own CPU at each boundary (AGENTS.md section 8.17, #1214).
+fn bench_window<T>(id: &str, case: impl FnOnce() -> T) -> T {
+    eprintln!("BENCH_WINDOW begin {id}");
+    let out = case();
+    eprintln!("BENCH_WINDOW end {id}");
+    out
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
@@ -87,30 +97,36 @@ fn main() {
 
     // 1. ExpanseMap Growth
     let mut expanse_map = ExpanseMap::new();
-    let hist_exp = measure_growth_latency(
-        |k, v| {
-            expanse_map.insert(k, v);
-        },
-        &keys,
-    );
+    let hist_exp = bench_window("growth/expanse", || {
+        measure_growth_latency(
+            |k, v| {
+                expanse_map.insert(k, v);
+            },
+            &keys,
+        )
+    });
 
     // 2. Hashbrown Growth
     let mut hashbrown_map = HashMap::new();
-    let hist_hb = measure_growth_latency(
-        |k, v| {
-            hashbrown_map.insert(k, v);
-        },
-        &keys,
-    );
+    let hist_hb = bench_window("growth/hashbrown", || {
+        measure_growth_latency(
+            |k, v| {
+                hashbrown_map.insert(k, v);
+            },
+            &keys,
+        )
+    });
 
     // 3. BTreeMap Growth
     let mut btree_map = BTreeMap::new();
-    let hist_bt = measure_growth_latency(
-        |k, v| {
-            btree_map.insert(k, v);
-        },
-        &keys,
-    );
+    let hist_bt = bench_window("growth/btree", || {
+        measure_growth_latency(
+            |k, v| {
+                btree_map.insert(k, v);
+            },
+            &keys,
+        )
+    });
 
     let output = serde_json::json!({
         "total_inserts": num_keys,

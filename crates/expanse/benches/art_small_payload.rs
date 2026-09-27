@@ -25,8 +25,8 @@
 mod art_common;
 
 use art_common::{
-    ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, bca_ci, gen_sequential, median,
-    rounds_raw, shuffle,
+    ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, bca_ci, bench_window,
+    gen_sequential, median, rounds_raw, shuffle,
 };
 
 type BenchArtMap = ArtMap<blart::Mapped<blart::ToUBE, u64>, u64>;
@@ -511,7 +511,9 @@ fn main() {
 
     let mut results = Vec::new();
     for &n in populations {
-        results.push(bench_small_pop(n, rounds));
+        results.push(bench_window(&format!("pop={n}"), || {
+            bench_small_pop(n, rounds)
+        }));
     }
 
     let output = json!({

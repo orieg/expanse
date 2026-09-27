@@ -1702,8 +1702,10 @@ def _self_test_binaries(throughput_bin: Path, counters_bin: Path) -> None:
     if sys.platform == "linux":
         assert findings == [], findings
     else:
-        # No /proc/stat off Linux, so host busy CPU cannot be attributed there.
-        assert all("foreign_busy_cpus" in f or "scaling_governor" in f for f in findings), findings
+        # No /proc/stat off Linux, so host busy CPU cannot be attributed there
+        # and no load window is measured (#1214).
+        assert all("foreign_busy_cpus" in f or "scaling_governor" in f
+                   or "no load window was measured" in f for f in findings), findings
 
 
 def self_test(build: bool = True) -> int:

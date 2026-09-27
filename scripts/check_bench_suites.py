@@ -45,6 +45,10 @@ END = "END GENERATED: bench-suites"
 REQUIRED_FIELDS = ("name", "available", "kind", "runner", "summary")
 KINDS = ("callgrind", "wallclock", "counters", "fuel", "census")
 RUNNERS = ("builtin", "generic")
+# How `scripts/bench_windowed.py` finds a suite's timed cases (#1214): from
+# criterion's progress lines, or from `BENCH_WINDOW` markers the harness
+# prints. Only a wall-clock suite has windows to take.
+WINDOW_MODES = ("criterion", "markers")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 SUITE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -100,6 +104,12 @@ def check_manifest(manifest: dict) -> tuple[list[str], list[str]]:
                 f"{where} ({name}): an available generic wallclock suite must declare "
                 "`result_pattern`, the regex a line of its result output matches"
             )
+        windows = s.get("windows")
+        if windows is not None:
+            if windows not in WINDOW_MODES:
+                errs.append(f"{where} ({name}): windows must be one of {WINDOW_MODES}")
+            if s.get("kind") != "wallclock":
+                errs.append(f"{where} ({name}): `windows` belongs only on a wallclock suite")
         if s.get("available") is False and not s.get("reason"):
             errs.append(f"{where} ({name}): an unavailable suite must state a `reason`")
         if s.get("available") is True and s.get("reason"):
@@ -570,6 +580,17 @@ def self_test() -> int:
     m = json.loads(json.dumps(base))
     m["suites"].append({"name": "x", "available": True, "kind": "wallclock", "runner": "generic", "summary": "s"})
     assert any("package" in e for e in errs(m)), "generic needs package/target"
+
+    # #1214: a window mode is one of the driver's, and only on a wallclock suite.
+    m = json.loads(json.dumps(base))
+    m["suites"].append({"name": "w", "available": True, "kind": "wallclock", "runner": "builtin",
+                        "summary": "s", "windows": "markers"})
+    assert errs(m) == [], errs(m)
+    m["suites"][-1]["windows"] = "lines"
+    assert any("windows must be one of" in e for e in errs(m)), "unknown window mode"
+    m["suites"][-1]["windows"] = "criterion"
+    m["suites"][-1]["kind"] = "callgrind"
+    assert any("only on a wallclock" in e for e in errs(m)), "windows on a callgrind suite"
 
     m = json.loads(json.dumps(base))
     m["suites"].append({"name": "x", "available": False, "kind": "wallclock", "runner": "builtin", "summary": "s"})

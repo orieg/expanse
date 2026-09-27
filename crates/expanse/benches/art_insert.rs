@@ -24,9 +24,9 @@
 mod art_common;
 
 use art_common::{
-    ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, bca_ci, dedupe_preserve_order,
-    gen_clustered, gen_sequential, gen_sparse_stride, gen_uniform_random, gen_zipfian, median,
-    rounds_raw,
+    ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, bca_ci, bench_window,
+    dedupe_preserve_order, gen_clustered, gen_sequential, gen_sparse_stride, gen_uniform_random,
+    gen_zipfian, median, rounds_raw,
 };
 use serde_json::json;
 use std::hint::black_box;
@@ -183,19 +183,29 @@ fn main() {
 
     for &n in populations {
         let seq = gen_sequential(n);
-        results.push(bench_dist("sequential", &seq, rounds));
+        results.push(bench_window(&format!("sequential/pop={n}"), || {
+            bench_dist("sequential", &seq, rounds)
+        }));
 
         let clustered = gen_clustered(n, &mut rng);
-        results.push(bench_dist("clustered", &clustered, rounds));
+        results.push(bench_window(&format!("clustered/pop={n}"), || {
+            bench_dist("clustered", &clustered, rounds)
+        }));
 
         let uniform = gen_uniform_random(n, &mut rng);
-        results.push(bench_dist("uniform_random", &uniform, rounds));
+        results.push(bench_window(&format!("uniform_random/pop={n}"), || {
+            bench_dist("uniform_random", &uniform, rounds)
+        }));
 
         let sparse = gen_sparse_stride(n);
-        results.push(bench_dist("sparse_stride", &sparse, rounds));
+        results.push(bench_window(&format!("sparse_stride/pop={n}"), || {
+            bench_dist("sparse_stride", &sparse, rounds)
+        }));
 
         let zipf = gen_zipfian(n, 0.99, &mut rng);
-        results.push(bench_dist("zipfian", &zipf, rounds));
+        results.push(bench_window(&format!("zipfian/pop={n}"), || {
+            bench_dist("zipfian", &zipf, rounds)
+        }));
     }
 
     let output = json!({

@@ -100,6 +100,9 @@ fn main() {
     let mut results = serde_json::Map::new();
 
     for &dist in &distributions {
+        // One load window per distribution, read from stderr by
+        // `scripts/bench_windowed.py` (AGENTS.md section 8.17, #1214).
+        eprintln!("BENCH_WINDOW begin {dist}");
         let keys = generate_distribution(dist, num_keys, 0x1337_C0DE_CAFE_BABE);
 
         // 1. Insert Throughput
@@ -167,6 +170,7 @@ fn main() {
                 }
             }),
         );
+        eprintln!("BENCH_WINDOW end {dist}");
     }
 
     if json_mode {

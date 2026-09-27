@@ -160,6 +160,7 @@ else
   echo "  (skipping ruff: not installed -- 'pip install ruff'; CI docs-lint runs it pinned)"
 fi
 python3 scripts/check_bench_provenance.py --self-test
+python3 scripts/bench_windowed.py --self-test
 python3 scripts/check_man_pages.py --self-test
 python3 scripts/check_miri_shards.py --self-test
 python3 scripts/miri_ub_sites.py --self-test

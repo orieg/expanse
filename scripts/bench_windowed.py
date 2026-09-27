@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+"""Run one wall-clock bench target with a load window around every timed case (#1214).
+
+AGENTS.md section 8.17 makes a published wall-clock result without its load
+snapshot inadmissible, and asks for a snapshot between compared runs and
+mid-sweep. The suites this driver serves ran as one `cargo bench` process with
+no snapshot inside it, so their host load was known only at the job's start
+and at harvest.
+
+The target is built first and its binary run once, so compilation is never
+inside a window. While it runs, the driver reads its output line by line and
+takes a snapshot at every window boundary: the host's busy CPU from
+`/proc/stat` and the harness's own CPU from `/proc/<pid>/stat`
+(`bench_provenance.pid_load_snapshot`). Their difference is what else was
+resident during that case. Two kinds of boundary are read:
+
+  criterion  criterion's own progress lines on stderr: `Benchmarking <id>`
+             opens a window, `Benchmarking <id>: Analyzing` closes it. Setup
+             outside the bench closures and the analysis are not inside it.
+  markers    `BENCH_WINDOW begin|end <id>` lines a custom-main harness prints
+             around each timed case (`art_common::bench_window`).
+
+A window shorter than `MIN_WINDOW_S` has no resolvable busy figure, so it is
+merged into the next one and the merged window names every case it covers.
+
+Output: `--out` holds `provenance` with `load_windows: true` and one entry per
+window under `provenance.windows`. A window that could not attribute, a marker
+out of order, or a run with no window at all makes the record inadmissible:
+`load_status` says so and `load_findings` says why, and the driver still exits
+with the harness's own status, so a loud load finding never discards the
+completed measurement (section 8.1). The workflow fails the job on it after the
+harvest.
+
+Usage:
+  bench_windowed.py --suite S --mode criterion|markers --package P --target T \\
+      --out load-S.json [-- harness args]
+  bench_windowed.py --self-test
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bench_provenance as bp  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+ISSUE = 1214
+
+MARKER = re.compile(r"^BENCH_WINDOW (begin|end) (\S.*)$")
+CRITERION_STATE = re.compile(
+    r"^Benchmarking (?P<id>.+?): (?P<state>Warming up|Collecting|Analyzing|Profiling)\b")
+CRITERION_START = re.compile(r"^Benchmarking (?P<id>\S.*)$")
+
+
+def boundary(line: str, mode: str) -> tuple[str, str] | None:
+    """`("begin" | "end", id)` if `line` opens or closes a window, else `None`."""
+    line = line.rstrip("\r\n")
+    if mode == "markers":
+        m = MARKER.match(line)
+        return (m.group(1), m.group(2).strip()) if m else None
+    if mode == "criterion":
+        m = CRITERION_STATE.match(line)
+        if m:
+            return ("end", m.group("id")) if m.group("state") == "Analyzing" else None
+        m = CRITERION_START.match(line)
+        # `Benchmarking <id>: <state>` lines are matched above; a start line
+        # carries the id alone.
+        return ("begin", m.group("id")) if m else None
+    raise ValueError(f"unknown mode {mode!r}")
+
+
+class Windower:
+    """Turns a stream of boundaries into closed, attributed windows.
+
+    `snap(label, prev)` takes a snapshot; `close(start)` attributes the window
+    that opened at `start`. Both are injected so the bookkeeping is testable
+    without a process to read.
+    """
+
+    def __init__(self, snap, close, min_window_s: float = bp.MIN_WINDOW_S):
+        self.snap, self.close, self.min_window_s = snap, close, min_window_s
+        self.windows: list[dict] = []
+        self.findings: list[str] = []
+        self._open: tuple[str, dict] | None = None
+        # A closed window too short to resolve, carried into the next one.
+        self._carry: tuple[list[str], dict] | None = None
+
+    def feed(self, kind: str, wid: str) -> None:
+        if kind == "begin":
+            if self._open is not None:
+                self.findings.append(f"window {wid!r} opened while {self._open[0]!r} was open")
+                return
+            if self._carry is not None:
+                ids, start = self._carry
+                self._carry = None
+                self._open = (wid, start)
+                self._ids = ids + [wid]
+            else:
+                self._open = (wid, self.snap(f"window:{wid}", None))
+                self._ids = [wid]
+            return
+        if self._open is None or self._open[0] != wid:
+            self.findings.append(
+                f"window {wid!r} closed but {self._open[0] if self._open else None!r} was open")
+            return
+        _, start = self._open
+        self._open = None
+        load = self.close(start)
+        if load.get("wall_s") is not None and load["wall_s"] < self.min_window_s:
+            self._carry = (self._ids, start)
+            return
+        self._record(self._ids, load)
+
+    def _record(self, ids: list[str], load: dict) -> None:
+        entry = {"id": ids[-1] if len(ids) == 1 else "+".join(ids), "load": load}
+        if len(ids) > 1:
+            entry["merged"] = ids
+        self.windows.append(entry)
+
+    def finish(self) -> None:
+        if self._open is not None:
+            self.findings.append(f"window {self._open[0]!r} never closed")
+            self._open = None
+        if self._carry is not None:
+            # Too short, and nothing followed to merge it into: record it as
+            # measured, which is to say without a number.
+            ids, start = self._carry
+            self._carry = None
+            self._record(ids, self.close(start))
+        if not self.windows:
+            self.findings.append("no window boundary was read — the harness at this ref "
+                                 "does not mark its timed cases")
+        for w in self.windows:
+            load = w["load"]
+            if not all(isinstance(load.get(k), (int, float))
+                       for k in ("busy_cpus_since_prev", "foreign_busy_cpus")):
+                self.findings.append(f"window {w['id']!r} could not attribute its load "
+                                     f"({load})")
+
+
+def build(package: str, target: str) -> tuple[Path, Path]:
+    """Builds the bench target; returns `(executable, package directory)`."""
+    cmd = ["cargo", "bench", "--no-run", "--message-format=json",
+           "-p", package, "--bench", target]
+    out = subprocess.run(cmd, cwd=REPO_ROOT, check=True, stdout=subprocess.PIPE,
+                         text=True).stdout
+    for line in out.splitlines():
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:  # discipline:allow(error-swallowing) cargo interleaves non-JSON build lines; only compiler-artifact messages are read
+            continue
+        if (msg.get("reason") == "compiler-artifact" and msg.get("executable")
+                and msg["target"]["name"] == target and "bench" in msg["target"]["kind"]):
+            return Path(msg["executable"]), Path(msg["manifest_path"]).parent
+    raise SystemExit(f"bench_windowed: `{' '.join(cmd)}` named no executable for {target!r}")
+
+
+def run(args) -> int:
+    if bp.cpu_jiffies() == (None, None):
+        # The windows are /proc readings; off Linux there is nothing to take.
+        print("bench_windowed: /proc/stat is unreadable, so no load window can be taken; "
+              "this driver runs on Linux only", file=sys.stderr)
+        return 2
+    exe, pkg_dir = build(args.package, args.target)
+    prov = bp.new_provenance(
+        args.suite, ISSUE, "as published by the harness; this record carries load only",
+        REPO_ROOT, bench_target=args.target, window_mode=args.mode, load_windows=True)
+    env = dict(os.environ)
+    # Criterion otherwise spawns `cargo metadata` to find its output directory.
+    env.setdefault("CRITERION_HOME", str(REPO_ROOT / "target" / "criterion"))
+    proc = subprocess.Popen([str(exe), "--bench", *args.harness_args], cwd=pkg_dir, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            bufsize=1)
+    win = Windower(lambda label, prev: bp.pid_load_snapshot(label, proc.pid, prev),
+                   lambda start: bp.pid_window(start, proc.pid))
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        # Read before the process is reaped: an exited, unreaped harness still
+        # reports its final CPU times, a reaped one reports none.
+        b = boundary(line, args.mode)
+        if b is not None:
+            win.feed(*b)
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    win.finish()
+    status = proc.wait()
+    bp.add_load(prov, "end")
+    prov["windows"] = win.windows
+    prov["load_status"] = "inadmissible" if win.findings else "ok"
+    prov["load_findings"] = win.findings
+    prov["harness_exit_status"] = status
+    Path(args.out).write_text(json.dumps({"provenance": prov}, indent=2) + "\n")
+    for f in win.findings:
+        print(f"::warning::bench_windowed: {args.suite}: {f}")
+    print(f"bench_windowed: {len(win.windows)} window(s), load_status="
+          f"{prov['load_status']} -> {args.out}")
+    return status
+
+
+# --------------------------------------------------------------------------
+# self-test
+# --------------------------------------------------------------------------
+
+def _self_test() -> int:
+    failures = []
+
+    def check(name, got, want):
+        if got != want:
+            failures.append(f"{name}: got {got!r}, want {want!r}")
+
+    check("marker begin", boundary("BENCH_WINDOW begin sequential/pop=10000\n", "markers"),
+          ("begin", "sequential/pop=10000"))
+    check("marker end", boundary("BENCH_WINDOW end growth/btree", "markers"),
+          ("end", "growth/btree"))
+    check("other line", boundary("  pop=  10000 | dist=sequential", "markers"), None)
+    cid = "comparative_set_contains/sequential/10000/expanse"
+    check("criterion start", boundary(f"Benchmarking {cid}\n", "criterion"), ("begin", cid))
+    check("criterion warmup", boundary(f"Benchmarking {cid}: Warming up for 3.0000 s",
+                                       "criterion"), None)
+    check("criterion collecting", boundary(
+        f"Benchmarking {cid}: Collecting 100 samples in estimated 5.0 s (10k iterations)",
+        "criterion"), None)
+    check("criterion analyzing", boundary(f"Benchmarking {cid}: Analyzing", "criterion"),
+          ("end", cid))
+    check("criterion result", boundary(f"{cid}  time:   [1.0 ns 1.1 ns 1.2 ns]", "criterion"),
+          None)
+
+    # Windower bookkeeping over a fake clock: each snapshot is a time, and a
+    # window's load is its length.
+    clock = iter(range(100))
+
+    def snap(label, prev):
+        return {"label": label, "t": next(clock)}
+
+    def close(start):
+        t = next(clock)
+        wall = (t - start["t"]) / 10
+        return {"wall_s": wall, "busy_cpus_since_prev": 1.0, "own_busy_cpus": 1.0,
+                "foreign_busy_cpus": 0.0}
+
+    w = Windower(snap, close, min_window_s=0.15)
+    for kind, wid in [("begin", "a"), ("end", "a"), ("begin", "b"), ("end", "b")]:
+        w.feed(kind, wid)
+    w.finish()
+    # a: opened at 0, closed at 1 -> 0.1 s, below 0.15, carried into b, which
+    # closes at 2 -> 0.2 s over both.
+    check("short window merged", [x["id"] for x in w.windows], ["a+b"])
+    check("merged ids listed", w.windows[0].get("merged"), ["a", "b"])
+    check("merge is not a finding", w.findings, [])
+
+    w = Windower(snap, close, min_window_s=0.0)
+    w.feed("begin", "a")
+    w.feed("begin", "b")
+    w.feed("end", "c")
+    w.finish()
+    check("nested open is a finding", any("opened while" in f for f in w.findings), True)
+    check("mismatched close is a finding", any("closed but" in f for f in w.findings), True)
+    check("unclosed is a finding", any("never closed" in f for f in w.findings), True)
+
+    w = Windower(snap, close)
+    w.finish()
+    check("no window is a finding", any("no window boundary" in f for f in w.findings), True)
+
+    def close_none(start):
+        return {"wall_s": 5.0, "busy_cpus_since_prev": None, "own_busy_cpus": None,
+                "foreign_busy_cpus": None}
+
+    w = Windower(snap, close_none, min_window_s=0.0)
+    w.feed("begin", "a")
+    w.feed("end", "a")
+    w.finish()
+    check("unattributed window is a finding",
+          any("could not attribute" in f for f in w.findings), True)
+
+    for f in failures:
+        print(f"  FAIL {f}")
+    print(f"bench_windowed.py --self-test: "
+          f"{'all checks passed' if not failures else f'{len(failures)} failure(s)'}")
+    return 1 if failures else 0
+
+
+def main() -> int:
+    if "--self-test" in sys.argv[1:]:
+        return _self_test()
+    p = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    p.add_argument("--suite", required=True)
+    p.add_argument("--mode", required=True, choices=("criterion", "markers"))
+    p.add_argument("--package", required=True)
+    p.add_argument("--target", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("harness_args", nargs="*")
+    return run(p.parse_args())
+
+
+if __name__ == "__main__":
+    sys.exit(main())

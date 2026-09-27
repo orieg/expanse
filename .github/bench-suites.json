@@ -119,6 +119,7 @@
       "available": true,
       "kind": "wallclock",
       "runner": "builtin",
+      "windows": "criterion",
       "summary": "Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table."
     },
     {
@@ -404,6 +405,7 @@
       "package": "expanse-trie",
       "target": "domain",
       "result_pattern": "time:\\s+\\[",
+      "windows": "criterion",
       "summary": "Interned set domain: posting-list algebra zero-overhead, ingestion, and zero-copy resolution.",
       "suite": "set_algebra"
     },
@@ -511,6 +513,7 @@
       "package": "expanse-trie",
       "target": "hashbrown_tail_latency",
       "result_pattern": "\"p99_ns\": Number\\(",
+      "windows": "markers",
       "summary": "Tail-latency percentiles against hashbrown, including rehash spikes.",
       "suite": "hashbrown_comparison"
     },
@@ -522,6 +525,7 @@
       "package": "expanse-trie",
       "target": "hashbrown_container_dists",
       "result_pattern": "\"expanse\": Number\\(",
+      "windows": "markers",
       "summary": "Key-distribution sensitivity sweep against hashbrown.",
       "suite": "hashbrown_comparison"
     },
@@ -700,6 +704,7 @@
       "package": "expanse-trie",
       "target": "art_lookup_miss",
       "result_pattern": "Ratio \\(Exp/ART\\):\\s+[0-9.]+x",
+      "windows": "markers",
       "summary": "Adaptive Radix Tree (ART) vs Expanse point lookup on 50% hit / 50% rejection-sampled miss rate.",
       "suite": "art_comparison"
     },
@@ -711,6 +716,7 @@
       "package": "expanse-trie",
       "target": "art_insert",
       "result_pattern": "Ratio \\(Exp/ART\\):\\s+[0-9.]+x",
+      "windows": "markers",
       "summary": "Adaptive Radix Tree (ART) vs Expanse dynamic insertion throughput into cold structures.",
       "suite": "art_comparison"
     },
@@ -722,6 +728,7 @@
       "package": "expanse-trie",
       "target": "art_scan",
       "result_pattern": "Ratio:\\s+[0-9.]+x",
+      "windows": "markers",
       "summary": "Adaptive Radix Tree (ART) vs Expanse ordered range scan and full container iteration.",
       "suite": "art_comparison"
     },
@@ -744,6 +751,7 @@
       "package": "expanse-trie",
       "target": "art_small_payload",
       "result_pattern": "Ratio:\\s+[0-9.]+x",
+      "windows": "markers",
       "summary": "Adaptive Radix Tree (ART) vs Expanse small-payload regime (<= 7 keys) lookups, inserts, and memory census.",
       "suite": "art_comparison"
     },

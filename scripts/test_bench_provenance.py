@@ -265,5 +265,51 @@ class HostFacts(unittest.TestCase):
         json.dumps(bp.host_facts())
 
 
+class PidWindows(unittest.TestCase):
+    """The running-process attribution `bench_windowed.py` windows a harness with (#1214)."""
+
+    # Fields 14 and 15 are utime 700 and stime 50; the command name carries
+    # the spaces and parentheses that make splitting on whitespace wrong.
+    STAT = ("4242 (art scan (x)) R 1 4242 4242 0 -1 4194304 100 0 0 0 "
+            "700 50 0 0 20 0 1 0 12345 1000000 200 18446744073709551615")
+
+    def test_utime_plus_stime_counted_from_the_last_paren(self):
+        self.assertEqual(bp.pid_stat_cpu_ticks(self.STAT), 750)
+
+    def test_a_truncated_line_is_none_not_zero(self):
+        self.assertIsNone(bp.pid_stat_cpu_ticks("4242 (x) R 1 2"))
+        self.assertIsNone(bp.pid_stat_cpu_ticks("no parenthesis at all"))
+
+    def test_a_process_that_is_gone_is_none(self):
+        self.assertIsNone(bp.pid_cpu_seconds(2**31 - 1))
+
+    def test_own_is_read_from_the_named_key(self):
+        prev = bp.Snapshot({"monotonic_s": 10.0, "pid_cpu_s": 1.0},
+                           raw={"monotonic_s": 10.0, "pid_cpu_s": 1.0})
+        # One CPU-second over two wall seconds: half a core.
+        self.assertEqual(bp.own_busy_cpus(prev, 2.0, 12.0, key="pid_cpu_s"), 0.5)
+        # The default key is the reaped-children reading, absent here.
+        self.assertIsNone(bp.own_busy_cpus(prev, 2.0, 12.0))
+
+    def test_a_window_over_this_process_attributes_where_proc_exists(self):
+        # On Linux a busy window over this process attributes about one core
+        # to it; elsewhere there is no /proc, and every figure is None rather
+        # than a plausible zero.
+        import os
+        import time
+        start = bp.pid_load_snapshot("window:t", os.getpid())
+        end = time.monotonic() + 0.3
+        while time.monotonic() < end:
+            pass
+        load = bp.pid_window(start, os.getpid())
+        if Path("/proc/self/stat").exists():
+            self.assertIsInstance(load["busy_cpus_since_prev"], float)
+            self.assertGreater(load["own_busy_cpus"], 0.5)
+        else:
+            self.assertIsNone(load["busy_cpus_since_prev"])
+            self.assertIsNone(load["own_busy_cpus"])
+            self.assertIsNone(load["foreign_busy_cpus"])
+
+
 if __name__ == "__main__":
     unittest.main()

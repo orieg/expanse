@@ -560,6 +560,44 @@ def validate_host_description(host_desc: str) -> str:
     return host_desc
 
 
+# The keys of a `scripts/bench_windowed.py` load record that the baseline
+# carries (#1214): the load series, one attributed window per timed case, and
+# the record's verdict. `check_bench_provenance.window_problems` reads them.
+LOAD_RECORD_KEYS = ("host", "core_pin", "loads", "load_windows", "windows",
+                    "load_status", "load_findings")
+
+
+def fold_load_record(artifact: Dict[str, Any], record: Dict[str, Any]) -> Dict[str, Any]:
+    """Returns `artifact` carrying the windowed driver's load record.
+
+    The record's provenance keys go on the artifact's provenance, and each arm
+    whose criterion id names a window (alone or inside a merged one) carries
+    that window's load, so a reader can see what else was resident while that
+    arm was timed. An arm no window names gets no `load` and is counted in
+    `arms_without_window`, never silently passed (section 8.1).
+    """
+    prov = record.get("provenance") if isinstance(record, dict) else None
+    if not isinstance(prov, dict) or not prov.get("load_windows"):
+        raise ValueError("--provenance-json is not a bench_windowed.py load record")
+    out = json.loads(json.dumps(artifact))
+    for key in LOAD_RECORD_KEYS:
+        if key in prov:
+            out["provenance"][key] = prov[key]
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for window in prov.get("windows") or []:
+        for wid in window.get("merged") or [window.get("id")]:
+            by_id[wid] = window.get("load")
+    missing = 0
+    for arm in out["arms"]:
+        load = by_id.get(arm.get("id"))
+        if load is None:
+            missing += 1
+        else:
+            arm["load"] = load
+    out["provenance"]["arms_without_window"] = missing
+    return out
+
+
 def build_artifact(
     arms: List[Dict[str, Any]],
     *,
@@ -1139,6 +1177,31 @@ def self_test() -> int:
     assert "Speedup vs Committed Baseline" in comp_md
 
     print("bench_baseline.py --self-test: all checks passed")
+
+    # ---- #1214: a windowed load record folds into the artifact ----
+    art = {"provenance": {"commit": "c"},
+           "arms": [{"id": "g/a"}, {"id": "g/b"}, {"id": "g/c"}]}
+    rec = {"provenance": {
+        "load_windows": True, "load_status": "ok", "load_findings": [],
+        "loads": [{"label": "start"}, {"label": "end", "busy_cpus_since_prev": 1.0}],
+        "windows": [
+            {"id": "g/a", "load": {"busy_cpus_since_prev": 1.0, "foreign_busy_cpus": 0.0}},
+            {"id": "g/b+g/c", "merged": ["g/b", "g/c"],
+             "load": {"busy_cpus_since_prev": 1.1, "foreign_busy_cpus": 0.1}}]}}
+    folded = fold_load_record(art, rec)
+    assert folded["provenance"]["load_windows"] is True
+    assert folded["arms"][0]["load"]["foreign_busy_cpus"] == 0.0
+    assert folded["arms"][2]["load"]["foreign_busy_cpus"] == 0.1, "a merged window covers each arm"
+    assert folded["provenance"]["arms_without_window"] == 0
+    assert "load" not in art["arms"][0], "the input artifact is not mutated"
+    rec["provenance"]["windows"] = rec["provenance"]["windows"][:1]
+    assert fold_load_record(art, rec)["provenance"]["arms_without_window"] == 2
+    try:
+        fold_load_record(art, {"provenance": {}})
+        raise AssertionError("a record without load_windows must be refused")
+    except ValueError:
+        pass
+
     return 0
 
 
@@ -1181,6 +1244,10 @@ def main() -> int:
         help="print a notice and write no artifact when the run produced no criterion arms",
     )
     ap.add_argument("--suite", default="unnamed", help="suite label recorded in the artifact")
+    ap.add_argument(
+        "--provenance-json",
+        help="a scripts/bench_windowed.py load record to fold into the harvested artifact (#1214)",
+    )
     ap.add_argument("--out", help="write the artifact here (JSON)")
     ap.add_argument("--input", "-i", help="read an existing artifact instead of harvesting")
     ap.add_argument("--against", help="baseline artifact to compare --input against")
@@ -1273,6 +1340,8 @@ def main() -> int:
                 fixture=args.fixture,
                 store_samples=not args.summary_only,
             )
+            if args.provenance_json:
+                artifact = fold_load_record(artifact, _load_json(Path(args.provenance_json)))
         else:
             ap.error("one of --harvest, --input, --emit-fixture-criterion-dir or --self-test is required")
             return 2
