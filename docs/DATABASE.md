@@ -912,9 +912,20 @@ Under sorted ascending insertion order, throughputs remain consistent: Workload 
   │      └── NUL-Terminated / Text:    Use `ExpanseStrMap` (JudySL)
   │      └── Arbitrary Binary Blobs:   Use `ExpanseBytesMap` (JudyHS)
   │
-  └── 4. Cross-Process Analytics / Worker IPC  [roadmap — see §6, not yet implemented]
-         └── Shared Off-Heap Mmap:     (target) Position-Independent Base-Relative Layout
+  ├── 4. Cross-Process Analytics / Worker IPC  [roadmap — see §6, not yet implemented]
+  │      └── Shared Off-Heap Mmap:     (target) Position-Independent Base-Relative Layout
+  │
+  └── 5. When a trie is the wrong tool
+         └── Unordered point lookups on random or hashed keys:  a hash table
+         └── String keys where ordered scans or memory dominate: HOT or Masstree
+         └── Memory-critical random integer keys:               measure at your N
 ```
+
+Branch 5 is decided by a workload property, not a product list: a trie is paid for in order and shared prefixes, and a workload that uses neither pays for them without using them. The evidence behind each leaf, with its workload and interval:
+
+- **Random or hashed point lookups.** `hashbrown` beats trie descent on uniform-random keys; the gap is small while the set is cache-resident and closes on sequential keys (workload: `core_compare`; README [§2](../README.md#2-expansemap-vs-hashbrownhashmap--btreemap)). Content fingerprints and hashed identifiers are this case whatever the application.
+- **String scans and memory.** HOT wins ordered scans in every string cell measured and holds strings in less memory; Masstree wins most string scans and inserts (workloads: `hot_str_ptr`, `masstree_str_map`; README [§3](../README.md#3-trie-competitors-art-hot-and-masstree)). Expanse still wins several string point-lookup cells, so a lookup-dominated string workload belongs on branch 3.
+- **Random-key memory.** Expanse's bytes/key is a sawtooth in expanse occupancy λ = N / 2¹⁶, HOT and Masstree are flat, and a growing hash table steps with its load factor, so which is smaller changes with the population ([ARCHITECTURE.md §3.5](ARCHITECTURE.md#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth)). Measure at the population you will run.
 
 ---
 
