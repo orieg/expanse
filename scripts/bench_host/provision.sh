@@ -298,10 +298,15 @@ cmd_cutover() {
 
   # The service account needs the workflow to take its toolchain from the
   # runner (docs/CI.md) and the flock lock that can span accounts (#1226).
-  curl -sSfL "$GH_RAW/.github/workflows/bench_baremetal.yml" | grep -q 'EXPANSE_TOOLCHAIN' \
-    || die "main's bench_baremetal.yml predates EXPANSE_TOOLCHAIN; merge that change first"
-  curl -sSfL "$GH_RAW/scripts/bench_lock.py" | grep -q 'SHARED_LOCK' \
-    || die "main's scripts/bench_lock.py does not accept the shared lock; merge that change first"
+  # Fetched whole, then matched: `curl | grep -q` fails under pipefail on a
+  # file this large, because grep exits at the first match and curl's next
+  # write fails (exit 23).
+  local wf lk
+  wf="$(curl -sSfL "$GH_RAW/.github/workflows/bench_baremetal.yml")" \
+    || die "could not fetch main's bench_baremetal.yml"
+  case "$wf" in *EXPANSE_TOOLCHAIN*) ;; *) die "main's bench_baremetal.yml predates EXPANSE_TOOLCHAIN; merge that change first" ;; esac
+  lk="$(curl -sSfL "$GH_RAW/scripts/bench_lock.py")" || die "could not fetch main's scripts/bench_lock.py"
+  case "$lk" in *SHARED_LOCK*) ;; *) die "main's scripts/bench_lock.py does not accept the shared lock; merge that change first" ;; esac
 
   pgrep -f 'Runner.Worker' >/dev/null && die "a job is running; retry when the runner is idle"
   for l in /tmp/expanse-bench.flock "$FLOCK"; do
