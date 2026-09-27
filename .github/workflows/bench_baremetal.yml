@@ -166,6 +166,7 @@ jobs:
       # checkout and both `git checkout` passes in the bench job read this one
       # value.
       sha: ${{ steps.resolve.outputs.sha }}
+      bench_windows: ${{ steps.resolve.outputs.bench_windows }}
       base_ref: ${{ steps.resolve.outputs.base_ref }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
     steps:
@@ -222,6 +223,7 @@ jobs:
               core.setOutput('bench_package', s.package || '');
               core.setOutput('bench_target', s.target || '');
               core.setOutput('bench_env', s.env || '');
+              core.setOutput('bench_windows', s.windows || '');
               core.notice(`Resolved benchmark suite: ${s.name}`);
             };
 
@@ -720,6 +722,9 @@ jobs:
           BENCH_PACKAGE: ${{ needs.resolve.outputs.bench_package }}
           BENCH_TARGET: ${{ needs.resolve.outputs.bench_target }}
           BENCH_ENV: ${{ needs.resolve.outputs.bench_env }}
+          # How the windowed driver finds this suite's timed cases, or empty
+          # for a suite that takes no per-case load window (#1214).
+          BENCH_WINDOWS: ${{ needs.resolve.outputs.bench_windows }}
           # Empty string leaves the auto pin in place; bench_pin treats an
           # unset and an empty value identically.
           EXPANSE_BENCH_PIN: ${{ inputs.cpu_pin }}
@@ -1020,6 +1025,25 @@ jobs:
           cargo build --release -p expanse-capi
           export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
 
+          # A suite whose manifest entry names a window mode runs through
+          # scripts/bench_windowed.py, which builds the target, runs its binary
+          # once, and snapshots the host's and the harness's CPU around every
+          # timed case (AGENTS.md section 8.17, #1214). It writes
+          # load-$SUITE.json and exits with the harness's own status. A ref
+          # that predates the driver runs the plain bench, and the missing
+          # windows are reported rather than silently absent (section 8.1).
+          # The generic branch below calls the driver itself; run_bench is
+          # the same choice for a builtin case.
+          rm -f "load-$SUITE.json"
+          run_bench() {  # <package> <target>
+            if [ -n "$BENCH_WINDOWS" ] && [ -f scripts/bench_windowed.py ]; then
+              python3 scripts/bench_windowed.py --suite "$SUITE" --mode "$BENCH_WINDOWS" \
+                --package "$1" --target "$2" --out "load-$SUITE.json"
+            else
+              cargo bench --bench "$2" -p "$1"
+            fi
+          }
+
           # A manifest-declared `generic` suite is run straight from its
           # package/target: one branch covers every such suite, so a new bench
           # target becomes reachable by adding a manifest entry, not by adding
@@ -1041,7 +1065,15 @@ jobs:
               # splitting is the intent here, and an empty one leaves `env`
               # running the command unchanged.
               # shellcheck disable=SC2086
-              env $BENCH_ENV cargo bench -q --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" 2>&1 | tee bench-output.txt
+              if [ -n "$BENCH_WINDOWS" ] && [ -f scripts/bench_windowed.py ]; then
+                # One load window per timed case (#1214); the driver runs the
+                # binary built above and prints its stdout and stderr merged.
+                env $BENCH_ENV python3 scripts/bench_windowed.py --suite "$SUITE" \
+                  --mode "$BENCH_WINDOWS" --package "$BENCH_PACKAGE" --target "$BENCH_TARGET" \
+                  --out "load-$SUITE.json" 2>&1 | tee bench-output.txt
+              else
+                env $BENCH_ENV cargo bench -q --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" 2>&1 | tee bench-output.txt
+              fi
               # A run that printed no result line measured nothing, however
               # it exited. The suite's `result_pattern` comes from the
               # workflow commit's manifest, like the check itself.
@@ -1070,7 +1102,7 @@ jobs:
                 cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
                 ;;
               "comparative")
-                cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+                run_bench expanse-trie comparative | tee comparative.txt
                 python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
                 ;;
               "extended")
@@ -1564,7 +1596,14 @@ jobs:
               echo "=== Harvesting criterion samples -> BCa 95% CIs ==="
               # Non-fatal by construction: a harvester that errors must not
               # take the completed measurement down with it.
+              # The windowed driver's load record is folded into the baseline,
+              # where the ref's harvester can take it.
+              PROV_ARGS=()
+              if [ -f "load-$SUITE.json" ] && grep -q -- '--provenance-json' scripts/bench_baseline.py; then
+                PROV_ARGS=(--provenance-json "load-$SUITE.json")
+              fi
               if python3 scripts/bench_baseline.py --harvest \
+                "${PROV_ARGS[@]}" \
                 --criterion-dir target/criterion \
                 --newer-than "$CRITERION_SINCE" \
                 --allow-empty \
@@ -1599,6 +1638,18 @@ jobs:
             echo "No target/criterion directory: suite '$SUITE' runs no criterion arms, so no wall-clock interval is claimed."
           fi
           echo "harvest_status=$HARVEST_STATUS" >> "$GITHUB_OUTPUT"
+
+          # The load record's verdict, read after the harvest so an
+          # inadmissible record never costs the measurement: the job fails on
+          # it in a step of its own, once every artifact is uploaded.
+          LOAD_STATUS=none
+          if [ -f "load-$SUITE.json" ]; then
+            LOAD_STATUS=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["provenance"]["load_status"])' "load-$SUITE.json")
+          elif [ -n "$BENCH_WINDOWS" ]; then
+            LOAD_STATUS=missing_script
+            echo "::notice::No per-case load windows: ref '$REF' has no scripts/bench_windowed.py (#1214), so suite '$SUITE' ran without them and its wall-clock numbers carry no in-run load record (AGENTS.md section 8.17)."
+          fi
+          echo "load_status=$LOAD_STATUS" >> "$GITHUB_OUTPUT"
 
           # ====================================================================
           # The benchmarks are done: stop the host watcher and judge its record.
@@ -1864,7 +1915,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: wallclock-baseline-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
-          path: baseline-*.json
+          path: |
+            baseline-*.json
+            load-*.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -2055,6 +2108,7 @@ jobs:
           STAGE_OUTCOME: ${{ steps.stage.outcome }}
           LOCK_OWNER: ${{ steps.bench.outputs.lock_owner }}
           HARVEST_STATUS: ${{ steps.bench.outputs.harvest_status }}
+          LOAD_STATUS: ${{ steps.bench.outputs.load_status }}
           JOB_STATUS: ${{ job.status }}
         with:
           script: |
@@ -2110,6 +2164,14 @@ jobs:
               harvestNote = `> [!WARNING]\n> **No wall-clock interval artifact.** Ref \`${process.env.HEAD_REF}\` carries no \`scripts/bench_baseline.py\` — it landed in #445, and this ref predates it — so criterion samples could not be harvested into BCa intervals. **The benchmark itself completed and the numbers below are valid**; only the interval table is absent. Rebase onto a base containing #445 to get one.`;
             } else if (harvest === 'failed') {
               harvestNote = '> [!WARNING]\n> **No wall-clock interval artifact.** The criterion harvest failed after the benchmark completed. **The numbers below are valid**; only the BCa interval table and the `baseline-*.json` artifact are missing. See the run log for the harvester error.';
+            }
+            // The per-case load record (#1214). Without it the numbers are
+            // inadmissible as published results (AGENTS.md section 8.17).
+            const load = process.env.LOAD_STATUS || '';
+            if (load === 'inadmissible') {
+              harvestNote += (harvestNote ? '\n\n' : '') + '> [!CAUTION]\n> **Load record inadmissible.** At least one timed case has no attributed load window (`load_findings` in the `load-*.json` artifact says which). The numbers below are not publishable until the suite is re-run.';
+            } else if (load === 'missing_script') {
+              harvestNote += (harvestNote ? '\n\n' : '') + `> [!CAUTION]\n> **No per-case load record.** Ref \`${process.env.HEAD_REF}\` predates \`scripts/bench_windowed.py\` (#1214), so this suite ran without in-run load windows and its numbers are not publishable.`;
             }
 
             let body;
@@ -2249,3 +2311,15 @@ jobs:
                 body,
               });
             }
+
+      # The load record decides whether the numbers are publishable, not
+      # whether they were measured: the job fails on an inadmissible record
+      # only here, after every artifact is uploaded and the comment says why
+      # (AGENTS.md sections 8.1 and 8.17, #1214).
+      - name: Fail on an inadmissible load record
+        if: always() && steps.bench.outputs.load_status == 'inadmissible'
+        env:
+          SUITE: ${{ needs.resolve.outputs.suite }}
+        run: |
+          echo "::error::suite '$SUITE': the load record is inadmissible; load_findings in the load-$SUITE.json artifact names the windows that could not attribute"
+          exit 1
