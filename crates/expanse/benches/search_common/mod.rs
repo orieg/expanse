@@ -243,10 +243,17 @@ pub fn expanse_native_andnot_count(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
 
 // ------------------------------------------------------------------------
 // Materializing arm (#348): build the *result set*, not just its cardinality.
-// The sink is the result population so the closure returns a `u64` like the
-// cardinality arms, and dead-code elimination cannot drop the build. Leaking
-// via `mem::forget` keeps `free_subtree` teardown out of the timed loop
-// (BENCHMARKING.md:729 Rule 0).
+//
+// The `*_build` functions return the result, and `median_ns_per_build` keeps
+// every result of one timed repetition in a vector reserved before the window
+// and drops them after it, so teardown stays outside the timed loop and the
+// process holds one repetition's results at a time.
+//
+// `expanse_and_materialize` and `roaring_and_materialize` keep the
+// cardinality-returning `mem::forget` form because the `search_instructions`
+// Callgrind arms call them once per run. No timed loop calls them: repeated
+// thousands of times per arm, forgetting every result kept all of them live
+// for the rest of the process.
 // ------------------------------------------------------------------------
 
 /// AND result via the native direct-emission kernel (`ExpanseSet::intersection`).
@@ -257,25 +264,24 @@ pub fn expanse_and_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
     n
 }
 
-/// OR result via the native direct-emission kernel.
-pub fn expanse_or_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
-    let out = a.union(b);
-    let n = out.len();
-    core::mem::forget(out);
-    n
+/// AND result via the native direct-emission kernel, returned.
+pub fn expanse_and_build(a: &ExpanseSet, b: &ExpanseSet) -> ExpanseSet {
+    a.intersection(b)
 }
 
-/// AND-NOT result via the native direct-emission kernel.
-pub fn expanse_andnot_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
-    let out = a.difference(b);
-    let n = out.len();
-    core::mem::forget(out);
-    n
+/// OR result via the native direct-emission kernel, returned.
+pub fn expanse_or_build(a: &ExpanseSet, b: &ExpanseSet) -> ExpanseSet {
+    a.union(b)
+}
+
+/// AND-NOT result via the native direct-emission kernel, returned.
+pub fn expanse_andnot_build(a: &ExpanseSet, b: &ExpanseSet) -> ExpanseSet {
+    a.difference(b)
 }
 
 /// AND result via the pre-#348 path: ordered-merge the two iterators and
 /// `insert` each surviving key into a fresh set. Kept as a before/after arm.
-pub fn expanse_and_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+pub fn expanse_and_build_v1(a: &ExpanseSet, b: &ExpanseSet) -> ExpanseSet {
     let mut out = ExpanseSet::new();
     let (mut ia, mut ib) = (a.iter(), b.iter());
     let (mut x, mut y) = (ia.next(), ib.next());
@@ -290,13 +296,11 @@ pub fn expanse_and_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
             std::cmp::Ordering::Greater => y = ib.next(),
         }
     }
-    let n = out.len();
-    core::mem::forget(out);
-    n
+    out
 }
 
 /// OR result via the pre-#348 ordered-merge + `insert` path.
-pub fn expanse_or_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+pub fn expanse_or_build_v1(a: &ExpanseSet, b: &ExpanseSet) -> ExpanseSet {
     let mut out = ExpanseSet::new();
     let (mut ia, mut ib) = (a.iter(), b.iter());
     let (mut x, mut y) = (ia.next(), ib.next());
@@ -328,13 +332,11 @@ pub fn expanse_or_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
             (None, None) => break,
         }
     }
-    let n = out.len();
-    core::mem::forget(out);
-    n
+    out
 }
 
 /// AND-NOT result via the pre-#348 ordered-merge + `insert` path.
-pub fn expanse_andnot_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+pub fn expanse_andnot_build_v1(a: &ExpanseSet, b: &ExpanseSet) -> ExpanseSet {
     let mut out = ExpanseSet::new();
     let (mut ia, mut ib) = (a.iter(), b.iter());
     let (mut x, mut y) = (ia.next(), ib.next());
@@ -358,9 +360,7 @@ pub fn expanse_andnot_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
             (None, _) => break,
         }
     }
-    let n = out.len();
-    core::mem::forget(out);
-    n
+    out
 }
 
 /// AND result materialized as a [`RoaringTreemap`] (`a & b`), sink is its len.
@@ -371,20 +371,19 @@ pub fn roaring_and_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
     n
 }
 
-/// OR result materialized as a [`RoaringTreemap`] (`a | b`).
-pub fn roaring_or_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
-    let out = a | b;
-    let n = out.len();
-    core::mem::forget(out);
-    n
+/// AND result materialized as a [`RoaringTreemap`] (`a & b`), returned.
+pub fn roaring_and_build(a: &RoaringTreemap, b: &RoaringTreemap) -> RoaringTreemap {
+    a & b
 }
 
-/// AND-NOT result materialized as a [`RoaringTreemap`] (`a - b`).
-pub fn roaring_andnot_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
-    let out = a - b;
-    let n = out.len();
-    core::mem::forget(out);
-    n
+/// OR result materialized as a [`RoaringTreemap`] (`a | b`), returned.
+pub fn roaring_or_build(a: &RoaringTreemap, b: &RoaringTreemap) -> RoaringTreemap {
+    a | b
+}
+
+/// AND-NOT result materialized as a [`RoaringTreemap`] (`a - b`), returned.
+pub fn roaring_andnot_build(a: &RoaringTreemap, b: &RoaringTreemap) -> RoaringTreemap {
+    a - b
 }
 
 // ------------------------------------------------------------------------
@@ -442,35 +441,23 @@ pub fn roaring_multiops_or_count(sets: &[&RoaringTreemap]) -> u64 {
 }
 
 /// k-way intersection materialization via native ExpanseSet::intersection_many
-pub fn expanse_kway_and_materialize(sets: &[&ExpanseSet]) -> u64 {
-    let out = ExpanseSet::intersection_many(sets);
-    let n = out.len();
-    core::mem::forget(out);
-    n
+pub fn expanse_kway_and_build(sets: &[&ExpanseSet]) -> ExpanseSet {
+    ExpanseSet::intersection_many(sets)
 }
 
 /// k-way union materialization via native ExpanseSet::union_many
-pub fn expanse_kway_or_materialize(sets: &[&ExpanseSet]) -> u64 {
-    let out = ExpanseSet::union_many(sets);
-    let n = out.len();
-    core::mem::forget(out);
-    n
+pub fn expanse_kway_or_build(sets: &[&ExpanseSet]) -> ExpanseSet {
+    ExpanseSet::union_many(sets)
 }
 
 /// k-way intersection materialization via roaring::MultiOps
-pub fn roaring_multiops_and_materialize(sets: &[&RoaringTreemap]) -> u64 {
-    let out = sets.iter().copied().intersection();
-    let n = out.len();
-    core::mem::forget(out);
-    n
+pub fn roaring_multiops_and_build(sets: &[&RoaringTreemap]) -> RoaringTreemap {
+    sets.iter().copied().intersection()
 }
 
 /// k-way union materialization via roaring::MultiOps
-pub fn roaring_multiops_or_materialize(sets: &[&RoaringTreemap]) -> u64 {
-    let out = sets.iter().copied().union();
-    let n = out.len();
-    core::mem::forget(out);
-    n
+pub fn roaring_multiops_or_build(sets: &[&RoaringTreemap]) -> RoaringTreemap {
+    sets.iter().copied().union()
 }
 
 /// WAND skip-scan over an [`ExpanseSet`]: stateless O(depth) re-descent per
@@ -558,4 +545,104 @@ pub fn median_ns_per_op<F: FnMut() -> u64>(mut f: F, batches: usize, min_batch: 
     black_box(sink);
     samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
     samples[samples.len() / 2]
+}
+
+/// [`median_ns_per_op`] for a closure that builds and returns a value (a
+/// materialized result set), with the same batch calibration.
+///
+/// Each timed repetition pushes its results into a vector reserved before the
+/// window and drops them after it: teardown stays outside the window, and at
+/// most one repetition's results are live at a time. The alternative,
+/// `mem::forget` inside the closure, keeps every result of every repetition
+/// of every arm live until the process exits.
+pub fn median_ns_per_build<T, F: FnMut() -> T>(
+    mut f: F,
+    batches: usize,
+    min_batch: Duration,
+) -> f64 {
+    // Warmup: prime caches / branch predictors, out of the measured region.
+    for _ in 0..2 {
+        drop(black_box(f()));
+    }
+    let mut samples = Vec::with_capacity(batches);
+    for _ in 0..batches {
+        let mut reps: u64 = 1;
+        loop {
+            let mut kept: Vec<T> = Vec::with_capacity(reps as usize);
+            let t = Instant::now();
+            for _ in 0..reps {
+                kept.push(black_box(f()));
+            }
+            let el = t.elapsed();
+            drop(black_box(kept));
+            if el >= min_batch || reps >= (1 << 30) {
+                samples.push(el.as_nanos() as f64 / reps as f64);
+                break;
+            }
+            // Scale reps toward filling min_batch, at least doubling.
+            let factor = (min_batch.as_nanos() as f64 / el.as_nanos().max(1) as f64).ceil();
+            reps = ((reps as f64 * factor) as u64).max(reps * 2).max(1);
+        }
+    }
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    samples[samples.len() / 2]
+}
+
+/// Checks that [`median_ns_per_build`] drops every value it builds, and that
+/// it drops each timed repetition's values before the next one starts: a
+/// harness that kept its results grew with every repetition and aborted on a
+/// commit-limited host.
+///
+/// Two clauses, each deterministic:
+/// * no value is live once the timing returns;
+/// * every repetition starts with no value live. Counted as calls that find
+///   nothing live, which must cover the two warmup calls plus at least one
+///   repetition per batch. Values dropped only when the timing returns pass
+///   the first clause and fail this one.
+pub fn check_build_values_are_dropped() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct Tracked {
+        live: Rc<Cell<usize>>,
+    }
+    impl Drop for Tracked {
+        fn drop(&mut self) {
+            self.live.set(self.live.get() - 1);
+        }
+    }
+
+    const WARMUP_CALLS: usize = 2;
+    const BATCHES: usize = 3;
+    let live = Rc::new(Cell::new(0usize));
+    let built = Rc::new(Cell::new(0usize));
+    let fresh_starts = Rc::new(Cell::new(0usize));
+    let (l, b, z) = (live.clone(), built.clone(), fresh_starts.clone());
+    median_ns_per_build(
+        move || {
+            if l.get() == 0 {
+                z.set(z.get() + 1);
+            }
+            l.set(l.get() + 1);
+            b.set(b.get() + 1);
+            Tracked { live: l.clone() }
+        },
+        BATCHES,
+        Duration::from_millis(2),
+    );
+    assert_eq!(
+        live.get(),
+        0,
+        "median_ns_per_build left {} of {} built values live",
+        live.get(),
+        built.get()
+    );
+    assert!(
+        fresh_starts.get() >= WARMUP_CALLS + BATCHES,
+        "median_ns_per_build kept values across repetitions: {} of {} calls found nothing live, \
+         expected at least {}",
+        fresh_starts.get(),
+        built.get(),
+        WARMUP_CALLS + BATCHES
+    );
 }
