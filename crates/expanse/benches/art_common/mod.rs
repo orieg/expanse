@@ -90,6 +90,18 @@ pub fn rounds_raw(columns: &[(&str, &[f64])]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Runs one timed case between two window markers on stderr, which
+/// `scripts/bench_windowed.py` reads to snapshot the host's busy CPU and this
+/// process's own CPU at each boundary: the load record AGENTS.md section 8.17
+/// requires of every timed window (#1214). stderr is unbuffered, so a marker
+/// reaches the driver when the case starts and ends, not when the run exits.
+pub fn bench_window<T>(id: &str, case: impl FnOnce() -> T) -> T {
+    eprintln!("BENCH_WINDOW begin {id}");
+    let out = case();
+    eprintln!("BENCH_WINDOW end {id}");
+    out
+}
+
 /// Median of a series of samples (for interleaved round timing per §8.4).
 pub fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());

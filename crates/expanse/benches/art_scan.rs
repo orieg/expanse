@@ -26,7 +26,7 @@ mod art_common;
 
 use art_common::{
     ArtMap, BTreeMap, ExpanseMap, Mapped, PROBE_SHUFFLE_SEED, ToUBE, XorShift64, art_key, bca_ci,
-    gen_clustered, gen_sequential, gen_uniform_random, median, rounds_raw, shuffle,
+    bench_window, gen_clustered, gen_sequential, gen_uniform_random, median, rounds_raw, shuffle,
 };
 use serde_json::json;
 use std::hint::black_box;
@@ -302,15 +302,28 @@ fn main() {
         let uniform = gen_uniform_random(n, &mut rng);
 
         // Full in-order iteration (range_k = 0)
-        results.push(bench_scan_case("sequential", &seq, 0, rounds));
-        results.push(bench_scan_case("clustered", &clustered, 0, rounds));
-        results.push(bench_scan_case("uniform_random", &uniform, 0, rounds));
+        results.push(bench_window(&format!("sequential/pop={n}/k=0"), || {
+            bench_scan_case("sequential", &seq, 0, rounds)
+        }));
+        results.push(bench_window(&format!("clustered/pop={n}/k=0"), || {
+            bench_scan_case("clustered", &clustered, 0, rounds)
+        }));
+        results.push(bench_window(&format!("uniform_random/pop={n}/k=0"), || {
+            bench_scan_case("uniform_random", &uniform, 0, rounds)
+        }));
 
         // Bounded range scans (k=10, 100, 1000)
         for &k in &[10, 100, 1000] {
-            results.push(bench_scan_case("sequential", &seq, k, rounds));
-            results.push(bench_scan_case("clustered", &clustered, k, rounds));
-            results.push(bench_scan_case("uniform_random", &uniform, k, rounds));
+            results.push(bench_window(&format!("sequential/pop={n}/k={k}"), || {
+                bench_scan_case("sequential", &seq, k, rounds)
+            }));
+            results.push(bench_window(&format!("clustered/pop={n}/k={k}"), || {
+                bench_scan_case("clustered", &clustered, k, rounds)
+            }));
+            results.push(bench_window(
+                &format!("uniform_random/pop={n}/k={k}"),
+                || bench_scan_case("uniform_random", &uniform, k, rounds),
+            ));
         }
     }
 
