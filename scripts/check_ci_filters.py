@@ -147,7 +147,7 @@ GOLDEN_CASES = [
     (
         "a Ruby binding edit does not wake the Rust safety lane",
         ["bindings/ruby/lib/expanse.rb"],
-        {"test-ruby"},
+        {"test-ruby", "lint"},
         {"miri", "test-asan", "fuzz-smoke", "instruction-counts"},
     ),
     (
@@ -291,6 +291,11 @@ def jobs_for_change(jobs, filters, changed):
         runs, _ = evaluate_if(body.get("if"), outputs)
         if runs:
             running.add(name)
+    if "lint" not in running:
+        # A skipped `lint` skips every job behind the fast lane even when the
+        # fast lane itself succeeds: their `if:` carries GitHub's implicit
+        # success(), observed on run 36287802296.
+        running -= gated_jobs(jobs)
     return running
 
 
@@ -360,6 +365,27 @@ def check_outputs_consumed(jobs, declared_outputs) -> list[str]:
         f"detect-changes declares output {o!r} that no job's `if:` reads -- "
         "delete it or give it a consumer" for o in dead
     ]
+
+
+def check_lint_reads_lane_filters(jobs) -> list[str]:
+    """`lint` must read every filter output a job behind the fast lane reads.
+
+    A change that matches only a filter `lint` does not read skips `lint`, and
+    that skips every job behind the fast lane (see `jobs_for_change`), so the
+    lane the filter exists to wake never runs.
+    """
+    if "lint" not in jobs:
+        return ["ci.yml has no 'lint' job"]
+    lint_reads = set(_OUTPUT_TERM.findall(str(jobs["lint"].get("if") or "")))
+    errs = []
+    for name in sorted(gated_jobs(jobs)):
+        expr = str(jobs[name].get("if") or "")
+        for out in sorted(set(_OUTPUT_TERM.findall(expr)) - lint_reads):
+            errs.append(
+                f"{name!r} runs on filter {out!r}, which 'lint' does not read -- a change "
+                f"matching only {out!r} skips 'lint' and with it {name!r}"
+            )
+    return errs
 
 
 def check_if_shape(jobs) -> list[str]:
@@ -480,6 +506,26 @@ def self_test() -> int:
     check("absent fast lane is caught",
           len(check_fast_lane({k: v for k, v in fl_jobs.items() if k != FAST_LANE_JOB})), 1)
 
+    # `lint` must read every lane filter: a change matching only a filter it
+    # does not read skips `lint`, and every job behind the fast lane with it.
+    ruby_if = "needs.detect-changes.outputs.ruby == 'true' || github.event_name != 'pull_request'"
+    lane_jobs = dict(fl_jobs, **{
+        "lint": {"if": "needs.detect-changes.outputs.rust-src == 'true' || "
+                       "needs.detect-changes.outputs.ruby == 'true'"},
+        "miri": {"needs": ["detect-changes", FAST_LANE_JOB],
+                 "if": "needs.detect-changes.outputs.rust-src == 'true'"},
+        "test-ruby": {"needs": ["detect-changes", FAST_LANE_JOB], "if": ruby_if},
+    })
+    check("lint reading every lane filter passes", check_lint_reads_lane_filters(lane_jobs), [])
+    blind = dict(lane_jobs, lint={"if": "needs.detect-changes.outputs.rust-src == 'true'"})
+    check("lint not reading a lane filter is caught",
+          len(check_lint_reads_lane_filters(blind)), 1)
+    lane_filters = {"rust-src": ["crates/**"], "ruby": ["bindings/ruby/**"]}
+    check("a lane-only change runs its lane when lint reads the filter",
+          "test-ruby" in jobs_for_change(lane_jobs, lane_filters, ["bindings/ruby/x.rb"]), True)
+    check("a skipped lint skips the lane (run 36287802296)",
+          "test-ruby" in jobs_for_change(blind, lane_filters, ["bindings/ruby/x.rb"]), False)
+
     if failures:
         for f in failures:
             print(f"::error::check_ci_filters self-test: {f}")
@@ -507,6 +553,7 @@ def main() -> int:
     errs += check_job_snapshot(jobs)
     errs += check_if_shape(jobs)
     errs += check_fast_lane(jobs)
+    errs += check_lint_reads_lane_filters(jobs)
     errs += check_outputs_consumed(jobs, declared_outputs)
     errs += check_golden_table(jobs, filters)
     if errs:

@@ -360,10 +360,13 @@ jobs:
   lint:
     name: Core / Linter & Formatting
     needs: [detect-changes]
-    # `wasm`: a skipped `lint` skips every job downstream of `fast-lane`
-    # (GitHub's implicit success(); observed on run 36287802296), so a
-    # wasm-only change, such as a fuel re-baseline, would run no wasm lane.
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
+    # Every lane filter, not only the ones lint's own checks need: a skipped
+    # `lint` skips every job downstream of `fast-lane` (GitHub's implicit
+    # success(); observed on run 36287802296), so a change matching only a
+    # filter lint does not read would run none of that filter's lanes.
+    # `scripts/check_ci_filters.py` fails when a gated job reads a filter
+    # this condition does not.
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || needs.detect-changes.outputs.concurrency-instrument == 'true' || needs.detect-changes.outputs.ycsb-concurrent-instrument == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.node == 'true' || needs.detect-changes.outputs.dotnet == 'true' || needs.detect-changes.outputs.java == 'true' || needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.integrations == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|lint|')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
