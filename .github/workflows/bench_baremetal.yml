@@ -161,7 +161,11 @@ jobs:
       bench_package: ${{ steps.resolve.outputs.bench_package }}
       bench_target: ${{ steps.resolve.outputs.bench_target }}
       bench_env: ${{ steps.resolve.outputs.bench_env }}
-      ref: ${{ steps.resolve.outputs.ref }}
+      # The commit under test, always a full 40-character SHA: a branch name
+      # can move between authorization and checkout, a SHA cannot. The
+      # checkout and both `git checkout` passes in the bench job read this one
+      # value.
+      sha: ${{ steps.resolve.outputs.sha }}
       base_ref: ${{ steps.resolve.outputs.base_ref }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
     steps:
@@ -236,7 +240,23 @@ jobs:
                 );
                 return;
               }
-              core.setOutput('ref', inputs.ref || '');
+              // Resolve the requested branch, tag or SHA to one commit here,
+              // once, so the checkout and both passes measure the same code
+              // even if the branch moves while the run is queued.
+              const requestedRef = String(inputs.ref || '').trim();
+              let sha;
+              try {
+                ({ data: { sha } } = await github.rest.repos.getCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: requestedRef,
+                }));
+              } catch (e) {
+                core.setFailed(`Ref '${requestedRef}' does not resolve to a commit in this repository: ${e.message}`);
+                return;
+              }
+              core.notice(`Ref '${requestedRef}' resolved to ${sha}`);
+              core.setOutput('sha', sha);
               core.setOutput('base_ref', inputs.base_ref || '');
               core.setOutput('pr_number', inputs.pr_number || '');
               publish(resolved);
@@ -378,13 +398,12 @@ jobs:
               pull_number: issue_number,
             });
             // The self-hosted runner executes the code it checks out, and the
-            // head SHA is read here, after the commenter's permission check. A
-            // fork's author could push between that comment and this read, and
-            // run code nobody reviewed on the host. Branches in this repository
-            // can only be pushed by collaborators with write access, who can
-            // already trigger a run, so only fork pull requests are refused. To
-            // benchmark one, push its head to a branch here, or dispatch the
-            // workflow with the reviewed SHA.
+            // head SHA is read here, after the comment was written: a push in
+            // between would run code the commenter never saw. The next step
+            // refuses that case from this repository's push record. A fork's
+            // pushes are not in that record, so fork pull requests are refused
+            // outright. To benchmark one, push its head to a branch here, or
+            // dispatch the workflow with the reviewed SHA.
             const here = `${context.repo.owner}/${context.repo.repo}`;
             if (!pr.head.repo || pr.head.repo.full_name !== here) {
               await react('confused');
@@ -393,11 +412,67 @@ jobs:
               return;
             }
 
-            await react('rocket');
-            core.setOutput('ref', pr.head.sha);
+            // The acknowledging reaction is posted by the next step, once the
+            // head is shown to be the one the branch held at comment time.
+            core.setOutput('sha', pr.head.sha);
+            core.setOutput('branch', pr.head.ref);
             core.setOutput('base_ref', pr.base.sha);
             core.setOutput('pr_number', String(issue_number));
             publish(resolved);
+
+      # The permission check authorizes the commenter, not the code. Require
+      # the SHA published above to be the head the branch held when the comment
+      # was created: walk the branch's push record newest first, and the first
+      # push at or before the comment names that head. Push times are the
+      # repository activity API's server-side timestamps, never commit dates,
+      # which the pusher sets. A later push, an unreadable record or a head
+      # that does not match refuses the request and no bench job runs.
+      - name: Refuse a head pushed after the comment
+        if: github.event_name == 'issue_comment' && steps.resolve.outputs.suite != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PINNED_SHA: ${{ steps.resolve.outputs.sha }}
+          BRANCH: ${{ steps.resolve.outputs.branch }}
+          COMMENT_AT: ${{ github.event.comment.created_at }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          set -euo pipefail
+          react() {
+            gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content="$1" >/dev/null \
+              || echo "::warning::could not add the '$1' reaction to the trigger comment"
+          }
+          refuse() {
+            react confused
+            echo "::error::$1"
+            exit 1
+          }
+
+          comment_epoch=$(date -d "$COMMENT_AT" +%s)
+          activity="$RUNNER_TEMP/branch-activity.tsv"
+          if ! gh api -X GET "repos/$REPO/activity" -f ref="refs/heads/$BRANCH" \
+                 -f direction=desc -F per_page=100 \
+                 --jq '.[] | [.timestamp, .after] | @tsv' > "$activity"; then
+            refuse "Refused: the push record of '$BRANCH' could not be read, so the head at comment time cannot be established. No benchmark was started."
+          fi
+
+          head_at_comment=""
+          while IFS=$'\t' read -r pushed_at after; do
+            if [ "$(date -d "$pushed_at" +%s)" -le "$comment_epoch" ]; then
+              head_at_comment="$after"
+              break
+            fi
+          done < "$activity"
+
+          if [ -z "$head_at_comment" ]; then
+            refuse "Refused: no push to '$BRANCH' at or before the comment ($COMMENT_AT) is in the push record, so the head the comment authorized cannot be established. Dispatch the workflow with the reviewed SHA instead. No benchmark was started."
+          fi
+          if [ "$head_at_comment" != "$PINNED_SHA" ]; then
+            refuse "Refused: '$BRANCH' was at $head_at_comment when the comment was created ($COMMENT_AT) and is now at $PINNED_SHA; a push after the comment is not benchmarked on the authority of that comment. Comment again to benchmark the current head. No benchmark was started."
+          fi
+          echo "Head $PINNED_SHA was the head of '$BRANCH' when the comment was created ($COMMENT_AT)."
+          react rocket
 
   bench-baremetal:
     name: Run Bare-Metal Benchmarks
@@ -538,7 +613,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.resolve.outputs.ref }}
+          ref: ${{ needs.resolve.outputs.sha }}
           fetch-depth: 0
 
       # The integrity checks run from the workflow's own commit, never from the
@@ -637,7 +712,7 @@ jobs:
           # Every one of these comes from the `resolve` job, which only ever
           # publishes values it read out of `.github/bench-suites.json` or the
           # pulls API - never raw comment text.
-          REF: ${{ needs.resolve.outputs.ref }}
+          REF: ${{ needs.resolve.outputs.sha }}
           BASE_REF_IN: ${{ needs.resolve.outputs.base_ref }}
           SUITE: ${{ needs.resolve.outputs.suite }}
           SUITE_KIND: ${{ needs.resolve.outputs.kind }}
@@ -1973,7 +2048,7 @@ jobs:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HOST_DESC: ${{ steps.sysinfo.outputs.host_desc }}
-          HEAD_REF: ${{ needs.resolve.outputs.ref }}
+          HEAD_REF: ${{ needs.resolve.outputs.sha }}
           BASE_LINE: ${{ steps.bench.outputs.base_line }}
           BENCH_OUTCOME: ${{ steps.bench.outcome }}
           FAIL_REASON: ${{ steps.bench.outputs.fail_reason }}
