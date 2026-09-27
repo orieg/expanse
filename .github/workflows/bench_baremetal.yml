@@ -615,6 +615,10 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           fetch-depth: 0
+          # Every later git command moves between commits this fetch already
+          # has. Persisting the token would leave it in .git/config for every
+          # build script of the run to read (docs/CI.md, threat model).
+          persist-credentials: false
 
       # The integrity checks run from the workflow's own commit, never from the
       # ref under test: a dispatch measures an older ref as often as a new one
@@ -648,8 +652,8 @@ jobs:
         # Scope of that guarantee: it covers what this step WRITES into
         # the PR comment. It does NOT sanitize the job log, which on a
         # public repository is public too. None of the residue below can
-        # be fixed from this workflow; see docs/BENCHMARKING.md,
-        # "What relocation does and does not fix".
+        # be fixed from this workflow; see docs/CI.md, "What the job log
+        # still shows", and its threat model for the service account.
         #
         # The runner is now installed at a neutral path (/opt/actions-runner)
         # and registered under a role name rather than a hostname, which
@@ -663,12 +667,11 @@ jobs:
         #   Copying '/home/<user>/.gitconfig' to '/opt/.../_work/_temp/...'
         #       actions/checkout copies the invoking user's global gitconfig
         #       and logs the source. $HOME must stay the benchmark user's
-        #       because the bench step below exports $HOME/.cargo/bin and
-        #       $HOME/.local/bin, so closing this needs a service account
-        #       with its own toolchain install.
+        #       while the bench step below exports $HOME/.cargo/bin and
+        #       $HOME/.local/bin; the service account in docs/CI.md, with a
+        #       root-owned toolchain and $HOME, closes it.
         #
-        # Relocation alone therefore does not sanitise the log, and this
-        # comment previously said it did.
+        # Relocation alone therefore does not sanitise the log.
         run: |
           echo "=== System Load & Host Snapshot ==="
           uname -srm
@@ -750,12 +753,28 @@ jobs:
               --suite "ci-$SUITE" --github-output -- bash --noprofile --norc -eo pipefail "$0"
           fi
 
-          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-          export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
-          export LIBRARY_PATH="$HOME/.local/lib:$LIBRARY_PATH"
-          export C_INCLUDE_PATH="$HOME/.local/include:$C_INCLUDE_PATH"
+          # The toolchain. A runner under the bench service account provides
+          # its own through its .env and .path (EXPANSE_TOOLCHAIN, root-owned,
+          # docs/CI.md "Service account and filesystem layout"), and nothing
+          # is added here. A runner still on a login account falls back to
+          # that account's home-directory toolchain, and says so.
+          if [ -n "${EXPANSE_TOOLCHAIN:-}" ]; then
+            echo "toolchain: provided by the runner"
+          else
+            echo "::warning::this runner provides no EXPANSE_TOOLCHAIN; using the login account's home-directory toolchain, which every job can rewrite (docs/CI.md, Bare-Metal Benchmark Runner, Status)"
+            export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+            export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
+            export LIBRARY_PATH="$HOME/.local/lib:${LIBRARY_PATH:-}"
+            export C_INCLUDE_PATH="$HOME/.local/include:${C_INCLUDE_PATH:-}"
+          fi
 
-          git config --global --add safe.directory "$PWD"
+          # Isolation tripwire: fatal on a service-account runner, a warning on
+          # one that has not been migrated. Run after the PATH above is final,
+          # from the workflow's commit like the other integrity checks.
+          if ! bash "$RUNNER_TEMP/bench-tools/scripts/bench_host/runner_check.sh"; then
+            echo "fail_reason=runner_hardening" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
           BASE_REF="$BASE_REF_IN"
 
@@ -852,7 +871,7 @@ jobs:
             fi
             PARANOID="$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo unreadable)"
             if ! perf stat -x, -e instructions -o /dev/null -- true >/dev/null 2>&1; then
-              echo "::error::Suite '$SUITE' needs hardware performance counters, but 'perf stat -e instructions' could not open one on this runner (kernel.perf_event_paranoid=$PARANOID). Grant the capability (sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep \$(command -v perf)) or lower the gate (sudo sysctl -w kernel.perf_event_paranoid=1), then re-trigger. A virtualised host may expose no PMU at all, in which case the counters have to be collected on bare metal. No benchmark was run and no numbers were produced."
+              echo "::error::Suite '$SUITE' needs hardware performance counters, but 'perf stat -e instructions' could not open one on this runner (kernel.perf_event_paranoid=$PARANOID). Set kernel.perf_event_paranoid=1 (the value every committed counter artifact records; persist it in /etc/sysctl.d/) and re-trigger. Do not grant perf file capabilities on this runner: it executes pull-request code, and cap_sys_ptrace would let any job attach to any process on the host (docs/CI.md, Hardware counters). A virtualised host may expose no PMU at all, in which case the counters have to be collected on bare metal. No benchmark was run and no numbers were produced."
               echo "fail_reason=missing_perf_counters" >> "$GITHUB_OUTPUT"
               exit 1
             fi
@@ -2182,7 +2201,10 @@ jobs:
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf\` is not installed on the runner. Install the kernel's matching tools package (\`linux-tools-common\` plus \`linux-tools-$(uname -r)\` on Debian/Ubuntu, \`perf\` on Fedora/RHEL) before re-triggering. No numbers were produced.`;
               } else if (reason === 'missing_perf_counters') {
                 label = 'refused';
-                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf stat -e instructions\` could not open one on the runner. Grant the capability (\`sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep $(command -v perf)\`) or lower \`kernel.perf_event_paranoid\`, then re-trigger. A virtualised host may expose no PMU at all, in which case the counters have to come from bare metal. No numbers were produced.`;
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf stat -e instructions\` could not open one on the runner. Set \`kernel.perf_event_paranoid=1\` (the value every committed counter artifact records) and re-trigger; do not grant \`perf\` file capabilities on a runner that executes pull-request code (\`docs/CI.md\`, *Hardware counters*). A virtualised host may expose no PMU at all, in which case the counters have to come from bare metal. No numbers were produced.`;
+              } else if (reason === 'runner_hardening') {
+                label = 'refused';
+                cause = 'The run was **refused before any benchmark started**: the runner provides its own toolchain but failed its isolation check (a writable `PATH` entry or tool, general `sudo`, or a privileged group). The findings are in the job log; `docs/CI.md`, *Bare-Metal Benchmark Runner*, lists the required arrangement. No numbers were produced.';
               } else if (reason === 'bad_rounds') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: the \`rounds\` dispatch input must be a positive integer and is accepted only by the \`writer_scaling\` suite (this run: \`${suite}\`). Leave it empty for the driver's default, or re-dispatch \`writer_scaling\` with a valid count. No numbers were produced.`;

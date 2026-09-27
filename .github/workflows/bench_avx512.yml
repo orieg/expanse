@@ -209,6 +209,8 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           fetch-depth: 0
+          # No later step fetches; see bench_baremetal.yml.
+          persist-credentials: false
 
       - name: Probe host capability
         id: probe
@@ -289,6 +291,13 @@ jobs:
           path: _bench_tools
           sparse-checkout: scripts
           persist-credentials: false
+
+      - name: Runner isolation check
+        shell: bash
+        # Fatal on a service-account runner (EXPANSE_TOOLCHAIN set), a warning
+        # on one that has not been migrated (docs/CI.md, threat model). From
+        # the workflow's commit, so an older ref under test is still checked.
+        run: bash "$GITHUB_WORKSPACE/_bench_tools/scripts/bench_host/runner_check.sh"
 
       - name: Run the AVX-512 kernel sweep
         id: bench

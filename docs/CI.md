@@ -389,31 +389,219 @@ To ensure consistent performance measurements unaffected by shared cloud runner 
 ### 1. Automated Execution via Self-Hosted GitHub Actions Runner
 For dedicated benchmark rigs residing on private LANs (without inbound WAN access), a self-hosted GitHub Actions runner daemon (`runs-on: [self-hosted, linux]`) connects to GitHub via outbound-only HTTPS polling.
 
+**Status.** Neither self-hosted host has been moved to the arrangement below
+yet. Both runners still run as a personal login account, and the bench
+workflows fall back to that account's home-directory toolchain with a warning.
+Until that changes, the exposure column of the threat model describes both
+hosts as they are. The migration is tracked in #1231.
+
+#### Threat model
+
+The runner is self-hosted and the repository is public. Whatever reaches the
+runner executes as the runner's OS account, on a machine inside a private LAN,
+and keeps whatever that account can write after the job ends.
+
+**What reaches the host.** The comment guards in `bench_baremetal.yml` and
+`bench_avx512.yml` (a `resolve` job on a hosted runner, a `write`/`admin`
+permission check, fork pull requests refused, the head SHA read after the check)
+keep *non-collaborators* off the host. They do not bound what a collaborator can
+run, and nothing can bound what a dependency runs:
+
+| Path | What executes on the host |
+|---|---|
+| `/bench`, `/benchmark <suite>`, `/bench avx512` on a same-repository pull request | the PR head and its merge base, built and run |
+| `workflow_dispatch` | the workflow file **as it exists on the dispatched ref**: a collaborator can edit the bench job on their own branch and dispatch it, which removes every guard the file contains |
+| a pushed workflow | any branch can add a workflow whose `runs-on` selects these labels; pushing needs `write` and nothing else |
+| the dependency graph | every `build.rs` and proc-macro at the versions `Cargo.lock` pins, from crates.io, plus `maturin` and its PyPI graph for the Python suites |
+
+The trust boundary is therefore **`write` access to the repository, plus every
+publisher in the dependency graph**. The account the runner uses decides what
+that code can reach.
+
+**What the account must not hold.** A personal login account fails on every row:
+
+| Asset | Exposure under a personal login account | Required arrangement |
+|---|---|---|
+| sudo | a password prompt stands between a job and root, until a `sudo` shim on the account's `PATH` captures the password the next time it is typed | no sudo, except one path-exact `NOPASSWD` rule for a root-owned helper with a fixed argument vocabulary |
+| ssh keys, `gh`/git tokens, the crates.io token, the commit-signing key | readable by any job | the account holds none; `ProtectHome=yes` hides `/home` from the runner's processes |
+| `$HOME/.cargo/bin`, `$HOME/.local/bin` first on `PATH` | a job writes a shim there and every later job — and every interactive session — runs it | no directory on the runner's `PATH` is writable by the runner's account |
+| global gitconfig | a job writes `core.hooksPath`, `core.fsmonitor` or `url.*.insteadOf`, and `actions/checkout` copies it into the next job before that job's code is even fetched | `$HOME` is root-owned; the account has no writable dotfiles |
+| the runner installation | a job rewrites `run.sh`, `bin/` or `.env` and owns every later job | root-owned installation, self-update disabled, only `_work` and `_diag` writable |
+| the governor, `perf` | a broad `setcap` on `perf` (`cap_sys_ptrace`) lets a job attach to any process on the host, including an interactive session's agents | `kernel.perf_event_paranoid=1`, no file capabilities on `perf` |
+| the private LAN | job code reaches every host the benchmark machine can reach: other workstations, the router's admin page, file shares | the runner's unit denies every private, link-local and ULA destination; the internet and loopback stay reachable |
+
+**Residual risk the arrangement does not remove.** State these rather than let the
+arrangement read as a sandbox:
+
+- **The runner's registration credential** (`.credentials`,
+  `.credentials_rsaparams`) must be readable by the account that runs the
+  listener, so a job can copy it and poll for later jobs as this runner. Only an
+  ephemeral (`--ephemeral`, one job per registration) runner removes this, and
+  that needs a credential able to mint registration tokens held by root on the
+  host.
+- **The job's own `GITHUB_TOKEN`** (`contents: read`, `issues: write`,
+  `pull-requests: write`) is usable by every build script for the job's
+  duration. That grants nothing a triggering collaborator lacks, but a
+  dependency is not a collaborator.
+- **Persistence inside the account's own writable state** — `CARGO_HOME`, caches,
+  the workspace, `/dev/shm`, a daemonised process — survives between jobs unless
+  something removes it. The job-started hook below exists for this.
+- **The benchmark itself.** Job code can fabricate its own results. Published
+  figures resolve to a run, and the run to a commit a reviewer can read (§8.7);
+  the host arrangement does not change that.
+
+#### Service account and filesystem layout
+
+The runner runs as a dedicated system account, `expanse-bench`, with no
+password, no login shell, no ssh keys, and membership in no privileged group
+(`sudo`, `wheel`, `docker`, `adm`, `lxd`, `libvirt`, `disk`,
+`systemd-journal`). Its only supplementary group is `expanse-benchlock`, which
+the human accounts that benchmark on the host also join.
+
+| Path | Owner:group, mode | Writable by `expanse-bench` | Holds |
+|---|---|---|---|
+| `/opt/actions-runner` | `root:root 0755` | no | the runner, `.env`, `.runner` |
+| `/opt/actions-runner/{.credentials,.credentials_rsaparams}` | `root:expanse-bench 0640` | no | registration (readable: see residual risk) |
+| `/opt/actions-runner/{_work,_diag}` | `expanse-bench 0750` | yes | checkouts, runner logs |
+| `/opt/expanse-toolchain/{rustup,cargo/bin,bin,lib}` | `root:root 0755` | no | rustup toolchains, `iai-callgrind-runner`, a locally built valgrind or libjudy if the host uses one |
+| `/var/lib/expanse-bench` (`$HOME`) | `root:root 0755` | no | nothing but the two directories below |
+| `/var/lib/expanse-bench/{cargo,cache}` | `expanse-bench 0700` | yes | `CARGO_HOME`, `XDG_CACHE_HOME`; emptied before every job |
+| `/run/expanse-bench/expanse-bench.flock{,.owner}` | `root:expanse-benchlock 0660`, in a `root 0755` directory | contents only | the host-wide benchmark lock and its owner record |
+| `/usr/local/sbin/expanse-governor` | `root:root 0755` | no | the scaling-governor helper (#1213) |
+| `/usr/local/libexec/expanse-bench/job-started` | `root:root 0755` | no | the job-started hook |
+
+The home directory is not under `/home`, so the one home path a job log still
+prints — `actions/checkout` copying a global gitconfig, when one exists — names a
+role account, not a person. With a root-owned `$HOME` the file never exists.
+
+**Toolchain parity.** The toolchain is part of the instrument: Callgrind counts
+are exact for a given compiler, valgrind and binary, and a stock-libjudy
+comparison is a comparison against one particular `.so`. The account's install
+therefore reproduces the versions the published figures were measured with —
+never "latest":
+
+| Component | Installed as | Must match |
+|---|---|---|
+| Rust | `RUSTUP_HOME=/opt/expanse-toolchain/rustup`, installed by root with `--no-modify-path`, each toolchain by explicit version or dated nightly, with the components the suites use (the `wasm` suite's `rust-src`) | `rustc -Vv` of every toolchain the previous account had |
+| `iai-callgrind-runner` | `cargo install --locked --version <v> --root /opt/expanse-toolchain` | the `iai-callgrind` version in `Cargo.lock` |
+| valgrind | the distribution package, or a root-owned build under `/opt/expanse-toolchain` | `valgrind --version` |
+| stock libjudy | the distribution package, or a root-owned build registered in `/etc/ld.so.conf.d/` rather than through `LD_LIBRARY_PATH` | `sha256sum` of the `.so` that `dlopen("libJudy.so.1")` resolved |
+| `perf` | the kernel's tools package, no file capabilities | `perf version` |
+| Python | system `python3` and its `venv` module; packages go into the per-run venv the workflow builds | `python3 -V` |
+
+A lockfile bump of `iai-callgrind`, or a new pinned toolchain, is a root action
+on the host from then on: the account cannot install anything onto its own
+`PATH`, and a suite that needs a missing toolchain fails when rustup cannot write
+`RUSTUP_HOME` — loudly, rather than downloading a different compiler mid-run.
+
+**Hardware counters.** Keep `kernel.perf_event_paranoid=1`, persisted in
+`/etc/sysctl.d/`. That is the value every committed counter artifact records
+(`provenance.perf_event_paranoid`), and it permits what the counter drivers do —
+count and sample (`perf stat --per-thread -p`, `perf c2c record`) processes the
+account itself started, kernel and user mode — without any capability. It does
+not permit system-wide monitoring, which no suite uses. The sysctl is host-wide,
+so the service account and a human session see the same gate and the counter
+series has no break at the migration. Do **not** apply
+`setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep` to `perf` on this host: a file
+capability applies to every user who runs the binary, `cap_perfmon` extends
+monitoring to every process on the machine, and `cap_sys_ptrace` lets any job
+attach to any of them.
+
+**Scaling governor.** The only privileged operation a run performs is setting
+and restoring the scaling governor (#1213), through a root-owned helper that
+validates its own arguments. The rule names the helper's path **and** every
+argument form it accepts — a sudoers command with no arguments listed permits
+any arguments — and the workflow calls it with `sudo -n`, so a missing rule
+fails the step instead of waiting on a password prompt:
+
+```
+# /etc/sudoers.d/expanse-bench — edit with `visudo -f`, mode 0440
+Cmnd_Alias EXPANSE_GOVERNOR = /usr/local/sbin/expanse-governor <form-1>, \
+                              /usr/local/sbin/expanse-governor <form-2>
+expanse-bench ALL=(root) NOPASSWD: EXPANSE_GOVERNOR
+```
+
+`sudo -l -U expanse-bench` must list exactly those forms and nothing else.
+
+**The benchmark lock.** The host lock is `flock(2)` on
+`scripts/bench_lock.py`, and it excludes only runs that open the same
+file. Two defaults stop doing that under a second account. `PrivateTmp=yes`
+gives the runner its own `/tmp`, so it never sees a human session's
+`/tmp/expanse-bench.flock`. Without `PrivateTmp`, the first account to create
+the file owns it, with mode `0644` after a `022` umask, and every other
+account's read-write open of it fails. The lock file is therefore created once
+by root, in a directory nobody else can write:
+
+```
+# /etc/tmpfiles.d/expanse-bench.conf
+d /run/expanse-bench                     0755 root root              -
+f /run/expanse-bench/expanse-bench.flock 0660 root expanse-benchlock -
+f /run/expanse-bench/expanse-bench.flock.owner 0660 root expanse-benchlock -
+```
+
+Every member of `expanse-benchlock` can open both files read-write, so the
+helper's `O_CREAT` finds them already there and its `O_TRUNC` on the owner
+record succeeds. `bench_lock.py` uses this path by default whenever it exists.
+It accepts the file although another account owns it, because the owner is
+root, the file is not world-writable and the caller is in its group. It still
+refuses a file another non-root user created. No account can delete or replace either file: that would put
+a later locker on a new inode and let two runs hold "the" lock at once. Nothing
+needs to remove a stale lock, because the kernel releases a `flock` when its
+holder dies. The runner's `.env` and `/etc/profile.d/expanse-bench-lock.sh` both
+set `EXPANSE_BENCH_FLOCK=/run/expanse-bench/expanse-bench.flock`, and
+`/etc/environment` carries it into non-interactive ssh sessions. A checkout
+whose `bench_lock.py` predates the shared default still takes `/tmp` unless
+that variable is set.
+
 #### Setting Up the Runner on the Benchmark Machine
 
-**Install under a neutral path, not a home directory.** Every path a build tool
-echoes reaches the public job log, and AGENTS.md §7 forbids OS usernames and
-home-directory paths there. `/opt/actions-runner` owned by the benchmark user is
-the arrangement in use; see [What relocation does and does not fix](#what-relocation-does-and-does-not-fix) for the residue it leaves.
+`scripts/bench_host/provision.sh` carries out this section as root on the host:
+`prepare` builds everything short of the runner itself and leaves the running
+runner alone; `cutover` moves the registration to the service account; `check`
+verifies the result, read-only. `scripts/bench_host/migrate.sh <ssh-host>
+<reference|avx512> <runner-name>` runs all three from a workstation. It works
+from a root-owned checkout at `/opt/expanse-provision` and passes runner tokens
+minted by `gh` over ssh's standard input. The versions it installs are pinned in
+`scripts/bench_host/toolchain.env`. The steps below are what it runs, for a
+host set up by hand.
+
+**Install under a neutral path, owned by root.** Every path a build tool echoes
+reaches the public job log, and AGENTS.md §7 forbids OS usernames and
+home-directory paths there. The installation is root-owned so a job cannot
+modify the runner that will run the next job; self-update is disabled for the
+same reason, and a runner update is a root action.
 
 ```bash
 # Pin an explicit runner version and verify it against the release manifest
 # (`gh api repos/actions/runner/releases/tags/v<version> --jq .body`).
 V=2.337.0
-sudo mkdir -p /opt/actions-runner && sudo chown "$USER" /opt/actions-runner
-cd /opt/actions-runner
-curl -sSfL -o "actions-runner-linux-x64-${V}.tar.gz" \
+sudo mkdir -p /opt/actions-runner && cd /opt/actions-runner
+sudo curl -sSfL -o "actions-runner-linux-x64-${V}.tar.gz" \
   "https://github.com/actions/runner/releases/download/v${V}/actions-runner-linux-x64-${V}.tar.gz"
 sha256sum "actions-runner-linux-x64-${V}.tar.gz"   # compare against the release body
-tar xzf "./actions-runner-linux-x64-${V}.tar.gz"
+sudo tar xzf "./actions-runner-linux-x64-${V}.tar.gz"
 
-# Configure. `--name` is published in the API and the job log: use a role name,
-# never the machine's hostname.
-./config.sh --url https://github.com/orieg/expanse \
+# Configure as the service account, which must own the files config.sh writes;
+# ownership is narrowed afterwards. `--name` is published in the API and the job
+# log: use a role name, never the machine's hostname.
+sudo chown -R expanse-bench: /opt/actions-runner
+sudo -u expanse-bench ./config.sh --url https://github.com/orieg/expanse \
   --token <RUNNER_REGISTRATION_TOKEN> \
   --name bench-ref-01 --labels baremetal,reference-host \
-  --work _work --unattended
+  --work _work --unattended --disableupdate
+
+sudo chown -R root:root /opt/actions-runner
+sudo install -d -o expanse-bench -m 0750 /opt/actions-runner/_work /opt/actions-runner/_diag
+sudo chgrp expanse-bench .credentials .credentials_rsaparams
+sudo chmod 0640 .credentials .credentials_rsaparams
 ```
+
+The runner names any file it cannot read or write when it starts; widen that
+file, never the tree.
+
+A runner that has fallen behind the service's minimum version stops receiving
+jobs; with self-update off, updating is: stop the unit, unpack the new release
+as root, re-point `bin` and `externals` (below), start the unit.
 
 **Labels decide which host a suite lands on, and that is load-bearing.** The
 reference host keeps the default `self-hosted,Linux,X64` because
@@ -422,8 +610,8 @@ self-hosted host must therefore be registered with `--no-default-labels` plus it
 own role labels, or bench jobs will land on whichever host is free and publish
 figures from two different CPUs under one provenance tag. That is how the
 AVX-512 lane is registered (`--no-default-labels --labels avx512,zen5`,
-`bench_avx512.yml`), and why its selector cannot collide with this one. Verify
-after any change:
+`bench_avx512.yml`), and why its selector cannot collide with this one. The
+AVX-512 host takes the same account and layout. Verify after any change:
 
 ```bash
 gh api repos/orieg/expanse/actions/runners \
@@ -432,15 +620,21 @@ gh api repos/orieg/expanse/actions/runners \
 
 #### Supervision
 
-Run it under `systemd --user` with lingering enabled, so it survives reboot and
-logout without a root-owned service. `svc.sh install` also works but writes a
-system unit; the user unit keeps `$HOME` pointing at the benchmark user, which
-`bench_baremetal.yml` depends on for `$HOME/.cargo/bin` and `$HOME/.local/bin`.
+A system unit with `User=`, so the account needs neither a login session nor
+lingering:
 
 ```ini
-# ~/.config/systemd/user/gh-runner.service
+# /etc/systemd/system/gh-runner.service
+[Unit]
+Description=GitHub Actions runner (benchmarks)
+Wants=network-online.target
+After=network-online.target
+
 [Service]
 Type=simple
+User=expanse-bench
+Group=expanse-bench
+SupplementaryGroups=expanse-benchlock
 WorkingDirectory=/opt/actions-runner
 ExecStart=/opt/actions-runner/run.sh
 Restart=always
@@ -448,17 +642,77 @@ RestartSec=10
 # A bench suite must finish rather than be cut mid-measurement.
 TimeoutStopSec=30min
 KillMode=process
+ProtectHome=yes
+PrivateTmp=yes
+ProtectSystem=full
+# No private-network destinations. Applies to every process in the unit's
+# cgroup, including what a job daemonises. Loopback stays open, so a local
+# stub resolver (systemd-resolved on 127.0.0.53) still answers DNS.
+IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 fc00::/7 fe80::/10
+# NoNewPrivileges= must stay unset: it disables sudo, and with it the
+# governor helper.
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-```bash
-loginctl enable-linger "$USER"
-systemctl --user daemon-reload && systemctl --user enable --now gh-runner.service
+The job environment comes from two root-owned files the runner reads at start:
+`/opt/actions-runner/.path`, whose one line is the jobs' `PATH`, and
+`/opt/actions-runner/.env`:
+
+```
+# .path
+/opt/expanse-toolchain/cargo/bin:/opt/expanse-toolchain/bin:/usr/local/bin:/usr/bin:/bin
 ```
 
-Do **not** widen the unit's `PATH` to include `$HOME/.cargo/bin` or
-`$HOME/.local/bin`: the workflow exports those itself, and changing the
-inherited environment of the host every published figure resolves to is a
-behavioural change, not a convenience.
+```
+# .env
+EXPANSE_TOOLCHAIN=/opt/expanse-toolchain
+RUSTUP_HOME=/opt/expanse-toolchain/rustup
+CARGO_HOME=/var/lib/expanse-bench/cargo
+XDG_CACHE_HOME=/var/lib/expanse-bench/cache
+LD_LIBRARY_PATH=/opt/expanse-toolchain/lib
+LIBRARY_PATH=/opt/expanse-toolchain/lib
+C_INCLUDE_PATH=/opt/expanse-toolchain/include
+EXPANSE_BENCH_FLOCK=/run/expanse-bench/expanse-bench.flock
+ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/expanse-bench/job-started
+```
+
+`EXPANSE_TOOLCHAIN` is what the workflows test for. When it is set they add
+nothing to the environment, and `scripts/bench_host/runner_check.sh` turns any
+isolation finding into a refusal. When it is absent they fall back to the
+login account's home-directory toolchain, with a warning. The library and
+include variables reproduce the paths the home-directory toolchain exported,
+so builds see the same files at new locations.
+
+`IPAddressDeny=` is enforced by systemd with a cgroup BPF filter, so it needs
+the unified cgroup hierarchy; check that a job can reach `github.com` and
+cannot reach a LAN address before relying on it. If the host resolves DNS
+through a resolver on the LAN rather than a local stub, add that one address
+with `IPAddressAllow=<resolver>/32`, which takes precedence over the deny list.
+
+`CARGO_HOME` is writable and deliberately **not** on `PATH`: `cargo install`
+lands there and runs nothing later.
+
+**The job-started hook** (`scripts/bench_host/job-started.sh`) runs as the account before every job and removes what a
+previous job could have left in the account's own writable state:
+
+1. every process of the account outside the runner's own `Runner.Listener` /
+   `Runner.Worker` tree (a daemonised process stays in the unit's cgroup, which
+   is where to look for it);
+2. the contents of `CARGO_HOME` and `XDG_CACHE_HOME` — extracted crate sources
+   under `registry/src` are executed by the next build and are not re-verified
+   against `Cargo.lock`, so they cannot be kept;
+3. files the account owns in `/dev/shm`, `/tmp` and `/var/tmp` (the last two
+   are private to the unit).
+
+The hook is root-owned because a hook the account could edit would be one more
+place to persist.
+
+**Human sessions** that benchmark on the host join `expanse-benchlock` and nothing
+else of the account's; their home directories are `0700` or `0750`, which
+`ProtectHome=yes` duplicates for the runner's processes. The account is listed in
+neither `/etc/cron.allow` nor `/etc/at.allow`.
 
 #### Frequency-policy helper (required on the reference host)
 
@@ -512,21 +766,19 @@ Move the directory itself rather than its contents — `mv <dir>/*` skips
 between them are the entire registration. Stop the runner first, and rename it
 through `./config.sh remove` followed by a fresh `./config.sh`: `--replace`
 matches on `--name`, so re-registering under a new name leaves the old entry
-behind.
+behind. Moving a runner to another account is a re-registration too: delete
+`_work` rather than re-owning it, since everything in it was written under the
+previous account.
 
-#### What relocation does and does not fix
-
-Relocating removes the home-directory prefix from the paths build tools echo,
-which is the bulk of the exposure. Two lines survive it, both from sources
-outside the runner's installation path:
+#### What the job log still shows
 
 | Log line | Source | Closed by |
 |---|---|---|
 | `Machine name: '<hostname>'` | the runner emits the OS hostname at job setup, independent of `--name` | renaming the host (`hostnamectl set-hostname`) |
-| `Copying '/home/<user>/.gitconfig' to '/opt/actions-runner/_work/_temp/…'` | `actions/checkout` copying the invoking user's global gitconfig | a dedicated service account with its own toolchain install |
+| `Copying '<home>/.gitconfig' to '/opt/actions-runner/_work/_temp/…'` | `actions/checkout` copying the invoking account's global gitconfig | the service account: its `$HOME` is not under `/home` and holds no gitconfig |
 
-Neither is addressed by the install path, so a claim that relocation alone
-sanitises the log is wrong. Verify what a given host actually publishes:
+The install path does not address either line. Verify what a given host
+actually publishes:
 
 ```bash
 gh run view <run-id> --log | grep -nE "/home/|Machine name:"

@@ -133,6 +133,7 @@ python3 scripts/perf_report.py --self-test
 python3 tests/test_perf_report.py
 python3 scripts/bench_counters.py --self-test
 python3 scripts/pin_exposure.py --self-test
+bash scripts/bench_host/runner_check.sh --self-test
 python3 scripts/warmup_ramp.py --self-test
 python3 scripts/bench_report.py --self-test
 python3 scripts/update_homebrew_formula.py --self-test

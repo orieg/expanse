@@ -569,7 +569,9 @@ def preflight(events: list[str]) -> tuple[str | None, str, list[str], list[str],
         raise Preflight(
             "`perf stat -e instructions` could not open a hardware counter for a "
             f"process on this host (perf_event_paranoid = {paranoid_level()}, rc = {rc}). "
-            "Lower it to 2 or below, or grant CAP_PERFMON. No counters were "
+            "Set it to 1, the value committed counter artifacts record (2 excludes "
+            "kernel-mode counts), and never grant perf cap_sys_ptrace on a CI runner "
+            "(docs/CI.md, Hardware counters). No counters were "
             f"collected.\n{err.strip()}"
         )
 

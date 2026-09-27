@@ -571,7 +571,9 @@ Bench targets deliberately **not** reachable from a slash command:
    - **The lock.** Every `docs/benchmarks/**` runner and both bare-metal
      workflows re-run themselves under
      [`scripts/bench_lock.py`](../scripts/bench_lock.py), which holds
-     `flock(2)` on `${EXPANSE_BENCH_FLOCK:-/tmp/expanse-bench.flock}` for the
+     `flock(2)` on `$EXPANSE_BENCH_FLOCK` (unset: the host's shared
+     `/run/expanse-bench/expanse-bench.flock` when it exists, else
+     `/tmp/expanse-bench.flock`) for the
      whole run and refuses with exit 75 after `EXPANSE_BENCH_LOCK_WAIT`
      seconds (0 by default; the workflow waits 600), naming the holder. The
      kernel releases the lock when its holder dies. The `mkdir` lock it
@@ -579,10 +581,13 @@ Bench targets deliberately **not** reachable from a slash command:
      skips, and one leaked lock refused every later run (#1210). The lock
      runs its command with no inherited descriptor, so no daemon or detached
      grandchild can keep the host locked. The lock file must be a regular
-     file owned by the caller; a symlink or another user's file is refused
-     (exit 78). An ad-hoc `cargo bench` on the host takes the same lock:
+     file owned by the caller, or the shared lock root provisions for the
+     runner's service account and the humans who benchmark
+     ([`docs/CI.md`](CI.md), "The benchmark lock"); a symlink or another
+     non-root user's file is refused (exit 78). An ad-hoc `cargo bench` on the
+     host takes the same lock:
      `python3 scripts/bench_lock.py --suite <what> -- <command>`, or
-     `flock /tmp/expanse-bench.flock <command>`.
+     `flock "${EXPANSE_BENCH_FLOCK:-/tmp/expanse-bench.flock}" <command>`.
    - **The legacy mirror.** While the lock is held, the old
      `${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}` directory is
      kept too, so a checkout that predates the wrapper still sees the host as

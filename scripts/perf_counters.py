@@ -281,11 +281,12 @@ def classify_probe(rc: int, probed: dict[str, dict], err: str, paranoid: str) ->
             "  matters for system-wide (`-a`, or `perf stat` with no command) counting is\n"
             "  a different gate and is not what this needs. If the per-process open is\n"
             "  refused anyway:\n"
-            "    1. grant the runner CAP_PERFMON: "
-            "`sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep $(command -v perf)`\n"
-            "    2. or lower the gate for all users: "
-            "`sudo sysctl -w kernel.perf_event_paranoid=1` "
-            "(persist it in /etc/sysctl.d/)\n"
+            "    1. set the gate to the value every committed counter artifact records:\n"
+            "       `sudo sysctl -w kernel.perf_event_paranoid=1` (persist it in /etc/sysctl.d/)\n"
+            "    2. only on a host that runs no untrusted code, CAP_PERFMON on a perf copy\n"
+            "       a trusted group alone can execute: `sudo setcap cap_perfmon=ep <copy>`.\n"
+            "       Never cap_sys_ptrace on a CI runner: it lets any job attach to any\n"
+            "       process on the host (docs/CI.md, Hardware counters).\n"
             "  A virtualised host may expose no PMU at all, in which case neither fix "
             "applies and the counters have to be collected on bare metal.\n" + tail
         )
@@ -1296,6 +1297,8 @@ def self_test() -> int:
     # rc != 0: the kernel refused. Capability advice belongs here and only here.
     refused = classify_probe(1, {}, "Access to performance monitoring ... is limited", "3")
     assert refused is not None and "setcap" in refused and "CAP_PERFMON" in refused, refused
+    assert "perf_event_paranoid=1" in refused, refused
+    assert "setcap cap_perfmon,cap_sys_ptrace" not in refused, refused
     # rc == 0 but the row is a placeholder: also a refusal, not a naming issue.
     placeheld = classify_probe(
         0, parse_perf_csv("<not counted>,,instructions,0,0.00,,\n"), "", "2"
