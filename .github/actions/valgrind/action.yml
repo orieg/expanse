@@ -106,11 +106,18 @@ runs:
         path: ${{ steps.prefix.outputs.prefix }}
         key: ${{ steps.restore.outputs.cache-primary-key }}
 
-    - name: Put the built valgrind first on PATH
+    - name: Put the built valgrind first on PATH and its headers on CPATH
       shell: bash
       env:
         VG_PREFIX: ${{ steps.prefix.outputs.prefix }}
-      run: echo "$VG_PREFIX/bin" >> "$GITHUB_PATH"
+      run: |
+        set -euo pipefail
+        echo "$VG_PREFIX/bin" >> "$GITHUB_PATH"
+        # <valgrind/callgrind.h> client requests (the RocksDB bound's
+        # CALLGRIND_TOGGLE_COLLECT) must come from this build, not from a
+        # distro package that is no longer installed.
+        test -f "$VG_PREFIX/include/valgrind/callgrind.h" || { echo "::error::$VG_PREFIX/include/valgrind/callgrind.h missing"; exit 1; }
+        echo "CPATH=$VG_PREFIX/include${CPATH:+:$CPATH}" >> "$GITHUB_ENV"
 
     - name: Assert the valgrind on PATH is the pinned build (>= ${{ inputs.min-version }})
       shell: bash
