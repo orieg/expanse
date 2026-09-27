@@ -541,6 +541,26 @@ jobs:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
 
+      # The integrity checks run from the workflow's own commit, never from the
+      # ref under test: a dispatch measures an older ref as often as a new one
+      # (the v0.9 campaign ran this workflow from main against f70af2e2), and a
+      # check that ships only in newer scripts would silently not run there -
+      # #1216's zero-count base was exactly such a dispatch. Measured code and
+      # its harness scripts still come from the ref; only the checks that judge
+      # the output come from here.
+      - name: Extract output-integrity tools from the workflow commit
+        id: tools
+        shell: bash
+        run: |
+          BENCH_TOOLS="$RUNNER_TEMP/bench-tools"
+          rm -rf "$BENCH_TOOLS"
+          mkdir -p "$BENCH_TOOLS"
+          if ! git archive "$GITHUB_SHA" scripts .github/bench-suites.json | tar -x -C "$BENCH_TOOLS"; then
+            echo "::error::could not extract scripts/ from the workflow commit $GITHUB_SHA; the output-integrity checks cannot run"
+            exit 1
+          fi
+          echo "extracted integrity tools at $GITHUB_SHA"
+
       - name: System Load Hygiene Check
         id: sysinfo
         # Captures the load snapshot into the report (non-gating, per
@@ -899,13 +919,25 @@ jobs:
               else
                 cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" | tee bench-output.txt
               fi
-            elif [ -n "$BENCH_ENV" ]; then
-              # BENCH_ENV is a manifest-declared `KEY=VALUE ...` string; word
-              # splitting is the intent here.
-              # shellcheck disable=SC2086
-              env $BENCH_ENV cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" | tee bench-output.txt
             else
-              cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" | tee bench-output.txt
+              # Build first, so cargo's compile output stays in the log, then
+              # capture the harness's stdout AND stderr: the search suites
+              # print their results only to stderr, and a green job uploaded
+              # an empty file for them (#1211).
+              cargo bench --no-run --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE"
+              # BENCH_ENV is a manifest-declared `KEY=VALUE ...` string; word
+              # splitting is the intent here, and an empty one leaves `env`
+              # running the command unchanged.
+              # shellcheck disable=SC2086
+              env $BENCH_ENV cargo bench -q --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" 2>&1 | tee bench-output.txt
+              # A run that printed no result line measured nothing, however
+              # it exited. The suite's `result_pattern` comes from the
+              # workflow commit's manifest, like the check itself.
+              if [ "$SUITE_KIND" = "wallclock" ] \
+                && ! python3 "$RUNNER_TEMP/bench-tools/scripts/check_bench_suites.py" --check-output "$SUITE" bench-output.txt; then
+                echo "fail_reason=no_results:$SUITE" >> "$GITHUB_OUTPUT"
+                INTEGRITY_FAIL=1
+              fi
             fi
           else
             case "$SUITE" in
@@ -1510,14 +1542,47 @@ jobs:
               BYTES32_ARGS="--bytes32 bytes-per-key-32.txt"
             fi
 
+            # A base the dispatcher named explicitly (`base_ref` input) that
+            # counted 0 instructions is fatal: that comparison was the point of
+            # the run (#1216, run 36265221866 rendered 133 zero-count base arms
+            # as a green gate). An auto-resolved merge base follows ci.yml's
+            # policy instead and degrades to a loud NO BASELINE.
+            ZERO_BASE=no-baseline
+            [ -n "$BASE_REF_IN" ] && ZERO_BASE=fatal
+            # The ref's own perf_report renders the report; one that predates
+            # the zero-count guard takes no --zero-base, and the check below
+            # covers it.
+            ZERO_ARGS=""
+            if python3 scripts/perf_report.py --help 2>/dev/null | grep -q -e '--zero-base'; then
+              ZERO_ARGS="--zero-base $ZERO_BASE"
+            fi
+            # `set +e` around the report: the step shell carries -e, and an
+            # integrity failure must still write the report the terminal
+            # comment step posts before the step fails with it.
+            set +e
             python3 scripts/perf_report.py \
               --head head-instructions.txt \
               $BASE_ARGS \
+              $ZERO_ARGS \
               $HEAD_TO_HEAD_ARGS \
               $BYTES_ARGS \
               $BYTES32_ARGS \
               $VS_STOCK_ARGS \
               > baremetal-report.md
+            REPORT_STATUS=$?
+            # The same policy from the workflow's commit, whatever the ref.
+            ZERO_BASE_FILE=""
+            [ -f base-instructions.txt ] && ZERO_BASE_FILE="--base base-instructions.txt"
+            python3 "$RUNNER_TEMP/bench-tools/scripts/perf_report.py" --check-zero-counts \
+              --head head-instructions.txt $ZERO_BASE_FILE --zero-base "$ZERO_BASE"
+            ZERO_STATUS=$?
+            set -e
+            [ "$ZERO_STATUS" -ne 0 ] && REPORT_STATUS=$ZERO_STATUS
+            if [ "$REPORT_STATUS" -ne 0 ]; then
+              echo "::error::perf_report.py found an integrity failure in the Callgrind output (zero counts, empty or crashed pass); see the report"
+              echo "fail_reason=callgrind_integrity" >> "$GITHUB_OUTPUT"
+              INTEGRITY_FAIL=1
+            fi
           fi
 
           # Per-run Callgrind artifact (#382 item 8). `bench_baseline.py
@@ -1645,6 +1710,12 @@ jobs:
             fi
           fi
 
+          # Integrity failures found above are raised only now, after the
+          # report exists, so the terminal comment step can post it.
+          if [ "${INTEGRITY_FAIL:-0}" -ne 0 ]; then
+            exit 1
+          fi
+
       # The baseline artifact is the committable half of a wall-clock claim
       # (AGENTS.md section 8.7): a published interval must resolve to a
       # committed `results/baseline_*.json`. The runner cannot commit to a
@@ -1711,53 +1782,70 @@ jobs:
       # by scraping the job log (#449). The harvest is now non-fatal, so that
       # path should not be reachable through a missing harvester — but a
       # completed measurement should not depend on every later step succeeding.
+      # Only this run's files are uploaded (#1212). The list below names every
+      # file some suite may write; `stage_run_outputs.py` keeps a candidate only
+      # when git shows the run created or rewrote it, so the committed results
+      # at older commits that every checkout carries stay out of the artifact.
+      # It refuses a symlink, a path outside the repository, JSON that does not
+      # parse, and JSON whose provenance names another commit - the last two
+      # fail the step (stale_output), since a result that says it measured a
+      # different commit cannot be published as this run's.
+      - name: Stage this run's output files
+        id: stage
+        if: always()
+        shell: bash
+        run: |
+          python3 "$RUNNER_TEMP/bench-tools/scripts/stage_run_outputs.py" \
+            --dest run-artifacts \
+            --commit "$(git rev-parse HEAD)" \
+            concurrency.txt \
+            writer_scaling.txt \
+            ycsb_concurrent.txt \
+            docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json \
+            docs/benchmarks/concurrency/results/baseline_writer_scaling.json \
+            docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_unpadded_lock_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json \
+            docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json \
+            docs/benchmarks/concurrency/results/gate_929_bytes_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json \
+            docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json \
+            docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json \
+            ycsb.txt \
+            hashbrown-ycsb.txt \
+            docs/benchmarks/patricia_comparison/results/baseline_*.json \
+            comparative.txt \
+            bytes-per-key.txt \
+            bench-output.txt \
+            rocksdb.txt \
+            rocksdb-driver.txt \
+            rocksdb-concurrent-counters.txt \
+            rocksdb-locate-profile.txt \
+            rocksdb-concurrent-heldout.txt \
+            rocksdb-concurrent-narrowed.txt \
+            rocksdb-concurrent-optimistic.txt \
+            rocksdb-concurrent-optimistic-counters.txt \
+            python-concurrency.txt \
+            docs/benchmarks/llm_inference/results/bench_grammar_masks.json \
+            bytes-per-key-32.txt \
+            head-instructions.txt \
+            head-vs-stock.txt \
+            vs-libjudy.txt \
+            base-instructions.txt \
+            base-vs-stock.txt \
+            base-generic.txt
+
       - name: Upload non-criterion suite tables
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: suite-tables-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
-          path: |
-            concurrency.txt
-            writer_scaling.txt
-            ycsb_concurrent.txt
-            docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json
-            docs/benchmarks/concurrency/results/baseline_writer_scaling.json
-            docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_unpadded_lock_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json
-            docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json
-            docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json
-            docs/benchmarks/concurrency/results/gate_929_bytes_writer_scaling.json
-            docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json
-            docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json
-            docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json
-            ycsb.txt
-            hashbrown-ycsb.txt
-            docs/benchmarks/patricia_comparison/results/baseline_*.json
-            comparative.txt
-            bytes-per-key.txt
-            bench-output.txt
-            rocksdb.txt
-            rocksdb-driver.txt
-            rocksdb-concurrent-counters.txt
-            rocksdb-locate-profile.txt
-            rocksdb-concurrent-heldout.txt
-            rocksdb-concurrent-narrowed.txt
-            rocksdb-concurrent-optimistic.txt
-            rocksdb-concurrent-optimistic-counters.txt
-            python-concurrency.txt
-            docs/benchmarks/llm_inference/results/bench_grammar_masks.json
-            bytes-per-key-32.txt
-            head-instructions.txt
-            head-vs-stock.txt
-            vs-libjudy.txt
-            base-instructions.txt
-            base-vs-stock.txt
-            base-generic.txt
+          path: run-artifacts/
           if-no-files-found: ignore
           retention-days: 30
 
@@ -1813,6 +1901,7 @@ jobs:
           BASE_LINE: ${{ steps.bench.outputs.base_line }}
           BENCH_OUTCOME: ${{ steps.bench.outcome }}
           FAIL_REASON: ${{ steps.bench.outputs.fail_reason }}
+          STAGE_OUTCOME: ${{ steps.stage.outcome }}
           LOCK_OWNER: ${{ steps.bench.outputs.lock_owner }}
           HARVEST_STATUS: ${{ steps.bench.outputs.harvest_status }}
           JOB_STATUS: ${{ job.status }}
@@ -1829,7 +1918,7 @@ jobs:
             const issue_number = Number(process.env.PR_NUMBER);
 
             const outcome = process.env.BENCH_OUTCOME || 'skipped';
-            const reason = process.env.FAIL_REASON || '';
+            const reason = process.env.FAIL_REASON || (process.env.STAGE_OUTCOME === 'failure' ? 'stale_output' : '');
             const cancelled = outcome === 'cancelled' || process.env.JOB_STATUS === 'cancelled';
             // The benchmark step writes its report to a file in RUNNER_TEMP,
             // never to GITHUB_ENV; the file is absent whenever that step
@@ -1888,6 +1977,7 @@ jobs:
                 `- **Run**: [${context.runId}](${runUrl})`,
                 '',
                 ...(harvestNote ? [harvestNote, ''] : []),
+                ...(process.env.STAGE_OUTCOME === 'failure' ? ['> [!CAUTION]\n> **An output file of this run was refused for upload** — it names a different commit in its provenance, does not parse, or is a symlink. The staging step in the run log names it; the job fails on it.', ''] : []),
                 report,
                 '',
               ].join('\n');
@@ -1895,6 +1985,10 @@ jobs:
               let icon = '❌';
               let label = 'no results';
               let cause;
+              // Integrity failures ran to completion: the report exists and
+              // shows what was wrong, so it is posted under the failure
+              // notice rather than dropped (#1211, #1212, #1216).
+              let attachReport = false;
               if (cancelled) {
                 icon = '🛑';
                 label = 'cancelled';
@@ -1942,6 +2036,17 @@ jobs:
                   '',
                   'That is a repository fault, not a request fault. `scripts/check_bench_suites.py` is the guard that should have caught it before merge.',
                 ].join('\n');
+              } else if (reason === 'callgrind_integrity') {
+                label = 'integrity failure';
+                cause = 'The benchmarks ran, but the **Callgrind output failed an integrity check** — a pass counted 0 instructions, or parsed empty or partial. Those counts are not measurements and nothing below is a valid comparison. The report names the pass and the arms.';
+                attachReport = true;
+              } else if (reason.startsWith('no_results:')) {
+                label = 'integrity failure';
+                cause = `The benchmark step exited cleanly, but its output holds **no result line** matching suite \`${suite}\`'s declared \`result_pattern\` in \`.github/bench-suites.json\`. A run that printed no results measured nothing. The captured output is below.`;
+                attachReport = true;
+              } else if (reason === 'stale_output') {
+                label = 'integrity failure';
+                cause = 'The benchmark ran, but a file it wrote carries **provenance for a different commit** than the one measured, so it cannot be published as this run\'s result. The staging step names the file in the job log.';
               } else if (outcome === 'failure') {
                 cause = 'The benchmark step **failed** - build error, benchmark crash, or a host problem. The failing command is in the job log.';
               } else if (outcome === 'success') {
@@ -1959,6 +2064,7 @@ jobs:
                 '',
                 `[View run](${runUrl})`,
               ];
+              if (attachReport && report) lines.push('', report);
               if (prior) lines.push('', prior);
               body = lines.join('\n') + '\n';
             }

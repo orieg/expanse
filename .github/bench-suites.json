@@ -30,6 +30,12 @@
     "  package    cargo package for a generic suite.",
     "  target     [[bench]] target name for a generic suite.",
     "  env        space-separated KEY=VALUE pairs prefixed to a generic run.",
+    "  result_pattern  required on every available generic wallclock suite:",
+    "             a Python regex that a line of the harness's result output",
+    "             matches (stdout and stderr are both captured). A run whose",
+    "             output has no such line fails as `no_results`, whatever it",
+    "             exited with (#1211). Match a measured value, not a config",
+    "             echo, and check it against a real run's log.",
     "  suite      OPTIONAL. The docs/benchmarks/<dir> that owns this token's",
     "             results. check_bench_suites.py validates the directory exists",
     "             and groups docs/benchmarks/README.md by it. A token with no",
@@ -397,6 +403,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "domain",
+      "result_pattern": "time:\\s+\\[",
       "summary": "Interned set domain: posting-list algebra zero-overhead, ingestion, and zero-copy resolution.",
       "suite": "set_algebra"
     },
@@ -407,6 +414,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "search_boolean",
+      "result_pattern": "=\\s*[0-9.]+ns\\b",
       "summary": "Boolean posting-list intersection and union against the search baselines.",
       "suite": "search_inverted_index"
     },
@@ -417,6 +425,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "search_wand",
+      "result_pattern": "=\\s*[0-9.]+ns\\b",
       "summary": "WAND / top-k scoring over the inverted index.",
       "suite": "search_inverted_index"
     },
@@ -427,6 +436,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "search_memory",
+      "result_pattern": "[0-9.]+\\s+bits/docID$",
       "summary": "Live-heap footprint of the inverted index against the search baselines.",
       "suite": "search_inverted_index"
     },
@@ -437,6 +447,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "zset_zadd",
+      "result_pattern": "\"expanse_mops\": Number\\(",
       "summary": "Sorted-set insert/update throughput against the skiplist baseline.",
       "suite": "redis_zset_engine"
     },
@@ -447,6 +458,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "zset_range",
+      "result_pattern": "\"expanse_melem_s\": Number\\(",
       "summary": "Sorted-set range scans, forward and reverse.",
       "suite": "redis_zset_engine"
     },
@@ -457,6 +469,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "zset_rank",
+      "result_pattern": "\"expanse_ns\": Number\\(",
       "summary": "Sorted-set rank and select queries.",
       "suite": "redis_zset_engine"
     },
@@ -467,6 +480,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "zset_memory",
+      "result_pattern": "\"expanse_bytes_per_member\": Number\\(",
       "summary": "Live-heap footprint of the sorted-set representation against the skiplist baseline.",
       "suite": "redis_zset_engine"
     },
@@ -477,6 +491,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "hashbrown_native_suite",
+      "result_pattern": "\"ns_per_op\": Number\\(",
       "summary": "Core point-operation comparison against hashbrown.",
       "suite": "hashbrown_comparison"
     },
@@ -495,6 +510,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "hashbrown_tail_latency",
+      "result_pattern": "\"p99_ns\": Number\\(",
       "summary": "Tail-latency percentiles against hashbrown, including rehash spikes.",
       "suite": "hashbrown_comparison"
     },
@@ -505,6 +521,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "hashbrown_container_dists",
+      "result_pattern": "\"expanse\": Number\\(",
       "summary": "Key-distribution sensitivity sweep against hashbrown.",
       "suite": "hashbrown_comparison"
     },
@@ -515,6 +532,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "hashbrown_memory_alloc",
+      "result_pattern": "\"expanse\": Number\\(",
       "summary": "Live-heap and allocation-count comparison against hashbrown.",
       "suite": "hashbrown_comparison"
     },
@@ -525,6 +543,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "large_values",
+      "result_pattern": "time:\\s+\\[",
       "summary": "Blob-arena storage paths for values above the immediate capacity."
     },
     {
@@ -605,6 +624,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "embedded",
+      "result_pattern": "time:\\s+\\[",
       "summary": "32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`).",
       "suite": "embedded"
     },
@@ -615,6 +635,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "embedded_memtable",
+      "result_pattern": "time:\\s+\\[",
       "summary": "32-bit embedded telemetry memtable & BLE tracker registry vs competitor baselines.",
       "suite": "embedded"
     },
@@ -625,6 +646,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "batch_lookup",
+      "result_pattern": "time:\\s+\\[",
       "summary": "Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control."
     },
     {
@@ -634,6 +656,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "compare",
+      "result_pattern": "time:\\s+\\[",
       "summary": "Standing container comparison harness across the core map and set types."
     },
     {
@@ -654,6 +677,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "bench_grammar_masks",
+      "result_pattern": "^Pillar D results written to ",
       "summary": "Grammar-constrained decoding mask cache and set algebra against roaring and dense bitmaps.",
       "suite": "llm_inference"
     },
@@ -664,6 +688,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "art_lookup_hit",
+      "result_pattern": "Ratio \\(Exp/ART\\):\\s+[0-9.]+x",
       "summary": "Adaptive Radix Tree (ART) vs Expanse point lookup on 100% hit rate across key distributions.",
       "suite": "art_comparison"
     },
@@ -674,6 +699,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "art_lookup_miss",
+      "result_pattern": "Ratio \\(Exp/ART\\):\\s+[0-9.]+x",
       "summary": "Adaptive Radix Tree (ART) vs Expanse point lookup on 50% hit / 50% rejection-sampled miss rate.",
       "suite": "art_comparison"
     },
@@ -684,6 +710,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "art_insert",
+      "result_pattern": "Ratio \\(Exp/ART\\):\\s+[0-9.]+x",
       "summary": "Adaptive Radix Tree (ART) vs Expanse dynamic insertion throughput into cold structures.",
       "suite": "art_comparison"
     },
@@ -694,6 +721,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "art_scan",
+      "result_pattern": "Ratio:\\s+[0-9.]+x",
       "summary": "Adaptive Radix Tree (ART) vs Expanse ordered range scan and full container iteration.",
       "suite": "art_comparison"
     },
@@ -704,6 +732,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "art_memory",
+      "result_pattern": "Ratio:\\s+[0-9.]+x",
       "summary": "Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales.",
       "suite": "art_comparison"
     },
@@ -714,6 +743,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "art_small_payload",
+      "result_pattern": "Ratio:\\s+[0-9.]+x",
       "summary": "Adaptive Radix Tree (ART) vs Expanse small-payload regime (<= 7 keys) lookups, inserts, and memory census.",
       "suite": "art_comparison"
     },
