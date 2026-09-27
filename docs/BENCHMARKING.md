@@ -566,16 +566,51 @@ Bench targets deliberately **not** reachable from a slash command:
 6. **Fixed seeds, recorded populations.** Every bench names its RNG seed and population sizes so runs are reproducible bit-for-bit.
 7. **No time estimates, no projections-as-results** — per repo-wide discipline (CLAUDE.md).
 
-8. **One suite per machine at a time — enforced by a host-wide lock, not by
-   coordination.** Every `docs/benchmarks/*/run.sh` takes an atomic `mkdir`
-   lock at `${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}`
-   (shared across all checkouts on the host), records `suite`/`pid`/`start`
-   in `owner`, refuses to start (exit 75) while another run holds it, and
-   removes it on exit. Scheduling by coordination is not enough — the lock is
-   the mechanism. Ad-hoc `cargo bench`
-   invocations outside `run.sh` must check the lock manually (`cat
-   "$TMPDIR/expanse-bench.lock/owner"`) and are otherwise subject to rule 2's
-   load-snapshot requirement.
+8. **One suite per machine at a time on a quiet host — enforced, not
+   coordinated.** Three mechanisms, all in `scripts/`:
+   - **The lock.** Every `docs/benchmarks/**` runner and both bare-metal
+     workflows re-run themselves under
+     [`scripts/bench_lock.py`](../scripts/bench_lock.py), which holds
+     `flock(2)` on `${EXPANSE_BENCH_FLOCK:-/tmp/expanse-bench.flock}` for the
+     whole run and refuses with exit 75 after `EXPANSE_BENCH_LOCK_WAIT`
+     seconds (0 by default; the workflow waits 600), naming the holder. The
+     kernel releases the lock when its holder dies. The `mkdir` lock it
+     replaced was removed by a shell trap, which a cancelled run's SIGKILL
+     skips, and one leaked lock refused every later run (#1210). The lock
+     runs its command with no inherited descriptor, so no daemon or detached
+     grandchild can keep the host locked. The lock file must be a regular
+     file owned by the caller; a symlink or another user's file is refused
+     (exit 78). An ad-hoc `cargo bench` on the host takes the same lock:
+     `python3 scripts/bench_lock.py --suite <what> -- <command>`, or
+     `flock /tmp/expanse-bench.flock <command>`.
+   - **The legacy mirror.** While the lock is held, the old
+     `${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}` directory is
+     kept too, so a checkout that predates the wrapper still sees the host as
+     busy. A leftover directory whose owner is not running is reclaimed.
+     *Remove the mirror when no checkout on a benchmark host predates
+     `scripts/bench_lock.py`.*
+   - **The host guard.** A lock excludes only the runs that take it; the v0.9
+     campaign's contaminants — a kvbench container, `cc1plus`, `rustc` — took
+     none. [`scripts/bench_host_guard.py`](../scripts/bench_host_guard.py)
+     reads `/proc` live (never `ps`, whose %CPU is a lifetime average) and
+     splits foreign load — CPU the run's own process tree did not use — into
+     the part on the pinned CPUs and the rest. Before anything is built,
+     `check` requires `START_QUIET_WINDOWS` = 3 consecutive 1 s windows with
+     foreign load ≤ `START_FOREIGN_MAX` = 0.5 and on-pin foreign load ≤
+     `START_ON_PIN_MAX` = 0.1 core-equivalents, and no foreign process at or
+     above `START_PROCESS_MAX_PCT` = 50 % of a CPU. Otherwise it refuses and
+     names each offender by command, PID, elapsed time and container id.
+     During the run, `watch` samples every `WATCH_INTERVAL_S` = 2 s from CPUs
+     outside the pin set, and `summarize` discards the run (section 8.17)
+     when any sample shows foreign load above `RUN_FOREIGN_VOID` = 1.0,
+     on-pin foreign load above `RUN_ON_PIN_VOID` = 0.25, a foreign process at
+     or above `RUN_PROCESS_VOID_PCT` = 100 %, or a governor change on the
+     pinned CPUs. The values live in `scripts/bench_provenance.py` and are
+     fixed before any run they judge (AGENTS.md section 8.19). The workflow
+     runs all three; `bench_baremetal.yml` publishes the guard's sample and
+     the run's host-activity record with the report, and uploads both as
+     `host-guard.json` and `host-activity.jsonl`. A runner outside the
+     workflow records its load per cell through `bench_provenance` (rule 2).
 
 9. **Fail-loud harness execution (zero silent fallbacks).** If a benchmark
    dependency, runtime, or native extension (`libexpanse.so`, Node addon, Python

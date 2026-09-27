@@ -73,6 +73,9 @@ except ImportError:  # not a POSIX host: no child CPU accounting, recorded as No
 
 __all__ = [
     "USER_HZ", "MIN_WINDOW_JIFFIES", "MIN_WINDOW_S", "Snapshot",
+    "RUN_FOREIGN_VOID", "RUN_PROCESS_VOID_PCT", "RUN_ON_PIN_VOID",
+    "START_FOREIGN_MAX", "START_ON_PIN_MAX", "START_PROCESS_MAX_PCT",
+    "START_WINDOW_S", "START_QUIET_WINDOWS", "WATCH_INTERVAL_S",
     "cpu_jiffies", "child_cpu_seconds", "load_snapshot", "add_load", "begin_cell",
     "end_cell", "host_facts", "scaling_governor_by_cpu", "expand_cpu_list", "pin_set",
     "raw_rounds", "estimators", "git_sha", "new_provenance", "attach", "body", "rewrite",
@@ -108,6 +111,31 @@ USER_HZ = _user_hz()
 # counting step.
 MIN_WINDOW_JIFFIES = 10
 MIN_WINDOW_S = MIN_WINDOW_JIFFIES / USER_HZ
+
+# Host-contention thresholds (AGENTS.md section 8.17, docs/BENCHMARKING.md rule
+# 8), in one place for every consumer. Values are core-equivalents (1.0 = one
+# CPU busy for the whole window) or a single process's percent of one CPU.
+# "Foreign" is host CPU the run's own process tree did not use. "On-pin" is the
+# part of it spent on the CPUs the run is pinned to, where it takes time or an
+# SMT sibling from the benchmark directly; off-pin load contends only for
+# shared cache, memory bandwidth and package power.
+#
+# The void boundary a run is judged against (section 8.17: a non-target
+# process above about 100% CPU, or foreign load of a core, voids the run).
+RUN_FOREIGN_VOID = 1.0
+RUN_PROCESS_VOID_PCT = 100.0
+# Pinned CPUs are held tighter: an idle host reads within +-0.05 there.
+RUN_ON_PIN_VOID = 0.25
+# The start gate is stricter than the void boundary, so a run does not begin
+# on a host already close to it.
+START_FOREIGN_MAX = 0.5
+START_ON_PIN_MAX = 0.1
+START_PROCESS_MAX_PCT = 50.0
+# Start gate: this many consecutive quiet windows of this length.
+START_WINDOW_S = 1.0
+START_QUIET_WINDOWS = 3
+# In-run sampling interval of `bench_host_guard.py watch`.
+WATCH_INTERVAL_S = 2.0
 
 
 class Snapshot(dict):

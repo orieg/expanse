@@ -140,6 +140,8 @@ python3 scripts/check_docs_hygiene.py --self-test
 python3 scripts/check_ecosystem_theme.py --self-test
 python3 scripts/check_bench_suites.py --self-test
 python3 scripts/stage_run_outputs.py --self-test
+python3 scripts/bench_lock.py --self-test
+python3 scripts/bench_host_guard.py --self-test
 python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/check_bench_pin.py --self-test
 python3 scripts/bench_bindings.py --self-test

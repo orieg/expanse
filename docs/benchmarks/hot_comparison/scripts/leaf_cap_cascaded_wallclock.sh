@@ -46,7 +46,7 @@
 #       docs/benchmarks/hot_comparison/scripts/leaf_cap_cascaded_wallclock.sh
 #
 # Environment:
-#   EXPANSE_BENCH_LOCK   lock directory (default ${TMPDIR:-/tmp}/expanse-bench.lock)
+#   EXPANSE_BENCH_FLOCK  host-wide lock file (see scripts/bench_lock.py)
 #   EXPANSE_BENCH_PIN    see scripts/bench_pin.sh (auto on a hybrid host)
 #   LEAF_CAP_WORK        scratch directory for the two binaries and the five
 #                        criterion trees (default: a mktemp dir, removed on exit)
@@ -86,15 +86,14 @@ if ! grep -q '^pub const LEAF_CAP: usize = 32;' "${TYPES_RS}"; then
 fi
 COMMIT="$(git rev-parse --short=8 HEAD)"
 
-# Host-wide benchmark lock (docs/BENCHMARKING.md rule 8): `mkdir` is atomic
-# and the lock names its owner so a refused start says who holds the host.
-BENCH_LOCK="${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}"
-if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
-  echo "refusing to start: benchmark lock ${BENCH_LOCK} is held by:" >&2
-  { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } >&2
-  exit 75
+# Host-wide benchmark lock (docs/BENCHMARKING.md rule 8): one suite at a
+# time per machine, across every checkout. The script re-runs itself under
+# scripts/bench_lock.py, which holds a flock the kernel releases when the
+# holder dies, so a killed run cannot leave the host locked (#1210).
+if [ -z "${EXPANSE_BENCH_LOCK_HELD:-}" ]; then
+  exec python3 "${REPO_ROOT}/scripts/bench_lock.py" --suite "${SUITE_LABEL}" -- \
+    bash "${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")" "$@"
 fi
-printf 'suite=%s pid=%s start=%s\n' "${SUITE_LABEL}" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
 
 WORK="${LEAF_CAP_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/leaf-cap-cascaded.XXXXXX")}"
 mkdir -p "${WORK}"
@@ -102,7 +101,6 @@ mkdir -p "${WORK}"
 cleanup() {
   # The patch is reverted on every exit path, including a failed build.
   git checkout -- "${TYPES_RS}" 2>/dev/null || true
-  rm -rf "${BENCH_LOCK}"
   if [ "${LEAF_CAP_KEEP:-0}" != "1" ]; then rm -rf "${WORK}"; fi
 }
 trap cleanup EXIT
