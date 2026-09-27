@@ -97,7 +97,12 @@
 //! published leaf, linear or bitmap, but builds the edited copy, publishes
 //! it through a fresh slot, rehandles the parent edge and retires the old
 //! node, so a reader's references into leaf bytes and bitmap-leaf fields
-//! only ever point at memory no one writes. The Miri census runs the
+//! only ever point at memory no one writes. One edit is made in place: a
+//! map bitmap leaf's value overwrite is one atomic word store into the
+//! value subarray, which both sides reach through the subarray box's own
+//! pointer rather than a reference, and readers load as one atomic word
+//! (`trie32::map_bitmap_overwrite_shared`). An overwrite with the value the
+//! key already holds opens no bracket at all. The Miri census runs the
 //! threaded workloads (`sync32::map_reader_writer`,
 //! `sync32::set_reader_writer`, `sync32::map_branch_reader_writer` in
 //! `.github/miri-ub-sites.json`) and records them clean. The 64-bit `sync`
@@ -599,6 +604,17 @@ impl Writer32<'_, ExpanseMap32> {
         value: Value32,
     ) -> Result<Option<Value32>, WriteError> {
         self.ensure_headroom()?;
+        // An overwrite with the value the key already holds changes nothing a
+        // reader can observe, so it opens no bracket: the shared walk would
+        // replace the leaf with an identical copy and retire the original
+        // (#1187). The lookup is exact, since this handle is the only writer.
+        // It runs after the headroom check, so a refused mutation is refused
+        // whatever its value.
+        if let Some(old) = self.inner().get(key)
+            && old == value
+        {
+            return Ok(Some(old));
+        }
         Ok(self.write(|m| m.insert_shared(key, value)))
     }
 
@@ -971,6 +987,109 @@ mod tests {
         assert_eq!(w.pending_len(), 0);
         assert_eq!(w.pending_bytes(), 0);
         w.try_insert(1, 1).expect("writes proceed after reclaim");
+    }
+
+    /// An overwrite with the value already held opens no bracket and retires
+    /// nothing, in a linear leaf and in a bitmap leaf. A changed value opens
+    /// a bracket in both; the linear leaf is copied and retired, and the
+    /// bitmap leaf's value is stored in place, retiring nothing.
+    #[test]
+    fn identical_overwrite_opens_no_bracket() {
+        let mut m = SyncExpanseMap32::with_capacity(4096, 1);
+        let (mut w, mut pool) = m.split();
+        let r = pool.take().unwrap();
+        // 0x100.. : a linear leaf of 4 keys; 0x200.. : a bitmap leaf.
+        let linear = [0x0100u32, 0x0103, 0x0107, 0x010B];
+        let bitmap: Vec<u32> = (0..100u32).map(|i| 0x0200 | i).collect();
+        for &k in linear.iter().chain(&bitmap) {
+            w.try_insert(k, k ^ 7).unwrap();
+        }
+        let form = |w: &Writer32<'_, ExpanseMap32>, k: u32| {
+            let t = w.inner();
+            trie32::terminal_form(t.arena(), &t.root_edge(), 4, k)
+        };
+        assert_eq!(form(&w, bitmap[0]), "map bitmap leaf");
+        assert_ne!(form(&w, linear[0]), "map bitmap leaf");
+        assert!(w.try_reclaim());
+        // A parked reader keeps any retirement visible in `pending_len`.
+        walk_counter(&w, 0).store(1, Ordering::Relaxed);
+        for k in [linear[2], bitmap[40]] {
+            let (v0, parked) = (m_version(&r).try_sample().unwrap(), w.pending_len());
+            assert_eq!(w.try_insert(k, k ^ 7), Ok(Some(k ^ 7)));
+            assert_eq!(m_version(&r).try_sample(), Some(v0), "no bracket");
+            assert_eq!(w.pending_len(), parked, "nothing retired");
+            assert_eq!(w.try_insert(k, k ^ 9), Ok(Some(k ^ 7)));
+            assert_ne!(m_version(&r).try_sample(), Some(v0), "a bracket");
+            if k == linear[2] {
+                assert!(w.pending_len() > parked, "the copy retired the leaf");
+            } else {
+                assert_eq!(w.pending_len(), parked, "stored in place");
+            }
+            assert_eq!(w.get(k), Some(k ^ 9));
+        }
+        walk_counter(&w, 0).store(2, Ordering::Release);
+        assert!(w.try_reclaim());
+    }
+
+    /// The mutations a stalled reader lets through before `ReclaimBacklog`,
+    /// on the `concurrency` suite's `sync32` shape and writer stream
+    /// (`benches/concurrency.rs`: 4,096 prefill draws over 8,192 keys, a
+    /// 16,384-slot arena and 16 reader slots; the writer inserts `k -> k`
+    /// twice and removes once, over the upper half). Reader 0 is parked
+    /// inside a walk from the first mutation on, so nothing drains. Pinned,
+    /// with the pending list's size when the writer is refused, so a change to
+    /// how often a mutation retires a node, or to when the writer reclaims,
+    /// shows up here as a changed count.
+    #[test]
+    fn stalled_reader_backlog_census() {
+        struct XorShift(u64);
+        impl XorShift {
+            fn next(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+        }
+        const STABLE: u32 = 4_096;
+        let mut m = SyncExpanseMap32::with_capacity(16_384, 16);
+        let (mut w, _) = m.split();
+        let mut rng = XorShift(0x5CA1_AB1E);
+        for _ in 0..STABLE {
+            let k = (rng.next() % (2 * u64::from(STABLE))) as u32;
+            w.try_insert(k, !k).expect("prefill");
+        }
+        assert!(w.try_reclaim(), "prefill leaves nothing parked");
+        walk_counter(&w, 0).store(1, Ordering::Relaxed);
+        let mut rng = XorShift(0x5EED_5EED);
+        let mut writes = 0u64;
+        let refused = loop {
+            let k = STABLE + (rng.next() % u64::from(STABLE)) as u32;
+            let res = if writes % 3 == 2 {
+                w.try_remove(k).map(|_| ())
+            } else {
+                w.try_insert(k, k).map(|_| ())
+            };
+            match res {
+                Ok(()) => writes += 1,
+                Err(e) => break e,
+            }
+            assert!(writes < 1_000_000, "no refusal under a stalled reader");
+        };
+        let (len, bytes) = (w.pending_len(), w.pending_bytes());
+        std::println!(
+            "stalled_reader_backlog_census: {refused:?} after {writes} mutations, \
+             pending_len {len}, pending_bytes {bytes}"
+        );
+        assert_eq!(refused, WriteError::ReclaimBacklog);
+        assert_eq!((writes, len), (36_180, 16_513), "pinned census");
+        // Node sizes, and so the bytes, follow the pointer width.
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(bytes, 14_033_968, "pinned census");
+        walk_counter(&w, 0).store(2, Ordering::Release);
+        assert!(w.try_reclaim(), "the reader's exit drains the backlog");
     }
 
     /// The #594 case the flag scheme could not handle: a reader that is

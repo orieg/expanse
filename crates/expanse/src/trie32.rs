@@ -639,6 +639,49 @@ impl LeafBitmapL32Data {
     }
 }
 
+/// The first value of a map bitmap leaf's value subarray, and its length,
+/// without forming a reference to the values: the shared writer stores a
+/// value in place while readers load it (#1187), so each side reaches the
+/// values through the subarray box's own pointer, and each value is one
+/// atomic word ([`word`]).
+/// `None` for an absent subarray.
+#[inline(always)]
+fn sub_vals_ptr(sub: &Option<Box<[u32]>>) -> Option<(*const u32, usize)> {
+    sub.as_ref().map(|sb| {
+        let p: *const [u32] = core::ptr::addr_of!(**sb);
+        (p.cast::<u32>(), p.len())
+    })
+}
+
+/// A shared tree's value overwrite in a map bitmap leaf: when the leaf holds
+/// `digit`, stores `val` in place as one atomic word and returns the value it
+/// replaces. The key set, the bitmap and the subarray allocations are
+/// unchanged, so no reader can observe anything but the old or the new value
+/// of that one slot, and the writer's version bracket makes every read that
+/// overlaps the store report itself torn. `None` when `digit` is absent.
+#[inline(always)]
+fn map_bitmap_overwrite_shared(a: &Arena, h: u32, digit: u8, val: u32) -> Option<u32> {
+    let b = a.map_bitmap(h);
+    let word_bits = b.header.bitmap[(digit >> 6) as usize];
+    if word_bits & (1u64 << (digit & 63)) == 0 {
+        return None;
+    }
+    let rank = bitmap_sub_rank(word_bits, digit);
+    let (p, len) = sub_vals_ptr(&b.subarrays[(digit >> 5) as usize])
+        .expect("a set digit has a value subarray");
+    assert!(rank < len, "a set digit's rank is inside its subarray");
+    // SAFETY: `rank < len` of a live `Box<[u32]>` this node owns, whose
+    // elements are 4-aligned; the pointer carries the box's provenance, not
+    // a shared reference's, and every other access to the slot while the
+    // leaf is published is a [`word`] load.
+    let slot = unsafe { p.add(rank).cast_mut() };
+    // SAFETY: as above; only this writer stores to the slot.
+    let old = unsafe { word::load(slot) };
+    // SAFETY: as above.
+    unsafe { word::store(slot, val) };
+    Some(old)
+}
+
 /// One arena-owned node. Each variant is an independent heap allocation
 /// sized to the RFC's on-target byte layout, so [`Arena::bytes_in_use`]
 /// is an exact memory figure.
@@ -3858,6 +3901,11 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                 f.arm(edge_handle(e));
             }
             let h = edge_handle(e);
+            // A shared tree's value overwrite is one word store in place: the
+            // copy below is for edits that change the key set.
+            if SHARED && let Some(old) = map_bitmap_overwrite_shared(a, h, rem as u8, val) {
+                return Some(old);
+            }
             let mut copy = if SHARED {
                 Some(a.map_bitmap(h).deep_clone())
             } else {
@@ -4342,16 +4390,18 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
                 }
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
-                let Some(sb) = b.subarrays[sub].as_ref() else {
+                let Some((vals, len)) = sub_vals_ptr(&b.subarrays[sub]) else {
                     return Err(Torn);
                 };
-                let vals: &[u32] = sb;
                 if !still_valid() {
                     return Err(Torn);
                 }
-                let Some(&v) = vals.get(rank) else {
+                if rank >= len {
                     return Err(Torn);
-                };
+                }
+                // SAFETY: `rank < len` of the validated, pinned subarray; the
+                // writer stores its values in place as words (#1187).
+                let v = unsafe { word::load(vals.add(rank)) };
                 return seal(still_valid, Some(v));
             }
             Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
@@ -4538,16 +4588,18 @@ fn seek_bitmap_entry<F: Fn() -> bool>(
     still_valid: &F,
 ) -> Result<(u32, u32), Torn> {
     let rank = bitmap_sub_rank(bitmap[(digit >> 6) as usize], digit);
-    let Some(sb) = b.subarrays[(digit >> 5) as usize].as_ref() else {
+    let Some((vals, len)) = sub_vals_ptr(&b.subarrays[(digit >> 5) as usize]) else {
         return Err(Torn);
     };
-    let vals: &[u32] = sb;
     if !still_valid() {
         return Err(Torn);
     }
-    let Some(&v) = vals.get(rank) else {
+    if rank >= len {
         return Err(Torn);
-    };
+    }
+    // SAFETY: `rank < len` of the validated, pinned subarray; the writer
+    // stores its values in place as words (#1187).
+    let v = unsafe { word::load(vals.add(rank)) };
     Ok((u32::from(digit), v))
 }
 
