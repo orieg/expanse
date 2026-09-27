@@ -1490,8 +1490,8 @@ mod tests {
 
     /// Optimistic removals on the shared bytes map run the map removal body
     /// on its hash trie (`olc_cas_remove_bucket_map`), so they shared the
-    /// map wrapper's defect: 400 keys put the trie's root at a `BranchU`,
-    /// removing every third leaves about 169 top digits, and before #1079
+    /// map wrapper's defect: 400 keys put the trie's root at a `BranchU` of
+    /// 203 top digits, removing every other key leaves 145, and before #1079
     /// the branch stayed uncompressed below its demotion floor. The hash
     /// trie is validated directly, since the bytes map has no validator.
     #[cfg(all(feature = "std", target_pointer_width = "64"))]
@@ -1508,7 +1508,7 @@ mod tests {
             1,
             "precondition: the hash trie's root is an uncompressed branch"
         );
-        for i in (0..400u64).step_by(3) {
+        for i in (0..400u64).step_by(2) {
             assert_eq!(m.remove(&i.to_le_bytes()), Some(i));
         }
         m.with_locked(|b| b.map.validate_defensive())
@@ -1519,8 +1519,71 @@ mod tests {
             "the root crossed its floor and was demoted"
         );
         for i in 0..400u64 {
-            let want = (i % 3 != 0).then_some(i);
+            let want = (i % 2 != 0).then_some(i);
             assert_eq!(m.get(&i.to_le_bytes()), want, "key {i}");
         }
+    }
+
+    /// The concurrency bench's `bytes` workload on one thread: route-shaped
+    /// keys drawn from a 200,000-key universe, a prefill of 100,000 draws,
+    /// then 1,000,000 inserts and removes in equal measure, which take the
+    /// map to about 100,000 keys and hold it there. The hash trie then puts
+    /// about 390 keys under each of the 256 top digits, so each level-7
+    /// branch holds about 200 digits and drifts around the
+    /// bitmap-to-uncompressed threshold (192). Every such branch must settle
+    /// as a `BranchU`: while one is a `BranchB`, every optimistic removal
+    /// that empties one of its children falls back to the exclusive path
+    /// (`BranchSplitKind::Remove`), and each crossing of the U <-> B band is
+    /// an exclusive section too. With a one-digit band (demotion at 191) 18
+    /// to 51 of the 257 branches were `BranchB` at every checkpoint of a
+    /// 4,000,000-write run; with the 32-digit band none is past 800,000
+    /// writes. A fixed hasher makes the trie shape deterministic.
+    #[cfg(all(feature = "std", target_pointer_width = "64"))]
+    #[test]
+    fn sync_bytes_map_hash_trie_settles_uncompressed() {
+        type Fixed = core::hash::BuildHasherDefault<std::collections::hash_map::DefaultHasher>;
+        struct XorShift(u64);
+        impl XorShift {
+            fn next(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+        }
+        const UNIVERSE: usize = 200_000;
+        let keys: Vec<Vec<u8>> = (0..UNIVERSE)
+            .map(|i| format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).into_bytes())
+            .collect();
+        let m = crate::sync::SyncExpanseBytesMap::with_hasher(Fixed::default());
+        let mut rng = XorShift(0x5CA1_AB1E);
+        for _ in 0..UNIVERSE / 2 {
+            let k = &keys[(rng.next() as usize) % UNIVERSE];
+            m.insert(k, rng.next());
+        }
+        for _ in 0..1_000_000 {
+            let k = &keys[(rng.next() as usize) % UNIVERSE];
+            if rng.next() & 1 == 0 {
+                m.insert(k, rng.next());
+            } else {
+                m.remove(k);
+            }
+        }
+        let counts = m.with_locked(|b| {
+            b.map
+                .validate_defensive()
+                .expect("the churn left a valid hash trie");
+            b.map.stats().node_counts
+        });
+        assert_eq!(
+            counts.branch_u, 257,
+            "the root and every level-7 branch are uncompressed ({counts:?})"
+        );
+        assert_eq!(
+            counts.branch_b, 0,
+            "a level-7 branch sits as a BranchB, so its removals fall back ({counts:?})"
+        );
     }
 }

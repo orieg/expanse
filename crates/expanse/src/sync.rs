@@ -12547,10 +12547,11 @@ mod miri_ub_sites {
     }
 
     /// Root digits of the floor-crossing workload: one key per top digit,
-    /// three past the `BranchU` demotion floor, so the root starts as an
-    /// uncompressed branch and [`FLOOR_CHURN`] removals take it below.
-    const FLOOR_FILL: u64 = crate::types::BRANCHU_TO_B_DOWN as u64 + 3;
-    const FLOOR_CHURN: u64 = 4;
+    /// one past the bitmap-to-uncompressed threshold, so the root starts as
+    /// an uncompressed branch and [`FLOOR_CHURN`] removals take it one digit
+    /// below its demotion floor.
+    const FLOOR_FILL: u64 = crate::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64 + 1;
+    const FLOOR_CHURN: u64 = FLOOR_FILL - crate::types::BRANCHU_TO_B_DOWN as u64 + 1;
     const _: () = assert!(FLOOR_FILL - FLOOR_CHURN < crate::types::BRANCHU_TO_B_DOWN as u64);
     const _: () = assert!(FLOOR_FILL > crate::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64);
 

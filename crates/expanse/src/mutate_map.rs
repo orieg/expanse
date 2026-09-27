@@ -1,6 +1,6 @@
 //! Phase 6b: the map-flavor mutation engine (`ExpanseMap` core).
 //!
-//! Same least-compressed-form ladder and 1-index hysteresis as the
+//! Same least-compressed-form ladder and hysteresis bands as the
 //! set-flavor engine in `mutate` (whose branch machinery — linear slot
 //! insertion, node upgrades/downgrades, free/validate — this module
 //! shares), with the map-specific terminal forms:

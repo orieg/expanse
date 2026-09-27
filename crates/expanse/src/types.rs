@@ -80,8 +80,8 @@ pub const BRANCHB_TO_L7_DOWN: usize = BRANCH_L7_CAP - 1;
 /// uncompressed (flat 256-slot) branch.
 pub const BITMAP_TO_UNCOMPRESSED_THRESHOLD: usize = 192;
 
-/// Demotion threshold from BranchU to BranchB (1-index hysteresis band: 192 up / 191 down).
-pub const BRANCHU_TO_B_DOWN: usize = BITMAP_TO_UNCOMPRESSED_THRESHOLD - 1;
+/// Demotion threshold from BranchU to BranchB (32-digit hysteresis band: 192 up / 160 down; `docs/ARCHITECTURE.md` §4.2).
+pub const BRANCHU_TO_B_DOWN: usize = BITMAP_TO_UNCOMPRESSED_THRESHOLD - 32;
 
 /// Bytes available inside a 16-byte edge for immediately stored keys
 /// (payload word + decode/pop bytes, excluding the 1-byte type tag).

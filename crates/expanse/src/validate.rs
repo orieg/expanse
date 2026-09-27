@@ -519,8 +519,10 @@ mod tests {
     /// (`digits <= BRANCHB_TO_L7_DOWN`, `digits <= BRANCHU_TO_B_DOWN`) where
     /// they once read `digits < BRANCH_L7_CAP` and `digits < BRANCHB_UP`, and
     /// `LEAFB1_DOWN` is derived from `LEAF1_CAP`. Every child count a node can
-    /// hold must take the same branch as under the literals 7, 192 and 21 the
-    /// old forms compared against, so the rewrite moves no demotion.
+    /// hold must take the same branch as under the literals 7 and 21 the old
+    /// forms compared against, so the rewrite moves no demotion. The U -> B
+    /// floor is pinned to its literal 161: the band between it and the
+    /// promotion point is one bitmap subexpanse (32 digits) wide.
     #[test]
     fn demotion_thresholds_match_the_literal_forms() {
         use crate::mutate::BRANCHB_UP;
@@ -530,15 +532,15 @@ mod tests {
         for n in 0..=crate::types::BRANCH_FANOUT {
             assert_eq!(n <= BRANCHB_TO_L7_DOWN, n < BRANCH_L7_CAP, "B -> L7 at {n}");
             assert_eq!(n <= BRANCHB_TO_L7_DOWN, n < 7, "B -> L7 at {n}");
-            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < BRANCHB_UP, "U -> B at {n}");
-            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < 192, "U -> B at {n}");
+            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < BRANCHB_UP - 31, "U -> B at {n}");
+            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < 161, "U -> B at {n}");
             // The one predicate every U -> B decision reads (Refs #1079):
             // the exclusive walks, the optimistic removal and the validator
             // share it, so an error in it would move all three together and
             // no drain test could see it. Pinned against the literal here.
             assert_eq!(
                 crate::mutate::branch_u_below_floor(n),
-                n < 192,
+                n < 161,
                 "branch_u_below_floor at {n}"
             );
             assert_eq!(n < LEAFB1_DOWN, n < 21, "bitmap leaf -> Leaf1 at {n}");
@@ -547,6 +549,11 @@ mod tests {
             LEAF1_CAP - LEAFB1_DOWN,
             4,
             "Leaf1 band: enters above 25, leaves below 21"
+        );
+        assert_eq!(
+            BRANCHB_UP - BRANCHU_TO_B_DOWN,
+            32,
+            "BranchU band: enters above 192, leaves at 160"
         );
     }
 

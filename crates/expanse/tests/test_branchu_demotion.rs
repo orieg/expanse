@@ -3,7 +3,7 @@
 //!
 //! An optimistic removal whose child empties nulls that child's slot in a
 //! `BranchU` parent in place. Before #1079 it did so unconditionally, and a
-//! branch could sit at or below `BRANCHU_TO_B_DOWN` (191 digits) where the
+//! branch could sit at or below `BRANCHU_TO_B_DOWN` (160 digits) where the
 //! plain engine would have demoted it to a `BranchB`; `validate()` rejected
 //! the tree. Every such store now goes through one routine,
 //! `sync::null_branch_u_slot`, which falls back to the exclusive remove
@@ -35,9 +35,9 @@ fn splitmix64(i: u64) -> u64 {
 }
 
 /// The issue's reproduction on the map wrapper: 400 keys put the root at a
-/// `BranchU` (about 202 distinct top digits), and removing every third key
-/// leaves about 169. Red on `main` before #1079 with "uncompressed branch
-/// population 169 at or below demotion threshold 191".
+/// `BranchU` (203 distinct top digits), and removing every other key leaves
+/// 145, at or below the demotion floor. Red on `main` before #1079, which
+/// left the root uncompressed below its floor.
 #[test]
 fn sync_map_remove_keeps_branch_u_above_its_floor() {
     let map = SyncExpanseMap::new();
@@ -51,7 +51,7 @@ fn sync_map_remove_keeps_branch_u_above_its_floor() {
         1,
         "precondition: the root is an uncompressed branch"
     );
-    for i in (0..400u64).step_by(3) {
+    for i in (0..400u64).step_by(2) {
         assert_eq!(map.remove(splitmix64(i)), Some(i));
     }
     map.with_locked(|m| m.validate_defensive())
@@ -62,7 +62,7 @@ fn sync_map_remove_keeps_branch_u_above_its_floor() {
         "the root crossed its floor and was demoted"
     );
     for i in 0..400u64 {
-        let want = (i % 3 != 0).then_some(i);
+        let want = (i % 2 != 0).then_some(i);
         assert_eq!(map.get(splitmix64(i)), want, "key {i}");
     }
     // The plain engine on the same sequence is the control: it demotes.
@@ -70,7 +70,7 @@ fn sync_map_remove_keeps_branch_u_above_its_floor() {
     for i in 0..400u64 {
         plain.insert(splitmix64(i), i);
     }
-    for i in (0..400u64).step_by(3) {
+    for i in (0..400u64).step_by(2) {
         plain.remove(splitmix64(i));
     }
     plain.validate();
@@ -90,7 +90,7 @@ fn sync_set_remove_keeps_branch_u_above_its_floor() {
         1,
         "precondition: the root is an uncompressed branch"
     );
-    for i in (0..400u64).step_by(3) {
+    for i in (0..400u64).step_by(2) {
         assert!(set.remove(splitmix64(i)));
     }
     set.with_locked(|s| s.validate_defensive())
@@ -101,13 +101,13 @@ fn sync_set_remove_keeps_branch_u_above_its_floor() {
         "the root crossed its floor and was demoted"
     );
     for i in 0..400u64 {
-        assert_eq!(set.contains(splitmix64(i)), i % 3 != 0, "key {i}");
+        assert_eq!(set.contains(splitmix64(i)), i % 2 != 0, "key {i}");
     }
     let mut plain = ExpanseSet::new();
     for i in 0..400u64 {
         plain.insert(splitmix64(i));
     }
-    for i in (0..400u64).step_by(3) {
+    for i in (0..400u64).step_by(2) {
         plain.remove(splitmix64(i));
     }
     plain.validate();
@@ -141,7 +141,7 @@ fn shuffled(mut keys: Vec<u64>, seed: u64) -> Vec<u64> {
 /// in a shuffled order, validating after every removal: every crossing of
 /// the floor, in both branches, is checked at the step it happens, and the
 /// tree ends empty. Red before #1079 at the first removal that left a
-/// branch at 191 digits.
+/// branch at its floor.
 #[test]
 fn sync_map_deep_drain_validates_after_every_removal() {
     let keys = deep_keys();

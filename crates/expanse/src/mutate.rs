@@ -2,8 +2,8 @@
 //!
 //! Insert and remove follow the **least-compressed-form ladder**: a
 //! subexpanse only decompresses when its current form overflows, and only
-//! recompresses with a **1-index hysteresis band** so an insert/delete
-//! oscillation at a boundary never thrashes allocations:
+//! recompresses below a **hysteresis band** (32 digits for U → B) so an
+//! insert/delete oscillation at a boundary never thrashes allocations:
 //!
 //! ```text
 //! grow:   Null → Immed(1 key) → Immed(n) → LinearLeaf → { level 1: BitmapLeaf → FullExpanse
@@ -2998,7 +2998,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 if crate::mutate::branch_u_below_floor(digits) {
-                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 1.
+                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 32.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
@@ -3584,7 +3584,7 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                 // SAFETY: edge is a valid live edge.
                 unsafe { bump_pop0_dispatch::<OCC>(edge, level, -1) };
                 if crate::mutate::branch_u_below_floor(digits) {
-                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 1.
+                    // Hysteresis: U → B at `BRANCHU_TO_B_DOWN` = U threshold − 32.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b::<OCC>(a, edge, level) };
                 }
