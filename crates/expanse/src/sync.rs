@@ -15352,9 +15352,37 @@ mod tests {
     /// the `arena_epoch` guard detects that the pre-allocated slot locator is stale
     /// and safely re-allocates in the compacted arena rather than installing a dangling
     /// locator (Refs #929, #1030).
+    ///
+    /// The compactor and the writers run in lockstep rounds: compaction `c`
+    /// begins only once some writer has started round `c - 1` (its next
+    /// `PER_ROUND` inserts), and a writer starts round `r` only once
+    /// compaction `r` has finished. That fixes the number of compactions at
+    /// `ROUNDS`, each begun while writers are inside a round, where an insert
+    /// that prepared its slot before the gate closed takes the stale-locator
+    /// fallback, regardless of how the host schedules the threads. Releasing
+    /// the writers when a compaction *begins* instead never reached that
+    /// branch: a released writer met the closed gate first and prepared its
+    /// slot under the new epoch. An unpaced
+    /// loop re-takes `fallback_mutex` as soon as it releases it, and
+    /// `std::sync::Mutex` lets the releasing thread take it again before a
+    /// woken waiter runs, so the writers, which fall back whenever a
+    /// compaction closes the gate mid-insert, were admitted only
+    /// occasionally: on a two-socket host they completed about 100 of 1,500
+    /// inserts each in 25 s and the test did not finish (#1222). Pacing the
+    /// compactor to writer progress alone left the overlap to the scheduler,
+    /// and a three-core runner ran one compaction in total. Every wait is
+    /// bounded and panics with its cause.
     #[test]
     fn stale_locator_window_during_compact_fallback() {
-        use core::sync::atomic::AtomicBool;
+        use core::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::time::{Duration, Instant};
+        const W: usize = 4;
+        const PER_WRITER: usize = 1500;
+        const TOTAL: usize = W * PER_WRITER;
+        const PER_ROUND: usize = 15;
+        const ROUNDS: usize = PER_WRITER / PER_ROUND;
+        const _: () = assert!(PER_WRITER.is_multiple_of(PER_ROUND));
+        const DEADLINE: Duration = Duration::from_secs(120);
         let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
         const PREFILL: usize = 300;
         let payload_of = |k: u64| -> Vec<u8> {
@@ -15373,30 +15401,66 @@ mod tests {
         }
 
         let stop = Arc::new(AtomicBool::new(false));
+        let inserted = Arc::new(AtomicUsize::new(0));
+        let finished = Arc::new(AtomicUsize::new(0));
         let compactor_m = Arc::clone(&m);
-        let compactor_stop = Arc::clone(&stop);
+        let compactor_inserted = Arc::clone(&inserted);
+        let compactor_finished = Arc::clone(&finished);
         let compactor = std::thread::spawn(move || {
-            while !compactor_stop.load(Ordering::Relaxed) {
+            for c in 1..=ROUNDS {
+                // Outside the serialised section: nothing here holds a lock
+                // or the gate, and round `c - 1` needs only `c - 1`
+                // compactions finished, so writers that stop advancing now
+                // are stuck somewhere else.
+                let want = (c - 1) * W * PER_ROUND + 1;
+                let paused = Instant::now();
+                while compactor_inserted.load(Ordering::Acquire) < want {
+                    assert!(
+                        paused.elapsed() < DEADLINE,
+                        "writers made no progress for {DEADLINE:?} with the compactor \
+                         paused outside the gate ({} of {want} inserts done after \
+                         {c} compactions)",
+                        compactor_inserted.load(Ordering::Relaxed)
+                    );
+                    std::thread::yield_now();
+                }
                 let _ = compactor_m.compact();
-                std::thread::yield_now();
+                compactor_finished.store(c, Ordering::Release);
             }
+            ROUNDS
         });
 
-        const W: usize = 4;
-        const PER_WRITER: usize = 1500;
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
         let writers: Vec<_> = (0..W)
             .map(|w| {
                 let m = Arc::clone(&m);
+                let inserted = Arc::clone(&inserted);
+                let finished = Arc::clone(&finished);
+                let done = done_tx.clone();
                 std::thread::spawn(move || {
                     let base = 10_000 + w * PER_WRITER;
                     for i in 0..PER_WRITER {
+                        if i.is_multiple_of(PER_ROUND) {
+                            let round = i / PER_ROUND;
+                            let paused = Instant::now();
+                            while finished.load(Ordering::Acquire) < round {
+                                assert!(
+                                    paused.elapsed() < DEADLINE,
+                                    "writer {w} waited {DEADLINE:?} for compaction {round} to finish"
+                                );
+                                std::thread::yield_now();
+                            }
+                        }
                         let k = (base + i) as u64;
                         let p = payload_of(k);
                         m.insert(k, &p, 0).unwrap();
+                        inserted.fetch_add(1, Ordering::Release);
                     }
+                    done.send(()).expect("test thread hung up");
                 })
             })
             .collect();
+        drop(done_tx);
 
         let reader_m = Arc::clone(&m);
         let reader_stop = Arc::clone(&stop);
@@ -15416,12 +15480,30 @@ mod tests {
             }
         });
 
+        // A writer that panics never sends; once the rest have finished its
+        // dropped sender disconnects the channel, and the join below reports it.
+        let started = Instant::now();
+        for _ in 0..W {
+            let left = DEADLINE.saturating_sub(started.elapsed());
+            match done_rx.recv_timeout(left) {
+                Ok(()) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    stop.store(true, Ordering::Relaxed);
+                    panic!(
+                        "writers did not finish within {DEADLINE:?}: {} of {TOTAL} inserts done",
+                        inserted.load(Ordering::Relaxed)
+                    );
+                }
+            }
+        }
         for w in writers {
             w.join().expect("writer panicked");
         }
         stop.store(true, Ordering::Relaxed);
-        compactor.join().expect("compactor panicked");
+        let compactions = compactor.join().expect("compactor panicked");
         reader.join().expect("reader panicked");
+        assert_eq!(compactions, ROUNDS, "the compactor stopped early");
 
         // Validate all inserted keys
         let mut rd = m.reader();
