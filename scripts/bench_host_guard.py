@@ -190,12 +190,18 @@ def descendants(procs: dict[int, Proc], root: int) -> set[int]:
     return out
 
 
-def tree_ticks(procs: dict[int, Proc], tree: set[int], root: int) -> int:
-    """CPU the tree has used: live members, plus the root's reaped descendants."""
-    total = sum(procs[p].ticks for p in tree if p in procs)
-    if root in procs:
-        total += procs[root].child_ticks
-    return total
+def tree_ticks(procs: dict[int, Proc], tree: set[int]) -> int:
+    """CPU the tree has used: each live member's own, plus what it has reaped.
+
+    A member's `cutime+cstime` holds the CPU of the children it waited for, so
+    summing both over the live members counts every process once: a running
+    one by its own ticks, a finished one inside the ticks of whoever reaped
+    it. Counting only the root's reaped children is not enough: a build's
+    `rustc` processes are reaped by `cargo`, which is still running, and
+    their CPU then appears nowhere but in cargo's `cutime` (run 36339992457
+    read its own build as 11.3 core-equivalents of foreign load that way).
+    """
+    return sum(procs[p].ticks + procs[p].child_ticks for p in tree if p in procs)
 
 
 # --------------------------------------------------------------------------
@@ -219,7 +225,7 @@ def assess(a: Sample, b: Sample, pin: list[int], own_root: int, self_pids: set[i
             off_busy += d
     own_a = descendants(a.procs, own_root) - set(self_pids)
     own_b = descendants(b.procs, own_root) - set(self_pids)
-    own = max(0, tree_ticks(b.procs, own_b, own_root) - tree_ticks(a.procs, own_a, own_root))
+    own = max(0, tree_ticks(b.procs, own_b) - tree_ticks(a.procs, own_a))
     self_ticks = sum(
         b.procs[p].ticks - a.procs[p].ticks for p in self_pids if p in a.procs and p in b.procs
     )
@@ -540,6 +546,16 @@ def self_test() -> int:
         b = samp(t, 1.0, {0: hz, 1: 0, 2: 0, 3: 0}, [(1, 0, "systemd", 0, 0, 1), (root, 1, "bash", 0, hz, 500)])
         r = assess(a, b, pin, root)
         assert abs(r["on_pin_foreign_busy_cpus"]) < 1e-6 and abs(r["own_busy_cpus"] - 1.0) < 1e-6, r
+
+        # 4b. The motivating defect of the first version (run 36339992457): a
+        # build's compilers are reaped by `cargo`, which is still running.
+        # Their CPU is then only in cargo's cutime, and it is still the run's.
+        cargo_a = base + [(12, root, "cargo", 0, 0, 610), (13, 12, "rustc", 0, 0, 620)]
+        cargo_b = base + [(12, root, "cargo", 0, 4 * hz, 610)]
+        a = samp(t, 0.0, {0: 0, 1: 0, 2: 0, 3: 0}, cargo_a)
+        b = samp(t, 1.0, {0: 2 * hz, 1: 2 * hz, 2: 0, 3: 0}, cargo_b)
+        r = assess(a, b, pin, root)
+        assert abs(r["on_pin_foreign_busy_cpus"]) < 1e-6 and abs(r["own_busy_cpus"] - 4.0) < 1e-6, r
 
         # 5. A window below MIN_WINDOW_S is not measurable, never "quiet".
         a = samp(t, 0.0, {0: 0, 1: 0, 2: 0, 3: 0}, base)
