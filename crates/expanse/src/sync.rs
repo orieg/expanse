@@ -12202,6 +12202,14 @@ mod miri_ub_sites {
         }
     }
 
+    /// Waits until `flag` is set: a writer that must overlap the reader's
+    /// passes starts only after the first one.
+    fn wait_for(flag: &AtomicBool) {
+        while !flag.load(Ordering::Acquire) {
+            thread::yield_now();
+        }
+    }
+
     // --- SyncExpanseMap ---------------------------------------------------
 
     #[test]
@@ -12828,6 +12836,11 @@ mod miri_ub_sites {
     /// Top-byte digits the writer inserts into, and then empties, null
     /// `BranchU` slots at.
     const BRANCHU_CHURN: u64 = 6;
+    /// Insert-then-remove rounds over those digits. The writer starts only
+    /// once the reader has finished a pass, so every round overlaps reads:
+    /// with a single round started at once, the inserts could all land before
+    /// the reader's first load, and the census would not see them (#1190).
+    const BRANCHU_ROUNDS: usize = 3;
     const _: () = assert!(BRANCHU_PREFILL + BRANCHU_CHURN <= 256);
     const _: () = assert!(BRANCHU_PREFILL > crate::types::BRANCHU_TO_B_DOWN as u64 + BRANCHU_CHURN);
 
@@ -12859,20 +12872,24 @@ mod miri_ub_sites {
             map.insert(top_key(d), d);
         }
         assert!(map.with_locked(|m| top_is_branchu(m.occ_root().0)));
-        let done = AtomicBool::new(false);
+        let (started, done) = (AtomicBool::new(false), AtomicBool::new(false));
         thread::scope(|s| {
             s.spawn(|| {
+                wait_for(&started);
                 let churn = BRANCHU_PREFILL..BRANCHU_PREFILL + BRANCHU_CHURN;
-                for d in churn.clone() {
-                    assert_eq!(map.insert(top_key(d), d), None);
-                }
-                for d in churn {
-                    assert_eq!(map.remove(top_key(d)), Some(d));
+                for _ in 0..BRANCHU_ROUNDS {
+                    for d in churn.clone() {
+                        assert_eq!(map.insert(top_key(d), d), None);
+                    }
+                    for d in churn.clone() {
+                        assert_eq!(map.remove(top_key(d)), Some(d));
+                    }
                 }
                 done.store(true, Ordering::Release);
             });
             s.spawn(|| {
                 read_until(&done, || {
+                    started.store(true, Ordering::Release);
                     for d in BRANCHU_PREFILL - 2..BRANCHU_PREFILL + BRANCHU_CHURN {
                         if let Some(v) = map.get(top_key(d)) {
                             assert_eq!(v, d);
@@ -12931,20 +12948,24 @@ mod miri_ub_sites {
             set.insert(top_key(d));
         }
         assert!(set.with_locked(|m| top_is_branchu(m.occ_root().0)));
-        let done = AtomicBool::new(false);
+        let (started, done) = (AtomicBool::new(false), AtomicBool::new(false));
         thread::scope(|s| {
             s.spawn(|| {
+                wait_for(&started);
                 let churn = BRANCHU_PREFILL..BRANCHU_PREFILL + BRANCHU_CHURN;
-                for d in churn.clone() {
-                    assert!(set.insert(top_key(d)));
-                }
-                for d in churn {
-                    assert!(set.remove(top_key(d)));
+                for _ in 0..BRANCHU_ROUNDS {
+                    for d in churn.clone() {
+                        assert!(set.insert(top_key(d)));
+                    }
+                    for d in churn.clone() {
+                        assert!(set.remove(top_key(d)));
+                    }
                 }
                 done.store(true, Ordering::Release);
             });
             s.spawn(|| {
                 read_until(&done, || {
+                    started.store(true, Ordering::Release);
                     for d in BRANCHU_PREFILL - 2..BRANCHU_PREFILL {
                         assert!(set.contains(top_key(d)));
                     }

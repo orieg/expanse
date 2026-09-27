@@ -196,6 +196,30 @@ pub(crate) fn branch_form(e: &Edge32) -> Option<&'static str> {
     }
 }
 
+/// The form of the node that holds `key` below the root `e` (whose leaves
+/// hold `kb` key bytes), or `"none"` when the path ends: the census workloads
+/// assert that they reach the leaf form they exercise.
+#[cfg(test)]
+pub(crate) fn terminal_form(a: &Arena, e: &Edge32, mut kb: u8, key: u32) -> &'static str {
+    let (mut e, mut rem) = (*e, key);
+    loop {
+        match kind(&e) {
+            Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+                let Some(c) = branch_child(a, &e, digit_at(rem, kb)) else {
+                    return "none";
+                };
+                rem = child_rem(rem, kb);
+                kb -= 1;
+                e = c;
+            }
+            Kind::Bitmap => return "set bitmap leaf",
+            Kind::MapBitmap => return "map bitmap leaf",
+            Kind::Null => return "none",
+            _ => return "other",
+        }
+    }
+}
+
 #[inline]
 fn kind_of(tag: u8) -> Kind {
     match tag {

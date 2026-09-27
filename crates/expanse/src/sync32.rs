@@ -1277,6 +1277,103 @@ mod miri_ub_sites {
         assert_eq!(w.len(), KEYS as usize);
     }
 
+    /// Keys the bitmap workloads keep under one 3-byte prefix: above
+    /// `MAP_BITMAP_ENTER_32` and `SET_BITMAP_ENTER_32`, so their level-1 leaf
+    /// is a bitmap leaf, and the churn below never takes it under the leave
+    /// thresholds.
+    const BITMAP_KEYS: u32 = 80;
+    const _: () = assert!(BITMAP_KEYS as usize > crate::types32::MAP_BITMAP_ENTER_32);
+    const _: () = assert!(BITMAP_KEYS as usize > crate::types32::SET_BITMAP_ENTER_32);
+    /// Keys the bitmap workloads remove and reinsert.
+    const BITMAP_CHURN: u32 = 24;
+    const _: () = assert!((BITMAP_KEYS - 1) as usize > crate::types32::MAP_BITMAP_LEAVE_32);
+    const _: () = assert!((BITMAP_KEYS - 1) as usize > crate::types32::SET_BITMAP_LEAVE_32);
+
+    /// A bitmap workload key: one prefix, digits spread over the low byte.
+    fn bitmap_key(i: u32) -> u32 {
+        0x0042_0700 | (i * 3)
+    }
+
+    /// A reader under the map writer's overwrites, removals and reinsertions
+    /// in a map bitmap leaf, each of which the shared writer makes on a copy
+    /// (#1187, #1190).
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1190)")]
+    fn map_bitmap_reader_writer() {
+        let mut m = SyncExpanseMap32::with_capacity(MUTATION_HEADROOM * 2, 1);
+        let (mut w, mut pool) = m.split();
+        for i in 0..BITMAP_KEYS {
+            w.try_insert(bitmap_key(i), i).expect("prefill");
+        }
+        let form = |w: &Writer32<'_, ExpanseMap32>| {
+            let t = w.inner();
+            trie32::terminal_form(t.arena(), &t.root_edge(), 4, bitmap_key(0))
+        };
+        assert_eq!(form(&w), "map bitmap leaf");
+        let mut r = pool.take().expect("one reader");
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..BITMAP_CHURN {
+                    assert_eq!(w.try_insert(bitmap_key(i), i + 100), Ok(Some(i)));
+                    assert_eq!(w.try_remove(bitmap_key(i)), Ok(Some(i + 100)));
+                    assert_eq!(w.try_insert(bitmap_key(i), i), Ok(None));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..BITMAP_CHURN {
+                        if let Ok(Some(v)) = r.try_get(bitmap_key(i)) {
+                            assert!(v == i || v == i + 100);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(form(&w), "map bitmap leaf");
+        assert_eq!(w.len(), BITMAP_KEYS as usize);
+    }
+
+    /// The set form of [`map_bitmap_reader_writer`].
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1190)")]
+    fn set_bitmap_reader_writer() {
+        let mut m = SyncExpanseSet32::with_capacity(MUTATION_HEADROOM * 2, 1);
+        let (mut w, mut pool) = m.split();
+        for i in 0..BITMAP_KEYS {
+            w.try_insert(bitmap_key(i)).expect("prefill");
+        }
+        let form = |w: &Writer32<'_, ExpanseSet32>| {
+            let t = w.inner();
+            trie32::terminal_form(t.arena(), &t.root_edge(), 4, bitmap_key(0))
+        };
+        assert_eq!(form(&w), "set bitmap leaf");
+        let mut r = pool.take().expect("one reader");
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..BITMAP_CHURN {
+                    assert_eq!(w.try_remove(bitmap_key(i)), Ok(true));
+                    assert_eq!(w.try_insert(bitmap_key(i)), Ok(true));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in BITMAP_CHURN..BITMAP_KEYS {
+                        assert_ne!(r.try_contains(bitmap_key(i)), Ok(false));
+                    }
+                    for i in 0..BITMAP_CHURN {
+                        let _ = r.try_contains(bitmap_key(i));
+                    }
+                });
+            });
+        });
+        assert_eq!(form(&w), "set bitmap leaf");
+        assert_eq!(w.len(), BITMAP_KEYS as usize);
+    }
+
     /// Top-byte digits the branch workload's root branch holds at each
     /// checkpoint: two (an `L2`), `BRANCH_L6_CAP_32`, a bitmap branch, then
     /// past `BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32`.
