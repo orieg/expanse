@@ -2858,6 +2858,13 @@ def _self_test_zero_counts() -> None:
             assert not Path(tmp, "a.json").exists()
         finally:
             sys.argv = saved
+        # The report-free mode the workflow runs from its own commit.
+        hp.write_text(SELF_TEST_ZERO_HEAD)
+        with contextlib.redirect_stderr(io.StringIO()):
+            assert check_zero_counts_cli(str(hp), str(bp), "fatal") == 1
+            assert check_zero_counts_cli(str(hp), str(bp), "no-baseline") == 0
+            assert check_zero_counts_cli(str(bp), None, "no-baseline") == 1
+            assert check_zero_counts_cli(str(Path(tmp, "absent.txt")), None, "fatal") == 1
 
 
 def _self_arm(header: str, ins: int) -> str:
@@ -3783,6 +3790,23 @@ def self_test() -> int:
     return 0
 
 
+def check_zero_counts_cli(head_path: str, base_path: str | None, zero_base: str) -> int:
+    """`--check-zero-counts`: the zero-count policy alone, as an exit status."""
+    head_text = read(head_path)
+    if head_text is None:
+        print(f"::error::{head_path} is missing or unreadable", file=sys.stderr)
+        return 1
+    base_text = read(base_path) if base_path else None
+    _, _, fatals, notes = apply_zero_count_policy(
+        parse(head_text), parse(base_text) if base_text else None, zero_base
+    )
+    for note in notes:
+        print(f"::warning::{note}", file=sys.stderr)
+    for fatal in fatals:
+        print(f"::error::{fatal}", file=sys.stderr)
+    return 1 if fatals else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Render Expanse CI Performance & Architecture Telemetry Report")
     ap.add_argument("--head", help="bench output for this branch (required unless --self-test)")
@@ -3822,6 +3846,13 @@ def main() -> int:
         "comparison (NO BASELINE when every arm is), or fatal. A zero head arm is always "
         "fatal. Default: no-baseline, so a broken merge base never blocks a pull request",
     )
+    ap.add_argument(
+        "--check-zero-counts",
+        action="store_true",
+        help="only apply the zero-count policy to --head (and --base) and exit 1 on a "
+        "fatal; renders no report and reads nothing beyond the two files, so the "
+        "workflow can run it from its own commit against output of an older ref",
+    )
     ap.add_argument("--self-test", action="store_true", help="run unit-style checks on the parsing/gating helpers and exit")
     args = ap.parse_args()
 
@@ -3829,6 +3860,8 @@ def main() -> int:
         return self_test()
     if not args.head:
         ap.error("--head is required unless --self-test is given")
+    if args.check_zero_counts:
+        return check_zero_counts_cli(args.head, args.base, args.zero_base)
 
     head_text = read(args.head)
     if head_text is None:

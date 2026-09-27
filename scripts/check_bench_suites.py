@@ -84,6 +84,22 @@ def check_manifest(manifest: dict) -> tuple[list[str], list[str]]:
             errs.append(f"{where} ({name}): runner must be one of {RUNNERS}")
         if s.get("runner") == "generic" and not (s.get("package") and s.get("target")):
             errs.append(f"{where} ({name}): generic suites need `package` and `target`")
+        # A generic wall-clock suite prints results in its own format, so the
+        # workflow cannot tell a run that printed results from one that
+        # printed only cargo's own lines unless the suite says what a result
+        # line looks like (#1211: three search suites wrote only to stderr and
+        # uploaded an empty file from a green job).
+        pat = s.get("result_pattern")
+        if pat is not None:
+            try:
+                re.compile(pat)
+            except re.error as exc:
+                errs.append(f"{where} ({name}): result_pattern does not compile: {exc}")
+        elif s.get("runner") == "generic" and s.get("kind") == "wallclock" and s.get("available"):
+            errs.append(
+                f"{where} ({name}): an available generic wallclock suite must declare "
+                "`result_pattern`, the regex a line of its result output matches"
+            )
         if s.get("available") is False and not s.get("reason"):
             errs.append(f"{where} ({name}): an unavailable suite must state a `reason`")
         if s.get("available") is True and s.get("reason"):
@@ -448,6 +464,38 @@ def check_targets(manifest: dict, root: Path) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# run output
+# --------------------------------------------------------------------------
+def output_has_results(pattern: str, text: str) -> int:
+    """Number of lines of `text` that `pattern` matches as a result line."""
+    rx = re.compile(pattern)
+    return sum(1 for line in text.splitlines() if rx.search(line))
+
+
+def check_output(root: Path, suite: str, path: Path) -> int:
+    """Exit status for the workflow: 0 when the run printed a result line."""
+    manifest = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
+    entry = next((s for s in manifest["suites"] if s.get("name") == suite), None)
+    if entry is None:
+        print(f"::error::suite {suite!r} is not declared in {MANIFEST}")
+        return 2
+    pat = entry.get("result_pattern")
+    if not pat:
+        print(f"::error::suite {suite!r} declares no result_pattern in {MANIFEST}")
+        return 2
+    text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    n = output_has_results(pat, text)
+    if n == 0:
+        print(
+            f"::error::{path} holds no line matching suite {suite!r}'s result_pattern "
+            f"{pat!r} ({len(text.splitlines())} line(s) captured): the run printed no results"
+        )
+        return 1
+    print(f"check_bench_suites.py: {path} holds {n} result line(s) for suite {suite!r}")
+    return 0
+
+
+# --------------------------------------------------------------------------
 def run(root: Path, write: bool) -> int:
     manifest = json.loads((root / MANIFEST).read_text(encoding="utf-8"))
     errs, collisions = check_manifest(manifest)
@@ -737,6 +785,39 @@ def self_test() -> int:
         errs, _ = check_manifest(mf([dict(tok, suite="Bad-Name")]))
         assert any("must match" in x for x in errs), errs
 
+    # #1211: a result_pattern is required where the workflow cannot otherwise
+    # tell results from noise, must compile, and decides the output check.
+    gen = {"name": "wc", "available": True, "kind": "wallclock", "runner": "generic",
+           "package": "p", "target": "t", "summary": "s"}
+    errs, _ = check_manifest(dict(base, suites=base["suites"] + [gen]))
+    assert any("must declare `result_pattern`" in e for e in errs), errs
+    errs, _ = check_manifest(dict(base, suites=base["suites"] + [dict(gen, result_pattern="(")]))
+    assert any("does not compile" in e for e in errs), errs
+    errs, _ = check_manifest(dict(base, suites=base["suites"] + [dict(gen, result_pattern=r"=\s*[0-9.]+ns\b")]))
+    assert not errs, errs
+    # An unavailable or callgrind suite needs none.
+    errs, _ = check_manifest(dict(base, suites=base["suites"] + [dict(gen, available=False, reason="r")]))
+    assert not errs, errs
+
+    # The motivating defect: once stderr is captured, a run that printed no
+    # results still leaves cargo's own lines in the file, so a non-empty
+    # check passes it. Only a result line may satisfy the check.
+    cargo_only = (
+        "    Finished `bench` profile [optimized + debuginfo] target(s) in 0.21s\n"
+        "     Running benches/search_wand.rs (target/release/deps/search_wand-0123abcd)\n"
+        "\n(pass --json to emit machine-readable results)\n"
+    )
+    wand = r"=\s*[0-9.]+ns\b"
+    assert output_has_results(wand, cargo_only) == 0
+    # Verbatim result line of search_wand, run 36314981240.
+    wand_line = "  dense      n=  1000000 shallow  skips=   666641  stateless=   16.22ns cursor=    9.87ns roar=   25.40ns\n"
+    assert output_has_results(wand, cargo_only + wand_line) == 1
+    # Every pattern the real manifest declares rejects the cargo-only file.
+    real = json.loads((Path(__file__).resolve().parent.parent / MANIFEST).read_text(encoding="utf-8"))
+    for s in real["suites"]:
+        if s.get("result_pattern"):
+            assert output_has_results(s["result_pattern"], cargo_only) == 0, s["name"]
+
     print("check_bench_suites.py --self-test: all checks passed")
     return 0
 
@@ -745,9 +826,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--write", action="store_true", help="regenerate the generated blocks from the manifest")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument(
+        "--check-output",
+        nargs=2,
+        metavar=("SUITE", "FILE"),
+        help="fail unless FILE holds a line matching SUITE's result_pattern (#1211)",
+    )
     args = ap.parse_args()
     if args.self_test:
         return self_test()
+    if args.check_output:
+        root = Path(__file__).resolve().parent.parent
+        return check_output(root, args.check_output[0], Path(args.check_output[1]))
     root = Path(
         subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
     )
