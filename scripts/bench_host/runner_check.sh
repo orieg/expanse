@@ -7,8 +7,8 @@
 #
 # Findings are fatal when the runner provides its own toolchain
 # (EXPANSE_TOOLCHAIN set by the service account's .env) and a `::warning::`
-# otherwise, so a host that has not been migrated keeps working and says why
-# it is exposed. Exit 1 = fatal findings. Paths under $HOME are printed as `~`
+# otherwise. The bench workflows refuse a runner without EXPANSE_TOOLCHAIN
+# before calling this, so there they are always fatal. Exit 1 = fatal findings. Paths under $HOME are printed as `~`
 # because the job log is public (AGENTS.md §7).
 #
 #   runner_check.sh [--self-test]

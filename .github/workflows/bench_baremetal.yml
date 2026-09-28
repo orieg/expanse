@@ -669,10 +669,9 @@ jobs:
         #       of --name; only renaming the host removes it.
         #   Copying '/home/<user>/.gitconfig' to '/opt/.../_work/_temp/...'
         #       actions/checkout copies the invoking user's global gitconfig
-        #       and logs the source. $HOME must stay the benchmark user's
-        #       while the bench step below exports $HOME/.cargo/bin and
-        #       $HOME/.local/bin; the service account in docs/CI.md, with a
-        #       root-owned toolchain and $HOME, closes it.
+        #       and logs the source. The bench service account in docs/CI.md
+        #       has a root-owned $HOME outside /home and no gitconfig, which
+        #       closes it.
         #
         # Relocation alone therefore does not sanitise the log.
         run: |
@@ -759,24 +758,20 @@ jobs:
               --suite "ci-$SUITE" --github-output -- bash --noprofile --norc -eo pipefail "$0"
           fi
 
-          # The toolchain. A runner under the bench service account provides
-          # its own through its .env and .path (EXPANSE_TOOLCHAIN, root-owned,
-          # docs/CI.md "Service account and filesystem layout"), and nothing
-          # is added here. A runner still on a login account falls back to
-          # that account's home-directory toolchain, and says so.
-          if [ -n "${EXPANSE_TOOLCHAIN:-}" ]; then
-            echo "toolchain: provided by the runner"
-          else
-            echo "::warning::this runner provides no EXPANSE_TOOLCHAIN; using the login account's home-directory toolchain, which every job can rewrite (docs/CI.md, Bare-Metal Benchmark Runner, Status)"
-            export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-            export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
-            export LIBRARY_PATH="$HOME/.local/lib:${LIBRARY_PATH:-}"
-            export C_INCLUDE_PATH="$HOME/.local/include:${C_INCLUDE_PATH:-}"
+          # The toolchain comes from the runner: the bench service account's
+          # unit and .env provide it, root-owned (EXPANSE_TOOLCHAIN, docs/CI.md
+          # "Service account and filesystem layout"), and nothing is added
+          # here. A runner without it has not been provisioned, and is refused
+          # rather than measured with a toolchain its jobs could rewrite.
+          if [ -z "${EXPANSE_TOOLCHAIN:-}" ]; then
+            echo "::error::this runner provides no EXPANSE_TOOLCHAIN: it is not running under the bench service account (docs/CI.md, Bare-Metal Benchmark Runner). No benchmark was run."
+            echo "fail_reason=runner_unprovisioned" >> "$GITHUB_OUTPUT"
+            exit 1
           fi
+          echo "toolchain: provided by the runner"
 
-          # Isolation tripwire: fatal on a service-account runner, a warning on
-          # one that has not been migrated. Run after the PATH above is final,
-          # from the workflow's commit like the other integrity checks.
+          # Isolation tripwire, from the workflow's commit like the other
+          # integrity checks; fatal with EXPANSE_TOOLCHAIN set.
           if ! bash "$RUNNER_TEMP/bench-tools/scripts/bench_host/runner_check.sh"; then
             echo "fail_reason=runner_hardening" >> "$GITHUB_OUTPUT"
             exit 1
@@ -2337,6 +2332,9 @@ jobs:
               } else if (reason === 'missing_perf_counters') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf stat -e instructions\` could not open one on the runner. Set \`kernel.perf_event_paranoid=1\` (the value every committed counter artifact records) and re-trigger; do not grant \`perf\` file capabilities on a runner that executes pull-request code (\`docs/CI.md\`, *Hardware counters*). A virtualised host may expose no PMU at all, in which case the counters have to come from bare metal. No numbers were produced.`;
+              } else if (reason === 'runner_unprovisioned') {
+                label = 'refused';
+                cause = 'The run was **refused before any benchmark started**: the runner provides no `EXPANSE_TOOLCHAIN`, so it is not running under the bench service account. `docs/CI.md`, *Bare-Metal Benchmark Runner*, describes the arrangement and `scripts/bench_host/migrate.sh` applies it. No numbers were produced.';
               } else if (reason === 'runner_hardening') {
                 label = 'refused';
                 cause = 'The run was **refused before any benchmark started**: the runner provides its own toolchain but failed its isolation check (a writable `PATH` entry or tool, general `sudo`, or a privileged group). The findings are in the job log; `docs/CI.md`, *Bare-Metal Benchmark Runner*, lists the required arrangement. No numbers were produced.';
