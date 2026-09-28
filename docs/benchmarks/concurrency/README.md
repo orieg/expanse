@@ -5206,3 +5206,44 @@ From the `occ-stats` counters pass, same schedule: `gate_wait_cycles` and `quies
 ### 24.4 Reading it for the band width
 
 The 32-digit default band keeps each W = 1 crossing at about 1,230 ns of band-cycle excess on this host, and does not make the band cycle slower than its twin at W = 2. At W ≥ 4 the band cycle is slower in both runs, and at W = 8 about a tenth of the crossings are not attributed to a named fallback. Whether the band should widen further is a density decision (#1208), and these cells are one of its inputs. The cells do not measure memory.
+
+## 25. The host guard's on-pin void boundary — METHODOLOGY §25's evaluation (Refs #1270)
+
+One run of `host_guard_sensitivity.py run` at `7133d12e` on the reference host (12th Gen Intel Core i9-12900F, Linux 6.8), pin `0-15`, under the shared bench lock. The governor was `powersave` in every sample. The workflow sets `performance`, which needs the root-owned helper, so this run's absolute throughputs are not comparable with CI's. The artifact is `results/gate_host_guard_sensitivity.json`, and `host_guard_sensitivity.py evaluate` recomputes the decision from it. Four blocks of 18 rounds per arm, 72 windows per arm per cell (workload: core_concurrency).
+
+**Verdict: `INCONCLUSIVE`. `RUN_ON_PIN_VOID` stays 0.25, and `START_ON_PIN_MAX` stays 0.1** (§25.4). The A/A check flagged three gated cells: the control arm's first two blocks and its last two differ by more than the test resolves. The run is otherwise admissible. No arm carried `user`-class load over §25.5's bounds, the governor never changed, and the negative control passed.
+
+### 25.1 The effect of each level, and the control against itself
+
+`mean T(arm) / mean T(control)`, windows pooled over the four blocks, two-sample BCa interval at per-cell confidence 0.99545 (Bonferroni over 11 gated cells). Bold marks an interval that excludes 1. In the level columns, bold with a block count marks a cell §25.4 calls harmed *(measured: reference host, `7133d12e`; workload: core_concurrency)*.
+
+| Cell (engine/read %/W) | A/A (blocks 0–1 ÷ 2–3) | 0.10 CPU | 0.25 CPU | 0.50 CPU |
+|---|---|---|---|---|
+| map/100/1 | 1.0023 [0.9998, 1.0066] | 1.0021 [0.9998, 1.0045] | 1.0002 [0.9985, 1.0028] | **0.9940 [0.9916, 0.9964]** (4/4 below 1) |
+| map/100/4 | 0.9986 [0.9944, 1.0033] | 0.9976 [0.9945, 1.0004] | **0.9961 [0.9930, 0.9993]** (4/4 below 1) | **0.9944 [0.9917, 0.9970]** (4/4 below 1) |
+| map/100/16 | **0.9847 [0.9747, 0.9935]** | 1.0083 [1.0020, 1.0150] | 1.0049 [0.9995, 1.0112] | **0.9934 [0.9877, 0.9999]** (3/4 below 1) |
+| map/50/1 | 0.9996 [0.9769, 1.0233] | 0.9950 [0.9762, 1.0104] | 0.9940 [0.9766, 1.0104] | 0.9867 [0.9684, 1.0035] |
+| map/50/4 | 0.9968 [0.9839, 1.0097] | **0.9913 [0.9834, 0.9989]** (4/4 below 1) | 0.9923 [0.9846, 1.0006] | 0.9979 [0.9903, 1.0052] |
+| map/50/16 (not gated) | not gated | 0.9492 [0.8893, 1.0203] | 1.0299 [0.9629, 1.0937] | 1.0186 [0.9542, 1.0798] |
+| set/100/1 | **0.9946 [0.9903, 0.9996]** | **0.9960 [0.9923, 0.9994]** (3/4 below 1) | **0.9951 [0.9915, 0.9983]** (3/4 below 1) | **0.9911 [0.9875, 0.9939]** (4/4 below 1) |
+| set/100/4 | 1.0363 [0.9921, 1.1582] | 1.0145 [0.9926, 1.0809] | 1.0161 [0.9941, 1.0815] | 0.9260 [0.8264, 1.0066] |
+| set/100/16 | **1.1219 [1.0146, 1.3380]** | 1.0736 [1.0236, 1.1819] | 1.0690 [1.0196, 1.1776] | 0.9771 [0.8821, 1.0841] |
+| set/50/1 | 0.9993 [0.9937, 1.0046] | **0.9963 [0.9920, 1.0000]** (4/4 below 1) | **0.9936 [0.9891, 0.9974]** (4/4 below 1) | **0.9897 [0.9858, 0.9934]** (4/4 below 1) |
+| set/50/4 | 0.9983 [0.9588, 1.0611] | 0.9962 [0.9433, 1.0302] | 0.9990 [0.9519, 1.0318] | 1.0006 [0.9628, 1.0355] |
+| set/50/16 | 1.0139 [0.9728, 1.0811] | 1.0074 [0.9700, 1.0438] | 1.0259 [0.9860, 1.0640] | 1.0497 [1.0114, 1.0846] |
+
+- **The drift is the size of the effects.** The control against itself moved `map` 100 %/16 by −1.5 %, `set` 100 %/1 by −0.5 % and `set` 100 %/16 by +12 %. Each of the 11 "harmed" flags in the level columns lies within 1.1 % of 1.0, and four of them fall in cells that also drifted. The rule reads that as a run that cannot tell injected load from between-block drift, and the boundary does not move.
+- **Not predicted: the W = 1 cells.** `fair_share_loss` predicts no loss while idle pinned CPUs remain. Yet the W = 1 `set` cells read 0.4–1.0 % below 1 at every level, in 3 or 4 of the 4 blocks, and `map` 100 %/1 did so at 0.50. SMT sharing, frequency under `powersave` and cache contention are candidates; none was measured. `set` 100 %/1 is also one of the A/A-flagged cells.
+- **What this leaves open on #1270.** Setting the boundary from measurement needs a design whose control does not drift between blocks. One such design toggles the injection between rounds inside one suite process, so each ratio pairs windows a few seconds apart. It needs its own pre-registration.
+
+### 25.2 What the guard read
+
+- **Calibration.** In the injected arms the new guard's mean on-pin reading was 0.110, 0.264, 0.511 and 1.028, against achieved loads of 0.102, 0.252, 0.495 and 0.997 CPU. Its task-time attribution put 0.102, 0.252, 0.495 and 0.997 CPU on the pinned CPUs in the injector's class (`runner`, the driver's session), matching the injector's own CPU clock. The suite's per-group `foreign_busy_cpus` read 0.135, 0.286, 0.534 and 1.048 *(measured: reference host, `7133d12e`)*.
+- **Control arms (212 samples of 2 s per guard).** The new guard read −0.054 to +0.178 on the pinned CPUs, standard deviation 0.021, with 22 % of samples negative. The previous guard, watching the same processes, read −0.104 to +0.173, standard deviation 0.043, with 33 % negative. Every negative reading of the new guard lies inside `/proc/stat`'s tick quantization bound for 16 CPUs over 2 s, ±0.08 (`host_guard_bounds.quantization_max`); the previous guard's −0.104 does not. Neither guard crossed 0.25 in a control arm. This run did not reproduce the −0.20 to −0.40 lows of #1270's CI runs, which ran under the runner service and `performance`; which of those differences matters is unmeasured. P25.1 holds for the new guard.
+- **The one control sample over 0.1, attributed.** The largest control-arm reading, 0.178 in block 2, was attributed wholly to `user`-class tasks on the pinned CPUs (0.178; `unattributed` 0.000), with no single process above 1.5 % of a CPU. That is #1270's case, load spread over many processes, and the guard now names it by class.
+- **Reading order.** The own tree was read at most 0.12 ms after the CPU counters (median 0.077 ms), and no sample needed a second re-read pass.
+- **Idle, 1 s windows (the start gate's).** Both guards read at most 0.078 over 60 windows, and 4 of the 60 exceeded 0.04.
+
+### 25.3 The negative control
+
+At 1.00 CPU (achieved 0.997), all 53 new-guard samples read above 0.25 (mean 1.028). `summarize` exited 1 and printed `the host was disturbed during the run`, and `evaluate` matched that string. The guard fails closed on real foreign load.

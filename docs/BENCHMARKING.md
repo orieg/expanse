@@ -617,6 +617,66 @@ Bench targets deliberately **not** reachable from a slash command:
      the run's host-activity record with the report, and uploads both as
      `host-guard.json` and `host-activity.jsonl`. A runner outside the
      workflow records its load per cell through `bench_provenance` (rule 2).
+     - *The on-pin boundary is not yet set from measurement.* A controlled
+       experiment injected 0.10, 0.25 and 0.50 CPU on the pinned CPUs and
+       read the `concurrency` suite's cells
+       ([`concurrency/METHODOLOGY.md`](benchmarks/concurrency/METHODOLOGY.md)
+       §25). It was `INCONCLUSIVE`: the uninjected control drifted between
+       blocks by as much as the injected levels moved the cells, so under its
+       pre-registered rule `RUN_ON_PIN_VOID` stays 0.25 and
+       `START_ON_PIN_MAX` stays 0.1
+       ([`concurrency/README.md`](benchmarks/concurrency/README.md) §25,
+       `results/gate_host_guard_sensitivity.json`). The same run's negative
+       control, 1.00 CPU injected, was voided on every sample.
+     - *The two operands are read together.* On-pin foreign load is the
+       pinned CPUs' busy time less the run's own tree's CPU, so the guard
+       reads the own tree immediately after `/proc/stat`. It first read it
+       during a whole-process scan after `/proc/stat`, and when that scan ran
+       late at one sample the own tree's CPU fell into the neighbouring
+       window. In the seven `concurrency` runs it voided on 2026-09-28, 50 %
+       to 53 % of each run's samples read *negative* on-pin foreign load (as
+       low as −0.40), which no foreign process can produce. Eleven of the
+       twelve samples over the boundary came right after one reading −0.20 to
+       −0.40; in ten of those eleven no foreign process reached 1 % of a CPU,
+       and in the eleventh `sshd` and `rsync` together used 0.10 of one. The
+       twelfth was real load: a `cron`-started `hdparm` at 63 % of a CPU. The
+       three runs it admitted at the same refs read as low as −0.34 as well
+       *(measured: `host-activity.jsonl` of voided runs
+       [36401373828](https://github.com/orieg/expanse/actions/runs/36401373828),
+       [36419777123](https://github.com/orieg/expanse/actions/runs/36419777123),
+       [36452009138](https://github.com/orieg/expanse/actions/runs/36452009138),
+       [36456913612](https://github.com/orieg/expanse/actions/runs/36456913612),
+       [36459335554](https://github.com/orieg/expanse/actions/runs/36459335554),
+       [36464205972](https://github.com/orieg/expanse/actions/runs/36464205972),
+       [36466620921](https://github.com/orieg/expanse/actions/runs/36466620921)
+       and admitted runs
+       [36454440196](https://github.com/orieg/expanse/actions/runs/36454440196),
+       [36461783455](https://github.com/orieg/expanse/actions/runs/36461783455),
+       [36469013416](https://github.com/orieg/expanse/actions/runs/36469013416),
+       i9-12900F reference host)*. Each sample now records how long after
+       the CPU counters the own tree was read (`own_read_lag_s`), and a void
+       prints the reading at the three decimals it was compared at (run
+       36466620921 printed `0.25 > 0.25` for 0.252).
+     - *Attribution.* Every sample splits its foreign load by task class —
+       kernel threads (kworker, ksoftirqd, rcu, migration, other), the
+       runner's own processes (the run's cgroup, outside its tree), the guard
+       itself, user processes — each with its sum, host-wide and on the
+       pinned CPUs (placed by the CPU a task last ran on), plus interrupt,
+       softirq and steal time from the per-CPU counters and the remainder
+       none of those explains. `summarize` prints that breakdown under every
+       sample it voids a run for, so a void names what it saw even when no
+       single process reached 1 % of a CPU.
+     - *What counts as foreign: everything outside the run's own process
+       tree, with no class exempted.* Kernel threads, interrupt time on the
+       pinned CPUs and the runner's own processes all count. The guard cannot
+       tell a softirq or kworker that serviced the benchmark from one that
+       serviced another process's transfer, and the runner's processes are
+       not pinned: when they run on a pinned CPU they take its time like any
+       other process. Exempting a class would loosen the gate by that class
+       without a measurement showing it cannot move a result, and the voids
+       that prompted the question came from the guard's reading order, which
+       no exemption would have fixed (#1270). The attribution is a report; the
+       void rule does not read it.
    - **The frequency policy.** The workflow holds the pinned CPUs at the
      `performance` governor for the run (`scripts/bench_governor.py`, #1213):
      before any build it records each CPU's governor and energy/performance

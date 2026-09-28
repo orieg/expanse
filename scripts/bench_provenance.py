@@ -124,7 +124,11 @@ MIN_WINDOW_S = MIN_WINDOW_JIFFIES / USER_HZ
 # process above about 100% CPU, or foreign load of a core, voids the run).
 RUN_FOREIGN_VOID = 1.0
 RUN_PROCESS_VOID_PCT = 100.0
-# Pinned CPUs are held tighter: an idle host reads within +-0.05 there.
+# Pinned CPUs are held tighter. The value is not yet set from measurement:
+# the injected-load experiment meant to set it was INCONCLUSIVE and left it
+# here (docs/benchmarks/concurrency/METHODOLOGY.md section 25, README section
+# 25). In that run's uninjected arms the guard read -0.054 to +0.178 over 2 s
+# windows, and at most 0.078 over 1 s windows on an idle host.
 RUN_ON_PIN_VOID = 0.25
 # The start gate is stricter than the void boundary, so a run does not begin
 # on a host already close to it.

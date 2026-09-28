@@ -4008,3 +4008,68 @@ This is the engine working as designed, not a harness fault. A reader whose opti
 - P24.1's cell, whose exact rule stands.
 
 What it changes is which runs are admissible. At W = 1, R = 1 it now admits a run in which a reader closed the gate across a crossing, and such a run was admissible at W ≥ 2 already. The results of later runs are therefore not relabelled INTERMEDIATE. Any cell whose crossings the counters under-attribute carries its shortfall and, below 0.95, the `crossings_unattributed` mark. The gate of §24.1 is reported as met "under §24.8".
+
+## 25. Pre-registration for #1270 — the host guard's on-pin void boundary, from injected load (appended and locked 2026-09-28, before any run of it)
+
+### 25.1 The gate
+
+`bench_host_guard.py summarize` voids a wall-clock run when any 2 s sample reads on-pin foreign load above `RUN_ON_PIN_VOID` = 0.25 core-equivalents (`docs/BENCHMARKING.md` rule 8). That value was set by assumption. #1270 asks for it to be set from a measured sensitivity instead. The gate, as fixed here: *`RUN_ON_PIN_VOID` becomes the largest injected level at which no gated cell of §25.3 is harmed by §25.4's rule, in one admissible run of this protocol on the reference host.* The blast radius is `RUN_ON_PIN_VOID` and `START_ON_PIN_MAX` in `scripts/bench_provenance.py`, and the prose that quotes them.
+
+The reading those constants are compared with changed first. `bench_host_guard.py` now reads the own tree immediately after `/proc/stat` (`docs/BENCHMARKING.md` rule 8, "The two operands are read together"). Every void of #1270's runs that no process explained came from the old reading order, so this experiment measures the boundary with the new guard. It does not measure whether the old one was right.
+
+### 25.2 What is measured, and the statistic
+
+- **The window throughput** `T = (read_ops + write_ops) / elapsed_s` of every window in `mixed_concurrency.py`'s `rounds_raw`, the same quantity its cells report.
+- **The effect of a level ℓ on a cell c:** `r(ℓ, c) = mean T(ℓ) / mean T(control)`, with each arm's windows pooled over the four blocks. It carries a two-sample BCa interval (`bca_bootstrap_ratio_ci_with_method`, 2,000 resamples) at per-cell confidence 1 − 0.05 / 11, a Bonferroni bound over the 11 gated cells. The per-block point ratio is reported beside it.
+- **The injection is continuous for the whole arm.** A void reads single 2 s samples. A single sample at level ℓ overlaps a few of a cell's 18 windows, and continuous load overlaps all of them. The continuous effect is therefore the upper end of what a sample at that level can do, and a boundary set from it errs toward voiding.
+- **The guard's readings.** For every arm: the new guard's samples, and beside them the previous guard's (`scripts/bench_host_guard.py` at `d0f91918`), both watching the same suite process. Each sample's on-pin reading, its attribution, and `summarize`'s exit status and output are recorded.
+- **P25.1 (reported, not gated).** No control-arm sample of the new guard reads above 0.25 on the pinned CPUs. The old guard's control-arm samples include negative readings, as in #1270's runs.
+- **P25.2 (reported, not gated).** `scripts/host_guard_bounds.py`'s `fair_share_loss` gives the loss if throughput tracks CPU share and the scheduler puts the load on an idle pinned CPU when one exists: 0 at W = 1 and 4 for every level, and 0.00625, 0.015625 and 0.03125 at W = 16 for 0.10, 0.25 and 0.50. That is a hypothesis carrying both of those assumptions, not a prediction of magnitude.
+- **Calibration (reported).** Each injected arm's mean new-guard on-pin reading, beside the load the injector achieved.
+
+### 25.3 Instruments and cells
+
+- **Suite:** `docs/benchmarks/concurrency/scripts/mixed_concurrency.py --engines map,set --workloads 100,50 --threads 1,4,16 --rounds 18`. This is the workflow's `concurrency` invocation restricted to `map` and `set`, with one process per arm and block.
+- **Cells:** `map` and `set` × 100 % and 50 % reads × W ∈ {1, 4, 16}, 12 per arm. **Gated:** the 11 whose per-window CV was at most 0.05 in both committed runs, `results/baseline_concurrent_mixed.json` and `results/baseline_concurrent_mixed_run2.json` (provenance commit `0a3ed07a`). `map` 50 % at W = 16 read 0.1053 and 0.1048 there, and is reported, not gated. At n = 72 windows per arm, `host_guard_bounds.py` puts the minimum detectable |r − 1| (80 % power) at 0.00613, 0.01226 and 0.01840 for a CV of 0.01, 0.02 and 0.03.
+- **Arms:** control (no injection), 0.10, 0.25 and 0.50 CPUs.
+- **Injection:** `host_guard_sensitivity.py inject`, started with `setsid -f`, so it is not a child of the driver and no `RUSAGE_CHILDREN` counts it. Its affinity is the pin set, it runs at nice 0 under the name `guard-inject`, and it burns ℓ × 10 ms of its own thread CPU clock every 10 ms. It records the load it achieved (CPU seconds / wall seconds). It is started from the driver's session, so the guard classes it `runner` (the run's cgroup, outside its tree).
+- **Schedule:** 4 blocks. Block b runs the arms in row b of the Williams square ((0,1,3,2), (1,2,0,3), (2,3,1,0), (3,0,2,1)) over (control, 0.10, 0.25, 0.50). Every arm is once in every position and follows every other arm once. That gives 72 windows per arm per cell.
+- **Idle arm, first:** both guards run `watch --interval 1` over a `sleep`, for 60 windows. This is the 1 s noise floor the start gate reads.
+- **Negative control, last:** one arm at 1.00 CPU.
+- **Driver:** `docs/benchmarks/concurrency/scripts/host_guard_sensitivity.py run`, under `scripts/bench_lock.py`. The decision is recomputed from the artifact alone by `host_guard_sensitivity.py evaluate`.
+- **Host:** the i9-12900F reference host, pin `0-15` (the workflow's). The governor is the host's own, because setting `performance` needs the root-owned helper that only the runner's service account uses. It is recorded, and it must be the same in every sample.
+- **Artifact:** `docs/benchmarks/concurrency/results/gate_host_guard_sensitivity.json`.
+
+### 25.4 The decision rule
+
+- **Harmful.** A level ℓ harms gated cell c when the upper bound of r(ℓ, c)'s interval is below 1, and the per-block ratio is below 1 in at least 3 of the 4 blocks (`docs/BENCHMARKING.md` rule 18). A level is harmful when it harms any gated cell.
+- **A/A.** The control's blocks {0, 1} are compared with its blocks {2, 3}, per gated cell, at the same confidence. If any interval excludes 1, the run is `INCONCLUSIVE`: the between-block drift exceeds what the test resolves, and `RUN_ON_PIN_VOID` stays 0.25.
+- **The boundary** B is the largest level ℓ such that neither ℓ nor any smaller level is harmful. If 0.10 is harmful, B = 0.10 (`DECIDED_BELOW_RESOLUTION`). A level below the smallest one measured is not set by reasoning from the ones above it, and the finding stays open on #1270.
+- **The start gate** stays stricter than the void boundary by the ratio it has now: `START_ON_PIN_MAX = min(0.1, 0.4 × B)`.
+- **The noise floor is reported, never cleared.** If a new-guard control-arm sample reads above B, the count is reported. B is not raised past it: that would be moving the bound to the observation (AGENTS.md §8.19).
+- **Fail closed.** In the 1.00 arm, the new guard's `summarize` must exit 1 and print `the host was disturbed during the run`, and at least one sample must read above B. The check matches that string, not the exit status alone (AGENTS.md §5). A failure here voids the run, whatever the other arms show.
+
+### 25.5 What voids a run
+
+- A `--blocks` or `--rounds` other than §25.3's. The driver marks the artifact not admissible.
+- More than one governor across the samples.
+- A `mixed_concurrency.py` process that exits non-zero, or an injector that does not record its achieved load. The driver refuses both.
+- Host contention from outside the experiment, under AGENTS.md §8.17. The pre-flight checks before the run are live `top`, `docker ps`, no `kvbench` or smoke process, load1 below 1.5, and no bench job in progress. During the run, an arm whose new-guard samples attribute more than 0.10 CPU on average to `user`-class tasks, or any one sample more than 1.0, voids the run (`evaluate` checks both). The discard is disclosed.
+
+### 25.6 What had been seen when this was written
+
+- The seven `concurrency` runs of 2026-09-28 named in `docs/BENCHMARKING.md` rule 8 and #1270, with their `host-activity.jsonl` records. Those records show the pattern and the reading-order mechanism the attribution fix addresses. No injected-load measurement exists.
+- `scripts/host_guard_bounds.py`, whose table is quoted above.
+
+### 25.7 Not predicted, and out of scope
+
+- No magnitude of r is predicted in any cell. Whether W = 4 cells, which leave pinned CPUs idle, are affected by SMT sharing is measured, not assumed.
+- Out of scope: `RUN_FOREIGN_VOID`, `RUN_PROCESS_VOID_PCT`, the start gate's other thresholds, and any sustained-versus-single-sample void rule. Changing to a sustained rule would loosen the gate without this measurement's support.
+
+### 25.8 Amendment: the injector's period is jittered (appended 2026-09-28, before any run on the reference host)
+
+§25.1–§25.7 are unchanged above. This subsection changes one detail of §25.3's injection.
+
+On a kernel without `CONFIG_VIRT_CPU_ACCOUNTING_GEN`, `/proc/stat` charges a CPU's user and system time by sampling at the scheduler tick, while a task's `utime + stime` is scaled to its measured runtime. In a smoke run on a non-reference Linux development host (`CONFIG_HZ=250`), the per-CPU counters under-read an injector with a fixed 10 ms period. With each period drawn from 5–15 ms, the counters read about what the injector's own CPU clock reported. The guard's task-time attribution read the injector correctly in both cases. The cause is unmeasured; a burst staying in phase with the tick is the hypothesis. That host also carried unrelated container load, so the smoke settled only the direction of the change. It was not committed, and none of its readings is an input to §25.4. §25.2's calibration measures the jittered injector on the reference host.
+
+**The change.** The injector draws each period's length uniformly from 0.5–1.5 × 10 ms, from a PRNG seeded with its PID, and burns ℓ of each period on its own thread CPU clock (`inject --jitter`, the default). Nothing else in §25 changes. This amendment lands before any run of §25, so no result is relabelled.
