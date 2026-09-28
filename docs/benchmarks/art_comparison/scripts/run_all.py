@@ -23,6 +23,7 @@ finding fails the run (AGENTS.md section 8.17, #1214).
   run_all.py --self-test
 """
 
+import copy
 import json
 import os
 import platform
@@ -144,7 +145,6 @@ def judge_written(out_dir: Path) -> int:
 
 def self_test() -> int:
     """The runner's stamping path, judged by the gate without running a bench."""
-    import copy  # noqa: PLC0415
     prov = new_prov(quick=True)
     window = {"since": "cell:art_lookup_hit", "wall_s": 3.0, "busy_cpus_since_prev": 1.0,
               "own_busy_cpus": 0.99, "foreign_busy_cpus": 0.01}

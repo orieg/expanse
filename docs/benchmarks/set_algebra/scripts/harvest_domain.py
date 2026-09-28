@@ -49,6 +49,7 @@ import json
 import random
 import statistics
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -368,7 +369,6 @@ def self_test() -> None:
     assert md.count("| `intersection") == 4 and md.count("M keys/s |") == 8, md
     # Load records (#1214): a windowed repetition is carried, and a missing or
     # inadmissible one is a finding rather than a silent gap.
-    import tempfile  # noqa: PLC0415
     with tempfile.TemporaryDirectory() as td:
         raw = Path(td)
         window = {"id": "domain_ingestion/batch/10000",

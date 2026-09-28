@@ -373,10 +373,12 @@ def _self_test() -> int:
         check("unknown kind raises", False, True)
     except ValueError:
         pass
-    art = lambda name, kind, exe: json.dumps({  # noqa: E731
-        "reason": "compiler-artifact", "executable": exe,
-        "manifest_path": "/r/crates/expanse-capi/Cargo.toml",
-        "target": {"name": name, "kind": [kind]}})
+    def art(name, kind, exe):
+        return json.dumps({
+            "reason": "compiler-artifact", "executable": exe,
+            "manifest_path": "/r/crates/expanse-capi/Cargo.toml",
+            "target": {"name": name, "kind": [kind]}})
+
     cargo_out = "\n".join([
         "   Compiling expanse-capi v0.8.0",
         art("bench_vs_libjudy", "lib", None),
