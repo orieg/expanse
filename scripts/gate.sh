@@ -143,6 +143,7 @@ python3 scripts/check_bench_suites.py --self-test
 python3 scripts/stage_run_outputs.py --self-test
 python3 scripts/bench_lock.py --self-test
 python3 scripts/bench_host_guard.py --self-test
+python3 scripts/host_guard_bounds.py --self-test
 python3 scripts/bench_governor.py --self-test
 python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/check_bench_pin.py --self-test
