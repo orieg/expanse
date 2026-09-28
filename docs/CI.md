@@ -599,7 +599,13 @@ sudo chmod 0640 .credentials .credentials_rsaparams
 ```
 
 The runner names any file it cannot read or write when it starts; widen that
-file, never the tree.
+file, never the tree. One write is given up on purpose: when the service pushes
+a refreshed configuration, the runner saves it as `.runner_migrated` /
+`.credentials_migrated` in its root. A root-owned root refuses that write. The
+runner logs `Failed to update runner … config` in `_diag` and keeps running
+on `.runner` and `.credentials`. If a refresh is ever required, re-register with
+`provision.sh cutover`, which also deletes a stale `*_migrated` pair, since the
+runner prefers it over `.runner`.
 
 A runner that has fallen behind the service's minimum version stops receiving
 jobs; with self-update off, updating is: stop the unit, unpack the new release

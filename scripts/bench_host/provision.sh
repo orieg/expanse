@@ -309,15 +309,28 @@ cmd_cutover() {
   case "$lk" in *SHARED_LOCK*) ;; *) die "main's scripts/bench_lock.py does not accept the shared lock; merge that change first" ;; esac
 
   pgrep -f 'Runner.Worker' >/dev/null && die "a job is running; retry when the runner is idle"
+  # Probe through a read-only descriptor. `flock <file>` opens with O_CREAT,
+  # which fs.protected_regular refuses even to root for another user's file in
+  # a sticky /tmp, and that refusal is indistinguishable from "held".
+  lock_free() { ( exec 9<"$1" && flock -n 9 ) 2>/dev/null; }
   for l in /tmp/expanse-bench.flock "$FLOCK"; do
     [ -e "$l" ] || continue
-    flock -n "$l" true || die "$l is held; retry when no benchmark runs"
+    lock_free "$l" || die "$l is held; retry when no benchmark runs"
   done
   [ -d /tmp/expanse-bench.lock ] && die "/tmp/expanse-bench.lock (mkdir lock) exists; a benchmark holds the host"
 
   local uid; uid="$(id -u "$FROM_LOGIN")"
   runuser -u "$FROM_LOGIN" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
     systemctl --user disable --now gh-runner.service || true
+  # The login's unit may use KillMode=process, which stops run.sh but can leave
+  # the listener running. It is idle (no Runner.Worker, checked above).
+  local _
+  for _ in $(seq 30); do pgrep -u "$FROM_LOGIN" -f 'Runner.Listener' >/dev/null || break; sleep 1; done
+  if pgrep -u "$FROM_LOGIN" -f 'Runner.Listener' >/dev/null; then
+    pkill -TERM -u "$FROM_LOGIN" -f 'Runner.Listener' || true
+    sleep 5
+  fi
   pgrep -u "$FROM_LOGIN" -f 'Runner.Listener' >/dev/null && die "the login's runner is still running"
 
   cd "$RUNNER"
@@ -327,8 +340,11 @@ cmd_cutover() {
   if [ -f .runner ]; then
     ACTIONS_RUNNER_INPUT_TOKEN="$REMOVE_TOKEN" runuser -u "$(stat -c %U .runner)" -- ./config.sh remove
   fi
-  # Everything in these was written under the previous account.
-  rm -rf _work _diag .env .path
+  # Everything in these was written under the previous account. The
+  # *_migrated files are a service-pushed copy of the removed registration's
+  # settings; the runner prefers them over .runner when they exist, so one left
+  # behind would start the new registration under the old runner's identity.
+  rm -rf _work _diag .env .path .runner_migrated .credentials_migrated
 
   chown -R "$SVC:$SVC" "$RUNNER"
   ACTIONS_RUNNER_INPUT_TOKEN="$REG_TOKEN" runuser -u "$SVC" -- \
@@ -338,6 +354,10 @@ cmd_cutover() {
   unset REMOVE_TOKEN REG_TOKEN
 
   chown -R root:root "$RUNNER"
+  # run.sh copies run-helper.sh from its template at every start, a write the
+  # root-owned install refuses (harmlessly, when the copy already exists). A
+  # fresh unpack has no copy, and without one run.sh cannot start the runner.
+  install -o root -g root -m 0755 run-helper.sh.template run-helper.sh
   install -d -o "$SVC" -g "$SVC" -m 0750 "$RUNNER/_work" "$RUNNER/_diag"
   chgrp "$SVC" .credentials .credentials_rsaparams
   chmod 0640 .credentials .credentials_rsaparams
