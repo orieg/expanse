@@ -510,7 +510,22 @@ cmd_check() {
   echo "lock"
   [ "$(stat -c %U:%G:%a "$FLOCK" 2>/dev/null)" = "root:$LOCKGRP:660" ] && ok "$FLOCK root:$LOCKGRP 0660" || bad "$FLOCK missing or wrong mode"
   [ "$(stat -c %U:%a "$LOCKDIR" 2>/dev/null)" = "root:755" ] && ok "$LOCKDIR root 0755" || bad "$LOCKDIR missing or wrong mode"
-  if getent passwd "$SVC" >/dev/null && runuser -u "$SVC" -- flock -n "$FLOCK" true; then ok "$SVC can take the lock"; else bad "$SVC cannot take the lock"; fi
+  # flock opens the file before it locks it, so a conflict (-E 75) means the
+  # account opened it and a bench job holds the lock now; only a failure to
+  # open (66) or run is a fault. The owner record is written by that job:
+  # first line, bench_lock.py's character set, bounded.
+  local rc=0 holder
+  if getent passwd "$SVC" >/dev/null; then
+    runuser -u "$SVC" -- flock -n -E 75 "$FLOCK" true || rc=$?
+  else rc=none; fi
+  case "$rc" in
+    0) ok "$SVC can take the lock" ;;
+    75)
+      holder="$(head -n 1 "$FLOCK.owner" 2>/dev/null | tr -c 'A-Za-z0-9_.:=/ +[]\n-' '?' | cut -c 1-300)"
+      ok "$SVC can open the lock; held now by ${holder:-unknown} (advisory owner record)" ;;
+    none) bad "$SVC cannot take the lock (no such account)" ;;
+    *) bad "$SVC cannot take the lock (flock exit $rc)" ;;
+  esac
 
   echo "runner"
   if [ ! -f "$RUNNER/.runner" ] || [ "$(stat -c %U "$RUNNER/.runner")" != root ]; then
