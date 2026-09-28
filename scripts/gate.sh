@@ -176,6 +176,7 @@ python3 scripts/esp32_bench_harvest.py --self-test
 python3 scripts/verify_release_registries.py --self-test
 python3 scripts/embedded_envelope.py
 python3 scripts/density_poisson.py --self-test
+python3 scripts/leaf_layout_model.py --self-test
 python3 scripts/condense_bounds.py --self-test
 python3 scripts/compact_bounds.py --self-test
 python3 scripts/art_envelope.py

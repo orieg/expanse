@@ -801,6 +801,9 @@ jobs:
           python3 scripts/push_tree_verified.py --self-test
           python3 scripts/bench_windowed.py --self-test
           python3 scripts/branchu_band_bounds.py --self-test
+          # leaf_layout_model.py prices the #1257 layout census (ARCHITECTURE.md §3.6)
+          # and re-checks the committed artifacts its figures rest on.
+          python3 scripts/leaf_layout_model.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts
