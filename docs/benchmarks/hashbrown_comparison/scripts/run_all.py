@@ -44,6 +44,7 @@ import os
 import sys
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -436,7 +437,6 @@ def self_test() -> int:
     # Every harness's shape, merged, annotated and stamped as `run_bench`
     # does, passes the gate the committed artifacts are held to.
     assert set(TIMED) | {"hashbrown_memory_alloc"} == {b for b, _ in BENCHES}
-    import tempfile  # noqa: PLC0415 -- self-test only
     with tempfile.TemporaryDirectory() as tmp:
         for bench_name, out_file in BENCHES:
             n = 3 if bench_name in TIMED else 1
@@ -447,6 +447,11 @@ def self_test() -> int:
             assert got == [], f"{bench_name}: the harness's shape must pass the gate: {got}"
         assert "load" in json.loads((Path(tmp) / "baseline_memory.json").read_text()), \
             "the census carries its one window"
+        # The written artifact, not just `annotate`, carries the intervals.
+        cell = json.loads((Path(tmp) / "baseline_native.json").read_text())["cells"][0]
+        assert "intervals" in cell and "ratios" in cell, "write_artifact must annotate"
+        lat = json.loads((Path(tmp) / "baseline_tail_latency.json").read_text())["latency"]
+        assert all("intervals" in c for c in lat), "write_artifact must annotate"
 
     # The merge: rows of every process, each with its window, and the
     # published figure recomputed as the mean over the rounds.
