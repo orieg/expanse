@@ -121,13 +121,19 @@ def cmd_inject(args) -> int:
     signal.signal(signal.SIGTERM, _stop)
     rec = Path(args.record)
     rec.write_text(json.dumps({"pid": os.getpid(), "level": level}) + "\n")
+    # Each period's length is drawn uniformly from PERIOD_S x [0.5, 1.5), so
+    # the bursts do not stay in phase with the scheduler tick (§25.8).
+    import random
+
+    rng = random.Random(os.getpid())
     wall0, cpu0 = time.monotonic(), time.thread_time()
     next_period = wall0
     while not stop:
-        burn_until = time.thread_time() + level * PERIOD_S
+        period = PERIOD_S * (0.5 + rng.random()) if args.jitter else PERIOD_S
+        burn_until = time.thread_time() + level * period
         while time.thread_time() < burn_until and not stop:
             pass
-        next_period += PERIOD_S
+        next_period += period
         delay = next_period - time.monotonic()
         if delay > 0:
             time.sleep(delay)
@@ -565,6 +571,8 @@ def main() -> int:
     i.add_argument("--level", required=True)
     i.add_argument("--cpus", required=True)
     i.add_argument("--record", required=True)
+    i.add_argument("--jitter", action=argparse.BooleanOptionalAction, default=True,
+                   help="draw each period from 0.5-1.5 x 10 ms (default); --no-jitter keeps it fixed")
     args = ap.parse_args()
     try:
         if args.self_test:

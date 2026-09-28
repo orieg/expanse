@@ -4065,3 +4065,11 @@ The reading those constants are compared with changed first. `bench_host_guard.p
 
 - No magnitude of r is predicted in any cell. Whether W = 4 cells, which leave pinned CPUs idle, are affected by SMT sharing is measured, not assumed.
 - Out of scope: `RUN_FOREIGN_VOID`, `RUN_PROCESS_VOID_PCT`, the start gate's other thresholds, and any sustained-versus-single-sample void rule. Changing to a sustained rule would loosen the gate without this measurement's support.
+
+### 25.8 Amendment: the injector's period is jittered (appended 2026-09-28, before any run on the reference host)
+
+§25.1–§25.7 are unchanged above. This subsection changes one detail of §25.3's injection.
+
+On a kernel without `CONFIG_VIRT_CPU_ACCOUNTING_GEN`, `/proc/stat` charges a CPU's user and system time by sampling at the scheduler tick, while a task's `utime + stime` is scaled to its measured runtime. In a smoke run on a non-reference Linux development host (`CONFIG_HZ=250`), the per-CPU counters under-read an injector with a fixed 10 ms period. With each period drawn from 5–15 ms, the counters read about what the injector's own CPU clock reported. The guard's task-time attribution read the injector correctly in both cases. The cause is unmeasured; a burst staying in phase with the tick is the hypothesis. That host also carried unrelated container load, so the smoke settled only the direction of the change. It was not committed, and none of its readings is an input to §25.4. §25.2's calibration measures the jittered injector on the reference host.
+
+**The change.** The injector draws each period's length uniformly from 0.5–1.5 × 10 ms, from a PRNG seeded with its PID, and burns ℓ of each period on its own thread CPU clock (`inject --jitter`, the default). Nothing else in §25 changes. This amendment lands before any run of §25, so no result is relabelled.
