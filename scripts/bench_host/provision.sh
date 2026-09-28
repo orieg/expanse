@@ -46,7 +46,9 @@ SVC_HOME=/var/lib/expanse-bench
 TC=/opt/expanse-toolchain
 RUNNER=/opt/actions-runner
 UNIT=expanse-bench-runner.service
-HOOK=/usr/local/libexec/expanse-bench/job-started
+# The runner accepts a hook only with a .sh, .ps1 or .js extension; any other
+# path fails every job at "Set up runner".
+HOOK=/usr/local/libexec/expanse-bench/job-started.sh
 GOVERNOR=/usr/local/sbin/expanse-governor
 LOCKDIR=/run/expanse-bench
 FLOCK="$LOCKDIR/expanse-bench.flock"
@@ -219,6 +221,9 @@ prepare_toolchain() {
 prepare_hook_and_unit() {
   install -d -o root -g root -m 0755 "$(dirname "$HOOK")"
   install -o root -g root -m 0755 "$HERE/job-started.sh" "$HOOK"
+  # The extensionless path an earlier provision.sh installed, which the runner
+  # rejected.
+  rm -f /usr/local/libexec/expanse-bench/job-started
 
   cat > "/etc/systemd/system/$UNIT" <<EOF
 # docs/CI.md, "Supervision". Installed by scripts/bench_host/provision.sh.
@@ -291,6 +296,32 @@ cmd_prepare() {
 }
 
 # ---------------------------------------------------------------- cutover --
+# Write the runner's .path and .env from this checkout. Returns 0 when either
+# file changed, 1 when both were already current.
+write_runner_env() {
+  local env_new path_new changed=1
+  path_new="$SVC_PATH"
+  env_new="LANG=en_US.UTF-8
+EXPANSE_TOOLCHAIN=$TC
+RUSTUP_HOME=$TC/rustup
+CARGO_HOME=$SVC_HOME/cargo
+XDG_CACHE_HOME=$SVC_HOME/cache
+LD_LIBRARY_PATH=$TC/lib
+LIBRARY_PATH=$TC/lib
+C_INCLUDE_PATH=$TC/include
+EXPANSE_BENCH_FLOCK=$FLOCK
+ACTIONS_RUNNER_HOOK_JOB_STARTED=$HOOK"
+  if [ "$(cat "$RUNNER/.path" 2>/dev/null)" != "$path_new" ]; then
+    printf '%s\n' "$path_new" > "$RUNNER/.path"; changed=0
+  fi
+  if [ "$(cat "$RUNNER/.env" 2>/dev/null)" != "$env_new" ]; then
+    printf '%s\n' "$env_new" > "$RUNNER/.env"; changed=0
+  fi
+  chown root:root "$RUNNER/.env" "$RUNNER/.path"
+  chmod 0644 "$RUNNER/.env" "$RUNNER/.path"
+  return "$changed"
+}
+
 cmd_cutover() {
   need_root; parse_args "$@"
   [ -n "$NAME" ] || die "--name <runner-name> is required"
@@ -299,7 +330,16 @@ cmd_cutover() {
   # to apply a toolchain change lands here.
   if [ -f "$RUNNER/.runner" ] && [ "$(stat -c %U "$RUNNER/.runner")" = root ] \
      && systemctl is-active --quiet "$UNIT"; then
-    say "already cut over ($UNIT active); nothing to do"
+    # The runner reads .env and .path when it starts: rewrite them from this
+    # checkout, and restart the unit when they changed and no job is running.
+    if write_runner_env; then
+      pgrep -u "$SVC" -f 'Runner.Worker' >/dev/null \
+        && die "$RUNNER/.env changed but a job is running; re-run when the runner is idle to restart it"
+      systemctl restart "$UNIT"
+      say "already cut over; runner environment updated and $UNIT restarted"
+    else
+      say "already cut over ($UNIT active); runner environment unchanged"
+    fi
     return 0
   fi
   [ -n "${REMOVE_TOKEN:-}" ] && [ -n "${REG_TOKEN:-}" ] || die "REMOVE_TOKEN and REG_TOKEN must be set"
@@ -370,20 +410,7 @@ cmd_cutover() {
   chgrp "$SVC" .credentials .credentials_rsaparams
   chmod 0640 .credentials .credentials_rsaparams
   chmod 0644 .runner
-  echo "$SVC_PATH" > .path
-  cat > .env <<EOF
-LANG=en_US.UTF-8
-EXPANSE_TOOLCHAIN=$TC
-RUSTUP_HOME=$TC/rustup
-CARGO_HOME=$SVC_HOME/cargo
-XDG_CACHE_HOME=$SVC_HOME/cache
-LD_LIBRARY_PATH=$TC/lib
-LIBRARY_PATH=$TC/lib
-C_INCLUDE_PATH=$TC/include
-EXPANSE_BENCH_FLOCK=$FLOCK
-ACTIONS_RUNNER_HOOK_JOB_STARTED=$HOOK
-EOF
-  chmod 0644 .env .path
+  write_runner_env || true
 
   systemctl enable --now "$UNIT"
   say "cut over. Run '$0 check', then the post-cutover runs in the migration issue."
@@ -461,6 +488,11 @@ cmd_check() {
     w="$(runuser -u "$SVC" -- find "$RUNNER" -maxdepth 1 -writable 2>/dev/null | grep -vx -e "$RUNNER/_work" -e "$RUNNER/_diag" || true)"
     [ -z "$w" ] && ok "runner install not writable by $SVC" || bad "writable in $RUNNER: $w"
     grep -q '^EXPANSE_TOOLCHAIN=' "$RUNNER/.env" 2>/dev/null && ok ".env provides EXPANSE_TOOLCHAIN" || bad ".env lacks EXPANSE_TOOLCHAIN"
+    local hk; hk="$(sed -n 's/^ACTIONS_RUNNER_HOOK_JOB_STARTED=//p' "$RUNNER/.env" 2>/dev/null)"
+    case "$hk" in
+      *.sh) [ -x "$hk" ] && ok "job-started hook $hk" || bad "job-started hook $hk is not an executable file" ;;
+      *) bad "job-started hook '$hk' lacks the .sh extension the runner requires" ;;
+    esac
     systemctl is-active --quiet "$UNIT" && ok "$UNIT active" || bad "$UNIT not active"
     [ "$(ps -o user= -p "$(pgrep -f 'Runner.Listener' | head -1)" 2>/dev/null | tr -d ' ')" = "$SVC" ] \
       && ok "Runner.Listener runs as $SVC" || bad "Runner.Listener does not run as $SVC"

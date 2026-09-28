@@ -470,7 +470,7 @@ the human accounts that benchmark on the host also join.
 | `/var/lib/expanse-bench/{cargo,cache}` | `expanse-bench 0700` | yes | `CARGO_HOME`, `XDG_CACHE_HOME`; emptied before every job |
 | `/run/expanse-bench/expanse-bench.flock{,.owner}` | `root:expanse-benchlock 0660`, in a `root 0755` directory | contents only | the host-wide benchmark lock and its owner record |
 | `/usr/local/sbin/expanse-governor` | `root:root 0755` | no | the scaling-governor helper (#1213) |
-| `/usr/local/libexec/expanse-bench/job-started` | `root:root 0755` | no | the job-started hook |
+| `/usr/local/libexec/expanse-bench/job-started.sh` | `root:root 0755` | no | the job-started hook |
 
 The home directory is not under `/home`, so the one home path a job log still
 prints — `actions/checkout` copying a global gitconfig, when one exists — names a
@@ -687,7 +687,7 @@ LD_LIBRARY_PATH=/opt/expanse-toolchain/lib
 LIBRARY_PATH=/opt/expanse-toolchain/lib
 C_INCLUDE_PATH=/opt/expanse-toolchain/include
 EXPANSE_BENCH_FLOCK=/run/expanse-bench/expanse-bench.flock
-ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/expanse-bench/job-started
+ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/expanse-bench/job-started.sh
 ```
 
 `EXPANSE_TOOLCHAIN` is what the workflows test for. When it is set they add
@@ -702,6 +702,9 @@ the unified cgroup hierarchy; check that a job can reach `github.com` and
 cannot reach a LAN address before relying on it. If the host resolves DNS
 through a resolver on the LAN rather than a local stub, add that one address
 with `IPAddressAllow=<resolver>/32`, which takes precedence over the deny list.
+
+The runner rejects a hook path that does not end in `.sh`, `.ps1` or `.js`,
+and fails every job at "Set up runner" when it does.
 
 `CARGO_HOME` is writable and deliberately **not** on `PATH`: `cargo install`
 lands there and runs nothing later.
