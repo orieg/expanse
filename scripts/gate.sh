@@ -161,6 +161,8 @@ else
 fi
 python3 scripts/check_bench_provenance.py --self-test
 python3 scripts/bench_windowed.py --self-test
+python3 docs/benchmarks/art_comparison/scripts/run_all.py --self-test
+python3 docs/benchmarks/hashbrown_comparison/scripts/run_all.py --self-test
 python3 scripts/check_man_pages.py --self-test
 python3 scripts/check_miri_shards.py --self-test
 python3 scripts/miri_ub_sites.py --self-test

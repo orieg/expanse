@@ -154,11 +154,13 @@ class Windower:
 
 def build_command(package: str, kind: str, name: str) -> list[str]:
     """The cargo invocation that builds, and does not run, the harness."""
+    # `json-render-diagnostics`: artifacts as JSON on stdout, which is parsed,
+    # and compiler diagnostics rendered on stderr, so a failed build says why.
     if kind == "bench":
-        return ["cargo", "bench", "--no-run", "--message-format=json",
+        return ["cargo", "bench", "--no-run", "--message-format=json-render-diagnostics",
                 "-p", package, "--bench", name]
     if kind == "example":
-        return ["cargo", "build", "--release", "--message-format=json",
+        return ["cargo", "build", "--release", "--message-format=json-render-diagnostics",
                 "-p", package, "--example", name]
     raise ValueError(f"unknown harness kind {kind!r}")
 
@@ -190,6 +192,51 @@ def build(package: str, kind: str, name: str) -> tuple[Path, Path]:
 def harness_argv(exe: Path, kind: str, harness_args: list[str]) -> list[str]:
     """A bench binary takes `--bench` as `cargo bench` passes it; an example takes its own args."""
     return [str(exe), "--bench", *harness_args] if kind == "bench" else [str(exe), *harness_args]
+
+
+def run_bench_window(prov: dict, package: str, target: str, harness_args: list[str],
+                     label: str | None = None) -> tuple[subprocess.CompletedProcess, dict]:
+    """Runs one bench target as one process inside one load window.
+
+    For a runner that times a whole bench process per artifact
+    (`art_comparison`'s and `hashbrown_comparison`'s `run_all.py`): the
+    target is built first, outside the window, then its binary runs once
+    between `bench_provenance.begin_cell` and `end_cell`. The process is a
+    reaped child, so the children's CPU over the window is its own CPU and
+    the remainder is foreign. The window is appended to `prov["windows"]`
+    (and `prov["load_windows"]` set) and returned, for the runner to store
+    on the artifact it timed. Output is captured; the caller checks the
+    exit status.
+    """
+    exe, pkg_dir = build(package, "bench", target)
+    env = dict(os.environ)
+    env.setdefault("CRITERION_HOME", str(REPO_ROOT / "target" / "criterion"))
+    start = bp.begin_cell(prov, f"cell:{label or target}")
+    res = subprocess.run(harness_argv(exe, "bench", harness_args), cwd=pkg_dir, env=env,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    window = bp.end_cell(start)
+    prov["load_windows"] = True
+    prov.setdefault("windows", []).append({"id": label or target, "load": window})
+    return res, window
+
+
+def judge(suite: str, written: list[tuple[str, dict]]) -> list[str]:
+    """`check_bench_provenance.findings_for` over artifacts a runner wrote.
+
+    `written` is `(file name, artifact)`; each is judged under its committed
+    name, `<suite>/results/<file>`, so the per-artifact rules apply to a
+    `--quick` copy as they would to the committed one. A runner prints the
+    findings and exits non-zero on any (section 8.1): an artifact the gate
+    would refuse is not left to be discovered at commit time.
+    """
+    import check_bench_provenance as cbp  # noqa: PLC0415 -- the gate's own function judges the artifact
+    out = []
+    for name, obj in written:
+        rel = f"{suite}/results/{name}"
+        exempt, _ = cbp.grandfather_status(rel, obj)
+        if not exempt:
+            out.extend(cbp.findings_for(rel, obj))
+    return out
 
 
 def run(args) -> int:

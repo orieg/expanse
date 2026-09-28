@@ -61,17 +61,30 @@ RAW_DIR="$REPO_ROOT/results/quick/set_algebra/raw"
 rm -rf "$RAW_DIR"; mkdir -p "$RAW_DIR"
 : > "$RAW_DIR/loads.txt"
 
+# Each repetition runs through scripts/bench_windowed.py, the driver the CI
+# `domain` suite uses: it builds the bench outside any window, runs the binary
+# once, and takes a load window around every criterion case, written to
+# rep_<i>/load.json for the harvest to carry (AGENTS.md section 8.17, #1214).
+# The windows are /proc readings, so off Linux the plain bench runs and the
+# harvest records the repetition as unwindowed.
+BENCH_ARGS=()
+if [[ $QUICK -eq 1 ]]; then
+    BENCH_ARGS=(--quick)
+fi
 cd "$REPO_ROOT"
 for ((rep = 1; rep <= REPS; rep++)); do
-    echo "==> repetition $rep/$REPS: cargo bench -p expanse-trie --bench domain  (loadavg: $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || uptime))"
+    echo "==> repetition $rep/$REPS: bench domain (expanse-trie)  (loadavg: $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || uptime))"
     cut -d' ' -f1-3 /proc/loadavg >> "$RAW_DIR/loads.txt" 2>/dev/null || true
     rm -rf target/criterion
-    if [[ $QUICK -eq 1 ]]; then
-        cargo bench -p expanse-trie --bench domain -- --quick
-    else
-        cargo bench -p expanse-trie --bench domain
-    fi
     mkdir -p "$RAW_DIR/rep_$rep"
+    if [[ -r /proc/stat ]]; then
+        python3 "$REPO_ROOT/scripts/bench_windowed.py" --suite set_algebra --mode criterion \
+            --package expanse-trie --target domain --out "$RAW_DIR/rep_$rep/load.json" \
+            -- ${BENCH_ARGS[@]+"${BENCH_ARGS[@]}"}
+    else
+        echo "::warning::no /proc/stat: repetition $rep runs without load windows and is not publishable"
+        cargo bench -p expanse-trie --bench domain -- ${BENCH_ARGS[@]+"${BENCH_ARGS[@]}"}
+    fi
     cp -r target/criterion "$RAW_DIR/rep_$rep/criterion"
 done
 

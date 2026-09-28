@@ -268,10 +268,11 @@ GRANDFATHERED = {
     "masstree_comparison/results/counters_strmap_hugepage_on_1m.json": ('b18688138a81005327925dd407d1056b6fe9753d',),
     "masstree_comparison/results/counters_strmap_vs_map_lookup_1m.json": ('43c68caa3dc66fc99b61613ec8d23caa9a5e33db',),
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
-    # Its runner (`art_comparison/scripts/run_all.py`) snapshots before each
-    # bench and never after the last, so the first bench's window is never
-    # closed: both of its snapshots carry a null `busy_cpus_since_prev`
-    # (#1214). A re-run with a closing snapshot drops this entry.
+    # Its runner (`art_comparison/scripts/run_all.py`) at b447dbc snapshotted
+    # before each bench and never after the last, so the first bench's window
+    # was never closed: both of its snapshots carry a null
+    # `busy_cpus_since_prev` (#1214). The runner now takes a window per bench
+    # process and a closing snapshot; a re-run drops this entry.
     "art_comparison/results/baseline_lookup_hit.json": ("b447dbc",),
     # hashbrown_comparison, redis_zset_engine, search_inverted_index — these
     # runners took no load snapshot at all before this change, and several of
