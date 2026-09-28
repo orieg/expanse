@@ -98,14 +98,14 @@
       {
         "label": "start",
         "since": null,
-        "load1": 0.64,
-        "load5": 0.34,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:48Z",
-        "stat_busy_jiffies": 135475891,
-        "stat_total_jiffies": 10436793048,
+        "load1": 0.72,
+        "load5": 0.37,
+        "load15": 0.27,
+        "at": "2026-09-28T06:00:03Z",
+        "stat_busy_jiffies": 135477416,
+        "stat_total_jiffies": 10436829320,
         "child_cpu_s": 0.0,
-        "monotonic_s": 4350784.238,
+        "monotonic_s": 4350799.359,
         "busy_cpus_since_prev": null,
         "own_busy_cpus_since_prev": null,
         "foreign_busy_cpus_since_prev": null
@@ -113,14 +113,14 @@
       {
         "label": "cell:hashbrown_native_suite/round=0",
         "since": "start",
-        "load1": 0.64,
-        "load5": 0.34,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:48Z",
-        "stat_busy_jiffies": 135475897,
-        "stat_total_jiffies": 10436793197,
+        "load1": 0.72,
+        "load5": 0.37,
+        "load15": 0.27,
+        "at": "2026-09-28T06:00:03Z",
+        "stat_busy_jiffies": 135477421,
+        "stat_total_jiffies": 10436829467,
         "child_cpu_s": 0.063,
-        "monotonic_s": 4350784.3,
+        "monotonic_s": 4350799.421,
         "busy_cpus_since_prev": null,
         "own_busy_cpus_since_prev": null,
         "foreign_busy_cpus_since_prev": null
@@ -128,44 +128,44 @@
       {
         "label": "cell:hashbrown_native_suite/round=1",
         "since": "cell:hashbrown_native_suite/round=0",
-        "load1": 0.64,
-        "load5": 0.34,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:48Z",
-        "stat_busy_jiffies": 135475966,
-        "stat_total_jiffies": 10436794805,
-        "child_cpu_s": 0.733,
-        "monotonic_s": 4350784.97,
-        "busy_cpus_since_prev": 1.03,
+        "load1": 0.72,
+        "load5": 0.37,
+        "load15": 0.27,
+        "at": "2026-09-28T06:00:04Z",
+        "stat_busy_jiffies": 135477489,
+        "stat_total_jiffies": 10436831076,
+        "child_cpu_s": 0.734,
+        "monotonic_s": 4350800.092,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.03
+        "foreign_busy_cpus_since_prev": 0.01
       },
       {
         "label": "cell:hashbrown_native_suite/round=2",
         "since": "cell:hashbrown_native_suite/round=1",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:49Z",
-        "stat_busy_jiffies": 135476033,
-        "stat_total_jiffies": 10436796425,
-        "child_cpu_s": 1.409,
-        "monotonic_s": 4350785.646,
-        "busy_cpus_since_prev": 0.99,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:04Z",
+        "stat_busy_jiffies": 135477557,
+        "stat_total_jiffies": 10436832700,
+        "child_cpu_s": 1.411,
+        "monotonic_s": 4350800.769,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": -0.01
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_native_suite/round=3",
         "since": "cell:hashbrown_native_suite/round=2",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:50Z",
-        "stat_busy_jiffies": 135476099,
-        "stat_total_jiffies": 10436798016,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:05Z",
+        "stat_busy_jiffies": 135477623,
+        "stat_total_jiffies": 10436834284,
         "child_cpu_s": 2.072,
-        "monotonic_s": 4350786.309,
+        "monotonic_s": 4350801.429,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -173,14 +173,14 @@
       {
         "label": "cell:hashbrown_native_suite/round=4",
         "since": "cell:hashbrown_native_suite/round=3",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:50Z",
-        "stat_busy_jiffies": 135476166,
-        "stat_total_jiffies": 10436799612,
-        "child_cpu_s": 2.737,
-        "monotonic_s": 4350786.974,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:06Z",
+        "stat_busy_jiffies": 135477690,
+        "stat_total_jiffies": 10436835872,
+        "child_cpu_s": 2.734,
+        "monotonic_s": 4350802.091,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -188,14 +188,14 @@
       {
         "label": "cell:hashbrown_native_suite/round=5",
         "since": "cell:hashbrown_native_suite/round=4",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:51Z",
-        "stat_busy_jiffies": 135476234,
-        "stat_total_jiffies": 10436801238,
-        "child_cpu_s": 3.415,
-        "monotonic_s": 4350787.652,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:06Z",
+        "stat_busy_jiffies": 135477758,
+        "stat_total_jiffies": 10436837500,
+        "child_cpu_s": 3.413,
+        "monotonic_s": 4350802.769,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -203,104 +203,104 @@
       {
         "label": "cell:hashbrown_native_suite/round=6",
         "since": "cell:hashbrown_native_suite/round=5",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:52Z",
-        "stat_busy_jiffies": 135476301,
-        "stat_total_jiffies": 10436802822,
-        "child_cpu_s": 4.076,
-        "monotonic_s": 4350788.312,
-        "busy_cpus_since_prev": 1.02,
-        "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
-      },
-      {
-        "label": "cell:hashbrown_native_suite/round=7",
-        "since": "cell:hashbrown_native_suite/round=6",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:53Z",
-        "stat_busy_jiffies": 135476368,
-        "stat_total_jiffies": 10436804421,
-        "child_cpu_s": 4.743,
-        "monotonic_s": 4350788.979,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:07Z",
+        "stat_busy_jiffies": 135477825,
+        "stat_total_jiffies": 10436839091,
+        "child_cpu_s": 4.077,
+        "monotonic_s": 4350803.433,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
       },
       {
+        "label": "cell:hashbrown_native_suite/round=7",
+        "since": "cell:hashbrown_native_suite/round=6",
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:08Z",
+        "stat_busy_jiffies": 135477890,
+        "stat_total_jiffies": 10436840677,
+        "child_cpu_s": 4.738,
+        "monotonic_s": 4350804.094,
+        "busy_cpus_since_prev": 0.98,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": -0.02
+      },
+      {
         "label": "cell:hashbrown_native_suite/round=8",
         "since": "cell:hashbrown_native_suite/round=7",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:53Z",
-        "stat_busy_jiffies": 135476436,
-        "stat_total_jiffies": 10436806052,
-        "child_cpu_s": 5.423,
-        "monotonic_s": 4350789.659,
-        "busy_cpus_since_prev": 1.0,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:08Z",
+        "stat_busy_jiffies": 135477959,
+        "stat_total_jiffies": 10436842300,
+        "child_cpu_s": 5.415,
+        "monotonic_s": 4350804.771,
+        "busy_cpus_since_prev": 1.02,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.0
+        "foreign_busy_cpus_since_prev": 0.02
       },
       {
         "label": "cell:hashbrown_tail_latency/round=0",
         "since": "cell:hashbrown_native_suite/round=8",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:54Z",
-        "stat_busy_jiffies": 135476536,
-        "stat_total_jiffies": 10436808453,
-        "child_cpu_s": 6.086,
-        "monotonic_s": 4350790.66,
-        "busy_cpus_since_prev": 1.0,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:09Z",
+        "stat_busy_jiffies": 135478060,
+        "stat_total_jiffies": 10436844711,
+        "child_cpu_s": 6.075,
+        "monotonic_s": 4350805.776,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 0.66,
-        "foreign_busy_cpus_since_prev": 0.34
+        "foreign_busy_cpus_since_prev": 0.35
       },
       {
         "label": "cell:hashbrown_tail_latency/round=1",
         "since": "cell:hashbrown_tail_latency/round=0",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:55Z",
-        "stat_busy_jiffies": 135476577,
-        "stat_total_jiffies": 10436809389,
-        "child_cpu_s": 6.475,
-        "monotonic_s": 4350791.049,
-        "busy_cpus_since_prev": 1.05,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:10Z",
+        "stat_busy_jiffies": 135478098,
+        "stat_total_jiffies": 10436845639,
+        "child_cpu_s": 6.463,
+        "monotonic_s": 4350806.163,
+        "busy_cpus_since_prev": 0.98,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.05
+        "foreign_busy_cpus_since_prev": -0.02
       },
       {
         "label": "cell:hashbrown_tail_latency/round=2",
         "since": "cell:hashbrown_tail_latency/round=1",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:55Z",
-        "stat_busy_jiffies": 135476616,
-        "stat_total_jiffies": 10436810323,
-        "child_cpu_s": 6.866,
-        "monotonic_s": 4350791.439,
-        "busy_cpus_since_prev": 1.0,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:10Z",
+        "stat_busy_jiffies": 135478137,
+        "stat_total_jiffies": 10436846567,
+        "child_cpu_s": 6.85,
+        "monotonic_s": 4350806.55,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.0
+        "foreign_busy_cpus_since_prev": 0.01
       },
       {
         "label": "cell:hashbrown_tail_latency/round=3",
         "since": "cell:hashbrown_tail_latency/round=2",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:55Z",
-        "stat_busy_jiffies": 135476655,
-        "stat_total_jiffies": 10436811260,
-        "child_cpu_s": 7.257,
-        "monotonic_s": 4350791.829,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:10Z",
+        "stat_busy_jiffies": 135478176,
+        "stat_total_jiffies": 10436847503,
+        "child_cpu_s": 7.241,
+        "monotonic_s": 4350806.94,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -308,104 +308,104 @@
       {
         "label": "cell:hashbrown_tail_latency/round=4",
         "since": "cell:hashbrown_tail_latency/round=3",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:56Z",
-        "stat_busy_jiffies": 135476695,
-        "stat_total_jiffies": 10436812203,
-        "child_cpu_s": 7.651,
-        "monotonic_s": 4350792.222,
-        "busy_cpus_since_prev": 1.02,
-        "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
-      },
-      {
-        "label": "cell:hashbrown_tail_latency/round=5",
-        "since": "cell:hashbrown_tail_latency/round=4",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:56Z",
-        "stat_busy_jiffies": 135476734,
-        "stat_total_jiffies": 10436813133,
-        "child_cpu_s": 8.039,
-        "monotonic_s": 4350792.61,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:11Z",
+        "stat_busy_jiffies": 135478215,
+        "stat_total_jiffies": 10436848432,
+        "child_cpu_s": 7.629,
+        "monotonic_s": 4350807.328,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
       },
       {
+        "label": "cell:hashbrown_tail_latency/round=5",
+        "since": "cell:hashbrown_tail_latency/round=4",
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:11Z",
+        "stat_busy_jiffies": 135478254,
+        "stat_total_jiffies": 10436849365,
+        "child_cpu_s": 8.019,
+        "monotonic_s": 4350807.716,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
         "label": "cell:hashbrown_tail_latency/round=6",
         "since": "cell:hashbrown_tail_latency/round=5",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:57Z",
-        "stat_busy_jiffies": 135476774,
-        "stat_total_jiffies": 10436814074,
-        "child_cpu_s": 8.432,
-        "monotonic_s": 4350793.002,
-        "busy_cpus_since_prev": 1.02,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:12Z",
+        "stat_busy_jiffies": 135478294,
+        "stat_total_jiffies": 10436850311,
+        "child_cpu_s": 8.414,
+        "monotonic_s": 4350808.111,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
+        "foreign_busy_cpus_since_prev": 0.01
       },
       {
         "label": "cell:hashbrown_tail_latency/round=7",
         "since": "cell:hashbrown_tail_latency/round=6",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:57Z",
-        "stat_busy_jiffies": 135476812,
-        "stat_total_jiffies": 10436815004,
-        "child_cpu_s": 8.82,
-        "monotonic_s": 4350793.391,
-        "busy_cpus_since_prev": 0.98,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:12Z",
+        "stat_busy_jiffies": 135478334,
+        "stat_total_jiffies": 10436851245,
+        "child_cpu_s": 8.803,
+        "monotonic_s": 4350808.5,
+        "busy_cpus_since_prev": 1.03,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": -0.02
+        "foreign_busy_cpus_since_prev": 0.03
       },
       {
         "label": "cell:hashbrown_tail_latency/round=8",
         "since": "cell:hashbrown_tail_latency/round=7",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:57Z",
-        "stat_busy_jiffies": 135476852,
-        "stat_total_jiffies": 10436815945,
-        "child_cpu_s": 9.213,
-        "monotonic_s": 4350793.783,
-        "busy_cpus_since_prev": 1.02,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:12Z",
+        "stat_busy_jiffies": 135478373,
+        "stat_total_jiffies": 10436852181,
+        "child_cpu_s": 9.194,
+        "monotonic_s": 4350808.89,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_container_dists/round=0",
         "since": "cell:hashbrown_tail_latency/round=8",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:58Z",
-        "stat_busy_jiffies": 135476913,
-        "stat_total_jiffies": 10436817418,
-        "child_cpu_s": 9.605,
-        "monotonic_s": 4350794.397,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:13Z",
+        "stat_busy_jiffies": 135478434,
+        "stat_total_jiffies": 10436853653,
+        "child_cpu_s": 9.583,
+        "monotonic_s": 4350809.504,
         "busy_cpus_since_prev": 0.99,
-        "own_busy_cpus_since_prev": 0.64,
-        "foreign_busy_cpus_since_prev": 0.35
+        "own_busy_cpus_since_prev": 0.63,
+        "foreign_busy_cpus_since_prev": 0.36
       },
       {
         "label": "cell:hashbrown_container_dists/round=1",
         "since": "cell:hashbrown_container_dists/round=0",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:58Z",
-        "stat_busy_jiffies": 135476962,
-        "stat_total_jiffies": 10436818588,
-        "child_cpu_s": 10.093,
-        "monotonic_s": 4350794.884,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:14Z",
+        "stat_busy_jiffies": 135478483,
+        "stat_total_jiffies": 10436854815,
+        "child_cpu_s": 10.068,
+        "monotonic_s": 4350809.988,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -413,14 +413,14 @@
       {
         "label": "cell:hashbrown_container_dists/round=2",
         "since": "cell:hashbrown_container_dists/round=1",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:59Z",
-        "stat_busy_jiffies": 135477011,
-        "stat_total_jiffies": 10436819750,
-        "child_cpu_s": 10.577,
-        "monotonic_s": 4350795.369,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:14Z",
+        "stat_busy_jiffies": 135478532,
+        "stat_total_jiffies": 10436855980,
+        "child_cpu_s": 10.554,
+        "monotonic_s": 4350810.474,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -428,59 +428,59 @@
       {
         "label": "cell:hashbrown_container_dists/round=3",
         "since": "cell:hashbrown_container_dists/round=2",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:59Z",
-        "stat_busy_jiffies": 135477060,
-        "stat_total_jiffies": 10436820933,
-        "child_cpu_s": 11.071,
-        "monotonic_s": 4350795.862,
-        "busy_cpus_since_prev": 0.99,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:14Z",
+        "stat_busy_jiffies": 135478582,
+        "stat_total_jiffies": 10436857176,
+        "child_cpu_s": 11.054,
+        "monotonic_s": 4350810.972,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": -0.01
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_container_dists/round=4",
         "since": "cell:hashbrown_container_dists/round=3",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:00Z",
-        "stat_busy_jiffies": 135477110,
-        "stat_total_jiffies": 10436822092,
-        "child_cpu_s": 11.555,
-        "monotonic_s": 4350796.345,
-        "busy_cpus_since_prev": 1.04,
-        "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.04
-      },
-      {
-        "label": "cell:hashbrown_container_dists/round=5",
-        "since": "cell:hashbrown_container_dists/round=4",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:00Z",
-        "stat_busy_jiffies": 135477158,
-        "stat_total_jiffies": 10436823259,
-        "child_cpu_s": 12.042,
-        "monotonic_s": 4350796.832,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:15Z",
+        "stat_busy_jiffies": 135478630,
+        "stat_total_jiffies": 10436858336,
+        "child_cpu_s": 11.538,
+        "monotonic_s": 4350811.456,
         "busy_cpus_since_prev": 0.99,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": -0.01
       },
       {
+        "label": "cell:hashbrown_container_dists/round=5",
+        "since": "cell:hashbrown_container_dists/round=4",
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:15Z",
+        "stat_busy_jiffies": 135478679,
+        "stat_total_jiffies": 10436859498,
+        "child_cpu_s": 12.023,
+        "monotonic_s": 4350811.941,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
         "label": "cell:hashbrown_container_dists/round=6",
         "since": "cell:hashbrown_container_dists/round=5",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:01Z",
-        "stat_busy_jiffies": 135477208,
-        "stat_total_jiffies": 10436824442,
-        "child_cpu_s": 12.535,
-        "monotonic_s": 4350797.325,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:16Z",
+        "stat_busy_jiffies": 135478729,
+        "stat_total_jiffies": 10436860685,
+        "child_cpu_s": 12.518,
+        "monotonic_s": 4350812.435,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -488,14 +488,14 @@
       {
         "label": "cell:hashbrown_container_dists/round=7",
         "since": "cell:hashbrown_container_dists/round=6",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:01Z",
-        "stat_busy_jiffies": 135477256,
-        "stat_total_jiffies": 10436825597,
-        "child_cpu_s": 13.018,
-        "monotonic_s": 4350797.807,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:16Z",
+        "stat_busy_jiffies": 135478777,
+        "stat_total_jiffies": 10436861836,
+        "child_cpu_s": 12.998,
+        "monotonic_s": 4350812.915,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -503,47 +503,47 @@
       {
         "label": "cell:hashbrown_container_dists/round=8",
         "since": "cell:hashbrown_container_dists/round=7",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:02Z",
-        "stat_busy_jiffies": 135477305,
-        "stat_total_jiffies": 10436826754,
-        "child_cpu_s": 13.5,
-        "monotonic_s": 4350798.289,
-        "busy_cpus_since_prev": 1.02,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:17Z",
+        "stat_busy_jiffies": 135478826,
+        "stat_total_jiffies": 10436863014,
+        "child_cpu_s": 13.49,
+        "monotonic_s": 4350813.407,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_memory_alloc",
         "since": "cell:hashbrown_container_dists/round=8",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:03Z",
-        "stat_busy_jiffies": 135477377,
-        "stat_total_jiffies": 10436828473,
-        "child_cpu_s": 13.993,
-        "monotonic_s": 4350799.005,
-        "busy_cpus_since_prev": 1.01,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:18Z",
+        "stat_busy_jiffies": 135478900,
+        "stat_total_jiffies": 10436864756,
+        "child_cpu_s": 13.989,
+        "monotonic_s": 4350814.132,
+        "busy_cpus_since_prev": 1.02,
         "own_busy_cpus_since_prev": 0.69,
-        "foreign_busy_cpus_since_prev": 0.32
+        "foreign_busy_cpus_since_prev": 0.33
       },
       {
         "label": "end",
         "since": "cell:hashbrown_memory_alloc",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:03Z",
-        "stat_busy_jiffies": 135477392,
-        "stat_total_jiffies": 10436828858,
-        "child_cpu_s": 14.153,
-        "monotonic_s": 4350799.166,
-        "busy_cpus_since_prev": 0.94,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:18Z",
+        "stat_busy_jiffies": 135478916,
+        "stat_total_jiffies": 10436865155,
+        "child_cpu_s": 14.155,
+        "monotonic_s": 4350814.299,
+        "busy_cpus_since_prev": 0.96,
         "own_busy_cpus_since_prev": 0.99,
-        "foreign_busy_cpus_since_prev": -0.05
+        "foreign_busy_cpus_since_prev": -0.03
       }
     ],
     "load_windows": true,
@@ -552,10 +552,10 @@
         "id": "hashbrown_native_suite/round=0",
         "load": {
           "since": "cell:hashbrown_native_suite/round=0",
-          "wall_s": 0.609,
-          "busy_cpus_since_prev": 1.03,
+          "wall_s": 0.61,
+          "busy_cpus_since_prev": 1.02,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.03
+          "foreign_busy_cpus": 0.02
         }
       },
       {
@@ -563,16 +563,16 @@
         "load": {
           "since": "cell:hashbrown_native_suite/round=1",
           "wall_s": 0.615,
-          "busy_cpus_since_prev": 0.99,
+          "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.01
+          "foreign_busy_cpus": 0.01
         }
       },
       {
         "id": "hashbrown_native_suite/round=2",
         "load": {
           "since": "cell:hashbrown_native_suite/round=2",
-          "wall_s": 0.603,
+          "wall_s": 0.6,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -582,57 +582,57 @@
         "id": "hashbrown_native_suite/round=3",
         "load": {
           "since": "cell:hashbrown_native_suite/round=3",
-          "wall_s": 0.604,
-          "busy_cpus_since_prev": 1.01,
+          "wall_s": 0.601,
+          "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.01
+          "foreign_busy_cpus": 0.0
         }
       },
       {
         "id": "hashbrown_native_suite/round=4",
         "load": {
           "since": "cell:hashbrown_native_suite/round=4",
-          "wall_s": 0.618,
-          "busy_cpus_since_prev": 1.0,
+          "wall_s": 0.616,
+          "busy_cpus_since_prev": 0.99,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.0
+          "foreign_busy_cpus": -0.01
         }
       },
       {
         "id": "hashbrown_native_suite/round=5",
         "load": {
           "since": "cell:hashbrown_native_suite/round=5",
-          "wall_s": 0.599,
-          "busy_cpus_since_prev": 1.02,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.02
-        }
-      },
-      {
-        "id": "hashbrown_native_suite/round=6",
-        "load": {
-          "since": "cell:hashbrown_native_suite/round=6",
-          "wall_s": 0.606,
-          "busy_cpus_since_prev": 1.01,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.01
-        }
-      },
-      {
-        "id": "hashbrown_native_suite/round=7",
-        "load": {
-          "since": "cell:hashbrown_native_suite/round=7",
-          "wall_s": 0.618,
+          "wall_s": 0.602,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
         }
       },
       {
+        "id": "hashbrown_native_suite/round=6",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=6",
+          "wall_s": 0.601,
+          "busy_cpus_since_prev": 0.98,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": -0.02
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=7",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=7",
+          "wall_s": 0.617,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
         "id": "hashbrown_native_suite/round=8",
         "load": {
           "since": "cell:hashbrown_native_suite/round=8",
-          "wall_s": 0.6,
+          "wall_s": 0.599,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -642,7 +642,7 @@
         "id": "hashbrown_tail_latency/round=0",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=0",
-          "wall_s": 0.329,
+          "wall_s": 0.328,
           "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.01
@@ -652,37 +652,37 @@
         "id": "hashbrown_tail_latency/round=1",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=1",
-          "wall_s": 0.329,
-          "busy_cpus_since_prev": 0.98,
+          "wall_s": 0.327,
+          "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.02
+          "foreign_busy_cpus": 0.01
         }
       },
       {
         "id": "hashbrown_tail_latency/round=2",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=2",
-          "wall_s": 0.331,
-          "busy_cpus_since_prev": 0.97,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.03
-        }
-      },
-      {
-        "id": "hashbrown_tail_latency/round=3",
-        "load": {
-          "since": "cell:hashbrown_tail_latency/round=3",
-          "wall_s": 0.332,
+          "wall_s": 0.33,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
         }
       },
       {
+        "id": "hashbrown_tail_latency/round=3",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=3",
+          "wall_s": 0.328,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
         "id": "hashbrown_tail_latency/round=4",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=4",
-          "wall_s": 0.328,
+          "wall_s": 0.327,
           "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.01
@@ -692,46 +692,56 @@
         "id": "hashbrown_tail_latency/round=5",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=5",
-          "wall_s": 0.331,
-          "busy_cpus_since_prev": 1.0,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.0
-        }
-      },
-      {
-        "id": "hashbrown_tail_latency/round=6",
-        "load": {
-          "since": "cell:hashbrown_tail_latency/round=6",
-          "wall_s": 0.327,
-          "busy_cpus_since_prev": 0.98,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.02
-        }
-      },
-      {
-        "id": "hashbrown_tail_latency/round=7",
-        "load": {
-          "since": "cell:hashbrown_tail_latency/round=7",
-          "wall_s": 0.332,
+          "wall_s": 0.333,
           "busy_cpus_since_prev": 1.02,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.02
         }
       },
       {
+        "id": "hashbrown_tail_latency/round=6",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=6",
+          "wall_s": 0.329,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=7",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=7",
+          "wall_s": 0.33,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
         "id": "hashbrown_tail_latency/round=8",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=8",
-          "wall_s": 0.331,
-          "busy_cpus_since_prev": 0.97,
+          "wall_s": 0.329,
+          "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.03
+          "foreign_busy_cpus": 0.0
         }
       },
       {
         "id": "hashbrown_container_dists/round=0",
         "load": {
           "since": "cell:hashbrown_container_dists/round=0",
+          "wall_s": 0.423,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=1",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=1",
           "wall_s": 0.425,
           "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
@@ -739,20 +749,10 @@
         }
       },
       {
-        "id": "hashbrown_container_dists/round=1",
-        "load": {
-          "since": "cell:hashbrown_container_dists/round=1",
-          "wall_s": 0.424,
-          "busy_cpus_since_prev": 0.99,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.01
-        }
-      },
-      {
         "id": "hashbrown_container_dists/round=2",
         "load": {
           "since": "cell:hashbrown_container_dists/round=2",
-          "wall_s": 0.433,
+          "wall_s": 0.436,
           "busy_cpus_since_prev": 0.99,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": -0.01
@@ -762,37 +762,37 @@
         "id": "hashbrown_container_dists/round=3",
         "load": {
           "since": "cell:hashbrown_container_dists/round=3",
-          "wall_s": 0.422,
-          "busy_cpus_since_prev": 1.04,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.04
-        }
-      },
-      {
-        "id": "hashbrown_container_dists/round=4",
-        "load": {
-          "since": "cell:hashbrown_container_dists/round=4",
-          "wall_s": 0.426,
+          "wall_s": 0.423,
           "busy_cpus_since_prev": 0.99,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": -0.01
         }
       },
       {
+        "id": "hashbrown_container_dists/round=4",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=4",
+          "wall_s": 0.424,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
         "id": "hashbrown_container_dists/round=5",
         "load": {
           "since": "cell:hashbrown_container_dists/round=5",
-          "wall_s": 0.433,
-          "busy_cpus_since_prev": 1.02,
+          "wall_s": 0.435,
+          "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.02
+          "foreign_busy_cpus": 0.01
         }
       },
       {
         "id": "hashbrown_container_dists/round=6",
         "load": {
           "since": "cell:hashbrown_container_dists/round=6",
-          "wall_s": 0.422,
+          "wall_s": 0.419,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -802,7 +802,7 @@
         "id": "hashbrown_container_dists/round=7",
         "load": {
           "since": "cell:hashbrown_container_dists/round=7",
-          "wall_s": 0.421,
+          "wall_s": 0.43,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -812,29 +812,29 @@
         "id": "hashbrown_container_dists/round=8",
         "load": {
           "since": "cell:hashbrown_container_dists/round=8",
-          "wall_s": 0.433,
-          "busy_cpus_since_prev": 0.99,
+          "wall_s": 0.439,
+          "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.01
+          "foreign_busy_cpus": 0.0
         }
       },
       {
         "id": "hashbrown_memory_alloc",
         "load": {
           "since": "cell:hashbrown_memory_alloc",
-          "wall_s": 0.16,
-          "busy_cpus_since_prev": 0.94,
+          "wall_s": 0.166,
+          "busy_cpus_since_prev": 0.97,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.06
+          "foreign_busy_cpus": -0.03
         }
       }
     ]
   },
   "load": {
     "since": "cell:hashbrown_memory_alloc",
-    "wall_s": 0.16,
-    "busy_cpus_since_prev": 0.94,
+    "wall_s": 0.166,
+    "busy_cpus_since_prev": 0.97,
     "own_busy_cpus": 1.0,
-    "foreign_busy_cpus": -0.06
+    "foreign_busy_cpus": -0.03
   }
 }

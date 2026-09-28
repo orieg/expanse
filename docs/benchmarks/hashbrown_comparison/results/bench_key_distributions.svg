@@ -103,7 +103,7 @@
 
   <!-- Header -->
   <text x="30" y="30" class="t-title">MARTIN ANKERL &amp; TESSIL KEY DISTRIBUTIONS (LOOKUP MOPS/SEC)</text>
-  <text x="30" y="46" class="t-sub">50,000 Key Population • Point Query Throughput across Key Geometries</text>
+  <text x="30" y="46" class="t-sub">500,000 Key Population • Point Query Throughput across Key Geometries</text>
 
   <!-- Legend -->
   <g transform="translate(630, 20)">
@@ -117,50 +117,50 @@
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
   <text x="30" y="96" class="t-bar-label">Dense Sequential (0..N)</text>
   <text x="30" y="110" class="t-sub">Linear consecutive keys</text>
-  <rect x="310" y="82" width="181.0" height="9" rx="2" class="b-expanse"/>
-  <text x="499.0" y="90" class="t-val-accent" text-anchor="start">135.5M</text>
+  <rect x="310" y="82" width="196.2" height="9" rx="2" class="b-expanse"/>
+  <text x="514.2" y="90" class="t-val-accent" text-anchor="start">154.1M</text>
 
-  <rect x="310" y="95" width="137.3" height="9" rx="2" class="b-hashbrown"/>
-  <text x="455.3" y="103" class="t-val-blue" text-anchor="start">102.8M</text>
+  <rect x="310" y="95" width="113.0" height="9" rx="2" class="b-hashbrown"/>
+  <text x="431.0" y="103" class="t-val-blue" text-anchor="start">88.7M</text>
 
-  <rect x="310" y="108" width="36.4" height="9" rx="2" class="b-btree"/>
-  <text x="354.4" y="116" class="t-val-muted" text-anchor="start">27.3M</text>
+  <rect x="310" y="108" width="27.0" height="9" rx="2" class="b-btree"/>
+  <text x="345.0" y="116" class="t-val-muted" text-anchor="start">21.2M</text>
   <rect x="815" y="94" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="107" class="badge-win-text">5.0x vs BTree</text>
+  <text x="872.5" y="107" class="badge-win-text">7.3x vs BTree</text>
   <text x="30" y="154" class="t-bar-label">Sparse Clustered / Stride</text>
   <text x="30" y="168" class="t-sub">Bursts of 256 keys with sparse strides</text>
-  <rect x="310" y="140" width="227.1" height="9" rx="2" class="b-expanse"/>
-  <text x="545.1" y="148" class="t-val-accent" text-anchor="start">170.1M</text>
+  <rect x="310" y="140" width="216.4" height="9" rx="2" class="b-expanse"/>
+  <text x="534.4" y="148" class="t-val-accent" text-anchor="start">170.0M</text>
 
-  <rect x="310" y="153" width="126.7" height="9" rx="2" class="b-hashbrown"/>
-  <text x="444.7" y="161" class="t-val-blue" text-anchor="start">94.9M</text>
+  <rect x="310" y="153" width="108.9" height="9" rx="2" class="b-hashbrown"/>
+  <text x="426.9" y="161" class="t-val-blue" text-anchor="start">85.6M</text>
 
-  <rect x="310" y="166" width="32.6" height="9" rx="2" class="b-btree"/>
-  <text x="350.6" y="174" class="t-val-muted" text-anchor="start">24.4M</text>
+  <rect x="310" y="166" width="24.0" height="9" rx="2" class="b-btree"/>
+  <text x="342.0" y="174" class="t-val-muted" text-anchor="start">18.9M</text>
   <rect x="815" y="152" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="165" class="badge-win-text">7.0x vs BTree</text>
+  <text x="872.5" y="165" class="badge-win-text">9.0x vs BTree</text>
   <text x="30" y="212" class="t-bar-label">Zipfian Skewed (s=0.99)</text>
   <text x="30" y="226" class="t-sub">Power-law hot key access</text>
-  <rect x="310" y="198" width="155.0" height="9" rx="2" class="b-expanse"/>
-  <text x="473.0" y="206" class="t-val-accent" text-anchor="start">116.1M</text>
+  <rect x="310" y="198" width="145.2" height="9" rx="2" class="b-expanse"/>
+  <text x="463.2" y="206" class="t-val-accent" text-anchor="start">114.0M</text>
 
   <rect x="310" y="211" width="264.0" height="9" rx="2" class="b-hashbrown"/>
-  <text x="582.0" y="219" class="t-val-blue" text-anchor="start">197.7M</text>
+  <text x="582.0" y="219" class="t-val-blue" text-anchor="start">207.4M</text>
 
-  <rect x="310" y="224" width="26.4" height="9" rx="2" class="b-btree"/>
-  <text x="344.4" y="232" class="t-val-muted" text-anchor="start">19.7M</text>
+  <rect x="310" y="224" width="23.7" height="9" rx="2" class="b-btree"/>
+  <text x="341.7" y="232" class="t-val-muted" text-anchor="start">18.6M</text>
   <rect x="815" y="210" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="223" class="badge-win-text">5.9x vs BTree</text>
+  <text x="872.5" y="223" class="badge-win-text">6.1x vs BTree</text>
   <text x="30" y="270" class="t-bar-label">Uniform Random 64-bit</text>
   <text x="30" y="284" class="t-sub">High entropy pseudo-random keys</text>
-  <rect x="310" y="256" width="37.4" height="9" rx="2" class="b-expanse"/>
-  <text x="355.4" y="264" class="t-val-accent" text-anchor="start">28.0M</text>
+  <rect x="310" y="256" width="35.3" height="9" rx="2" class="b-expanse"/>
+  <text x="353.3" y="264" class="t-val-accent" text-anchor="start">27.7M</text>
 
-  <rect x="310" y="269" width="119.3" height="9" rx="2" class="b-hashbrown"/>
-  <text x="437.3" y="277" class="t-val-blue" text-anchor="start">89.4M</text>
+  <rect x="310" y="269" width="104.0" height="9" rx="2" class="b-hashbrown"/>
+  <text x="422.0" y="277" class="t-val-blue" text-anchor="start">81.7M</text>
 
-  <rect x="310" y="282" width="13.4" height="9" rx="2" class="b-btree"/>
-  <text x="331.4" y="290" class="t-val-muted" text-anchor="start">10.0M</text>
+  <rect x="310" y="282" width="12.5" height="9" rx="2" class="b-btree"/>
+  <text x="330.5" y="290" class="t-val-muted" text-anchor="start">9.8M</text>
   <rect x="815" y="268" width="115" height="18" class="badge-win"/>
   <text x="872.5" y="281" class="badge-win-text">2.8x vs BTree</text>
 </svg>

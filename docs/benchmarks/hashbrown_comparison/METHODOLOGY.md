@@ -36,7 +36,7 @@ This methodology document specifies the reproduction harness, metrics, statistic
 
 ### Pillar 3: Dynamic Growth Tail Latency & Rehash Cliffs
 - **Instrumentation:** High-dynamic-range histogram (`HdrHistogram`, 3 significant figures, nanosecond resolution up to 10 seconds).
-- **Protocol:** Un-preallocated continuous insertion of $10^6$ keys. Every individual insert is timed with `std::time::Instant` and recorded.
+- **Protocol:** Un-preallocated continuous insertion of $10^6$ keys per arm per round. Every individual insert is timed with `std::time::Instant` and recorded; the bracket is not calibrated, so its own cost is inside every sample.
 - **Metrics:** $P_{50}, P_{75}, P_{90}, P_{95}, P_{99}, P_{99.9}, P_{99.99}$, and $\text{Max}$ latency.
 - **Objective:** Reveal the latency cliff of table-doubling reallocations in SwissTable vs. localized subexpanse allocations in Expanse.
 
@@ -59,6 +59,8 @@ To eliminate thermal throttling, core migration, and CPU frequency scaling noise
 1. **Pipelining & Optimization:** All harnesses are compiled under `--profile bench` with `opt-level = 3`, `lto = "thin"`, and `codegen-units = 1`.
 2. **Black Box Optimization Fence:** All benchmark operations pass keys, values, and results through `std::hint::black_box` to prevent compiler dead-code elimination.
 3. **No Setup Contamination:** Container creation, RNG generation, and buffer prep are strictly separated from measurement loops.
+4. **Rounds, one process each:** the native, tail-latency and key-distribution pillars run 9 rounds (`run_all.py --rounds`; 3 under `--quick`), each in a fresh process (`--round K`) that times every arm once, the arm order rotated by `K`. A round in a process that has already run one reuses the memory that round freed, and in rounds taken in one process the first round's hashbrown inserts ran slower than the rest, so rounds sharing a process would not be independent samples. Each published per-arm figure is the mean over the rounds with its BCa 95% interval, each ratio the mean of per-round quotients with its interval, and every row in `rounds_raw` carries the load window of its process (AGENTS.md §8.4, §8.17). The memory census is exact and runs once.
+5. **Two runs:** a re-measurement commits both runs (`baseline_*.json`, `baseline_*_run2.json`); a between-run comparison is claimed only where both runs agree (`docs/BENCHMARKING.md` rule 18).
 
 ---
 

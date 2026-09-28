@@ -6,7 +6,9 @@
 //! - lookup_miss (point query on absent keys)
 //! - iter_all (full container iteration)
 //!
-//! Supports standalone execution with `--json` for automated script collection.
+//! Supports standalone execution with `--json` for automated script collection,
+//! and `--round K` for which round the process is (the arm order rotates by
+//! `K`). Each population is one `BENCH_WINDOW` load window.
 //!
 //! # Workload shape
 //!
@@ -20,10 +22,10 @@
 //! | `hit_rate` | 100% hit / 100% miss arms |
 //! | `miss_gen_method` | Separate PRNG seed (no membership check) |
 //! | `value_dereference` | `black_box(get)` |
-//! | `measured_region` | **LEAKY DROP**: `insert_growing` drops `m` inside `bench_op` (L218, L231, L244) |
+//! | `measured_region` | Lookups and scans: the loop of `iters` / `reps` ops. `insert_growing`: each build is timed alone and its map dropped after the clock stops (`bench_grow_op`). Map prepopulation is outside the window |
 //! | `arm_symmetry` | Symmetric |
-//! | `statistics` | Raw ns/op (no CI) |
-//! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 2, 4, 7)** `[verified: CODE READ]`: Sequential sub-slice walk; Drop inside timed insert loop; no CI. |
+//! | `statistics` | `run_all.py` runs one process per round (`--round K`, 9 rounds; 3 under `--quick`), each timing every arm once with the arm order rotated by `K`; it publishes per-arm round means, the rows as `rounds_raw`, BCa 95% intervals and paired per-round ratios |
+//! | `verdict` | **PASS / MINOR (Class 2)** `[verified: CODE READ]`: drop outside the timed build (#470), rounds and intervals (#1214); lookups still walk the first `iters` keys in index order. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;
@@ -97,10 +99,151 @@ fn bench_grow_op<F: FnMut() -> R, R>(
     (ns_per_op, mops)
 }
 
+/// The three arms, in the order they are rotated through: round `r` starts
+/// with arm `r % 3`, so no arm is always timed first or last.
+const ARMS: [&str; 3] = ["expanse", "hashbrown", "btree"];
+
+/// Which round this process is: `--round K`, else 0. A process measures one
+/// round, with the arm order rotated by `K`; `run_all.py` runs one process
+/// per round, because a later round in the same process reuses memory the
+/// round before it freed and inserts measurably faster (#1214).
+fn round_arg(args: &[String]) -> usize {
+    match args.iter().position(|a| a == "--round") {
+        Some(i) => args
+            .get(i + 1)
+            .and_then(|v| v.parse().ok())
+            .expect("--round takes a non-negative integer"),
+        None => 0,
+    }
+}
+
+/// Runs one timed case between two window markers on stderr, which
+/// `scripts/bench_windowed.py` reads to snapshot the host's busy CPU and this
+/// process's own CPU at each boundary (AGENTS.md section 8.17, #1214).
+fn bench_window<T>(id: &str, case: impl FnOnce() -> T) -> T {
+    eprintln!("BENCH_WINDOW begin {id}");
+    let out = case();
+    eprintln!("BENCH_WINDOW end {id}");
+    out
+}
+
+/// The prepopulated maps the lookup and iteration cases read.
+struct Bases {
+    expanse: ExpanseMap,
+    hashbrown: HashMap<u64, u64>,
+    btree: BTreeMap<u64, u64>,
+}
+
+/// `(ns_per_op, mops)` of `iters` point lookups over `probes`, walked from
+/// index 1 as the upstream port does.
+fn lookup(arm: usize, b: &Bases, probes: &[u64], iters: usize) -> (f64, f64) {
+    let mut idx = 0;
+    match arm {
+        0 => bench_op(
+            || {
+                idx = (idx + 1) % probes.len();
+                black_box(b.expanse.get(black_box(probes[idx])));
+            },
+            5_000,
+            iters,
+        ),
+        1 => bench_op(
+            || {
+                idx = (idx + 1) % probes.len();
+                black_box(b.hashbrown.get(&black_box(probes[idx])));
+            },
+            5_000,
+            iters,
+        ),
+        _ => bench_op(
+            || {
+                idx = (idx + 1) % probes.len();
+                black_box(b.btree.get(&black_box(probes[idx])));
+            },
+            5_000,
+            iters,
+        ),
+    }
+}
+
+/// `ns_per_scan` of a full iteration, averaged over `reps` scans.
+fn iterate(arm: usize, b: &Bases, reps: usize) -> f64 {
+    fn scan<T>(it: impl Iterator<Item = T>) {
+        let mut count = 0usize;
+        for kv in it {
+            black_box(kv);
+            count += 1;
+        }
+        black_box(count);
+    }
+    let (ns, _) = match arm {
+        0 => bench_op(|| scan(b.expanse.iter()), 2, reps),
+        1 => bench_op(|| scan(b.hashbrown.iter()), 2, reps),
+        _ => bench_op(|| scan(b.btree.iter()), 2, reps),
+    };
+    ns
+}
+
+/// `ns` per build of a map grown from empty to `keys.len()`, with the drop
+/// outside the timed region.
+fn grow(arm: usize, keys: &[u64], reps: usize) -> f64 {
+    let (ns, _) = match arm {
+        0 => bench_grow_op(
+            || {
+                let mut m = ExpanseMap::new();
+                for &k in keys {
+                    m.insert(black_box(k), black_box(k));
+                }
+                m
+            },
+            1,
+            reps,
+        ),
+        1 => bench_grow_op(
+            || {
+                let mut m = HashMap::new();
+                for &k in keys {
+                    m.insert(black_box(k), black_box(k));
+                }
+                m
+            },
+            1,
+            reps,
+        ),
+        _ => bench_grow_op(
+            || {
+                let mut m = BTreeMap::new();
+                for &k in keys {
+                    m.insert(black_box(k), black_box(k));
+                }
+                m
+            },
+            1,
+            reps,
+        ),
+    };
+    ns
+}
+
+fn mean(v: impl Iterator<Item = f64>) -> f64 {
+    let (sum, n) = v.fold((0.0, 0usize), |(s, n), x| (s + x, n + 1));
+    sum / n as f64
+}
+
+/// The mean over the rounds of `field` for `(op, arm)`.
+fn mean_of(rows: &[serde_json::Value], op: &str, arm: &str, field: &str) -> f64 {
+    mean(
+        rows.iter()
+            .filter(|r| r["op"] == op && r["arm"] == arm)
+            .map(|r| r[field].as_f64().expect("a round row carries its field")),
+    )
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
     let json_mode = args.iter().any(|a| a == "--json");
+    let round = round_arg(&args);
 
     let pops = if quick {
         vec![10_000, 100_000]
@@ -114,14 +257,16 @@ fn main() {
         let keys = generate_keys(pop, 0x1234_5678_9ABC_DEF0);
         let absent_keys = generate_keys(pop, 0xFEDC_BA98_7654_3210);
 
-        // Prepopulate maps for read/iter/remove tests
-        let mut base_expanse = ExpanseMap::new();
-        let mut base_hashbrown = HashMap::new();
-        let mut base_btree = BTreeMap::new();
+        // Prepopulate maps for read/iter tests
+        let mut bases = Bases {
+            expanse: ExpanseMap::new(),
+            hashbrown: HashMap::new(),
+            btree: BTreeMap::new(),
+        };
         for &k in &keys {
-            base_expanse.insert(k, k);
-            base_hashbrown.insert(k, k);
-            base_btree.insert(k, k);
+            bases.expanse.insert(k, k);
+            bases.hashbrown.insert(k, k);
+            bases.btree.insert(k, k);
         }
 
         let iters = if pop <= 10_000 {
@@ -131,70 +276,6 @@ fn main() {
         } else {
             10_000
         };
-
-        // 1. Lookup Hit
-        let mut idx_e = 0;
-        let (ns_hit_exp, mops_hit_exp) = bench_op(
-            || {
-                idx_e = (idx_e + 1) % keys.len();
-                black_box(base_expanse.get(black_box(keys[idx_e])));
-            },
-            5_000,
-            iters,
-        );
-
-        let mut idx_h = 0;
-        let (ns_hit_hb, mops_hit_hb) = bench_op(
-            || {
-                idx_h = (idx_h + 1) % keys.len();
-                black_box(base_hashbrown.get(&black_box(keys[idx_h])));
-            },
-            5_000,
-            iters,
-        );
-
-        let mut idx_b = 0;
-        let (ns_hit_bt, mops_hit_bt) = bench_op(
-            || {
-                idx_b = (idx_b + 1) % keys.len();
-                black_box(base_btree.get(&black_box(keys[idx_b])));
-            },
-            5_000,
-            iters,
-        );
-
-        // 2. Lookup Miss
-        let mut idx_me = 0;
-        let (ns_miss_exp, mops_miss_exp) = bench_op(
-            || {
-                idx_me = (idx_me + 1) % absent_keys.len();
-                black_box(base_expanse.get(black_box(absent_keys[idx_me])));
-            },
-            5_000,
-            iters,
-        );
-
-        let mut idx_mh = 0;
-        let (ns_miss_hb, mops_miss_hb) = bench_op(
-            || {
-                idx_mh = (idx_mh + 1) % absent_keys.len();
-                black_box(base_hashbrown.get(&black_box(absent_keys[idx_mh])));
-            },
-            5_000,
-            iters,
-        );
-
-        let mut idx_mb = 0;
-        let (ns_miss_bt, mops_miss_bt) = bench_op(
-            || {
-                idx_mb = (idx_mb + 1) % absent_keys.len();
-                black_box(base_btree.get(&black_box(absent_keys[idx_mb])));
-            },
-            5_000,
-            iters,
-        );
-
-        // 3. Iteration
         let iter_reps = if pop <= 10_000 {
             100
         } else if pop <= 100_000 {
@@ -202,46 +283,6 @@ fn main() {
         } else {
             5
         };
-        let (ns_iter_exp, _) = bench_op(
-            || {
-                let mut count = 0usize;
-                for (k, v) in base_expanse.iter() {
-                    black_box((k, v));
-                    count += 1;
-                }
-                black_box(count);
-            },
-            2,
-            iter_reps,
-        );
-
-        let (ns_iter_hb, _) = bench_op(
-            || {
-                let mut count = 0usize;
-                for (k, v) in base_hashbrown.iter() {
-                    black_box((k, v));
-                    count += 1;
-                }
-                black_box(count);
-            },
-            2,
-            iter_reps,
-        );
-
-        let (ns_iter_bt, _) = bench_op(
-            || {
-                let mut count = 0usize;
-                for (k, v) in base_btree.iter() {
-                    black_box((k, v));
-                    count += 1;
-                }
-                black_box(count);
-            },
-            2,
-            iter_reps,
-        );
-
-        // 4. Insert Growing (from 0 to pop)
         let build_reps = if pop <= 10_000 {
             30
         } else if pop <= 100_000 {
@@ -249,67 +290,59 @@ fn main() {
         } else {
             2
         };
-        let (ns_grow_exp, _) = bench_grow_op(
-            || {
-                let mut m = ExpanseMap::new();
-                for &k in &keys {
-                    m.insert(black_box(k), black_box(k));
-                }
-                m
-            },
-            1,
-            build_reps,
-        );
-        let mops_grow_exp = (pop as f64 / (ns_grow_exp * 1e-9)) / 1e6;
 
-        let (ns_grow_hb, _) = bench_grow_op(
-            || {
-                let mut m = HashMap::new();
-                for &k in &keys {
-                    m.insert(black_box(k), black_box(k));
+        // One row per (op, arm) of this process's round. Every op runs every
+        // arm, in the round's rotated order, so a round's arms are paired.
+        let rows = bench_window(&format!("pop={pop}"), || {
+            let mut rows = Vec::new();
+            for round in [round] {
+                let order = (0..ARMS.len()).map(|i| (i + round) % ARMS.len());
+                for arm in order.clone() {
+                    let (ns, mops) = lookup(arm, &bases, &keys, iters);
+                    rows.push(serde_json::json!({ "round": round, "op": "lookup_hit",
+                        "arm": ARMS[arm], "ns_per_op": ns, "mops": mops }));
                 }
-                m
-            },
-            1,
-            build_reps,
-        );
-        let mops_grow_hb = (pop as f64 / (ns_grow_hb * 1e-9)) / 1e6;
-
-        let (ns_grow_bt, _) = bench_grow_op(
-            || {
-                let mut m = BTreeMap::new();
-                for &k in &keys {
-                    m.insert(black_box(k), black_box(k));
+                for arm in order.clone() {
+                    let (ns, mops) = lookup(arm, &bases, &absent_keys, iters);
+                    rows.push(serde_json::json!({ "round": round, "op": "lookup_miss",
+                        "arm": ARMS[arm], "ns_per_op": ns, "mops": mops }));
                 }
-                m
-            },
-            1,
-            build_reps,
-        );
-        let mops_grow_bt = (pop as f64 / (ns_grow_bt * 1e-9)) / 1e6;
+                for arm in order.clone() {
+                    let ns = iterate(arm, &bases, iter_reps);
+                    rows.push(serde_json::json!({ "round": round, "op": "iter_all",
+                        "arm": ARMS[arm], "ns_per_scan": ns,
+                        "mops_items": (pop as f64 / (ns * 1e-9)) / 1e6 }));
+                }
+                for arm in order {
+                    let ns = grow(arm, &keys, build_reps);
+                    rows.push(serde_json::json!({ "round": round, "op": "insert_growing",
+                        "arm": ARMS[arm], "ns_per_build": ns,
+                        "mops": (pop as f64 / (ns * 1e-9)) / 1e6 }));
+                }
+            }
+            rows
+        });
 
+        // Per-arm figures are means over `rows`, which is one round here;
+        // `run_all.py` recomputes them over the rounds it merges.
+        let per_arm = |op: &str, fields: &[&str]| {
+            let mut m = serde_json::Map::new();
+            for arm in ARMS {
+                let mut f = serde_json::Map::new();
+                for &field in fields {
+                    f.insert(field.into(), mean_of(&rows, op, arm, field).into());
+                }
+                m.insert(arm.into(), f.into());
+            }
+            serde_json::Value::Object(m)
+        };
         results.push(serde_json::json!({
             "population": pop,
-            "lookup_hit": {
-                "expanse": { "ns_per_op": ns_hit_exp, "mops": mops_hit_exp },
-                "hashbrown": { "ns_per_op": ns_hit_hb, "mops": mops_hit_hb },
-                "btree": { "ns_per_op": ns_hit_bt, "mops": mops_hit_bt }
-            },
-            "lookup_miss": {
-                "expanse": { "ns_per_op": ns_miss_exp, "mops": mops_miss_exp },
-                "hashbrown": { "ns_per_op": ns_miss_hb, "mops": mops_miss_hb },
-                "btree": { "ns_per_op": ns_miss_bt, "mops": mops_miss_bt }
-            },
-            "iter_all": {
-                "expanse": { "ns_per_scan": ns_iter_exp, "mops_items": (pop as f64 / (ns_iter_exp * 1e-9)) / 1e6 },
-                "hashbrown": { "ns_per_scan": ns_iter_hb, "mops_items": (pop as f64 / (ns_iter_hb * 1e-9)) / 1e6 },
-                "btree": { "ns_per_scan": ns_iter_bt, "mops_items": (pop as f64 / (ns_iter_bt * 1e-9)) / 1e6 }
-            },
-            "insert_growing": {
-                "expanse": { "mops": mops_grow_exp },
-                "hashbrown": { "mops": mops_grow_hb },
-                "btree": { "mops": mops_grow_bt }
-            }
+            "lookup_hit": per_arm("lookup_hit", &["ns_per_op", "mops"]),
+            "lookup_miss": per_arm("lookup_miss", &["ns_per_op", "mops"]),
+            "iter_all": per_arm("iter_all", &["ns_per_scan", "mops_items"]),
+            "insert_growing": per_arm("insert_growing", &["mops"]),
+            "rounds_raw": rows,
         }));
     }
 

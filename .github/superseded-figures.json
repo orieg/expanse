@@ -1386,6 +1386,47 @@
       "replacement": "expanse_dl_over_stock series of results/baseline_vs_libjudy.json (commit 4c4e852a, run 33151981386): sequential 1M ins 0.545x [0.544, 0.546], get 0.872x [0.869, 0.877]; random 1M ins 0.804x [0.802, 0.807], get 1.031x [1.024, 1.038]",
       "provenance": "run 33151981386, results/baseline_vs_libjudy.json",
       "rationale": "Quiet-host sequential and random 1M rows from commit 43b46f38 (5-round medians, no intervals) do not match the repaired harness; sequential lookup was published at 0.68x against a measured 0.872x."
+    },
+    {
+      "id": "hashbrown_tail_latency_7d87dff7",
+      "patterns": [
+        "(?<![\\w.])320\\s*(?:\\\\times|[x×])",
+        "(?<![\\w.])34\\.7\\s*(?:\\\\text\\{\\s*)?(?:µs|us)\\b",
+        "(?<![\\w.])P_\\{99\\.99\\}\\s*=\\s*3\\.4\\s*(?:\\\\text\\{\\s*)?(?:µs|us)"
+      ],
+      "context": [
+        "hashbrown",
+        "expanse",
+        "worst",
+        "rehash",
+        "tail",
+        "swisstable"
+      ],
+      "replacement": "docs/benchmarks/hashbrown_comparison/results/baseline_tail_latency.json and _run2 at 2f82cd07: hashbrown max over Expanse max, paired per round, 743x [328, 1457] and 552x [340, 735]; Expanse max 53.7 us [25.3, 97.3] and 38.4 us [18.0, 81.7]; Expanse P99.99 2,188 ns [2,102, 2,281] and 2,146 ns [2,111, 2,173]",
+      "provenance": "commit 2f82cd07, docs/benchmarks/hashbrown_comparison/results/baseline_tail_latency.json",
+      "rationale": "One in-process pass at 7d87dff7 with no rounds or interval; re-measured as 9 one-process rounds per run, two runs"
+    },
+    {
+      "id": "hashbrown_container_dists_7d87dff7",
+      "patterns": [
+        "(?<![\\w.])1\\.8\\s*[x×]\\s*faster than hashbrown",
+        "(?<![\\w.])1\\.3\\s*[x×]\\s*faster than hashbrown",
+        "(?<![\\w.])7\\.0\\s*[x×]\\s*vs\\s*btree",
+        "(?<![\\w.])5\\.0\\s*[x×]\\s*vs\\s*btree",
+        "(?<![\\w.])5\\.9\\s*[x×]\\s*vs\\s*btree",
+        "hashbrown leads \\((?:1\\.7|3\\.2)\\s*[x×]\\)"
+      ],
+      "context": [
+        "hashbrown",
+        "btree",
+        "clustered",
+        "sequential",
+        "zipfian",
+        "uniform"
+      ],
+      "replacement": "docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json and _run2 at 2f82cd07: lookup Expanse/hashbrown clustered 1.990x [1.947, 2.049], sequential 1.740x [1.694, 1.787], zipfian 0.562x [0.518, 0.627], uniform 0.340x [0.338, 0.342]; Expanse/BTreeMap 9.003x, 7.260x, 6.135x, 2.837x",
+      "provenance": "commit 2f82cd07, docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json",
+      "rationale": "One in-process pass at 7d87dff7 with unseeded Zipfian keys and no rounds or interval; re-measured as 9 one-process rounds per run, two runs"
     }
   ]
 }

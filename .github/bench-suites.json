@@ -502,6 +502,7 @@
       "package": "expanse-trie",
       "target": "hashbrown_native_suite",
       "result_pattern": "\"ns_per_op\": Number\\(",
+      "windows": "markers",
       "summary": "Core point-operation comparison against hashbrown.",
       "suite": "hashbrown_comparison"
     },

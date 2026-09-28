@@ -158,6 +158,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/concurrency/scripts/tables.py",
     "docs/benchmarks/concurrency/scripts/writer_scaling.py",
     "docs/benchmarks/concurrency/scripts/ycsb_concurrent.py",
+    # The hashbrown pillars' per-arm and paired per-round ratio intervals
+    # (native, tail latency, key distributions).
+    "docs/benchmarks/hashbrown_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",
     "docs/benchmarks/masstree_comparison/scripts/run_all.py",
@@ -274,13 +277,10 @@ GRANDFATHERED = {
     # `busy_cpus_since_prev` (#1214). The runner now takes a window per bench
     # process and a closing snapshot; a re-run drops this entry.
     "art_comparison/results/baseline_lookup_hit.json": ("b447dbc",),
-    # hashbrown_comparison, redis_zset_engine, search_inverted_index — these
-    # runners took no load snapshot at all before this change, and several of
-    # their artifacts are bare JSON arrays.
-    "hashbrown_comparison/results/baseline_native.json": None,
-    "hashbrown_comparison/results/baseline_tail_latency.json": None,
-    "hashbrown_comparison/results/baseline_distributions.json": None,
-    "hashbrown_comparison/results/baseline_memory.json": None,
+    # redis_zset_engine, search_inverted_index — these runners took no load
+    # snapshot at all before this change, and several of their artifacts are
+    # bare JSON arrays. The hashbrown_comparison artifacts left this table when
+    # the suite was re-run with per-round processes at 2f82cd07 (#1214).
     "redis_zset_engine/results/baseline_zadd.json": None,
     "redis_zset_engine/results/baseline_range.json": None,
     "redis_zset_engine/results/baseline_rank.json": None,
