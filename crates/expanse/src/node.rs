@@ -861,6 +861,11 @@ impl BranchU {
     #[cfg(feature = "ablation-branchu-header-count")]
     #[inline(always)]
     pub(crate) unsafe fn child_count<const OCC: bool>(b: *mut BranchU) -> u32 {
+        // The shared descents seed their ancestor arrays with null frames
+        // and pass only the frames they wrote; stated here so the claim is
+        // checked rather than assumed. The feature-only accessor is the one
+        // place it costs anything.
+        assert!(!b.is_null(), "BranchU::child_count on a null node");
         // SAFETY: caller contract; the field is 4-byte aligned in the node.
         unsafe { crate::bits::shared_word::load_u32::<OCC>(&raw mut (*b).child_count) }
     }
@@ -874,6 +879,7 @@ impl BranchU {
     #[cfg(feature = "ablation-branchu-header-count")]
     #[inline(always)]
     pub(crate) unsafe fn set_child_count<const OCC: bool>(b: *mut BranchU, n: u32) {
+        assert!(!b.is_null(), "BranchU::set_child_count on a null node");
         // SAFETY: caller contract.
         unsafe { crate::bits::shared_word::store_u32::<OCC>(&raw mut (*b).child_count, n) }
     }
