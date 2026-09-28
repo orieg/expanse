@@ -3328,8 +3328,9 @@ BAND_DUTIES = (1, 0)
 BAND_WR = ((1, 0), (1, 1), (2, 0), (2, 1), (4, 0), (4, 1), (8, 0))
 BAND_CYCLES = 8192
 BAND_CYCLES_QUICK = 64
-# §24.4: at W >= 2 the counters must attribute this share of the scheduled
-# crossings to DemoteU and Upgrade, or the cell is marked unattributed.
+# §24.4, §24.8: in every cell but W = 1, R = 0 the counters must attribute this
+# share of the scheduled crossings to DemoteU and Upgrade, or the cell is
+# marked unattributed.
 BAND_CROSSING_ATTRIBUTION_FLOOR = 0.95
 BAND_BLOCK = tuple(
     (build, duty, w, r) for build in BAND_BUILDS for duty in BAND_DUTIES for (w, r) in BAND_WR
@@ -3439,9 +3440,10 @@ def check_band_schedule(row: dict[str, Any], cycles: int, ctx: str) -> None:
 
 
 def check_band_counters_row(row: dict[str, Any], cycles: int) -> None:
-    """The identities a band counters row owes, re-checked on the driver side (§24.4, §8.1).
+    """The identities a band counters row owes, re-checked on the driver side (§24.4, §24.8, §8.1).
 
-    A mismatch at W = 1 or at duty 0 means the cell did not run the registered
+    A crossing count off at W = 1, R = 0 or at duty 0, or a missed crossing no
+    contention fallback accounts for, means the cell did not run the registered
     workload, and voids the run.
     """
     ctx = f"{row.get('build')} {row.get('cell')} round {row.get('round')}"
@@ -3477,14 +3479,26 @@ def check_band_counters_row(row: dict[str, Any], cycles: int) -> None:
                          f"read_fallbacks, got {row['read_ops']}, {row['reader_ops']}, {row['locked_reads']}, "
                          f"{row['read_fallbacks']}")
     dmu, upg, oc = int(row["branch_split_demote_u"]), int(row["branch_split_upgrade"]), int(row["owner_cycles"])
+    w, r = int(row["writers"]), int(row["readers"])
+    contention = int(causes["contention"])
     if int(row["duty"]) == 0 and (dmu, upg) != (0, 0):
         raise ValueError(f"{ctx}: the twin counted DemoteU {dmu} and Upgrade {upg}; it must cross nothing "
                          f"(§24.4 voids the run)")
-    if int(row["duty"]) == 1 and int(row["writers"]) == 1 and (dmu, upg) != (oc, oc):
-        raise ValueError(f"{ctx}: DemoteU {dmu} and Upgrade {upg} at W = 1 over {oc} cycles; each must equal "
-                         f"the cycles (§24.4 voids the run)")
     if dmu > oc or upg > oc:
         raise ValueError(f"{ctx}: DemoteU {dmu} or Upgrade {upg} exceeds the {oc} cycles the owner ran")
+    if int(row["duty"]) == 1 and (w, r) == (1, 0) and (dmu, upg) != (oc, oc):
+        raise ValueError(f"{ctx}: DemoteU {dmu} and Upgrade {upg} at W = 1, R = 0 over {oc} cycles; with no "
+                         f"other thread each must equal the cycles (§24.4, §24.8 void the run)")
+    # §24.8: a crossing whose optimistic attempt found the writer gate closed
+    # falls back as contention and still crosses on the exclusive path. Every
+    # crossing the branch-split counters miss must be one of those.
+    shortfall = 2 * oc * int(row["duty"]) - dmu - upg
+    if shortfall > contention:
+        raise ValueError(f"{ctx}: {shortfall} scheduled crossings are neither DemoteU nor Upgrade, and only "
+                         f"{contention} fallbacks are contention (§24.8 voids the run)")
+    if w == 1 and contention > int(row["locked_reads"]):
+        raise ValueError(f"{ctx}: {contention} contention fallbacks at W = 1 but {row['locked_reads']} locked "
+                         f"reads; with one writer only a reader's locked read closes the gate (§24.8 voids the run)")
 
 
 def _named_mean_ci(xs: list[float], prefix: str) -> dict[str, Any]:
@@ -3628,7 +3642,8 @@ def band_excess(
         raise ValueError(f"band excess {label}: need at least 3 paired rounds for a BCa interval, got {len(deltas)}")
     band_cell = next(c for c in cells if (c["build"], c["duty"], c["writers"], c["readers"]) == (build, 1, w, r))
     share = band_cell["crossings_attributed_share"]
-    attributed = w == 1 or (share is not None and share >= BAND_CROSSING_ATTRIBUTION_FLOOR)
+    # §24.8: only W = 1, R = 0 is exact; every other cell carries the floor.
+    attributed = (w, r) == (1, 0) or (share is not None and share >= BAND_CROSSING_ATTRIBUTION_FLOOR)
     out: dict[str, Any] = {"cell": label, "build": build, "writers": w, "readers": r}
     out.update(_named_mean_ci(deltas, "delta_ns_per_crossing_"))
     out.update(_named_mean_ci(ratios, "ratio_"))
@@ -3676,7 +3691,7 @@ def build_band_cells_artifact(
         "throughput": cells,
         "band_cells": {
             "issue": 1208,
-            "preregistration": "docs/benchmarks/concurrency/METHODOLOGY.md §24",
+            "preregistration": "docs/benchmarks/concurrency/METHODOLOGY.md §24, as amended by §24.8",
             "pin": {"required": BAND_CELLS_PIN, "applied": applied_pin, "conforms": conforms},
             "rounds": rounds,
             "cycles": cycles,
@@ -5202,16 +5217,53 @@ def _self_test_band_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
 
     _expect_value_error(lambda: summarize_band_cells(t, broken(twin_crossed), rounds, cycles), "the twin counted")
 
-    def w1_uncounted(x: dict[str, Any], probe: bool) -> bool:
+    def upgrade_by_reader(cell: tuple[Any, ...], locked_read: bool) -> Any:
+        """The counters of #1208's first reference-host run (36371158780), reproduced on a
+        development host: one Upgrade crossing taken as a gate-closed contention
+        fallback after a reader's locked read closed the gate (§24.8)."""
+        def mutate(x: dict[str, Any], probe: bool) -> bool:
+            if probe:
+                return key(x) == cell
+            x["branch_split_upgrade"] -= 1
+            x["fallback_causes"] = {**x["fallback_causes"], "branch_split": x["fallback_causes"]["branch_split"] - 1,
+                                    "contention": x["fallback_causes"]["contention"] + 1}
+            x["contention_gate_closed"] += 1
+            if locked_read:
+                x["read_fallbacks"] += 1
+                x["locked_reads"] += 1
+                x["quiesce_calls"] += 1
+            return True
+        return mutate
+
+    # The pattern §24.4 voided is admitted at W = 1, R = 1, and its cell is
+    # still attributed (one crossing in 2 x cycles is above the 0.95 floor).
+    admitted = broken(upgrade_by_reader((BAND_FEATURE, 1, 1, 1), locked_read=True))
+    got = next(x for x in admitted if key(x) == (BAND_FEATURE, 1, 1, 1))
+    assert got["branch_split_upgrade"] == got["owner_cycles"] - 1 and got["contention_gate_closed"] == 1, got
+    cells_r = summarize_band_cells(t, admitted, rounds, cycles)
+    e_r = band_excess(t, cells_r, BAND_FEATURE, 1, 1, rounds)
+    assert not e_r["crossings_unattributed"] and e_r["crossings_attributed_share"] < 1.0, e_r
+    # With no reader nothing else can close the gate: exact at W = 1, R = 0.
+    _expect_value_error(
+        lambda: summarize_band_cells(t, broken(upgrade_by_reader((BAND_FEATURE, 1, 1, 0), locked_read=False)),
+                                     rounds, cycles), "at W = 1, R = 0 over")
+    # At W = 1 a contention fallback with no locked read to cause it is refused.
+    _expect_value_error(
+        lambda: summarize_band_cells(t, broken(upgrade_by_reader((BAND_FEATURE, 1, 1, 1), locked_read=False)),
+                                     rounds, cycles), "only a reader's locked read closes the gate")
+
+    def crossing_lost(x: dict[str, Any], probe: bool) -> bool:
         if probe:
-            return key(x) == (BAND_FEATURE, 1, 1, 1)
-        x["branch_split_upgrade"] -= 1
+            return key(x) == (DEFAULT_BUILD, 1, 2, 1)
+        x["branch_split_demote_u"] -= 1
         x["fallback_causes"] = {**x["fallback_causes"], "branch_split": x["fallback_causes"]["branch_split"] - 1,
-                                "contention": x["fallback_causes"]["contention"] + 1}
-        x["contention_retry_exhausted"] += 1
+                                "cap_expansion": x["fallback_causes"]["cap_expansion"] + 1}
+        x["cap_expansion_class"] += 1
         return True
 
-    _expect_value_error(lambda: summarize_band_cells(t, broken(w1_uncounted), rounds, cycles), "at W = 1 over")
+    # A missing crossing that no contention fallback covers is refused at any W.
+    _expect_value_error(lambda: summarize_band_cells(t, broken(crossing_lost), rounds, cycles),
+                        "neither DemoteU nor Upgrade")
 
     def no_removal_identity(x: dict[str, Any], probe: bool) -> bool:
         if probe:
