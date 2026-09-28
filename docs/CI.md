@@ -653,7 +653,11 @@ Restart=always
 RestartSec=10
 # A bench suite must finish rather than be cut mid-measurement.
 TimeoutStopSec=30min
-KillMode=process
+# run.sh forwards the stop signal to the listener only with this set; mixed
+# kills whatever remains. KillMode=process left a listener running across a
+# restart, holding the session with its old environment.
+Environment=RUNNER_MANUALLY_TRAP_SIG=1
+KillMode=mixed
 ProtectHome=yes
 PrivateTmp=yes
 ProtectSystem=full

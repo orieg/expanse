@@ -243,7 +243,12 @@ Restart=always
 RestartSec=10
 # A bench suite must finish rather than be cut mid-measurement.
 TimeoutStopSec=30min
-KillMode=process
+# run.sh forwards SIGTERM to the listener's process group only when this is
+# set, and mixed kills whatever is left once run.sh exits. KillMode=process
+# left the listener running after a restart, holding the runner's session
+# with the environment it started with, while the new one got "Conflict".
+Environment=RUNNER_MANUALLY_TRAP_SIG=1
+KillMode=mixed
 ProtectHome=yes
 PrivateTmp=yes
 ProtectSystem=full
@@ -322,6 +327,22 @@ ACTIONS_RUNNER_HOOK_JOB_STARTED=$HOOK"
   return "$changed"
 }
 
+# Stop the unit, end every runner process of the account, start the unit.
+# A plain `systemctl restart` under the earlier KillMode=process left the old
+# listener running beside the new one; this does not depend on the kill mode.
+restart_runner() {
+  pgrep -u "$SVC" -f 'Runner.Worker' >/dev/null \
+    && die "a job is running; re-run when the runner is idle"
+  systemctl stop "$UNIT" || true
+  local pat='Runner.Listener|run-helper.sh|/opt/actions-runner/run.sh' _
+  pkill -TERM -u "$SVC" -f "$pat" || true
+  for _ in $(seq 30); do pgrep -u "$SVC" -f "$pat" >/dev/null || break; sleep 1; done
+  pkill -KILL -u "$SVC" -f "$pat" || true
+  sleep 1
+  pgrep -u "$SVC" -f "$pat" >/dev/null && die "runner processes of $SVC survived SIGKILL"
+  systemctl start "$UNIT"
+}
+
 cmd_cutover() {
   need_root; parse_args "$@"
   [ -n "$NAME" ] || die "--name <runner-name> is required"
@@ -330,16 +351,12 @@ cmd_cutover() {
   # to apply a toolchain change lands here.
   if [ -f "$RUNNER/.runner" ] && [ "$(stat -c %U "$RUNNER/.runner")" = root ] \
      && systemctl is-active --quiet "$UNIT"; then
-    # The runner reads .env and .path when it starts: rewrite them from this
-    # checkout, and restart the unit when they changed and no job is running.
-    if write_runner_env; then
-      pgrep -u "$SVC" -f 'Runner.Worker' >/dev/null \
-        && die "$RUNNER/.env changed but a job is running; re-run when the runner is idle to restart it"
-      systemctl restart "$UNIT"
-      say "already cut over; runner environment updated and $UNIT restarted"
-    else
-      say "already cut over ($UNIT active); runner environment unchanged"
-    fi
+    # The runner reads .env and .path when it starts, and a unit change only
+    # applies to a fresh start: rewrite both files from this checkout and
+    # restart it, when no job is running.
+    write_runner_env || true
+    restart_runner
+    say "already cut over; $UNIT restarted with the current environment"
     return 0
   fi
   [ -n "${REMOVE_TOKEN:-}" ] && [ -n "${REG_TOKEN:-}" ] || die "REMOVE_TOKEN and REG_TOKEN must be set"
@@ -494,8 +511,11 @@ cmd_check() {
       *) bad "job-started hook '$hk' lacks the .sh extension the runner requires" ;;
     esac
     systemctl is-active --quiet "$UNIT" && ok "$UNIT active" || bad "$UNIT not active"
-    [ "$(ps -o user= -p "$(pgrep -f 'Runner.Listener' | head -1)" 2>/dev/null | tr -d ' ')" = "$SVC" ] \
-      && ok "Runner.Listener runs as $SVC" || bad "Runner.Listener does not run as $SVC"
+    local nl nall
+    nl="$(pgrep -c -u "$SVC" -f 'Runner.Listener' || true)"
+    nall="$(pgrep -c -f 'bin/Runner.Listener' || true)"
+    [ "$nl" = 1 ] && [ "$nall" = 1 ] && ok "one Runner.Listener, running as $SVC" \
+      || bad "$nl Runner.Listener process(es) as $SVC, $nall in total; want exactly one (run cutover to restart)"
   fi
   [ -f "/etc/systemd/system/$UNIT" ] && grep -q '^IPAddressDeny=' "/etc/systemd/system/$UNIT" \
     && ok "unit denies private networks" || bad "unit missing or lacks IPAddressDeny"
