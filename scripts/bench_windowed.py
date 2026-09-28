@@ -120,7 +120,14 @@ class Windower:
         _, start = self._open
         self._open = None
         load = self.close(start)
-        if load.get("wall_s") is not None and load["wall_s"] < self.min_window_s:
+        # A window is merged into the next when it is too short to resolve.
+        # `wall_s` is rounded to 1 ms while the attribution tests the unrounded
+        # interval, so a window at the minimum can read as long enough here and
+        # still carry no figure (#1214: `growth/expanse`, `wall_s` 0.1 with own
+        # and foreign CPU None). Whatever could not attribute is merged too.
+        short = load.get("wall_s") is not None and load["wall_s"] < self.min_window_s
+        unresolved = not isinstance(load.get("foreign_busy_cpus"), (int, float))
+        if short or unresolved:
             self._carry = (self._ids, start)
             return
         self._record(self._ids, load)
@@ -360,6 +367,23 @@ def _self_test() -> int:
     w.finish()
     check("unattributed window is a finding",
           any("could not attribute" in f for f in w.findings), True)
+
+    # A window at the minimum by its rounded length that still could not
+    # attribute (the unrounded interval was shorter) merges into the next.
+    closes = iter([
+        {"wall_s": 0.1, "busy_cpus_since_prev": 1.1, "own_busy_cpus": None,
+         "foreign_busy_cpus": None},
+        {"wall_s": 5.0, "busy_cpus_since_prev": 1.0, "own_busy_cpus": 1.0,
+         "foreign_busy_cpus": 0.0},
+    ])
+    w = Windower(snap, lambda start: next(closes), min_window_s=0.1)
+    for kind, wid in [("begin", "growth/expanse"), ("end", "growth/expanse"),
+                      ("begin", "growth/hashbrown"), ("end", "growth/hashbrown")]:
+        w.feed(kind, wid)
+    w.finish()
+    check("an unattributed window at the minimum merges",
+          [x["id"] for x in w.windows], ["growth/expanse+growth/hashbrown"])
+    check("the merged window attributes", w.findings, [])
 
     # Harness kinds: the build command, the artifact picked from cargo's
     # output, and the argv the binary is run with.
