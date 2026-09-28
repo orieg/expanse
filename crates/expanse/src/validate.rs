@@ -476,6 +476,21 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             let b = unsafe { &*ptr.cast::<BranchU>() };
             stats.node_bytes.branch_u += size_of::<BranchU>();
             let digits = b.edges.iter().filter(|e| !e.is_null()).count();
+            // The header child count, when the ablation keeps one (#1202).
+            #[cfg(feature = "ablation-branchu-header-count")]
+            {
+                // SAFETY: the live branch above; the validator runs with no
+                // writer, so the plain load races nothing.
+                let w = unsafe { BranchU::child_count::<false>(ptr.cast()) };
+                let count = (w & !crate::mutate::BRANCH_U_COUNT_VALID) as usize;
+                // A branch that no shared writer has counted yet has no count.
+                if w & crate::mutate::BRANCH_U_COUNT_VALID != 0 && count != digits {
+                    return Err(format!(
+                        "uncompressed branch header child count {count} differs from its \
+                         {digits} non-null slots"
+                    ));
+                }
+            }
             if crate::mutate::branch_u_below_floor(digits) {
                 return Err(format!(
                     "uncompressed branch population {digits} at or below demotion threshold \

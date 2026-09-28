@@ -909,6 +909,13 @@ jobs:
       - name: Test with packed string suffixes
         run: cargo test -p expanse-trie --features packed-suffix
 
+      # `ablation-branchu-header-count` (Refs #1202) keeps a child count in
+      # every BranchU header; the default build compiles its maintenance to
+      # nothing. The validator and the debug cross-check after every null
+      # compare the count with the slots, so the suite is what exercises it.
+      - name: Test with the BranchU header child count
+        run: cargo test -p expanse-trie --features ablation-branchu-header-count
+
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

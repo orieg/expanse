@@ -2309,6 +2309,8 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                 let b = edge.node_ptr().cast::<BranchU>();
                 // SAFETY: as above; a field projection, no reference.
                 let inner = Cover::Node(unsafe { &raw mut (*b).version });
+                // SAFETY: live branch; `d` indexes its 256 slots.
+                let was_null = OCC && unsafe { (*b).edges[d as usize].is_null() };
                 inner.nest_begin::<OCC, NESTED>(a);
                 // SAFETY: child subtree well-formed (or null) per contract;
                 // the child frame brackets its stores with `inner`.
@@ -2322,6 +2324,10 @@ unsafe fn insert_with_path_occ<const OCC: bool, const NESTED: bool>(
                         inner,
                     )
                 };
+                if was_null && inserted {
+                    // SAFETY: the exclusive walk is the branch's one writer.
+                    unsafe { branch_u_note_fill::<OCC>(b) };
+                }
                 inner.nest_end::<OCC, NESTED>(a);
                 if inserted {
                     cover.begin_if::<OCC, NESTED>(a);
@@ -2451,16 +2457,19 @@ pub(crate) unsafe fn upgrade_b_to_u<const OCC: bool>(a: &NodeAlloc, edge: &mut E
         let old = &*edge.node_ptr().cast::<BranchB>();
         let u = &mut *new.as_ptr();
         let mut d = old.bitmap.next_set(0);
+        let mut children = 0usize;
         while let Some(dig) = d {
             let sub = (dig >> 5) as usize;
             let rank = old.bitmap.subexpanse_rank(dig) as usize;
             u.edges[dig as usize] = *old.subarrays[sub].add(rank);
+            children += 1;
             d = if dig == 255 {
                 None
             } else {
                 old.bitmap.next_set(dig + 1)
             };
         }
+        branch_u_init_count::<OCC>(new.as_ptr(), children);
         for sub in 0..8 {
             let n = old.pop_counts[sub] as usize;
             if n > 0 {
@@ -2754,6 +2763,7 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
                         child.set_tag(EdgeType::FullExpanse.as_u8());
                         child.set_pop0(level - 1, pow256(level - 1) - 1);
                     }
+                    branch_u_init_count::<OCC>(ptr.as_ptr(), crate::types::BRANCH_FANOUT);
                 }
                 cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::BranchU.as_u8());
@@ -2981,6 +2991,12 @@ pub(crate) unsafe fn remove<const OCC: bool, const NESTED: bool>(
             // SAFETY: live BranchU per contract.
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
+                // SAFETY: the exclusive walk is the branch's one writer, and
+                // the child's frame just nulled this slot.
+                unsafe {
+                    branch_u_note_null::<OCC>(b);
+                    branch_u_check_count::<OCC>(b);
+                }
                 // SAFETY: live BranchU per contract.
                 let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
@@ -3304,6 +3320,7 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
                         child.set_tag(EdgeType::FullExpanse.as_u8());
                         child.set_pop0(level - 1, pow256(level - 1) - 1);
                     }
+                    branch_u_init_count::<OCC>(ptr.as_ptr(), crate::types::BRANCH_FANOUT);
                 }
                 cover.begin_if::<OCC, NESTED>(a);
                 *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::BranchU.as_u8());
@@ -3565,6 +3582,12 @@ pub(crate) unsafe fn remove_occ<const OCC: bool, const NESTED: bool>(
             // SAFETY: live BranchU per contract.
             let child_is_null = unsafe { (*b).edges[d as usize].is_null() };
             if child_is_null {
+                // SAFETY: the exclusive walk is the branch's one writer, and
+                // the child's frame just nulled this slot.
+                unsafe {
+                    branch_u_note_null::<OCC>(b);
+                    branch_u_check_count::<OCC>(b);
+                }
                 // SAFETY: live BranchU per contract.
                 let digits = unsafe { crate::mutate::branch_u_digits_to_floor(&(*b).edges) };
                 cover.begin_if::<OCC, NESTED>(a);
@@ -3770,6 +3793,118 @@ pub(crate) fn branch_u_digits_to_floor(edges: &[Edge; crate::types::BRANCH_FANOU
         }
     }
     n
+}
+
+/// The header count word of the `ablation-branchu-header-count` feature
+/// (#1202): the count of a `BranchU`'s non-null slots in the low bits, and
+/// [`BRANCH_U_COUNT_VALID`] once the count is exact. Only shared-tree code
+/// (`OCC = true`) reads or keeps it: a branch built on a shared tree starts
+/// valid, and one built before its tree was shared is made valid under its
+/// version lock the first time `sync::null_branch_u_slot` meets it. The
+/// plain walks never touch the word, so a plain tree pays nothing for it.
+#[cfg(feature = "ablation-branchu-header-count")]
+pub(crate) const BRANCH_U_COUNT_VALID: u32 = 1 << 31;
+
+/// Starts the count of a `BranchU` the caller just built and has not yet
+/// published, with `n` non-null slots. A no-op on a plain walk (`OCC =
+/// false`) and without the feature.
+///
+/// # Safety
+///
+/// `b` is a live, unpublished `BranchU` holding exactly `n` non-null slots.
+#[inline(always)]
+pub(crate) unsafe fn branch_u_init_count<const OCC: bool>(b: *mut BranchU, n: usize) {
+    #[cfg(feature = "ablation-branchu-header-count")]
+    if OCC {
+        // SAFETY: caller contract; `n` is at most the fanout.
+        unsafe { BranchU::set_child_count::<OCC>(b, BRANCH_U_COUNT_VALID | n as u32) };
+    }
+    #[cfg(not(feature = "ablation-branchu-header-count"))]
+    let _ = (b, n);
+}
+
+/// Records that a slot of the `BranchU` at `b` went from null to non-null,
+/// if the branch keeps a valid count. A no-op on a plain walk and without
+/// the feature, so neither build compiles anything here.
+///
+/// # Safety
+///
+/// `b` is a live `BranchU` whose one writer the caller is (for
+/// [`BranchU::set_child_count`]), and exactly one of its slots just changed
+/// from null to non-null.
+#[inline(always)]
+pub(crate) unsafe fn branch_u_note_fill<const OCC: bool>(b: *mut BranchU) {
+    #[cfg(feature = "ablation-branchu-header-count")]
+    if OCC {
+        // SAFETY: caller contract.
+        let w = unsafe { BranchU::child_count::<OCC>(b) };
+        if w & BRANCH_U_COUNT_VALID != 0 {
+            debug_assert!(((w & !BRANCH_U_COUNT_VALID) as usize) < crate::types::BRANCH_FANOUT);
+            // SAFETY: caller contract.
+            unsafe { BranchU::set_child_count::<OCC>(b, w + 1) };
+        }
+    }
+    #[cfg(not(feature = "ablation-branchu-header-count"))]
+    let _ = b;
+}
+
+/// Records that a slot of the `BranchU` at `b` went from non-null to null,
+/// if the branch keeps a valid count. A no-op on a plain walk and without
+/// the feature.
+///
+/// # Safety
+///
+/// As [`branch_u_note_fill`], for a slot that just became null.
+#[inline(always)]
+pub(crate) unsafe fn branch_u_note_null<const OCC: bool>(b: *mut BranchU) {
+    #[cfg(feature = "ablation-branchu-header-count")]
+    if OCC {
+        // SAFETY: caller contract.
+        let w = unsafe { BranchU::child_count::<OCC>(b) };
+        if w & BRANCH_U_COUNT_VALID != 0 {
+            debug_assert!(
+                w & !BRANCH_U_COUNT_VALID > 0,
+                "a counted BranchU slot was nulled at zero"
+            );
+            // SAFETY: caller contract.
+            unsafe { BranchU::set_child_count::<OCC>(b, w - 1) };
+        }
+    }
+    #[cfg(not(feature = "ablation-branchu-header-count"))]
+    let _ = b;
+}
+
+/// Checks, in debug builds with the feature, that a valid header count of
+/// the `BranchU` at `b` equals its non-null slots. The caller holds the
+/// branch's version lock or runs with the writer gate closed, so neither
+/// side can move under the check.
+///
+/// # Safety
+///
+/// As [`BranchU::child_count`], with the branch not changing for the call.
+#[inline(always)]
+pub(crate) unsafe fn branch_u_check_count<const OCC: bool>(b: *mut BranchU) {
+    #[cfg(all(debug_assertions, feature = "ablation-branchu-header-count"))]
+    if OCC {
+        // SAFETY: caller contract; every slot is inside the live branch and
+        // is read through the shared load.
+        unsafe {
+            let w = BranchU::child_count::<OCC>(b);
+            if w & BRANCH_U_COUNT_VALID != 0 {
+                let edges = (&raw mut (*b).edges).cast::<Edge>();
+                let census = (0..crate::types::BRANCH_FANOUT)
+                    .filter(|&i| !Edge::load_at::<OCC>(edges.add(i)).is_null())
+                    .count();
+                debug_assert_eq!(
+                    (w & !BRANCH_U_COUNT_VALID) as usize,
+                    census,
+                    "a BranchU's header child count differs from its non-null slots"
+                );
+            }
+        }
+    }
+    #[cfg(not(all(debug_assertions, feature = "ablation-branchu-header-count")))]
+    let _ = b;
 }
 
 /// # Safety

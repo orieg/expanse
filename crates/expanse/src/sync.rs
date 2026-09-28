@@ -1220,6 +1220,33 @@ unsafe fn branch_u_digits_shared(node: *mut BranchU, cap: usize) -> usize {
     n
 }
 
+/// The pre-lock digit count [`null_branch_u_slot`] tests against the floor:
+/// the slot census capped two past the floor ([`branch_u_digits_shared`]),
+/// or under the `ablation-branchu-header-count` feature the header child
+/// count (#1202) once it is valid, one 4-byte load on the line the lock is
+/// about to take. Either may be torn by a concurrent writer; the lock by
+/// snapshot rejects a torn count, since the count, like the slots, changes
+/// only under the branch's version lock or with the writer gate closed.
+///
+/// # Safety
+///
+/// As [`branch_u_digits_shared`].
+#[cfg(feature = "std")]
+#[inline(always)]
+unsafe fn branch_u_digits_pre_lock(node: *mut BranchU) -> usize {
+    #[cfg(feature = "ablation-branchu-header-count")]
+    {
+        // SAFETY: caller contract; the load is atomic.
+        let w = unsafe { BranchU::child_count::<true>(node) };
+        if w & crate::mutate::BRANCH_U_COUNT_VALID != 0 {
+            core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+            return (w & !crate::mutate::BRANCH_U_COUNT_VALID) as usize;
+        }
+    }
+    // SAFETY: caller contract.
+    unsafe { branch_u_digits_shared(node, crate::types::BRANCHU_TO_B_DOWN + 2) }
+}
+
 /// Nulls the `BranchU` slot at `edge_ptr` whose child an optimistic removal
 /// emptied, or declines to (Refs #1079). Every optimistic store of a null
 /// edge into a `BranchU` goes through here; the call-site count is pinned
@@ -1285,7 +1312,7 @@ unsafe fn null_branch_u_slot<T, R>(
     // pointer has the edge's write provenance. The version snapshot is not
     // what keeps the memory valid; it is what the lock below checks the
     // count against.
-    let digits = unsafe { branch_u_digits_shared(branch, crate::types::BRANCHU_TO_B_DOWN + 2) };
+    let digits = unsafe { branch_u_digits_pre_lock(branch) };
     if crate::mutate::branch_u_below_floor(digits.saturating_sub(1)) {
         return Err(branch_split(BranchSplitKind::DemoteU));
     }
@@ -1306,9 +1333,28 @@ unsafe fn null_branch_u_slot<T, R>(
         return Err(OlcOutcome::Retry);
     }
     let r = under_lock();
+    // A branch built before its tree was shared carries no valid count:
+    // count its slots once, under the lock, and keep the count from here on
+    // (#1202).
+    #[cfg(feature = "ablation-branchu-header-count")]
+    // SAFETY: the branch is locked and EBR-live, and this writer is its one
+    // writer until the unlock; the census reads each slot's tag word.
+    unsafe {
+        if BranchU::child_count::<true>(branch) & crate::mutate::BRANCH_U_COUNT_VALID == 0 {
+            let exact = branch_u_digits_shared(branch, BRANCH_FANOUT);
+            crate::mutate::branch_u_init_count::<true>(branch, exact);
+        }
+    }
     // SAFETY: the slot is inside the locked, EBR-live branch, and this
     // writer is its one writer until the unlock.
     unsafe { Edge::store_at::<true>(edge_ptr, Edge::NULL) };
+    // SAFETY: as for the store above. The count changes under the lock and
+    // the unlock below advances the version, so a writer that read the old
+    // count before its own lock fails that lock (step 2).
+    unsafe {
+        crate::mutate::branch_u_note_null::<true>(branch);
+        crate::mutate::branch_u_check_count::<true>(branch);
+    }
     // The lock validated the count (step 2): the branch holds exactly one
     // digit fewer, above the floor, so in particular it is not all null.
     #[cfg(debug_assertions)]
@@ -4698,6 +4744,13 @@ impl SyncExpanseSet {
                         unsafe {
                             Edge::store_at::<true>(edge_ptr, new_edge);
                         }
+                        // SAFETY: the frame's node is the locked, EBR-live
+                        // BranchU whose null slot this store just filled.
+                        unsafe {
+                            crate::mutate::branch_u_note_fill::<true>(
+                                parent.node.cast::<BranchU>(),
+                            );
+                        }
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
                         self.shared.mark_dirty_digit(digit(key, 8));
                         return OlcOutcome::Done(true);
@@ -7824,6 +7877,11 @@ macro_rules! olc_insert_map_body {
                     // SAFETY: edge_ptr is within the locked BranchU node; writing new_edge is bracketed by the parent version lock.
                     unsafe {
                         Edge::store_at::<true>(edge_ptr, new_edge);
+                    }
+                    // SAFETY: the frame's node is the locked, EBR-live
+                    // BranchU whose null slot this store just filled.
+                    unsafe {
+                        crate::mutate::branch_u_note_fill::<true>(parent.node.cast::<BranchU>());
                     }
                     version_unlock_timed(p_cell, old_v, true, lock_t0);
                     $host.mark_dirty_digit(digit($key, 8));

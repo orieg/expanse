@@ -352,3 +352,49 @@ fn branch_u_null_stores_route_through_one_routine() {
         );
     }
 }
+
+/// The census of the `ablation-branchu-header-count` maintenance (#1202):
+/// every change of a `BranchU` slot between null and non-null that a shared
+/// tree can make updates the header child count through one of three
+/// helpers, and each clause below turns red on its own mutation (recorded
+/// in the PR). Plain trees keep no count, so the flat walks and
+/// `algebra_build.rs` call none. The count is checked at run time too, by
+/// the validator and by the debug cross-check after every null; this census
+/// is what catches a new site that neither test happens to reach.
+///
+/// 1. Fills: the OCC insert walks of `mutate.rs` and `mutate_map.rs`, and
+///    the two optimistic null-slot inserts of `sync.rs`.
+/// 2. Nulls: the exclusive removals (two per walk file) and
+///    `null_branch_u_slot`, the one optimistic null store (clause 2 above).
+/// 3. Counts started: `upgrade_b_to_u` and the two full-expanse
+///    materialisations in `mutate.rs`, and `null_branch_u_slot`'s first
+///    count of a branch built before its tree was shared.
+#[test]
+fn branch_u_count_changes_route_through_the_helpers() {
+    let sync = production_code(include_str!("../src/sync.rs"));
+    let mutate = production_code(include_str!("../src/mutate.rs"));
+    let mutate_map = production_code(include_str!("../src/mutate_map.rs"));
+    let algebra_build = production_code(include_str!("../src/algebra_build.rs"));
+
+    let fill = "branch_u_note_fill::<";
+    let null = "branch_u_note_null::<";
+    let init = "branch_u_init_count::<";
+    for (name, code, fills, nulls, inits) in [
+        ("mutate.rs", &mutate, 1, 2, 3),
+        ("mutate_map.rs", &mutate_map, 1, 2, 0),
+        ("sync.rs", &sync, 2, 1, 1),
+        ("algebra_build.rs", &algebra_build, 0, 0, 0),
+    ] {
+        assert_eq!(
+            code.matches(fill).count(),
+            fills,
+            "{name}: BranchU null-slot fills"
+        );
+        assert_eq!(
+            code.matches(null).count(),
+            nulls,
+            "{name}: BranchU slot nulls"
+        );
+        assert_eq!(code.matches(init).count(), inits, "{name}: BranchU builds");
+    }
+}

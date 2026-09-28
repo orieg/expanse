@@ -1299,6 +1299,42 @@ pub(crate) mod shared_word {
         }
     }
 
+    /// The 4-byte word at `p`, for a node header field smaller than a word
+    /// (`BranchU`'s child count, #1202). `OCC = true` is a relaxed atomic
+    /// `u32`, the same size as every other access to that field; a `u64`
+    /// view over it would overlap the version word beside it.
+    ///
+    /// # Safety
+    /// `p` is 4-byte aligned and points into a live allocation; with
+    /// `OCC = true` it carries write permission, as for [`load`].
+    #[cfg(feature = "ablation-branchu-header-count")]
+    #[inline(always)]
+    pub(crate) unsafe fn load_u32<const OCC: bool>(p: *mut u32) -> u32 {
+        if OCC {
+            // SAFETY: caller contract.
+            unsafe { core::sync::atomic::AtomicU32::from_ptr(p).load(Relaxed) }
+        } else {
+            // SAFETY: caller contract.
+            unsafe { p.read() }
+        }
+    }
+
+    /// Stores `v` at the 4-byte word `p`.
+    ///
+    /// # Safety
+    /// As [`load_u32`], and the caller is the one writer of the word.
+    #[cfg(feature = "ablation-branchu-header-count")]
+    #[inline(always)]
+    pub(crate) unsafe fn store_u32<const OCC: bool>(p: *mut u32, v: u32) {
+        if OCC {
+            // SAFETY: caller contract.
+            unsafe { core::sync::atomic::AtomicU32::from_ptr(p).store(v, Relaxed) }
+        } else {
+            // SAFETY: caller contract.
+            unsafe { p.write(v) }
+        }
+    }
+
     /// The pointer at `p`: `OCC = true` is an `Acquire` load, the pair of
     /// [`store_ptr`]'s `Release`, so a reader that loads a freshly
     /// published array's pointer sees the array's initialising stores.
