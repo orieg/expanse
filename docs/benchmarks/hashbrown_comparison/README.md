@@ -19,7 +19,9 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 
 ## 2. Key Findings & Empirical Results
 
-*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 7d87dff7; full non-quick suite via `run.sh`, host idle — load < 0.4 before and between arms. Earlier published figures were measured on a slower, non-isolated environment; this run supersedes them. Reproducibility note: the Zipfian samplers in the YCSB and key-distribution harnesses were originally unseeded (`rand::thread_rng()`) and are now seeded (`StdRng::seed_from_u64`, #374); the committed baselines predate seeding — their Zipfian streams are not bit-reproducible — and will be refreshed on the next full run.)*
+The YCSB pillar carries its own provenance below. Pillars 2–5 were measured together:
+
+*(measured: the reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, `powersave` governor, CPUs `0-15`, commit 2f82cd07; `run.sh --skip-ycsb`, two runs of 9 rounds, one process per round with the arm order rotated; every round process in its own load window, foreign busy CPU at most 0.04 core-equivalents in any window; means with BCa 95% intervals, ratios paired per round, run 1 first and run 2 in parentheses; `results/baseline_{native,tail_latency,distributions,memory}.json`, run 2 at `results/baseline_*_run2.json`)*
 
 ### Pillar 1: YCSB (Yahoo! Cloud Serving Benchmark) Workloads A–F
 Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 dense sequential keys (`1..=N`) with `u64` values (workload: `hashbrown_ycsb`).
@@ -41,7 +43,7 @@ Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 dense sequen
 ---
 
 ### Pillar 2: Memory Footprint (Live Heap Bytes / Key)
-Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady state ($N = 500,000$; the full $10^3 \dots 5 \times 10^5$ sweep is in `results/baseline_memory.json`).
+Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady state ($N = 500,000$; the full $10^3 \dots 5 \times 10^5$ sweep is in `results/baseline_memory.json`). The counts are exact and identical in both runs.
 
 ![Memory Footprint Bytes Per Key](results/bench_memory_footprint.svg)
 
@@ -50,7 +52,7 @@ Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady stat
 | **Dense Sequential (0 … N)** | 35.7 B/key | 34.3 B/key | **8.7 B/key** | **4.1× more compact** |
 | **Uniform Random 64-bit** | 35.7 B/key | 27.1 B/key | **24.7 B/key** | **1.4× more compact** |
 
-Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered integer keys with near-zero pointer overhead, dropping memory consumption to under 9 bytes per key. (At smaller populations the picture shifts — e.g. at $N = 100,000$ random keys Expanse uses $30.8\text{ B/key}$ vs hashbrown's $22.3\text{ B/key}$, because a just-doubled SwissTable is at its slack minimum while sparse trie branches have low occupancy; the full population sweep is in `results/baseline_memory.json`. An earlier revision of this table mixed rows from different populations under one label.)
+Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered integer keys with near-zero pointer overhead, dropping memory consumption to under 9 bytes per key. (At smaller populations the picture shifts — e.g. at $N = 100,000$ random keys Expanse uses $30.6\text{ B/key}$ vs hashbrown's $22.3\text{ B/key}$, because a just-doubled SwissTable is at its slack minimum while sparse trie branches have low occupancy; the full population sweep is in `results/baseline_memory.json`.)
 
 ---
 
@@ -59,30 +61,39 @@ Dynamic table expansion from $0 \to 10^6$ keys without pre-allocating capacity, 
 
 ![Ingestion Tail Latency Percentiles](results/bench_tail_latency.svg)
 
-- `hashbrown` wins the median ($P_{50} = 26\text{ ns}$ vs Expanse $76\text{ ns}$, BTreeMap $118\text{ ns}$) — but its **worst-case insert is $11.09\text{ ms}$**: the global-rehash cliff, where the entire table is reallocated and rehashed at once.
-- **Expanse's worst-case insert is $34.7\text{ µs}$** ($P_{99.99} = 3.4\text{ µs}$) — **$320\times$ better worst-case than SwissTable** — because growth is local subexpanse allocation: no global rehash exists in the structure. BTreeMap's max is $73.3\text{ µs}$ (node-split chains).
+Every figure below is the mean over 9 rounds of that round's percentile, with its BCa 95% interval (workload: `hashbrown_tail_latency`).
+
+| Percentile | `ExpanseMap` | `hashbrown` | `BTreeMap` |
+| :--- | :--- | :--- | :--- |
+| $P_{50}$ | 71 ns [71, 72] (71 [70, 71]) | 25 ns [25, 26] (25 [25, 26]) | 115 ns [115, 116] (116 [115, 116]) |
+| $P_{99.99}$ | 2,188 ns [2,102, 2,281] (2,146 [2,111, 2,173]) | 455 ns [450, 461] (456 [453, 461]) | 2,087 ns [2,041, 2,161] (2,065 [2,027, 2,108]) |
+| Max | 53.7 µs [25.3, 97.3] (38.4 µs [18.0, 81.7]) | 10.93 ms [10.86, 11.05] (11.04 ms [10.90, 11.31]) | 35.1 µs [25.1, 51.2] (45.8 µs [24.4, 80.9]) |
+
+- `hashbrown` wins every percentile up to $P_{99.99}$: its median is 0.355× Expanse's [0.350, 0.360] (0.359× [0.354, 0.363]) and its $P_{99.99}$ 0.209× [0.199, 0.219] (0.213× [0.210, 0.218]), paired per round. Its **worst insert is about 11 ms in every round** — the global-rehash cliff, where the entire table is reallocated and rehashed at once.
+- **Expanse's worst insert is 4.5–154 µs across the 18 rounds**, because growth is local subexpanse allocation: no global rehash exists in the structure. Paired per round, hashbrown's maximum is 743× Expanse's [328, 1457] (552× [340, 735]). A maximum is one sample per round, so its interval is wide; both runs put the ratio above 300×.
+- `BTreeMap` sits beside Expanse in the tail: its $P_{99.99}$ is 0.958× Expanse's [0.907, 1.000] (0.963× [0.938, 0.991]), and the ratio of the two maxima, 2.630× [0.924, 7.137] (2.447× [1.310, 4.171]), is not resolved in run 1.
 - *Timer-overhead disclosure:* the per-op `Instant::now()`/`elapsed()` bracket in this pillar is **uncalibrated**, so the low percentiles ($`P_{50}`$/$`P_{75}`$) sit near clock resolution and include the bracket's own cost; the tail/max cells (the cliffs above) are orders of magnitude larger and unaffected. Follow-up: subtract a calibrated bracket cost the way `crates/expanse/benches/ycsb.rs` does.
 
 ---
 
 ### Pillar 4: Martin Ankerl & Tessil Key Distributions
-Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N = 500,000$):
+Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N = 500,000$; means of 9 rounds, run 1). Ratios are Expanse over the competitor, paired per round, with run 2 in parentheses (workload: `hashbrown_container_dists`); insert throughput and its ratios are in `results/baseline_distributions.json`.
 
 ![Key Distributions Throughput](results/bench_key_distributions.svg)
 
-| Key Geometry (N = 500,000) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse Result |
-| :--- | :--- | :--- | :--- | :--- |
-| **Sparse Clustered / Stride** | 94.9 Mops/s | 24.4 Mops/s | **170.1 Mops/s** | **1.8× faster than Hashbrown, 7.0× vs BTree** |
-| **Dense Sequential (0 … N)** | 102.8 Mops/s | 27.3 Mops/s | **135.5 Mops/s** | **1.3× faster than Hashbrown, 5.0× vs BTree** |
-| **Zipfian Skewed (s = 0.99)** | 197.7 Mops/s | 19.7 Mops/s | 116.1 Mops/s | **5.9× vs BTree**; Hashbrown leads (1.7×) |
-| **Uniform Random 64-bit** | 89.4 Mops/s | 10.0 Mops/s | 28.0 Mops/s | **2.8× vs BTree**; Hashbrown leads (3.2×) |
+| Key Geometry (N = 500,000) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse / `hashbrown` | Expanse / `BTreeMap` |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Sparse Clustered / Stride** | 85.6 Mops/s | 18.9 Mops/s | **170.0 Mops/s** | **1.990× [1.947, 2.049]** (1.997× [1.972, 2.046]) | **9.003× [8.950, 9.048]** (8.994× [8.923, 9.042]) |
+| **Dense Sequential (0 … N)** | 88.7 Mops/s | 21.2 Mops/s | **154.1 Mops/s** | **1.740× [1.694, 1.787]** (1.781× [1.758, 1.822]) | **7.260× [7.216, 7.311]** (7.278× [7.196, 7.347]) <!-- docs-lint: allow — 1.822 on this row is this suite's interval bound (baseline_distributions_run2.json), not the retired HOT figure registered under that number --> |
+| **Zipfian Skewed (s = 0.99)** | 207.4 Mops/s | 18.6 Mops/s | 114.0 Mops/s | 0.562× [0.518, 0.627] (0.559× [0.518, 0.616]) | **6.135× [6.110, 6.178]** (6.116× [6.084, 6.140]) |
+| **Uniform Random 64-bit** | 81.7 Mops/s | 9.8 Mops/s | 27.7 Mops/s | 0.340× [0.338, 0.342] (0.339× [0.336, 0.342]) | **2.837× [2.830, 2.843]** (2.838× [2.826, 2.846]) |
 
 ---
 
 ### Pillar 5: Native Hashbrown Criterion Suite Port
 Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs` (chart shows the largest population band, $`N = 500,000`$; the $`10^4`$/$`10^5`$ bands are in `results/baseline_native.json`):
 
-> ⚠️ **Harness methodology disclosure (#454):** The historical growth throughput curves in `results/baseline_native.json` and rendered in the chart below were recorded on a harness where container destruction (`Drop::drop`) occurred inside the timed loop. The harness was remediated in #454 via `bench_grow_op` to measure only insertion; historical figures are retained as baseline pending full re-measurement on the quiet host.
+The growth arms time each build alone and drop the map after the clock stops. Per-arm intervals and paired ratios for every population and op are in `results/baseline_native.json` (workload: `hashbrown_native_suite`).
 
 ![Native Criterion Port Throughput](results/bench_native_throughput.svg)
 
@@ -97,7 +108,7 @@ During benchmark profiling, two key performance characteristics were identified:
    - **Result:** Eliminates $O(L \cdot 8)$ root restarts, allowing bounded range scans to stream contiguous leaf elements in $O(1)$ amortized time per key without heap allocation.
 
 2. **Sparse Random Key Branch Allocation:**
-   - **Observation:** On uniform random 64-bit keys at $N = 500,000$, Expanse consumes $24.7\text{ B/key}$ vs SwissTable's $35.7\text{ B/key}$; at $N = 100,000$ the ordering inverts ($30.8$ vs $22.3\text{ B/key}$) as sparse trie branches sit at low occupancy.
+   - **Observation:** On uniform random 64-bit keys at $N = 500,000$, Expanse consumes $24.7\text{ B/key}$ vs SwissTable's $35.7\text{ B/key}$; at $N = 100,000$ the ordering inverts ($30.6$ vs $22.3\text{ B/key}$) as sparse trie branches sit at low occupancy.
    - **Root Cause:** In high-entropy random distributions without shared prefixes, 64-bit keys create separate branch paths across levels 7 down to 0 with low occupancy per branch.
    - **Optimization Item:** Evaluate adaptive narrow pointer promotion / linear leaf inline key packing for sparse subexpanses.
 
@@ -132,6 +143,7 @@ docs/benchmarks/hashbrown_comparison/
     ├── baseline_tail_latency.json
     ├── baseline_distributions.json
     ├── baseline_memory.json
+    ├── baseline_*_run2.json       # second run of each re-measured pillar
     ├── bench_native_throughput.svg
     ├── bench_ycsb_workloads.svg
     ├── bench_tail_latency.svg

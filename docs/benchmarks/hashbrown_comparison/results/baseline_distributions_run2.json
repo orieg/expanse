@@ -2,56 +2,56 @@
   "clustered": {
     "distribution": "clustered",
     "insert_mops": {
-      "expanse": 55.86129307404828,
-      "hashbrown": 57.169630107248764,
-      "btree": 21.82058066849855
+      "expanse": 55.79252187723833,
+      "hashbrown": 57.74352307528519,
+      "btree": 21.768653591536648
     },
     "lookup_mops": {
-      "expanse": 169.9986481091486,
-      "hashbrown": 85.57034702171399,
-      "btree": 18.883560630270782
+      "expanse": 169.44776768621443,
+      "hashbrown": 84.9138917810356,
+      "btree": 18.84204828043834
     },
     "population": 500000
   },
   "sequential": {
     "distribution": "sequential",
     "insert_mops": {
-      "expanse": 95.14585506314103,
-      "hashbrown": 38.083482671147785,
-      "btree": 22.575825851167167
+      "expanse": 95.37116834269389,
+      "hashbrown": 36.909155767242304,
+      "btree": 22.584991603516244
     },
     "lookup_mops": {
-      "expanse": 154.11924202052012,
-      "hashbrown": 88.74557579304138,
-      "btree": 21.22967717666647
+      "expanse": 155.48734369373082,
+      "hashbrown": 87.37128904687408,
+      "btree": 21.367765979948572
     },
     "population": 500000
   },
   "uniform": {
     "distribution": "uniform",
     "insert_mops": {
-      "expanse": 18.514293224444984,
-      "hashbrown": 33.51713153679201,
-      "btree": 9.878722195220528
+      "expanse": 18.47473312628759,
+      "hashbrown": 32.669481253318494,
+      "btree": 9.895476613509686
     },
     "lookup_mops": {
-      "expanse": 27.749350595650405,
-      "hashbrown": 81.70581820588748,
-      "btree": 9.781035349620579
+      "expanse": 27.70731453076605,
+      "hashbrown": 81.76309163893475,
+      "btree": 9.76448517843325
     },
     "population": 500000
   },
   "zipfian": {
     "distribution": "zipfian",
     "insert_mops": {
-      "expanse": 49.52172888917396,
-      "hashbrown": 134.87725556610764,
-      "btree": 20.46987796490326
+      "expanse": 49.3031158299961,
+      "hashbrown": 131.33879343427478,
+      "btree": 20.430459729364856
     },
     "lookup_mops": {
-      "expanse": 114.03109388399402,
-      "hashbrown": 207.39156859625257,
-      "btree": 18.589053803290728
+      "expanse": 113.75139218920226,
+      "hashbrown": 206.65241311137913,
+      "btree": 18.598307584823683
     },
     "population": 500000
   },
@@ -63,11 +63,50 @@
       "rounds_raw": [
         {
           "arm": "expanse",
-          "insert_mops": 18.008489418013525,
-          "lookup_mops": 27.75381544190097,
+          "insert_mops": 17.67757093487728,
+          "lookup_mops": 27.72942382472165,
           "round": 0,
           "load": {
             "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "insert_mops": 33.07082156122322,
+          "lookup_mops": 83.08586209308906,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "insert_mops": 10.026685622717439,
+          "lookup_mops": 9.818346837814852,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "insert_mops": 18.89162317846497,
+          "lookup_mops": 27.829235580434645,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -76,11 +115,11 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 29.32872645519169,
-          "lookup_mops": 82.63184406511654,
-          "round": 0,
+          "insert_mops": 28.326082611546983,
+          "lookup_mops": 80.5294197323814,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -89,11 +128,11 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 10.107085991067398,
-          "lookup_mops": 9.742898737240433,
-          "round": 0,
+          "insert_mops": 9.872629065916405,
+          "lookup_mops": 9.795797587161832,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -102,51 +141,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 18.90828980266855,
-          "lookup_mops": 27.668654142985297,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "hashbrown",
-          "insert_mops": 33.536119540973694,
-          "lookup_mops": 81.95641099107593,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "btree",
-          "insert_mops": 9.749426480237874,
-          "lookup_mops": 9.767723152719407,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "expanse",
-          "insert_mops": 18.759527025800054,
-          "lookup_mops": 27.66682458890142,
+          "insert_mops": 18.86045792211091,
+          "lookup_mops": 27.596775129168087,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -154,12 +154,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.67914685165781,
-          "lookup_mops": 82.14834347865376,
+          "insert_mops": 35.32390608927622,
+          "lookup_mops": 82.81853333015309,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -167,12 +167,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 9.824956608079141,
-          "lookup_mops": 9.812001270693411,
+          "insert_mops": 9.689199170635558,
+          "lookup_mops": 9.663861144695176,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -180,129 +180,129 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 17.640181228165865,
-          "lookup_mops": 27.869709109911163,
+          "insert_mops": 17.649202474898246,
+          "lookup_mops": 27.594690075205463,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 31.657838034321777,
-          "lookup_mops": 82.09189859680318,
+          "insert_mops": 34.073605120308784,
+          "lookup_mops": 81.51248037587035,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 10.115375159843158,
-          "lookup_mops": 9.78458952198836,
+          "insert_mops": 10.118558748109246,
+          "lookup_mops": 9.790971185426367,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 18.809975607223635,
-          "lookup_mops": 27.74446592236033,
+          "insert_mops": 18.826333959660364,
+          "lookup_mops": 27.622833630932536,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 29.816134631535782,
-          "lookup_mops": 80.04652944663674,
+          "insert_mops": 29.675418580681708,
+          "lookup_mops": 81.50060212644851,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 9.758284368701942,
-          "lookup_mops": 9.758554812680147,
+          "insert_mops": 9.952756058486456,
+          "lookup_mops": 9.816146135087799,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 18.763219391682167,
-          "lookup_mops": 27.781576136604013,
+          "insert_mops": 18.872339943684935,
+          "lookup_mops": 27.680939088038173,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.556109282697456,
-          "lookup_mops": 82.05454066852789,
+          "insert_mops": 35.4528387548878,
+          "lookup_mops": 82.00547337331483,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 9.708503163370128,
-          "lookup_mops": 9.770924581555269,
+          "insert_mops": 9.660666761444249,
+          "lookup_mops": 9.724829340914862,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 18.239894004327965,
-          "lookup_mops": 27.806617874950412,
+          "insert_mops": 18.30108066783279,
+          "lookup_mops": 27.83017271627829,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -310,12 +310,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 34.97705435280348,
-          "lookup_mops": 81.37279154243754,
+          "insert_mops": 35.28920206879418,
+          "lookup_mops": 82.94620954899989,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -323,12 +323,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 10.121062276738222,
-          "lookup_mops": 9.776225904022763,
+          "insert_mops": 10.171608047418246,
+          "lookup_mops": 9.750427853649432,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -336,12 +336,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 18.805741392847235,
-          "lookup_mops": 27.75058066702517,
+          "insert_mops": 18.77464641708403,
+          "lookup_mops": 27.74796567177076,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -349,12 +349,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.790619436124516,
-          "lookup_mops": 80.82038509943655,
+          "insert_mops": 27.840972144383507,
+          "lookup_mops": 81.29990086290088,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -362,12 +362,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 9.87567980723305,
-          "lookup_mops": 9.80558563418949,
+          "insert_mops": 9.871759720736604,
+          "lookup_mops": 9.757868257069088,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -375,82 +375,82 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 18.693321149275853,
-          "lookup_mops": 27.70191147621492,
+          "insert_mops": 18.419342637974783,
+          "lookup_mops": 27.733795060344857,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.31243524582187,
-          "lookup_mops": 82.22961996429919,
+          "insert_mops": 34.97248434876408,
+          "lookup_mops": 80.16934330725478,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 9.648125901713847,
-          "lookup_mops": 9.810814531495932,
+          "insert_mops": 9.695426326122963,
+          "lookup_mops": 9.762118264079824,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         }
       ],
       "intervals": {
         "insert_mops": {
           "expanse": {
-            "point": 18.514293224444984,
-            "ci_lower": 18.14721648114347,
-            "ci_upper": 18.736162645335753,
+            "point": 18.47473312628759,
+            "ci_lower": 18.0682029443096,
+            "ci_upper": 18.731898152412352,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 33.51713153679201,
-            "ci_lower": 31.40630988977661,
-            "ci_upper": 34.82514368421122,
+            "point": 32.669481253318494,
+            "ci_lower": 30.572354852517247,
+            "ci_upper": 34.392655621839474,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 9.878722195220528,
-            "ci_lower": 9.770555176528736,
-            "ci_upper": 10.008684217839765,
+            "point": 9.895476613509686,
+            "ci_lower": 9.787412038116315,
+            "ci_upper": 10.017165173318595,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse": {
-            "point": 27.749350595650405,
-            "ci_lower": 27.712012037372688,
-            "ci_upper": 27.796868222872842,
+            "point": 27.70731453076605,
+            "ci_lower": 27.649447968027605,
+            "ci_upper": 27.76177659131973,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 81.70581820588748,
-            "ci_lower": 81.10487715403957,
-            "ci_upper": 82.08551221552679,
+            "point": 81.76309163893475,
+            "ci_lower": 81.10967400830833,
+            "ci_upper": 82.35435078084703,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 9.781035349620579,
-            "ci_lower": 9.765544790234948,
-            "ci_upper": 9.795113345483431,
+            "point": 9.76448517843325,
+            "ci_lower": 9.729226916075854,
+            "ci_upper": 9.791206056576742,
             "ci_method": "bca"
           }
         }
@@ -458,29 +458,29 @@
       "ratios": {
         "insert_mops": {
           "expanse_over_hashbrown": {
-            "point": 0.5550778236463803,
-            "ci_lower": 0.534617737175781,
-            "ci_upper": 0.5886075286328518,
+            "point": 0.5710822458975979,
+            "ci_lower": 0.537784729011064,
+            "ci_upper": 0.6170872742406182,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 1.875404879233978,
-            "ci_lower": 1.8192830612267612,
-            "ci_upper": 1.9155131323758765,
+            "point": 1.868149910263043,
+            "ci_lower": 1.809509016724198,
+            "ci_upper": 1.9106489013782015,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse_over_hashbrown": {
-            "point": 0.33965598154425336,
-            "ci_lower": 0.33780562636527184,
-            "ci_upper": 0.3420467329030632,
+            "point": 0.33892426187011765,
+            "ci_lower": 0.33629914324819477,
+            "ci_upper": 0.34192852830517867,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 2.837075716018967,
-            "ci_lower": 2.8298176246412616,
-            "ci_upper": 2.843395613676553,
+            "point": 2.8376147282322806,
+            "ci_lower": 2.8261272649654305,
+            "ci_upper": 2.8458828125073183,
             "ci_method": "bca"
           }
         }
@@ -492,11 +492,50 @@
       "rounds_raw": [
         {
           "arm": "expanse",
-          "insert_mops": 94.05711411328879,
-          "lookup_mops": 154.60787114856333,
+          "insert_mops": 95.84180734646621,
+          "lookup_mops": 156.89808716128059,
           "round": 0,
           "load": {
             "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "insert_mops": 40.18237655612281,
+          "lookup_mops": 83.00925138106642,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "insert_mops": 22.653775641355573,
+          "lookup_mops": 21.48654950595547,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "insert_mops": 95.79533212337444,
+          "lookup_mops": 156.06900872144834,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -505,11 +544,11 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 38.95674764761627,
-          "lookup_mops": 90.25006849980198,
-          "round": 0,
+          "insert_mops": 38.67253880808605,
+          "lookup_mops": 86.86015983311732,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -518,11 +557,11 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 22.650306984140617,
-          "lookup_mops": 21.3018842539113,
-          "round": 0,
+          "insert_mops": 22.722642472445276,
+          "lookup_mops": 21.34455408003499,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -531,51 +570,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 95.21799970596682,
-          "lookup_mops": 154.7076613090372,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "hashbrown",
-          "insert_mops": 39.3560531105214,
-          "lookup_mops": 82.97718144105806,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "btree",
-          "insert_mops": 22.539065384296023,
-          "lookup_mops": 20.997489960050178,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "expanse",
-          "insert_mops": 95.07534435814351,
-          "lookup_mops": 153.57109619969896,
+          "insert_mops": 94.83874284038622,
+          "lookup_mops": 155.1636122709591,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -583,12 +583,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.748675940540515,
-          "lookup_mops": 89.18463305963758,
+          "insert_mops": 36.8138144280407,
+          "lookup_mops": 89.28544324061873,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -596,12 +596,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 22.668618706760746,
-          "lookup_mops": 20.848804883957637,
+          "insert_mops": 22.5545225133154,
+          "lookup_mops": 21.196262810597318,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -609,129 +609,129 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 96.02827072290083,
-          "lookup_mops": 155.09618134589985,
+          "insert_mops": 95.00084645754194,
+          "lookup_mops": 157.42195727756987,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 40.316334864574614,
-          "lookup_mops": 97.25800506325174,
+          "insert_mops": 38.90697847237974,
+          "lookup_mops": 88.06368906895369,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 22.31988112609871,
-          "lookup_mops": 21.45660571002333,
+          "insert_mops": 22.67334829079005,
+          "lookup_mops": 21.418554276715557,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 95.63663587039477,
-          "lookup_mops": 151.4601210045199,
+          "insert_mops": 95.60404932863014,
+          "lookup_mops": 155.27352362828265,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 38.219497324940946,
-          "lookup_mops": 81.72581381748141,
+          "insert_mops": 38.24890105169943,
+          "lookup_mops": 87.97363465358885,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 22.404129815980543,
-          "lookup_mops": 21.17597203111496,
+          "insert_mops": 22.681779264008924,
+          "lookup_mops": 21.564624802915503,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 93.78869369794376,
-          "lookup_mops": 153.90345328568483,
+          "insert_mops": 95.09519885261936,
+          "lookup_mops": 155.0909375712449,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 36.24635370743292,
-          "lookup_mops": 89.28553890340572,
+          "insert_mops": 36.18997711345847,
+          "lookup_mops": 86.39968702577372,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 22.642839636707414,
-          "lookup_mops": 21.274815902635552,
+          "insert_mops": 22.66240468419214,
+          "lookup_mops": 21.852677899263615,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 95.81139412093621,
-          "lookup_mops": 154.45575506777058,
+          "insert_mops": 95.28127126558873,
+          "lookup_mops": 153.53888710101384,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -739,12 +739,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 39.01957846368994,
-          "lookup_mops": 88.83426174020279,
+          "insert_mops": 39.7151596974372,
+          "lookup_mops": 89.425873373321,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -752,12 +752,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 22.548896605822833,
-          "lookup_mops": 21.064275910670787,
+          "insert_mops": 22.406336583686144,
+          "lookup_mops": 21.612242142177774,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -765,12 +765,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 95.6662609779426,
-          "lookup_mops": 154.27860865379571,
+          "insert_mops": 95.82178680802296,
+          "lookup_mops": 154.40061834359634,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -778,12 +778,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 38.88508074331476,
-          "lookup_mops": 89.82545297628555,
+          "insert_mops": 29.997474212671293,
+          "lookup_mops": 86.95508508989852,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -791,12 +791,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 22.700352173263614,
-          "lookup_mops": 21.46841650290916,
+          "insert_mops": 22.638292916962605,
+          "lookup_mops": 20.972286088658997,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -804,82 +804,82 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 95.03098200075188,
-          "lookup_mops": 154.99243016971053,
+          "insert_mops": 95.06148006161504,
+          "lookup_mops": 155.52946116818177,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 36.00302223769873,
-          "lookup_mops": 89.36922663624777,
+          "insert_mops": 33.455181565284974,
+          "lookup_mops": 88.36877775552848,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 22.708342227434038,
-          "lookup_mops": 21.478829434725323,
+          "insert_mops": 22.271822064890113,
+          "lookup_mops": 20.862142213217936,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         }
       ],
       "intervals": {
         "insert_mops": {
           "expanse": {
-            "point": 95.14585506314103,
-            "ci_lower": 94.58895647675666,
-            "ci_upper": 95.5276492314076,
+            "point": 95.37116834269389,
+            "ci_lower": 95.1218668627751,
+            "ci_upper": 95.6048421921301,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 38.083482671147785,
-            "ci_lower": 36.92632070814872,
-            "ci_upper": 39.051183447311935,
+            "point": 36.909155767242304,
+            "ci_lower": 34.11881311282995,
+            "ci_upper": 38.46962111307504,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 22.575825851167167,
-            "ci_lower": 22.470313992730098,
-            "ci_upper": 22.646401202309377,
+            "point": 22.584991603516244,
+            "ci_lower": 22.46627869731708,
+            "ci_upper": 22.653322759152406,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse": {
-            "point": 154.11924202052012,
-            "ci_lower": 153.04434572599132,
-            "ci_upper": 154.57837526191884,
+            "point": 155.48734369373082,
+            "ci_lower": 154.79512936519689,
+            "ci_upper": 156.30322510567152,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 88.74557579304138,
-            "ci_lower": 86.22343987260682,
-            "ci_upper": 91.45803811624774,
+            "point": 87.37128904687408,
+            "ci_lower": 85.70171639368279,
+            "ci_upper": 88.25884620131166,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 21.22967717666647,
-            "ci_lower": 21.08901736656465,
-            "ci_upper": 21.36061869525557,
+            "point": 21.367765979948572,
+            "ci_lower": 21.158082961899876,
+            "ci_upper": 21.54963269537679,
             "ci_method": "bca"
           }
         }
@@ -887,29 +887,29 @@
       "ratios": {
         "insert_mops": {
           "expanse_over_hashbrown": {
-            "point": 2.5022531967064237,
-            "ci_lower": 2.442822523693166,
-            "ci_upper": 2.5749850795155105,
+            "point": 2.6046964567930058,
+            "ci_lower": 2.488657605193239,
+            "ci_upper": 2.8428259469382198,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 4.21473986598854,
-            "ci_lower": 4.184125322367205,
-            "ci_upper": 4.248311426996635,
+            "point": 4.222888388105866,
+            "ci_lower": 4.208441970572206,
+            "ci_upper": 4.240695865685029,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse_over_hashbrown": {
-            "point": 1.7401910633452236,
-            "ci_lower": 1.6942526887802605,
-            "ci_upper": 1.787336651991575,
+            "point": 1.7805516559689103,
+            "ci_lower": 1.7577826239196608,
+            "ci_upper": 1.8224961296441191,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 7.260181869303453,
-            "ci_lower": 7.215685752110501,
-            "ci_upper": 7.311466994886828,
+            "point": 7.278127429080854,
+            "ci_lower": 7.195909885094159,
+            "ci_upper": 7.347494335363519,
             "ci_method": "bca"
           }
         }
@@ -921,11 +921,50 @@
       "rounds_raw": [
         {
           "arm": "expanse",
-          "insert_mops": 55.84751394791661,
-          "lookup_mops": 170.8752675479502,
+          "insert_mops": 55.943868160442534,
+          "lookup_mops": 171.0083989065039,
           "round": 0,
           "load": {
             "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "insert_mops": 68.69554847350247,
+          "lookup_mops": 80.62257396597116,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "insert_mops": 21.999628030289266,
+          "lookup_mops": 19.019358816332485,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "insert_mops": 55.77481254085505,
+          "lookup_mops": 170.1478925482029,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -934,11 +973,11 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 68.58089665407522,
-          "lookup_mops": 86.0203066417483,
-          "round": 0,
+          "insert_mops": 68.59645883128645,
+          "lookup_mops": 85.11458295386414,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -947,11 +986,11 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 21.80941649473213,
-          "lookup_mops": 18.70013492147346,
-          "round": 0,
+          "insert_mops": 21.69098681799687,
+          "lookup_mops": 18.896428899956483,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -960,51 +999,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 56.072248868377905,
-          "lookup_mops": 170.32270020070828,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "hashbrown",
-          "insert_mops": 67.17174444751643,
-          "lookup_mops": 80.58977531731821,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "btree",
-          "insert_mops": 21.748443496521617,
-          "lookup_mops": 18.940749207395942,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "expanse",
-          "insert_mops": 56.13157150550376,
-          "lookup_mops": 168.77460522775962,
+          "insert_mops": 55.560241135891346,
+          "lookup_mops": 169.36177707925455,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -1012,12 +1012,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.72275711097203,
-          "lookup_mops": 85.56795473249832,
+          "insert_mops": 35.8991380688748,
+          "lookup_mops": 88.00291465653342,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -1025,12 +1025,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 22.081157971253866,
-          "lookup_mops": 18.678298913524443,
+          "insert_mops": 21.47748517376982,
+          "lookup_mops": 18.603384402103966,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -1038,129 +1038,129 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 56.0699663468062,
-          "lookup_mops": 170.9849485369502,
+          "insert_mops": 56.01775180147488,
+          "lookup_mops": 170.19376219438305,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 68.22983958345955,
-          "lookup_mops": 91.40916552389974,
+          "insert_mops": 68.44596984653866,
+          "lookup_mops": 84.51710812206028,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 21.904331954017554,
-          "lookup_mops": 19.00042127734056,
+          "insert_mops": 22.06639424967419,
+          "lookup_mops": 18.72692070883193,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 55.994634370156106,
-          "lookup_mops": 169.613014338745,
+          "insert_mops": 54.76364885373112,
+          "lookup_mops": 168.73513443465632,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 68.36598994363634,
-          "lookup_mops": 79.31660810457102,
+          "insert_mops": 68.51558249892773,
+          "lookup_mops": 85.45068743369026,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 21.781667189717098,
-          "lookup_mops": 18.732673915736914,
+          "insert_mops": 21.537931506534804,
+          "lookup_mops": 19.124226692769454,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 55.89614317729999,
-          "lookup_mops": 169.3170427762577,
+          "insert_mops": 56.09168612393772,
+          "lookup_mops": 168.73069299045454,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.8267330340177,
-          "lookup_mops": 86.6271727610904,
+          "insert_mops": 35.7700998450797,
+          "lookup_mops": 84.46994685995642,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 21.88568267528484,
-          "lookup_mops": 19.077421250026664,
+          "insert_mops": 21.855436515792324,
+          "lookup_mops": 18.655738383864577,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 54.53196631145998,
-          "lookup_mops": 171.12662583129037,
+          "insert_mops": 55.90917487450627,
+          "lookup_mops": 170.77570080370458,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1168,12 +1168,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 66.84550959941626,
-          "lookup_mops": 86.24244925796135,
+          "insert_mops": 68.94376904830159,
+          "lookup_mops": 85.18890383859497,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1181,12 +1181,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 21.61935264134657,
-          "lookup_mops": 18.980396628793056,
+          "insert_mops": 21.82242473238397,
+          "lookup_mops": 18.87668330935743,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1194,12 +1194,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 56.56071487313771,
-          "lookup_mops": 168.53521661325786,
+          "insert_mops": 56.31077692542031,
+          "lookup_mops": 169.83159159714043,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1207,12 +1207,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 67.86134298955004,
-          "lookup_mops": 86.90034633264028,
+          "insert_mops": 68.82603297895727,
+          "lookup_mops": 86.41030342632406,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1220,12 +1220,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 21.77442678059395,
-          "lookup_mops": 18.67328826448069,
+          "insert_mops": 21.847532190153927,
+          "lookup_mops": 18.901354962531848,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1233,82 +1233,82 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 55.64687826577617,
-          "lookup_mops": 170.4384119094181,
+          "insert_mops": 55.7607364788857,
+          "lookup_mops": 166.2449586216298,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 35.921857602595345,
-          "lookup_mops": 87.45934452369815,
+          "insert_mops": 35.99910808609806,
+          "lookup_mops": 84.44800477232565,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 21.780746813019345,
-          "lookup_mops": 19.168661293665345,
+          "insert_mops": 21.620063107234603,
+          "lookup_mops": 18.774338348196913,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         }
       ],
       "intervals": {
         "insert_mops": {
           "expanse": {
-            "point": 55.86129307404828,
-            "ci_lower": 55.38290170485311,
-            "ci_upper": 56.10125200853955,
+            "point": 55.79252187723833,
+            "ci_lower": 55.403332765630715,
+            "ci_upper": 55.98430825807671,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 57.169630107248764,
-            "ci_lower": 46.378546127848985,
-            "ci_upper": 64.53744402111414,
+            "point": 57.74352307528519,
+            "ci_lower": 46.786235048121384,
+            "ci_upper": 65.09272191297873,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 21.82058066849855,
-            "ci_lower": 21.75533065871359,
-            "ci_upper": 21.918900807658805,
+            "point": 21.768653591536648,
+            "ci_lower": 21.65054698516787,
+            "ci_upper": 21.895563284444346,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse": {
-            "point": 169.9986481091486,
-            "ci_lower": 169.35966733096103,
-            "ci_upper": 170.5758717087034,
+            "point": 169.44776768621443,
+            "ci_lower": 168.21687945664317,
+            "ci_upper": 170.10445752374113,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 85.57034702171399,
-            "ci_lower": 83.20429014759753,
-            "ci_upper": 87.48804409785478,
+            "point": 84.9138917810356,
+            "ci_lower": 83.26152650377529,
+            "ci_upper": 85.85057896037235,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 18.883560630270782,
-            "ci_lower": 18.77448332128732,
-            "ci_upper": 18.998008602548154,
+            "point": 18.84204828043834,
+            "ci_lower": 18.74403605815024,
+            "ci_upper": 18.950448115068898,
             "ci_method": "bca"
           }
         }
@@ -1316,29 +1316,29 @@
       "ratios": {
         "insert_mops": {
           "expanse_over_hashbrown": {
-            "point": 1.0688643144352261,
-            "ci_lower": 0.9014116626601094,
-            "ci_upper": 1.316999469890953,
+            "point": 1.0598900639819802,
+            "ci_lower": 0.8922814063402521,
+            "ci_upper": 1.3101219315512602,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 2.560031779006497,
-            "ci_lower": 2.5470672290270437,
-            "ci_upper": 2.573280575638648,
+            "point": 2.5630560620937644,
+            "ci_lower": 2.550652821527459,
+            "ci_upper": 2.5731533109128026,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse_over_hashbrown": {
-            "point": 1.9898072442318353,
-            "ci_lower": 1.9467511821444623,
-            "ci_upper": 2.049079799142082,
+            "point": 1.99658050961058,
+            "ci_lower": 1.9723774454340106,
+            "ci_upper": 2.046458524026408,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 9.003057992198324,
-            "ci_lower": 8.950240742807752,
-            "ci_upper": 9.047831424885416,
+            "point": 8.993559731740175,
+            "ci_lower": 8.922624828444176,
+            "ci_upper": 9.0421039237344,
             "ci_method": "bca"
           }
         }
@@ -1350,11 +1350,50 @@
       "rounds_raw": [
         {
           "arm": "expanse",
-          "insert_mops": 49.28087863469888,
-          "lookup_mops": 114.17881681516002,
+          "insert_mops": 49.3833452297812,
+          "lookup_mops": 113.9179480916921,
           "round": 0,
           "load": {
             "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "hashbrown",
+          "insert_mops": 144.57757468805218,
+          "lookup_mops": 226.16114524385375,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "btree",
+          "insert_mops": 20.431546127423132,
+          "lookup_mops": 18.640620103342105,
+          "round": 0,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=0",
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "arm": "expanse",
+          "insert_mops": 49.78722433934096,
+          "lookup_mops": 113.94941375305612,
+          "round": 1,
+          "load": {
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -1363,11 +1402,11 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 142.9486708489636,
-          "lookup_mops": 228.4349419569656,
-          "round": 0,
+          "insert_mops": 145.56235687581258,
+          "lookup_mops": 226.93140181427114,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -1376,11 +1415,11 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 20.467257668283224,
-          "lookup_mops": 18.539217211216002,
-          "round": 0,
+          "insert_mops": 20.48773176183143,
+          "lookup_mops": 18.5437373144611,
+          "round": 1,
           "load": {
-            "since": "cell:hashbrown_container_dists/round=0",
+            "since": "cell:hashbrown_container_dists/round=1",
             "wall_s": 0.425,
             "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
@@ -1389,51 +1428,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 49.65479983157092,
-          "lookup_mops": 114.21387049791764,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "hashbrown",
-          "insert_mops": 143.32672214939632,
-          "lookup_mops": 222.04202278506418,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "btree",
-          "insert_mops": 20.44793993344032,
-          "lookup_mops": 18.691908119701335,
-          "round": 1,
-          "load": {
-            "since": "cell:hashbrown_container_dists/round=1",
-            "wall_s": 0.424,
-            "busy_cpus_since_prev": 0.99,
-            "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
-          }
-        },
-        {
-          "arm": "expanse",
-          "insert_mops": 49.50006910209647,
-          "lookup_mops": 114.23224054202741,
+          "insert_mops": 49.520988431005726,
+          "lookup_mops": 113.71705105304264,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -1441,12 +1441,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 118.42490144087577,
-          "lookup_mops": 168.98034555804745,
+          "insert_mops": 118.946429620706,
+          "lookup_mops": 169.9451926753622,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -1454,12 +1454,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 20.51669153905182,
-          "lookup_mops": 18.685491377411836,
+          "insert_mops": 20.430993441119902,
+          "lookup_mops": 18.42835472165039,
           "round": 2,
           "load": {
             "since": "cell:hashbrown_container_dists/round=2",
-            "wall_s": 0.433,
+            "wall_s": 0.436,
             "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": -0.01
@@ -1467,129 +1467,129 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 49.528444631507874,
-          "lookup_mops": 113.73634822612243,
+          "insert_mops": 48.18316231683533,
+          "lookup_mops": 114.1972016660915,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 143.39248847052696,
-          "lookup_mops": 226.19675045748292,
+          "insert_mops": 142.0794809666065,
+          "lookup_mops": 232.76492139528602,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 20.455444564313353,
-          "lookup_mops": 18.44518388317381,
+          "insert_mops": 20.458954917301632,
+          "lookup_mops": 18.69653235788289,
           "round": 3,
           "load": {
             "since": "cell:hashbrown_container_dists/round=3",
-            "wall_s": 0.422,
-            "busy_cpus_since_prev": 1.04,
+            "wall_s": 0.423,
+            "busy_cpus_since_prev": 0.99,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.04
+            "foreign_busy_cpus": -0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 49.21830988064461,
-          "lookup_mops": 113.75029489763953,
+          "insert_mops": 49.651772260428714,
+          "lookup_mops": 113.98918607389554,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 144.69560385816357,
-          "lookup_mops": 226.51472662843702,
+          "insert_mops": 145.9049726749167,
+          "lookup_mops": 226.35557563581017,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 20.489641789427623,
-          "lookup_mops": 18.73079671893383,
+          "insert_mops": 20.42188927553879,
+          "lookup_mops": 18.56004972311561,
           "round": 4,
           "load": {
             "since": "cell:hashbrown_container_dists/round=4",
-            "wall_s": 0.426,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.424,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 49.61722297166281,
-          "lookup_mops": 114.45982402946655,
+          "insert_mops": 49.503230135269554,
+          "lookup_mops": 112.66782999956736,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 118.59686624384514,
-          "lookup_mops": 170.2185606318513,
+          "insert_mops": 118.2424722703666,
+          "lookup_mops": 172.520815498994,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 20.432259153621455,
-          "lookup_mops": 18.67268783668957,
+          "insert_mops": 20.42812028812638,
+          "lookup_mops": 18.618006248351843,
           "round": 5,
           "load": {
             "since": "cell:hashbrown_container_dists/round=5",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 1.02,
+            "wall_s": 0.435,
+            "busy_cpus_since_prev": 1.01,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": 0.02
+            "foreign_busy_cpus": 0.01
           }
         },
         {
           "arm": "expanse",
-          "insert_mops": 49.563808744760856,
-          "lookup_mops": 114.08580987006538,
+          "insert_mops": 49.44157716257953,
+          "lookup_mops": 113.48746292648305,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1597,12 +1597,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 143.21436039034506,
-          "lookup_mops": 232.67956580131587,
+          "insert_mops": 143.103403371001,
+          "lookup_mops": 225.29057978981288,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1610,12 +1610,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 20.446433982431277,
-          "lookup_mops": 18.25088417320921,
+          "insert_mops": 20.586055351950318,
+          "lookup_mops": 18.781200033791137,
           "round": 6,
           "load": {
             "since": "cell:hashbrown_container_dists/round=6",
-            "wall_s": 0.422,
+            "wall_s": 0.419,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1623,12 +1623,12 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 49.63306276696384,
-          "lookup_mops": 113.37053549665477,
+          "insert_mops": 50.014869420678764,
+          "lookup_mops": 114.55210356609864,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1636,12 +1636,12 @@
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 140.7268598602526,
-          "lookup_mops": 229.9929162181805,
+          "insert_mops": 111.58248512047562,
+          "lookup_mops": 206.33906625795024,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1649,12 +1649,12 @@
         },
         {
           "arm": "btree",
-          "insert_mops": 20.504437037148215,
-          "lookup_mops": 18.54097851052384,
+          "insert_mops": 20.5711556686,
+          "lookup_mops": 18.626477582587192,
           "round": 7,
           "load": {
             "since": "cell:hashbrown_container_dists/round=7",
-            "wall_s": 0.421,
+            "wall_s": 0.43,
             "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
             "foreign_busy_cpus": 0.0
@@ -1662,82 +1662,82 @@
         },
         {
           "arm": "expanse",
-          "insert_mops": 49.69896343865935,
-          "lookup_mops": 114.25210458089244,
+          "insert_mops": 48.2418731740451,
+          "lookup_mops": 113.28433257289336,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "hashbrown",
-          "insert_mops": 118.5688268325998,
-          "lookup_mops": 161.46428732892858,
+          "insert_mops": 112.04996532053573,
+          "lookup_mops": 173.56301969107173,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         },
         {
           "arm": "btree",
-          "insert_mops": 20.468796016412046,
-          "lookup_mops": 18.744336398757117,
+          "insert_mops": 20.057690732392135,
+          "lookup_mops": 18.48979017823085,
           "round": 8,
           "load": {
             "since": "cell:hashbrown_container_dists/round=8",
-            "wall_s": 0.433,
-            "busy_cpus_since_prev": 0.99,
+            "wall_s": 0.439,
+            "busy_cpus_since_prev": 1.0,
             "own_busy_cpus": 1.0,
-            "foreign_busy_cpus": -0.01
+            "foreign_busy_cpus": 0.0
           }
         }
       ],
       "intervals": {
         "insert_mops": {
           "expanse": {
-            "point": 49.52172888917396,
-            "ci_lower": 49.38977475870623,
-            "ci_upper": 49.603459634151285,
+            "point": 49.3031158299961,
+            "ci_lower": 48.81443066388769,
+            "ci_upper": 49.62257005111668,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 134.87725556610764,
-            "ci_lower": 126.33184255637462,
-            "ci_upper": 140.72037010614565,
+            "point": 131.33879343427478,
+            "ci_lower": 120.52244979337608,
+            "ci_upper": 140.7524184852893,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 20.46987796490326,
-            "ci_lower": 20.454314218758,
-            "ci_upper": 20.489405424143627,
+            "point": 20.430459729364856,
+            "ci_lower": 20.273603459898517,
+            "ci_upper": 20.49297399319868,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse": {
-            "point": 114.03109388399402,
-            "ci_lower": 113.77154947581529,
-            "ci_upper": 114.2053044213117,
+            "point": 113.75139218920226,
+            "ci_lower": 113.3641829430624,
+            "ci_upper": 114.02643021042857,
             "ci_method": "bca"
           },
           "hashbrown": {
-            "point": 207.39156859625257,
-            "ci_lower": 185.93339517851814,
-            "ci_upper": 222.06646242783899,
+            "point": 206.65241311137913,
+            "ci_lower": 187.4326525760307,
+            "ci_upper": 221.35062092094435,
             "ci_method": "bca"
           },
           "btree": {
-            "point": 18.589053803290728,
-            "ci_lower": 18.455917437867495,
-            "ci_upper": 18.66773742977311,
+            "point": 18.598307584823683,
+            "ci_lower": 18.533243627482268,
+            "ci_upper": 18.666228830436353,
             "ci_method": "bca"
           }
         }
@@ -1745,29 +1745,29 @@
       "ratios": {
         "insert_mops": {
           "expanse_over_hashbrown": {
-            "point": 0.37011448721335666,
-            "ci_lower": 0.3525696711611443,
-            "ci_upper": 0.3950936162226288,
+            "point": 0.38025437204855084,
+            "ci_lower": 0.35131111663243453,
+            "ci_upper": 0.4132885436073273,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 2.4192557251003723,
-            "ci_lower": 2.4121910951075787,
-            "ci_upper": 2.42416264098428,
+            "point": 2.4132003929572186,
+            "ci_lower": 2.3899526378808145,
+            "ci_upper": 2.423413309579269,
             "ci_method": "bca"
           }
         },
         "lookup_mops": {
           "expanse_over_hashbrown": {
-            "point": 0.5620542095916147,
-            "ci_lower": 0.5178651675964152,
-            "ci_upper": 0.6273130667928976,
+            "point": 0.559315462526306,
+            "ci_lower": 0.5184679953085538,
+            "ci_upper": 0.6160731619300124,
             "ci_method": "bca"
           },
           "expanse_over_btree": {
-            "point": 6.1346961740168195,
-            "ci_lower": 6.110360832766519,
-            "ci_upper": 6.177985466035965,
+            "point": 6.116388676437496,
+            "ci_lower": 6.084356695239578,
+            "ci_upper": 6.140223345852449,
             "ci_method": "bca"
           }
         }
@@ -1819,14 +1819,14 @@
       {
         "label": "start",
         "since": null,
-        "load1": 0.64,
-        "load5": 0.34,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:48Z",
-        "stat_busy_jiffies": 135475891,
-        "stat_total_jiffies": 10436793048,
+        "load1": 0.72,
+        "load5": 0.37,
+        "load15": 0.27,
+        "at": "2026-09-28T06:00:03Z",
+        "stat_busy_jiffies": 135477416,
+        "stat_total_jiffies": 10436829320,
         "child_cpu_s": 0.0,
-        "monotonic_s": 4350784.238,
+        "monotonic_s": 4350799.359,
         "busy_cpus_since_prev": null,
         "own_busy_cpus_since_prev": null,
         "foreign_busy_cpus_since_prev": null
@@ -1834,14 +1834,14 @@
       {
         "label": "cell:hashbrown_native_suite/round=0",
         "since": "start",
-        "load1": 0.64,
-        "load5": 0.34,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:48Z",
-        "stat_busy_jiffies": 135475897,
-        "stat_total_jiffies": 10436793197,
+        "load1": 0.72,
+        "load5": 0.37,
+        "load15": 0.27,
+        "at": "2026-09-28T06:00:03Z",
+        "stat_busy_jiffies": 135477421,
+        "stat_total_jiffies": 10436829467,
         "child_cpu_s": 0.063,
-        "monotonic_s": 4350784.3,
+        "monotonic_s": 4350799.421,
         "busy_cpus_since_prev": null,
         "own_busy_cpus_since_prev": null,
         "foreign_busy_cpus_since_prev": null
@@ -1849,44 +1849,44 @@
       {
         "label": "cell:hashbrown_native_suite/round=1",
         "since": "cell:hashbrown_native_suite/round=0",
-        "load1": 0.64,
-        "load5": 0.34,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:48Z",
-        "stat_busy_jiffies": 135475966,
-        "stat_total_jiffies": 10436794805,
-        "child_cpu_s": 0.733,
-        "monotonic_s": 4350784.97,
-        "busy_cpus_since_prev": 1.03,
+        "load1": 0.72,
+        "load5": 0.37,
+        "load15": 0.27,
+        "at": "2026-09-28T06:00:04Z",
+        "stat_busy_jiffies": 135477489,
+        "stat_total_jiffies": 10436831076,
+        "child_cpu_s": 0.734,
+        "monotonic_s": 4350800.092,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.03
+        "foreign_busy_cpus_since_prev": 0.01
       },
       {
         "label": "cell:hashbrown_native_suite/round=2",
         "since": "cell:hashbrown_native_suite/round=1",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:49Z",
-        "stat_busy_jiffies": 135476033,
-        "stat_total_jiffies": 10436796425,
-        "child_cpu_s": 1.409,
-        "monotonic_s": 4350785.646,
-        "busy_cpus_since_prev": 0.99,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:04Z",
+        "stat_busy_jiffies": 135477557,
+        "stat_total_jiffies": 10436832700,
+        "child_cpu_s": 1.411,
+        "monotonic_s": 4350800.769,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": -0.01
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_native_suite/round=3",
         "since": "cell:hashbrown_native_suite/round=2",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:50Z",
-        "stat_busy_jiffies": 135476099,
-        "stat_total_jiffies": 10436798016,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:05Z",
+        "stat_busy_jiffies": 135477623,
+        "stat_total_jiffies": 10436834284,
         "child_cpu_s": 2.072,
-        "monotonic_s": 4350786.309,
+        "monotonic_s": 4350801.429,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -1894,14 +1894,14 @@
       {
         "label": "cell:hashbrown_native_suite/round=4",
         "since": "cell:hashbrown_native_suite/round=3",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:50Z",
-        "stat_busy_jiffies": 135476166,
-        "stat_total_jiffies": 10436799612,
-        "child_cpu_s": 2.737,
-        "monotonic_s": 4350786.974,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:06Z",
+        "stat_busy_jiffies": 135477690,
+        "stat_total_jiffies": 10436835872,
+        "child_cpu_s": 2.734,
+        "monotonic_s": 4350802.091,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -1909,14 +1909,14 @@
       {
         "label": "cell:hashbrown_native_suite/round=5",
         "since": "cell:hashbrown_native_suite/round=4",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:51Z",
-        "stat_busy_jiffies": 135476234,
-        "stat_total_jiffies": 10436801238,
-        "child_cpu_s": 3.415,
-        "monotonic_s": 4350787.652,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:06Z",
+        "stat_busy_jiffies": 135477758,
+        "stat_total_jiffies": 10436837500,
+        "child_cpu_s": 3.413,
+        "monotonic_s": 4350802.769,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -1924,104 +1924,104 @@
       {
         "label": "cell:hashbrown_native_suite/round=6",
         "since": "cell:hashbrown_native_suite/round=5",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:52Z",
-        "stat_busy_jiffies": 135476301,
-        "stat_total_jiffies": 10436802822,
-        "child_cpu_s": 4.076,
-        "monotonic_s": 4350788.312,
-        "busy_cpus_since_prev": 1.02,
-        "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
-      },
-      {
-        "label": "cell:hashbrown_native_suite/round=7",
-        "since": "cell:hashbrown_native_suite/round=6",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:53Z",
-        "stat_busy_jiffies": 135476368,
-        "stat_total_jiffies": 10436804421,
-        "child_cpu_s": 4.743,
-        "monotonic_s": 4350788.979,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:07Z",
+        "stat_busy_jiffies": 135477825,
+        "stat_total_jiffies": 10436839091,
+        "child_cpu_s": 4.077,
+        "monotonic_s": 4350803.433,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
       },
       {
+        "label": "cell:hashbrown_native_suite/round=7",
+        "since": "cell:hashbrown_native_suite/round=6",
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:08Z",
+        "stat_busy_jiffies": 135477890,
+        "stat_total_jiffies": 10436840677,
+        "child_cpu_s": 4.738,
+        "monotonic_s": 4350804.094,
+        "busy_cpus_since_prev": 0.98,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": -0.02
+      },
+      {
         "label": "cell:hashbrown_native_suite/round=8",
         "since": "cell:hashbrown_native_suite/round=7",
-        "load1": 0.67,
-        "load5": 0.35,
-        "load15": 0.26,
-        "at": "2026-09-28T05:59:53Z",
-        "stat_busy_jiffies": 135476436,
-        "stat_total_jiffies": 10436806052,
-        "child_cpu_s": 5.423,
-        "monotonic_s": 4350789.659,
-        "busy_cpus_since_prev": 1.0,
+        "load1": 0.74,
+        "load5": 0.39,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:08Z",
+        "stat_busy_jiffies": 135477959,
+        "stat_total_jiffies": 10436842300,
+        "child_cpu_s": 5.415,
+        "monotonic_s": 4350804.771,
+        "busy_cpus_since_prev": 1.02,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.0
+        "foreign_busy_cpus_since_prev": 0.02
       },
       {
         "label": "cell:hashbrown_tail_latency/round=0",
         "since": "cell:hashbrown_native_suite/round=8",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:54Z",
-        "stat_busy_jiffies": 135476536,
-        "stat_total_jiffies": 10436808453,
-        "child_cpu_s": 6.086,
-        "monotonic_s": 4350790.66,
-        "busy_cpus_since_prev": 1.0,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:09Z",
+        "stat_busy_jiffies": 135478060,
+        "stat_total_jiffies": 10436844711,
+        "child_cpu_s": 6.075,
+        "monotonic_s": 4350805.776,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 0.66,
-        "foreign_busy_cpus_since_prev": 0.34
+        "foreign_busy_cpus_since_prev": 0.35
       },
       {
         "label": "cell:hashbrown_tail_latency/round=1",
         "since": "cell:hashbrown_tail_latency/round=0",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:55Z",
-        "stat_busy_jiffies": 135476577,
-        "stat_total_jiffies": 10436809389,
-        "child_cpu_s": 6.475,
-        "monotonic_s": 4350791.049,
-        "busy_cpus_since_prev": 1.05,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:10Z",
+        "stat_busy_jiffies": 135478098,
+        "stat_total_jiffies": 10436845639,
+        "child_cpu_s": 6.463,
+        "monotonic_s": 4350806.163,
+        "busy_cpus_since_prev": 0.98,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.05
+        "foreign_busy_cpus_since_prev": -0.02
       },
       {
         "label": "cell:hashbrown_tail_latency/round=2",
         "since": "cell:hashbrown_tail_latency/round=1",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:55Z",
-        "stat_busy_jiffies": 135476616,
-        "stat_total_jiffies": 10436810323,
-        "child_cpu_s": 6.866,
-        "monotonic_s": 4350791.439,
-        "busy_cpus_since_prev": 1.0,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:10Z",
+        "stat_busy_jiffies": 135478137,
+        "stat_total_jiffies": 10436846567,
+        "child_cpu_s": 6.85,
+        "monotonic_s": 4350806.55,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.0
+        "foreign_busy_cpus_since_prev": 0.01
       },
       {
         "label": "cell:hashbrown_tail_latency/round=3",
         "since": "cell:hashbrown_tail_latency/round=2",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:55Z",
-        "stat_busy_jiffies": 135476655,
-        "stat_total_jiffies": 10436811260,
-        "child_cpu_s": 7.257,
-        "monotonic_s": 4350791.829,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:10Z",
+        "stat_busy_jiffies": 135478176,
+        "stat_total_jiffies": 10436847503,
+        "child_cpu_s": 7.241,
+        "monotonic_s": 4350806.94,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -2029,104 +2029,104 @@
       {
         "label": "cell:hashbrown_tail_latency/round=4",
         "since": "cell:hashbrown_tail_latency/round=3",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:56Z",
-        "stat_busy_jiffies": 135476695,
-        "stat_total_jiffies": 10436812203,
-        "child_cpu_s": 7.651,
-        "monotonic_s": 4350792.222,
-        "busy_cpus_since_prev": 1.02,
-        "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
-      },
-      {
-        "label": "cell:hashbrown_tail_latency/round=5",
-        "since": "cell:hashbrown_tail_latency/round=4",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:56Z",
-        "stat_busy_jiffies": 135476734,
-        "stat_total_jiffies": 10436813133,
-        "child_cpu_s": 8.039,
-        "monotonic_s": 4350792.61,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:11Z",
+        "stat_busy_jiffies": 135478215,
+        "stat_total_jiffies": 10436848432,
+        "child_cpu_s": 7.629,
+        "monotonic_s": 4350807.328,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
       },
       {
+        "label": "cell:hashbrown_tail_latency/round=5",
+        "since": "cell:hashbrown_tail_latency/round=4",
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:11Z",
+        "stat_busy_jiffies": 135478254,
+        "stat_total_jiffies": 10436849365,
+        "child_cpu_s": 8.019,
+        "monotonic_s": 4350807.716,
+        "busy_cpus_since_prev": 1.0,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
         "label": "cell:hashbrown_tail_latency/round=6",
         "since": "cell:hashbrown_tail_latency/round=5",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:57Z",
-        "stat_busy_jiffies": 135476774,
-        "stat_total_jiffies": 10436814074,
-        "child_cpu_s": 8.432,
-        "monotonic_s": 4350793.002,
-        "busy_cpus_since_prev": 1.02,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:12Z",
+        "stat_busy_jiffies": 135478294,
+        "stat_total_jiffies": 10436850311,
+        "child_cpu_s": 8.414,
+        "monotonic_s": 4350808.111,
+        "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
+        "foreign_busy_cpus_since_prev": 0.01
       },
       {
         "label": "cell:hashbrown_tail_latency/round=7",
         "since": "cell:hashbrown_tail_latency/round=6",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:57Z",
-        "stat_busy_jiffies": 135476812,
-        "stat_total_jiffies": 10436815004,
-        "child_cpu_s": 8.82,
-        "monotonic_s": 4350793.391,
-        "busy_cpus_since_prev": 0.98,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:12Z",
+        "stat_busy_jiffies": 135478334,
+        "stat_total_jiffies": 10436851245,
+        "child_cpu_s": 8.803,
+        "monotonic_s": 4350808.5,
+        "busy_cpus_since_prev": 1.03,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": -0.02
+        "foreign_busy_cpus_since_prev": 0.03
       },
       {
         "label": "cell:hashbrown_tail_latency/round=8",
         "since": "cell:hashbrown_tail_latency/round=7",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:57Z",
-        "stat_busy_jiffies": 135476852,
-        "stat_total_jiffies": 10436815945,
-        "child_cpu_s": 9.213,
-        "monotonic_s": 4350793.783,
-        "busy_cpus_since_prev": 1.02,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:12Z",
+        "stat_busy_jiffies": 135478373,
+        "stat_total_jiffies": 10436852181,
+        "child_cpu_s": 9.194,
+        "monotonic_s": 4350808.89,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_container_dists/round=0",
         "since": "cell:hashbrown_tail_latency/round=8",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:58Z",
-        "stat_busy_jiffies": 135476913,
-        "stat_total_jiffies": 10436817418,
-        "child_cpu_s": 9.605,
-        "monotonic_s": 4350794.397,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:13Z",
+        "stat_busy_jiffies": 135478434,
+        "stat_total_jiffies": 10436853653,
+        "child_cpu_s": 9.583,
+        "monotonic_s": 4350809.504,
         "busy_cpus_since_prev": 0.99,
-        "own_busy_cpus_since_prev": 0.64,
-        "foreign_busy_cpus_since_prev": 0.35
+        "own_busy_cpus_since_prev": 0.63,
+        "foreign_busy_cpus_since_prev": 0.36
       },
       {
         "label": "cell:hashbrown_container_dists/round=1",
         "since": "cell:hashbrown_container_dists/round=0",
-        "load1": 0.7,
-        "load5": 0.36,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:58Z",
-        "stat_busy_jiffies": 135476962,
-        "stat_total_jiffies": 10436818588,
-        "child_cpu_s": 10.093,
-        "monotonic_s": 4350794.884,
+        "load1": 0.76,
+        "load5": 0.4,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:14Z",
+        "stat_busy_jiffies": 135478483,
+        "stat_total_jiffies": 10436854815,
+        "child_cpu_s": 10.068,
+        "monotonic_s": 4350809.988,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -2134,14 +2134,14 @@
       {
         "label": "cell:hashbrown_container_dists/round=2",
         "since": "cell:hashbrown_container_dists/round=1",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:59Z",
-        "stat_busy_jiffies": 135477011,
-        "stat_total_jiffies": 10436819750,
-        "child_cpu_s": 10.577,
-        "monotonic_s": 4350795.369,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:14Z",
+        "stat_busy_jiffies": 135478532,
+        "stat_total_jiffies": 10436855980,
+        "child_cpu_s": 10.554,
+        "monotonic_s": 4350810.474,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -2149,59 +2149,59 @@
       {
         "label": "cell:hashbrown_container_dists/round=3",
         "since": "cell:hashbrown_container_dists/round=2",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T05:59:59Z",
-        "stat_busy_jiffies": 135477060,
-        "stat_total_jiffies": 10436820933,
-        "child_cpu_s": 11.071,
-        "monotonic_s": 4350795.862,
-        "busy_cpus_since_prev": 0.99,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:14Z",
+        "stat_busy_jiffies": 135478582,
+        "stat_total_jiffies": 10436857176,
+        "child_cpu_s": 11.054,
+        "monotonic_s": 4350810.972,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": -0.01
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_container_dists/round=4",
         "since": "cell:hashbrown_container_dists/round=3",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:00Z",
-        "stat_busy_jiffies": 135477110,
-        "stat_total_jiffies": 10436822092,
-        "child_cpu_s": 11.555,
-        "monotonic_s": 4350796.345,
-        "busy_cpus_since_prev": 1.04,
-        "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.04
-      },
-      {
-        "label": "cell:hashbrown_container_dists/round=5",
-        "since": "cell:hashbrown_container_dists/round=4",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:00Z",
-        "stat_busy_jiffies": 135477158,
-        "stat_total_jiffies": 10436823259,
-        "child_cpu_s": 12.042,
-        "monotonic_s": 4350796.832,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:15Z",
+        "stat_busy_jiffies": 135478630,
+        "stat_total_jiffies": 10436858336,
+        "child_cpu_s": 11.538,
+        "monotonic_s": 4350811.456,
         "busy_cpus_since_prev": 0.99,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": -0.01
       },
       {
+        "label": "cell:hashbrown_container_dists/round=5",
+        "since": "cell:hashbrown_container_dists/round=4",
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:15Z",
+        "stat_busy_jiffies": 135478679,
+        "stat_total_jiffies": 10436859498,
+        "child_cpu_s": 12.023,
+        "monotonic_s": 4350811.941,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
         "label": "cell:hashbrown_container_dists/round=6",
         "since": "cell:hashbrown_container_dists/round=5",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:01Z",
-        "stat_busy_jiffies": 135477208,
-        "stat_total_jiffies": 10436824442,
-        "child_cpu_s": 12.535,
-        "monotonic_s": 4350797.325,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:16Z",
+        "stat_busy_jiffies": 135478729,
+        "stat_total_jiffies": 10436860685,
+        "child_cpu_s": 12.518,
+        "monotonic_s": 4350812.435,
         "busy_cpus_since_prev": 1.01,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.01
@@ -2209,14 +2209,14 @@
       {
         "label": "cell:hashbrown_container_dists/round=7",
         "since": "cell:hashbrown_container_dists/round=6",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:01Z",
-        "stat_busy_jiffies": 135477256,
-        "stat_total_jiffies": 10436825597,
-        "child_cpu_s": 13.018,
-        "monotonic_s": 4350797.807,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:16Z",
+        "stat_busy_jiffies": 135478777,
+        "stat_total_jiffies": 10436861836,
+        "child_cpu_s": 12.998,
+        "monotonic_s": 4350812.915,
         "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
         "foreign_busy_cpus_since_prev": 0.0
@@ -2224,47 +2224,47 @@
       {
         "label": "cell:hashbrown_container_dists/round=8",
         "since": "cell:hashbrown_container_dists/round=7",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:02Z",
-        "stat_busy_jiffies": 135477305,
-        "stat_total_jiffies": 10436826754,
-        "child_cpu_s": 13.5,
-        "monotonic_s": 4350798.289,
-        "busy_cpus_since_prev": 1.02,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:17Z",
+        "stat_busy_jiffies": 135478826,
+        "stat_total_jiffies": 10436863014,
+        "child_cpu_s": 13.49,
+        "monotonic_s": 4350813.407,
+        "busy_cpus_since_prev": 1.0,
         "own_busy_cpus_since_prev": 1.0,
-        "foreign_busy_cpus_since_prev": 0.02
+        "foreign_busy_cpus_since_prev": 0.0
       },
       {
         "label": "cell:hashbrown_memory_alloc",
         "since": "cell:hashbrown_container_dists/round=8",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:03Z",
-        "stat_busy_jiffies": 135477377,
-        "stat_total_jiffies": 10436828473,
-        "child_cpu_s": 13.993,
-        "monotonic_s": 4350799.005,
-        "busy_cpus_since_prev": 1.01,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:18Z",
+        "stat_busy_jiffies": 135478900,
+        "stat_total_jiffies": 10436864756,
+        "child_cpu_s": 13.989,
+        "monotonic_s": 4350814.132,
+        "busy_cpus_since_prev": 1.02,
         "own_busy_cpus_since_prev": 0.69,
-        "foreign_busy_cpus_since_prev": 0.32
+        "foreign_busy_cpus_since_prev": 0.33
       },
       {
         "label": "end",
         "since": "cell:hashbrown_memory_alloc",
-        "load1": 0.72,
-        "load5": 0.37,
-        "load15": 0.27,
-        "at": "2026-09-28T06:00:03Z",
-        "stat_busy_jiffies": 135477392,
-        "stat_total_jiffies": 10436828858,
-        "child_cpu_s": 14.153,
-        "monotonic_s": 4350799.166,
-        "busy_cpus_since_prev": 0.94,
+        "load1": 0.78,
+        "load5": 0.41,
+        "load15": 0.28,
+        "at": "2026-09-28T06:00:18Z",
+        "stat_busy_jiffies": 135478916,
+        "stat_total_jiffies": 10436865155,
+        "child_cpu_s": 14.155,
+        "monotonic_s": 4350814.299,
+        "busy_cpus_since_prev": 0.96,
         "own_busy_cpus_since_prev": 0.99,
-        "foreign_busy_cpus_since_prev": -0.05
+        "foreign_busy_cpus_since_prev": -0.03
       }
     ],
     "load_windows": true,
@@ -2273,10 +2273,10 @@
         "id": "hashbrown_native_suite/round=0",
         "load": {
           "since": "cell:hashbrown_native_suite/round=0",
-          "wall_s": 0.609,
-          "busy_cpus_since_prev": 1.03,
+          "wall_s": 0.61,
+          "busy_cpus_since_prev": 1.02,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.03
+          "foreign_busy_cpus": 0.02
         }
       },
       {
@@ -2284,16 +2284,16 @@
         "load": {
           "since": "cell:hashbrown_native_suite/round=1",
           "wall_s": 0.615,
-          "busy_cpus_since_prev": 0.99,
+          "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.01
+          "foreign_busy_cpus": 0.01
         }
       },
       {
         "id": "hashbrown_native_suite/round=2",
         "load": {
           "since": "cell:hashbrown_native_suite/round=2",
-          "wall_s": 0.603,
+          "wall_s": 0.6,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -2303,57 +2303,57 @@
         "id": "hashbrown_native_suite/round=3",
         "load": {
           "since": "cell:hashbrown_native_suite/round=3",
-          "wall_s": 0.604,
-          "busy_cpus_since_prev": 1.01,
+          "wall_s": 0.601,
+          "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.01
+          "foreign_busy_cpus": 0.0
         }
       },
       {
         "id": "hashbrown_native_suite/round=4",
         "load": {
           "since": "cell:hashbrown_native_suite/round=4",
-          "wall_s": 0.618,
-          "busy_cpus_since_prev": 1.0,
+          "wall_s": 0.616,
+          "busy_cpus_since_prev": 0.99,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.0
+          "foreign_busy_cpus": -0.01
         }
       },
       {
         "id": "hashbrown_native_suite/round=5",
         "load": {
           "since": "cell:hashbrown_native_suite/round=5",
-          "wall_s": 0.599,
-          "busy_cpus_since_prev": 1.02,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.02
-        }
-      },
-      {
-        "id": "hashbrown_native_suite/round=6",
-        "load": {
-          "since": "cell:hashbrown_native_suite/round=6",
-          "wall_s": 0.606,
-          "busy_cpus_since_prev": 1.01,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.01
-        }
-      },
-      {
-        "id": "hashbrown_native_suite/round=7",
-        "load": {
-          "since": "cell:hashbrown_native_suite/round=7",
-          "wall_s": 0.618,
+          "wall_s": 0.602,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
         }
       },
       {
+        "id": "hashbrown_native_suite/round=6",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=6",
+          "wall_s": 0.601,
+          "busy_cpus_since_prev": 0.98,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": -0.02
+        }
+      },
+      {
+        "id": "hashbrown_native_suite/round=7",
+        "load": {
+          "since": "cell:hashbrown_native_suite/round=7",
+          "wall_s": 0.617,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
         "id": "hashbrown_native_suite/round=8",
         "load": {
           "since": "cell:hashbrown_native_suite/round=8",
-          "wall_s": 0.6,
+          "wall_s": 0.599,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -2363,7 +2363,7 @@
         "id": "hashbrown_tail_latency/round=0",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=0",
-          "wall_s": 0.329,
+          "wall_s": 0.328,
           "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.01
@@ -2373,37 +2373,37 @@
         "id": "hashbrown_tail_latency/round=1",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=1",
-          "wall_s": 0.329,
-          "busy_cpus_since_prev": 0.98,
+          "wall_s": 0.327,
+          "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.02
+          "foreign_busy_cpus": 0.01
         }
       },
       {
         "id": "hashbrown_tail_latency/round=2",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=2",
-          "wall_s": 0.331,
-          "busy_cpus_since_prev": 0.97,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.03
-        }
-      },
-      {
-        "id": "hashbrown_tail_latency/round=3",
-        "load": {
-          "since": "cell:hashbrown_tail_latency/round=3",
-          "wall_s": 0.332,
+          "wall_s": 0.33,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
         }
       },
       {
+        "id": "hashbrown_tail_latency/round=3",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=3",
+          "wall_s": 0.328,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
         "id": "hashbrown_tail_latency/round=4",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=4",
-          "wall_s": 0.328,
+          "wall_s": 0.327,
           "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.01
@@ -2413,46 +2413,56 @@
         "id": "hashbrown_tail_latency/round=5",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=5",
-          "wall_s": 0.331,
-          "busy_cpus_since_prev": 1.0,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.0
-        }
-      },
-      {
-        "id": "hashbrown_tail_latency/round=6",
-        "load": {
-          "since": "cell:hashbrown_tail_latency/round=6",
-          "wall_s": 0.327,
-          "busy_cpus_since_prev": 0.98,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.02
-        }
-      },
-      {
-        "id": "hashbrown_tail_latency/round=7",
-        "load": {
-          "since": "cell:hashbrown_tail_latency/round=7",
-          "wall_s": 0.332,
+          "wall_s": 0.333,
           "busy_cpus_since_prev": 1.02,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.02
         }
       },
       {
+        "id": "hashbrown_tail_latency/round=6",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=6",
+          "wall_s": 0.329,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
+        "id": "hashbrown_tail_latency/round=7",
+        "load": {
+          "since": "cell:hashbrown_tail_latency/round=7",
+          "wall_s": 0.33,
+          "busy_cpus_since_prev": 1.0,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.0
+        }
+      },
+      {
         "id": "hashbrown_tail_latency/round=8",
         "load": {
           "since": "cell:hashbrown_tail_latency/round=8",
-          "wall_s": 0.331,
-          "busy_cpus_since_prev": 0.97,
+          "wall_s": 0.329,
+          "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.03
+          "foreign_busy_cpus": 0.0
         }
       },
       {
         "id": "hashbrown_container_dists/round=0",
         "load": {
           "since": "cell:hashbrown_container_dists/round=0",
+          "wall_s": 0.423,
+          "busy_cpus_since_prev": 1.02,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.02
+        }
+      },
+      {
+        "id": "hashbrown_container_dists/round=1",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=1",
           "wall_s": 0.425,
           "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
@@ -2460,20 +2470,10 @@
         }
       },
       {
-        "id": "hashbrown_container_dists/round=1",
-        "load": {
-          "since": "cell:hashbrown_container_dists/round=1",
-          "wall_s": 0.424,
-          "busy_cpus_since_prev": 0.99,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.01
-        }
-      },
-      {
         "id": "hashbrown_container_dists/round=2",
         "load": {
           "since": "cell:hashbrown_container_dists/round=2",
-          "wall_s": 0.433,
+          "wall_s": 0.436,
           "busy_cpus_since_prev": 0.99,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": -0.01
@@ -2483,37 +2483,37 @@
         "id": "hashbrown_container_dists/round=3",
         "load": {
           "since": "cell:hashbrown_container_dists/round=3",
-          "wall_s": 0.422,
-          "busy_cpus_since_prev": 1.04,
-          "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.04
-        }
-      },
-      {
-        "id": "hashbrown_container_dists/round=4",
-        "load": {
-          "since": "cell:hashbrown_container_dists/round=4",
-          "wall_s": 0.426,
+          "wall_s": 0.423,
           "busy_cpus_since_prev": 0.99,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": -0.01
         }
       },
       {
+        "id": "hashbrown_container_dists/round=4",
+        "load": {
+          "since": "cell:hashbrown_container_dists/round=4",
+          "wall_s": 0.424,
+          "busy_cpus_since_prev": 1.01,
+          "own_busy_cpus": 1.0,
+          "foreign_busy_cpus": 0.01
+        }
+      },
+      {
         "id": "hashbrown_container_dists/round=5",
         "load": {
           "since": "cell:hashbrown_container_dists/round=5",
-          "wall_s": 0.433,
-          "busy_cpus_since_prev": 1.02,
+          "wall_s": 0.435,
+          "busy_cpus_since_prev": 1.01,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": 0.02
+          "foreign_busy_cpus": 0.01
         }
       },
       {
         "id": "hashbrown_container_dists/round=6",
         "load": {
           "since": "cell:hashbrown_container_dists/round=6",
-          "wall_s": 0.422,
+          "wall_s": 0.419,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -2523,7 +2523,7 @@
         "id": "hashbrown_container_dists/round=7",
         "load": {
           "since": "cell:hashbrown_container_dists/round=7",
-          "wall_s": 0.421,
+          "wall_s": 0.43,
           "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
           "foreign_busy_cpus": 0.0
@@ -2533,20 +2533,20 @@
         "id": "hashbrown_container_dists/round=8",
         "load": {
           "since": "cell:hashbrown_container_dists/round=8",
-          "wall_s": 0.433,
-          "busy_cpus_since_prev": 0.99,
+          "wall_s": 0.439,
+          "busy_cpus_since_prev": 1.0,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.01
+          "foreign_busy_cpus": 0.0
         }
       },
       {
         "id": "hashbrown_memory_alloc",
         "load": {
           "since": "cell:hashbrown_memory_alloc",
-          "wall_s": 0.16,
-          "busy_cpus_since_prev": 0.94,
+          "wall_s": 0.166,
+          "busy_cpus_since_prev": 0.97,
           "own_busy_cpus": 1.0,
-          "foreign_busy_cpus": -0.06
+          "foreign_busy_cpus": -0.03
         }
       }
     ]
