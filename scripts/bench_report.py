@@ -20,6 +20,20 @@ Usage:
   python3 scripts/bench_report.py --pop 100000 --format json --output report.json
   python3 scripts/bench_report.py --input report.json --format markdown
   python3 scripts/bench_report.py --input report.json --baseline results/baseline_comparative.json
+
+Load record (AGENTS.md section 8.17, #1214). Every cell of a sweep is one run of
+the `bench_lookup_compare` example, and an arch cell used to reach it through
+`cargo run` with a new `RUSTFLAGS`, so a compilation sat inside the run the
+cell timed and no snapshot said what else was resident. Each variant is now
+built once, before the first cell, and every cell runs the built binary inside
+a `bench_provenance.begin_cell` / `end_cell` window: the cell is a reaped child,
+so the children's CPU over its window is its own CPU and the remainder is
+foreign. The windows go to a JSON sidecar (`--load-json`; by default
+`head-to-head-load.json`, beside `--output` when one is given) carrying
+`provenance`, one `load` per cell, `load_status` and `load_findings`; a window
+shorter than `bench_provenance.MIN_WINDOW_S` is merged into the next, as
+`scripts/bench_windowed.py` does. The markdown is unchanged. A `--input`
+render runs nothing and writes no sidecar.
 """
 
 from __future__ import annotations
@@ -28,6 +42,7 @@ import argparse
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,11 +51,61 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bench_baseline  # noqa: E402
+import bench_provenance as bp  # noqa: E402
+import bench_windowed  # noqa: E402
+
+HARNESS_EXAMPLE = "bench_lookup_compare"
+HARNESS_PACKAGE = "expanse-trie"
+LOAD_ISSUE = 1214
 
 
 def get_repo_root() -> Path:
     """Returns the repository root directory."""
     return Path(__file__).resolve().parent.parent
+
+
+def harness_env(target_cpu: Optional[str], base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """The build environment of one variant: `RUSTFLAGS` gains `-C target-cpu` for an arch cell."""
+    env = dict(os.environ if base is None else base)
+    if target_cpu and target_cpu not in ("baseline", "none", "generic", "default"):
+        rustflags = env.get("RUSTFLAGS", "")
+        env["RUSTFLAGS"] = f"{rustflags} -C target-cpu={target_cpu}".strip()
+    return env
+
+
+def variant_key(target_cpu: Optional[str]) -> str:
+    """The name a built variant is kept under; variants with the same flags share one."""
+    return harness_env(target_cpu, {}).get("RUSTFLAGS", "").replace("-C target-cpu=", "") or "default"
+
+
+def build_harness(root: Path, target_cpu: Optional[str]) -> Path:
+    """Builds the harness for one variant and keeps a copy of the binary.
+
+    Every variant builds into the same target directory, so each binary is
+    copied out under its variant's name before the next build replaces it;
+    the cells then run the copies, and no cell's window holds a compilation.
+    Cargo's diagnostics go to stderr; a failed build raises.
+    """
+    cmd = ["cargo", "build", "--release", "--message-format=json",
+           "-p", HARNESS_PACKAGE, "--example", HARNESS_EXAMPLE]
+    try:
+        proc = subprocess.run(cmd, cwd=root, stdout=subprocess.PIPE, text=True, check=True,
+                              env=harness_env(target_cpu))
+    except FileNotFoundError:
+        print("Error: 'cargo' not found on PATH.", file=sys.stderr)
+        sys.exit(1)
+    found = bench_windowed.pick_executable(proc.stdout, "example", HARNESS_EXAMPLE)
+    if found is None:
+        print(f"Error: `{' '.join(cmd)}` named no executable for {HARNESS_EXAMPLE}",
+              file=sys.stderr)
+        sys.exit(1)
+    target_dir = Path(os.environ.get("CARGO_TARGET_DIR") or root / "target")
+    if not target_dir.is_absolute():
+        target_dir = root / target_dir
+    dest = target_dir / "bench_report" / f"{HARNESS_EXAMPLE}-{variant_key(target_cpu)}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(found[0], dest)
+    return dest
 
 
 def run_benchmark_harness(
@@ -49,17 +114,17 @@ def run_benchmark_harness(
     rounds: int,
     root: Path,
     target_cpu: Optional[str] = None,
+    exe: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Executes the Rust benchmark harness and parses its JSON output."""
+    """Executes the built benchmark harness `exe` and parses its JSON output.
+
+    `exe` is `build_harness(root, target_cpu)`; it is built here when omitted,
+    which puts the build outside any window only because none is open.
+    """
+    if exe is None:
+        exe = build_harness(root, target_cpu)
     cmd = [
-        "cargo",
-        "run",
-        "--release",
-        "-p",
-        "expanse-trie",
-        "--example",
-        "bench_lookup_compare",
-        "--",
+        str(exe),
         "--pop",
         str(pop),
         "--dist",
@@ -69,11 +134,6 @@ def run_benchmark_harness(
         "--json",
     ]
 
-    env = dict(os.environ)
-    if target_cpu and target_cpu not in ("baseline", "none", "generic", "default"):
-        rustflags = env.get("RUSTFLAGS", "")
-        env["RUSTFLAGS"] = f"{rustflags} -C target-cpu={target_cpu}".strip()
-
     try:
         proc = subprocess.run(
             cmd,
@@ -81,14 +141,10 @@ def run_benchmark_harness(
             capture_output=True,
             text=True,
             check=True,
-            env=env,
         )
     except subprocess.CalledProcessError as exc:
         print(f"Error running benchmark harness:\n{exc.stderr}", file=sys.stderr)
         raise exc
-    except FileNotFoundError:
-        print("Error: 'cargo' not found on PATH.", file=sys.stderr)
-        sys.exit(1)
 
     # Locate JSON in stdout (in case Cargo emitted compilation warnings)
     raw_out = proc.stdout
@@ -106,6 +162,91 @@ def run_benchmark_harness(
     except json.JSONDecodeError as err:
         print(f"Error parsing harness JSON: {err}\nOutput was:\n{json_str}", file=sys.stderr)
         sys.exit(1)
+
+
+class Sweep:
+    """Runs a report's cells, one load window each, and writes the load sidecar.
+
+    Every variant the sweep needs is built in the constructor, before the first
+    window opens. `run` brackets one harness process with a window whose own
+    CPU is the reaped child's (`begin_cell` / `end_cell`); the bookkeeping,
+    including merging a window too short to resolve into the next, is
+    `bench_windowed.Windower`'s.
+    """
+
+    def __init__(self, root: Path, variants: List[Optional[str]], build=build_harness,
+                 runner=run_benchmark_harness):
+        self.root, self.runner = root, runner
+        self.exes: Dict[str, Path] = {}
+        self.exe_for: Dict[Optional[str], Path] = {}
+        for v in variants:
+            key = variant_key(v)
+            if key not in self.exes:
+                print(f"Building {HARNESS_EXAMPLE} ({key})...", file=sys.stderr)
+                self.exes[key] = build(root, v)
+            self.exe_for[v] = self.exes[key]
+        self.prov = bp.new_provenance(
+            "head_to_head", LOAD_ISSUE,
+            "median of interleaved rounds per arm; no interval (see bench_report.py)",
+            root, harness=f"crates/expanse/examples/{HARNESS_EXAMPLE}.rs",
+            window_mode="process", load_windows=True,
+            variants=sorted(self.exes))
+        self.win = bench_windowed.Windower(
+            lambda label, prev: bp.begin_cell(self.prov, label), bp.end_cell)
+        self.cells: List[Dict[str, Any]] = []
+
+    def run(self, pop: int, dist: str, rounds: int, target_cpu: Optional[str]) -> Dict[str, Any]:
+        cid = f"c{len(self.cells)}:{variant_key(target_cpu)}/pop={pop}/dist={dist}"
+        self.cells.append({"id": cid, "pop": pop, "dist": dist, "rounds": rounds,
+                           "target_cpu": target_cpu})
+        self.win.feed("begin", cid)
+        try:
+            return self.runner(pop=pop, dist=dist, rounds=rounds, root=self.root,
+                               target_cpu=target_cpu, exe=self.exe_for[target_cpu])
+        finally:
+            self.win.feed("end", cid)
+
+    def record(self) -> Dict[str, Any]:
+        self.win.finish()
+        bp.add_load(self.prov, "end")
+        return load_record(self.prov, self.cells, self.win.windows, self.win.findings)
+
+
+def load_record(prov: Dict[str, Any], cells: List[Dict[str, Any]], windows: List[Dict[str, Any]],
+                findings: List[str]) -> Dict[str, Any]:
+    """The sidecar: provenance, and each cell carrying the load of the window that timed it.
+
+    A merged window covers several cells; each of them carries that window's
+    load and names it in `load_window`. A cell no window covers is a finding.
+    """
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for w in windows:
+        for cid in w.get("merged", [w["id"]]):
+            by_id[cid] = w
+    out_cells, findings = [], list(findings)
+    for c in cells:
+        w = by_id.get(c["id"])
+        cell = dict(c)
+        if w is None:
+            findings.append(f"cell {c['id']!r} has no load window")
+        else:
+            cell["load"] = w["load"]
+            if "merged" in w:
+                cell["load_window"] = w["id"]
+        out_cells.append(cell)
+    prov = dict(prov)
+    prov["windows"] = windows
+    prov["load_status"] = "inadmissible" if findings else "ok"
+    prov["load_findings"] = findings
+    return {"provenance": prov, "cells": out_cells}
+
+
+def default_load_path(output: Optional[str]) -> Path:
+    """`head-to-head-load.json`, or `<output stem>-load.json` beside `--output`."""
+    if output:
+        out = Path(output)
+        return out.with_name(f"{out.stem}-load.json")
+    return Path("head-to-head-load.json")
 
 
 # Parity band shared by the ratio markers and the printed legend ("⚪ Parity
@@ -945,6 +1086,58 @@ def self_test() -> int:
     md_shape = render_markdown(data)
     assert "**Workload shape**" in md_shape, md_shape
 
+    # 10. Load windows (#1214): a variant's flags, where its build is kept,
+    #     and the sidecar's cell-to-window mapping.
+    assert "RUSTFLAGS" not in harness_env("baseline", {}), "baseline builds with no target-cpu"
+    assert harness_env("native", {"RUSTFLAGS": "-g"})["RUSTFLAGS"] == "-g -C target-cpu=native"
+    assert variant_key(None) == variant_key("baseline") == "default"
+    assert variant_key("x86-64-v3") == "x86-64-v3"
+    assert default_load_path(None) == Path("head-to-head-load.json")
+    assert default_load_path("out/report.md") == Path("out/report-load.json")
+
+    load = {"wall_s": 1.0, "busy_cpus_since_prev": 1.0, "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.0}
+    cells = [{"id": "c0:default/pop=10/dist=all"}, {"id": "c1:default/pop=20/dist=all"},
+             {"id": "c2:native/pop=10/dist=all"}]
+    rec = load_record({"suite": "head_to_head"}, cells,
+                      [{"id": "c0:default/pop=10/dist=all+c1:default/pop=20/dist=all",
+                        "merged": [cells[0]["id"], cells[1]["id"]], "load": load},
+                       {"id": cells[2]["id"], "load": load}], [])
+    assert rec["provenance"]["load_status"] == "ok", rec
+    assert all(c["load"] == load for c in rec["cells"]), rec
+    assert rec["cells"][0]["load_window"] == rec["cells"][1]["load_window"], rec
+    assert "load_window" not in rec["cells"][2], rec
+    rec = load_record({}, cells, [{"id": cells[0]["id"], "load": load}], [])
+    assert rec["provenance"]["load_status"] == "inadmissible", rec
+    assert sum("has no load window" in f for f in rec["provenance"]["load_findings"]) == 2, rec
+    rec = load_record({}, cells[:1], [{"id": cells[0]["id"], "load": load}], ["window x never closed"])
+    assert rec["provenance"]["load_status"] == "inadmissible", rec
+
+    # The sweep builds each distinct variant once, before any cell runs, and
+    # every cell runs inside a window. Build and harness are stand-ins; the
+    # windows are real snapshots, so their figures depend on the host.
+    built, events = [], []
+
+    def fake_build(root, v):
+        built.append(v)
+        events.append("build")
+        return Path(f"/bin/{variant_key(v)}")
+
+    def fake_run(**kw):
+        events.append(("run", kw["exe"]))
+        return {"target_cpu": kw["target_cpu"]}
+
+    sw = Sweep(Path("."), ["baseline", None, "native", "native"], build=fake_build, runner=fake_run)
+    assert built == ["baseline", "native"], built
+    assert sw.run(10, "all", 3, None) == {"target_cpu": None}
+    sw.run(10, "all", 3, "native")
+    assert events == ["build", "build", ("run", Path("/bin/default")), ("run", Path("/bin/native"))], events
+    rec = sw.record()
+    assert [c["id"] for c in rec["cells"]] == ["c0:default/pop=10/dist=all",
+                                                "c1:native/pop=10/dist=all"], rec["cells"]
+    assert rec["provenance"]["load_windows"] is True and rec["provenance"]["windows"], rec
+    assert all("load" in c for c in rec["cells"]), rec["cells"]
+
     print("bench_report.py --self-test: all checks passed")
     return 0
 
@@ -1026,6 +1219,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--load-json",
+        type=str,
+        help=(
+            "Where the per-cell load record is written when the harness runs "
+            "(default: head-to-head-load.json, or <output stem>-load.json beside --output)."
+        ),
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run unit-style checks on the rendering helpers and exit.",
@@ -1046,6 +1247,7 @@ def main() -> int:
             print(f"Error loading baseline artifact: {exc}", file=sys.stderr)
             return 1
 
+    sweep: Optional[Sweep] = None
     if args.input:
         with open(args.input, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -1059,60 +1261,37 @@ def main() -> int:
             rendered = json.dumps(data, indent=2)
     elif args.extended or args.pop_sweep:
         pops = [int(p.strip()) for p in args.pop_sweep.split(",")] if args.pop_sweep else [10_000, 100_000, 1_000_000]
+        archs = arch_list() if args.arch_sweep else []
+        sweep = Sweep(root, [args.target_cpu, *archs])
         pop_reports = []
         for p in pops:
             print(f"Running population sweep N = {p:,}...", file=sys.stderr)
-            data = run_benchmark_harness(
-                pop=p,
-                dist=args.dist,
-                rounds=args.rounds,
-                root=root,
-                target_cpu=args.target_cpu,
-            )
+            data = sweep.run(p, args.dist, args.rounds, args.target_cpu)
             pop_reports.append(data)
 
         if args.arch_sweep:
-            is_x86 = platform.machine().lower() in ("x86_64", "amd64", "x86")
-            archs = ["baseline", "x86-64-v2", "x86-64-v3", "native"] if is_x86 else ["baseline", "native"]
             arch_reports = []
             for a in archs:
                 print(f"Running arch sweep target-cpu = {a} (N = 10,000)...", file=sys.stderr)
-                data = run_benchmark_harness(
-                    pop=10_000,
-                    dist=args.dist,
-                    rounds=args.rounds,
-                    root=root,
-                    target_cpu=a,
-                )
+                data = sweep.run(10_000, args.dist, args.rounds, a)
                 arch_reports.append(data)
             rendered = render_extended_pop_markdown(pop_reports) + "\n\n" + render_arch_sweep_markdown(arch_reports)
         else:
             rendered = render_extended_pop_markdown(pop_reports)
     elif args.arch_sweep:
-        is_x86 = platform.machine().lower() in ("x86_64", "amd64", "x86")
-        archs = ["baseline", "x86-64-v2", "x86-64-v3", "native"] if is_x86 else ["baseline", "native"]
+        archs = arch_list()
+        sweep = Sweep(root, archs)
         arch_reports = []
         pop = 10_000 if args.quick else args.pop
         for a in archs:
             print(f"Running arch sweep target-cpu = {a}...", file=sys.stderr)
-            data = run_benchmark_harness(
-                pop=pop,
-                dist=args.dist,
-                rounds=args.rounds,
-                root=root,
-                target_cpu=a,
-            )
+            data = sweep.run(pop, args.dist, args.rounds, a)
             arch_reports.append(data)
         rendered = render_arch_sweep_markdown(arch_reports)
     else:
         pop = 10_000 if args.quick and args.pop == 1_000_000 else args.pop
-        data = run_benchmark_harness(
-            pop=pop,
-            dist=args.dist,
-            rounds=args.rounds,
-            root=root,
-            target_cpu=args.target_cpu,
-        )
+        sweep = Sweep(root, [args.target_cpu])
+        data = sweep.run(pop, args.dist, args.rounds, args.target_cpu)
         if args.format == "json":
             rendered = json.dumps(data, indent=2) + "\n"
         elif args.format == "table":
@@ -1128,7 +1307,25 @@ def main() -> int:
     else:
         print(rendered, end="")
 
+    if sweep is not None:
+        record = sweep.record()
+        load_path = Path(args.load_json) if args.load_json else default_load_path(args.output)
+        load_path.parent.mkdir(parents=True, exist_ok=True)
+        load_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        status = record["provenance"]["load_status"]
+        for f in record["provenance"]["load_findings"]:
+            print(f"::warning::bench_report.py: {f}", file=sys.stderr)
+        print(f"Load record: {len(record['provenance']['windows'])} window(s) over "
+              f"{len(record['cells'])} cell(s), load_status={status} -> {load_path}",
+              file=sys.stderr)
+
     return 0
+
+
+def arch_list() -> List[str]:
+    """The target-cpu variants an arch sweep runs on this machine."""
+    is_x86 = platform.machine().lower() in ("x86_64", "amd64", "x86")
+    return ["baseline", "x86-64-v2", "x86-64-v3", "native"] if is_x86 else ["baseline", "native"]
 
 
 if __name__ == "__main__":
