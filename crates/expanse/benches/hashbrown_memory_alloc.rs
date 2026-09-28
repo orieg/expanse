@@ -18,7 +18,7 @@
 //! | `value_dereference` | Live bytes tracked |
 //! | `measured_region` | Clean `GlobalAlloc` hook |
 //! | `arm_symmetry` | Symmetric keys |
-//! | `statistics` | Exact byte count |
+//! | `statistics` | Exact byte count, one per cell; published under `memory`, the gate's census key (no rounds) |
 //! | `verdict` | **PASS** `[verified: CODE READ]`: Deterministic memory allocator census. |
 
 use expanse_trie::map::ExpanseMap;
@@ -178,9 +178,12 @@ fn main() {
         }));
     }
 
+    // Under `memory`, the key `scripts/check_bench_provenance.py` reads as a
+    // census: exact byte counts, one per cell, with no rounds to sample.
+    let output = json!({ "memory": results });
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(&results).unwrap());
+        println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
-        println!("{:#?}", results);
+        println!("{:#?}", output);
     }
 }

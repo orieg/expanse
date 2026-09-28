@@ -249,6 +249,10 @@ def generate_memory_chart():
         return
     with open(json_path) as f:
         data = body(json.load(f))
+    # Since #1214's follow-up the census sits under `memory`; earlier artifacts
+    # are the bare list.
+    if isinstance(data, dict):
+        data = data["memory"]
 
     last_item = data[-1]
     pop = last_item.get("population", 0)
@@ -337,9 +341,10 @@ def generate_key_distributions_chart():
     with open(json_path) as f:
         data = body(json.load(f))
 
+    dists = ["sequential", "clustered", "zipfian", "uniform"]
     all_vals = []
-    for d_data in data.values():
-        lookups = d_data.get("lookup_mops", {})
+    for d in dists:
+        lookups = data.get(d, {}).get("lookup_mops", {})
         all_vals.append(lookups.get("expanse", 0.0))
         all_vals.append(lookups.get("hashbrown", 0.0))
         all_vals.append(lookups.get("btree", 0.0))
@@ -347,11 +352,14 @@ def generate_key_distributions_chart():
     max_val = max_measured * 1.25
     bar_max_width = 330.0
 
+    pops = {data.get(d, {}).get("population") for d in dists} - {None}
+    pop_label = f"{pops.pop():,} Key Population" if len(pops) == 1 else "Mixed Populations"
+
     svg = svg_header(width=960, height=340, title="Container Key Distributions")
-    svg += """
+    svg += f"""
   <!-- Header -->
   <text x="30" y="30" class="t-title">MARTIN ANKERL &amp; TESSIL KEY DISTRIBUTIONS (LOOKUP MOPS/SEC)</text>
-  <text x="30" y="46" class="t-sub">50,000 Key Population • Point Query Throughput across Key Geometries</text>
+  <text x="30" y="46" class="t-sub">{pop_label} • Point Query Throughput across Key Geometries</text>
 
   <!-- Legend -->
   <g transform="translate(630, 20)">
@@ -365,7 +373,6 @@ def generate_key_distributions_chart():
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
 """
 
-    dists = ["sequential", "clustered", "zipfian", "uniform"]
     dist_names = {
         "sequential": ("Dense Sequential (0..N)", "Linear consecutive keys"),
         "clustered": ("Sparse Clustered / Stride", "Bursts of 256 keys with sparse strides"),
@@ -459,9 +466,9 @@ def generate_tail_latency_chart():
         b_v = bt.get(q, 0)
 
         svg += f"""  <text x="40" y="{y}" class="t-bar-label">{ql}</text>
-  <text x="240" y="{y}" class="t-val-accent" text-anchor="start">{e_v:,} ns</text>
-  <text x="460" y="{y}" class="t-val-blue" text-anchor="start">{h_v:,} ns</text>
-  <text x="680" y="{y}" class="t-val-muted" text-anchor="start">{b_v:,} ns</text>
+  <text x="240" y="{y}" class="t-val-accent" text-anchor="start">{e_v:,.0f} ns</text>
+  <text x="460" y="{y}" class="t-val-blue" text-anchor="start">{h_v:,.0f} ns</text>
+  <text x="680" y="{y}" class="t-val-muted" text-anchor="start">{b_v:,.0f} ns</text>
   <line x1="30" y1="{y + 4}" x2="930" y2="{y + 4}" class="grid"/>
 """
 

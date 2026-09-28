@@ -158,6 +158,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/concurrency/scripts/tables.py",
     "docs/benchmarks/concurrency/scripts/writer_scaling.py",
     "docs/benchmarks/concurrency/scripts/ycsb_concurrent.py",
+    # The hashbrown pillars' per-arm and paired per-round ratio intervals
+    # (native, tail latency, key distributions).
+    "docs/benchmarks/hashbrown_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_all.py",
     "docs/benchmarks/hot_comparison/scripts/run_strings.py",
     "docs/benchmarks/masstree_comparison/scripts/run_all.py",

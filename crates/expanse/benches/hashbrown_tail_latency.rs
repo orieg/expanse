@@ -10,16 +10,16 @@
 //! |---|---|
 //! | `workload_id` | `hashbrown_tail_latency` |
 //! | `group` | 3 |
-//! | `population` | 100k |
+//! | `population` | 1M (100k under `--quick`) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
-//! | `probes_and_reuse` | 100k inserts |
+//! | `probes_and_reuse` | `population` inserts per arm per round, the same key sequence every round |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
 //! | `value_dereference` | Records clamped latency |
-//! | `measured_region` | `Instant::now()` per op (calibrated overhead) |
+//! | `measured_region` | `Instant::now()` bracket per insert, uncalibrated (the bracket's own cost is inside every sample); the three maps of a round are dropped after the round's last window |
 //! | `arm_symmetry` | Symmetric |
-//! | `statistics` | HdrHistogram percentiles |
-//! | `verdict` | **PASS** `[verified: CODE READ]`: Documented per-op calibration overhead. |
+//! | `statistics` | HdrHistogram percentiles per arm per round, `--rounds` rounds (9; 3 under `--quick`) with the arm order rotated; published per-arm figures are round means; per-round rows in `rounds_raw`, BCa 95% intervals and paired per-round ratios added by `run_all.py` |
+//! | `verdict` | **PASS / MINOR** `[verified: CODE READ]`: rounds and intervals (#1214); the per-op timer bracket is not calibrated, so the low percentiles carry its cost. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;
@@ -60,6 +60,18 @@ fn measure_growth_latency<F: FnMut(u64, u64)>(mut insert_fn: F, keys: &[u64]) ->
     hist
 }
 
+/// The fields `extract_percentiles` writes, in order.
+const PERCENTILES: [&str; 8] = [
+    "p50_ns",
+    "p75_ns",
+    "p90_ns",
+    "p95_ns",
+    "p99_ns",
+    "p99_9_ns",
+    "p99_99_ns",
+    "max_ns",
+];
+
 fn extract_percentiles(hist: &Histogram<u64>) -> serde_json::Value {
     serde_json::json!({
         "p50_ns": hist.value_at_quantile(0.50),
@@ -83,10 +95,31 @@ fn bench_window<T>(id: &str, case: impl FnOnce() -> T) -> T {
     out
 }
 
+/// The three arms, in the order they are rotated through: round `r` starts
+/// with arm `r % 3`, so no arm is always timed first or last.
+const ARMS: [&str; 3] = ["expanse", "hashbrown", "btree"];
+
+/// Rounds per arm: `--rounds N`, else 9 (3 under `--quick`).
+fn rounds_arg(args: &[String], quick: bool) -> usize {
+    match args.iter().position(|a| a == "--rounds") {
+        Some(i) => {
+            let n: usize = args
+                .get(i + 1)
+                .and_then(|v| v.parse().ok())
+                .expect("--rounds takes a positive integer");
+            assert!(n > 0, "--rounds takes a positive integer");
+            n
+        }
+        None if quick => 3,
+        None => 9,
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
     let json_mode = args.iter().any(|a| a == "--json");
+    let rounds = rounds_arg(&args, quick);
 
     let num_keys = if quick { 100_000 } else { 1_000_000 };
     let mut rng = XorShift64::new(0xCAFE_BABE_0123_4567);
@@ -95,45 +128,70 @@ fn main() {
         keys.push(rng.next());
     }
 
-    // 1. ExpanseMap Growth
-    let mut expanse_map = ExpanseMap::new();
-    let hist_exp = bench_window("growth/expanse", || {
-        measure_growth_latency(
-            |k, v| {
-                expanse_map.insert(k, v);
-            },
-            &keys,
-        )
-    });
+    // One row per (arm, round). A round grows one map per arm from empty;
+    // the three stay resident until the round ends, as they did when the
+    // harness ran one round, and are dropped outside every window.
+    let mut per_arm: Vec<Vec<serde_json::Value>> = vec![Vec::new(); ARMS.len()];
+    for round in 0..rounds {
+        let mut expanse_map = ExpanseMap::new();
+        let mut hashbrown_map = HashMap::new();
+        let mut btree_map = BTreeMap::new();
+        for arm in (0..ARMS.len()).map(|i| (i + round) % ARMS.len()) {
+            let id = format!("growth/{}/round={round}", ARMS[arm]);
+            let hist = bench_window(&id, || match arm {
+                0 => measure_growth_latency(
+                    |k, v| {
+                        expanse_map.insert(k, v);
+                    },
+                    &keys,
+                ),
+                1 => measure_growth_latency(
+                    |k, v| {
+                        hashbrown_map.insert(k, v);
+                    },
+                    &keys,
+                ),
+                _ => measure_growth_latency(
+                    |k, v| {
+                        btree_map.insert(k, v);
+                    },
+                    &keys,
+                ),
+            });
+            let mut row = extract_percentiles(&hist);
+            row["round"] = round.into();
+            per_arm[arm].push(row);
+        }
+        drop((expanse_map, hashbrown_map, btree_map));
+    }
 
-    // 2. Hashbrown Growth
-    let mut hashbrown_map = HashMap::new();
-    let hist_hb = bench_window("growth/hashbrown", || {
-        measure_growth_latency(
-            |k, v| {
-                hashbrown_map.insert(k, v);
-            },
-            &keys,
-        )
-    });
-
-    // 3. BTreeMap Growth
-    let mut btree_map = BTreeMap::new();
-    let hist_bt = bench_window("growth/btree", || {
-        measure_growth_latency(
-            |k, v| {
-                btree_map.insert(k, v);
-            },
-            &keys,
-        )
-    });
+    // The published per-arm percentiles are the means over the rounds of
+    // each round's percentile; the rounds themselves are `rounds_raw`.
+    let mean = |rows: &[serde_json::Value]| {
+        let mut out = serde_json::Map::new();
+        for q in PERCENTILES {
+            let sum: f64 = rows
+                .iter()
+                .map(|r| r[q].as_f64().expect("a round row carries every percentile"))
+                .sum();
+            out.insert(q.into(), (sum / rows.len() as f64).into());
+        }
+        serde_json::Value::Object(out)
+    };
+    let cells: Vec<serde_json::Value> = ARMS
+        .iter()
+        .zip(&per_arm)
+        .map(|(arm, rows)| serde_json::json!({ "arm": arm, "rounds_raw": rows }))
+        .collect();
 
     let output = serde_json::json!({
         "total_inserts": num_keys,
         "mode": "un_preallocated_dynamic_growth",
-        "expanse": extract_percentiles(&hist_exp),
-        "hashbrown": extract_percentiles(&hist_hb),
-        "btree": extract_percentiles(&hist_bt)
+        "expanse": mean(&per_arm[0]),
+        "hashbrown": mean(&per_arm[1]),
+        "btree": mean(&per_arm[2]),
+        "rounds": rounds,
+        "latency": cells
     });
 
     if json_mode {
