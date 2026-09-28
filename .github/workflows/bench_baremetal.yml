@@ -1093,11 +1093,18 @@ jobs:
           # The generic branch below calls the driver itself; run_bench is
           # the same choice for a builtin case.
           rm -f "load-$SUITE.json" load-vs_libjudy.json head-to-head-load.json
-          run_bench() {  # <package> <target>
-            if [ -n "$BENCH_WINDOWS" ] && [ -f scripts/bench_windowed.py ]; then
-              python3 scripts/bench_windowed.py --suite "$SUITE" --mode "$BENCH_WINDOWS" \
+          # The optional third argument names the window mode for a builtin
+          # suite whose manifest entry has none of its own: `extended` and
+          # `all` run `comparative`'s criterion arms inside a longer sequence.
+          run_bench() {  # <package> <target> [window mode]
+            local mode="${3:-$BENCH_WINDOWS}"
+            if [ -n "$mode" ] && [ -f scripts/bench_windowed.py ]; then
+              python3 scripts/bench_windowed.py --suite "$SUITE" --mode "$mode" \
                 --package "$1" --target "$2" --out "load-$SUITE.json"
             else
+              if [ -n "$mode" ]; then
+                echo "::notice::No per-case load windows for $2: ref '$REF' has no scripts/bench_windowed.py (#1214), so its wall-clock numbers carry no in-run load record (AGENTS.md section 8.17)."
+              fi
               cargo bench --bench "$2" -p "$1"
             fi
           }
@@ -1180,7 +1187,7 @@ jobs:
                 cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
                 run_vs_libjudy
 
-                cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+                run_bench expanse-trie comparative criterion | tee comparative.txt
                 python3 scripts/bench_report.py --extended --arch-sweep --format markdown | tee head-to-head.md
                 ;;
               "vs_libjudy")
@@ -1400,7 +1407,7 @@ jobs:
                 cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
                 run_vs_libjudy
 
-                cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+                run_bench expanse-trie comparative criterion | tee comparative.txt
                 python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
                 ;;
               "python_concurrency")
