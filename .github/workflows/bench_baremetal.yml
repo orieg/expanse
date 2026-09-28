@@ -912,15 +912,41 @@ jobs:
           # be re-derived. A checkout whose harness does not read that variable
           # ignores it and simply writes no file; the upload step is set to
           # tolerate that rather than fail the run.
+          #
+          # The example runs every (distribution, population) cell in one
+          # process, so a snapshot before and after it cannot say what was
+          # resident during any one cell. Where the ref's
+          # scripts/bench_windowed.py can run an example, the example runs
+          # through it in markers mode: one load window per cell, from the
+          # `BENCH_WINDOW` lines the harness prints on stderr, recorded in
+          # load-vs_libjudy.json - a name of its own, so the `extended` and
+          # `all` suites keep it beside any load-$SUITE.json (AGENTS.md
+          # section 8.17, #1214). The markers are dropped from the text the
+          # report quotes. A ref whose driver cannot run an example runs the
+          # plain example, and the missing windows are reported (section 8.1).
+          VS_LIBJUDY_UNWINDOWED=0
           run_vs_libjudy() {
             local ratios="$PWD/target/bench/vs-libjudy-ratios.json"
             mkdir -p "$(dirname "$ratios")"
             # target/ survives between jobs on this runner, so a previous
             # run's ratios must not be uploaded under this run's provenance.
-            rm -f "$ratios"
-            EXPANSE_BENCH_RATIOS_JSON="$ratios" \
-              cargo run --release -p expanse-capi --example bench_vs_libjudy \
-              | tee vs-libjudy.txt
+            rm -f "$ratios" load-vs_libjudy.json
+            if [ -f scripts/bench_windowed.py ] && grep -q -e '--example' scripts/bench_windowed.py; then
+              # Built first so cargo's compile output stays in the log; the
+              # driver's own build is then a no-op outside any window.
+              cargo build --release -p expanse-capi --example bench_vs_libjudy
+              EXPANSE_BENCH_RATIOS_JSON="$ratios" \
+                python3 scripts/bench_windowed.py --suite vs_libjudy --mode markers \
+                  --package expanse-capi --example bench_vs_libjudy \
+                  --out load-vs_libjudy.json \
+                | sed '/^BENCH_WINDOW /d' | tee vs-libjudy.txt
+            else
+              VS_LIBJUDY_UNWINDOWED=1
+              echo "::notice::No per-cell load windows for bench_vs_libjudy: ref '$REF' has no scripts/bench_windowed.py that runs an example (#1214), so its wall-clock ratios carry no in-run load record (AGENTS.md section 8.17)."
+              EXPANSE_BENCH_RATIOS_JSON="$ratios" \
+                cargo run --release -p expanse-capi --example bench_vs_libjudy \
+                | tee vs-libjudy.txt
+            fi
           }
 
           # Refuse a busy host before anything is built (#1210). The lock only
@@ -1071,7 +1097,7 @@ jobs:
           # windows are reported rather than silently absent (section 8.1).
           # The generic branch below calls the driver itself; run_bench is
           # the same choice for a builtin case.
-          rm -f "load-$SUITE.json"
+          rm -f "load-$SUITE.json" load-vs_libjudy.json head-to-head-load.json
           run_bench() {  # <package> <target>
             if [ -n "$BENCH_WINDOWS" ] && [ -f scripts/bench_windowed.py ]; then
               python3 scripts/bench_windowed.py --suite "$SUITE" --mode "$BENCH_WINDOWS" \
@@ -1691,9 +1717,23 @@ jobs:
           # The load record's verdict, read after the harvest so an
           # inadmissible record never costs the measurement: the job fails on
           # it in a step of its own, once every artifact is uploaded.
+          # Every load record this suite wrote is read: load-$SUITE.json from
+          # the windowed bench, load-vs_libjudy.json from run_vs_libjudy,
+          # which the `all` and `extended` suites run beside their other
+          # benches, and head-to-head-load.json, where scripts/bench_report.py
+          # records a window per sweep cell. One inadmissible record makes the
+          # run's record inadmissible.
           LOAD_STATUS=none
-          if [ -f "load-$SUITE.json" ]; then
-            LOAD_STATUS=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["provenance"]["load_status"])' "load-$SUITE.json")
+          LOAD_FILES=()
+          for f in "load-$SUITE.json" load-vs_libjudy.json head-to-head-load.json; do
+            if [ -f "$f" ] && [[ " ${LOAD_FILES[*]} " != *" $f "* ]]; then
+              LOAD_FILES+=("$f")
+            fi
+          done
+          if [ "${#LOAD_FILES[@]}" -gt 0 ]; then
+            LOAD_STATUS=$(python3 -c 'import json, sys; s = [json.load(open(f))["provenance"]["load_status"] for f in sys.argv[1:]]; bad = [x for x in s if x != "ok"]; print("inadmissible" if "inadmissible" in s else (bad[0] if bad else "ok"))' "${LOAD_FILES[@]}")
+          elif [ "$VS_LIBJUDY_UNWINDOWED" = "1" ]; then
+            LOAD_STATUS=missing_script
           elif [ -n "$BENCH_WINDOWS" ]; then
             LOAD_STATUS=missing_script
             echo "::notice::No per-case load windows: ref '$REF' has no scripts/bench_windowed.py (#1214), so suite '$SUITE' ran without them and its wall-clock numbers carry no in-run load record (AGENTS.md section 8.17)."
@@ -2086,6 +2126,8 @@ jobs:
             rocksdb-concurrent-optimistic-counters.txt \
             python-concurrency.txt \
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json \
+            load-vs_libjudy.json \
+            head-to-head-load.json \
             bytes-per-key-32.txt \
             head-instructions.txt \
             head-vs-stock.txt \
@@ -2219,9 +2261,9 @@ jobs:
             // inadmissible as published results (AGENTS.md section 8.17).
             const load = process.env.LOAD_STATUS || '';
             if (load === 'inadmissible') {
-              harvestNote += (harvestNote ? '\n\n' : '') + '> [!CAUTION]\n> **Load record inadmissible.** At least one timed case has no attributed load window (`load_findings` in the `load-*.json` artifact says which). The numbers below are not publishable until the suite is re-run.';
+              harvestNote += (harvestNote ? '\n\n' : '') + '> [!CAUTION]\n> **Load record inadmissible.** At least one timed case has no attributed load window (`load_findings` in the `load-*.json` or `head-to-head-load.json` record says which). The numbers below are not publishable until the suite is re-run.';
             } else if (load === 'missing_script') {
-              harvestNote += (harvestNote ? '\n\n' : '') + `> [!CAUTION]\n> **No per-case load record.** Ref \`${process.env.HEAD_REF}\` predates \`scripts/bench_windowed.py\` (#1214), so this suite ran without in-run load windows and its numbers are not publishable.`;
+              harvestNote += (harvestNote ? '\n\n' : '') + `> [!CAUTION]\n> **No per-case load record.** Ref \`${process.env.HEAD_REF}\` predates \`scripts/bench_windowed.py\` or its example mode (#1214), so this suite ran without in-run load windows and its numbers are not publishable.`;
             }
 
             let body;
@@ -2379,5 +2421,5 @@ jobs:
         env:
           SUITE: ${{ needs.resolve.outputs.suite }}
         run: |
-          echo "::error::suite '$SUITE': the load record is inadmissible; load_findings in the load-$SUITE.json artifact names the windows that could not attribute"
+          echo "::error::suite '$SUITE': the load record is inadmissible; load_findings in load-$SUITE.json, load-vs_libjudy.json or head-to-head-load.json names the windows that could not attribute"
           exit 1

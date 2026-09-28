@@ -32,6 +32,15 @@ Per-repetition means are recorded so the aggregate can be re-derived.
 
 Fail-loud (§8.1): a repetition missing any arm, or fewer than three repetitions,
 refuses rather than publishing a partial aggregate.
+
+Load windows (AGENTS.md §8.17, #1214): `run.sh` runs each repetition through
+`scripts/bench_windowed.py`, which leaves `rep_<i>/load.json` beside the
+criterion snapshot — a load window around every criterion case. The harvest
+carries each repetition's windows into the provenance
+(`load_windows_per_rep`). A repetition with no record, or whose record is
+inadmissible, is named in `load_findings`, `load_status` reads
+`inadmissible`, and the harvest exits non-zero after writing, so the record is
+kept and the run is not mistaken for a publishable one.
 """
 from __future__ import annotations
 
@@ -40,6 +49,7 @@ import json
 import random
 import statistics
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -90,6 +100,38 @@ def load_rep(criterion_dir: Path) -> Dict[str, List[float]]:
     if not out:
         raise HarvestError(f"no criterion samples under {criterion_dir}")
     return out
+
+
+def rep_load_records(raw: Path) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Each repetition's load windows from `rep_<i>/load.json`, and what is wrong with them.
+
+    A repetition is judged by the record `bench_windowed.py` wrote: no record,
+    an unreadable one, or one whose `load_status` is not `ok` is a finding.
+    """
+    per_rep: List[Dict[str, Any]] = []
+    findings: List[str] = []
+    reps = sorted((p for p in raw.glob("rep_*") if p.is_dir()),
+                  key=lambda p: int(p.name.split("_", 1)[1]))
+    for d in reps:
+        path = d / "load.json"
+        if not path.is_file():
+            findings.append(f"{d.name}: no load record (run without bench_windowed.py)")
+            per_rep.append({"rep": d.name, "load_status": "missing"})
+            continue
+        try:
+            prov = json.loads(path.read_text(encoding="utf-8"))["provenance"]
+        except (OSError, ValueError, KeyError) as e:
+            findings.append(f"{d.name}: load record unreadable ({e})")
+            per_rep.append({"rep": d.name, "load_status": "unreadable"})
+            continue
+        status = prov.get("load_status")
+        if status != "ok":
+            findings.append(f"{d.name}: load_status {status!r}: {prov.get('load_findings')}")
+        per_rep.append({"rep": d.name, "load_status": status,
+                        "load_findings": prov.get("load_findings", []),
+                        "commit": prov.get("commit"),
+                        "windows": prov.get("windows", [])})
+    return per_rep, findings
 
 
 def load_reps(raw: Path) -> List[Dict[str, List[float]]]:
@@ -325,6 +367,24 @@ def self_test() -> None:
     # 5. the markdown carries every parity row and the ingestion rows
     md = render_markdown(s)
     assert md.count("| `intersection") == 4 and md.count("M keys/s |") == 8, md
+    # Load records (#1214): a windowed repetition is carried, and a missing or
+    # inadmissible one is a finding rather than a silent gap.
+    with tempfile.TemporaryDirectory() as td:
+        raw = Path(td)
+        window = {"id": "domain_ingestion/batch/10000",
+                  "load": {"busy_cpus_since_prev": 1.0, "foreign_busy_cpus": 0.01}}
+        for i, status in ((1, "ok"), (2, "inadmissible"), (3, None), (10, "ok")):
+            (raw / f"rep_{i}").mkdir()
+            if status is not None:
+                (raw / f"rep_{i}" / "load.json").write_text(json.dumps({"provenance": {
+                    "load_status": status, "load_findings": [] if status == "ok" else ["x"],
+                    "windows": [window]}}))
+        per_rep, findings = rep_load_records(raw)
+    assert [r["rep"] for r in per_rep] == ["rep_1", "rep_2", "rep_3", "rep_10"], per_rep
+    assert per_rep[0]["windows"] == [window], per_rep[0]
+    assert [r["load_status"] for r in per_rep] == ["ok", "inadmissible", "missing", "ok"], per_rep
+    assert len(findings) == 2 and "rep_2" in findings[0] and "rep_3" in findings[1], findings
+
     print("harvest_domain.py --self-test: all checks passed")
 
 
@@ -364,6 +424,10 @@ def main() -> int:
         "load_average_per_rep": loads,
         "harvester": "docs/benchmarks/set_algebra/scripts/harvest_domain.py",
     }
+    per_rep, load_findings = rep_load_records(args.raw)
+    prov["load_windows_per_rep"] = per_rep
+    prov["load_status"] = "inadmissible" if load_findings else "ok"
+    prov["load_findings"] = load_findings
     for key in ("domain_parity_611", "domain_ingestion_611", "domain_ingestion_611_50k", "domain_resolution_611"):
         data.setdefault("provenance", {})[key] = dict(prov)
     args.out.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -371,6 +435,12 @@ def main() -> int:
     print(md)
     if args.markdown:
         args.markdown.write_text(md, encoding="utf-8")
+    if load_findings:
+        for f in load_findings:
+            print(f"harvest_domain.py: load record: {f}", file=sys.stderr)
+        print("harvest_domain.py: written, but the load record is inadmissible "
+              "(AGENTS.md section 8.17); these figures are not publishable", file=sys.stderr)
+        return 1
     return 0
 
 

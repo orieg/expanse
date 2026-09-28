@@ -22,6 +22,15 @@ arms measured against them, the `ordered_readers_*`, `count_cells_*` and `branch
 `provenance.estimators`, load snapshots with a busy-CPU delta and per-cell
 `rounds_raw`, **unless it is grandfathered below**.
 
+Two repository-root artifacts are governed as well, under a relative path
+prefixed `results/`: `results/baseline_comparative.json`, the criterion
+harvest `scripts/bench_baseline.py` writes, and `results/baseline_vs_libjudy.json`,
+the paired-ratio series of `bench_vs_libjudy` (#1214). Their cells are not under
+a `CELL_KEYS` key: a harvest keeps its arms under `arms`, each with its
+per-iteration `samples_ns`, and the vs-libjudy series under `series`, each with
+its per-round `ratios` — the raw rows a published interval is recomputed from,
+so they stand in for `rounds_raw` there (`ROOT_CELL_KEYS`).
+
 Grandfathering is by explicit entry, not by a date or a commit comparison: an
 artifact is listed with the commit it was measured at, and the gate fails if
 the file on disk carries a *different* commit — that is, if it was re-measured
@@ -110,6 +119,21 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BENCH = REPO_ROOT / "docs" / "benchmarks"
+RESULTS = REPO_ROOT / "results"
+
+# Repository-root artifacts this gate governs (#1214). They publish wall-clock
+# intervals the suite READMEs and `docs/BENCHMARKING.md` cite, so a re-run owes
+# what a suite artifact owes. Named, not globbed: `results/` also holds
+# Callgrind counts, fuel counts and pin-exposure diagnostics, which have no
+# load window to carry. The relative path a finding names is `results/<name>`.
+ROOT_ARTIFACTS = ("baseline_comparative.json", "baseline_vs_libjudy.json")
+ROOT_PREFIX = "results/"
+
+# The cell lists of a root artifact, and the raw rows each cell carries in
+# place of `rounds_raw`: a criterion arm's per-iteration samples, and a
+# vs-libjudy series' per-round paired ratios. Either recomputes the interval
+# published beside it, which is what `rounds_raw` is required for.
+ROOT_CELL_KEYS = {"arms": "samples_ns", "series": "ratios"}
 
 # --------------------------------------------------------------------------
 # the construction-label producer census (#880)
@@ -244,10 +268,11 @@ GRANDFATHERED = {
     "masstree_comparison/results/counters_strmap_hugepage_on_1m.json": ('b18688138a81005327925dd407d1056b6fe9753d',),
     "masstree_comparison/results/counters_strmap_vs_map_lookup_1m.json": ('43c68caa3dc66fc99b61613ec8d23caa9a5e33db',),
     "hot_comparison/results/baseline_instrument_bridge.json": ("86daaddf",),
-    # Its runner (`art_comparison/scripts/run_all.py`) snapshots before each
-    # bench and never after the last, so the first bench's window is never
-    # closed: both of its snapshots carry a null `busy_cpus_since_prev`
-    # (#1214). A re-run with a closing snapshot drops this entry.
+    # Its runner (`art_comparison/scripts/run_all.py`) at b447dbc snapshotted
+    # before each bench and never after the last, so the first bench's window
+    # was never closed: both of its snapshots carry a null
+    # `busy_cpus_since_prev` (#1214). The runner now takes a window per bench
+    # process and a closing snapshot; a re-run drops this entry.
     "art_comparison/results/baseline_lookup_hit.json": ("b447dbc",),
     # hashbrown_comparison, redis_zset_engine, search_inverted_index — these
     # runners took no load snapshot at all before this change, and several of
@@ -263,6 +288,21 @@ GRANDFATHERED = {
     "search_inverted_index/results/baseline_boolean.json": None,
     "search_inverted_index/results/baseline_wand.json": None,
     "search_inverted_index/results/baseline_memory.json": None,
+    # Repository-root artifacts, in scope since #1214. The criterion harvest
+    # at 7ab53cc8 carries `host_description` as a string rather than a
+    # `host` block, no `estimators` block, and its three load snapshots in a
+    # hand-taken schema (`load_snapshots`, `busy_core_equivalents`) with no
+    # `loads` series; no arm carries a load window. A re-harvest through
+    # `bench_baseline.py` with the windowed driver's `--provenance-json`
+    # carries all of it and drops this entry.
+    "results/baseline_comparative.json": ("7ab53cc8",),
+    # No `provenance` block at all: host, commit and a start load average are
+    # top-level fields, there is no busy-CPU delta and no window per cell. Its
+    # series carry their per-round `ratios`. A re-measurement is taken through
+    # `bench_windowed.py --example bench_vs_libjudy`, whose per-cell windows
+    # (`load-vs_libjudy.json`) the artifact then carries. Pinned by its
+    # top-level `commit`, the one it records.
+    "results/baseline_vs_libjudy.json": ("4c4e852a51719f705116c0c1e05fc8d9b21c96b7",),
 }
 
 # A cell list under this key is a memory census: exact byte counts, no rounds
@@ -456,17 +496,51 @@ def is_concurrent(rel: str) -> bool:
     return any(part in name for part in CONCURRENT_NAME_PARTS)
 
 
-def cell_lists(obj: dict) -> list[tuple[str, list]]:
+def is_root(rel: str) -> bool:
+    """A repository-root `results/` artifact, as `rel_path` names one."""
+    return rel.startswith(ROOT_PREFIX)
+
+
+def rel_path(path: Path, bench: Path | None = None, results: Path | None = None) -> str:
+    """The name findings and the grandfather tables use for `path`.
+
+    A suite artifact is named relative to `docs/benchmarks/`, as it always
+    was; a repository-root artifact is `results/<name>`, which no suite
+    directory can produce. A path under neither raises rather than being
+    given a name that matches nothing.
+    """
+    bench, results = bench or BENCH, results or RESULTS
+    if path.is_relative_to(bench):
+        return path.relative_to(bench).as_posix()
+    if path.is_relative_to(results):
+        return ROOT_PREFIX + path.relative_to(results).as_posix()
+    raise ValueError(f"{path} is under neither docs/benchmarks/ nor results/")
+
+
+def artifact_path(rel: str) -> Path:
+    """The file a `rel_path` name refers to; its inverse."""
+    return RESULTS / rel[len(ROOT_PREFIX):] if is_root(rel) else BENCH / rel
+
+
+def raw_key(rel: str | None, key: str) -> str:
+    """The raw-row key a cell under `key` owes: `rounds_raw`, or a root artifact's own."""
+    if rel is not None and is_root(rel) and key in ROOT_CELL_KEYS:
+        return ROOT_CELL_KEYS[key]
+    return "rounds_raw"
+
+
+def cell_lists(obj: dict, rel: str | None = None) -> list[tuple[str, list]]:
+    keys = CELL_KEYS + (tuple(ROOT_CELL_KEYS) if rel is not None and is_root(rel) else ())
     out = []
-    for k in CELL_KEYS:
+    for k in keys:
         v = obj.get(k)
         if isinstance(v, list) and v and isinstance(v[0], dict):
             out.append((k, v))
     return out
 
 
-def has_rounds(cell: dict) -> bool:
-    """Whether a cell carries its rounds.
+def has_rounds(cell: dict, raw: str = "rounds_raw") -> bool:
+    """Whether a cell carries its rounds (`raw` names the key they sit under).
 
     Directly, or in the phase objects it groups: `art_comparison`'s
     small-payload cell is one population holding a memory census and three
@@ -475,16 +549,16 @@ def has_rounds(cell: dict) -> bool:
     """
     if not isinstance(cell, dict):
         return False
-    if cell.get("rounds_raw"):
+    if cell.get(raw):
         return True
-    return any(isinstance(v, dict) and v.get("rounds_raw") for v in cell.values())
+    return any(isinstance(v, dict) and v.get(raw) for v in cell.values())
 
 
 def _number(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
-def has_measured_window(obj: dict) -> bool:
+def has_measured_window(obj: dict, rel: str | None = None) -> bool:
     """Whether some snapshot closed a measured window.
 
     The key alone proves nothing: `load_snapshot` writes `busy_cpus_since_prev`
@@ -515,7 +589,7 @@ def has_measured_window(obj: dict) -> bool:
 
     # A memory census is exact byte counts with no timed window, exempt here
     # for the reason it is exempt from `rounds_raw`.
-    cells = [c for k, cl in cell_lists(obj) if k not in CENSUS_KEYS for c in cl]
+    cells = [c for k, cl in cell_lists(obj, rel) if k not in CENSUS_KEYS for c in cl]
     return bool(cells) and all(windowed(c) for c in cells)
 
 
@@ -559,7 +633,7 @@ def check_artifact(rel: str, obj) -> list[str]:
     elif not any("busy_cpus_since_prev" in s for s in loads if isinstance(s, dict)):
         problems.append(f"{rel}: load snapshots carry no `busy_cpus_since_prev` — "
                         f"the load average lags a heavy process by about thirty seconds")
-    elif not has_measured_window(obj):
+    elif not has_measured_window(obj, rel):
         problems.append(
             f"{rel}: no load window was measured — every `busy_cpus_since_prev` is null, "
             f"so no snapshot closed a window over a timed run (#1214); take a snapshot "
@@ -576,18 +650,20 @@ def check_artifact(rel: str, obj) -> list[str]:
             problems.append(f"{rel}: missing `rounds_raw`")
         return problems
 
-    lists = cell_lists(obj)
+    lists = cell_lists(obj, rel)
     if not lists:
-        problems.append(f"{rel}: no cell list found under any of {CELL_KEYS}")
+        keys = CELL_KEYS + (tuple(ROOT_CELL_KEYS) if is_root(rel) else ())
+        problems.append(f"{rel}: no cell list found under any of {keys}")
         return problems
     for key, cells in lists:
         if key in CENSUS_KEYS:
             continue
-        without = [i for i, c in enumerate(cells) if not has_rounds(c)]
+        raw = raw_key(rel, key)
+        without = [i for i, c in enumerate(cells) if not has_rounds(c, raw)]
         if without:
             problems.append(
                 f"{rel}: {len(without)} of {len(cells)} cells under `{key}` carry no "
-                f"`rounds_raw` (first at index {without[0]}) — a published median and "
+                f"`{raw}` (first at index {without[0]}) — a published median and "
                 f"ratio cannot be recomputed without the rounds they summarise"
             )
     return problems
@@ -705,6 +781,34 @@ def check_cell_isolation(rel: str, obj) -> list[str]:
         f"writer-scaling cell runs in a harness process of its own, and the artifact says so "
         f"(docs/benchmarks/concurrency/METHODOLOGY.md §15)"
     )]
+
+
+def grandfather_status(rel: str, obj) -> tuple[bool, str | None]:
+    """`(exempt, finding)` for the GRANDFATHERED table.
+
+    Exempt only when listed *and* at a listed commit; a listed artifact at
+    another commit was re-measured, is not exempt, and says so — the caller
+    then reports what it is missing.
+    """
+    if rel not in GRANDFATHERED:
+        return False, None
+    want = GRANDFATHERED[rel]
+    allowed = want if isinstance(want, tuple) else (want,)
+    got = None
+    if isinstance(obj, dict):
+        prov = obj.get("provenance")
+        # An artifact with no provenance block records its commit at the top
+        # level (`results/baseline_vs_libjudy.json`); pin that, so a
+        # re-measurement in the old shape is not exempt by carrying none.
+        got = prov.get("commit") if isinstance(prov, dict) else obj.get("commit")
+    if got in allowed:
+        return True, None
+    return False, (
+        f"{rel}: grandfathered at commit(s) {allowed!r} but carries {got!r} — it "
+        f"was re-measured, so it must now carry provenance.host, "
+        f"provenance.estimators and per-cell rounds_raw; drop its "
+        f"GRANDFATHERED entry"
+    )
 
 
 def findings_for(rel: str, obj) -> list[str]:
@@ -912,7 +1016,12 @@ def partial_label_problems(rel: str, obj) -> list[str]:
     return []
 
 
-def artifacts(bench: Path | None = None) -> list[Path]:
+def artifacts(bench: Path | None = None, results: Path | None = None) -> list[Path]:
+    """Every governed artifact: the suites' `results/` trees, then the root ones.
+
+    `results` defaults to the repository's `results/` only when `bench` does
+    too, so a test that points `bench` at a scratch tree sees that tree alone.
+    """
     out: list[Path] = []
     for suite in SUITES:
         res = (bench or BENCH) / suite / "results"
@@ -933,6 +1042,9 @@ def artifacts(bench: Path | None = None) -> list[Path]:
         seen = {p.resolve() for p in out}
         out.extend(p for pattern in ("counters_*.json", "profile_*.json")
                    for p in sorted(res.rglob(pattern)) if p.resolve() not in seen)
+    root = results if results is not None else (RESULTS if bench is None else None)
+    if root is not None:
+        out.extend(root / name for name in ROOT_ARTIFACTS if (root / name).is_file())
     return out
 
 
@@ -942,25 +1054,18 @@ def run() -> int:
     findings.extend(ci_method_census())
     unlabelled: list[str] = []
     for path in artifacts():
-        rel = str(path.relative_to(BENCH))
+        rel = rel_path(path)
         try:
             obj = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
             findings.append(f"{rel}: cannot be read as JSON ({exc})")
             continue
-        if rel in GRANDFATHERED:
-            want = GRANDFATHERED[rel]
-            allowed = want if isinstance(want, tuple) else (want,)
-            got = obj.get("provenance", {}).get("commit") if isinstance(obj, dict) else None
-            if got in allowed:
-                grandfathered += 1
-                continue
-            findings.append(
-                f"{rel}: grandfathered at commit(s) {allowed!r} but carries {got!r} — it "
-                f"was re-measured, so it must now carry provenance.host, "
-                f"provenance.estimators and per-cell rounds_raw; drop its "
-                f"GRANDFATHERED entry"
-            )
+        exempt, note = grandfather_status(rel, obj)
+        if exempt:
+            grandfathered += 1
+            continue
+        if note:
+            findings.append(note)
             # Fall through and report exactly what it is missing.
         checked += 1
         if is_concurrent(rel) and attribution_status(rel, obj)[0]:
@@ -1216,6 +1321,84 @@ def _self_test() -> int:
     del under_results_bad["results"][0]["rounds_raw"]
     expect("`results` cells without raw rows", under_results_bad, "rounds_raw")
 
+    # --- repository-root artifacts (#1214) ---------------------------------
+    # The two root artifacts are selected, and named `results/<name>`: before,
+    # `run()` named every artifact `relative_to(docs/benchmarks)`, which raises
+    # for a path outside it, so they could not be selected at all.
+    for name in ROOT_ARTIFACTS:
+        rel = ROOT_PREFIX + name
+        if not (RESULTS / name).is_file():
+            failures.append(f"a named root artifact is missing: {rel}")
+        elif rel not in {rel_path(p) for p in artifacts()}:
+            failures.append(f"artifacts() does not select {rel}")
+    if rel_path(RESULTS / "baseline_comparative.json") != "results/baseline_comparative.json":
+        failures.append("a root artifact must be named results/<name>")
+    if rel_path(BENCH / "ycsb" / "results" / "baseline_x.json") != "ycsb/results/baseline_x.json":
+        failures.append("a suite artifact keeps its docs/benchmarks-relative name")
+    try:
+        rel_path(REPO_ROOT / "scripts" / "baseline_x.json")
+        failures.append("a path under neither tree must raise, not be named")
+    except ValueError:
+        pass
+    if is_root("hot_comparison/results/baseline_insert.json"):
+        failures.append("a suite artifact is not a root artifact")
+    for path in (RESULTS / "baseline_comparative.json", BENCH / "ycsb" / "results" / "b.json"):
+        if artifact_path(rel_path(path)) != path:
+            failures.append(f"artifact_path does not invert rel_path for {path.name}")
+
+    # A re-harvested criterion baseline, in the shape `bench_baseline.py
+    # build_artifact` writes with host, estimators and loads: its arms are
+    # its cells and `samples_ns` its raw rows.
+    root_rel = "results/baseline_comparative.json"
+    fresh = {
+        "schema": "expanse.baseline.v1",
+        "provenance": {
+            "commit": "fedcba98", "host": {"cpu_model": "x"},
+            "estimators": {"ratio": "none", "columns": "mean", "raw": "samples_ns"},
+            "loads": [{"label": "start", "busy_cpus_since_prev": None}],
+        },
+        "arms": [{"id": "g/a", "samples_ns": [1.0, 1.1, 1.2]},
+                 {"id": "g/b", "samples_ns": [2.0, 2.1, 2.2]}],
+    }
+    # THE CASE THIS PINS: re-measured, so not exempt, and with no window it
+    # fails — it cannot land by keeping the old shape's commit-free silence.
+    exempt, note = grandfather_status(root_rel, fresh)
+    if exempt or not note or "re-measured" not in note:
+        failures.append(f"a root artifact at a new commit must not be grandfathered: {note}")
+    expect("a re-harvested root artifact with no window", copy.deepcopy(fresh),
+           "no load window was measured", rel=root_rel)
+    windowed_arms = copy.deepcopy(fresh)
+    for arm in windowed_arms["arms"]:
+        arm["load"] = {"busy_cpus_since_prev": 1.0, "foreign_busy_cpus": 0.0}
+    expect("a re-harvested root artifact windowed per arm", windowed_arms, None, rel=root_rel)
+    no_samples = copy.deepcopy(windowed_arms)
+    del no_samples["arms"][1]["samples_ns"]
+    expect("a root arm without its samples", no_samples, "carry no `samples_ns`", rel=root_rel)
+    # `arms` is a cell list only for a root artifact: a suite artifact with
+    # nothing but `arms` still has no cells.
+    expect("`arms` is not a suite cell key", copy.deepcopy(windowed_arms), "no cell list",
+           rel="hot_comparison/results/baseline_x.json")
+    series = {"provenance": copy.deepcopy(fresh["provenance"]),
+              "series": [{"id": "sequential/100000/ins", "ratios": [0.6, 0.61, 0.62],
+                          "load": {"busy_cpus_since_prev": 1.0, "foreign_busy_cpus": 0.0}}]}
+    expect("a vs-libjudy series with per-round ratios and a window", series, None,
+           rel="results/baseline_vs_libjudy.json")
+    del series["series"][0]["ratios"]
+    expect("a vs-libjudy series without its ratios", series, "carry no `ratios`",
+           rel="results/baseline_vs_libjudy.json")
+    # A vs-libjudy artifact in the old shape (no provenance block) at another
+    # commit is a re-measurement and is not exempt.
+    old_shape = {"commit": "0000000", "series": []}
+    exempt, note = grandfather_status("results/baseline_vs_libjudy.json", old_shape)
+    if exempt or not note:
+        failures.append("a re-measured vs-libjudy artifact in the old shape was exempt")
+    # Both committed root artifacts are exempt at their recorded commits.
+    for name in ROOT_ARTIFACTS:
+        path = RESULTS / name
+        if path.is_file() and not grandfather_status(ROOT_PREFIX + name,
+                                                     json.loads(path.read_text()))[0]:
+            failures.append(f"{ROOT_PREFIX}{name} is not exempt at its committed commit")
+
     # --- the ablation artifacts (section 8.17) -----------------------------
     # THE HOLE THIS CLOSED: `artifacts()` globbed `baseline_*.json` only, so
     # the committed `ablation*.json` artifacts — which publish the Hypothesis D
@@ -1223,7 +1406,7 @@ def _self_test() -> int:
     # all. Field cases on their own do not pin that: `findings_for` is
     # path-agnostic and would have passed them before the fix too. The
     # selection is what has to be pinned, so this asserts both.
-    selected = {str(p.relative_to(BENCH)) for p in artifacts()}
+    selected = {rel_path(p) for p in artifacts()}
     for name in ("ablation_alloc_writer_scaling.json",
                  "ablation_epoch_writer_scaling.json",
                  "ablation_freelist_writer_scaling.json",
@@ -1422,7 +1605,7 @@ def _self_test() -> int:
         "hot_comparison/results/baseline_concurrent_run2.json",
     }
     for rel in GRANDFATHERED:
-        if (BENCH / rel).is_file():
+        if artifact_path(rel).is_file():
             continue
         if rel in pending:
             print(f"  note: {rel} not present yet — arrives with #731 / #733 / #735")

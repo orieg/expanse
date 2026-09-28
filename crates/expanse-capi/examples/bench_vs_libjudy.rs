@@ -10,7 +10,10 @@
 //! on macOS):
 //! `cargo run --release -p expanse-capi --example bench_vs_libjudy`
 //! `--rounds N` overrides the round count (minimum 3; default
-//! `DEFAULT_ROUNDS`).
+//! `DEFAULT_ROUNDS`). Each (distribution, population) cell is bracketed by
+//! `BENCH_WINDOW begin|end <dist>/pop=<n>` lines on stderr, which
+//! `scripts/bench_windowed.py --example bench_vs_libjudy --mode markers`
+//! reads to take a load window per cell (AGENTS.md section 8.17).
 //!
 //! # Workload shape — what is actually measured
 //!
@@ -772,6 +775,18 @@ mod bench {
         rounds
     }
 
+    /// Runs one timed cell between two window markers on stderr, which
+    /// `scripts/bench_windowed.py --mode markers` reads to snapshot the host's
+    /// busy CPU and this process's own CPU at each boundary: the per-cell load
+    /// record AGENTS.md section 8.17 requires (#1214). stderr is unbuffered, so
+    /// a marker reaches the driver when the cell starts and ends.
+    fn bench_window<T>(id: &str, case: impl FnOnce() -> T) -> T {
+        eprintln!("BENCH_WINDOW begin {id}");
+        let out = case();
+        eprintln!("BENCH_WINDOW end {id}");
+        out
+    }
+
     /// Formats a ratio and its interval, or dashes for the denominator arm.
     fn fmt_ci(ci: Option<(f64, f64, f64)>) -> String {
         match ci {
@@ -825,18 +840,23 @@ mod bench {
                 // [round][arm]
                 let mut samples: Vec<[Option<Sample>; 3]> = vec![[None; 3]; rounds];
 
-                for (r, slot) in samples.iter_mut().enumerate() {
-                    // Rotate arm order so drift lands on each arm equally.
-                    for step in 0..ArmId::ALL.len() {
-                        let id = ArmId::ALL[(r + step) % ArmId::ALL.len()];
-                        let s = match id {
-                            ArmId::Rlib => run_arm(&Rlib, &w),
-                            ArmId::Dl => run_arm(&ours_dl, &w),
-                            ArmId::Stock => run_arm(&stock_dl, &w),
-                        };
-                        slot[id.index()] = Some(s);
+                // One load window per (distribution, population) cell: every
+                // round and arm of the cell, and not the workload build above
+                // or the interval computation below.
+                bench_window(&format!("{dist}/pop={pop}"), || {
+                    for (r, slot) in samples.iter_mut().enumerate() {
+                        // Rotate arm order so drift lands on each arm equally.
+                        for step in 0..ArmId::ALL.len() {
+                            let id = ArmId::ALL[(r + step) % ArmId::ALL.len()];
+                            let s = match id {
+                                ArmId::Rlib => run_arm(&Rlib, &w),
+                                ArmId::Dl => run_arm(&ours_dl, &w),
+                                ArmId::Stock => run_arm(&stock_dl, &w),
+                            };
+                            slot[id.index()] = Some(s);
+                        }
                     }
-                }
+                });
 
                 let take = |arm: ArmId, f: fn(&Sample) -> f64| -> Vec<f64> {
                     samples

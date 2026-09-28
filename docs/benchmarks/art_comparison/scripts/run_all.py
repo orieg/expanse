@@ -10,8 +10,20 @@ stdout under `--json`) and regenerates the dual-theme SVG charts:
   3. art_insert       -> baseline_insert.json       (Pillar 3: dynamic growth)
   4. art_scan         -> baseline_scan.json         (Pillar 4: range scan & iter)
   5. art_memory       -> baseline_memory.json       (Pillar 5: bytes/key census)
+
+Each bench is built before its window opens and then runs as one process
+inside one load window (`bench_windowed.run_bench_window`): the host's busy
+CPU and the process's own CPU over its run, stored on the artifact it wrote
+(`load`) and in `provenance.windows`. A closing snapshot follows the last
+bench, and every artifact is re-stamped with the whole series. The written
+artifacts are then judged by `check_bench_provenance.findings_for`, and a
+finding fails the run (AGENTS.md section 8.17, #1214).
+
+  run_all.py [--quick]
+  run_all.py --self-test
 """
 
+import copy
 import json
 import os
 import platform
@@ -26,8 +38,11 @@ SCRIPTS_DIR = BASE_DIR / "scripts"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bench_provenance import (  # noqa: E402
-    add_load, attach, estimators, git_sha, host_facts,
+    add_load, attach, estimators, git_sha, host_facts, rewrite,
 )
+import bench_windowed  # noqa: E402
+
+SUITE = "art_comparison"
 
 
 BENCHES = [
@@ -62,15 +77,22 @@ def get_kernel_str() -> str:
         return "Linux"
 
 
-def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, meta: dict | None,
-              prov: dict | None) -> None:
-    print(f"==> Running {bench_name} (quick={quick})...")
-    cmd = ["cargo", "bench", "-p", "expanse-trie", "--bench", bench_name, "--"]
-    if quick:
-        cmd.append("--quick")
-    cmd.append("--json")
+def stamp(payload, meta: dict | None, prov: dict, window: dict) -> dict:
+    """The artifact a bench's payload is written as: metadata, provenance, and its window."""
+    if meta and isinstance(payload, dict):
+        payload["metadata"] = dict(meta)
+    out = attach(payload, prov)
+    # The load window of the bench process that produced this file.
+    out["load"] = window
+    return out
 
-    res = subprocess.run(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, meta: dict | None,
+              prov: dict) -> None:
+    print(f"==> Running {bench_name} (quick={quick})...")
+    args = ["--quick"] if quick else []
+    args.append("--json")
+    res, window = bench_windowed.run_bench_window(prov, "expanse-trie", bench_name, args)
     if res.returncode != 0:
         print(f"Error running {bench_name}:\n{res.stderr}", file=sys.stderr)
         sys.exit(1)
@@ -82,18 +104,72 @@ def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, meta: 
         sys.exit(1)
     payload = json.loads(stdout[min(starts):])
 
-    if meta:
-        payload["metadata"] = dict(meta)
-    if prov is not None:
-        payload = attach(payload, prov)
-
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / out_file, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-    print(f"    Saved {out_dir / out_file}")
+        json.dump(stamp(payload, meta, prov, window), f, indent=2)
+    print(f"    Saved {out_dir / out_file}  (window: {window})")
+
+
+def new_prov(quick: bool) -> dict:
+    prov = {
+        "suite": SUITE,
+        "issue": 387,
+        "commit": git_sha(REPO_ROOT),
+        "host": host_facts(),
+        "estimators": estimators(
+            "mean(ART rounds) / mean(Expanse rounds) with a two-sample BCa 95% "
+            "interval (scripts/bca_bootstrap.py); the per-arm columns beside it "
+            "are medians of the same rounds"
+        ),
+        "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
+        "quick": quick,
+        "loads": [],
+    }
+    add_load(prov, "start")
+    return prov
+
+
+def judge_written(out_dir: Path) -> int:
+    """Judges every written artifact by the provenance gate; the number of findings."""
+    written = []
+    for _, out_file in BENCHES:
+        path = out_dir / out_file
+        if path.is_file():
+            written.append((out_file, json.loads(path.read_text(encoding="utf-8"))))
+    findings = bench_windowed.judge(SUITE, written)
+    for f in findings:
+        print(f"::error::{f}", file=sys.stderr)
+    print(f"==> check_bench_provenance: {len(written)} artifact(s), {len(findings)} finding(s)")
+    return len(findings)
+
+
+def self_test() -> int:
+    """The runner's stamping path, judged by the gate without running a bench."""
+    prov = new_prov(quick=True)
+    window = {"since": "cell:art_lookup_hit", "wall_s": 3.0, "busy_cpus_since_prev": 1.0,
+              "own_busy_cpus": 0.99, "foreign_busy_cpus": 0.01}
+    prov["load_windows"] = True
+    prov["windows"] = [{"id": "art_lookup_hit", "load": window}]
+    # A snapshot as `add_load(prov, "end")` leaves it on a host with /proc.
+    prov["loads"].append({"label": "end", "busy_cpus_since_prev": 1.0})
+    payload = {"results": [{"population": 10000,
+                            "rounds_raw": [{"round": 0, "expanse_ns": 1.0, "art_ns": 1.2}]}]}
+    art = stamp(copy.deepcopy(payload), {"host": "x"}, prov, window)
+    got = bench_windowed.judge(SUITE, [("baseline_lookup_hit.json", art)])
+    assert got == [], f"a stamped artifact must pass the gate: {got}"
+    assert art.get("load") == window, "the window must be stored on the artifact it timed"
+    unattributed = copy.deepcopy(art)
+    unattributed["provenance"]["windows"][0]["load"]["foreign_busy_cpus"] = None
+    got = bench_windowed.judge(SUITE, [("baseline_lookup_hit.json", unattributed)])
+    assert any("load windows" in f for f in got), \
+        f"a window that could not attribute must be a finding: {got}"
+    print("art_comparison run_all.py --self-test: all checks passed")
+    return 0
 
 
 def main() -> None:
+    if "--self-test" in sys.argv:
+        sys.exit(self_test())
     quick = "--quick" in sys.argv or "-q" in sys.argv
     print(f"ART comparison benchmark suite (quick={quick})\n")
     load_start = get_load_str()
@@ -112,30 +188,18 @@ def main() -> None:
             "data_sha": sha,
         }
 
-    prov = {
-        "suite": "art_comparison",
-        "issue": 387,
-        "commit": git_sha(REPO_ROOT),
-        "host": host_facts(),
-        "estimators": estimators(
-            "mean(ART rounds) / mean(Expanse rounds) with a two-sample BCa 95% "
-            "interval (scripts/bca_bootstrap.py); the per-arm columns beside it "
-            "are medians of the same rounds"
-        ),
-        "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
-        "quick": quick,
-        "loads": [],
-    }
-    add_load(prov, "start")
+    prov = new_prov(quick)
 
     for bench_name, out_file in BENCHES:
-        # One snapshot per pillar, not one per sweep: a load average lags a
+        # One window per pillar, not one per sweep: a load average lags a
         # heavy process by about thirty seconds, so a single pair at the ends
-        # cannot say which pillar ran beside one (AGENTS.md section 8.4).
-        add_load(prov, f"before {bench_name}")
+        # cannot say which pillar ran beside one (AGENTS.md section 8.17).
         run_bench(bench_name, out_file, out_dir, quick, meta, prov)
 
+    # Closes the last window in the series, and re-stamps: each artifact was
+    # written before the windows after it existed.
     add_load(prov, "end")
+    rewrite((out_dir / f for _, f in BENCHES), prov)
 
     load_end = get_load_str()
 
@@ -168,7 +232,9 @@ def main() -> None:
             f.write(readme_content)
         print(f"    Updated {BASE_DIR / 'README.md'}")
         print(f"Load average during sweep: start={load_start}, end={load_end}")
-        print("Done.")
+    if judge_written(out_dir):
+        sys.exit(1)
+    print("Done.")
 
 
 if __name__ == "__main__":

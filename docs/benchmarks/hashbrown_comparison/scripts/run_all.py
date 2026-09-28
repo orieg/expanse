@@ -10,6 +10,16 @@ Executes all 5 benchmark harnesses:
 5. hashbrown_memory_alloc (GlobalAlloc live heap tracking)
 
 Saves JSON outputs into results/ and regenerates SVG comparison charts.
+
+Each single-process pillar is built before its window opens and runs as one
+process inside one load window (`bench_windowed.run_bench_window`), stored on
+the artifact it wrote (`load`) and in `provenance.windows`; a closing snapshot
+follows, and every artifact is re-stamped with the whole series. The written
+artifacts are then judged by `check_bench_provenance.findings_for`, and a
+finding fails the run (AGENTS.md section 8.17, #1214).
+
+  run_all.py [--quick]
+  run_all.py --self-test
 """
 
 import os
@@ -30,6 +40,9 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bench_provenance import (  # noqa: E402
     add_load, attach, estimators, git_sha, host_facts, rewrite,
 )
+import bench_windowed  # noqa: E402
+
+SUITE = "hashbrown_comparison"
 
 
 BENCHES = [
@@ -57,18 +70,19 @@ def run_ycsb(quick: bool) -> None:
         sys.exit(1)
 
 
+def stamp(parsed, prov: dict, window: dict) -> dict:
+    """The artifact a bench's payload is written as: provenance, and its window."""
+    out = attach(parsed, prov)
+    # The load window of the bench process that produced this file.
+    out["load"] = window
+    return out
+
+
 def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: bool = False):
     print(f"==> Running benchmark: {bench_name} (quick={quick})...")
-    cmd = [
-        "cargo", "bench", "-p", "expanse-trie",
-        "--bench", bench_name,
-        "--",
-    ]
-    if quick:
-        cmd.append("--quick")
-    cmd.append("--json")
-
-    res = subprocess.run(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    args = ["--quick"] if quick else []
+    args.append("--json")
+    res, window = bench_windowed.run_bench_window(prov, "expanse-trie", bench_name, args)
     if res.returncode != 0:
         print(f"Error running {bench_name}:", file=sys.stderr)
         print(res.stderr, file=sys.stderr)
@@ -90,10 +104,54 @@ def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / out_file
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(attach(parsed, prov), f, indent=2)
-    print(f"    Saved results to {out_path}")
+        json.dump(stamp(parsed, prov, window), f, indent=2)
+    print(f"    Saved results to {out_path}  (window: {window})")
+
+
+def judge_written(out_dir: Path) -> int:
+    """Judges every written single-process artifact by the provenance gate.
+
+    The YCSB driver judges its own artifact before writing it.
+    """
+    written = []
+    for _, out_file in BENCHES:
+        path = out_dir / out_file
+        if path.is_file():
+            written.append((out_file, json.loads(path.read_text(encoding="utf-8"))))
+    findings = bench_windowed.judge(SUITE, written)
+    for f in findings:
+        print(f"::error::{f}", file=sys.stderr)
+    print(f"==> check_bench_provenance: {len(written)} artifact(s), {len(findings)} finding(s)")
+    return len(findings)
+
+
+def self_test() -> int:
+    """The runner's stamping path, judged by the gate without running a bench."""
+    prov = {"suite": SUITE, "commit": "abc1234", "host": host_facts(),
+            "estimators": estimators("synthetic"), "loads": []}
+    add_load(prov, "start")
+    window = {"since": "cell:hashbrown_tail_latency", "wall_s": 3.0,
+              "busy_cpus_since_prev": 1.0, "own_busy_cpus": 0.99, "foreign_busy_cpus": 0.01}
+    prov["load_windows"] = True
+    prov["windows"] = [{"id": "hashbrown_tail_latency", "load": window}]
+    prov["loads"].append({"label": "end", "busy_cpus_since_prev": 1.0})
+    # A bare-array payload is wrapped, and the window rides on the wrapper.
+    art = stamp([{"arm": "expanse", "rounds_raw": [{"round": 0, "ns": 1.0}]}], prov, window)
+    got = bench_windowed.judge(SUITE, [("baseline_tail_latency.json", art)])
+    assert got == [], f"a stamped artifact with rounds must pass the gate: {got}"
+    assert art.get("load") == window and "cells" in art, \
+        "the window must be stored on the artifact it timed"
+    # A payload without rounds is what the harnesses emit today: the gate
+    # names it rather than the runner writing it quietly.
+    got = bench_windowed.judge(SUITE, [("baseline_tail_latency.json",
+                                        stamp([{"arm": "expanse", "p99_ns": 1.0}], prov, window))])
+    assert any("rounds_raw" in g for g in got), f"a payload with no rounds must be a finding: {got}"
+    print("hashbrown_comparison run_all.py --self-test: all checks passed")
+    return 0
 
 def main():
+    if "--self-test" in sys.argv:
+        sys.exit(self_test())
     quick = "--quick" in sys.argv or "-q" in sys.argv
     print(f"Starting Hashbrown vs BTreeMap vs Expanse benchmark suite (quick={quick})...\n")
 
@@ -138,6 +196,8 @@ def main():
         print("\n==> Generating SVG comparison charts...")
         subprocess.run([sys.executable, str(SCRIPTS_DIR / "generate_charts.py")], check=True)
         print("\nAll benchmarks and charts generated successfully!")
+    if judge_written(out_dir):
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

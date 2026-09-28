@@ -76,6 +76,19 @@ from bca_bootstrap import (  # noqa: E402
     bca_bootstrap_ci_with_method,
     bca_bootstrap_ratio_ci_with_method,
 )
+import bench_provenance  # noqa: E402
+
+# What the columns of a harvested artifact are (`provenance.estimators`, which
+# `scripts/check_bench_provenance.py` requires of a committed baseline). An arm
+# publishes one mean and its interval; there is no ratio column, and a ratio
+# between two arms is `gate_speedup`'s, formed from their samples.
+ESTIMATORS = bench_provenance.estimators(
+    ratio=("no ratio column: a speedup between two arms is gate_speedup's ratio of their "
+           "sample means, with a two-sample BCa 95% interval (bca_bootstrap_ratio_ci)"),
+    columns=("point_ns is the mean of an arm's per-iteration samples and "
+             "[ci_lower_ns, ci_upper_ns] the BCa interval of that same mean (section 8.4)"),
+    raw="every arm carries samples_ns, criterion's per-iteration samples verbatim",
+)
 
 SCHEMA = "expanse.baseline.v1"
 
@@ -612,7 +625,15 @@ def build_artifact(
     fixture: bool,
     store_samples: bool = True,
 ) -> Dict[str, Any]:
-    """Assembles the committed baseline artifact."""
+    """Assembles the committed baseline artifact.
+
+    The provenance carries what `scripts/check_bench_provenance.py` requires
+    of a committed baseline (#1214): `host` (`bench_provenance.host_facts`),
+    `estimators`, and a `loads` series opened by a snapshot at harvest. That
+    snapshot closes no window over the benchmark, so the artifact passes the
+    gate only once `fold_load_record` has given it the windowed driver's
+    record; a harvest of an unwindowed run fails it, by design.
+    """
     priced = [
         arm_interval(arm, confidence, num_resamples, seed, min_n) for arm in arms
     ]
@@ -634,6 +655,10 @@ def build_artifact(
             "load_average_at_harvest": _load_average(),
             "generated_by": "scripts/bench_baseline.py",
             "source": "criterion 0.8 sample.json (times[i] / iters[i])",
+            "host": bench_provenance.host_facts(),
+            "estimators": ESTIMATORS,
+            "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
+            "loads": [bench_provenance.load_snapshot("harvest")],
         },
         "statistics": {
             "estimator": "mean of per-iteration samples (ns/iter)",
@@ -1176,8 +1201,6 @@ def self_test() -> int:
     assert comp_verdicts == [PASS], comp_verdicts
     assert "Speedup vs Committed Baseline" in comp_md
 
-    print("bench_baseline.py --self-test: all checks passed")
-
     # ---- #1214: a windowed load record folds into the artifact ----
     art = {"provenance": {"commit": "c"},
            "arms": [{"id": "g/a"}, {"id": "g/b"}, {"id": "g/c"}]}
@@ -1202,6 +1225,43 @@ def self_test() -> int:
     except ValueError:
         pass
 
+    # ---- #1214: a freshly built baseline is judged by the gate that governs
+    # results/baseline_comparative.json. Unwindowed, the only finding is the
+    # missing window; folded with a windowed record, there is none.
+    import check_bench_provenance  # noqa: PLC0415 -- the gate's own function judges the artifact
+    rel = "results/baseline_comparative.json"
+    fresh = build_artifact(
+        [{"id": "g/a", "samples_ns": [10.0 + 0.01 * i for i in range(20)]},
+         {"id": "g/b", "samples_ns": [20.0 + 0.01 * i for i in range(20)]}],
+        suite="unit", host_desc="synthetic fixture host", commit="f" * 40,
+        run_id="self-test", confidence=0.95, num_resamples=1000, seed=42, min_n=3,
+        fixture=True,
+    )
+    assert isinstance(fresh["provenance"]["host"], dict), fresh["provenance"]
+    assert fresh["provenance"]["estimators"] == ESTIMATORS
+    got = check_bench_provenance.findings_for(rel, fresh)
+    assert len(got) == 1 and "no load window was measured" in got[0], got
+    windows = {"provenance": {
+        "load_windows": True, "load_status": "ok", "load_findings": [],
+        "host": fresh["provenance"]["host"],
+        "loads": [{"label": "start", "busy_cpus_since_prev": None},
+                  {"label": "end", "busy_cpus_since_prev": 1.02}],
+        "windows": [{"id": aid, "load": {"busy_cpus_since_prev": 1.0, "own_busy_cpus": 0.99,
+                                         "foreign_busy_cpus": 0.01}}
+                    for aid in ("g/a", "g/b")]}}
+    got = check_bench_provenance.findings_for(rel, fold_load_record(fresh, windows))
+    assert got == [], got
+    # Harvested without samples (--summary-only), the arms cannot be recomputed.
+    thin = build_artifact(
+        [{"id": "g/a", "samples_ns": [10.0 + 0.01 * i for i in range(20)]}],
+        suite="unit", host_desc="synthetic fixture host", commit="f" * 40,
+        run_id="self-test", confidence=0.95, num_resamples=1000, seed=42, min_n=3,
+        fixture=True, store_samples=False,
+    )
+    got = check_bench_provenance.findings_for(rel, fold_load_record(thin, windows))
+    assert any("samples_ns" in g for g in got), got
+
+    print("bench_baseline.py --self-test: all checks passed")
     return 0
 
 
