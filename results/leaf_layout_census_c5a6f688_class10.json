@@ -1,0 +1,16 @@
+{"instrument": "leaf_layout_census", "commit": "c5a6f6886+layout-census", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
+{"engine": "map", "shape": "sequential", "keys": 1000000, "mem_used": 8564160},
+{"engine": "set", "shape": "sequential", "keys": 1000000, "mem_used": 65152},
+{"engine": "map", "shape": "random", "keys": 1000000, "mem_used": 17424592},
+{"engine": "set", "shape": "random", "keys": 1000000, "mem_used": 8134944},
+{"engine": "map", "shape": "decimal8", "keys": 1000000, "mem_used": 12800032},
+{"engine": "set", "shape": "decimal8", "keys": 1000000, "mem_used": 3200032},
+{"engine": "map", "shape": "decimal8_sparse", "keys": 994982, "mem_used": 15911248},
+{"engine": "set", "shape": "decimal8_sparse", "keys": 994982, "mem_used": 6922224},
+{"engine": "map", "shape": "adversarial", "keys": 1000000, "mem_used": 18505264},
+{"engine": "set", "shape": "adversarial", "keys": 1000000, "mem_used": 6630256},
+{"engine": "strmap", "shape": "orders", "keys": 1000000, "mem_used": 14545672},
+{"engine": "strmap", "shape": "orders_sparse", "keys": 999999, "mem_used": 37628824},
+{"engine": "strmap", "shape": "uuid_hex", "keys": 1000000, "mem_used": 59807088},
+{"engine": "strmap", "shape": "orders_10000000", "keys": 10000000, "mem_used": 144145672}
+]}

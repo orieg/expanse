@@ -451,8 +451,38 @@ def test_pins() -> None:
             raise AssertionError("expected ValueError")
 
 
+# The committed #1257 artifacts (docs/ARCHITECTURE.md §3.6) and the checks
+# the section's figures rest on: the census prices to mem_used, and each
+# engine that implements an option measured what the model predicted.
+ARTIFACT = "results/leaf_layout_census_c5a6f688.json"
+PREDICTIONS = (
+    ("results/leaf_layout_census_c5a6f688_class10.json", "class_10", 128, 16, None),
+    ("results/leaf_layout_census_c5a6f688_cap128.json", "leaf_cap", 128, 10,
+     ["sequential", "decimal8", "decimal8_sparse", "orders", "orders_sparse",
+      "orders_10000000"]),
+    ("results/leaf_layout_census_c5a6f688_cap128.json", "leaf_cap", 128, 16, ["uuid_hex"]),
+)
+
+
+def test_committed_artifacts() -> None:
+    import os
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    doc = json.load(open(os.path.join(root, ARTIFACT)))
+    check_census_file(doc)
+    orders = next(r for r in doc["records"] if r["shape"] == "orders_10000000")
+    assert orders["mem_used"] == 179_699_624                     # 17.97 B/key
+    assert price(orders, "leaf_cap", 128, 16)["bytes"] == 123_694_504
+    # 179,699,624 − 176,019,200 replaced + 100,010 ranges × raw(843) = 848 B
+    assert price(orders, "product_leaf", 128, 16)["bytes"] == 88_488_904
+    for path, option, mk, md, shapes in PREDICTIONS:
+        totals = json.load(open(os.path.join(root, path)))
+        rows = check_prediction(doc, totals, option, mk, md, shapes)
+        assert rows and all(pred == meas for _, _, pred, meas in rows), (path, rows)
+
+
 def main(argv: list) -> int:
     test_pins()
+    test_committed_artifacts()
     if "--self-test" in argv:
         print("leaf_layout_model: self-test passed")
         return 0
