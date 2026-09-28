@@ -782,32 +782,46 @@ fn sub_vals_remove_shared(sub: &SubVals, pop: usize, rank: usize) -> Option<Raw<
     sub.replace(Some(new_sub.into_boxed_slice()))
 }
 
+/// The `u32` half of a 256-bit bitmap (`[u64; 4]` at `bitmap`) that holds
+/// `digit`'s bit, and the bit. A digit's subexpanse (`digit >> 5`) is exactly
+/// one such half, so its presence, its rank and the subexpanse's population
+/// all come from one word, and the shared writer and its readers access the
+/// bitmap as these words (#1233). The half's index follows the target's
+/// byte order, since the `u64` is stored in native order.
+#[inline(always)]
+fn bitmap_half(bitmap: *const u64, digit: u8) -> (*const u32, u32) {
+    let hi = usize::from((digit >> 5) & 1);
+    let lo_first = cfg!(target_endian = "little");
+    let idx = 2 * usize::from(digit >> 6) + if lo_first { hi } else { 1 - hi };
+    (bitmap.cast::<u32>().wrapping_add(idx), 1u32 << (digit & 31))
+}
+
 /// A shared tree's key-set insert into a map bitmap leaf (#1233), in place:
 /// the value subarray grows (in place inside its capacity class, or by a
-/// published replacement), then the digit's bit is set as one atomic `u64`
-/// word pair. The leaf's handle and tag are unchanged. Returns the replaced
+/// published replacement), then the digit's bit is set in its bitmap word
+/// ([`bitmap_half`]) as one atomic word store. The leaf's handle and tag are unchanged. Returns the replaced
 /// value when `digit` was present (a value overwrite).
 fn map_bitmap_insert_shared(a: &mut Arena, h: u32, digit: u8, val: u32) -> Option<u32> {
     if let Some(old) = map_bitmap_overwrite_shared(a, h, digit, val) {
         return Some(old);
     }
     let p = a.map_bitmap_ptr(h);
-    let bit_mask = 1u64 << (digit & 63);
     // SAFETY: a live node this arena owns, reached through its owning
-    // pointer; the bitmap is read and written only as `word` pairs.
-    let wp = unsafe { &raw mut (*p).header.bitmap[(digit >> 6) as usize] };
+    // pointer; the bitmap is read and written only as `word`s.
+    let (hp, bit) = bitmap_half(unsafe { (&raw const (*p).header.bitmap).cast() }, digit);
+    let hp = hp.cast_mut();
     // SAFETY: as above.
-    let bits = unsafe { word::load_u64(wp) };
-    debug_assert_eq!(bits & bit_mask, 0);
-    let rank = bitmap_sub_rank(bits, digit);
+    let half = unsafe { word::load(hp) };
+    debug_assert_eq!(half & bit, 0);
+    let rank = (half & (bit - 1)).count_ones() as usize;
     // Population before the insert, off the pre-set word (#615).
-    let pop = bitmap_sub_pop(bits, digit);
+    let pop = half.count_ones() as usize;
     // SAFETY: `&` only to the subarray's atomics.
     let sub = unsafe { &(*p).subarrays[(digit >> 5) as usize] };
     let retired = sub_vals_insert_shared(sub, pop, rank, val);
     // SAFETY: as above.
     unsafe {
-        word::store_u64(wp, bits | bit_mask);
+        word::store(hp, half | bit);
         // A field no reader loads, written through its raw place.
         (*p).header.pop0 += 1;
     }
@@ -819,24 +833,24 @@ fn map_bitmap_insert_shared(a: &mut Arena, h: u32, digit: u8, val: u32) -> Optio
 }
 
 /// A shared tree's key-set removal from a map bitmap leaf (#1233), in place:
-/// the digit's bit is cleared as one atomic `u64` word pair, then the value
+/// the digit's bit is cleared as one atomic word store, then the value
 /// subarray shrinks (in place inside its capacity class, or by a published
 /// replacement). Returns the removed value and the leaf's `pop0` before the
 /// removal, or `None` when `digit` is absent.
 fn map_bitmap_remove_shared(a: &mut Arena, h: u32, digit: u8) -> Option<(u32, usize)> {
     let p = a.map_bitmap_ptr(h);
-    let bit_mask = 1u64 << (digit & 63);
     // SAFETY: a live node this arena owns, reached through its owning
-    // pointer; the bitmap is read and written only as `word` pairs.
-    let wp = unsafe { &raw mut (*p).header.bitmap[(digit >> 6) as usize] };
+    // pointer; the bitmap is read and written only as `word`s.
+    let (hp, bit) = bitmap_half(unsafe { (&raw const (*p).header.bitmap).cast() }, digit);
+    let hp = hp.cast_mut();
     // SAFETY: as above.
-    let bits = unsafe { word::load_u64(wp) };
-    if bits & bit_mask == 0 {
+    let half = unsafe { word::load(hp) };
+    if half & bit == 0 {
         return None;
     }
-    let rank = bitmap_sub_rank(bits, digit);
+    let rank = (half & (bit - 1)).count_ones() as usize;
     // Subexpanse population before the removal, off the pre-clear word (#615).
-    let sub_pop = bitmap_sub_pop(bits, digit);
+    let sub_pop = half.count_ones() as usize;
     // SAFETY: `&` only to the subarray's atomics.
     let sub = unsafe { &(*p).subarrays[(digit >> 5) as usize] };
     let (vp, len) = sub.get().expect("a set digit has a value subarray");
@@ -844,7 +858,7 @@ fn map_bitmap_remove_shared(a: &mut Arena, h: u32, digit: u8) -> Option<(u32, us
     // SAFETY: `rank < len` of the live allocation; a word load.
     let old_val = unsafe { word::load(vp.add(rank)) };
     // SAFETY: as above.
-    unsafe { word::store_u64(wp, bits & !bit_mask) };
+    unsafe { word::store(hp, half & !bit) };
     let retired = sub_vals_remove_shared(sub, sub_pop, rank);
     // SAFETY: a field no reader loads, written through its raw place.
     let pop = unsafe {
@@ -862,23 +876,23 @@ fn map_bitmap_remove_shared(a: &mut Arena, h: u32, digit: u8) -> Option<(u32, us
 }
 
 /// A shared tree's key-set edit of a set bitmap leaf (#1233), in place: sets
-/// (or clears) `bit` as one atomic `u64` word pair. Returns whether the key
-/// set changed.
+/// (or clears) `bit` in its bitmap word ([`bitmap_half`]) as one atomic word
+/// store. Returns whether the key set changed.
 fn set_bitmap_edit_shared(a: &Arena, h: u32, bit: u8, set: bool) -> bool {
     let p = a.bitmap_ptr(h);
-    let mask = 1u64 << (bit & 63);
     // SAFETY: a live node this arena owns, reached through its owning
-    // pointer; the bitmap is read and written only as `word` pairs.
-    let wp = unsafe { &raw mut (*p).bitmap[(bit >> 6) as usize] };
+    // pointer; the bitmap is read and written only as `word`s.
+    let (hp, mask) = bitmap_half(unsafe { (&raw const (*p).bitmap).cast() }, bit);
+    let hp = hp.cast_mut();
     // SAFETY: as above.
-    let prev = unsafe { word::load_u64(wp) };
+    let prev = unsafe { word::load(hp) };
     let next = if set { prev | mask } else { prev & !mask };
     if next == prev {
         return false;
     }
     // SAFETY: as above.
     unsafe {
-        word::store_u64(wp, next);
+        word::store(hp, next);
         // A field no reader loads, written through its raw place.
         if set {
             (*p).pop0 += 1;
@@ -4616,14 +4630,16 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
                     return Err(Torn);
                 }
                 let digit = rem as u8;
-                let w = (digit >> 6) as usize;
-                // SAFETY: validated and pinned; a word-pair load.
-                let word = unsafe { word::load_u64(&raw const (*b).header.bitmap[w]) };
-                let bit = 1u64 << (digit & 63);
-                if (word & bit) == 0 {
+                // SAFETY: validated and pinned; `digit`'s bitmap word, one
+                // atomic load.
+                let (hp, bit) =
+                    bitmap_half(unsafe { (&raw const (*b).header.bitmap).cast() }, digit);
+                // SAFETY: as above.
+                let half = unsafe { word::load(hp) };
+                if (half & bit) == 0 {
                     return seal(still_valid, None);
                 }
-                let rank = bitmap_sub_rank(word, digit);
+                let rank = (half & (bit - 1)).count_ones() as usize;
                 let sub = (digit >> 5) as usize;
                 // SAFETY: as above; `&` only to the subarray's atomics.
                 let Some((vals, len)) = sub_vals_ptr(unsafe { &(*b).subarrays[sub] }) else {
@@ -4710,10 +4726,12 @@ pub(crate) fn set_contains_validated<F: Fn() -> bool>(
                 if !still_valid() {
                     return Err(Torn);
                 }
-                let bit = rem as u8;
-                // SAFETY: validated and pinned; a word-pair load.
-                let word = unsafe { word::load_u64(&raw const (*b).bitmap[(bit >> 6) as usize]) };
-                return seal(still_valid, word & (1u64 << (bit & 63)) != 0);
+                // SAFETY: validated and pinned; the key's bitmap word, one
+                // atomic load.
+                let (hp, bit) = bitmap_half(unsafe { (&raw const (*b).bitmap).cast() }, rem as u8);
+                // SAFETY: as above.
+                let half = unsafe { word::load(hp) };
+                return seal(still_valid, half & bit != 0);
             }
             Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
                 match branch_child_validated(a, &edge, digit_at(rem, kb), still_valid)? {
