@@ -391,12 +391,6 @@ To ensure consistent performance measurements unaffected by shared cloud runner 
 ### 1. Automated Execution via Self-Hosted GitHub Actions Runner
 For dedicated benchmark rigs residing on private LANs (without inbound WAN access), a self-hosted GitHub Actions runner daemon (`runs-on: [self-hosted, linux]`) connects to GitHub via outbound-only HTTPS polling.
 
-**Status.** Neither self-hosted host has been moved to the arrangement below
-yet. Both runners still run as a personal login account, and the bench
-workflows fall back to that account's home-directory toolchain with a warning.
-Until that changes, the exposure column of the threat model describes both
-hosts as they are. The migration is tracked in #1231.
-
 #### Threat model
 
 The runner is self-hosted and the repository is public. Whatever reaches the
@@ -700,10 +694,8 @@ ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/expanse-bench/job-started.sh
 
 `EXPANSE_TOOLCHAIN` is what the workflows test for. When it is set they add
 nothing to the environment, and `scripts/bench_host/runner_check.sh` turns any
-isolation finding into a refusal. When it is absent they fall back to the
-login account's home-directory toolchain, with a warning. The library and
-include variables reproduce the paths the home-directory toolchain exported,
-so builds see the same files at new locations.
+isolation finding into a refusal. When it is absent the runner is not running
+under the service account, and the run is refused before anything is built.
 
 `IPAddressDeny=` is enforced by systemd with a cgroup BPF filter, so it needs
 the unified cgroup hierarchy; check that a job can reach `github.com` and
