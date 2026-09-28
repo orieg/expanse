@@ -153,6 +153,21 @@ prepare_sysctl() {
   fi
 }
 
+# install_pinned <src> <dest> <mode> <sha256> <name>: <src> sits in a directory
+# the login account can write, so hashing it and then installing it reads it
+# twice and a swap in between installs bytes nobody checked. Copy once into a
+# root-owned file beside <dest>, hash that copy, and rename it into place.
+install_pinned() {
+  local src="$1" dest="$2" mode="$3" sum="$4" name="$5" tmp
+  tmp="$(mktemp "$dest.XXXXXX")"
+  install -o root -g root -m "$mode" "$src" "$tmp"
+  if ! echo "$sum  $tmp" | sha256sum -c - >/dev/null; then
+    rm -f "$tmp"
+    die "$src does not hash to the pinned $name; refusing to install it"
+  fi
+  mv -f "$tmp" "$dest"
+}
+
 prepare_toolchain() {
   install -d -o root -g root -m 0755 "$TC" "$TC/bin" "$TC/lib" "$TC/include" "$TC/src"
   export RUSTUP_HOME="$TC/rustup" CARGO_HOME="$TC/cargo"
@@ -196,9 +211,7 @@ prepare_toolchain() {
     local src="$LOGIN_HOME/.local/lib/$LIBJUDY_SONAME"
     if ! echo "$LIBJUDY_SHA256  $TC/lib/$LIBJUDY_SONAME" | sha256sum -c - >/dev/null 2>&1; then
       [ -f "$src" ] || die "no $src to copy stock libjudy from"
-      echo "$LIBJUDY_SHA256  $src" | sha256sum -c - \
-        || die "$src does not hash to the pinned LIBJUDY_SHA256; refusing to install it"
-      install -o root -g root -m 0755 "$src" "$TC/lib/$LIBJUDY_SONAME"
+      install_pinned "$src" "$TC/lib/$LIBJUDY_SONAME" 0755 "$LIBJUDY_SHA256" LIBJUDY_SHA256
       ln -sfn "$LIBJUDY_SONAME" "$TC/lib/libJudy.so.1"
       ln -sfn "$LIBJUDY_SONAME" "$TC/lib/libJudy.so"
     fi
@@ -207,9 +220,7 @@ prepare_toolchain() {
     local hdr="$LOGIN_HOME/.local/include/Judy.h"
     if [ -f "$hdr" ] && ! echo "$LIBJUDY_HEADER_SHA256  $TC/include/Judy.h" | sha256sum -c - >/dev/null 2>&1; then
       [ -n "${LIBJUDY_HEADER_SHA256:-}" ] || die "LIBJUDY_HEADER_SHA256 is not set in toolchain.env"
-      echo "$LIBJUDY_HEADER_SHA256  $hdr" | sha256sum -c - \
-        || die "$hdr does not hash to the pinned LIBJUDY_HEADER_SHA256; refusing to install it"
-      install -o root -g root -m 0644 "$hdr" "$TC/include/Judy.h"
+      install_pinned "$hdr" "$TC/include/Judy.h" 0644 "$LIBJUDY_HEADER_SHA256" LIBJUDY_HEADER_SHA256
     fi
   fi
   chown -R root:root "$TC"
