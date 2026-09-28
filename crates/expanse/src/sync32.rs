@@ -92,12 +92,15 @@
 //! sides (`trie32::word`), and the branch owner has no `DerefMut`, so the
 //! writer cannot form `&mut` to a published branch. The writer runs the
 //! shared instantiation of the engine's walks (`insert_shared`,
-//! `remove_shared`); the plain containers keep their plain stores. Linear
-//! leaves are copy-on-write in that instantiation: the writer never edits a
-//! published linear leaf, but builds the edited copy, publishes it through a
-//! fresh slot, rehandles the parent edge and retires the old node, so a
-//! reader's references into leaf bytes only ever point at memory no one
-//! writes. Bitmap leaves are edited in place (#1233): the bitmap is stored
+//! `remove_shared`); the plain containers keep their plain stores. Leaves
+//! are edited in place in that instantiation (#1233). A linear leaf is an
+//! alignment-4 allocation (`trie32::LeafBytes`): an insert or removal inside
+//! its capacity class shifts its values word by word and rewrites the whole
+//! words its packed keys cover, each as one atomic word store, a value
+//! overwrite is one atomic word store, and only a capacity-class crossing
+//! builds a new leaf and retires the old one. Readers reach a linear leaf
+//! through `trie32::LeafView`, atomic word loads bounded by the published
+//! length, never a reference. For bitmap leaves the bitmap is stored
 //! and loaded as `u32` word pairs, a map bitmap leaf's value subarrays are
 //! raw-owned (`trie32::SubVals`: atomic address and length words, no `Box`
 //! over a published subarray) and shift value by value through atomic word
@@ -997,8 +1000,8 @@ mod tests {
 
     /// An overwrite with the value already held opens no bracket and retires
     /// nothing, in a linear leaf and in a bitmap leaf. A changed value opens
-    /// a bracket in both; the linear leaf is copied and retired, and the
-    /// bitmap leaf's value is stored in place, retiring nothing.
+    /// a bracket in both, and is stored in place in both, retiring nothing
+    /// (#1233; the linear leaf was copied and retired before).
     #[test]
     fn identical_overwrite_opens_no_bracket() {
         let mut m = SyncExpanseMap32::with_capacity(4096, 1);
@@ -1027,7 +1030,11 @@ mod tests {
             assert_eq!(w.try_insert(k, k ^ 9), Ok(Some(k ^ 7)));
             assert_ne!(m_version(&r).try_sample(), Some(v0), "a bracket");
             if k == linear[2] {
-                assert!(w.pending_len() > parked, "the copy retired the leaf");
+                assert_eq!(
+                    w.pending_len(),
+                    parked,
+                    "the linear leaf's value stored in place"
+                );
             } else {
                 assert_eq!(w.pending_len(), parked, "stored in place");
             }
@@ -1035,6 +1042,55 @@ mod tests {
         }
         walk_counter(&w, 0).store(2, Ordering::Release);
         assert!(w.try_reclaim());
+    }
+
+    /// Key-set edits inside a linear leaf's capacity class are made in place
+    /// (#1233): with a reader parked, removals and insertions that keep the
+    /// leaf in its class retire nothing, and only the insert that crosses
+    /// into the next class retires the old leaf. The map and the set leaves
+    /// both start at 10 keys (class 12).
+    #[test]
+    fn linear_leaf_edits_inside_a_class_retire_nothing() {
+        let keys: Vec<u32> = (0..13u32).map(|i| 0x0100 + 3 * i).collect();
+        let mut m = SyncExpanseMap32::with_capacity(4096, 1);
+        let mut s = SyncExpanseSet32::with_capacity(4096, 1);
+        let (mut mw, _) = m.split();
+        let (mut sw, _) = s.split();
+        for &k in &keys[..10] {
+            mw.try_insert(k, !k).unwrap();
+            sw.try_insert(k).unwrap();
+        }
+        assert!(mw.try_reclaim() && sw.try_reclaim());
+        walk_counter(&mw, 0).store(1, Ordering::Relaxed);
+        walk_counter(&sw, 0).store(1, Ordering::Relaxed);
+        let (mp, sp) = (mw.pending_len(), sw.pending_len());
+        // 10 -> 9 -> 10 -> 12 keys: class 12 throughout.
+        assert_eq!(mw.try_remove(keys[3]), Ok(Some(!keys[3])));
+        assert_eq!(sw.try_remove(keys[3]), Ok(true));
+        for &k in [keys[3], keys[10], keys[11]].iter() {
+            assert_eq!(mw.try_insert(k, !k), Ok(None));
+            assert_eq!(sw.try_insert(k), Ok(true));
+        }
+        assert_eq!(mw.pending_len(), mp, "map leaf edited in place");
+        assert_eq!(sw.pending_len(), sp, "set leaf edited in place");
+        // 12 -> 13 keys crosses into class 16: the old leaf is retired.
+        assert_eq!(mw.try_insert(keys[12], !keys[12]), Ok(None));
+        assert_eq!(sw.try_insert(keys[12]), Ok(true));
+        assert!(
+            mw.pending_len() > mp,
+            "the class crossing retired the map leaf"
+        );
+        assert!(
+            sw.pending_len() > sp,
+            "the class crossing retired the set leaf"
+        );
+        for &k in &keys {
+            assert_eq!(mw.get(k), Some(!k));
+            assert!(sw.contains(k));
+        }
+        walk_counter(&mw, 0).store(2, Ordering::Release);
+        walk_counter(&sw, 0).store(2, Ordering::Release);
+        assert!(mw.try_reclaim() && sw.try_reclaim());
     }
 
     /// The mutations a stalled reader lets through before `ReclaimBacklog`,
@@ -1395,6 +1451,9 @@ mod miri_ub_sites {
                         if let Ok(Some(v)) = r.try_get(key(i)) {
                             assert!(v == i || v == i + 100);
                         }
+                        // The ordered read path loads the same leaves
+                        // (#1233): keys and values as words.
+                        let _ = r.try_next_after(key(i));
                     }
                 });
             });
