@@ -25,7 +25,9 @@ Expanse against each competitor (`annotate`).
 
 Each process is built before its window opens and runs inside one load window
 (`bench_windowed.run_bench_window`), stored on its rows (the census: on the
-artifact, `load`) and in `provenance.windows`; a closing snapshot
+artifact, `load`) and in `provenance.windows`. A `--quick` process is too short
+for a window of its own, so a `--quick` run takes one window over every
+pillar's processes (`run_quick`); a closing snapshot
 follows, and every artifact is re-stamped with the whole series. The written
 artifacts are then judged by `check_bench_provenance.findings_for`, and a
 finding fails the run (AGENTS.md section 8.17, #1214).
@@ -306,60 +308,74 @@ def run_process(bench_name: str, prov: dict, args: list[str], label: str):
     return parse_payload(bench_name, res.stdout), window
 
 
-def run_rounds_one_window(bench_name: str, prov: dict, args: list[str], rounds: int):
-    """Every round process of `bench_name` inside one load window.
-
-    For `--quick`: its populations make a round process shorter than
-    `bench_provenance.MIN_WINDOW_S`, which no window can attribute. The rounds
-    still run one process each; the window spans them all, and every row
-    carries it.
-    """
-    exe, pkg_dir = bench_windowed.build("expanse-trie", "bench", bench_name)
-    label = f"{bench_name}/rounds=0-{rounds - 1}"
-    start = begin_cell(prov, f"cell:{label}")
-    outs = []
-    for r in range(rounds):
-        res = subprocess.run(bench_windowed.harness_argv(exe, "bench", args + ["--round", str(r)]),
-                             cwd=pkg_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             text=True)
-        if res.returncode != 0:
-            print(f"Error running {bench_name} round {r}:", file=sys.stderr)
-            print(res.stderr, file=sys.stderr)
-            sys.exit(1)
-        outs.append(parse_payload(bench_name, res.stdout))
-    window = end_cell(start)
-    prov["load_windows"] = True
-    prov.setdefault("windows", []).append({"id": label, "load": window})
-    return [(o, window) for o in outs]
-
-
-def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: bool,
-              rounds: int):
-    print(f"==> Running benchmark: {bench_name} (quick={quick})...")
-    args = ["--quick"] if quick else []
-    args.append("--json")
+def write_artifact(bench_name: str, out_file: str, out_dir: Path, prov: dict, runs: list):
+    """Merges, annotates and writes one pillar's artifact from its `(payload, window)` runs."""
     if bench_name in TIMED:
-        if quick:
-            runs = run_rounds_one_window(bench_name, prov, args, rounds)
-        else:
-            runs = [run_process(bench_name, prov, args + ["--round", str(r)],
-                                f"{bench_name}/round={r}") for r in range(rounds)]
         art = stamp(annotate(bench_name, merge_rounds(bench_name, runs)), prov)
-        windows = list({id(w): w for _, w in runs}.values())
     else:
-        parsed, window = run_process(bench_name, prov, args, bench_name)
-        art = stamp(parsed, prov)
+        (payload, window), = runs
+        art = stamp(payload, prov)
         # The load window of the one process that produced this file.
         art["load"] = window
-        windows = [window]
-
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / out_file
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(art, f, indent=2)
+    windows = list({id(w): w for _, w in runs}.values())
     worst = max((w.get("foreign_busy_cpus") or 0.0) for w in windows)
     print(f"    Saved results to {out_path}  ({len(windows)} window(s), "
           f"max foreign busy CPU {worst})")
+
+
+def harness_args(bench_name: str, quick: bool, rnd: int) -> list[str]:
+    args = (["--quick"] if quick else []) + ["--json"]
+    return args + ["--round", str(rnd)] if bench_name in TIMED else args
+
+
+def run_full(out_dir: Path, prov: dict, rounds: int) -> None:
+    """Every pillar, one load window per harness process."""
+    for bench_name, out_file in BENCHES:
+        print(f"==> Running benchmark: {bench_name} ({rounds if bench_name in TIMED else 1} "
+              f"process(es))...")
+        n = rounds if bench_name in TIMED else 1
+        runs = [run_process(bench_name, prov, harness_args(bench_name, False, r),
+                            f"{bench_name}/round={r}" if bench_name in TIMED else bench_name)
+                for r in range(n)]
+        write_artifact(bench_name, out_file, out_dir, prov, runs)
+
+
+def run_quick(out_dir: Path, prov: dict, rounds: int) -> None:
+    """Every pillar's processes inside one load window.
+
+    A `--quick` process runs shorter than `bench_provenance.MIN_WINDOW_S`
+    (the tail-latency rounds and the memory census both do), and no window
+    can attribute that. The processes still run one per round; every harness
+    is built before the window opens, and the window spans them all.
+    """
+    built = {b: bench_windowed.build("expanse-trie", "bench", b) for b, _ in BENCHES}
+    label = "quick/all-pillars"
+    start = begin_cell(prov, f"cell:{label}")
+    outs = {}
+    for bench_name, _ in BENCHES:
+        exe, pkg_dir = built[bench_name]
+        n = rounds if bench_name in TIMED else 1
+        print(f"==> Running benchmark: {bench_name} ({n} process(es), quick)...")
+        outs[bench_name] = []
+        for r in range(n):
+            argv = bench_windowed.harness_argv(exe, "bench", harness_args(bench_name, True, r))
+            res = subprocess.run(argv, cwd=pkg_dir, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True)
+            if res.returncode != 0:
+                print(f"Error running {bench_name} round {r}:", file=sys.stderr)
+                print(res.stderr, file=sys.stderr)
+                sys.exit(1)
+            outs[bench_name].append(parse_payload(bench_name, res.stdout))
+    window = end_cell(start)
+    prov["load_windows"] = True
+    prov.setdefault("windows", []).append({"id": label, "load": window})
+    for bench_name, out_file in BENCHES:
+        write_artifact(bench_name, out_file, out_dir, prov,
+                       [(o, window) for o in outs[bench_name]])
 
 
 def judge_written(out_dir: Path) -> int:
@@ -420,14 +436,17 @@ def self_test() -> int:
     # Every harness's shape, merged, annotated and stamped as `run_bench`
     # does, passes the gate the committed artifacts are held to.
     assert set(TIMED) | {"hashbrown_memory_alloc"} == {b for b, _ in BENCHES}
-    for bench_name, out_file in BENCHES:
-        if bench_name in TIMED:
-            art = stamp(annotate(bench_name, merged(bench_name)), prov)
-        else:
-            art = stamp(_synthetic_process(bench_name, 0), prov)
-            art["load"] = window
-        got = bench_windowed.judge(SUITE, [(out_file, art)])
-        assert got == [], f"{bench_name}: the harness's shape must pass the gate: {got}"
+    import tempfile  # noqa: PLC0415 -- self-test only
+    with tempfile.TemporaryDirectory() as tmp:
+        for bench_name, out_file in BENCHES:
+            n = 3 if bench_name in TIMED else 1
+            write_artifact(bench_name, out_file, Path(tmp), prov,
+                           [(_synthetic_process(bench_name, rd), window) for rd in range(n)])
+            art = json.loads((Path(tmp) / out_file).read_text(encoding="utf-8"))
+            got = bench_windowed.judge(SUITE, [(out_file, art)])
+            assert got == [], f"{bench_name}: the harness's shape must pass the gate: {got}"
+        assert "load" in json.loads((Path(tmp) / "baseline_memory.json").read_text()), \
+            "the census carries its one window"
 
     # The merge: rows of every process, each with its window, and the
     # published figure recomputed as the mean over the rounds.
@@ -511,8 +530,10 @@ def main():
     }
     add_load(prov, "start")
 
-    for bench_name, out_file in BENCHES:
-        run_bench(bench_name, out_file, out_dir, prov, quick=quick, rounds=rounds)
+    if quick:
+        run_quick(out_dir, prov, rounds)
+    else:
+        run_full(out_dir, prov, rounds)
 
     # After the single-process pillars: the driver takes its own load snapshots
     # around each of its rounds and writes its own provenance block.
