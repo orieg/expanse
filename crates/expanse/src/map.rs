@@ -4367,6 +4367,52 @@ impl ExpanseMap {
         drop(core::mem::replace(self, compacted));
     }
 
+    /// Bulk-builds a map from an iterator of `(key, value)` entries, emitting
+    /// the trie bottom-up in one pass rather than inserting entry by entry.
+    ///
+    /// **Input order.** Any order is accepted: input that is not strictly
+    /// ascending by key is sorted (stably) before the build, so the result is
+    /// always correct. Only strictly ascending input skips that sort — for
+    /// example a stream read back from another map's [`Self::iter`], a sorted
+    /// file, or the output of a merge.
+    ///
+    /// **Duplicate keys: the last value wins**, exactly as with
+    /// [`Extend`]/[`FromIterator`], which insert in iteration order and let a
+    /// later insert replace an earlier value. An input holding a repeated key
+    /// is not strictly ascending, so it takes the sorting path.
+    ///
+    /// The result holds the same entries as `iter.into_iter().collect()` and
+    /// its [`Self::mem_used`] equals that map's, as after [`Self::compact`];
+    /// every later `insert`/`remove`/query composes with it unchanged.
+    ///
+    /// **Memory.** The input is first collected into a buffer of the entries
+    /// (16 bytes per entry), which is held while the new tree is built, so the
+    /// transient peak is about the buffer plus the new tree's
+    /// [`Self::mem_held`].
+    #[must_use]
+    pub fn from_sorted_iter<I: IntoIterator<Item = (Key, u64)>>(iter: I) -> Self {
+        let mut entries: Vec<(u64, u64)> = iter.into_iter().collect();
+        if !entries.windows(2).all(|w| w[0].0 < w[1].0) {
+            // A stable sort keeps equal keys in input order, so the last
+            // entry of each run of equal keys is the one the input gave last.
+            entries.sort_by_key(|e| e.0);
+            // `dedup_by` removes `later` and keeps `kept`; carrying the later
+            // value into the kept slot leaves the last value of each run.
+            entries.dedup_by(|later, kept| {
+                if later.0 == kept.0 {
+                    kept.1 = later.1;
+                    true
+                } else {
+                    false
+                }
+            });
+        }
+        // The new map is unshared (no collector), so the flat bottom-up build
+        // is the only walk it needs: like `compact`, construction has no
+        // `by_mode!` OCC twin because no reader can observe the tree yet.
+        Self::from_sorted_entries(&entries)
+    }
+
     /// Builds a map from entries sorted by key with distinct keys, choosing
     /// the root-leaf or trie form by population as the insert path would, and
     /// emitting the trie bottom-up (`algebra_build::build_map_subtree`).
@@ -4973,6 +5019,111 @@ mod tests {
             fresh.insert(k << 20, k);
         }
         assert_eq!(t.mem_used(), fresh.mem_used());
+    }
+
+    /// Checks `from_sorted_iter(input)` against `input.collect()` (insert
+    /// order, last value wins): same entries, validator clean, the same
+    /// `mem_used()` and live blocks per size class, and nothing freed while
+    /// building.
+    fn from_sorted_iter_check(input: &[(u64, u64)]) {
+        let collected: ExpanseMap = input.iter().copied().collect();
+        let built = ExpanseMap::from_sorted_iter(input.iter().copied());
+        built.validate();
+        assert_eq!(built.len(), collected.len());
+        assert!(built.iter().eq(collected.iter()), "contents vs collect");
+        assert_eq!(
+            built.mem_used(),
+            collected.mem_used(),
+            "mem_used vs collect"
+        );
+        assert_eq!(
+            live_by_class(&built.alloc.census()),
+            live_by_class(&collected.alloc.census()),
+            "per-class live blocks"
+        );
+        assert_eq!(
+            built.alloc.live_allocs(),
+            built.alloc.total_allocs(),
+            "no free during the build"
+        );
+    }
+
+    /// Every compact shape, given ascending (the fast path), descending, and
+    /// ascending followed by a second pass with new values (duplicates, so
+    /// the later values must win).
+    #[test]
+    fn from_sorted_iter_matches_collect() {
+        for keys in compact_shapes() {
+            let mut sorted: Vec<u64> = keys.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            let asc: Vec<(u64, u64)> = sorted.iter().map(|&k| (k, !k)).collect();
+            from_sorted_iter_check(&asc);
+            let desc: Vec<(u64, u64)> = asc.iter().rev().copied().collect();
+            from_sorted_iter_check(&desc);
+            let unsorted: Vec<(u64, u64)> = keys.iter().map(|&k| (k, k ^ 7)).collect();
+            from_sorted_iter_check(&unsorted);
+            let mut dup = asc.clone();
+            dup.extend(sorted.iter().map(|&k| (k, k.wrapping_mul(3))));
+            from_sorted_iter_check(&dup);
+            let built = ExpanseMap::from_sorted_iter(dup.iter().copied());
+            assert!(
+                built
+                    .iter()
+                    .eq(sorted.iter().map(|&k| (k, k.wrapping_mul(3)))),
+                "last value wins"
+            );
+        }
+    }
+
+    /// Empty input, one entry, and a root leaf's worth; then one entry past
+    /// the root-leaf boundary, which builds a trie.
+    #[test]
+    fn from_sorted_iter_small_and_empty() {
+        let empty = ExpanseMap::from_sorted_iter(core::iter::empty());
+        assert!(empty.is_empty());
+        assert_eq!(empty.mem_used(), 0);
+        assert_eq!(empty.mem_held(), 0);
+        let one = ExpanseMap::from_sorted_iter([(42, 7)]);
+        one.validate();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one.get(42), Some(7));
+        from_sorted_iter_check(&[(42, 7)]);
+        for n in [ROOT_LEAF_CAP, ROOT_LEAF_CAP + 1] {
+            let entries: Vec<(u64, u64)> = (0..n as u64).map(|k| (k << 20, k)).collect();
+            from_sorted_iter_check(&entries);
+        }
+    }
+
+    /// Every entry has the same key: one entry survives, carrying the last
+    /// value given.
+    #[test]
+    fn from_sorted_iter_all_duplicates_last_wins() {
+        let input: Vec<(u64, u64)> = (0..100u64).map(|v| (0xABCD, v)).collect();
+        let built = ExpanseMap::from_sorted_iter(input.iter().copied());
+        built.validate();
+        assert_eq!(built.len(), 1);
+        assert_eq!(built.get(0xABCD), Some(99));
+        from_sorted_iter_check(&input);
+    }
+
+    /// Ascending input with one adjacent equal pair is not strictly
+    /// ascending, so it must take the sorting path (the builder's
+    /// distinct-keys precondition is a `debug_assert!`, which this reaches
+    /// in debug builds if the check lets the pair through) and keep the
+    /// later value.
+    #[test]
+    fn from_sorted_iter_adjacent_equal_keys_leave_the_fast_path() {
+        for n in [4u64, ROOT_LEAF_CAP as u64 + 8, 600] {
+            let mut input: Vec<(u64, u64)> = (0..n).map(|k| (k * 5, k)).collect();
+            let mid = (n / 2) as usize;
+            input.insert(mid + 1, (input[mid].0, u64::MAX));
+            let built = ExpanseMap::from_sorted_iter(input.iter().copied());
+            built.validate();
+            assert_eq!(built.len(), n);
+            assert_eq!(built.get(input[mid].0), Some(u64::MAX), "n={n}");
+            from_sorted_iter_check(&input);
+        }
     }
 
     /// On a map whose allocator is deferred to a collector (a shared tree),

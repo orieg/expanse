@@ -675,6 +675,7 @@ pub fn expanse_trie::map::ExpanseMap::count_range(&self, core::ops::range::Range
 pub fn expanse_trie::map::ExpanseMap::cursor(&self) -> expanse_trie::cursor::MapCursor<'_>
 pub fn expanse_trie::map::ExpanseMap::cursor_from(&self, expanse_trie::types::Key) -> expanse_trie::cursor::MapCursor<'_>
 pub fn expanse_trie::map::ExpanseMap::first(&self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::map::ExpanseMap::from_sorted_iter<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types::Key, u64)>>(I) -> Self
 pub fn expanse_trie::map::ExpanseMap::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::get_batch(&self, &[expanse_trie::types::Key], &mut [core::option::Option<u64>])
 pub fn expanse_trie::map::ExpanseMap::get_batch_into(&self, &[expanse_trie::types::Key], &mut [u64], core::option::Option<&mut [bool]>) -> usize
@@ -778,6 +779,7 @@ pub fn expanse_trie::map32::ExpanseMap32::clear(&mut self)
 pub fn expanse_trie::map32::ExpanseMap32::contains_key(&self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::map32::ExpanseMap32::count_range(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::first(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+pub fn expanse_trie::map32::ExpanseMap32::from_sorted_iter<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types32::Key32, expanse_trie::types32::Value32)>>(I) -> Self
 pub fn expanse_trie::map32::ExpanseMap32::get(&self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Value32>
 pub fn expanse_trie::map32::ExpanseMap32::get_batch(&self, &[expanse_trie::types32::Key32], &mut [core::option::Option<expanse_trie::types32::Value32>])
 pub fn expanse_trie::map32::ExpanseMap32::insert(&mut self, expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> core::option::Option<expanse_trie::types32::Value32>
@@ -2934,6 +2936,7 @@ pub fn expanse_trie::map::ExpanseMap::count_range(&self, core::ops::range::Range
 pub fn expanse_trie::map::ExpanseMap::cursor(&self) -> expanse_trie::cursor::MapCursor<'_>
 pub fn expanse_trie::map::ExpanseMap::cursor_from(&self, expanse_trie::types::Key) -> expanse_trie::cursor::MapCursor<'_>
 pub fn expanse_trie::map::ExpanseMap::first(&self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::map::ExpanseMap::from_sorted_iter<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types::Key, u64)>>(I) -> Self
 pub fn expanse_trie::map::ExpanseMap::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::get_batch(&self, &[expanse_trie::types::Key], &mut [core::option::Option<u64>])
 pub fn expanse_trie::map::ExpanseMap::get_batch_into(&self, &[expanse_trie::types::Key], &mut [u64], core::option::Option<&mut [bool]>) -> usize
@@ -2988,6 +2991,7 @@ pub fn expanse_trie::map32::ExpanseMap32::clear(&mut self)
 pub fn expanse_trie::map32::ExpanseMap32::contains_key(&self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::map32::ExpanseMap32::count_range(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::first(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+pub fn expanse_trie::map32::ExpanseMap32::from_sorted_iter<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types32::Key32, expanse_trie::types32::Value32)>>(I) -> Self
 pub fn expanse_trie::map32::ExpanseMap32::get(&self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Value32>
 pub fn expanse_trie::map32::ExpanseMap32::get_batch(&self, &[expanse_trie::types32::Key32], &mut [core::option::Option<expanse_trie::types32::Value32>])
 pub fn expanse_trie::map32::ExpanseMap32::insert(&mut self, expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> core::option::Option<expanse_trie::types32::Value32>

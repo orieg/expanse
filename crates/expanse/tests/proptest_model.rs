@@ -427,6 +427,33 @@ proptest! {
         prop_assert!(shuffled.iter().eq(sorted.iter().copied()), "unsorted tolerated");
     }
 
+    /// `ExpanseMap::from_sorted_iter` equals `collect()` (key-by-key insert,
+    /// last value wins) in content and `mem_used()`, on unsorted input with
+    /// repeated keys and on its sorted, deduplicated form (the fast path).
+    #[test]
+    fn map_from_sorted_iter_matches_collect(
+        entries in prop::collection::vec((key_strategy(), any::<u64>()), 0..500),
+        repeats in 0usize..64,
+    ) {
+        let mut input = entries.clone();
+        // Repeat some keys with new values, after their first occurrence.
+        for (i, &(k, v)) in entries.iter().take(repeats).enumerate() {
+            input.push((k, v ^ (i as u64 + 1)));
+        }
+        let collected: ExpanseMap = input.iter().copied().collect();
+        let built = ExpanseMap::from_sorted_iter(input.iter().copied());
+        built.validate();
+        prop_assert_eq!(built.len(), collected.len());
+        prop_assert!(built.iter().eq(collected.iter()), "unsorted: contents vs collect");
+        prop_assert_eq!(built.mem_used(), collected.mem_used(), "unsorted: mem_used");
+
+        let sorted: Vec<(u64, u64)> = collected.iter().collect();
+        let fast = ExpanseMap::from_sorted_iter(sorted.iter().copied());
+        fast.validate();
+        prop_assert!(fast.iter().eq(sorted.iter().copied()), "sorted: contents");
+        prop_assert_eq!(fast.mem_used(), collected.mem_used(), "sorted: mem_used");
+    }
+
     /// The stateful `advance_to` cursor (issue #340) matches a `BTreeSet`
     /// reference across an arbitrary interleaving of `advance_to` / `next`
     /// against a generated target stream — including non-monotone targets,

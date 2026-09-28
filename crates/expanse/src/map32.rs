@@ -17,6 +17,8 @@ use core::default::Default;
 use core::fmt;
 use core::option::Option;
 
+use core_alloc::vec::Vec;
+
 use crate::trie32::{self, Arena};
 use crate::types32::{Edge32, Key32, Value32};
 
@@ -89,6 +91,48 @@ impl ExpanseMap32 {
     #[inline]
     pub fn insert(&mut self, key: Key32, value: Value32) -> Option<Value32> {
         self.insert_mode::<false>(key, value)
+    }
+
+    /// Builds a 32-bit map from an iterator of `(key, value)` entries.
+    ///
+    /// The same contract as the 64-bit
+    /// [`crate::map::ExpanseMap::from_sorted_iter`] (on 32-bit targets this
+    /// type *is* `ExpanseMap`):
+    ///
+    /// * **Any input order is accepted.** Input that is not strictly
+    ///   ascending by key is sorted (stably) first, so the result is always
+    ///   correct.
+    /// * **Duplicate keys: the last value wins**, as with repeated
+    ///   [`Self::insert`] calls in iteration order.
+    /// * **Memory.** The input is first collected into a buffer of the entries
+    ///   (8 bytes per entry), held while the tree is built.
+    ///
+    /// The 64-bit map emits its trie bottom-up in one pass; this twin loads
+    /// the sorted entries through the trie32 insert engine in ascending order,
+    /// because the 32-bit trie has no bottom-up builder (as with
+    /// [`crate::set32::ExpanseSet32::from_sorted_iter`]). The result is
+    /// exactly the tree those inserts build.
+    #[must_use]
+    pub fn from_sorted_iter<I: IntoIterator<Item = (Key32, Value32)>>(iter: I) -> Self {
+        let mut entries: Vec<(Key32, Value32)> = iter.into_iter().collect();
+        if !entries.windows(2).all(|w| w[0].0 < w[1].0) {
+            // Stable: equal keys stay in input order, so the last of each run
+            // is the value the input gave last.
+            entries.sort_by_key(|e| e.0);
+            entries.dedup_by(|later, kept| {
+                if later.0 == kept.0 {
+                    kept.1 = later.1;
+                    true
+                } else {
+                    false
+                }
+            });
+        }
+        let mut map = Self::new();
+        for (k, v) in entries {
+            map.insert(k, v);
+        }
+        map
     }
 
     /// [`Self::insert`] for the concurrent wrapper's tree (#1187): the walk
@@ -775,6 +819,84 @@ mod tests {
     use core::ops::Bound;
     #[cfg(feature = "std")]
     use std::collections::BTreeMap;
+
+    /// `from_sorted_iter(input)` against an insert loop over `input` (last
+    /// value wins): same entries, same `len`, same `mem_used()`.
+    fn from_sorted_iter_check32(input: &[(u32, u32)]) {
+        let mut inserted = ExpanseMap32::new();
+        for &(k, v) in input {
+            inserted.insert(k, v);
+        }
+        let built = ExpanseMap32::from_sorted_iter(input.iter().copied());
+        assert_eq!(built.len(), inserted.len());
+        assert!(built.iter().eq(inserted.iter()), "contents vs insert loop");
+        assert_eq!(
+            built.mem_used(),
+            inserted.mem_used(),
+            "mem_used vs insert loop"
+        );
+    }
+
+    #[test]
+    fn from_sorted_iter_matches_insert() {
+        let mut state = 0x1234_5678u32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        };
+        let sizes: &[usize] = if cfg!(miri) {
+            &[0, 1, 5, 40, 300]
+        } else {
+            &[0, 1, 5, 40, 300, 5000]
+        };
+        for &n in sizes {
+            let mut model = BTreeMap::new();
+            while model.len() < n {
+                let k = next() & 0x0003_FFFF;
+                model.insert(k, k ^ 0x5EED);
+            }
+            let asc: Vec<(u32, u32)> = model.iter().map(|(&k, &v)| (k, v)).collect();
+            let built = ExpanseMap32::from_sorted_iter(asc.iter().copied());
+            assert!(built.iter().eq(asc.iter().copied()), "sorted build n={n}");
+            from_sorted_iter_check32(&asc);
+            let desc: Vec<(u32, u32)> = asc.iter().rev().copied().collect();
+            from_sorted_iter_check32(&desc);
+            // Duplicates after their first occurrence: the later value wins.
+            let mut dup = asc.clone();
+            dup.extend(asc.iter().rev().map(|&(k, v)| (k, !v)));
+            let built = ExpanseMap32::from_sorted_iter(dup.iter().copied());
+            assert!(
+                built.iter().eq(asc.iter().map(|&(k, v)| (k, !v))),
+                "last value wins n={n}"
+            );
+            from_sorted_iter_check32(&dup);
+        }
+    }
+
+    #[test]
+    fn from_sorted_iter_edge_cases() {
+        let empty = ExpanseMap32::from_sorted_iter(core::iter::empty());
+        assert!(empty.is_empty());
+        assert_eq!(empty.mem_used(), 0);
+        let one = ExpanseMap32::from_sorted_iter([(42, 7)]);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one.get(42), Some(7));
+        // All duplicates: one entry, the last value.
+        let all: Vec<(u32, u32)> = (0..100u32).map(|v| (0xABCD, v)).collect();
+        let built = ExpanseMap32::from_sorted_iter(all.iter().copied());
+        assert_eq!(built.len(), 1);
+        assert_eq!(built.get(0xABCD), Some(99));
+        // Ascending with one adjacent equal pair: not strictly ascending, so
+        // it is sorted and deduplicated, keeping the later value.
+        let mut input: Vec<(u32, u32)> = (0..100u32).map(|k| (k * 5, k)).collect();
+        input.insert(51, (input[50].0, u32::MAX));
+        let built = ExpanseMap32::from_sorted_iter(input.iter().copied());
+        assert_eq!(built.len(), 100);
+        assert_eq!(built.get(250), Some(u32::MAX));
+        from_sorted_iter_check32(&input);
+    }
 
     #[test]
     fn basic_mutations() {
