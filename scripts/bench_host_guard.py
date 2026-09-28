@@ -921,7 +921,8 @@ def self_test() -> int:
         b.mono = 1.0
         r = assess(a, b, pin, root, frozenset(), run_cg, lambda pid: cgroup_path(t, pid))
         at = r["attribution"]
-        ce = lambda ticks: round(ticks / hz, 3)  # noqa: E731
+        def ce(ticks):
+            return round(ticks / hz, 3)
         assert at["classes"] == {"kernel": ce(2 * kw), "runner": ce(hz // 5), "user": ce(us), "sampler": 0.0}, at
         assert at["classes_on_pin"] == {"kernel": ce(kw), "runner": 0.0, "user": ce(us), "sampler": 0.0}, at
         assert at["kernel_kinds"] == {"ksoftirqd": ce(kw), "kworker": ce(kw)}, at

@@ -617,6 +617,17 @@ Bench targets deliberately **not** reachable from a slash command:
      the run's host-activity record with the report, and uploads both as
      `host-guard.json` and `host-activity.jsonl`. A runner outside the
      workflow records its load per cell through `bench_provenance` (rule 2).
+     - *The on-pin boundary is not yet set from measurement.* A controlled
+       experiment injected 0.10, 0.25 and 0.50 CPU on the pinned CPUs and
+       read the `concurrency` suite's cells
+       ([`concurrency/METHODOLOGY.md`](benchmarks/concurrency/METHODOLOGY.md)
+       §25). It was `INCONCLUSIVE`: the uninjected control drifted between
+       blocks by as much as the injected levels moved the cells, so under its
+       pre-registered rule `RUN_ON_PIN_VOID` stays 0.25 and
+       `START_ON_PIN_MAX` stays 0.1
+       ([`concurrency/README.md`](benchmarks/concurrency/README.md) §25,
+       `results/gate_host_guard_sensitivity.json`). The same run's negative
+       control, 1.00 CPU injected, was voided on every sample.
      - *The two operands are read together.* On-pin foreign load is the
        pinned CPUs' busy time less the run's own tree's CPU, so the guard
        reads the own tree immediately after `/proc/stat`. It first read it

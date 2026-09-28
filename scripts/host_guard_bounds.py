@@ -142,7 +142,8 @@ def table() -> list[str]:
 
 
 def self_test() -> int:
-    close = lambda a, b, tol=1e-9: abs(a - b) <= tol  # noqa: E731
+    def close(a, b, tol=1e-9):
+        return abs(a - b) <= tol
     # Fair share: a load that fits in idle CPUs costs nothing; on a full pin it
     # takes level / cpus.
     assert close(fair_share_loss(0.25, 16, 16), 0.015625)
