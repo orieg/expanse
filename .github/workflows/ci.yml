@@ -921,14 +921,17 @@ jobs:
         run: cargo test -p expanse-trie --features ablation-branchu-header-count
 
       # `layout-census` (Refs #1257) adds the diagnostic census walk; its
-      # tests pin that it sums to mem_used().
-      - name: Test the layout census
+      # tests pin that it sums to mem_used() on the default ladder. The
+      # diagnostic `ablation-leaf-class-10` ladder re-sizes every class-sized
+      # array, so the whole suite runs under it, with the census.
+      - name: Test the layout census and the class-10 ladder
         shell: bash
         run: |
           set -o pipefail
           cargo test -p expanse-trie --lib --features layout-census -- census:: 2>&1 | tee census-unit.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' census-unit.log \
             || { echo "::error::the census:: filter ran zero unit tests"; exit 1; }
+          cargo test -p expanse-trie --features layout-census,ablation-leaf-class-10
 
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'

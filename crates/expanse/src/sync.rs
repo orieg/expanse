@@ -12340,7 +12340,13 @@ mod miri_ub_sites {
     /// Keys a churn workload keeps in its root leaf: pops `CHURN_KEYS - 1`
     /// and `CHURN_KEYS` share one capacity class, so every removal and
     /// reinsertion shifts the leaf in place rather than reallocating it.
-    const CHURN_KEYS: u64 = 11;
+    /// The `ablation-leaf-class-10` ladder splits 10 from 11, so that arm
+    /// churns at 12, which shares a class with 11 under both ladders.
+    const CHURN_KEYS: u64 = if cfg!(feature = "ablation-leaf-class-10") {
+        12
+    } else {
+        11
+    };
     const _: () = assert!(
         crate::leaf::cap_class(CHURN_KEYS as usize - 1)
             == crate::leaf::cap_class(CHURN_KEYS as usize)

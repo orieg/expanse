@@ -622,6 +622,7 @@ fn validate_js_structure(js: &str, script_idx: usize) {
 // (AGENTS.md section 8.2).
 // =====================================================================
 
+#[cfg(not(feature = "ablation-leaf-class-10"))]
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::node::Edge;
 use expanse_trie::set::ExpanseSet;
@@ -718,6 +719,8 @@ fn budget_keys(dist: &str, n: usize) -> Vec<u64> {
     out
 }
 
+// Only the default-layout memory pins call it (see `ablation-leaf-class-10`).
+#[cfg(not(feature = "ablation-leaf-class-10"))]
 fn bytes_per_key(dist: &str, pop: usize) -> (f64, f64) {
     let ks = budget_keys(dist, pop);
     let mut set = ExpanseSet::new();
@@ -887,7 +890,12 @@ fn test_no_stamped_narrative_claims() {
 /// 62-bit at N equals 64-bit at 4N). Deterministic byte accounting, so the
 /// comparison is exact to the published two decimals, and a node-ladder
 /// change that moves the curve fails here before the chart republishes it.
+///
+/// Pins the default layout's published figures; the diagnostic
+/// `ablation-leaf-class-10` ladder moves them by design (#1257), so that arm
+/// compiles the pin out.
 #[test]
+#[cfg(not(feature = "ablation-leaf-class-10"))]
 fn test_density_sweep_matches_engine() {
     let assets: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(
@@ -1250,7 +1258,12 @@ fn test_stock_vs_expanse_derived_columns() {
 /// Every memory cell is recomputed from the engine. This is the gate that
 /// would have caught the "Random Uniform 1M = 16.31 B/key" row -- 16.31 is
 /// the *sparse* `i << 40` figure, not the random-uniform one.
+///
+/// Pins the default layout's published figures; the diagnostic
+/// `ablation-leaf-class-10` ladder moves them by design (#1257), so that arm
+/// compiles the pin out.
 #[test]
+#[cfg(not(feature = "ablation-leaf-class-10"))]
 fn test_memory_budget_matches_engine() {
     let data = load_json();
     let rows = data["memory_budget"]
@@ -1945,7 +1958,12 @@ fn published_docs() -> Vec<std::path::PathBuf> {
 /// allocation accounting via `NodeAlloc`, machine-independent"), different
 /// numbers, and no shared source to reconcile them. Every other row happened to
 /// agree, which is exactly why nobody noticed (#384).
+///
+/// Pins the default layout's published figures; the diagnostic
+/// `ablation-leaf-class-10` ladder moves them by design (#1257), so that arm
+/// compiles the pin out.
 #[test]
+#[cfg(not(feature = "ablation-leaf-class-10"))]
 fn test_benchmarking_md_density_table_matches_engine() {
     // (markdown row label, `bytes_per_key.rs` distribution name)
     const ROWS: &[(&str, &str)] = &[

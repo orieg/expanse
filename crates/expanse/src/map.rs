@@ -5273,7 +5273,12 @@ mod tests {
     /// cache is warm, which must not be served from it. `pending_pop` moves
     /// only on a warm insert, which pins the branch each `ins_slot` took.
     /// Sized for Miri, which checks the cache's raw dereferences.
+    ///
+    /// Pinned to the default capacity ladder (10, 11 and 12 keys share one
+    /// class); the diagnostic `ablation-leaf-class-10` ladder splits 10 from
+    /// 11, so the arm compiles the test out. Promoting that ladder re-pins it.
     #[test]
+    #[cfg(not(feature = "ablation-leaf-class-10"))]
     fn slot_calls_on_a_warm_insert_path() {
         fn slot_value(m: &mut ExpanseMap, key: u64) -> Option<u64> {
             // SAFETY: the slot is read before the next mutation of `m`.
