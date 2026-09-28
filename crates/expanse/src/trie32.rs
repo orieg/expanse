@@ -959,14 +959,6 @@ impl LeafBytes {
         Self { ptr, len }
     }
 
-    /// A leaf holding a copy of `src`.
-    #[inline]
-    fn copy_of(src: &[u8]) -> Self {
-        let mut b = Self::zeroed(src.len());
-        b.copy_from_slice(src);
-        b
-    }
-
     /// The owning pointer, with the allocation's base provenance.
     #[inline]
     fn as_ptr(&self) -> *mut u8 {
@@ -1218,19 +1210,95 @@ impl NodeRef {
         Ok(self.ptr.cast::<T>())
     }
 
-    /// The leaf bytes this slot names.
-    ///
-    /// # Safety
-    ///
-    /// The caller has validated the tree version since loading this slot, so
-    /// the slot names a live linear leaf, kept alive by the reader's pin.
+    /// The linear leaf this slot names, as a [`LeafView`]. Nothing is
+    /// dereferenced here: the caller validates the tree version before
+    /// reading through the view.
     #[inline]
-    unsafe fn as_leaf<'a>(self) -> Result<&'a [u8], Torn> {
+    fn leaf_view(self) -> Result<LeafView, Torn> {
         if self.kind != PubKind::Leaf as u32 {
             return Err(Torn);
         }
-        // SAFETY: per the contract; `len` is the published buffer's length.
-        Ok(unsafe { core::slice::from_raw_parts(self.ptr, self.len) })
+        Ok(LeafView {
+            p: self.ptr,
+            len: self.len,
+        })
+    }
+}
+
+/// A published linear leaf as a reader reaches it (#1233): its address and
+/// allocation length, never a reference, because the shared writer shifts
+/// its keys and values in place. Every read is an atomic word load of a
+/// word inside the allocation, at the address and width the writer stores
+/// ([`leaf_keys_insert_shared`] and siblings). A leaf whose length is not a
+/// whole number of words (a map leaf of capacity 2 at `kb` 1 or 3, derived
+/// in `leaf_backing_alignment_costs_no_bytes`) has a partial trailing word,
+/// which is read byte by byte: no key-set edit of such a leaf is in place,
+/// so no store ever reaches those bytes while it is published.
+///
+/// Callers validate the tree version after loading the slot and before the
+/// first read, and bound every content-derived index against `len`.
+#[derive(Clone, Copy)]
+struct LeafView {
+    p: *const u8,
+    len: usize,
+}
+
+impl LeafView {
+    /// Word `wi` of the allocation, in memory byte order.
+    #[inline(always)]
+    fn word(self, wi: usize) -> [u8; 4] {
+        let o = 4 * wi;
+        if o + 4 <= self.len {
+            // SAFETY: a whole 4-aligned word inside a live, pinned allocation
+            // (`LeafBytes` is 4-aligned); an atomic load.
+            return unsafe { word::load(self.p.add(o).cast::<u32>()) }.to_ne_bytes();
+        }
+        let mut b = [0u8; 4];
+        for (k, x) in b.iter_mut().enumerate() {
+            if o + k < self.len {
+                // SAFETY: a byte inside the allocation; see the type docs
+                // for why no store reaches it while the leaf is published.
+                *x = unsafe { self.p.add(o + k).read() };
+            }
+        }
+        b
+    }
+
+    /// The `kb`-byte key `i` of the key area starting at byte `off`. The
+    /// caller has checked `off + (i + 1) * kb <= len`.
+    #[inline(always)]
+    fn rem(self, off: usize, i: usize, kb: usize) -> u32 {
+        let start = off + i * kb;
+        let (w, sh) = (start / 4, start % 4);
+        let mut b = [0u8; 8];
+        b[..4].copy_from_slice(&self.word(w));
+        if sh + kb > 4 {
+            b[4..].copy_from_slice(&self.word(w + 1));
+        }
+        let mut r = [0u8; 4];
+        r[..kb].copy_from_slice(&b[sh..sh + kb]);
+        u32::from_le_bytes(r)
+    }
+
+    /// Value `i` of a map leaf. The caller has checked `4 * (i + 1) <= len`.
+    #[inline(always)]
+    fn val(self, i: usize) -> u32 {
+        u32::from_le_bytes(self.word(i))
+    }
+
+    /// First index in `0..pop` whose key is `>= needle` (`pop` when none is).
+    #[inline]
+    fn lower_bound(self, off: usize, pop: usize, kb: usize, needle: u32) -> usize {
+        let (mut lo, mut hi) = (0usize, pop);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if self.rem(off, mid, kb) < needle {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
 }
 
@@ -1784,6 +1852,14 @@ impl Arena {
             _ => unreachable!("expected leaf bytes"),
         }
     }
+    /// A published linear leaf's owning address, for the shared writer's
+    /// in-place edits (#1233): it never forms `&mut` to a leaf readers load.
+    fn leaf_ptr(&self, h: u32) -> *mut u8 {
+        match self.get(h) {
+            NodeBox::Leaf(b) => b.as_ptr(),
+            _ => unreachable!("expected leaf bytes"),
+        }
+    }
 }
 
 impl Default for Arena {
@@ -1810,13 +1886,6 @@ fn edge_pop(e: &Edge32) -> usize {
 #[inline]
 fn node_edge(handle: u32, tag: u8) -> Edge32 {
     Edge32::from_parts(handle, [0, 0, 0], tag)
-}
-
-/// `e` pointing at `handle` instead: the same tag and aux bytes (a leaf's
-/// population, say), for a copy-on-write replacement of the node (#1187).
-#[inline]
-fn rehandle(e: &Edge32, handle: u32) -> Edge32 {
-    Edge32::from_parts(handle, e.aux_raw(), e.raw_tag())
 }
 
 #[inline]
@@ -1940,12 +2009,17 @@ fn set_leaf_insert_at<const SHARED: bool>(
     let new_pop = pop + 1;
     let kbz = kb as usize;
     let h = edge_handle(e);
-    // A shared tree's published leaf is immutable (#1187): its writer
-    // always takes the copy, which the class-boundary path already is.
     if !SHARED && cap_class(new_pop) == cap_class(pop) {
         let buf = a.leaf_mut(h);
         buf.copy_within(pos * kbz..pop * kbz, (pos + 1) * kbz);
         write_rem(buf, pos, kbz, rem);
+        *e = leaf_edge(h, new_pop, t_set_leaf(kb));
+    } else if SHARED && cap_class(new_pop) == cap_class(pop) {
+        // In place through word stores (#1233); a class crossing below
+        // still copies.
+        // SAFETY: the leaf `h` names is a live set leaf of `kb * cap` bytes,
+        // and `pop < new_pop <= cap`.
+        unsafe { leaf_keys_insert_shared(a.leaf_ptr(h), 0, kbz, cap_class(pop), pos, pop, rem) };
         *e = leaf_edge(h, new_pop, t_set_leaf(kb));
     } else {
         let mut nb = alloc_zeroed_bytes(size_set32(kb, new_pop));
@@ -1986,6 +2060,11 @@ fn set_leaf_remove_span<const SHARED: bool>(
     if !SHARED && cap_class(new_pop) == cap_class(pop) {
         let buf = a.leaf_mut(h);
         buf.copy_within(i1 * kbz..pop * kbz, i0 * kbz);
+        *e = leaf_edge(h, new_pop, t_set_leaf(kb));
+    } else if SHARED && cap_class(new_pop) == cap_class(pop) {
+        // In place through word stores (#1233).
+        // SAFETY: a live set leaf of `kb * cap` bytes, `i0 < i1 <= pop`.
+        unsafe { leaf_keys_remove_shared(a.leaf_ptr(h), 0, kbz, cap_class(pop), i0, i1, pop) };
         *e = leaf_edge(h, new_pop, t_set_leaf(kb));
     } else {
         let mut nb = alloc_zeroed_bytes(size_set32(kb, new_pop));
@@ -2055,6 +2134,17 @@ fn map_leaf_insert_at<const SHARED: bool>(
         keys.copy_within(pos * kbz..pop * kbz, (pos + 1) * kbz);
         write_rem(keys, pos, kbz, rem);
         *e = leaf_edge(h, new_pop, t_map_leaf(kb));
+    } else if SHARED && cap_class(new_pop) == cap_class(pop) {
+        // In place through word stores (#1233): values, then keys.
+        let cap = cap_class(pop);
+        let lp = a.leaf_ptr(h);
+        // SAFETY: a live map leaf of `4 * cap + kb * cap` bytes, and
+        // `pos <= pop < cap`.
+        unsafe {
+            leaf_vals_insert_shared(lp, pos, pop, val);
+            leaf_keys_insert_shared(lp, 4 * cap, kbz, cap, pos, pop, rem);
+        }
+        *e = leaf_edge(h, new_pop, t_map_leaf(kb));
     } else {
         let old_off = 4 * cap_class(pop);
         let new_off = 4 * cap_class(new_pop);
@@ -2100,6 +2190,17 @@ fn map_leaf_remove_span<const SHARED: bool>(
         let keys = &mut buf[keys_off..];
         keys.copy_within(i1 * kbz..pop * kbz, i0 * kbz);
         *e = leaf_edge(h, new_pop, t_map_leaf(kb));
+    } else if SHARED && cap_class(new_pop) == cap_class(pop) {
+        // In place through word stores (#1233): values, then keys.
+        let cap = cap_class(pop);
+        let lp = a.leaf_ptr(h);
+        // SAFETY: a live map leaf of `4 * cap + kb * cap` bytes, and
+        // `i0 < i1 <= pop <= cap`.
+        unsafe {
+            leaf_vals_remove_shared(lp, i0, i1, pop);
+            leaf_keys_remove_shared(lp, 4 * cap, kbz, cap, i0, i1, pop);
+        }
+        *e = leaf_edge(h, new_pop, t_map_leaf(kb));
     } else {
         let old_off = 4 * cap_class(pop);
         let new_off = 4 * cap_class(new_pop);
@@ -2113,6 +2214,157 @@ fn map_leaf_remove_span<const SHARED: bool>(
         let nh = a.alloc(NodeBox::Leaf(nb));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
+    }
+}
+
+/// Largest key area a linear leaf holds, in bytes: `kb * cap_class(pop)`
+/// over every reachable class (a set leaf of `SET_LEAF_MAX_32` keys at
+/// `kb` 4; pinned by `leaf_key_area_fits_the_shared_edit_buffer`).
+const LEAF_KEYS_MAX: usize = 96;
+
+/// The words `w0..w1` of a published leaf at `p`, as atomic loads, into
+/// `buf` in memory order.
+///
+/// # Safety
+///
+/// `p` is a live leaf allocation, 4-aligned, holding the words `w0..w1`.
+#[inline(always)]
+unsafe fn leaf_load_words(p: *const u8, w0: usize, w1: usize, buf: &mut [u8]) {
+    for w in w0..w1 {
+        // SAFETY: per the contract.
+        let v = unsafe { word::load(p.add(4 * w).cast::<u32>()) };
+        buf[4 * (w - w0)..4 * (w - w0) + 4].copy_from_slice(&v.to_ne_bytes());
+    }
+}
+
+/// Stores `buf` (memory order) back to the words `w0..w1` of the leaf at
+/// `p`, each as one atomic word store: readers load these words while the
+/// leaf is published.
+///
+/// # Safety
+///
+/// As [`leaf_load_words`], and only the writer stores to the leaf.
+#[inline(always)]
+unsafe fn leaf_store_words(p: *mut u8, w0: usize, w1: usize, buf: &[u8]) {
+    for w in w0..w1 {
+        let mut b = [0u8; 4];
+        b.copy_from_slice(&buf[4 * (w - w0)..4 * (w - w0) + 4]);
+        // SAFETY: per the contract.
+        unsafe { word::store(p.add(4 * w).cast::<u32>(), u32::from_ne_bytes(b)) };
+    }
+}
+
+/// A shared tree's in-place key insert into a published linear leaf
+/// (#1233): the key area starting at byte `off` holds `pop` keys of `kb`
+/// bytes, and `rem` goes in at `pos`, shifting the keys after it right by
+/// one. The words the shift covers are loaded, edited in a local copy and
+/// stored back as whole atomic words. The leaf stays in its capacity class
+/// (`cap`, a multiple of 4), so the key area ends on a word boundary inside
+/// the allocation.
+///
+/// # Safety
+///
+/// `p` is the owning address of a live leaf of at least `off + cap * kb`
+/// bytes, `pos <= pop < cap`, and `off` and `cap` are multiples of 4.
+unsafe fn leaf_keys_insert_shared(
+    p: *mut u8,
+    off: usize,
+    kb: usize,
+    cap: usize,
+    pos: usize,
+    pop: usize,
+    rem: u32,
+) {
+    debug_assert!(off.is_multiple_of(4) && cap.is_multiple_of(4) && pos <= pop && pop < cap);
+    let (start, end) = (off + pos * kb, off + (pop + 1) * kb);
+    let (w0, w1) = (start / 4, end.div_ceil(4));
+    let base = 4 * w0;
+    let mut buf = [0u8; LEAF_KEYS_MAX + 4];
+    assert!(
+        4 * (w1 - w0) <= buf.len(),
+        "key area larger than LEAF_KEYS_MAX"
+    );
+    // SAFETY: `w1 * 4 <= off + cap * kb`, inside the allocation.
+    unsafe { leaf_load_words(p, w0, w1, &mut buf) };
+    buf.copy_within(start - base..off + pop * kb - base, start - base + kb);
+    buf[start - base..start - base + kb].copy_from_slice(&rem.to_le_bytes()[..kb]);
+    // SAFETY: as above.
+    unsafe { leaf_store_words(p, w0, w1, &buf) };
+}
+
+/// A shared tree's in-place removal of keys `i0..i1` from a published
+/// linear leaf's key area (#1233): the keys after them shift left, and the
+/// vacated bytes at the end of the area are reset to zero filler. As
+/// [`leaf_keys_insert_shared`], through whole atomic words.
+///
+/// # Safety
+///
+/// As [`leaf_keys_insert_shared`], with `i0 < i1 <= pop <= cap`.
+unsafe fn leaf_keys_remove_shared(
+    p: *mut u8,
+    off: usize,
+    kb: usize,
+    cap: usize,
+    i0: usize,
+    i1: usize,
+    pop: usize,
+) {
+    debug_assert!(
+        off.is_multiple_of(4) && cap.is_multiple_of(4) && i0 < i1 && i1 <= pop && pop <= cap
+    );
+    let (start, end) = (off + i0 * kb, off + pop * kb);
+    let (w0, w1) = (start / 4, end.div_ceil(4));
+    let base = 4 * w0;
+    let mut buf = [0u8; LEAF_KEYS_MAX + 4];
+    assert!(
+        4 * (w1 - w0) <= buf.len(),
+        "key area larger than LEAF_KEYS_MAX"
+    );
+    // SAFETY: `w1 * 4 <= off + cap * kb`, inside the allocation.
+    unsafe { leaf_load_words(p, w0, w1, &mut buf) };
+    let gap = (i1 - i0) * kb;
+    buf.copy_within(start - base + gap..end - base, start - base);
+    buf[end - base - gap..end - base].fill(0);
+    // SAFETY: as above.
+    unsafe { leaf_store_words(p, w0, w1, &buf) };
+}
+
+/// A shared tree's in-place value insert into a published map leaf
+/// (#1233): values are whole words at `4 * i`, so the tail shifts right
+/// value by value through atomic word stores and `val` is stored at `pos`.
+///
+/// # Safety
+///
+/// `p` is the owning address of a live map leaf whose value area holds at
+/// least `pop + 1` words, `pos <= pop`.
+unsafe fn leaf_vals_insert_shared(p: *mut u8, pos: usize, pop: usize, val: u32) {
+    let v = p.cast::<u32>();
+    // SAFETY: per the contract; atomic word accesses only.
+    unsafe {
+        for i in (pos..pop).rev() {
+            word::store(v.add(i + 1), word::load(v.add(i)));
+        }
+        word::store(v.add(pos), u32::from_ne_bytes(val.to_le_bytes()));
+    }
+}
+
+/// A shared tree's in-place removal of values `i0..i1` from a published map
+/// leaf (#1233): the tail shifts left value by value through atomic word
+/// stores. The vacated slots keep their old (initialised) values, as the
+/// plain engine's do.
+///
+/// # Safety
+///
+/// `p` is the owning address of a live map leaf whose value area holds at
+/// least `pop` words, `i0 < i1 <= pop`.
+unsafe fn leaf_vals_remove_shared(p: *mut u8, i0: usize, i1: usize, pop: usize) {
+    let v = p.cast::<u32>();
+    let gap = i1 - i0;
+    // SAFETY: per the contract; atomic word accesses only.
+    unsafe {
+        for i in i0..pop - gap {
+            word::store(v.add(i), word::load(v.add(i + gap)));
+        }
     }
 }
 
@@ -4150,13 +4402,12 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                 let mut vb = [0u8; 4];
                 vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
                 if SHARED {
-                    // Copy-on-write (#1187): the published leaf is immutable.
-                    let mut nb = LeafBytes::copy_of(buf);
-                    nb[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
-                    let oldh = edge_handle(e);
-                    let nh = a.alloc(NodeBox::Leaf(nb));
-                    a.free(oldh);
-                    *e = rehandle(e, nh);
+                    // One atomic word store in place (#1233): a value is a
+                    // whole, 4-aligned word of the `LeafBytes` allocation.
+                    let lp = a.leaf_ptr(edge_handle(e)).cast::<u32>();
+                    // SAFETY: `pos < pop <= cap`, a value word of the live
+                    // leaf; readers load it as one atomic word.
+                    unsafe { word::store(lp.add(pos), u32::from_ne_bytes(val.to_le_bytes())) };
                 } else {
                     // Value overwrite: a single in-place word store; the
                     // edge (handle, pop) is unchanged.
@@ -4594,9 +4845,9 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
                 let pop = edge_pop(&edge);
                 let cap = cap_class(pop);
                 let node = a.try_node(edge_handle(&edge))?;
-                // SAFETY: the reader is pinned, so the node the slot names stays
-                // allocated; every value read from it is validated before it is used.
-                let buf: &[u8] = unsafe { node.as_leaf() }?;
+                // The reader is pinned, so the leaf stays allocated; the view
+                // loads it as atomic words once the version is validated.
+                let v = node.leaf_view()?;
                 if !still_valid() {
                     return Err(Torn);
                 }
@@ -4604,19 +4855,15 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
                 let keys_off = 4usize.checked_mul(cap).ok_or(Torn)?;
                 let keys_len = pop.checked_mul(kbz).ok_or(Torn)?;
                 let keys_end = keys_off.checked_add(keys_len).ok_or(Torn)?;
-                if keys_end > buf.len() || pop > cap {
+                if keys_end > v.len || pop > cap {
                     return Err(Torn);
                 }
-                let keys = &buf[keys_off..];
-                let Some(pos) = leaf_lower_bound(keys, pop, kb, rem) else {
-                    return seal(still_valid, None);
-                };
-                if pos >= pop || read_rem(keys, pos, kbz) != rem {
+                let pos = v.lower_bound(keys_off, pop, kbz, rem);
+                if pos >= pop || v.rem(keys_off, pos, kbz) != rem {
                     return seal(still_valid, None);
                 }
-                let mut vb = [0u8; 4];
-                vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
-                return seal(still_valid, Some(u32::from_le_bytes(vb)));
+                // `pos < pop <= cap`: a value word below `keys_off`.
+                return seal(still_valid, Some(v.val(pos)));
             }
             Kind::MapBitmap => {
                 let node = a.try_node(edge_handle(&edge))?;
@@ -4701,19 +4948,18 @@ pub(crate) fn set_contains_validated<F: Fn() -> bool>(
             Kind::SetLeaf(_) => {
                 let pop = edge_pop(&edge);
                 let node = a.try_node(edge_handle(&edge))?;
-                // SAFETY: the reader is pinned, so the node the slot names stays
-                // allocated; every value read from it is validated before it is used.
-                let buf: &[u8] = unsafe { node.as_leaf() }?;
+                // The reader is pinned, so the leaf stays allocated; the view
+                // loads it as atomic words once the version is validated.
+                let v = node.leaf_view()?;
                 if !still_valid() {
                     return Err(Torn);
                 }
                 let kbz = kb as usize;
-                if pop.checked_mul(kbz).ok_or(Torn)? > buf.len() {
+                if pop.checked_mul(kbz).ok_or(Torn)? > v.len {
                     return Err(Torn);
                 }
-                let hit = leaf_lower_bound(buf, pop, kb, rem)
-                    .map(|pos| pos < pop && read_rem(buf, pos, kbz) == rem)
-                    .unwrap_or(false);
+                let pos = v.lower_bound(0, pop, kbz, rem);
+                let hit = pos < pop && v.rem(0, pos, kbz) == rem;
                 return seal(still_valid, hit);
             }
             Kind::Bitmap => {
@@ -4791,21 +5037,22 @@ pub(crate) fn map_seek_validated<F: Fn() -> bool>(
     seal(still_valid, found)
 }
 
-/// A map linear leaf's buffer, population and key-area offset, validated
-/// before any index into it, with every content-derived bound checked against
-/// the live allocation.
-fn seek_leaf<'a, F: Fn() -> bool>(
+/// A map linear leaf's view, population and key-area offset, validated
+/// before any read through it, with every content-derived bound checked
+/// against the live allocation: every key index below the population and
+/// every value index below it are inside the allocation.
+fn seek_leaf<F: Fn() -> bool>(
     a: PubTable,
     e: &Edge32,
     kb: u8,
     still_valid: &F,
-) -> Result<(&'a [u8], usize, usize), Torn> {
+) -> Result<(LeafView, usize, usize), Torn> {
     let pop = edge_pop(e);
     let cap = cap_class(pop);
     let node = a.try_node(edge_handle(e))?;
-    // SAFETY: the reader is pinned, so the node the slot names stays
-    // allocated; every value read from it is validated before it is used.
-    let buf: &[u8] = unsafe { node.as_leaf() }?;
+    // The reader is pinned, so the leaf stays allocated; the view loads it
+    // as atomic words once the version is validated.
+    let v = node.leaf_view()?;
     if !still_valid() {
         return Err(Torn);
     }
@@ -4814,10 +5061,10 @@ fn seek_leaf<'a, F: Fn() -> bool>(
     let keys_off = 4usize.checked_mul(cap).ok_or(Torn)?;
     let keys_len = pop.checked_mul(kb as usize).ok_or(Torn)?;
     let keys_end = keys_off.checked_add(keys_len).ok_or(Torn)?;
-    if keys_end > buf.len() || pop > cap {
+    if keys_end > v.len || pop > cap {
         return Err(Torn);
     }
-    Ok((buf, pop, keys_off))
+    Ok((v, pop, keys_off))
 }
 
 /// A map bitmap leaf and a copy of its bitmap, validated.
@@ -5034,14 +5281,11 @@ fn seek_first<F: Fn() -> bool>(
         Kind::Null => Ok(None),
         Kind::MapImmed { .. } => Ok(Some((map_immed_rem(e, kb), map_immed_val(e)))),
         Kind::MapLeaf(_) => {
-            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            let (v, pop, off) = seek_leaf(a, e, kb, still_valid)?;
             if pop == 0 {
                 return Ok(None);
             }
-            Ok(Some((
-                read_rem(&buf[off..], 0, kb as usize),
-                map_leaf_value(buf, 0),
-            )))
+            Ok(Some((v.rem(off, 0, kb as usize), v.val(0))))
         }
         Kind::MapBitmap => {
             let (b, bitmap) = seek_bitmap(a, e, still_valid)?;
@@ -5073,14 +5317,11 @@ fn seek_last<F: Fn() -> bool>(
         Kind::Null => Ok(None),
         Kind::MapImmed { .. } => Ok(Some((map_immed_rem(e, kb), map_immed_val(e)))),
         Kind::MapLeaf(_) => {
-            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            let (v, pop, off) = seek_leaf(a, e, kb, still_valid)?;
             if pop == 0 {
                 return Ok(None);
             }
-            Ok(Some((
-                read_rem(&buf[off..], pop - 1, kb as usize),
-                map_leaf_value(buf, pop - 1),
-            )))
+            Ok(Some((v.rem(off, pop - 1, kb as usize), v.val(pop - 1))))
         }
         Kind::MapBitmap => {
             let (b, bitmap) = seek_bitmap(a, e, still_valid)?;
@@ -5116,15 +5357,16 @@ fn seek_after<F: Fn() -> bool>(
             Ok((r > after).then(|| (r, map_immed_val(e))))
         }
         Kind::MapLeaf(_) => {
-            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
-            let keys = &buf[off..];
-            let Some(i) = leaf_index_after(keys, pop, kb, after) else {
+            let (v, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            // As `leaf_index_after`, on the view.
+            if after >= rem_mask(kb) {
                 return Ok(None);
-            };
-            Ok(Some((
-                read_rem(keys, i, kb as usize),
-                map_leaf_value(buf, i),
-            )))
+            }
+            let i = v.lower_bound(off, pop, kb as usize, after + 1);
+            if i >= pop {
+                return Ok(None);
+            }
+            Ok(Some((v.rem(off, i, kb as usize), v.val(i))))
         }
         Kind::MapBitmap => {
             if after >= 255 {
@@ -5170,16 +5412,12 @@ fn seek_before<F: Fn() -> bool>(
             Ok((r < before).then(|| (r, map_immed_val(e))))
         }
         Kind::MapLeaf(_) => {
-            let (buf, pop, off) = seek_leaf(a, e, kb, still_valid)?;
-            let keys = &buf[off..];
-            let i = leaf_lower_bound(keys, pop, kb, before).ok_or(Torn)?;
+            let (v, pop, off) = seek_leaf(a, e, kb, still_valid)?;
+            let i = v.lower_bound(off, pop, kb as usize, before);
             if i == 0 {
                 return Ok(None);
             }
-            Ok(Some((
-                read_rem(keys, i - 1, kb as usize),
-                map_leaf_value(buf, i - 1),
-            )))
+            Ok(Some((v.rem(off, i - 1, kb as usize), v.val(i - 1))))
         }
         Kind::MapBitmap => {
             if before == 0 {
@@ -6903,6 +7141,28 @@ mod tests {
         }
     }
 
+    /// The shared writer's in-place key edits (#1233) copy a key area into a
+    /// fixed `LEAF_KEYS_MAX`-byte buffer; every reachable class fits, and
+    /// every class the shared writer edits in place (a population change
+    /// inside one capacity class) has a capacity that is a multiple of 4, so
+    /// its key area ends on a word boundary.
+    #[test]
+    fn leaf_key_area_fits_the_shared_edit_buffer() {
+        let mut max = 0;
+        for (_, kb, pop) in reachable_leaf_classes() {
+            let cap = cap_class(pop);
+            max = max.max(kb as usize * cap);
+            let in_place = [pop.checked_sub(1), Some(pop + 1)]
+                .into_iter()
+                .flatten()
+                .any(|p| p > 0 && cap_class(p) == cap);
+            if in_place {
+                assert_eq!(cap % 4, 0, "kb {kb} pop {pop}: in-place class {cap}");
+            }
+        }
+        assert_eq!(max, LEAF_KEYS_MAX);
+    }
+
     /// The byte lengths trees actually hold match the derivation above: no
     /// live leaf has a partial trailing word outside the two classes it
     /// names, over dense, clustered and random sets and maps.
@@ -7366,19 +7626,17 @@ mod seek_tests {
         );
     }
 
-    /// What the final seal no longer has to catch here (#1187): the shared
-    /// writer copies a published leaf instead of shifting it, so a reader
-    /// that skips the seal still reads the leaf as it was, whole. Before
-    /// copy-on-write the same interleaving returned a key that was never
-    /// last (the tail had shifted under the reader); the test above still
-    /// pins that the seal reports the overlap.
+    /// The negative control, which makes the test above discriminating: the
+    /// shared writer shifts the published leaf in place (#1233), so a read
+    /// that skips the final seal returns a key that was never last.
     #[test]
-    fn ordered_read_without_its_final_seal_reads_the_leaf_it_started_on() {
-        let last = prefill_key(PREFILL - 1);
+    fn ordered_read_without_its_final_seal_returns_a_key_that_was_never_last() {
+        let second = prefill_key(PREFILL - 2);
         assert_eq!(
             leaf_shift_interleaving(true),
-            Ok(Some((last, !last))),
-            "the pre-insert last key, read whole from the copied-away leaf"
+            Ok(Some((second, !second))),
+            "{:#x} is the last key before and after the insert",
+            prefill_key(PREFILL - 1)
         );
     }
 }
