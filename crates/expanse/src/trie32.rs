@@ -692,8 +692,99 @@ pub enum NodeBox {
     U(RawShared<BranchU32>),
     Bitmap(Raw<LeafBitmap1_32>),
     MapBitmap(Raw<LeafBitmapL32Data>),
-    Leaf(Raw<[u8]>),
+    Leaf(LeafBytes),
 }
+
+/// A linear leaf's bytes (#1233): an allocation of exactly the leaf's byte
+/// length, aligned to 4, owned through its raw pointer. The alignment is
+/// what lets the shared writer and its readers reach a leaf's value slots,
+/// and every whole word of its key region, as the atomic words of [`word`];
+/// a `Box<[u8]>` guarantees alignment 1. The length is not rounded to a
+/// word, so the allocation, and [`Arena::bytes_in_use`], are the bytes a
+/// `Box<[u8]>` held (`leaf_backing_alignment_costs_no_bytes` derives this
+/// for every reachable leaf class).
+pub struct LeafBytes {
+    ptr: NonNull<u8>,
+    len: usize,
+}
+
+impl LeafBytes {
+    /// Alignment of every leaf allocation.
+    const ALIGN: usize = 4;
+
+    #[inline]
+    fn layout(len: usize) -> core_alloc::alloc::Layout {
+        // SAFETY: `ALIGN` is a power of two, and a leaf is at most a few
+        // hundred bytes, far below `isize::MAX` once rounded to it.
+        unsafe { core_alloc::alloc::Layout::from_size_align_unchecked(len, Self::ALIGN) }
+    }
+
+    /// A zeroed leaf of `len` bytes.
+    #[inline]
+    fn zeroed(len: usize) -> Self {
+        if len == 0 {
+            // A dangling, aligned, never-dereferenced base: an empty slice
+            // over it is valid, and `Drop` frees nothing.
+            // SAFETY: `ALIGN` is non-zero.
+            let ptr = unsafe { NonNull::new_unchecked(Self::ALIGN as *mut u8) };
+            return Self { ptr, len };
+        }
+        let layout = Self::layout(len);
+        // SAFETY: `layout` has a non-zero size.
+        let p = unsafe { core_alloc::alloc::alloc_zeroed(layout) };
+        let Some(ptr) = NonNull::new(p) else {
+            core_alloc::alloc::handle_alloc_error(layout)
+        };
+        Self { ptr, len }
+    }
+
+    /// A leaf holding a copy of `src`.
+    #[inline]
+    fn copy_of(src: &[u8]) -> Self {
+        let mut b = Self::zeroed(src.len());
+        b.copy_from_slice(src);
+        b
+    }
+
+    /// The owning pointer, with the allocation's base provenance.
+    #[inline]
+    fn as_ptr(&self) -> *mut u8 {
+        self.ptr.as_ptr()
+    }
+}
+
+impl core::ops::Deref for LeafBytes {
+    type Target = [u8];
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        // SAFETY: `len` initialised bytes this value owns (or an empty slice
+        // over an aligned dangling base); `&self` rules out a concurrent
+        // `&mut` from the owner.
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl core::ops::DerefMut for LeafBytes {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [u8] {
+        // SAFETY: as `deref`, with `&mut self` for exclusivity.
+        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl Drop for LeafBytes {
+    fn drop(&mut self) {
+        if self.len != 0 {
+            // SAFETY: allocated in `zeroed` with this layout, freed only here.
+            unsafe { core_alloc::alloc::dealloc(self.ptr.as_ptr(), Self::layout(self.len)) };
+        }
+    }
+}
+
+// SAFETY: `LeafBytes` owns its allocation exactly as `Box<[u8]>` does.
+unsafe impl Send for LeafBytes {}
+// SAFETY: see `Send`.
+unsafe impl Sync for LeafBytes {}
 
 /// A node allocation owned through the raw pointer `Box::into_raw` returned
 /// (#1187). A fixed arena publishes that pointer to the concurrent wrapper's
@@ -1599,7 +1690,7 @@ fn make_set_leaf(a: &mut Arena, kb: u8, keys: &[u32]) -> Edge32 {
     for (i, &k) in keys.iter().enumerate() {
         write_rem(&mut buf, i, kb as usize, k);
     }
-    let h = a.alloc(NodeBox::Leaf(Raw::new(buf)));
+    let h = a.alloc(NodeBox::Leaf(buf));
     leaf_edge(h, pop, t_set_leaf(kb))
 }
 
@@ -1642,7 +1733,7 @@ fn set_leaf_insert_at<const SHARED: bool>(
         nb[..pos * kbz].copy_from_slice(&old[..pos * kbz]);
         nb[(pos + 1) * kbz..new_pop * kbz].copy_from_slice(&old[pos * kbz..pop * kbz]);
         write_rem(&mut nb, pos, kbz, rem);
-        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
+        let nh = a.alloc(NodeBox::Leaf(nb));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
     }
@@ -1681,7 +1772,7 @@ fn set_leaf_remove_span<const SHARED: bool>(
         let old = a.leaf(h);
         nb[..i0 * kbz].copy_from_slice(&old[..i0 * kbz]);
         nb[i0 * kbz..new_pop * kbz].copy_from_slice(&old[i1 * kbz..pop * kbz]);
-        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
+        let nh = a.alloc(NodeBox::Leaf(nb));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
     }
@@ -1700,7 +1791,7 @@ fn make_map_leaf(a: &mut Arena, kb: u8, entries: &[(u32, u32)]) -> Edge32 {
         buf[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
         write_rem(&mut buf[keys_off..], i, kb as usize, k);
     }
-    let h = a.alloc(NodeBox::Leaf(Raw::new(buf)));
+    let h = a.alloc(NodeBox::Leaf(buf));
     leaf_edge(h, pop, t_map_leaf(kb))
 }
 
@@ -1756,7 +1847,7 @@ fn map_leaf_insert_at<const SHARED: bool>(
         nb[new_off + (pos + 1) * kbz..new_off + new_pop * kbz]
             .copy_from_slice(&old[old_off + pos * kbz..old_off + pop * kbz]);
         write_rem(&mut nb[new_off..], pos, kbz, rem);
-        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
+        let nh = a.alloc(NodeBox::Leaf(nb));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
     }
@@ -1799,18 +1890,18 @@ fn map_leaf_remove_span<const SHARED: bool>(
         nb[new_off..new_off + i0 * kbz].copy_from_slice(&old[old_off..old_off + i0 * kbz]);
         nb[new_off + i0 * kbz..new_off + new_pop * kbz]
             .copy_from_slice(&old[old_off + i1 * kbz..old_off + pop * kbz]);
-        let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
+        let nh = a.alloc(NodeBox::Leaf(nb));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
     }
 }
 
 #[inline]
-fn alloc_zeroed_bytes(n: usize) -> Box<[u8]> {
-    // `core_alloc::vec![0u8; n]` hits the `from_elem` zero specialization
-    // (`alloc_zeroed`), unlike resize-from-empty which pays a separate
-    // memset after the allocation — measurably so on the write path (#577).
-    core_alloc::vec![0u8; n].into_boxed_slice()
+fn alloc_zeroed_bytes(n: usize) -> LeafBytes {
+    // One `alloc_zeroed`, as `core_alloc::vec![0u8; n]` did through its
+    // `from_elem` zero specialization, rather than an allocation and a
+    // separate memset — measurably cheaper on the write path (#577).
+    LeafBytes::zeroed(n)
 }
 
 // ---------------------------------------------------------------------------
@@ -3856,10 +3947,10 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                 vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
                 if SHARED {
                     // Copy-on-write (#1187): the published leaf is immutable.
-                    let mut nb: Box<[u8]> = buf.into();
+                    let mut nb = LeafBytes::copy_of(buf);
                     nb[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
                     let oldh = edge_handle(e);
-                    let nh = a.alloc(NodeBox::Leaf(Raw::new(nb)));
+                    let nh = a.alloc(NodeBox::Leaf(nb));
                     a.free(oldh);
                     *e = rehandle(e, nh);
                 } else {
@@ -6547,6 +6638,148 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Every linear-leaf class a tree can hold: `(is_map, kb, pop)`. A set
+    /// leaf holds more keys than an immediate can (`set_immed_cap`); a map
+    /// leaf holds two or more (one is a map immediate) except at `kb = 4`,
+    /// which has no map immediate. Level 1 (`kb = 1`) converts to a bitmap
+    /// leaf above `*_BITMAP_ENTER`; deeper levels to a branch above
+    /// `*_LEAF_MAX`.
+    fn reachable_leaf_classes() -> Vec<(bool, u8, usize)> {
+        let mut v = Vec::new();
+        for kb in 1..=4u8 {
+            let set_max = if kb == 1 {
+                SET_BITMAP_ENTER
+            } else {
+                SET_LEAF_MAX
+            };
+            for pop in set_immed_cap(kb) + 1..=set_max {
+                v.push((false, kb, pop));
+            }
+            let map_min = if kb <= 3 { 2 } else { 1 };
+            let map_max = if kb == 1 {
+                MAP_BITMAP_ENTER
+            } else {
+                MAP_LEAF_MAX
+            };
+            for pop in map_min..=map_max {
+                v.push((true, kb, pop));
+            }
+        }
+        v
+    }
+
+    /// #1233 math-first (§8.14): the alignment-4 linear-leaf backing costs
+    /// no bytes. For every reachable leaf class the allocation is 4-aligned
+    /// and exactly the byte length `Box<[u8]>` held, which is what
+    /// `bytes_in_use` (and so `mem_used` and `bytes_per_key_32`) counts.
+    ///
+    /// It also pins what a word-granular key region has to handle. Rounding
+    /// each leaf up to whole words (a `Box<[u32]>` backing) would cost bytes
+    /// on exactly two classes, the map leaves of capacity 2 at `kb` 1 and 3
+    /// (10 → 12 and 14 → 16 bytes), so the backing keeps the exact length
+    /// instead. In those two classes every key-set edit crosses a capacity
+    /// class (an insert to 3 keys moves to class 4, a removal to 1 key
+    /// demotes to an immediate), so an in-place key shift never has to
+    /// store to a partial trailing word.
+    #[test]
+    fn leaf_backing_alignment_costs_no_bytes() {
+        let mut partial = Vec::new();
+        let mut rounding_cost = Vec::new();
+        for (is_map, kb, pop) in reachable_leaf_classes() {
+            let n = if is_map {
+                size_map32(kb, pop)
+            } else {
+                size_set32(kb, pop)
+            };
+            assert_eq!(LeafBytes::layout(n).align(), 4, "leaf layout not 4-aligned");
+            assert_eq!(LeafBytes::layout(n).size(), n, "leaf layout rounded");
+            let leaf = alloc_zeroed_bytes(n);
+            assert_eq!(leaf.as_ptr() as usize % 4, 0, "leaf not 4-aligned");
+            assert_eq!(leaf.len(), n);
+            assert_eq!(NodeBox::Leaf(leaf).heap_bytes(), n, "accounting moved");
+            // The value region (map) is `4 * cap` bytes at offset 0, and the
+            // key region starts right after it: both word-aligned.
+            if is_map {
+                assert_eq!((4 * cap_class(pop)) % 4, 0);
+            }
+            if n % 4 != 0 {
+                partial.push((is_map, kb, cap_class(pop)));
+                rounding_cost.push(n.next_multiple_of(4) - n);
+            }
+        }
+        partial.sort_unstable();
+        partial.dedup();
+        assert_eq!(partial, [(true, 1, 2), (true, 3, 2)]);
+        assert_eq!(rounding_cost, [2, 2]);
+        for (_, kb, cap) in partial {
+            // Class 2 holds only population 2 ...
+            assert_eq!(cap_class(2), cap);
+            assert!((1..=64).filter(|&p| cap_class(p) == cap).eq([2]));
+            // ... an insert leaves the class, and a removal demotes.
+            assert_ne!(cap_class(3), cap);
+            assert!(kb <= 3, "a 1-key map leaf at kb <= 3 is an immediate");
+        }
+    }
+
+    /// The byte lengths trees actually hold match the derivation above: no
+    /// live leaf has a partial trailing word outside the two classes it
+    /// names, over dense, clustered and random sets and maps.
+    #[test]
+    fn live_leaves_have_partial_words_only_in_the_derived_classes() {
+        use crate::map32::ExpanseMap32;
+        use crate::set32::ExpanseSet32;
+
+        let allowed = [size_map32(1, 2), size_map32(3, 2)];
+        let check = |a: &Arena| {
+            let (mut leaves, mut partial) = (0, 0);
+            for slot in a.slots.iter().flatten() {
+                if let NodeBox::Leaf(b) = slot {
+                    leaves += 1;
+                    partial += usize::from(b.len() % 4 != 0);
+                    assert_eq!(b.as_ptr() as usize % 4, 0);
+                    assert!(
+                        b.len() % 4 == 0 || allowed.contains(&b.len()),
+                        "leaf of {} bytes has a partial word",
+                        b.len()
+                    );
+                }
+            }
+            (leaves, partial)
+        };
+        let mut x = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x as u32
+        };
+        let (mut total, mut partial) = (0, 0);
+        for shape in 0..4u32 {
+            let mut m = ExpanseMap32::new();
+            let mut s = ExpanseSet32::new();
+            for i in 0..6_000u32 {
+                let k = match shape {
+                    0 => i,
+                    1 => i.wrapping_mul(0x0101_0101),
+                    2 => (i % 97) << 16 | (i % 5) << 8 | (i % 3),
+                    _ => next(),
+                };
+                m.insert(k, i);
+                s.insert(k);
+                if i % 3 == 0 {
+                    m.remove(k ^ 1);
+                    s.remove(k ^ 1);
+                }
+            }
+            for (l, p) in [check(m.arena()), check(s.arena())] {
+                total += l;
+                partial += p;
+            }
+        }
+        assert!(total > 0, "no linear leaf reached");
+        assert!(partial > 0, "no leaf of a partial-word class reached");
     }
 
     /// Every live bitmap subarray is allocated at exactly `cap_class` of
