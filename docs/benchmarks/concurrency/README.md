@@ -5124,3 +5124,85 @@ row.)
   default features: enabling `+rcpc` would raise their minimum CPU to
   Armv8.3-A for no resolved gain. `docs/HARDWARE.md` §2.8 records the build
   flag for source builds on RCpc-capable cores.
+
+## 24. A shared `BranchU` crossing its demotion floor — METHODOLOGY §24's evaluation (Refs #1208)
+
+Two runs of `writer_scaling --band-cells` at `fc204fe0`, on the reference host (12th Gen Intel Core i9-12900F), pinned `0,2,4,6,8,10,12,14`, one harness process per cell, 8 rounds of 8,192 owner cycles per cell. Artifacts: `results/branchu_band_writer_scaling.json` (https://github.com/orieg/expanse/actions/runs/36377449906) and `results/branchu_band_writer_scaling_run2.json` (https://github.com/orieg/expanse/actions/runs/36378127275). Neither run voided a cell. Every timed cell carries its load window, and the largest foreign busy CPU over any cell is 0.13 core-equivalents in run 1 and 0.14 in run 2. Two earlier runs at `3a1ef859` were voided by §24.4 as first written and are not read here; METHODOLOGY §24.8 records why, and these runs are evaluated under it (workload: concurrency_branchu_band_map_64bit).
+
+**The gate (§24.1) is met under §24.8.** The band excess per crossing is recorded, with a BCa 95% interval, for all 14 (build, W, R) cells in both non-void runs.
+
+**P24.1 holds.** At W = 1, R = 0, default build, the band/twin ratio is 1.683 [1.673, 1.695] in run 1 and 1.680 [1.669, 1.692] in run 2. Both lower bounds are above 1.0 *(measured: reference host, `fc204fe0`)*.
+
+### 24.1 The band excess per crossing, and the paired ratio
+
+Δ is the band cycle's excess over the twin cycle's owner time, charged to the cycle's two crossings (METHODOLOGY §24.2). It is the whole cycle's excess, not the cost of an exclusive section alone. The band cycle carries `S` owner operations each way, 33 by default and 2 under `ablation-one-digit-band`, so Δ and the ratio are not like-for-like between the two builds. Mean over 8 rounds, BCa 95% interval, ns per crossing *(measured: reference host, `fc204fe0`; workload: concurrency_branchu_band_map_64bit)*.
+
+| Cell | Δ run 1 (ns) | Δ run 2 (ns) | ratio run 1 | ratio run 2 |
+|---|---|---|---|---|
+| default W=1 R=0 | 1,229 [1,215, 1,247] | 1,224 [1,209, 1,244] | 1.683 [1.673, 1.695] | 1.680 [1.669, 1.692] |
+| default W=1 R=1 | 3,099 [2,481, 3,347] | 2,751 [2,067, 3,166] | 1.876 [1.655, 1.984] | 1.736 [1.493, 1.887] |
+| default W=2 R=0 | -7,030 [-35,509, 13,355] | -5,348 [-24,061, 11,584] | 1.263 [0.738, 1.753] | 1.098 [0.762, 1.555] |
+| default W=2 R=1 | 5,453 [-2,957, 21,461] | -585 [-11,731, 8,950] | 1.315 [0.966, 1.972] | 1.106 [0.855, 1.423] |
+| default W=4 R=0 | 6,315 [2,261, 13,910] | 4,754 [3,070, 7,210] | 1.154 [1.048, 1.409] | 1.093 [1.059, 1.144] |
+| default W=4 R=1 | 7,171 [1,390, 12,645] | 7,390 [2,200, 12,089] | 1.159 [1.045, 1.299] | 1.166 [1.060, 1.301] |
+| default W=8 R=0 † | 6,721 [4,804, 9,917] | 8,916 [6,624, 11,245] | 1.100 [1.070, 1.149] | 1.137 [1.100, 1.174] |
+| ablation-one-digit-band W=1 R=0 | 959 [954, 963] | 959 [952, 966] | 8.475 [8.312, 8.636] | 8.377 [8.130, 8.639] |
+| ablation-one-digit-band W=1 R=1 | 1,262 [1,232, 1,294] | 1,207 [1,195, 1,230] | 6.021 [5.832, 6.260] | 5.722 [5.654, 5.869] |
+| ablation-one-digit-band W=2 R=0 | -5,597 [-6,054, -5,156] | -5,592 [-6,002, -5,251] | 0.254 [0.231, 0.285] | 0.245 [0.228, 0.266] |
+| ablation-one-digit-band W=2 R=1 | -2,613 [-3,309, -2,268] | -2,431 [-3,048, -1,532] | 0.627 [0.584, 0.666] | 0.649 [0.578, 0.764] |
+| ablation-one-digit-band W=4 R=0 † | -74 [-585, 291] | -147 [-264, -73] | 1.009 [0.904, 1.104] | 0.960 [0.932, 0.981] |
+| ablation-one-digit-band W=4 R=1 | 141 [-12, 444] | 154 [-14, 319] | 1.041 [0.998, 1.124] | 1.046 [1.002, 1.096] |
+| ablation-one-digit-band W=8 R=0 | 1,153 [1,042, 1,321] | 1,136 [900, 1,309] | 1.257 [1.230, 1.303] | 1.254 [1.203, 1.294] |
+
+† `crossings_unattributed` in both runs: the branch-split counters and the contention fallbacks together account for less than 95% of the owner-counted crossings (METHODOLOGY §24.8). The owner count is still exact, so Δ is reported. The shortfall is unexplained here.
+
+What both runs show in the same direction with non-overlapping intervals (`docs/BENCHMARKING.md` rule 18):
+
+- At W = 1, R = 0, the band cycle costs more than its twin in both builds, with ratio lower bounds far above 1.0.
+- At W = 4 (with and without a reader) and at W = 8, the default build's band cycle is slower than its twin in both runs.
+- Under `ablation-one-digit-band`, W = 2, the band cycle is **faster** than its twin in both runs, with R = 0 and with R = 1: ratio intervals below 1.0 and negative Δ. §24 did not predict this. The twin under that build cycles 2 digits between 194 and 196, and the band 2 digits across the floor, so both cycles are short and the cells differ in which fallbacks their other writer meets. The cause is unmeasured.
+- The default build at W = 2 has Δ intervals spanning zero in both runs. No difference is claimed there.
+
+### 24.2 Reader throughput in the cells with a reader
+
+Reader Mops/s, mean over 8 rounds, BCa 95% interval *(measured: reference host, `fc204fe0`; workload: concurrency_branchu_band_map_64bit)*.
+
+| Build | Duty | W | Run 1 | Run 2 |
+|---|---|---|---|---|
+| ablation-one-digit-band | 0 | 1 | 32.79 [30.99, 34.55] | 33.65 [32.44, 34.51] |
+| ablation-one-digit-band | 0 | 2 | 11.72 [11.16, 12.21] | 11.74 [11.04, 12.73] |
+| ablation-one-digit-band | 0 | 4 | 16.52 [16.08, 16.90] | 17.55 [16.62, 18.72] |
+| ablation-one-digit-band | 1 | 1 | 6.62 [6.47, 6.76] | 6.03 [5.60, 6.38] |
+| ablation-one-digit-band | 1 | 2 | 8.30 [8.06, 8.48] | 8.09 [7.72, 8.36] |
+| ablation-one-digit-band | 1 | 4 | 9.79 [9.49, 10.17] | 10.79 [9.87, 12.24] |
+| default | 0 | 1 | 27.69 [25.85, 28.90] | 27.35 [24.08, 29.51] |
+| default | 0 | 2 | 9.45 [8.87, 10.72] | 8.27 [7.75, 8.90] |
+| default | 0 | 4 | 13.50 [12.97, 13.91] | 13.59 [12.58, 14.06] |
+| default | 1 | 1 | 17.04 [16.80, 17.35] | 15.45 [14.59, 16.14] |
+| default | 1 | 2 | 11.05 [10.50, 11.67] | 11.07 [10.43, 11.51] |
+| default | 1 | 4 | 15.23 [14.41, 15.71] | 15.29 [14.43, 15.80] |
+
+### 24.3 Counters per crossing (duty 1)
+
+From the `occ-stats` counters pass, same schedule: `gate_wait_cycles` and `quiesce_drain_cycles` per owner-counted crossing, and the share of crossings attributed to a branch-split or contention fallback, as run 1 / run 2. These are cycle-counter totals from one pass, with no interval (AGENTS.md §8.20.1). They say where the band cycle waits, not what Δ costs.
+
+| Cell | Gate wait (cycles/crossing) | Drain (cycles/crossing) | Attributed share |
+|---|---|---|---|
+| ablation-one-digit-band W=1 R=0 | 0 / 0 | 25 / 25 | 1.000 / 1.000 |
+| ablation-one-digit-band W=1 R=1 | 0 / 0 | 25 / 25 | 1.000 / 1.000 |
+| ablation-one-digit-band W=2 R=0 | 2,733 / 2,737 | 380 / 394 | 0.957 / 0.954 |
+| ablation-one-digit-band W=2 R=1 | 3,194 / 3,175 | 366 / 324 | 1.000 / 1.000 |
+| ablation-one-digit-band W=4 R=0 | 6,913 / 7,055 | 1,366 / 1,310 | 0.918 / 0.922 |
+| ablation-one-digit-band W=4 R=1 | 5,192 / 5,245 | 1,328 / 1,406 | 0.996 / 0.995 |
+| ablation-one-digit-band W=8 R=0 | 8,910 / 9,041 | 2,185 / 2,205 | 0.960 / 0.963 |
+| default W=1 R=0 | 0 / 0 | 25 / 25 | 1.000 / 1.000 |
+| default W=1 R=1 | 1 / 2 | 28 / 25 | 1.000 / 1.000 |
+| default W=2 R=0 | 3,056 / 4,228 | 517 / 1,062 | 1.000 / 1.000 |
+| default W=2 R=1 | 2,514 / 2,328 | 1,090 / 1,185 | 1.000 / 1.000 |
+| default W=4 R=0 | 51,975 / 50,538 | 30,394 / 30,313 | 0.978 / 0.982 |
+| default W=4 R=1 | 48,103 / 48,878 | 28,720 / 29,291 | 0.990 / 0.990 |
+| default W=8 R=0 | 137,481 / 136,954 | 54,773 / 55,513 | 0.906 / 0.904 |
+
+### 24.4 Reading it for the band width
+
+The 32-digit default band keeps each W = 1 crossing at about 1,230 ns of band-cycle excess on this host, and does not make the band cycle slower than its twin at W = 2. At W ≥ 4 the band cycle is slower in both runs, and at W = 8 about a tenth of the crossings are not attributed to a named fallback. Whether the band should widen further is a density decision (#1208), and these cells are one of its inputs. The cells do not measure memory.
