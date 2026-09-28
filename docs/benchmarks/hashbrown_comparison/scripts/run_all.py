@@ -135,25 +135,19 @@ def self_test() -> int:
     prov["load_windows"] = True
     prov["windows"] = [{"id": "hashbrown_tail_latency", "load": window}]
     prov["loads"].append({"label": "end", "busy_cpus_since_prev": 1.0})
-    failures = []
     # A bare-array payload is wrapped, and the window rides on the wrapper.
     art = stamp([{"arm": "expanse", "rounds_raw": [{"round": 0, "ns": 1.0}]}], prov, window)
     got = bench_windowed.judge(SUITE, [("baseline_tail_latency.json", art)])
-    if got:
-        failures.append(f"a stamped artifact with rounds must pass the gate: {got}")
-    if art.get("load") != window or "cells" not in art:
-        failures.append("the window must be stored on the artifact it timed")
+    assert got == [], f"a stamped artifact with rounds must pass the gate: {got}"
+    assert art.get("load") == window and "cells" in art, \
+        "the window must be stored on the artifact it timed"
     # A payload without rounds is what the harnesses emit today: the gate
     # names it rather than the runner writing it quietly.
     got = bench_windowed.judge(SUITE, [("baseline_tail_latency.json",
                                         stamp([{"arm": "expanse", "p99_ns": 1.0}], prov, window))])
-    if not any("rounds_raw" in g for g in got):
-        failures.append(f"a payload with no rounds must be a finding: {got}")
-    for f in failures:
-        print(f"  FAIL {f}")
-    print(f"hashbrown_comparison run_all.py --self-test: "
-          f"{'all checks passed' if not failures else f'{len(failures)} failure(s)'}")
-    return 1 if failures else 0
+    assert any("rounds_raw" in g for g in got), f"a payload with no rounds must be a finding: {got}"
+    print("hashbrown_comparison run_all.py --self-test: all checks passed")
+    return 0
 
 def main():
     if "--self-test" in sys.argv:

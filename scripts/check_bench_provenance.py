@@ -508,14 +508,12 @@ def rel_path(path: Path, bench: Path | None = None, results: Path | None = None)
     directory can produce. A path under neither raises rather than being
     given a name that matches nothing.
     """
-    try:
-        return path.relative_to(bench or BENCH).as_posix()
-    except ValueError:
-        pass
-    try:
-        return ROOT_PREFIX + path.relative_to(results or RESULTS).as_posix()
-    except ValueError:
-        raise ValueError(f"{path} is under neither docs/benchmarks/ nor results/") from None
+    bench, results = bench or BENCH, results or RESULTS
+    if path.is_relative_to(bench):
+        return path.relative_to(bench).as_posix()
+    if path.is_relative_to(results):
+        return ROOT_PREFIX + path.relative_to(results).as_posix()
+    raise ValueError(f"{path} is under neither docs/benchmarks/ nor results/")
 
 
 def artifact_path(rel: str) -> Path:

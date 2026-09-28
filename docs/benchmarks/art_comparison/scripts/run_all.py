@@ -155,22 +155,16 @@ def self_test() -> int:
     payload = {"results": [{"population": 10000,
                             "rounds_raw": [{"round": 0, "expanse_ns": 1.0, "art_ns": 1.2}]}]}
     art = stamp(copy.deepcopy(payload), {"host": "x"}, prov, window)
-    failures = []
     got = bench_windowed.judge(SUITE, [("baseline_lookup_hit.json", art)])
-    if got:
-        failures.append(f"a stamped artifact must pass the gate: {got}")
-    if art.get("load") != window:
-        failures.append("the window must be stored on the artifact it timed")
+    assert got == [], f"a stamped artifact must pass the gate: {got}"
+    assert art.get("load") == window, "the window must be stored on the artifact it timed"
     unattributed = copy.deepcopy(art)
     unattributed["provenance"]["windows"][0]["load"]["foreign_busy_cpus"] = None
-    if not any("could not attribute" in f or "load windows" in f
-               for f in bench_windowed.judge(SUITE, [("baseline_lookup_hit.json", unattributed)])):
-        failures.append("a window that could not attribute must be a finding")
-    for f in failures:
-        print(f"  FAIL {f}")
-    print(f"art_comparison run_all.py --self-test: "
-          f"{'all checks passed' if not failures else f'{len(failures)} failure(s)'}")
-    return 1 if failures else 0
+    got = bench_windowed.judge(SUITE, [("baseline_lookup_hit.json", unattributed)])
+    assert any("load windows" in f for f in got), \
+        f"a window that could not attribute must be a finding: {got}"
+    print("art_comparison run_all.py --self-test: all checks passed")
+    return 0
 
 
 def main() -> None:
