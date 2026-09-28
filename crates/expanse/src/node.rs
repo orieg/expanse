@@ -862,10 +862,13 @@ impl BranchU {
     #[inline(always)]
     pub(crate) unsafe fn child_count<const OCC: bool>(b: *mut BranchU) -> u32 {
         // The shared descents seed their ancestor arrays with null frames
-        // and pass only the frames they wrote; stated here so the claim is
-        // checked rather than assumed. The feature-only accessor is the one
-        // place it costs anything.
-        assert!(!b.is_null(), "BranchU::child_count on a null node");
+        // and pass only the frames they wrote. A null node here is a caller
+        // bug: debug builds panic on it, and release builds read no memory.
+        // Feature-only, so the default build pays nothing for the test.
+        debug_assert!(!b.is_null(), "BranchU::child_count on a null node");
+        if b.is_null() {
+            return 0;
+        }
         // SAFETY: caller contract; the field is 4-byte aligned in the node.
         unsafe { crate::bits::shared_word::load_u32::<OCC>(&raw mut (*b).child_count) }
     }
@@ -879,7 +882,10 @@ impl BranchU {
     #[cfg(feature = "ablation-branchu-header-count")]
     #[inline(always)]
     pub(crate) unsafe fn set_child_count<const OCC: bool>(b: *mut BranchU, n: u32) {
-        assert!(!b.is_null(), "BranchU::set_child_count on a null node");
+        debug_assert!(!b.is_null(), "BranchU::set_child_count on a null node");
+        if b.is_null() {
+            return;
+        }
         // SAFETY: caller contract.
         unsafe { crate::bits::shared_word::store_u32::<OCC>(&raw mut (*b).child_count, n) }
     }
