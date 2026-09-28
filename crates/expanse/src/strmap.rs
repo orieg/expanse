@@ -1120,6 +1120,48 @@ impl StrNode {
         }
         bytes
     }
+
+    /// Adds every node's sub-map, shell and suffix leaves under `self` to
+    /// `c` (feature `layout-census`). Iterative for the reason
+    /// [`Self::shell_bytes`] is.
+    #[cfg(feature = "layout-census")]
+    fn layout_census_into(
+        &self,
+        c: &mut crate::census::LayoutCensus,
+        rule: Option<crate::census::MergeRule>,
+    ) {
+        let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(self)];
+        while let Some(p) = stack.pop() {
+            // SAFETY: `self` plus continuation values, all live nodes.
+            let node = unsafe { &*p };
+            c.str_nodes += 1;
+            c.str_node_shell_bytes += size_of::<Self>();
+            c.bytes += size_of::<Self>();
+            // The sub-map's entries are chunks, not keys: the walk counts
+            // them, and the string map's key count is set by the caller.
+            node.map.layout_census_into(c, rule);
+            for (k, v) in node.map.iter() {
+                if !is_terminal(k) {
+                    if is_suffix_ptr(v) {
+                        // SAFETY: tagged pointer encodes a live suffix leaf.
+                        let len = unsafe { (*unpack_suffix(v)).len };
+                        *c.suffix_leaves.entry(len).or_insert(0) += 1;
+                        #[cfg(feature = "packed-suffix")]
+                        let b = crate::alloc::accounted_size(
+                            packed_suffix_bytes(suffix_layout(len)),
+                            crate::types::RAW_ALIGN,
+                        );
+                        #[cfg(not(feature = "packed-suffix"))]
+                        let b = suffix_layout(len).size();
+                        c.suffix_bytes += b;
+                        c.bytes += b;
+                    } else {
+                        stack.push(unpack_child(v));
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// One level of a [`StrCursor`]'s path: the node, the chunk the cursor sits
@@ -1710,6 +1752,27 @@ impl ExpanseStrMap {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+    }
+
+    /// Decomposes [`Self::mem_used`] into node shells, suffix leaves and the
+    /// allocation shapes of every node's word map, whose entries are 8-byte
+    /// chunks: `keys` counts the map's strings, and every other count is per
+    /// chunk entry. Given a rule, also the word-map branches a
+    /// low-cardinality leaf form would absorb. A diagnostic for layout
+    /// studies (feature `layout-census`, Refs #1257, #1255); not a stability
+    /// surface.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        let mut c = crate::census::LayoutCensus::default();
+        if let Some(r) = self.root.as_deref() {
+            r.layout_census_into(&mut c, rule);
+        }
+        c.keys = self.pop;
+        c
     }
 
     /// Heap bytes the map holds from the system allocator: [`Self::mem_used`]

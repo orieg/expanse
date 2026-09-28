@@ -3592,6 +3592,22 @@ impl MapCore {
         }
         stats
     }
+
+    /// Adds this sub-map's allocation shapes to `c` (feature `layout-census`).
+    #[cfg(feature = "layout-census")]
+    pub(crate) fn layout_census_into(
+        &self,
+        c: &mut crate::census::LayoutCensus,
+        rule: Option<crate::census::MergeRule>,
+    ) {
+        match &self.root {
+            Root::Empty => {}
+            Root::Leaf { pop, .. } => crate::census::root_leaf(c, *pop, leaf_size(*pop)),
+            // SAFETY: the live top edge of a map-flavor tree; `&self` rules
+            // out a concurrent writer on an unshared map.
+            Root::Tree { top } => unsafe { crate::census::tree::<true>(c, top, rule) },
+        }
+    }
 }
 
 impl MapCore {
@@ -4705,6 +4721,22 @@ impl ExpanseMap {
     pub fn stats(&self) -> ExpanseStats {
         self.flush_path();
         self.core.stats()
+    }
+
+    /// Decomposes [`Self::mem_used`] into allocation shapes and, given a
+    /// rule, the branches a low-cardinality leaf form would absorb. A
+    /// diagnostic for layout studies (feature `layout-census`, Refs #1257);
+    /// not a stability surface.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        self.flush_path();
+        let mut c = crate::census::LayoutCensus::default();
+        self.core.layout_census_into(&mut c, rule);
+        c
     }
 
     /// Smallest entry in the map.

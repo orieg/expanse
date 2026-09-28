@@ -91,6 +91,8 @@ pub mod bits;
 pub mod blobmap;
 #[cfg(target_pointer_width = "64")]
 pub mod bytesmap;
+#[cfg(all(target_pointer_width = "64", feature = "layout-census"))]
+pub mod census;
 #[cfg(target_pointer_width = "64")]
 pub mod codec;
 #[cfg(target_pointer_width = "64")]

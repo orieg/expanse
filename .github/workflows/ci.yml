@@ -920,6 +920,16 @@ jobs:
       - name: Test with the BranchU header child count
         run: cargo test -p expanse-trie --features ablation-branchu-header-count
 
+      # `layout-census` (Refs #1257) adds the diagnostic census walk; its
+      # tests pin that it sums to mem_used().
+      - name: Test the layout census
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p expanse-trie --lib --features layout-census -- census:: 2>&1 | tee census-unit.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' census-unit.log \
+            || { echo "::error::the census:: filter ran zero unit tests"; exit 1; }
+
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
