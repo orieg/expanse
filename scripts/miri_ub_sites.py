@@ -396,15 +396,13 @@ def parse_shard(spec: str) -> Tuple[int, int]:
 
 
 def shard(entries: List[Entry], i: int, n: int) -> List[Entry]:
-    """Shard `i` of `n`: whole workloads, dealt round-robin in manifest order,
-    so a workload's checks share one shard and every entry lands in exactly
-    one shard for any `n`."""
-    workloads: List[str] = []
-    for e in entries:
-        if e.test not in workloads:
-            workloads.append(e.test)
-    mine = {w for k, w in enumerate(workloads) if k % n == i - 1}
-    return [e for e in entries if e.test in mine]
+    """Shard `i` of `n`: entries (one workload under one check) dealt
+    round-robin in manifest order, so every entry lands in exactly one shard
+    for any `n`. Each entry is its own Miri process, so a workload's checks
+    need not share a shard; dealing entries rather than whole workloads
+    spreads a costly workload's three checks over three shards when `n` is
+    not a multiple of 3 (#1269)."""
+    return [e for k, e in enumerate(entries) if k % n == i - 1]
 
 
 def self_test() -> int:
@@ -530,13 +528,19 @@ def self_test() -> int:
 
     # Shards partition the committed manifest exactly, for every shard count
     # the nightly matrix could use; a bad spec is refused.
-    for n in range(1, 9):
+    for n in range(1, 17):
         parts = [shard(entries, i, n) for i in range(1, n + 1)]
         flat = [(e.test, e.check) for part in parts for e in part]
         check(f"{n} shards cover every entry once", sorted(flat), sorted((e.test, e.check) for e in entries))
-        check(f"{n} shards keep a workload together",
-              all(len({k for k, part in enumerate(parts) if any(e.test == w for e in part)}) == 1
-                  for w in {e.test for e in entries}), True)
+        check(f"{n} shards deal entries round-robin",
+              all(part == entries[k::n] for k, part in enumerate(parts)), True)
+    # The nightly matrix's N is not a multiple of the number of checks, so
+    # every shard mixes checks: at a multiple, each shard would hold one check
+    # only, and the Tree Borrows shards would carry the costliest entries.
+    n_wf = len(workflow_shards(NIGHTLY.read_text()))
+    check("nightly matrix mixes checks in every shard",
+          bool(n_wf) and all(len({e.check for e in shard(entries, i, n_wf)}) > 1
+                             for i in range(1, n_wf + 1)), True)
     check("shard spec", parse_shard("2/4"), (2, 4))
     for bad in ("0/4", "5/4", "4", "a/b", "1/0"):
         try:
@@ -567,7 +571,7 @@ def main() -> int:
     mode.add_argument("--observe", action="store_true", help="print what each entry reports")
     mode.add_argument("--self-test", action="store_true")
     ap.add_argument("--only", help="a workload, or a comma-separated list of them (the per-PR subset)")
-    ap.add_argument("--shard", help="I/N: only shard I of N (whole workloads, round-robin), for the nightly matrix")
+    ap.add_argument("--shard", help="I/N: only shard I of N (entries dealt round-robin), for the nightly matrix")
     ap.add_argument("--toolchain", help="run `cargo +TOOLCHAIN miri`")
     ap.add_argument("--seeds", help="override the manifest seed range (e.g. 0..2) for a quick development run; a verdict needs the manifest's own range")
     args = ap.parse_args()
