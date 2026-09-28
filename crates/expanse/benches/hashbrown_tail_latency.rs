@@ -18,7 +18,7 @@
 //! | `value_dereference` | Records clamped latency |
 //! | `measured_region` | `Instant::now()` bracket per insert, uncalibrated (the bracket's own cost is inside every sample); the three maps of a round are dropped after the round's last window |
 //! | `arm_symmetry` | Symmetric |
-//! | `statistics` | HdrHistogram percentiles per arm per round, `--rounds` rounds (9; 3 under `--quick`) with the arm order rotated; published per-arm figures are round means; per-round rows in `rounds_raw`, BCa 95% intervals and paired per-round ratios added by `run_all.py` |
+//! | `statistics` | HdrHistogram percentiles per arm per round; `run_all.py` runs one process per round (`--round K`, 9 rounds; 3 under `--quick`), each timing every arm once with the arm order rotated by `K`; it publishes per-arm round means, the rows as `rounds_raw`, BCa 95% intervals and paired per-round ratios |
 //! | `verdict` | **PASS / MINOR** `[verified: CODE READ]`: rounds and intervals (#1214); the per-op timer bracket is not calibrated, so the low percentiles carry its cost. |
 
 use expanse_trie::map::ExpanseMap;
@@ -99,19 +99,17 @@ fn bench_window<T>(id: &str, case: impl FnOnce() -> T) -> T {
 /// with arm `r % 3`, so no arm is always timed first or last.
 const ARMS: [&str; 3] = ["expanse", "hashbrown", "btree"];
 
-/// Rounds per arm: `--rounds N`, else 9 (3 under `--quick`).
-fn rounds_arg(args: &[String], quick: bool) -> usize {
-    match args.iter().position(|a| a == "--rounds") {
-        Some(i) => {
-            let n: usize = args
-                .get(i + 1)
-                .and_then(|v| v.parse().ok())
-                .expect("--rounds takes a positive integer");
-            assert!(n > 0, "--rounds takes a positive integer");
-            n
-        }
-        None if quick => 3,
-        None => 9,
+/// Which round this process is: `--round K`, else 0. A process measures one
+/// round, with the arm order rotated by `K`; `run_all.py` runs one process
+/// per round, because a later round in the same process reuses memory the
+/// round before it freed and inserts measurably faster (#1214).
+fn round_arg(args: &[String]) -> usize {
+    match args.iter().position(|a| a == "--round") {
+        Some(i) => args
+            .get(i + 1)
+            .and_then(|v| v.parse().ok())
+            .expect("--round takes a non-negative integer"),
+        None => 0,
     }
 }
 
@@ -119,7 +117,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
     let json_mode = args.iter().any(|a| a == "--json");
-    let rounds = rounds_arg(&args, quick);
+    let round = round_arg(&args);
 
     let num_keys = if quick { 100_000 } else { 1_000_000 };
     let mut rng = XorShift64::new(0xCAFE_BABE_0123_4567);
@@ -128,11 +126,11 @@ fn main() {
         keys.push(rng.next());
     }
 
-    // One row per (arm, round). A round grows one map per arm from empty;
-    // the three stay resident until the round ends, as they did when the
-    // harness ran one round, and are dropped outside every window.
+    // One row per arm. The round grows one map per arm from empty; the
+    // three stay resident until the round ends and are dropped outside
+    // every window.
     let mut per_arm: Vec<Vec<serde_json::Value>> = vec![Vec::new(); ARMS.len()];
-    for round in 0..rounds {
+    for round in [round] {
         let mut expanse_map = ExpanseMap::new();
         let mut hashbrown_map = HashMap::new();
         let mut btree_map = BTreeMap::new();
@@ -165,8 +163,8 @@ fn main() {
         drop((expanse_map, hashbrown_map, btree_map));
     }
 
-    // The published per-arm percentiles are the means over the rounds of
-    // each round's percentile; the rounds themselves are `rounds_raw`.
+    // Per-arm percentiles are means over the rows, one round here;
+    // `run_all.py` recomputes them over the rounds it merges.
     let mean = |rows: &[serde_json::Value]| {
         let mut out = serde_json::Map::new();
         for q in PERCENTILES {
@@ -190,7 +188,6 @@ fn main() {
         "expanse": mean(&per_arm[0]),
         "hashbrown": mean(&per_arm[1]),
         "btree": mean(&per_arm[2]),
-        "rounds": rounds,
         "latency": cells
     });
 

@@ -11,16 +11,21 @@ Executes all 5 benchmark harnesses:
 
 Saves JSON outputs into results/ and regenerates SVG comparison charts.
 
-Each single-process pillar runs its arms over paired rounds (the arm order
-rotating per round) and emits every round under a cell key the provenance gate
-reads (`cells`, `latency`, `throughput`), or, for the memory census, under
-`memory`. This runner adds to every timed cell a BCa 95% interval per arm and
-metric and a paired per-round ratio interval of Expanse against each
-competitor (`annotate`).
+Each timed pillar runs as one process per round (`--rounds`, 9; 3 under
+`--quick`): process `K` times every arm once with the arm order rotated by `K`.
+One process per round, because a later round in the same process reuses the
+memory the round before it freed: rounds taken in one process ran the first
+round's hashbrown inserts measurably slower than the rest, so a mean over them
+would have described a warmed allocator no single run of the pillar sees.
+The rounds go under a cell key the provenance gate reads (`cells`, `latency`,
+`throughput`), each row carrying its process's load window; the memory census
+runs once and publishes under `memory`. This runner adds to every timed cell a
+BCa 95% interval per arm and metric and a paired per-round ratio interval of
+Expanse against each competitor (`annotate`).
 
-Each single-process pillar is built before its window opens and runs as one
-process inside one load window (`bench_windowed.run_bench_window`), stored on
-the artifact it wrote (`load`) and in `provenance.windows`; a closing snapshot
+Each process is built before its window opens and runs inside one load window
+(`bench_windowed.run_bench_window`), stored on its rows (the census: on the
+artifact, `load`) and in `provenance.windows`; a closing snapshot
 follows, and every artifact is re-stamped with the whole series. The written
 artifacts are then judged by `check_bench_provenance.findings_for`, and a
 finding fails the run (AGENTS.md section 8.17, #1214).
@@ -29,7 +34,7 @@ finding fails the run (AGENTS.md section 8.17, #1214).
 pillar's committed runs as they are: its driver owns its rounds and artifact,
 and a re-run of it is a separate measurement with its own two runs.
 
-  run_all.py [--quick] [--skip-ycsb]
+  run_all.py [--quick] [--skip-ycsb] [--rounds N]
   run_all.py --self-test
 """
 
@@ -61,6 +66,9 @@ RESAMPLES = 2000
 SEED = 42
 #: BCa needs n >= 3 (`scripts/bca_bootstrap.py`).
 MIN_ROUNDS = 3
+#: Round processes per timed pillar.
+DEFAULT_ROUNDS = 9
+DEFAULT_ROUNDS_QUICK = 3
 
 ARMS = ("expanse", "hashbrown", "btree")
 SUBJECT = "expanse"
@@ -197,42 +205,131 @@ def annotate(bench_name: str, payload):
     return payload
 
 
-def stamp(parsed, prov: dict, window: dict) -> dict:
-    """The artifact a bench's payload is written as: provenance, and its window."""
-    out = attach(parsed, prov)
-    # The load window of the bench process that produced this file.
-    out["load"] = window
-    return out
+def stamp(parsed, prov: dict) -> dict:
+    """The artifact a bench's payload is written as: the payload and its provenance."""
+    return attach(parsed, prov)
 
 
-def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: bool = False):
-    print(f"==> Running benchmark: {bench_name} (quick={quick})...")
-    args = ["--quick"] if quick else []
-    args.append("--json")
-    res, window = bench_windowed.run_bench_window(prov, "expanse-trie", bench_name, args)
-    if res.returncode != 0:
-        print(f"Error running {bench_name}:", file=sys.stderr)
-        print(res.stderr, file=sys.stderr)
-        sys.exit(1)
+# The pillars that time something: one process per round. The memory census
+# counts bytes, which no round changes, and runs once.
+TIMED = ("hashbrown_native_suite", "hashbrown_tail_latency", "hashbrown_container_dists")
 
-    # Extract JSON string from stdout (ignoring any cargo compilation banners)
-    stdout = res.stdout.strip()
+# A native cell's published per-arm fields, per op.
+NATIVE_FIELDS = {
+    "lookup_hit": ("ns_per_op", "mops"),
+    "lookup_miss": ("ns_per_op", "mops"),
+    "iter_all": ("ns_per_scan", "mops_items"),
+    "insert_growing": ("mops",),
+}
+
+
+def _mean(xs: list[float]) -> float:
+    return sum(xs) / len(xs)
+
+
+def _rows(runs: list, pick) -> list[dict]:
+    """Every process's rows under `pick(payload)`, each carrying its process's window."""
+    return [{**r, "load": window} for payload, window in runs for r in pick(payload)]
+
+
+def merge_rounds(bench_name: str, runs: list) -> object:
+    """One payload from `(payload, window)` per round process, in round order.
+
+    Each process measured one round (`--round K`). The rows are concatenated,
+    each carrying the load window of the process that timed it, and every
+    published per-arm figure is recomputed as the mean over the rounds.
+    """
+    first = runs[0][0]
+    if bench_name == "hashbrown_native_suite":
+        out = []
+        for idx, cell in enumerate(first):
+            if any(p[idx]["population"] != cell["population"] for p, _ in runs):
+                raise RuntimeError(f"{bench_name}: round processes disagree on the populations")
+            rows = _rows(runs, lambda p, i=idx: p[i]["rounds_raw"])
+            merged = {"population": cell["population"]}
+            for op, fields in NATIVE_FIELDS.items():
+                merged[op] = {arm: {f: _mean([r[f] for r in rows
+                                              if r["op"] == op and r["arm"] == arm])
+                                    for f in fields} for arm in ARMS}
+            merged["rounds"] = len(runs)
+            merged["rounds_raw"] = rows
+            out.append(merged)
+        return out
+    if bench_name == "hashbrown_tail_latency":
+        out = {k: v for k, v in first.items() if k not in ARMS and k != "latency"}
+        cells = []
+        for arm in ARMS:
+            rows = _rows(runs, lambda p, a=arm: next(c for c in p["latency"]
+                                                     if c["arm"] == a)["rounds_raw"])
+            out[arm] = {q: _mean([r[q] for r in rows]) for q in PERCENTILES}
+            cells.append({"arm": arm, "rounds_raw": rows})
+        out["rounds"] = len(runs)
+        out["latency"] = cells
+        return out
+    if bench_name == "hashbrown_container_dists":
+        out = {k: v for k, v in first.items() if k != "throughput"}
+        cells = []
+        for idx, cell in enumerate(first["throughput"]):
+            dist = cell["distribution"]
+            rows = _rows(runs, lambda p, i=idx: p["throughput"][i]["rounds_raw"])
+            for metric in DIST_METRICS:
+                out[dist][metric] = {arm: _mean([r[metric] for r in rows if r["arm"] == arm])
+                                     for arm in ARMS}
+            cells.append({"distribution": dist, "population": cell["population"],
+                          "rounds_raw": rows})
+        out["rounds"] = len(runs)
+        out["throughput"] = cells
+        return out
+    raise ValueError(f"{bench_name} is not a timed pillar")
+
+
+def parse_payload(bench_name: str, stdout: str):
+    """The JSON payload in a harness's stdout, past any cargo banners."""
+    stdout = stdout.strip()
     json_start = stdout.find("[")
     if json_start == -1 or (stdout.find("{") != -1 and stdout.find("{") < json_start):
         json_start = stdout.find("{")
-
     if json_start == -1:
         print(f"Failed to find JSON payload in {bench_name} output:\n{stdout}", file=sys.stderr)
         sys.exit(1)
+    return json.loads(stdout[json_start:])
 
-    json_str = stdout[json_start:]
-    parsed = annotate(bench_name, json.loads(json_str))
+
+def run_process(bench_name: str, prov: dict, args: list[str], label: str):
+    """One harness process inside one load window: `(payload, window)`."""
+    res, window = bench_windowed.run_bench_window(prov, "expanse-trie", bench_name, args,
+                                                  label=label)
+    if res.returncode != 0:
+        print(f"Error running {label}:", file=sys.stderr)
+        print(res.stderr, file=sys.stderr)
+        sys.exit(1)
+    return parse_payload(bench_name, res.stdout), window
+
+
+def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: bool,
+              rounds: int):
+    print(f"==> Running benchmark: {bench_name} (quick={quick})...")
+    args = ["--quick"] if quick else []
+    args.append("--json")
+    if bench_name in TIMED:
+        runs = [run_process(bench_name, prov, args + ["--round", str(r)],
+                            f"{bench_name}/round={r}") for r in range(rounds)]
+        art = stamp(annotate(bench_name, merge_rounds(bench_name, runs)), prov)
+        windows = [w for _, w in runs]
+    else:
+        parsed, window = run_process(bench_name, prov, args, bench_name)
+        art = stamp(parsed, prov)
+        # The load window of the one process that produced this file.
+        art["load"] = window
+        windows = [window]
 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / out_file
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(stamp(parsed, prov, window), f, indent=2)
-    print(f"    Saved results to {out_path}  (window: {window})")
+        json.dump(art, f, indent=2)
+    worst = max((w.get("foreign_busy_cpus") or 0.0) for w in windows)
+    print(f"    Saved results to {out_path}  ({len(windows)} window(s), "
+          f"max foreign busy CPU {worst})")
 
 
 def judge_written(out_dir: Path) -> int:
@@ -252,41 +349,31 @@ def judge_written(out_dir: Path) -> int:
     return len(findings)
 
 
-def _synthetic_payloads() -> dict:
-    """One payload per harness, in the shape each emits, with three rounds."""
-    rounds = range(3)
-
-    def lat_row(arm, rd):
-        base = {"expanse": 70, "hashbrown": 25, "btree": 110}[arm] + rd
-        return {"round": rd, **{q: base * (i + 1) for i, q in enumerate(PERCENTILES)}}
-
-    native_rows = [{"round": rd, "op": op, "arm": arm, field: 10.0 + rd + k}
-                   for rd in rounds for op, (field, _) in
-                   ((m, NATIVE_METRICS[m]) for m in NATIVE_METRICS)
-                   for k, arm in enumerate(ARMS)]
-    dist_rows = [{"round": rd, "arm": arm, "insert_mops": 20.0 + rd + k,
-                  "lookup_mops": 40.0 + rd * k}
-                 for rd in rounds for k, arm in enumerate(ARMS)]
-    return {
-        "hashbrown_native_suite": [{"population": 10_000, "rounds": 3,
-                                    "rounds_raw": native_rows}],
-        "hashbrown_tail_latency": {
-            "total_inserts": 100, "mode": "un_preallocated_dynamic_growth", "rounds": 3,
-            **{arm: {q: 1.0 for q in PERCENTILES} for arm in ARMS},
-            "latency": [{"arm": arm, "rounds_raw": [lat_row(arm, rd) for rd in rounds]}
-                        for arm in ARMS]},
-        "hashbrown_container_dists": {
-            "uniform": {"distribution": "uniform", "population": 100},
-            "rounds": 3,
-            "throughput": [{"distribution": "uniform", "population": 100,
-                            "rounds_raw": dist_rows}]},
-        "hashbrown_memory_alloc": {"memory": [{"population": 1000,
-                                               "random_keys_bytes_per_key": {"expanse": 1.0}}]},
-    }
+def _synthetic_process(bench_name: str, rd: int):
+    """What one round process of `bench_name` prints: round `rd` alone."""
+    if bench_name == "hashbrown_native_suite":
+        rows = [{"round": rd, "op": op, "arm": arm, **{f: 10.0 + rd + k for f in fields}}
+                for op, fields in NATIVE_FIELDS.items() for k, arm in enumerate(ARMS)]
+        return [{"population": 10_000, **{op: {} for op in NATIVE_FIELDS},
+                 "rounds_raw": rows}]
+    if bench_name == "hashbrown_tail_latency":
+        def row(arm):
+            base = {"expanse": 70, "hashbrown": 25, "btree": 110}[arm] + rd
+            return {"round": rd, **{q: base * (i + 1) for i, q in enumerate(PERCENTILES)}}
+        return {"total_inserts": 100, "mode": "un_preallocated_dynamic_growth",
+                **{arm: row(arm) for arm in ARMS},
+                "latency": [{"arm": arm, "rounds_raw": [row(arm)]} for arm in ARMS]}
+    if bench_name == "hashbrown_container_dists":
+        rows = [{"round": rd, "arm": arm, "insert_mops": 20.0 + rd + k,
+                 "lookup_mops": 40.0 + rd * k} for k, arm in enumerate(ARMS)]
+        return {"uniform": {"distribution": "uniform", "population": 100},
+                "throughput": [{"distribution": "uniform", "population": 100,
+                                "rounds_raw": rows}]}
+    return {"memory": [{"population": 1000, "random_keys_bytes_per_key": {"expanse": 1.0}}]}
 
 
 def self_test() -> int:
-    """The runner's stamping path, judged by the gate without running a bench."""
+    """The runner's merge and stamping path, judged by the gate without running a bench."""
     prov = {"suite": SUITE, "commit": "abc1234", "host": host_facts(),
             "estimators": estimators("synthetic"), "loads": []}
     add_load(prov, "start")
@@ -296,26 +383,44 @@ def self_test() -> int:
     prov["windows"] = [{"id": "hashbrown_tail_latency", "load": window}]
     prov["loads"].append({"label": "end", "busy_cpus_since_prev": 1.0})
 
-    # Every harness's shape, annotated and stamped as `run_bench` does, passes
-    # the gate that the committed artifacts are held to.
-    payloads = _synthetic_payloads()
-    assert set(payloads) == {b for b, _ in BENCHES}, "a synthetic payload per harness"
+    def merged(bench_name, n=3):
+        return merge_rounds(bench_name, [(_synthetic_process(bench_name, rd), window)
+                                         for rd in range(n)])
+
+    # Every harness's shape, merged, annotated and stamped as `run_bench`
+    # does, passes the gate the committed artifacts are held to.
+    assert set(TIMED) | {"hashbrown_memory_alloc"} == {b for b, _ in BENCHES}
     for bench_name, out_file in BENCHES:
-        art = stamp(annotate(bench_name, payloads[bench_name]), prov, window)
+        if bench_name in TIMED:
+            art = stamp(annotate(bench_name, merged(bench_name)), prov)
+        else:
+            art = stamp(_synthetic_process(bench_name, 0), prov)
+            art["load"] = window
         got = bench_windowed.judge(SUITE, [(out_file, art)])
         assert got == [], f"{bench_name}: the harness's shape must pass the gate: {got}"
-        assert art.get("load") == window, "the window must be stored on the artifact it timed"
+
+    # The merge: rows of every process, each with its window, and the
+    # published figure recomputed as the mean over the rounds.
+    native = merged("hashbrown_native_suite")[0]
+    assert len(native["rounds_raw"]) == 3 * len(NATIVE_FIELDS) * len(ARMS)
+    assert all(r["load"] == window for r in native["rounds_raw"]), "each row carries its window"
+    assert native["lookup_hit"]["expanse"]["mops"] == 11.0, native["lookup_hit"]
+    assert native["rounds"] == 3
+    tail = merged("hashbrown_tail_latency")
+    assert tail["hashbrown"]["p50_ns"] == 26.0 and tail["mode"] and tail["rounds"] == 3, tail
+    dists = merged("hashbrown_container_dists")
+    assert dists["uniform"]["insert_mops"]["btree"] == 23.0, dists["uniform"]
 
     # The annotations: every interval names its construction, and a paired
     # ratio is formed per round, not from the two means.
-    native = annotate("hashbrown_native_suite", _synthetic_payloads()["hashbrown_native_suite"])[0]
+    native = annotate("hashbrown_native_suite", merged("hashbrown_native_suite"))[0]
     iv = native["intervals"]["lookup_hit"]["expanse"]
     assert iv["ci_method"] is not None and iv["ci_lower"] <= iv["point"] <= iv["ci_upper"], iv
     r = native["ratios"]["lookup_hit"]["expanse_over_btree"]
     # expanse = 10 + rd, btree = 12 + rd: the mean of the per-round quotients.
     want = sum((10 + rd) / (12 + rd) for rd in range(3)) / 3
     assert abs(r["point"] - want) < 1e-12, (r, want)
-    tail = annotate("hashbrown_tail_latency", _synthetic_payloads()["hashbrown_tail_latency"])
+    tail = annotate("hashbrown_tail_latency", merged("hashbrown_tail_latency"))
     hb = next(c for c in tail["latency"] if c["arm"] == "hashbrown")
     want = sum((25 + rd) / (70 + rd) for rd in range(3)) / 3
     assert abs(hb["ratio_over_expanse"]["p50_ns"]["point"] - want) < 1e-12, hb
@@ -323,7 +428,14 @@ def self_test() -> int:
     # Fewer than three rounds carry no interval, and say why.
     short = interval([1.0, 2.0])
     assert short["ci_lower"] is None and "why_no_interval" in short, short
-    # Two arms measured in different rounds cannot be paired.
+    # A round measured by two processes, or arms measured in different
+    # rounds, cannot be paired.
+    try:
+        annotate("hashbrown_native_suite", merge_rounds(
+            "hashbrown_native_suite", [(_synthetic_process("hashbrown_native_suite", 0), window)] * 3))
+        raise AssertionError("a round measured twice must raise")
+    except RuntimeError:
+        pass
     try:
         _paired({0: 1.0, 1: 1.0, 2: 1.0}, {0: 1.0, 1: 1.0}, "unpaired")
         raise AssertionError("an unpaired ratio must raise")
@@ -333,11 +445,10 @@ def self_test() -> int:
     # A payload without rounds — the shape the harnesses emitted before
     # #1214's follow-up — is named by the gate rather than written quietly.
     got = bench_windowed.judge(SUITE, [("baseline_native.json",
-                                        stamp([{"population": 1, "lookup_hit": {}}],
-                                              prov, window))])
+                                        stamp([{"population": 1, "lookup_hit": {}}], prov))])
     assert any("rounds_raw" in g for g in got), f"a payload with no rounds must be a finding: {got}"
     got = bench_windowed.judge(SUITE, [("baseline_tail_latency.json",
-                                        stamp({"expanse": {"p99_ns": 1.0}}, prov, window))])
+                                        stamp({"expanse": {"p99_ns": 1.0}}, prov))])
     assert any("no cell list" in g for g in got), f"a payload under no cell key must be a finding: {got}"
     print("hashbrown_comparison run_all.py --self-test: all checks passed")
     return 0
@@ -346,6 +457,11 @@ def main():
     if "--self-test" in sys.argv:
         sys.exit(self_test())
     quick = "--quick" in sys.argv or "-q" in sys.argv
+    rounds = DEFAULT_ROUNDS_QUICK if quick else DEFAULT_ROUNDS
+    if "--rounds" in sys.argv:
+        rounds = int(sys.argv[sys.argv.index("--rounds") + 1])
+    if rounds < 1:
+        sys.exit("--rounds takes a positive integer")
     print(f"Starting Hashbrown vs BTreeMap vs Expanse benchmark suite (quick={quick})...\n")
 
     # A --quick run produces reduced-sweep smoke data. Route it to the
@@ -366,7 +482,7 @@ def main():
     add_load(prov, "start")
 
     for bench_name, out_file in BENCHES:
-        run_bench(bench_name, out_file, out_dir, prov, quick=quick)
+        run_bench(bench_name, out_file, out_dir, prov, quick=quick, rounds=rounds)
 
     # After the single-process pillars: the driver takes its own load snapshots
     # around each of its rounds and writes its own provenance block.

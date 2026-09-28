@@ -7,8 +7,8 @@
 //! - iter_all (full container iteration)
 //!
 //! Supports standalone execution with `--json` for automated script collection,
-//! and `--rounds N` for the number of paired rounds. Each population is one
-//! `BENCH_WINDOW` load window.
+//! and `--round K` for which round the process is (the arm order rotates by
+//! `K`). Each population is one `BENCH_WINDOW` load window.
 //!
 //! # Workload shape
 //!
@@ -24,7 +24,7 @@
 //! | `value_dereference` | `black_box(get)` |
 //! | `measured_region` | Lookups and scans: the loop of `iters` / `reps` ops. `insert_growing`: each build is timed alone and its map dropped after the clock stops (`bench_grow_op`). Map prepopulation is outside the window |
 //! | `arm_symmetry` | Symmetric |
-//! | `statistics` | `--rounds` rounds (9; 3 under `--quick`), every op timing every arm per round with the arm order rotated; published per-arm figures are round means; per-round rows in `rounds_raw`, BCa 95% intervals and paired per-round ratios added by `run_all.py` |
+//! | `statistics` | `run_all.py` runs one process per round (`--round K`, 9 rounds; 3 under `--quick`), each timing every arm once with the arm order rotated by `K`; it publishes per-arm round means, the rows as `rounds_raw`, BCa 95% intervals and paired per-round ratios |
 //! | `verdict` | **PASS / MINOR (Class 2)** `[verified: CODE READ]`: drop outside the timed build (#470), rounds and intervals (#1214); lookups still walk the first `iters` keys in index order. |
 
 use expanse_trie::map::ExpanseMap;
@@ -103,20 +103,17 @@ fn bench_grow_op<F: FnMut() -> R, R>(
 /// with arm `r % 3`, so no arm is always timed first or last.
 const ARMS: [&str; 3] = ["expanse", "hashbrown", "btree"];
 
-/// Rounds per cell: `--rounds N`, else 9 (3 under `--quick`). Odd, so the
-/// median of the rounds is one of them.
-fn rounds_arg(args: &[String], quick: bool) -> usize {
-    match args.iter().position(|a| a == "--rounds") {
-        Some(i) => {
-            let n: usize = args
-                .get(i + 1)
-                .and_then(|v| v.parse().ok())
-                .expect("--rounds takes a positive integer");
-            assert!(n > 0, "--rounds takes a positive integer");
-            n
-        }
-        None if quick => 3,
-        None => 9,
+/// Which round this process is: `--round K`, else 0. A process measures one
+/// round, with the arm order rotated by `K`; `run_all.py` runs one process
+/// per round, because a later round in the same process reuses memory the
+/// round before it freed and inserts measurably faster (#1214).
+fn round_arg(args: &[String]) -> usize {
+    match args.iter().position(|a| a == "--round") {
+        Some(i) => args
+            .get(i + 1)
+            .and_then(|v| v.parse().ok())
+            .expect("--round takes a non-negative integer"),
+        None => 0,
     }
 }
 
@@ -246,7 +243,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
     let json_mode = args.iter().any(|a| a == "--json");
-    let rounds = rounds_arg(&args, quick);
+    let round = round_arg(&args);
 
     let pops = if quick {
         vec![10_000, 100_000]
@@ -294,11 +291,11 @@ fn main() {
             2
         };
 
-        // One row per (round, op, arm). Every op runs every arm in every
-        // round, the arm order rotating, so a round's arms are paired.
+        // One row per (op, arm) of this process's round. Every op runs every
+        // arm, in the round's rotated order, so a round's arms are paired.
         let rows = bench_window(&format!("pop={pop}"), || {
             let mut rows = Vec::new();
-            for round in 0..rounds {
+            for round in [round] {
                 let order = (0..ARMS.len()).map(|i| (i + round) % ARMS.len());
                 for arm in order.clone() {
                     let (ns, mops) = lookup(arm, &bases, &keys, iters);
@@ -326,8 +323,8 @@ fn main() {
             rows
         });
 
-        // The published per-arm figures are the means of the rounds; the
-        // rounds themselves are `rounds_raw`.
+        // Per-arm figures are means over `rows`, which is one round here;
+        // `run_all.py` recomputes them over the rounds it merges.
         let per_arm = |op: &str, fields: &[&str]| {
             let mut m = serde_json::Map::new();
             for arm in ARMS {
@@ -345,7 +342,6 @@ fn main() {
             "lookup_miss": per_arm("lookup_miss", &["ns_per_op", "mops"]),
             "iter_all": per_arm("iter_all", &["ns_per_scan", "mops_items"]),
             "insert_growing": per_arm("insert_growing", &["mops"]),
-            "rounds": rounds,
             "rounds_raw": rows,
         }));
     }

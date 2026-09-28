@@ -21,7 +21,7 @@
 //! | `value_dereference` | `black_box(get)` |
 //! | `measured_region` | Clean: each arm's build and its lookup loop are timed separately; key generation is outside the clock and the round's maps are dropped after it |
 //! | `arm_symmetry` | Symmetric |
-//! | `statistics` | `--rounds` rounds (9; 3 under `--quick`) per distribution with the arm order rotated; published per-arm figures are round means; per-round rows in `rounds_raw`, BCa 95% intervals and paired per-round ratios added by `run_all.py` |
+//! | `statistics` | `run_all.py` runs one process per round (`--round K`, 9 rounds; 3 under `--quick`), each timing every arm once with the arm order rotated by `K`; it publishes per-arm round means, the rows as `rounds_raw`, BCa 95% intervals and paired per-round ratios |
 //! | `verdict` | **PASS** `[verified: CODE READ]`: clean timing; rounds and intervals (#1214). |
 
 use expanse_trie::map::ExpanseMap;
@@ -93,19 +93,17 @@ fn generate_distribution(dist: &str, n: usize, seed: u64) -> Vec<u64> {
 /// with arm `r % 3`, so no arm is always timed first or last.
 const ARMS: [&str; 3] = ["expanse", "hashbrown", "btree"];
 
-/// Rounds per distribution: `--rounds N`, else 9 (3 under `--quick`).
-fn rounds_arg(args: &[String], quick: bool) -> usize {
-    match args.iter().position(|a| a == "--rounds") {
-        Some(i) => {
-            let n: usize = args
-                .get(i + 1)
-                .and_then(|v| v.parse().ok())
-                .expect("--rounds takes a positive integer");
-            assert!(n > 0, "--rounds takes a positive integer");
-            n
-        }
-        None if quick => 3,
-        None => 9,
+/// Which round this process is: `--round K`, else 0. A process measures one
+/// round, with the arm order rotated by `K`; `run_all.py` runs one process
+/// per round, because a later round in the same process reuses memory the
+/// round before it freed and inserts measurably faster (#1214).
+fn round_arg(args: &[String]) -> usize {
+    match args.iter().position(|a| a == "--round") {
+        Some(i) => args
+            .get(i + 1)
+            .and_then(|v| v.parse().ok())
+            .expect("--round takes a non-negative integer"),
+        None => 0,
     }
 }
 
@@ -185,7 +183,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
     let json_mode = args.iter().any(|a| a == "--json");
-    let rounds = rounds_arg(&args, quick);
+    let round = round_arg(&args);
 
     let num_keys = if quick { 50_000 } else { 500_000 };
     let query_count = if quick { 100_000 } else { 500_000 };
@@ -200,10 +198,10 @@ fn main() {
         eprintln!("BENCH_WINDOW begin {dist}");
         let keys = generate_distribution(dist, num_keys, 0x1337_C0DE_CAFE_BABE);
 
-        // One row per (round, arm). Within a round every arm builds its map,
-        // then every arm reads its own, both in the round's rotated order.
+        // One row per arm. Every arm builds its map, then every arm reads
+        // its own, both in the round's rotated order.
         let mut rows: Vec<serde_json::Value> = Vec::new();
-        for round in 0..rounds {
+        for round in [round] {
             let order: Vec<usize> = (0..ARMS.len()).map(|i| (i + round) % ARMS.len()).collect();
             let mut maps = Maps::default();
             let mut ins = [0.0f64; 3];
@@ -225,7 +223,8 @@ fn main() {
             }
         }
 
-        // The published per-arm figures are the means of the rounds.
+        // Per-arm figures are means over `rows`, one round here;
+        // `run_all.py` recomputes them over the rounds it merges.
         let mean = |field: &str| {
             let mut out = serde_json::Map::new();
             for arm in ARMS {
@@ -255,7 +254,6 @@ fn main() {
         }));
         eprintln!("BENCH_WINDOW end {dist}");
     }
-    results.insert("rounds".into(), rounds.into());
     results.insert("throughput".into(), cells.into());
 
     if json_mode {
