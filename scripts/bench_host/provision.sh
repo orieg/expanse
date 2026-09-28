@@ -249,6 +249,9 @@ TimeoutStopSec=30min
 # with the environment it started with, while the new one got "Conflict".
 Environment=RUNNER_MANUALLY_TRAP_SIG=1
 KillMode=mixed
+# The jobs' PATH. The runner applies .path only when started through its own
+# runsvc.sh; under run.sh the listener and every job inherit this.
+Environment=PATH=$SVC_PATH
 ProtectHome=yes
 PrivateTmp=yes
 ProtectSystem=full

@@ -24,12 +24,24 @@ while [ "$p" -gt 1 ]; do
   [ -n "$p" ] || break
   keep="$keep$p "
 done
+# A candidate is a stray only if it is still running and no ancestor of it
+# is this hook: the subshells running this loop are this hook's own children,
+# and may already have exited by the time they are examined.
+descends_from_self() {
+  local q="$1" pp
+  while [ "$q" -gt 1 ]; do
+    [ "$q" = "$$" ] && return 0
+    pp="$(ps -o ppid= -p "$q" 2>/dev/null | tr -d ' ')" || return 1
+    [ -n "$pp" ] || return 1
+    q="$pp"
+  done
+  return 1
+}
 stray=""
 for pid in $(pgrep -u "$me" || true); do
   case "$keep" in *" $pid "*) continue ;; esac
-  # A descendant of this hook (the pipeline running this loop).
-  pp="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
-  [ "$pp" = "$$" ] && continue
+  kill -0 "$pid" 2>/dev/null || continue
+  descends_from_self "$pid" && continue
   stray="$stray $pid"
 done
 if [ -n "$stray" ]; then
