@@ -3902,3 +3902,65 @@ The deterministic half is the Callgrind arms merged in #1155: `map_count_below` 
 
 - No magnitude, direction or ordering between cells is predicted, and no threshold is set; a later design choice among #1144's options may set one, in its own pre-registration.
 - W = 8, R > 1 and ordered reads are outside this gate. So are the string map, `sync32`, and any change to the write path, the fold or `nav`.
+
+## 24. Pre-registration for #1208 — a shared `BranchU` crossing its demotion floor, in wall clock (appended and locked 2026-09-27, before any admissible run of it)
+
+### 24.1 The gate
+
+#1208 asks for wall-clock cells that drive one shared `BranchU` back and forth across its demotion floor while other writers and readers run, at W ∈ {1, 2, 4, 8} with and without readers, beside a control of the same operation count far from the floor. Its gate, as fixed here: *the band excess per crossing is recorded, with a BCa 95% interval, for every cell of §24.3 in two non-void runs at one commit (§24.4).* One direction is predicted (§24.2, P24.1); no magnitude is. The blast radius is benches, examples, the driver, and one diagnostic feature that no default build compiles.
+
+The deterministic half already exists: the Callgrind arm `sync_map_branchu_band` (§24.5). Instruction counts cannot see the writer gate closing, the drain of the optimistic writers, or a reader's retries, and those are what each crossing costs a concurrent tree.
+
+### 24.2 What is measured, and the statistic
+
+- **The band excess per crossing.** For each build, W and R, and each round r: `Δ_r = (t_band,r − t_twin,r) / X_r`, where `t` is the owner writer's elapsed time for its cycles (barrier release to its join, `owner_elapsed_s`), `band` is the duty-1 cell and `twin` the duty-0 cell of the same (build, W, R) in the same round, and `X_r` is the crossings the band cell's owner counted (`crossings` = 2 × `owner_cycles`). Reported as the mean over rounds with a BCa 95% interval (`bca_bootstrap_ci_with_method`, 2,000 resamples), in nanoseconds per crossing.
+- **The paired ratio** `t_band,r / t_twin,r`, mean over rounds with a BCa 95% interval, beside it.
+- **P24.1 (directional, gated).** At W = 1, R = 0, default build, the ratio's BCa lower bound is above 1.0 in both runs. `scripts/branchu_band_bounds.py` sizes it (§24.5): the projection is far above the resolution of 8 rounds, so a run in which this fails is a finding about the instrument or the engine, and is reported as REFUTED, not re-run.
+- **Everything else is reported, not gated:** Δ at W ≥ 2 and R = 1; how Δ moves with W; the default build against `ablation-one-digit-band`; reader Mops/s of each R = 1 cell with its interval; and, from the counters pass, `gate_wait_cycles` and `quiesce_drain_cycles` per crossing and per crossing × W, with the fallbacks by cause and by branch-split kind per owner cycle.
+- **A difference between builds, between W, or between R = 0 and R = 1** is claimed only when both runs show it in the same direction with non-overlapping intervals (`docs/BENCHMARKING.md` rule 18).
+- **What Δ contains.** The band cycle and the twin cycle make the same owner operations, but not the same work: between its two crossings the band cycle's insertions land on a `BranchB`, and the twin's never leave a `BranchU`. Δ is the whole band cycle's excess over the twin, charged to its crossings, not the cost of an exclusive section alone. The counters pass's `branch_split_*` and `cap_expansion_*` counts per owner cycle say which fallbacks the band cycle adds; no share of Δ is attributed to them (AGENTS.md §8.20.4).
+
+### 24.3 Instruments and cells
+
+- **Harness:** `crates/expanse/examples/writer_scaling.rs --band-cells --duty <0|1> --writers W --readers R`, one `SyncExpanseMap` per cell, workload id `concurrency_branchu_band_map_64bit`.
+  - The boundary branch holds one key per second-byte digit under the top byte `0x01`: `band_key(d) = 0x01 << 56 | d << 48 | 0x42`.
+  - Its layout is derived from the engine's constants, so it follows the build. With `F` = `BRANCHU_TO_B_DOWN` and `U` = `BITMAP_TO_UNCOMPRESSED_THRESHOLD` (192), digits `0..F` are fixed; the band is `F..=U`, `S = U + 1 − F` digits (33 by default, 2 under the ablation).
+  - **Duty 1:** the branch starts at `U + 1` (193) digits. One owner cycle removes the band's digits in descending order, the last removal falling back as `DemoteU` to the exclusive remove that demotes the branch at `F` digits, then reinserts them in ascending order, the last falling back as `Upgrade`. Two crossings per cycle, by construction; the harness self-test checks the node form after every step of one cycle of each duty.
+  - **Duty 0 (the twin):** digits `0..U + 2` are always present, and the owner cycles `S` digits from `U + 2` (194) upward, so the branch moves between 194 and `194 + S` digits (227 by default) and never reaches either threshold. Same operation count per cycle.
+  - **One owner, so the crossings are deterministic.** The owner writer makes every band removal and insertion, `8192` cycles per cell, and counts its own cycles. The other W − 1 writers overwrite the values of fixed-digit keys (an insert of a present key, which never changes the digit count), each in its own Fisher–Yates order, at least once and then until the owner joins. The R readers `get` the fixed-digit keys on reader handles, each in its own Fisher–Yates order, at least once and then until the owner joins. Every answer is checked; any disagreement refuses the cell.
+  - **The pre-lock scan is not symmetric near the floor, and is disclosed.** An optimistic removal from a `BranchU` counts the branch's non-null slots from slot 0, stopping at `F + 2` (`sync.rs`, `null_branch_u_slot`). Both duties keep slots `0..F + 2` populated whenever that cap is reachable, so every removal stops at slot `F + 1`, except the one duty-1 removal per cycle that finds `F + 1` digits: it reads all 256 slots and falls back. That scan is part of the crossing it detects.
+- **Builds:** the default build and `--features ablation-one-digit-band`, which restores `BRANCHU_TO_B_DOWN = BITMAP_TO_UNCOMPRESSED_THRESHOLD − 1`, the one-digit band #1221 widened. #1221 promoted the wider band without an inverse; this is that inverse (AGENTS.md §2.7). Each build also has its `occ-stats` counters build. All four come from one commit.
+- **Cells:** build ∈ {default, `ablation-one-digit-band`} × duty ∈ {1, 0} × (W, R) ∈ {(1, 0), (1, 1), (2, 0), (2, 1), (4, 0), (4, 1), (8, 0)}: 28 per round. W = 8 with R = 1 is not a cell: the pin has eight cores, and a ninth thread would share one (AGENTS.md §8.20.5 step 0).
+- **Driver:** `docs/benchmarks/concurrency/scripts/writer_scaling.py --band-cells`, 8 rounds. Within round r the 28 cells follow row r of the Williams construction over them; 8 rounds do not balance 28 positions, and every row is a permutation. One harness process per cell (§15), with a load window (`begin_cell` / `end_cell`) around each timed cell. The throughput pass runs every round before the counters pass, which runs the same schedule.
+- **Pin:** `0,2,4,6,8,10,12,14`, one thread per physical P-core on the reference host, as §12.4 and §23.3, which the driver sets when unset and refuses to replace.
+- **Artifacts:** `docs/benchmarks/concurrency/results/branchu_band_writer_scaling.json`, then `branchu_band_writer_scaling_run2.json`, at one commit.
+
+### 24.4 What voids a cell or a run
+
+- An applied pin other than §24.3's, or a row recording another; `--quick`; a `--cycles` other than 8192. The driver refuses the first and records the others as void.
+- Host contention as AGENTS.md §8.17 defines it: a non-target process above about 100% CPU, a load average above cores / 2, or a load shift above 2 between passes. A contaminated run is discarded and the discard disclosed in the suite README, never reinterpreted.
+- A broken counters identity: `Stat::Inserts` ≠ owner insertions + overwrites; `Stat::WriteOps` ≠ inserts + owner removals + `lock_fallbacks` (the removal identity, band rows only); `quiesce_calls` ≠ `lock_fallbacks` + `locked_reads`; causes not summing to `lock_fallbacks`; a branch-split partition that does not sum. The harness and the driver both refuse the run.
+- **The counters must confirm the schedule.** At W = 1, duty 1: `branch_split_demote_u` = `branch_split_upgrade` = `owner_cycles` exactly, every round. At duty 0, any W: both are 0 exactly. A mismatch voids the run: the cells did not run the workload registered here. At W ≥ 2, duty 1, a crossing can instead fall back for another cause (the writer gate already closed, or the retry budget exhausted), so each is at most `owner_cycles`, and over the cell's rounds `(demote_u + upgrade) / (2 × owner_cycles)` must be at least 0.95. Below that, the cell's Δ is still reported, marked `crossings_unattributed`, and is not read against another cell.
+- A row whose `one_digit_band`, `owner_cycles` or crossing count disagrees with the build and schedule that asked for it; a cell whose tree does not hold exactly one `BranchU` before and after it. The harness or the driver refuses both.
+- The runs being at different commits.
+
+### 24.5 What had been seen when this was written
+
+- **Callgrind, deterministic, x86-64 CI runner.** `sync_map_branchu_band/top` (100 cycles, 193 ↔ 160, 200 crossings): 10,116,194 instructions at the default target and 8,977,550 at `-C target-cpu=x86-64-v3` (measured: CI run https://github.com/orieg/expanse/actions/runs/36326465116, `5fdb77f3`). `sync_map_branchu_thrash/top` on #1204's one-digit band (100 cycles, 191 ↔ 193, 200 crossings): 3,278,033 and 2,747,239, 16,390 and 13,736 per crossing including the cycle's four operations (measured: CI run https://github.com/orieg/expanse/actions/runs/36256715324, `e7d57aa3`).
+- **`scripts/branchu_band_bounds.py`** turns those into a crossing share of a band cycle's instructions at W = 1 of 0.3240 (default target) and 0.3060 (x86-64-v3). If time per instruction were the same on the band and twin cycles, `t_band / t_twin` at W = 1 would be about 1.48 and 1.44; that is a hypothesis carrying two unmeasured assumptions (the thrash arm's per-crossing cost transfers to the widened band, and the twin cycle is the band cycle less its crossings), and it is not a prediction. The largest per-round CV of `writer_mops` in the committed `170a4bc3` per-core map cells, 0.0236, borrowed from another workload, gives a minimum detectable ratio departure of 0.0331 at 8 rounds (two-sided 5%, 80% power), which is what P24.1's direction rests on.
+- The instrument was smoke-run with `--quick` on a non-reference Linux development host, in the default, `ablation-one-digit-band` and `occ-stats` builds, to confirm that the cells run, that their identities hold, and that the counters see one `DemoteU` and one `Upgrade` per duty-1 cycle at W = 1 and none at duty 0. No timing from it is an input to this section.
+
+### 24.6 Not predicted, and out of scope
+
+- No magnitude of Δ is predicted at any cell, nor its direction outside P24.1, nor any ordering across W, R or builds. Whether the 32-digit band or the one-digit band costs more per crossing is what the ablation measures, not something this section expects.
+- Out of scope: `SyncExpanseSet`, `sync32`, the string, bytes and blob wrappers; any change to the band, the write path or the fallback; W = 8 with R ≥ 1.
+
+### 24.7 Why the base-engine control is not a cell
+
+#1208 asked for a second control on the base engine without the fix, `0489deec` (main before #1204). It is replaced by the twin and the ablation build, both on a correct engine:
+
+- On `0489deec` an optimistic removal could leave a shared `BranchU` at or below its floor (#1079). The duty-1 workload drives exactly that path, so the base engine would be timed doing what #1204 made incorrect, and `validate` rejects a `BranchU` at or below its floor (`crates/expanse/src/validate.rs`). A throughput against it compares against a defect, not against an alternative design.
+- It also carries the one-digit band, so it differs from the head in two ways at once; and there a shared removal never demotes the branch, so it has no downward exclusive section to measure (#1204's description records its thrash arm at 715 instructions per crossing on the base engine and 16,196 with the fix, from a base-versus-head profile that is not a committed artifact; cited for the mechanism, not as a figure this section uses).
+- The harness cannot build against it: its counters read `Stat::BranchSplitDemoteU`, which does not exist there.
+
+What the base control was meant to answer, the cost of a crossing that falls back beside one that does not, is the twin (the same build, no crossings); what the old band costs on a correct engine is the ablation build.

@@ -182,6 +182,7 @@ python3 scripts/set_domain_bounds.py
 python3 scripts/olc_bounds.py --self-test
 python3 scripts/reader_scaling_bounds.py --self-test
 python3 scripts/ycsb_concurrent_bounds.py --self-test
+python3 scripts/branchu_band_bounds.py --self-test
 python3 scripts/c2c_ranking.py --self-test
 python3 scripts/callgrind_wrapper_ranking.py --self-test
 python3 scripts/fit_usl.py --self-test

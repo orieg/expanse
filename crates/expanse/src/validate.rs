@@ -522,25 +522,36 @@ mod tests {
     /// hold must take the same branch as under the literals 7 and 21 the old
     /// forms compared against, so the rewrite moves no demotion. The U -> B
     /// floor is pinned to its literal 161: the band between it and the
-    /// promotion point is one bitmap subexpanse (32 digits) wide.
+    /// promotion point is one bitmap subexpanse (32 digits) wide. Under the
+    /// diagnostic `ablation-one-digit-band` feature the literals are the
+    /// one-digit band's (192, width 1), the band #1221 widened.
     #[test]
     fn demotion_thresholds_match_the_literal_forms() {
         use crate::mutate::BRANCHB_UP;
         use crate::types::{
             BRANCH_L7_CAP, BRANCHB_TO_L7_DOWN, BRANCHU_TO_B_DOWN, LEAF1_CAP, LEAFB1_DOWN,
         };
+        #[cfg(not(feature = "ablation-one-digit-band"))]
+        const U_FLOOR_LITERAL: usize = 161;
+        #[cfg(feature = "ablation-one-digit-band")]
+        const U_FLOOR_LITERAL: usize = 192;
+        const U_BAND_LITERAL: usize = 193 - U_FLOOR_LITERAL;
         for n in 0..=crate::types::BRANCH_FANOUT {
             assert_eq!(n <= BRANCHB_TO_L7_DOWN, n < BRANCH_L7_CAP, "B -> L7 at {n}");
             assert_eq!(n <= BRANCHB_TO_L7_DOWN, n < 7, "B -> L7 at {n}");
-            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < BRANCHB_UP - 31, "U -> B at {n}");
-            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < 161, "U -> B at {n}");
+            assert_eq!(
+                n <= BRANCHU_TO_B_DOWN,
+                n < BRANCHB_UP - (U_BAND_LITERAL - 1),
+                "U -> B at {n}"
+            );
+            assert_eq!(n <= BRANCHU_TO_B_DOWN, n < U_FLOOR_LITERAL, "U -> B at {n}");
             // The one predicate every U -> B decision reads (Refs #1079):
             // the exclusive walks, the optimistic removal and the validator
             // share it, so an error in it would move all three together and
             // no drain test could see it. Pinned against the literal here.
             assert_eq!(
                 crate::mutate::branch_u_below_floor(n),
-                n < 161,
+                n < U_FLOOR_LITERAL,
                 "branch_u_below_floor at {n}"
             );
             assert_eq!(n < LEAFB1_DOWN, n < 21, "bitmap leaf -> Leaf1 at {n}");
@@ -552,8 +563,9 @@ mod tests {
         );
         assert_eq!(
             BRANCHB_UP - BRANCHU_TO_B_DOWN,
-            32,
-            "BranchU band: enters above 192, leaves at 160"
+            U_BAND_LITERAL,
+            "BranchU band: enters above 192, leaves at {}",
+            U_FLOOR_LITERAL - 1
         );
     }
 

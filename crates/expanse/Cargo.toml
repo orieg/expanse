@@ -105,6 +105,15 @@ ablation-blob-serial-writers = []
 # section 22), kept so the default can be measured against it (AGENTS.md
 # section 2.7).
 ablation-bytes-serial-writers = []
+# Diagnostic-only (Refs #1208, AGENTS.md §2.7): restores the one-digit
+# BranchU -> BranchB hysteresis band (`BRANCHU_TO_B_DOWN` =
+# `BITMAP_TO_UNCOMPRESSED_THRESHOLD - 1`, demotion at 191 digits) that #1221
+# widened to 32 digits. #1221 promoted the wider band without an inverse; this
+# is that inverse, so the widened default can itself be measured against the
+# band it replaced (`writer_scaling --band-cells`, METHODOLOGY section 24). It
+# changes a node-form threshold, so it also changes tree shapes and memory:
+# never enable it for a published benchmark outside that comparison.
+ablation-one-digit-band = []
 # Diagnostic-only (Refs #929, AGENTS.md §2.7): restores the pre-promotion
 # shared arena_write mutex path for SyncExpanseBlobMap, where every arena
 # insert serialized on the mutex. Kept so the promoted per-writer private

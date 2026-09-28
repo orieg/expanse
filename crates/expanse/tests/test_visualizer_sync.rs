@@ -16,6 +16,18 @@ use expanse_trie::types::{
 use std::fs;
 use std::path::Path;
 
+/// The `BranchU` demotion floor the documents publish. It is the compiled
+/// floor, except under the diagnostic `ablation-one-digit-band` feature, which
+/// compiles the one-digit band #1221 widened (AGENTS.md §2.7) while every
+/// document describes the default: there the published value is the
+/// default's derivation, and the compiled floor is pinned to the ablation's.
+#[cfg(not(feature = "ablation-one-digit-band"))]
+const PUBLISHED_BRANCHU_TO_B_DOWN: usize = BRANCHU_TO_B_DOWN;
+#[cfg(feature = "ablation-one-digit-band")]
+const PUBLISHED_BRANCHU_TO_B_DOWN: usize = BITMAP_TO_UNCOMPRESSED_THRESHOLD - 32;
+#[cfg(feature = "ablation-one-digit-band")]
+const _: () = assert!(BRANCHU_TO_B_DOWN == BITMAP_TO_UNCOMPRESSED_THRESHOLD - 1);
+
 #[test]
 fn test_visualizer_constants_sync() {
     // Locate the visualizer HTML and JSON files relative to CARGO_MANIFEST_DIR
@@ -122,7 +134,7 @@ fn test_visualizer_constants_sync() {
         node_ladder
             .get("BRANCHU_TO_B_DOWN")
             .and_then(|v| v.as_u64()),
-        Some(BRANCHU_TO_B_DOWN as u64)
+        Some(PUBLISHED_BRANCHU_TO_B_DOWN as u64)
     );
     assert_eq!(
         node_ladder.get("LEAF1_CAP").and_then(|v| v.as_u64()),
@@ -2229,14 +2241,14 @@ fn test_html_ladder_matches_engine() {
             format!(
                 "{}..{BRANCH_FANOUT} children (stays down to {})",
                 t + 1,
-                BRANCHU_TO_B_DOWN + 1
+                PUBLISHED_BRANCHU_TO_B_DOWN + 1
             ),
             format!(
                 "{} B ({} B header + {BRANCH_FANOUT} x {edge} B edges)",
                 size_of::<BranchU>(),
                 size_of::<BranchU>() - BRANCH_FANOUT * edge
             ),
-            format!("BranchB (num ≤ {BRANCHU_TO_B_DOWN})"),
+            format!("BranchB (num ≤ {PUBLISHED_BRANCHU_TO_B_DOWN})"),
         ],
     );
 
