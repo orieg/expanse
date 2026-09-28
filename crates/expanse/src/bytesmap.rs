@@ -1544,6 +1544,10 @@ mod tests {
     /// default unnoticed.
     #[cfg(all(feature = "std", target_pointer_width = "64"))]
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "1.1M writes at 100,000 keys; the shape it checks needs that population, and it did not finish in the nightly lane's limit"
+    )]
     fn sync_bytes_map_hash_trie_settles_uncompressed() {
         type Fixed = core::hash::BuildHasherDefault<std::collections::hash_map::DefaultHasher>;
         struct XorShift(u64);
