@@ -300,8 +300,9 @@ GRANDFATHERED = {
     # top-level fields, there is no busy-CPU delta and no window per cell. Its
     # series carry their per-round `ratios`. A re-measurement is taken through
     # `bench_windowed.py --example bench_vs_libjudy`, whose per-cell windows
-    # (`load-vs_libjudy.json`) the artifact then carries.
-    "results/baseline_vs_libjudy.json": None,
+    # (`load-vs_libjudy.json`) the artifact then carries. Pinned by its
+    # top-level `commit`, the one it records.
+    "results/baseline_vs_libjudy.json": ("4c4e852a51719f705116c0c1e05fc8d9b21c96b7",),
 }
 
 # A cell list under this key is a memory census: exact byte counts, no rounds
@@ -793,7 +794,13 @@ def grandfather_status(rel: str, obj) -> tuple[bool, str | None]:
         return False, None
     want = GRANDFATHERED[rel]
     allowed = want if isinstance(want, tuple) else (want,)
-    got = obj.get("provenance", {}).get("commit") if isinstance(obj, dict) else None
+    got = None
+    if isinstance(obj, dict):
+        prov = obj.get("provenance")
+        # An artifact with no provenance block records its commit at the top
+        # level (`results/baseline_vs_libjudy.json`); pin that, so a
+        # re-measurement in the old shape is not exempt by carrying none.
+        got = prov.get("commit") if isinstance(prov, dict) else obj.get("commit")
     if got in allowed:
         return True, None
     return False, (
@@ -1379,6 +1386,12 @@ def _self_test() -> int:
     del series["series"][0]["ratios"]
     expect("a vs-libjudy series without its ratios", series, "carry no `ratios`",
            rel="results/baseline_vs_libjudy.json")
+    # A vs-libjudy artifact in the old shape (no provenance block) at another
+    # commit is a re-measurement and is not exempt.
+    old_shape = {"commit": "0000000", "series": []}
+    exempt, note = grandfather_status("results/baseline_vs_libjudy.json", old_shape)
+    if exempt or not note:
+        failures.append("a re-measured vs-libjudy artifact in the old shape was exempt")
     # Both committed root artifacts are exempt at their recorded commits.
     for name in ROOT_ARTIFACTS:
         path = RESULTS / name
