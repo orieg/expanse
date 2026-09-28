@@ -31,9 +31,15 @@ with the harness's own status, so a loud load finding never discards the
 completed measurement (section 8.1). The workflow fails the job on it after the
 harvest.
 
+The harness is a `[[bench]]` target (`--target`, built with `cargo bench
+--no-run` and run with `--bench` from its package directory) or an example
+with its own `main` (`--example`, built with `cargo build --release --example`
+and run from the repository root, the working directory `cargo run` gives it,
+so its relative paths resolve as they did before the driver).
+
 Usage:
-  bench_windowed.py --suite S --mode criterion|markers --package P --target T \\
-      --out load-S.json [-- harness args]
+  bench_windowed.py --suite S --mode criterion|markers --package P \\
+      (--target T | --example E) --out load-S.json [-- harness args]
   bench_windowed.py --self-test
 """
 
@@ -146,21 +152,44 @@ class Windower:
                                      f"({load})")
 
 
-def build(package: str, target: str) -> tuple[Path, Path]:
-    """Builds the bench target; returns `(executable, package directory)`."""
-    cmd = ["cargo", "bench", "--no-run", "--message-format=json",
-           "-p", package, "--bench", target]
-    out = subprocess.run(cmd, cwd=REPO_ROOT, check=True, stdout=subprocess.PIPE,
-                         text=True).stdout
-    for line in out.splitlines():
+def build_command(package: str, kind: str, name: str) -> list[str]:
+    """The cargo invocation that builds, and does not run, the harness."""
+    if kind == "bench":
+        return ["cargo", "bench", "--no-run", "--message-format=json",
+                "-p", package, "--bench", name]
+    if kind == "example":
+        return ["cargo", "build", "--release", "--message-format=json",
+                "-p", package, "--example", name]
+    raise ValueError(f"unknown harness kind {kind!r}")
+
+
+def pick_executable(cargo_json: str, kind: str, name: str) -> tuple[Path, Path] | None:
+    """`(executable, package directory)` of the `kind` target `name` in cargo's JSON output."""
+    for line in cargo_json.splitlines():
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:  # discipline:allow(error-swallowing) cargo interleaves non-JSON build lines; only compiler-artifact messages are read
             continue
         if (msg.get("reason") == "compiler-artifact" and msg.get("executable")
-                and msg["target"]["name"] == target and "bench" in msg["target"]["kind"]):
+                and msg["target"]["name"] == name and kind in msg["target"]["kind"]):
             return Path(msg["executable"]), Path(msg["manifest_path"]).parent
-    raise SystemExit(f"bench_windowed: `{' '.join(cmd)}` named no executable for {target!r}")
+    return None
+
+
+def build(package: str, kind: str, name: str) -> tuple[Path, Path]:
+    """Builds the harness; returns `(executable, package directory)`."""
+    cmd = build_command(package, kind, name)
+    out = subprocess.run(cmd, cwd=REPO_ROOT, check=True, stdout=subprocess.PIPE,
+                         text=True).stdout
+    found = pick_executable(out, kind, name)
+    if found is None:
+        raise SystemExit(f"bench_windowed: `{' '.join(cmd)}` named no executable for {name!r}")
+    return found
+
+
+def harness_argv(exe: Path, kind: str, harness_args: list[str]) -> list[str]:
+    """A bench binary takes `--bench` as `cargo bench` passes it; an example takes its own args."""
+    return [str(exe), "--bench", *harness_args] if kind == "bench" else [str(exe), *harness_args]
 
 
 def run(args) -> int:
@@ -169,14 +198,19 @@ def run(args) -> int:
         print("bench_windowed: /proc/stat is unreadable, so no load window can be taken; "
               "this driver runs on Linux only", file=sys.stderr)
         return 2
-    exe, pkg_dir = build(args.package, args.target)
+    kind, name = ("bench", args.target) if args.target else ("example", args.example)
+    exe, pkg_dir = build(args.package, kind, name)
+    target_field = {"bench_target": name} if kind == "bench" else {"example": name}
     prov = bp.new_provenance(
         args.suite, ISSUE, "as published by the harness; this record carries load only",
-        REPO_ROOT, bench_target=args.target, window_mode=args.mode, load_windows=True)
+        REPO_ROOT, **target_field, window_mode=args.mode, load_windows=True)
     env = dict(os.environ)
     # Criterion otherwise spawns `cargo metadata` to find its output directory.
     env.setdefault("CRITERION_HOME", str(REPO_ROOT / "target" / "criterion"))
-    proc = subprocess.Popen([str(exe), "--bench", *args.harness_args], cwd=pkg_dir, env=env,
+    # `cargo bench` runs a bench from its package directory and `cargo run`
+    # runs an example from where it was invoked; each keeps that here.
+    cwd = pkg_dir if kind == "bench" else REPO_ROOT
+    proc = subprocess.Popen(harness_argv(exe, kind, args.harness_args), cwd=cwd, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             bufsize=1)
     win = Windower(lambda label, prev: bp.pid_load_snapshot(label, proc.pid, prev),
@@ -280,6 +314,41 @@ def _self_test() -> int:
     check("unattributed window is a finding",
           any("could not attribute" in f for f in w.findings), True)
 
+    # Harness kinds: the build command, the artifact picked from cargo's
+    # output, and the argv the binary is run with.
+    check("bench build", build_command("expanse-trie", "bench", "domain")[:3],
+          ["cargo", "bench", "--no-run"])
+    ex_cmd = build_command("expanse-capi", "example", "bench_vs_libjudy")
+    check("example build is release", "--release" in ex_cmd and "--example" in ex_cmd, True)
+    check("example build does not run", ex_cmd[1], "build")
+    try:
+        build_command("p", "test", "x")
+        check("unknown kind raises", False, True)
+    except ValueError:
+        pass
+    art = lambda name, kind, exe: json.dumps({  # noqa: E731
+        "reason": "compiler-artifact", "executable": exe,
+        "manifest_path": "/r/crates/expanse-capi/Cargo.toml",
+        "target": {"name": name, "kind": [kind]}})
+    cargo_out = "\n".join([
+        "   Compiling expanse-capi v0.8.0",
+        art("bench_vs_libjudy", "lib", None),
+        art("vs_stock", "bench", "/r/target/release/deps/vs_stock-1"),
+        art("bench_vs_libjudy", "example", "/r/target/release/examples/bench_vs_libjudy"),
+    ])
+    check("example artifact picked", pick_executable(cargo_out, "example", "bench_vs_libjudy"),
+          (Path("/r/target/release/examples/bench_vs_libjudy"), Path("/r/crates/expanse-capi")))
+    check("bench artifact picked", pick_executable(cargo_out, "bench", "vs_stock")[0],
+          Path("/r/target/release/deps/vs_stock-1"))
+    check("a bench is not taken for an example",
+          pick_executable(cargo_out, "example", "vs_stock"), None)
+    check("bench argv", harness_argv(Path("/b"), "bench", ["--quick"]), ["/b", "--bench", "--quick"])
+    check("example argv", harness_argv(Path("/e"), "example", ["--rounds", "3"]),
+          ["/e", "--rounds", "3"])
+    check("vs_libjudy cell marker",
+          boundary("BENCH_WINDOW begin sequential/pop=100000", "markers"),
+          ("begin", "sequential/pop=100000"))
+
     for f in failures:
         print(f"  FAIL {f}")
     print(f"bench_windowed.py --self-test: "
@@ -294,7 +363,9 @@ def main() -> int:
     p.add_argument("--suite", required=True)
     p.add_argument("--mode", required=True, choices=("criterion", "markers"))
     p.add_argument("--package", required=True)
-    p.add_argument("--target", required=True)
+    harness = p.add_mutually_exclusive_group(required=True)
+    harness.add_argument("--target", help="a [[bench]] target")
+    harness.add_argument("--example", help="an example with its own main")
     p.add_argument("--out", required=True)
     p.add_argument("harness_args", nargs="*")
     return run(p.parse_args())
