@@ -29,8 +29,8 @@ Computes:
 - expanse_writer_mops_median as auxiliary field for historical continuity
 - scaling factor C(N) = T(W) / T(1) with paired bootstrap BCa 95% CI across interleaved rounds
 - lock fallbacks and fallback rate from the diagnostic occ-stats pass
-- str arm as the alpha=1 coarse-mutex reference curve (0 lock fallbacks by construction);
-  the bytes and blob arms (#929) serialise on the same writer mutex and read 0 as well
+- the str, bytes and blob arms (#929) run optimistic writers: a single-writer row
+  reads 0 lock fallbacks, and two writers can fall back for contention
 
 `--ordered-readers` (#900, `METHODOLOGY.md` §12.3-§12.5) is a separate sweep on
 the map arm:
@@ -7016,12 +7016,14 @@ def self_test() -> int:
     assert len(w2_set_fbs) == 3
     _assert_fallbacks_counted("set", w2_set_fbs)
 
-    # str arm is the alpha=1 coarse-mutex reference curve: 0 lock fallbacks by construction
+    # The str arm runs optimistic writers since #929 (#1001): one writer
+    # cannot fall back, two can fall back for contention. Held to 0 at W = 1
+    # only, as the bytes and blob arms below are.
     c_rows_str = run_pass(counters_bin, "counters", "str", [1, 2], 3, quick=True)
     assert len(c_rows_str) == 6
-    w2_str_fbs = [r["lock_fallbacks"] for r in c_rows_str if r["writers"] == 2]
-    assert len(w2_str_fbs) == 3
-    assert all(fb == 0 for fb in w2_str_fbs), f"Expected str W=2 lock_fallbacks == 0, got {w2_str_fbs}"
+    w1_str_fbs = [r["lock_fallbacks"] for r in c_rows_str if r["writers"] == 1]
+    assert len(w1_str_fbs) == 3
+    assert all(fb == 0 for fb in w1_str_fbs), f"Expected str W=1 lock_fallbacks == 0, got {w1_str_fbs}"
 
     cells_str = summarize_arm("str", [1, 2], 3, t_rows_map, c_rows_str, load)
     assert cells_str[0]["total_allocs"] is None
