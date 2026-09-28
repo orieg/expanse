@@ -658,6 +658,8 @@ TimeoutStopSec=30min
 # restart, holding the session with its old environment.
 Environment=RUNNER_MANUALLY_TRAP_SIG=1
 KillMode=mixed
+# The jobs' PATH: run.sh does not apply .path (only the runner's runsvc.sh does).
+Environment=PATH=/opt/expanse-toolchain/cargo/bin:/opt/expanse-toolchain/bin:/usr/local/bin:/usr/bin:/bin
 ProtectHome=yes
 PrivateTmp=yes
 ProtectSystem=full
@@ -672,9 +674,11 @@ IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/
 WantedBy=multi-user.target
 ```
 
-The job environment comes from two root-owned files the runner reads at start:
-`/opt/actions-runner/.path`, whose one line is the jobs' `PATH`, and
-`/opt/actions-runner/.env`:
+The jobs' `PATH` comes from the unit's `Environment=PATH=`: the runner applies
+`/opt/actions-runner/.path` only when started through its own `runsvc.sh`, and
+the unit runs `run.sh`. `.path` is kept with the same value for that case.
+Everything else comes from the root-owned `/opt/actions-runner/.env`, which the
+runner applies whichever way it starts:
 
 ```
 # .path
