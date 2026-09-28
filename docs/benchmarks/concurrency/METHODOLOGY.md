@@ -3964,3 +3964,47 @@ The deterministic half already exists: the Callgrind arm `sync_map_branchu_band`
 - The harness cannot build against it: its counters read `Stat::BranchSplitDemoteU`, which does not exist there.
 
 What the base control was meant to answer, the cost of a crossing that falls back beside one that does not, is the twin (the same build, no crossings); what the old band costs on a correct engine is the ablation build.
+
+### 24.8 Amendment: a crossing can fall back as contention at W = 1 with a reader (appended 2026-09-27, after two voided runs and before any admissible one)
+
+§24.1–§24.7 are unchanged above. This subsection corrects one rule of §24.4, which was wrong about the engine.
+
+**What §24.4 required, and what happened.** §24.4 voided a run unless, at W = 1 and duty 1, `branch_split_demote_u` = `branch_split_upgrade` = `owner_cycles` exactly. Both reference-host runs of `writer_scaling_band` at `3a1ef859` were voided by it, each in a W = 1, R = 1 counters cell:
+
+- Run 1, `ablation-one-digit-band` `band_d1_w1_r1`, round 1: DemoteU 8,192 and Upgrade 8,191 over 8,192 cycles (measured: https://github.com/orieg/expanse/actions/runs/36371158780).
+- Run 2, the default build, `band_d1_w1_r1`, round 2: DemoteU 8,192 and Upgrade 8,191 over 8,192 cycles (measured: https://github.com/orieg/expanse/actions/runs/36371755132).
+
+The driver refuses before it writes an artifact, so neither run's other counters were kept, and no throughput from either was read.
+
+**Cause, reproduced.** The same cell was re-run with the harness's counters build on a non-reference Linux development host, 8,192 cycles per run and two threads pinned to two cores. The counts, not the timings, are what this section uses.
+
+| build, readers | runs | runs with a missing crossing | missing | counted instead as |
+|---|---:|---:|---|---|
+| `ablation-one-digit-band`, R = 1 | 800 | 2 | one Upgrade; one DemoteU | 1 contention fallback each, `contention_gate_closed` 1, with 1 and 6 locked reads |
+| default, R = 1 | 400 | 1 | one Upgrade | 2 contention fallbacks, both `contention_gate_closed`, with 14 locked reads |
+| `ablation-one-digit-band`, R = 0 | 300 | 0 | — | no contention fallback |
+| default, R = 0 | 300 | 0 | — | no contention fallback |
+
+In every run with a missing crossing, `lock_fallbacks` is unchanged at 2 × cycles or above, the branch-split fallbacks are one short, and a contention fallback stands in for the missing one. The row's other identities hold, and the tree is a `BranchU` before and after the cell.
+
+This is the engine working as designed, not a harness fault. A reader whose optimistic `get` exhausts its retries takes `read_locked`, which closes the writer gate (`Shared::quiesce_writers`, `crates/expanse/src/sync.rs`). The owner may have entered as a writer just before the gate closed. Its optimistic attempt then finds the gate closed at the top of its retry loop and falls back as `FallbackCause::Contention`, before it reaches the branch whose form it would change. The exclusive section it falls back to crosses the band: `insert_shared` promotes the branch and `remove_shared` demotes it. The crossing happens and the owner counts it; only the counter that names its cause differs. With R = 0 no other thread can close the gate. §24.4 assumed that at W = 1 the owner is the only thread that falls back, and a reader can close the gate too.
+
+**The corrected rule, which replaces §24.4's W = 1 clause for every run after this subsection.**
+
+- **W = 1, R = 0, duty 1:** `branch_split_demote_u` = `branch_split_upgrade` = `owner_cycles` exactly. This is unchanged, and it is P24.1's cell.
+- **Every duty-1 cell:** DemoteU ≤ `owner_cycles` and Upgrade ≤ `owner_cycles`. The shortfall `2 × owner_cycles − DemoteU − Upgrade` must not exceed the cell's contention fallbacks: every crossing the branch-split counters miss must be a contention fallback. At W = 1, the contention fallbacks must not exceed `locked_reads`, because with one writer only a reader's locked read closes the gate.
+- **Duty 0:** DemoteU = Upgrade = 0 exactly, unchanged.
+- A row that breaks any of these voids the run.
+- **The 0.95 attribution floor** of §24.4 now covers W = 1, R = 1 as well as W ≥ 2. Below it, a cell is marked `crossings_unattributed` and reported.
+
+`check_band_counters_row` in `docs/benchmarks/concurrency/scripts/writer_scaling.py` enforces this rule. Its self-test holds three cases: the voided pattern, which is now admitted at R = 1 and refused at R = 0; a contention fallback at W = 1 with no locked read, which is refused; and a missing crossing that no contention fallback covers, which is refused. Every one of the 1,800 reproduced rows passes it. Three of them failed the rule it replaces.
+
+**The two runs.** Runs 36371158780 and 36371755132 are void and stay void. Their artifacts were never written, and nothing from them is re-read under this rule. The two runs §24.3 asks for are fresh dispatches after this subsection lands.
+
+**Label (AGENTS.md §8.19).** This changes a void rule after seeing its outcome on two runs, so what it can move is stated. It does not move:
+
+- the statistic: Δ and `t_band / t_twin` read the owner's own crossing count, which the harness checks structurally, not the counters;
+- the cells, rounds, cycles, pin or P24.1's threshold;
+- P24.1's cell, whose exact rule stands.
+
+What it changes is which runs are admissible. At W = 1, R = 1 it now admits a run in which a reader closed the gate across a crossing, and such a run was admissible at W ≥ 2 already. The results of later runs are therefore not relabelled INTERMEDIATE. Any cell whose crossings the counters under-attribute carries its shortfall and, below 0.95, the `crossings_unattributed` mark. The gate of §24.1 is reported as met "under §24.8".
