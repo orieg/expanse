@@ -28,6 +28,17 @@ Everything comes from two readings of `/proc` a window apart:
   whatever else ran on those CPUs took time or an SMT sibling from the
   benchmark directly. Load elsewhere contends only for shared cache, memory
   bandwidth and package power, and is counted as foreign but not on-pin.
+  The own tree is read immediately after `/proc/stat`, not with the process
+  scan before it, so the two operands of that subtraction describe the same
+  instant (`sample`, #1270).
+- **Attribution** (#1270): the foreign load split into task classes —
+  kernel threads (by kind: kworker, ksoftirqd, rcu, migration, other), the
+  runner's own processes (its cgroup, outside the run's tree), the guard
+  itself, and user processes — each with its sum, host-wide and on the pinned
+  CPUs (by the CPU a task last ran on); interrupt, softirq and steal time from
+  the per-CPU counters; and what none of those accounts for on the pinned
+  CPUs. The void rule does not read the attribution: every class counts as
+  foreign (`docs/BENCHMARKING.md` rule 8).
 - **Offenders**: each foreign process's CPU over the window, from its own
   `/proc/<pid>/stat` delta, named by `comm`, PID, elapsed time and short cgroup
   id (a container's id). No command line or user is recorded: this output is
@@ -81,6 +92,9 @@ def sanitize(text: str, limit: int = 32) -> str:
 # --------------------------------------------------------------------------
 # /proc readings
 # --------------------------------------------------------------------------
+PF_KTHREAD = 0x00200000  # `flags` bit of a kernel thread (include/linux/sched.h)
+
+
 @dataclass
 class Proc:
     pid: int
@@ -89,6 +103,8 @@ class Proc:
     ticks: int  # utime + stime
     child_ticks: int  # cutime + cstime (reaped descendants)
     start_ticks: int
+    flags: int = 0
+    processor: int = -1  # the CPU it last ran on
 
 
 def parse_stat(line: str) -> Proc:
@@ -102,12 +118,14 @@ def parse_stat(line: str) -> Proc:
     f = rest.split()
     if len(f) < 20:
         raise ValueError(f"unparseable /proc stat line: {line[:80]!r}")
-    # rest starts at field 3 (state): ppid=4 utime=14 stime=15 cutime=16
-    # cstime=17 starttime=22, i.e. rest indices 1, 11, 12, 13, 14, 19.
+    # rest starts at field 3 (state): ppid=4 flags=9 utime=14 stime=15
+    # cutime=16 cstime=17 starttime=22 processor=39, i.e. rest indices 1, 6,
+    # 11, 12, 13, 14, 19 and 36.
     return Proc(
         pid=int(pid_s), ppid=int(f[1]), comm=comm,
         ticks=int(f[11]) + int(f[12]), child_ticks=int(f[13]) + int(f[14]),
-        start_ticks=int(f[19]),
+        start_ticks=int(f[19]), flags=int(f[6]),
+        processor=int(f[36]) if len(f) > 36 else -1,
     )
 
 
@@ -125,16 +143,35 @@ def read_procs(proc: Path) -> dict[int, Proc]:
     return out
 
 
-def read_cpu_ticks(proc: Path) -> dict[int, tuple[int, int]]:
-    """`{cpu: (busy, total)}` from the per-CPU lines of `/proc/stat`."""
-    out: dict[int, tuple[int, int]] = {}
+@dataclass(frozen=True)
+class CpuTicks:
+    """One CPU's counters from `/proc/stat`, in USER_HZ ticks."""
+    busy: int
+    total: int
+    irq: int = 0
+    softirq: int = 0
+    steal: int = 0
+
+
+def read_cpu_ticks(proc: Path) -> dict[int, CpuTicks]:
+    """`{cpu: CpuTicks}` from the per-CPU lines of `/proc/stat`.
+
+    `busy` is everything but idle and iowait. Interrupt, softirq and steal
+    time are kept apart as well: with IRQ time accounting (the stock Ubuntu
+    kernel on a stable TSC) the kernel charges them to no task, so they are
+    busy time no process's `utime + stime` can explain.
+    """
+    out: dict[int, CpuTicks] = {}
     for line in (proc / "stat").read_text().splitlines():
         m = re.match(r"cpu(\d+)\s+(.*)", line)
         if not m:
             continue
-        vals = [int(v) for v in m.group(2).split()]
-        idle = vals[3] + (vals[4] if len(vals) > 4 else 0)  # idle + iowait
-        out[int(m.group(1))] = (sum(vals[:8]) - idle, sum(vals[:8]))
+        vals = [int(v) for v in m.group(2).split()] + [0] * 8
+        idle = vals[3] + vals[4]  # idle + iowait
+        out[int(m.group(1))] = CpuTicks(
+            busy=sum(vals[:8]) - idle, total=sum(vals[:8]),
+            irq=vals[5], softirq=vals[6], steal=vals[7],
+        )
     return out
 
 
@@ -153,6 +190,15 @@ def cgroup_id(proc: Path, pid: int) -> str:
     return m.group(1) if m else sanitize(last.removesuffix(".scope").removesuffix(".service"), 40)
 
 
+def cgroup_path(proc: Path, pid: int) -> str:
+    """The process's cgroup path as the kernel prints it (compared, never published)."""
+    try:
+        text = (proc / str(pid) / "cgroup").read_text().strip()
+    except OSError:
+        return ""
+    return text.splitlines()[-1].partition("::")[2] if text else ""
+
+
 def psi(proc: Path) -> dict[str, float | None]:
     out: dict[str, float | None] = {}
     for res in ("cpu", "io"):
@@ -168,12 +214,68 @@ def psi(proc: Path) -> dict[str, float | None]:
 class Sample:
     mono: float
     uptime: float
-    cpus: dict[int, tuple[int, int]]
+    cpus: dict[int, CpuTicks]
     procs: dict[int, Proc]
+    own_read_lag_s: float = 0.0  # from the /proc/stat read to the own tree's
+    own_read_passes: int = 0
 
 
-def sample(proc: Path) -> Sample:
-    return Sample(time.monotonic(), uptime_s(proc), read_cpu_ticks(proc), read_procs(proc))
+OWN_REREAD_MAX_PASSES = 5
+
+
+def _reread(proc: Path, pids: set[int]) -> dict[int, Proc]:
+    out = {}
+    for pid in pids:
+        try:
+            out[pid] = parse_stat((proc / str(pid) / "stat").read_text())
+        except OSError:  # discipline:allow(error-swallowing): reaped since the scan; its CPU is now in its reaper's cutime, which the next pass reads
+            continue
+    return out
+
+
+def sample(proc: Path, own_root: int | None = None, exclude: frozenset[int] | set[int] = frozenset(),
+           _after_scan=None) -> Sample:
+    """One reading of the host, with the run's own tree read beside `/proc/stat`.
+
+    The whole process table is scanned first (for attribution), then
+    `/proc/stat` is read, then the own tree is read again. Foreign load is the
+    pinned CPUs' busy time minus the own tree's CPU, so those two must be read
+    at the same instant: the first version read `/proc/stat` and then scanned
+    every process, so the own tree was read later than the CPU counters by
+    however far into the scan it came. When that lag differs between the two
+    ends of a window, the own tree's CPU is counted over a slightly different
+    interval than the CPUs' busy time: with eight busy cores, a lag 40 ms
+    longer at one sample moves a 2 s window's reading by 8 x 0.04 / 2 = 0.16
+    core-equivalents, negative in the window before and positive in the one
+    after. The voided runs of #1270 show exactly that pairing.
+
+    The own tree is re-read in passes until two consecutive passes find the
+    same live processes, so a child reaped mid-read is counted once, in its
+    reaper's cutime, never twice and never not at all.
+    """
+    procs = read_procs(proc)
+    own = (descendants(procs, own_root) - set(exclude)) if own_root is not None else set()
+    if _after_scan is not None:
+        _after_scan()
+    t0 = time.monotonic()
+    cpus = read_cpu_ticks(proc)
+    t1 = time.monotonic()
+    passes = 0
+    fresh: dict[int, Proc] = {}
+    live = own
+    while own:
+        passes += 1
+        fresh = _reread(proc, own)
+        if set(fresh) == live or passes >= OWN_REREAD_MAX_PASSES:
+            break
+        live = set(fresh)
+    t2 = time.monotonic()
+    for pid in own:
+        if pid in fresh:
+            procs[pid] = fresh[pid]
+        else:
+            procs.pop(pid, None)
+    return Sample((t0 + t1) / 2, uptime_s(proc), cpus, procs, round(t2 - t1, 6), passes)
 
 
 def descendants(procs: dict[int, Proc], root: int) -> set[int]:
@@ -207,22 +309,33 @@ def tree_ticks(procs: dict[int, Proc], tree: set[int]) -> int:
 # --------------------------------------------------------------------------
 # assessment
 # --------------------------------------------------------------------------
-def assess(a: Sample, b: Sample, pin: list[int], own_root: int, self_pids: set[int] = frozenset()) -> dict:
-    """What happened on the host between two samples, in core-equivalents."""
+def assess(a: Sample, b: Sample, pin: list[int], own_root: int, self_pids: set[int] = frozenset(),
+           run_cgroup: str | None = None, cgroup_of=None) -> dict:
+    """What happened on the host between two samples, in core-equivalents.
+
+    `run_cgroup` is the cgroup of the run's own root and `cgroup_of(pid)` reads
+    another process's; together they tell the runner's own processes apart
+    from the rest (`task_class`). Without them no task is classed `runner`.
+    """
     dt = b.mono - a.mono
     if dt < bp.MIN_WINDOW_S:
         raise ValueError(f"window {dt:.3f}s is below MIN_WINDOW_S {bp.MIN_WINDOW_S}s; not measurable")
     hz = bp.USER_HZ
     pin_set = set(pin)
     on_busy = off_busy = 0
-    for cpu, (busy, _tot) in b.cpus.items():
+    intr = {"on": {"irq": 0, "softirq": 0, "steal": 0}, "off": {"irq": 0, "softirq": 0, "steal": 0}}
+    for cpu, cb in b.cpus.items():
         if cpu not in a.cpus:
             continue
-        d = busy - a.cpus[cpu][0]
-        if cpu in pin_set:
+        ca = a.cpus[cpu]
+        d = cb.busy - ca.busy
+        side = "on" if cpu in pin_set else "off"
+        if side == "on":
             on_busy += d
         else:
             off_busy += d
+        for k in intr[side]:
+            intr[side][k] += getattr(cb, k) - getattr(ca, k)
     own_a = descendants(a.procs, own_root) - set(self_pids)
     own_b = descendants(b.procs, own_root) - set(self_pids)
     own = max(0, tree_ticks(b.procs, own_b) - tree_ticks(a.procs, own_a))
@@ -254,6 +367,112 @@ def assess(a: Sample, b: Sample, pin: list[int], own_root: int, self_pids: set[i
         "own_busy_cpus": round(own / scale, 3),
         "self_busy_cpus": round(self_ticks / scale, 3),
         "offenders": offenders[:10],
+        "own_read_lag_s": b.own_read_lag_s,
+        "own_read_passes": b.own_read_passes,
+        "attribution": attribute(a, b, pin_set, own_all, set(self_pids), on_busy - own, intr, scale,
+                                 run_cgroup, cgroup_of),
+    }
+
+
+# --------------------------------------------------------------------------
+# attribution: which kinds of task the foreign load came from (#1270)
+# --------------------------------------------------------------------------
+TASK_CLASSES = ("kernel", "runner", "user", "sampler")
+KERNEL_KINDS = (("kworker", "kworker"), ("ksoftirqd", "ksoftirqd"), ("rcu", "rcu"), ("migration", "migration"))
+
+
+def kernel_kind(comm: str) -> str:
+    for prefix, kind in KERNEL_KINDS:
+        if comm.startswith(prefix):
+            return kind
+    return "other"
+
+
+def task_class(p: Proc, self_pids: set[int], run_cgroup: str | None, cgroup_of) -> str:
+    """Which kind of foreign task this is.
+
+    - `sampler`: the guard itself.
+    - `kernel`: a kernel thread (`PF_KTHREAD`): kworker, ksoftirqd, rcu_*, ...
+    - `runner`: a process in the run's own cgroup but outside its tree — for a
+      CI job, the runner service (`Runner.Worker`, its log upload); for a
+      session on the host, that session's other processes.
+    - `user`: everything else.
+    """
+    if p.pid in self_pids:
+        return "sampler"
+    if p.flags & PF_KTHREAD or p.pid == 2 or p.ppid == 2:
+        return "kernel"
+    if run_cgroup and cgroup_of(p.pid) == run_cgroup:
+        return "runner"
+    return "user"
+
+
+def attribute(a: Sample, b: Sample, pin_set: set[int], own_all: set[int], self_pids: set[int],
+              on_pin_foreign_ticks: float, intr: dict, scale: float, run_cgroup: str | None,
+              cgroup_of=None) -> dict:
+    """Split the foreign load into task classes and interrupt time.
+
+    A task's CPU over the window is `(utime + stime + cutime + cstime)` at the
+    end less at the start, so a short-lived child that a foreign process
+    reaped inside the window is counted in its reaper's class; a process that
+    exited and was reaped is dropped from both ends and so appears only there.
+    It is put on the pinned CPUs or off them by the CPU it last ran on, which
+    for a process that moved in the window is an approximation, said so in
+    the record.
+
+    Interrupt, softirq and steal time come from the per-CPU counters, which
+    the kernel charges to no task under IRQ time accounting.
+
+    Whatever the tasks and interrupts on the pinned CPUs do not account for is
+    `unattributed_on_pin`. It is not dropped: the void rule reads the pinned
+    CPUs' busy time less the own tree's, and the attribution only explains it.
+    """
+    cgroup_of = cgroup_of or (lambda _pid: "")
+    cg_cache: dict[int, str] = {}
+
+    def cg(pid: int) -> str:
+        if pid not in cg_cache:
+            cg_cache[pid] = cgroup_of(pid)
+        return cg_cache[pid]
+
+    def total(p: Proc) -> int:
+        return p.ticks + p.child_ticks
+
+    host = dict.fromkeys(TASK_CLASSES, 0)
+    on_pin = dict.fromkeys(TASK_CLASSES, 0)
+    kinds: dict[str, int] = {}
+    for pid in set(a.procs) | set(b.procs):
+        if pid in own_all and pid not in self_pids:
+            continue
+        pa, pb = a.procs.get(pid), b.procs.get(pid)
+        if pa and pb and pa.start_ticks != pb.start_ticks:
+            pa = None  # a reused PID: a new process
+        if pb is None:
+            continue  # exited: its CPU is in its reaper's cutime
+        d = total(pb) - (total(pa) if pa else 0)
+        if d == 0:
+            continue
+        cls = task_class(pb, self_pids, run_cgroup, cg)
+        host[cls] += d
+        if pb.processor in pin_set:
+            on_pin[cls] += d
+        if cls == "kernel":
+            k = kernel_kind(pb.comm)
+            kinds[k] = kinds.get(k, 0) + d
+
+    def ce(ticks: float) -> float:
+        return round(ticks / scale, 3)
+
+    intr_on = sum(intr["on"].values())
+    tasks_on = sum(on_pin.values())
+    return {
+        "classes": {k: ce(v) for k, v in host.items()},
+        "classes_on_pin": {k: ce(v) for k, v in on_pin.items()},
+        "kernel_kinds": {k: ce(v) for k, v in sorted(kinds.items())},
+        "interrupts_on_pin": {k: ce(v) for k, v in intr["on"].items()},
+        "interrupts_off_pin": {k: ce(v) for k, v in intr["off"].items()},
+        "unattributed_on_pin": ce(on_pin_foreign_ticks - tasks_on - intr_on),
+        "placement": "a task's CPU is placed on or off the pinned CPUs by the CPU it last ran on",
     }
 
 
@@ -270,9 +489,38 @@ def verdict(a: dict, foreign_max: float, on_pin_max: float, proc_max: float) -> 
     return why
 
 
+def attribution_lines(a: dict) -> list[str]:
+    """What a window's foreign load was made of, by task class, as text.
+
+    Every class is printed with its sum, including zero, so a void that no
+    single process explains still says which kinds of task it did see.
+    """
+    at = a.get("attribution")
+    if not at:
+        return ["  (recorded before the attribution existed, #1270: no task-class breakdown)"]
+    on, intr_on = at["classes_on_pin"], at["interrupts_on_pin"]
+    tasks_on = sum(on.values())
+    intr_sum = sum(intr_on.values())
+    lines = [
+        f"  on the pinned CPUs {a['on_pin_foreign_busy_cpus']:.2f} = tasks {tasks_on:.2f} "
+        f"({', '.join(f'{k} {v:.2f}' for k, v in on.items())}) + interrupts {intr_sum:.2f} "
+        f"({', '.join(f'{k} {v:.2f}' for k, v in intr_on.items())}) + unattributed {at['unattributed_on_pin']:.2f}",
+        f"  host-wide foreign tasks: {', '.join(f'{k} {v:.2f}' for k, v in at['classes'].items())}"
+        + (f"; kernel threads: {', '.join(f'{k} {v:.2f}' for k, v in at['kernel_kinds'].items())}" if at["kernel_kinds"] else ""),
+    ]
+    lag = a.get("own_read_lag_s")
+    if lag is not None:
+        bound = a["own_busy_cpus"] * lag / a["window_s"] if a.get("window_s") else 0.0
+        lines.append(f"  own tree read {lag * 1e3:.2f} ms after the CPU counters "
+                     f"({a.get('own_read_passes', 0)} pass(es)); at its load that moves the reading by at most {bound:.3f}")
+    if at["unattributed_on_pin"] > tasks_on + intr_sum:
+        lines.append("  no task or interrupt time accounts for most of it")
+    return lines
+
+
 def offender_table(offenders: list[dict]) -> list[str]:
     if not offenders:
-        return ["(no foreign process at or above 1% of a CPU)"]
+        return ["(no single foreign process at or above 1% of a CPU)"]
     rows = ["  pid     %cpu  elapsed  cgroup        command"]
     for o in offenders:
         rows.append(f"  {o['pid']:<7} {o['cpu_pct']:>5.1f}  {o['etime_s']:>6}s  {o.get('cgroup', ''):<12}  {o['comm']}")
@@ -316,11 +564,14 @@ def cmd_check(args, proc: Path) -> int:
     deadline = time.monotonic() + args.wait
     quiet = 0
     history: list[dict] = []
-    prev = sample(proc)
+    me = {os.getpid()}
+    run_cg = cgroup_path(proc, args.own_root)
+    prev = sample(proc, args.own_root, me)
     while True:
         time.sleep(bp.START_WINDOW_S)
-        cur = sample(proc)
-        a = _with_cgroups(proc, assess(prev, cur, pin, args.own_root, {os.getpid()}))
+        cur = sample(proc, args.own_root, me)
+        a = _with_cgroups(proc, assess(prev, cur, pin, args.own_root, me, run_cg,
+                                       lambda pid: cgroup_path(proc, pid)))
         prev = cur
         why = verdict(a, bp.START_FOREIGN_MAX, bp.START_ON_PIN_MAX, bp.START_PROCESS_MAX_PCT)
         a["quiet"] = not why
@@ -352,6 +603,7 @@ def cmd_check(args, proc: Path) -> int:
         f"host guard: {report['verdict']} after {len(history)} window(s) of {bp.START_WINDOW_S:g}s; "
         f"foreign {last['foreign_busy_cpus']:.2f}, on the pinned CPUs {last['on_pin_foreign_busy_cpus']:.2f} "
         f"core-equivalents; loadavg {' '.join(report['loadavg'])}",
+        *attribution_lines(last),
         *offender_table(last["offenders"]),
     ]
     if args.md:
@@ -397,14 +649,16 @@ def cmd_watch(args, proc: Path) -> int:
     except OSError:  # discipline:allow(error-swallowing): a lower priority is a courtesy; the sample's own CPU is measured either way
         pass
     me = {os.getpid()}
-    prev = sample(proc)
+    run_cg = cgroup_path(proc, args.own_root)
+    prev = sample(proc, args.own_root, me)
     with open(args.out, "a", encoding="utf-8") as fh:
         while not stop:
             time.sleep(args.interval)
-            cur = sample(proc)
+            cur = sample(proc, args.own_root, me)
             if args.own_root not in cur.procs:
                 break  # the run is over
-            a = _with_cgroups(proc, assess(prev, cur, pin, args.own_root, me))
+            a = _with_cgroups(proc, assess(prev, cur, pin, args.own_root, me, run_cg,
+                                           lambda pid: cgroup_path(proc, pid)))
             prev = cur
             a["t"] = round(time.time(), 1)
             a["watch_cpus"] = placed
@@ -440,6 +694,7 @@ def cmd_summarize(args) -> int:
     ]
     for s, why in bad[:5]:
         lines.append(f"  at {time.strftime('%H:%M:%S', time.gmtime(s['t']))}Z: " + "; ".join(why))
+        lines += attribution_lines(s)
         lines += offender_table(s["offenders"][:3])
     if len(governors) > 1:
         bad.append(({}, ["the governor on the pinned CPUs changed during the run"]))
@@ -463,13 +718,19 @@ def cmd_summarize(args) -> int:
 # --------------------------------------------------------------------------
 # self-test: synthetic /proc trees
 # --------------------------------------------------------------------------
-def _stat_line(pid, ppid, comm, ticks, child=0, start=100):
+def _stat_line(pid, ppid, comm, ticks, child=0, start=100, flags=0, cpu=0):
     # fields 3..22: state ppid pgrp session tty tpgid flags minflt cminflt
-    # majflt cmajflt utime stime cutime cstime priority nice threads itreal starttime
-    return (f"{pid} ({comm}) S {ppid} 1 1 0 -1 0 0 0 0 0 {ticks} 0 {child} 0 20 0 1 0 {start} 0 0\n")
+    # majflt cmajflt utime stime cutime cstime priority nice threads itreal
+    # starttime; then 23..38 (vsize .. exit_signal) and 39, processor
+    return (f"{pid} ({comm}) S {ppid} 1 1 0 -1 {flags} 0 0 0 0 {ticks} 0 {child} 0 20 0 1 0 {start}"
+            + " 0" * 16 + f" {cpu}\n")
 
 
-def _write_proc(root: Path, cpus: dict[int, int], procs: list[tuple], uptime: float = 1000.0) -> None:
+def _write_proc(root: Path, cpus: dict[int, int], procs: list[tuple], uptime: float = 1000.0,
+                irq: dict[int, tuple[int, int]] | None = None) -> None:
+    """A synthetic `/proc`. A process is `(pid, ppid, comm, ticks, child, start)`,
+    optionally followed by its `flags`, the CPU it last ran on and its cgroup
+    path. `irq` gives a CPU's `(irq, softirq)` ticks, part of its busy time."""
     import shutil
 
     if root.exists():
@@ -477,16 +738,20 @@ def _write_proc(root: Path, cpus: dict[int, int], procs: list[tuple], uptime: fl
     root.mkdir(parents=True)
     lines = ["cpu  0 0 0 0 0 0 0 0 0 0"]
     for cpu, busy in cpus.items():
-        # user=busy, idle=10000-busy, everything else 0
-        lines.append(f"cpu{cpu} {busy} 0 0 {100000 - busy} 0 0 0 0 0 0")
+        # irq and softirq as given, user = the rest of busy, idle = 100000 - busy
+        hi, si = (irq or {}).get(cpu, (0, 0))
+        lines.append(f"cpu{cpu} {busy - hi - si} 0 0 {100000 - busy} 0 {hi} {si} 0 0 0")
     (root / "stat").write_text("\n".join(lines) + "\n")
     (root / "uptime").write_text(f"{uptime} 0\n")
     (root / "loadavg").write_text("0.10 0.20 0.30 1/100 1\n")
-    for pid, ppid, comm, ticks, child, start in procs:
+    for pid, ppid, comm, ticks, child, start, *extra in procs:
+        flags, cpu, cg = (list(extra) + [0, 0, None][len(extra):])[:3]
         d = root / str(pid)
         d.mkdir()
-        (d / "stat").write_text(_stat_line(pid, ppid, comm, ticks, child, start))
-        (d / "cgroup").write_text(f"0::/system.slice/docker-{'ab' * 32}.scope\n" if comm == "kvbench" else "0::/user.slice\n")
+        (d / "stat").write_text(_stat_line(pid, ppid, comm, ticks, child, start, flags, cpu))
+        if cg is None:
+            cg = f"/system.slice/docker-{'ab' * 32}.scope" if comm == "kvbench" else "/user.slice"
+        (d / "cgroup").write_text(f"0::{cg}\n")
 
 
 def self_test() -> int:
@@ -594,6 +859,107 @@ def self_test() -> int:
                 assert cmd_summarize(ns) == 1, "an empty record cannot show a quiet run"
             finally:
                 sys.stdout = old
+
+        # 9. The motivating defect of #1270: the benchmark used CPU between
+        # the process scan and the /proc/stat read. The first version took
+        # the own tree's ticks from the scan and so read that CPU as foreign
+        # (1.0 here; 0.29-0.57 in the voided runs). The own tree is now read
+        # after /proc/stat, and the window reads clean.
+        bench = [(1, 0, "systemd", 0, 0, 1), (root, 1, "bash", 0, 0, 500)]
+        a = samp(t, 0.0, {0: 0, 1: 0, 2: 0, 3: 0}, bench + [(11, root, "bench", 0, 0, 600)])
+
+        def _bench_ran_on():
+            _write_proc(t, {0: 2 * hz, 1: 0, 2: 0, 3: 0}, bench + [(11, root, "bench", 2 * hz, 0, 600)])
+
+        _write_proc(t, {0: hz, 1: 0, 2: 0, 3: 0}, bench + [(11, root, "bench", hz, 0, 600)])
+        b = sample(t, root, frozenset(), _after_scan=_bench_ran_on)
+        b.mono = 1.0
+        assert b.procs[11].ticks == 2 * hz and b.own_read_passes == 1, b  # re-read, not the scan's value
+        r = assess(a, b, pin, root)
+        assert abs(r["on_pin_foreign_busy_cpus"]) < 1e-6 and abs(r["own_busy_cpus"] - 2.0) < 1e-6, r
+        assert r["own_read_lag_s"] >= 0 and r["own_read_passes"] == 1, r
+
+        # 10. A child reaped between the scan and the re-read is counted once,
+        # in its reaper's cutime: the re-read runs until the live set holds.
+        a = samp(t, 0.0, {0: 0, 1: 0, 2: 0, 3: 0}, bench + [(11, root, "bench", 0, 0, 600)])
+
+        def _reaped():
+            _write_proc(t, {0: hz, 1: 0, 2: 0, 3: 0}, [(1, 0, "systemd", 0, 0, 1), (root, 1, "bash", 0, hz, 500)])
+
+        _write_proc(t, {0: hz // 2, 1: 0, 2: 0, 3: 0}, bench + [(11, root, "bench", hz // 2, 0, 600)])
+        b = sample(t, root, frozenset(), _after_scan=_reaped)
+        b.mono = 1.0
+        assert 11 not in b.procs and b.procs[root].child_ticks == hz and b.own_read_passes == 2, b
+        r = assess(a, b, pin, root)
+        assert abs(r["on_pin_foreign_busy_cpus"]) < 1e-6 and abs(r["own_busy_cpus"] - 1.0) < 1e-6, r
+
+        # 11. Attribution: every class is summed, and whatever tasks and
+        # interrupts do not explain on the pinned CPUs is `unattributed`.
+        run_cg = "/system.slice/expanse-bench-runner.service"
+        kw, us = hz // 10, hz // 20
+        before = [(1, 0, "systemd", 0, 0, 1), (2, 0, "kthreadd", 0, 0, 1, PF_KTHREAD),
+                  (root, 7, "bash", 0, 0, 500, 0, 0, run_cg), (7, 1, "Runner.Worker", 0, 0, 400, 0, 3, run_cg),
+                  (11, root, "bench", 0, 0, 600, 0, 0, run_cg),
+                  (40, 2, "kworker/1:2-events", 0, 0, 50, PF_KTHREAD, 1),
+                  (41, 2, "ksoftirqd/3", 0, 0, 50, PF_KTHREAD, 3),
+                  (60, 1, "sshd", 0, 0, 900, 0, 0)]
+        after = [(1, 0, "systemd", 0, 0, 1), (2, 0, "kthreadd", 0, 0, 1, PF_KTHREAD),
+                 (root, 7, "bash", 0, 0, 500, 0, 0, run_cg), (7, 1, "Runner.Worker", hz // 5, 0, 400, 0, 3, run_cg),
+                 (11, root, "bench", hz, 0, 600, 0, 0, run_cg),
+                 (40, 2, "kworker/1:2-events", kw, 0, 50, PF_KTHREAD, 1),
+                 (41, 2, "ksoftirqd/3", kw, 0, 50, PF_KTHREAD, 3),
+                 (60, 1, "sshd", us, 0, 900, 0, 0)]
+        # CPU 0: the bench. CPU 1: the kworker, the sshd, an irq tick and a
+        # softirq tick, and 5 ticks nothing accounts for. CPU 3: the runner
+        # and ksoftirqd, off the pin.
+        extra = 5
+        _write_proc(t, {0: 0, 1: 0, 2: 0, 3: 0}, before)
+        a = sample(t, root)
+        a.mono = 0.0
+        _write_proc(t, {0: hz, 1: kw + us + 2 + extra, 2: 0, 3: hz // 5 + kw}, after, irq={1: (1, 1)})
+        b = sample(t, root)
+        b.mono = 1.0
+        r = assess(a, b, pin, root, frozenset(), run_cg, lambda pid: cgroup_path(t, pid))
+        at = r["attribution"]
+        ce = lambda ticks: round(ticks / hz, 3)  # noqa: E731
+        assert at["classes"] == {"kernel": ce(2 * kw), "runner": ce(hz // 5), "user": ce(us), "sampler": 0.0}, at
+        assert at["classes_on_pin"] == {"kernel": ce(kw), "runner": 0.0, "user": ce(us), "sampler": 0.0}, at
+        assert at["kernel_kinds"] == {"ksoftirqd": ce(kw), "kworker": ce(kw)}, at
+        assert at["interrupts_on_pin"] == {"irq": ce(1), "softirq": ce(1), "steal": 0.0}, at
+        assert at["unattributed_on_pin"] == ce(extra), at
+        assert abs(r["on_pin_foreign_busy_cpus"] - ce(kw + us + 2 + extra)) < 1e-6, r
+        text = "\n".join(attribution_lines(r))
+        assert f"unattributed {ce(extra):.2f}" in text and "kernel threads: ksoftirqd" in text, text
+        assert "no task or interrupt time accounts for most of it" not in text, text
+
+        # 12. Fail closed: load on the pinned CPUs that no task explains still
+        # voids, and the report says so in task-class terms.
+        _write_proc(t, {0: 0, 1: 0, 2: 0, 3: 0}, before)
+        a = sample(t, root)
+        a.mono = 0.0
+        _write_proc(t, {0: hz, 1: hz // 2, 2: 0, 3: 0},
+                    before[:4] + [(11, root, "bench", hz, 0, 600, 0, 0, run_cg)] + before[5:])
+        b = sample(t, root)
+        b.mono = 1.0
+        r = assess(a, b, pin, root, frozenset(), run_cg, lambda pid: cgroup_path(t, pid))
+        assert r["attribution"]["unattributed_on_pin"] == 0.5, r
+        assert any("pinned CPUs 0.50" in w for w in verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)), r
+        assert "no task or interrupt time accounts for most of it" in "\n".join(attribution_lines(r))
+
+        # 13. summarize prints the breakdown under a void, for a record with
+        # the attribution and for one from before it.
+        rec = dict(r, t=0, governor=["performance"])
+        old_rec = {k: v for k, v in rec.items() if k not in ("attribution", "own_read_lag_s", "own_read_passes")}
+        for record, needle in ((rec, "unattributed 0.50"), (old_rec, "no task-class breakdown")):
+            jl.write_text(json.dumps(record) + "\n")
+            buf = Path(td, "sum.md")
+            with open(os.devnull, "w") as dn:
+                old, sys.stdout = sys.stdout, dn
+                try:
+                    assert cmd_summarize(argparse.Namespace(inp=str(jl), md=str(buf))) == 1
+                finally:
+                    sys.stdout = old
+            assert needle in buf.read_text(), buf.read_text()
 
         # 8. The pin set follows bench_pin.sh: an explicit list, else cpu_core.
         sysfs = Path(td, "sys")
