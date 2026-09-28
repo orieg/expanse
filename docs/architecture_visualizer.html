@@ -3504,18 +3504,21 @@
     metricHwAcc.textContent = hwAcc;
     if (metricHwSub) metricHwSub.textContent = hwSub;
 
-    // Render pipeline
-    flowPipeline.innerHTML = steps.map((s, idx) => `
-      <div class="pipeline-step ${s.badge === 'MULTI-LEVEL BYPASS' || s.badge === 'FAST PATH' ? 'bypass' : 'active'}">
-        <div class="step-header">
-          <span class="step-title">${s.title}</span>
-          <span class="step-badge ${s.badgeClass}">${s.badge}</span>
-        </div>
-        <div class="step-desc">${s.desc}</div>
-        <div class="algo-tag">⚡ ${s.algo}</div>
-      </div>
-      ${idx < steps.length - 1 ? '<div class="flow-arrow">↓</div>' : ''}
-    `).join('');
+    // Render pipeline. Step text carries select values (`dist`), so it is
+    // set as text, never parsed as HTML.
+    const el = (tag, cls, text) => {
+      const e = document.createElement(tag);
+      e.className = cls;
+      if (text !== undefined) e.textContent = text;
+      return e;
+    };
+    flowPipeline.replaceChildren(...steps.flatMap((s, idx) => {
+      const step = el('div', `pipeline-step ${s.badge === 'MULTI-LEVEL BYPASS' || s.badge === 'FAST PATH' ? 'bypass' : 'active'}`);
+      const header = el('div', 'step-header');
+      header.append(el('span', 'step-title', s.title), el('span', `step-badge ${s.badgeClass}`, s.badge));
+      step.append(header, el('div', 'step-desc', s.desc), el('div', 'algo-tag', `⚡ ${s.algo}`));
+      return idx < steps.length - 1 ? [step, el('div', 'flow-arrow', '↓')] : [step];
+    }));
 
     // Highlight DAG nodes
     document.querySelectorAll('.dag-node').forEach(n => {

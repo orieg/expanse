@@ -17561,7 +17561,11 @@ mod obsolete_tests {
     /// subarray for a bitmap branch), its top digits in order, and whether
     /// every child is itself a branch.
     fn misdirect_root(top: *mut Edge) -> (EdgeType, *const Edge, Vec<u8>, bool) {
-        // SAFETY: `top` is the live root edge of a quiescent tree.
+        // `root_top_ptr` is null for a root that is not a tree; a fixture
+        // that built none fails here instead of reading through null.
+        assert!(!top.is_null(), "the fixture's root is a tree");
+        // SAFETY: `top` is non-null (checked above), so it is the live root
+        // edge of a quiescent tree.
         let e = unsafe { top.read() };
         let is_branch = |c: &Edge| {
             matches!(
@@ -17931,7 +17935,9 @@ mod obsolete_tests {
         op: impl FnOnce() -> R + Send,
     ) -> R {
         use std::sync::Arc;
-        // SAFETY: `top` is the live root edge of a tree this test owns.
+        assert!(!top.is_null(), "the root is a tree");
+        // SAFETY: `top` is non-null (checked above), so it is the live root
+        // edge of a tree this test owns.
         let node = unsafe { top.read() }.node_ptr().cast::<BranchB>();
         let before = test_hooks::Gate::new();
         let after = test_hooks::Gate::new();
