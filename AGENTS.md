@@ -16,14 +16,16 @@ Named for Judy's defining structural invariant: **partitioning digital trees by 
 
 ### Workspace Structure
 - **`crates/expanse`** (`package: expanse-trie`): Core algorithmic engine. **`std` by default, `no_std` supported** — `default = ["std"]`, and `lib.rs` is `#![cfg_attr(not(feature = "std"), no_std)]` with `extern crate alloc`. The `no_std` build is not aspirational: CI runs `cargo check -p expanse-trie --no-default-features` against `riscv32imac`, `riscv32imc` and `thumbv7em-none-eabihf`, so a change that needs `std` must sit behind `#[cfg(feature = "std")]` or it breaks those targets.
-- **`crates/expanse-capi`** (`package: expanse-capi`): C ABI shared (`libexpanse.so` / `expanse.dll` / `libexpanse.dylib`) and static (`libexpanse.a` / `expanse.lib`) libraries providing both modern `expanse_*` and legacy `Judy*` symbols.
+- **`crates/expanse-capi`** (`package: expanse-capi`): C ABI shared (`libexpanse.so` / `expanse.dll` / `libexpanse.dylib`) and static (`libexpanse.a` / `expanse.lib`) libraries exporting two parallel C surfaces from one library: the modern `expanse_*` API (`include/expanse.h`) and the legacy `Judy1*`/`JudyL*`/`JudySL*`/`JudyHS*` drop-in (`include/Judy.h`, 64-bit builds only). §4.1 states how each may change.
 - **`crates/expanse-py`**: PyO3 native Python extension.
 - **`crates/expanse-node`**: napi native Node.js addon.
 - **`crates/expanse-wasm`**: WebAssembly (wasm-bindgen) surface.
 - **`crates/expanse-wasm-fuel`**: the deterministic wasmtime-fuel instrument for the wasm targets — the Callgrind analogue, gated by the `wasm-fuel` CI job.
 - **`crates/expanse-php`**: PHP native extension.
 - **`bindings/`**: language SDK packages that wrap the native surfaces — `bindings/java` (Panama FFM), `bindings/dotnet` (P/Invoke .NET), plus `bindings/go`, `bindings/python`, `bindings/ruby` (FFI over `libexpanse`, not a native extension), `bindings/php` packaging.
-- **`include/expanse.hpp`**: header-only C++20 wrapper over the C ABI.
+- **`include/Judy.h`**: clean-room, source-compatible legacy header for the `Judy*` drop-in.
+- **`include/expanse.h`**: the modern C API header.
+- **`include/expanse.hpp`**: header-only C++20 wrapper over `expanse.h`.
 
 ### Canonical Documentation Hierarchy
 Do not scatter architecture notes into arbitrary files. Update the canonical documents; do not create new `.md` files.
@@ -92,7 +94,7 @@ A representation change is **never local to the trie/slot definitions**. Every r
 1. **OCC Concurrency Protocol (`sync.rs`, `occ.rs`)**: Reader guards (`SyncBlobReaderGuard`, `SyncMapReaderGuard`) must decode the new tags within the seqlock validation bracket. Unknown or unhandled tags must never silently return `None` or report present keys as absent.
 2. **Columnar Metadata Invariants (`hot_meta`, `scan_filtered`)**: Slot conversions or inlining must never destroy metadata. If an inline representation lacks metadata bits, enforce a strict gate: promote to inline **only when metadata is unpopulated (`hot_meta == 0`)**; otherwise spill to `ArenaMeta`.
 3. **Binary Image Serialization (`EXPANSE_FORMAT_VERSION`, `save_to_file`/`load_from_file`)**: Binary formats containing new discriminants must bump the format version and explicitly reject unsupported tags with an error on load.
-4. **C ABI Pointer Lifetime Contracts (`expanse-capi`, `include/expanse.h`, `docs/COMPAT.md`)**: Pointers documented as "valid until next mutation" must never be faked with thread-local single buffers or sized ring buffers. Provide caller-owned destination buffers (`get_into`) for dynamically decoded payloads.
+4. **C ABI Pointer Lifetime Contracts (`expanse-capi`, `include/expanse.h`, `include/Judy.h`, `docs/COMPAT.md`)**: Pointers documented as "valid until next mutation" must never be faked with thread-local single buffers or sized ring buffers. Provide caller-owned destination buffers (`get_into`) for dynamically decoded payloads.
 5. **Language Binding Surfaces (`expanse-py`, `expanse-node`, `expanse-wasm`, `expanse-php`)**: Verify that all binding extraction, iteration, and pruning routines consume decoded views without dropping keys.
 6. **Semver Protection**: Public discriminant enums (`SlotTag`) MUST carry `#[non_exhaustive]`.
 
@@ -157,6 +159,15 @@ An ablation feature exists to decide a mechanism (§8.20.3). Promoting its winne
   - Modern API functions use the `expanse_` prefix (e.g. `expanse_map_get`); new C capabilities always use it.
   - Compat symbols retain exact `Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` signatures and **never change semantics**.
   - A `expanse_*` symbol that only one width's engine can honour goes in the matching width-gated block of `include/expanse.h` (`#if EXPANSE_WIDE_SURFACE` / `#if !EXPANSE_WIDE_SURFACE`) — absent from the other build, never stubbed. `scripts/check_abi_parity.py` tags the narrow block `narrow_only` and excludes it from binding coverage; the i686 CI job (Rust test + a C smoke linked with `-m32`) is its verification lane. `docs/COMPAT.md` carries the surface matrix.
+
+### 4.1 Two C Surfaces: `expanse.h` Evolves, `Judy.h` Does Not
+`libexpanse` ships both surfaces side by side in one library. They have different change rules.
+
+- **`Judy.h` is a frozen drop-in contract.** Its symbols, signatures, types (`Word_t`, `Pvoid_t`, `JError_t`), `JU_ERRNO_*` values, convenience macros (`J1S`, `JLI`, …) and documented semantics stay exactly as `docs/COMPAT.md` defines them, so a libjudy consumer relinks or `LD_PRELOAD`s `libexpanse` with no source change. It never gains `expanse_*` declarations, never `#include`s `expanse.h`, and never takes a new parameter, return convention or error code. Behaviour the published man pages leave open is settled by the `stock-oracle` differential harness (§3) and recorded in `docs/COMPAT.md`, never by a design preference. The `differential-oracle` and `php-judy-*` CI jobs are its gates.
+- **`expanse.h` is the evolving surface.** New capabilities, new types, renamed or restructured entry points and changed conventions go here, under the `expanse_` prefix. Breaking changes are allowed under the Cargo 0.x rule (a minor bump) and are recorded in `docs/COMPAT.md` and the release notes. A capability classic Judy lacks is never backported into `Judy.h`, not even as an additive extension; a consumer who wants it includes `expanse.h` alongside `Judy.h`.
+- **Engine changes stay behind both surfaces.** Node layout, `Edge`/`ValueSlot` encoding and the Rust types may change freely, provided the `Judy*` entry points keep their observable behaviour. If a change to the engine or to `expanse.h` would alter a `Judy*` result, the `Judy*` shim in `expanse-capi` absorbs the difference; the contract does not move.
+- **Packaging keeps the drop-in resolvable.** The `libjudy-compat` link (`libJudy.so.1` → `libexpanse.so.1`, `.github/workflows/release.yml`) and the installed `Judy.h` must survive any `expanse.h` break. A break that bumps the `libexpanse` soname updates that link in the same PR, so the `libJudy.so.1` name never dangles and never changes.
+- **Width.** The `Judy*` drop-in is a 64-bit guarantee; 32-bit builds export no `Judy*` symbols at all (`docs/COMPAT.md`, build-configuration surface matrix). This is absence, not a stub, as for the width-gated `expanse_*` blocks above.
 
 ---
 
