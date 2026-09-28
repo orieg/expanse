@@ -167,4 +167,128 @@ proptest! {
     fn map32_matches_btreemap(ops in prop::collection::vec(op_strategy(), 1..400)) {
         run_map(&ops);
     }
+
+    #[test]
+    fn sync32_map_writer_matches_plain_map(ops in prop::collection::vec(shared_op_strategy(), 1..800)) {
+        run_shared_map(&ops);
+    }
+
+    #[test]
+    fn sync32_set_writer_matches_plain_set(ops in prop::collection::vec(shared_op_strategy(), 1..800)) {
+        run_shared_set(&ops);
+    }
+}
+
+/// Keys for the shared-writer model (#1233): two full level-1 expanses (256
+/// keys each, dense enough to promote a leaf past `MAP_BITMAP_ENTER_32` and
+/// `SET_BITMAP_ENTER_32` and to demote it back), plus the general strategy,
+/// so bitmap-leaf key-set edits, subarray class crossings and demotions all
+/// occur.
+fn shared_key_strategy() -> impl Strategy<Value = u32> {
+    prop_oneof![
+        4 => (0u32..256).prop_map(|i| 0x0102_0300 | i),
+        3 => (0u32..256).prop_map(|i| 0xC0DE_0000 | i),
+        2 => key_strategy(),
+    ]
+}
+
+fn shared_op_strategy() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        5 => shared_key_strategy().prop_map(Op::Insert),
+        3 => shared_key_strategy().prop_map(Op::Remove),
+        1 => shared_key_strategy().prop_map(Op::Get),
+        1 => Just(Op::Audit),
+    ]
+}
+
+/// The concurrent wrapper's writer runs the shared instantiation of the walks
+/// (in-place word stores into bitmap leaves, #1233); the plain container runs
+/// the plain one. Every answer, the ordered contents as a reader walks them,
+/// and the byte accounting must agree at every audit.
+fn run_shared_map(ops: &[Op]) {
+    use expanse_trie::sync32::SyncExpanseMap32;
+    let val = |k: u32| k.rotate_left(11) ^ 0x5A5A_A5A5;
+    let mut plain = ExpanseMap32::new();
+    let mut shared = SyncExpanseMap32::with_capacity(8_192, 1);
+    let (mut w, mut pool) = shared.split();
+    let mut r = pool.take().expect("reader slot");
+    for (i, op) in ops.iter().enumerate() {
+        match *op {
+            Op::Insert(k) => {
+                // Alternate the value so overwrites change it.
+                let v = val(k) ^ (i as u32 & 1);
+                let got = w.try_insert(k, v).expect("insert");
+                assert_eq!(got, plain.insert(k, v), "insert {k:#x}");
+            }
+            Op::Remove(k) => {
+                let got = w.try_remove(k).expect("remove");
+                assert_eq!(got, plain.remove(k), "remove {k:#x}");
+            }
+            Op::Get(k) => {
+                let got = r.try_get(k).expect("no writer runs");
+                assert_eq!(got, plain.get(k), "get {k:#x}");
+            }
+            Op::Audit => {
+                assert!(w.try_reclaim(), "no reader is pinned");
+                assert_eq!(w.len(), plain.len(), "len");
+                assert_eq!(w.mem_used(), plain.mem_used(), "mem_used");
+                let mut walked = Vec::new();
+                let mut next = r.try_first().expect("no writer runs");
+                while let Some((k, v)) = next {
+                    walked.push((k, v));
+                    next = r.try_next_after(k).expect("no writer runs");
+                }
+                assert!(walked.iter().copied().eq(plain.iter()), "ordered contents");
+            }
+        }
+    }
+    let keys: Vec<u32> = plain.iter().map(|(k, _)| k).collect();
+    for k in keys {
+        let got = w.try_remove(k).expect("drain");
+        assert_eq!(got, plain.remove(k), "drain {k:#x}");
+        assert!(w.try_reclaim(), "no reader is pinned");
+    }
+    assert!(w.is_empty());
+    assert_eq!(w.mem_used(), 0, "leak after drain");
+}
+
+/// Set mirror of [`run_shared_map`].
+fn run_shared_set(ops: &[Op]) {
+    use expanse_trie::sync32::SyncExpanseSet32;
+    let mut plain = ExpanseSet32::new();
+    let mut shared = SyncExpanseSet32::with_capacity(8_192, 1);
+    let (mut w, mut pool) = shared.split();
+    let mut r = pool.take().expect("reader slot");
+    for op in ops {
+        match *op {
+            Op::Insert(k) => {
+                let got = w.try_insert(k).expect("insert");
+                assert_eq!(got, plain.insert(k), "insert {k:#x}");
+            }
+            Op::Remove(k) => {
+                let got = w.try_remove(k).expect("remove");
+                assert_eq!(got, plain.remove(k), "remove {k:#x}");
+            }
+            Op::Get(k) => {
+                let got = r.try_contains(k).expect("no writer runs");
+                assert_eq!(got, plain.contains(k), "contains {k:#x}");
+            }
+            Op::Audit => {
+                assert!(w.try_reclaim(), "no reader is pinned");
+                assert_eq!(w.len(), plain.len(), "len");
+                assert_eq!(w.mem_used(), plain.mem_used(), "mem_used");
+                for k in plain.iter() {
+                    assert!(r.try_contains(k).expect("no writer runs"), "member {k:#x}");
+                }
+            }
+        }
+    }
+    let keys: Vec<u32> = plain.iter().collect();
+    for k in keys {
+        let got = w.try_remove(k).expect("drain");
+        assert_eq!(got, plain.remove(k), "drain {k:#x}");
+        assert!(w.try_reclaim(), "no reader is pinned");
+    }
+    assert!(w.is_empty());
+    assert_eq!(w.mem_used(), 0, "leak after drain");
 }
