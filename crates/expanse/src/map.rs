@@ -4389,6 +4389,13 @@ impl ExpanseMap {
     /// (16 bytes per entry), which is held while the new tree is built, so the
     /// transient peak is about the buffer plus the new tree's
     /// [`Self::mem_held`].
+    ///
+    /// **Cost.** The saving over `collect()` comes from input that is already
+    /// strictly ascending, which skips the sort and builds every node once.
+    /// Unsorted input pays for the sort first, and on the `map_from_sorted_iter`
+    /// / `map_collect` Callgrind arms that costs about what the inserts it
+    /// replaces cost, so for unsorted input the two are interchangeable and
+    /// `collect()` avoids the buffer.
     #[must_use]
     pub fn from_sorted_iter<I: IntoIterator<Item = (Key, u64)>>(iter: I) -> Self {
         let mut entries: Vec<(u64, u64)> = iter.into_iter().collect();
