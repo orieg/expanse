@@ -25,7 +25,11 @@ follows, and every artifact is re-stamped with the whole series. The written
 artifacts are then judged by `check_bench_provenance.findings_for`, and a
 finding fails the run (AGENTS.md section 8.17, #1214).
 
-  run_all.py [--quick]
+`--skip-ycsb` re-measures the four single-process pillars and leaves the YCSB
+pillar's committed runs as they are: its driver owns its rounds and artifact,
+and a re-run of it is a separate measurement with its own two runs.
+
+  run_all.py [--quick] [--skip-ycsb]
   run_all.py --self-test
 """
 
@@ -366,7 +370,10 @@ def main():
 
     # After the single-process pillars: the driver takes its own load snapshots
     # around each of its rounds and writes its own provenance block.
-    run_ycsb(quick)
+    if "--skip-ycsb" in sys.argv:
+        print("==> Skipping the YCSB pillar (--skip-ycsb); its committed runs are unchanged.")
+    else:
+        run_ycsb(quick)
 
     add_load(prov, "end")
     # The artifacts were written inside the loop above, before this
