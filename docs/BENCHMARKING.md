@@ -622,22 +622,30 @@ Bench targets deliberately **not** reachable from a slash command:
        reads the own tree immediately after `/proc/stat`. It first read it
        during a whole-process scan after `/proc/stat`, and when that scan ran
        late at one sample the own tree's CPU fell into the neighbouring
-       window: in the five `concurrency` runs it voided on 2026-09-28, about
-       half of all samples read *negative* on-pin foreign load (as low as
-       −0.39), which no foreign process can produce, and nine of the ten
-       samples over the boundary came right after one reading −0.23 to
-       −0.39; in eight of those nine no foreign process reached 1 % of a CPU,
-       and in the ninth `sshd` and `rsync` together used 0.10 of one. The
-       tenth was real load: a `cron`-started `hdparm` at 63 % of a CPU
-       *(measured:
-       `host-activity.jsonl` of runs
+       window. In the seven `concurrency` runs it voided on 2026-09-28, 50 %
+       to 53 % of each run's samples read *negative* on-pin foreign load (as
+       low as −0.40), which no foreign process can produce. Eleven of the
+       twelve samples over the boundary came right after one reading −0.20 to
+       −0.40; in ten of those eleven no foreign process reached 1 % of a CPU,
+       and in the eleventh `sshd` and `rsync` together used 0.10 of one. The
+       twelfth was real load: a `cron`-started `hdparm` at 63 % of a CPU. The
+       three runs it admitted at the same refs read as low as −0.34 as well
+       *(measured: `host-activity.jsonl` of voided runs
        [36401373828](https://github.com/orieg/expanse/actions/runs/36401373828),
        [36419777123](https://github.com/orieg/expanse/actions/runs/36419777123),
        [36452009138](https://github.com/orieg/expanse/actions/runs/36452009138),
        [36456913612](https://github.com/orieg/expanse/actions/runs/36456913612),
        [36459335554](https://github.com/orieg/expanse/actions/runs/36459335554),
-       i9-12900F reference host)*. Each sample records how long after the
-       CPU counters the own tree was read (`own_read_lag_s`).
+       [36464205972](https://github.com/orieg/expanse/actions/runs/36464205972),
+       [36466620921](https://github.com/orieg/expanse/actions/runs/36466620921)
+       and admitted runs
+       [36454440196](https://github.com/orieg/expanse/actions/runs/36454440196),
+       [36461783455](https://github.com/orieg/expanse/actions/runs/36461783455),
+       [36469013416](https://github.com/orieg/expanse/actions/runs/36469013416),
+       i9-12900F reference host)*. Each sample now records how long after
+       the CPU counters the own tree was read (`own_read_lag_s`), and a void
+       prints the reading at the three decimals it was compared at (run
+       36466620921 printed `0.25 > 0.25` for 0.252).
      - *Attribution.* Every sample splits its foreign load by task class —
        kernel threads (kworker, ksoftirqd, rcu, migration, other), the
        runner's own processes (the run's cgroup, outside its tree), the guard

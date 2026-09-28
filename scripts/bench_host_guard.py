@@ -480,12 +480,12 @@ def verdict(a: dict, foreign_max: float, on_pin_max: float, proc_max: float) -> 
     """Why a window exceeds the bounds; empty when it does not."""
     why = []
     if a["foreign_busy_cpus"] > foreign_max:
-        why.append(f"foreign load {a['foreign_busy_cpus']:.2f} > {foreign_max} core-equivalents")
+        why.append(f"foreign load {a['foreign_busy_cpus']:.3f} > {foreign_max:g} core-equivalents")
     if a["on_pin_foreign_busy_cpus"] > on_pin_max:
-        why.append(f"foreign load on the pinned CPUs {a['on_pin_foreign_busy_cpus']:.2f} > {on_pin_max}")
+        why.append(f"foreign load on the pinned CPUs {a['on_pin_foreign_busy_cpus']:.3f} > {on_pin_max:g}")
     for o in a["offenders"]:
         if o["cpu_pct"] >= proc_max:
-            why.append(f"{o['comm']} (pid {o['pid']}, running {o['etime_s']}s) at {o['cpu_pct']:.0f}% >= {proc_max:.0f}%")
+            why.append(f"{o['comm']} (pid {o['pid']}, running {o['etime_s']}s) at {o['cpu_pct']:.1f}% >= {proc_max:g}%")
     return why
 
 
@@ -793,7 +793,7 @@ def self_test() -> int:
         assert r["offenders"][0]["comm"] == "kvbench" and r["offenders"][0]["cpu_pct"] == 100.0, r
         assert r["offenders"][0]["cgroup"] == "ab" * 6, r
         why = verdict(r, bp.START_FOREIGN_MAX, bp.START_ON_PIN_MAX, bp.START_PROCESS_MAX_PCT)
-        assert any("kvbench" in w for w in why) and any("foreign load 1.00" in w for w in why), why
+        assert any("kvbench" in w for w in why) and any("foreign load 1.000 > 0.5 " in w for w in why), why
         # Off-pin, it is not yet on-pin contamination...
         assert not any("pinned CPUs" in w for w in why), why
 
@@ -943,8 +943,15 @@ def self_test() -> int:
         b.mono = 1.0
         r = assess(a, b, pin, root, frozenset(), run_cg, lambda pid: cgroup_path(t, pid))
         assert r["attribution"]["unattributed_on_pin"] == 0.5, r
-        assert any("pinned CPUs 0.50" in w for w in verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)), r
+        assert any(f"pinned CPUs 0.500 > {bp.RUN_ON_PIN_VOID:g}" in w for w in verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)), r
         assert "no task or interrupt time accounts for most of it" in "\n".join(attribution_lines(r))
+
+        # 12b. A crossing prints the value it was judged on. Run 36466620921
+        # voided on 0.252 and printed "0.25 > 0.25": the reading is stored at
+        # three decimals, so it is printed at three.
+        edge = {"foreign_busy_cpus": 0.0, "on_pin_foreign_busy_cpus": 0.252, "offenders": []}
+        assert verdict(edge, 1.0, 0.25, 100.0) == ["foreign load on the pinned CPUs 0.252 > 0.25"], verdict(edge, 1.0, 0.25, 100.0)
+        assert verdict(dict(edge, on_pin_foreign_busy_cpus=0.25), 1.0, 0.25, 100.0) == []
 
         # 13. summarize prints the breakdown under a void, for a record with
         # the attribution and for one from before it.
