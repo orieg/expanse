@@ -486,7 +486,7 @@ never "latest":
 |---|---|---|
 | Rust | `RUSTUP_HOME=/opt/expanse-toolchain/rustup`, installed by root with `--no-modify-path`, each toolchain by explicit version or dated nightly, with the components the suites use (the `wasm` suite's `rust-src`) | `rustc -Vv` of every toolchain the previous account had |
 | `iai-callgrind-runner` | `cargo install --locked --version <v> --root /opt/expanse-toolchain` | the `iai-callgrind` version in `Cargo.lock` |
-| valgrind | the distribution package, or a root-owned build under `/opt/expanse-toolchain` | `valgrind --version` |
+| valgrind | a root-owned build under `/opt/expanse-toolchain`, from the release and checksum `.github/actions/valgrind` pins for the hosted Callgrind jobs | `valgrind --version`, at or above the 3.24.0 floor `bench_baremetal.yml` enforces |
 | stock libjudy | the distribution package, or a root-owned build registered in `/etc/ld.so.conf.d/` rather than through `LD_LIBRARY_PATH` | `sha256sum` of the `.so` that `dlopen("libJudy.so.1")` resolved |
 | `perf` | the kernel's tools package, no file capabilities | `perf version` |
 | Python | system `python3` and its `venv` module; packages go into the per-run venv the workflow builds | `python3 -V` |

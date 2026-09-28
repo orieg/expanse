@@ -294,6 +294,14 @@ cmd_prepare() {
 cmd_cutover() {
   need_root; parse_args "$@"
   [ -n "$NAME" ] || die "--name <runner-name> is required"
+  # Already cut over: the registration belongs to root's install and the
+  # service account runs the listener. Nothing to move; re-running migrate.sh
+  # to apply a toolchain change lands here.
+  if [ -f "$RUNNER/.runner" ] && [ "$(stat -c %U "$RUNNER/.runner")" = root ] \
+     && systemctl is-active --quiet "$UNIT"; then
+    say "already cut over ($UNIT active); nothing to do"
+    return 0
+  fi
   [ -n "${REMOVE_TOKEN:-}" ] && [ -n "${REG_TOKEN:-}" ] || die "REMOVE_TOKEN and REG_TOKEN must be set"
 
   # The service account needs the workflow to take its toolchain from the
