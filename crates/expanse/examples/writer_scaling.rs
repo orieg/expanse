@@ -2,9 +2,10 @@
 //!
 //! Measures writer throughput of [`SyncExpanseMap`], [`SyncExpanseSet`],
 //! [`SyncExpanseStrMap`], [`SyncExpanseBytesMap`] and [`SyncExpanseBlobMap`] as writer
-//! count scales across physical P-cores (W in {1, 2, 4, 8}, R = 0). The last three
-//! serialise every insert on the writer mutex (#929), so they are the coarse-mutex
-//! reference curves beside the two optimistic-lock-coupling arms.
+//! count scales across physical P-cores (W in {1, 2, 4, 8}, R = 0). All five run
+//! optimistic writers: the last three since #929, each with an
+//! `ablation-*-serial-writers` build that serialises every insert on the writer
+//! mutex as the reference curve.
 //!
 //! Decoupled from `crates/expanse-hot-bench`: links no third-party competitor
 //! trees, requiring zero C++ submodules. Uses the shared XorShift64 seeds and
@@ -492,6 +493,30 @@ impl Counters {
                 "{cell}: Stat::WriteOps = {}, expected inserts ({}) + removes ({removes}) + \
                  lock_fallbacks ({}) = {want}",
                 self.write_ops_stat, self.inserts, self.lock_fallbacks
+            ));
+        }
+        Ok(())
+    }
+
+    /// What a single-writer row of an optimistic arm owes on top of
+    /// [`Self::check`]: no lock restart and no lock fallback.
+    ///
+    /// With one writer no peer can hold a node's version word or close the
+    /// gate, so a restart or a contention fallback has no source; and the
+    /// self-test workloads reach every structural transition on the
+    /// optimistic path, so a structural fallback here is an engine change.
+    /// Deterministic, which is why it is asserted at `W = 1` only. At
+    /// `W = 2` a writer can exhaust `MAX_RETRIES` against its peer and fall
+    /// back for contention — the protocol working, and a matter of timing
+    /// (AGENTS.md §8.4).
+    fn check_uncontended(&self, cell: &str) -> Result<(), String> {
+        if self.lock_fallbacks != 0 || self.lock_restarts != 0 {
+            return Err(format!(
+                "{cell}: one writer, expected 0 lock fallbacks and 0 lock restarts, got \
+                 lock_fallbacks = {}, causes {}, {}",
+                self.lock_fallbacks,
+                self.causes_json(),
+                self.extra_counters_json()
             ));
         }
         Ok(())
@@ -3528,51 +3553,74 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     // count, zero included (AGENTS.md section 8.4: hard assertions belong on
     // deterministic invariants).
 
+    // The str, bytes and blob arms (#929) run optimistic writers, as the map
+    // and set arms do; none counts node allocations. Every cell owes every
+    // key present and the `check()` identities. A one-writer cell also owes
+    // no restart and no fallback (`check_uncontended`), which is
+    // deterministic. A two-writer cell owes no fallback count: two writers
+    // meeting on one node can exhaust `MAX_RETRIES` and fall back for
+    // contention, which is a matter of timing (AGENTS.md section 8.4).
     let wl_str = WriterStrWorkload::generate(n0, m);
-    let (el_str, pop_str, fb_str) = run_str_cell(&wl_str, 2, 0, is_counters, &mut dummy_ctl);
-    if pop_str != (n0 + m) as u64 {
-        return Err(format!("str expected pop {}, got {pop_str}", n0 + m));
+    let wl_blob = WriterWorkload::generate(n0, m, 64);
+    for writers in [1, 2] {
+        for name in ["str", "bytes", "blob"] {
+            let (el, pop, fb) = match name {
+                "str" => run_str_cell(&wl_str, writers, 0, is_counters, &mut dummy_ctl),
+                "bytes" => run_bytes_cell(&wl_str, writers, 0, is_counters, &mut dummy_ctl),
+                _ => run_blob_cell(&wl_blob, writers, 0, is_counters, &mut dummy_ctl),
+            };
+            let cell = format!("self-test {name} W={writers}");
+            if pop != (n0 + m) as u64 {
+                return Err(format!("{cell}: expected pop {}, got {pop}", n0 + m));
+            }
+            if is_counters {
+                if fb.total_allocs.is_some() {
+                    return Err(format!(
+                        "{cell}: expected no allocator count, got {:?}",
+                        fb.total_allocs
+                    ));
+                }
+                fb.check(m as u64, 0, &cell)?;
+                if writers == 1 {
+                    fb.check_uncontended(&cell)?;
+                }
+            } else if el <= 0.0 {
+                return Err(format!("{cell}: invalid elapsed {el}"));
+            }
+        }
     }
-    if is_counters {
-        // str arm is the alpha=1 coarse-mutex reference curve: 0 lock fallbacks by construction
-        if fb_str.lock_fallbacks != 0 {
+    // The one-writer check must be able to fail, on each clause: a
+    // contention fallback with no restart (a writer that met a closed gate)
+    // is refused by it, and so is a restart with no fallback.
+    let contended = Counters {
+        lock_fallbacks: 1,
+        inserts: m as u64,
+        causes: [0, 0, 0, 0, 1, 0],
+        contention_gate_closed: 1,
+        quiesce_calls: 1,
+        ..Counters::default()
+    };
+    contended.check(m as u64, 0, "self-test contended canary")?;
+    match contended.check_uncontended("canary") {
+        Err(e) if e.contains("lock_fallbacks = 1") && e.contains("\"contention\":1") => {}
+        other => {
             return Err(format!(
-                "counters test: expected fb_str == 0, got {}",
-                fb_str.lock_fallbacks
+                "check_uncontended accepted a contention fallback: {other:?}"
             ));
         }
-        if fb_str.total_allocs.is_some() {
-            return Err("counters test: expected fb_str.total_allocs to be None (null)".into());
-        }
-        fb_str.check(m as u64, 0, "self-test str")?;
-    } else if el_str <= 0.0 {
-        return Err(format!("throughput test: invalid str elapsed {el_str}"));
     }
-
-    // The bytes and blob arms (#929 step 1) serialise every insert on the
-    // writer mutex, as the str arm does, so they owe the same: every key
-    // present, no lock fallback, no allocator count, the identities checked.
-    let (el_bytes, pop_bytes, fb_bytes) =
-        run_bytes_cell(&wl_str, 2, 0, is_counters, &mut dummy_ctl);
-    let wl_blob = WriterWorkload::generate(n0, m, 64);
-    let (el_blob, pop_blob, fb_blob) = run_blob_cell(&wl_blob, 2, 0, is_counters, &mut dummy_ctl);
-    for (name, el, pop, fb) in [
-        ("bytes", el_bytes, pop_bytes, fb_bytes),
-        ("blob", el_blob, pop_blob, fb_blob),
-    ] {
-        if pop != (n0 + m) as u64 {
-            return Err(format!("{name} expected pop {}, got {pop}", n0 + m));
-        }
-        if is_counters {
-            if fb.lock_fallbacks != 0 || fb.total_allocs.is_some() {
-                return Err(format!(
-                    "counters test: {name} expected 0 lock fallbacks and no allocator count, got {} and {:?}",
-                    fb.lock_fallbacks, fb.total_allocs
-                ));
-            }
-            fb.check(m as u64, 0, &format!("self-test {name}"))?;
-        } else if el <= 0.0 {
-            return Err(format!("throughput test: invalid {name} elapsed {el}"));
+    let restarted = Counters {
+        inserts: m as u64,
+        lock_restarts: 1,
+        ..Counters::default()
+    };
+    restarted.check(m as u64, 0, "self-test restart canary")?;
+    match restarted.check_uncontended("canary") {
+        Err(e) if e.contains("\"lock_restarts\":1") => {}
+        other => {
+            return Err(format!(
+                "check_uncontended accepted a lock restart: {other:?}"
+            ));
         }
     }
     if blob_meta(0) == 0 || blob_payload(1) == blob_payload(2) {
