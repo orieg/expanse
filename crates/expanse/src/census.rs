@@ -203,8 +203,19 @@ unsafe fn walk<const MAP: bool>(
         return empty(0, 0);
     };
     match tag {
-        EdgeTag::Structural(EdgeType::Null) => empty(0, 0),
+        // An empty slot holds no keys, and so does not stop its parent from
+        // forming a group.
+        EdgeTag::Structural(EdgeType::Null) => Sub {
+            pop: 0,
+            bytes: 0,
+            keys: rule.map(|_| Vec::new()),
+            groups: Vec::new(),
+        },
+        // A full expanse costs no heap bytes, so no leaf form can beat the
+        // subtree it sits in: reporting no keys keeps its parent out of every
+        // group on purpose.
         EdgeTag::Structural(EdgeType::FullExpanse) => {
+            debug_assert!(level < 8, "a full-expanse edge below the root");
             let pop = 1usize << (8 * u32::from(level));
             empty(pop, 0)
         }
@@ -494,21 +505,42 @@ mod tests {
                 m.insert(k, k);
                 s.insert(k);
             }
-            for rule in rules {
-                let cm = m.layout_census(rule);
-                assert_eq!(cm.bytes, m.mem_used(), "map {name} n={}", keys.len());
-                assert_eq!(cm.keys, keys.len() as u64, "map {name}");
-                let cs = s.layout_census(rule);
-                assert_eq!(cs.bytes, s.mem_used(), "set {name} n={}", keys.len());
-                assert_eq!(cs.keys, keys.len() as u64, "set {name}");
-                for c in [&cm, &cs] {
-                    let merged: usize = c.merge_groups.iter().map(|(g, n)| g.bytes * n).sum();
-                    assert!(
-                        merged <= c.bytes,
-                        "{name}: groups replace more than the tree"
+            // Twice: as built, and after removing every third key, so the
+            // census also covers trees the remove walks have demoted.
+            for round in 0..2 {
+                if round == 1 {
+                    for &k in keys.iter().step_by(3) {
+                        m.remove(k);
+                        s.remove(k);
+                    }
+                }
+                let live = m.len();
+                for rule in rules {
+                    let cm = m.layout_census(rule);
+                    assert_eq!(
+                        cm.bytes,
+                        m.mem_used(),
+                        "map {name} n={} round {round}",
+                        keys.len()
                     );
-                    if rule.is_none() {
-                        assert!(c.merge_groups.is_empty());
+                    assert_eq!(cm.keys, live, "map {name} round {round}");
+                    let cs = s.layout_census(rule);
+                    assert_eq!(
+                        cs.bytes,
+                        s.mem_used(),
+                        "set {name} n={} round {round}",
+                        keys.len()
+                    );
+                    assert_eq!(cs.keys, live, "set {name} round {round}");
+                    for c in [&cm, &cs] {
+                        let merged: usize = c.merge_groups.iter().map(|(g, n)| g.bytes * n).sum();
+                        assert!(
+                            merged <= c.bytes,
+                            "{name}: groups replace more than the tree"
+                        );
+                        if rule.is_none() {
+                            assert!(c.merge_groups.is_empty());
+                        }
                     }
                 }
             }

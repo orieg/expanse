@@ -5,7 +5,7 @@
 //! candidate layout. Deterministic byte accounting — no timing, so host load
 //! does not enter.
 //!
-//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only]`
+//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only]`
 //!
 //! # Workload shape
 //!
@@ -13,8 +13,8 @@
 //! |---|---|
 //! | `workload_id` | `example_leaf_layout_census` |
 //! | `group` | 5 |
-//! | `population` | 10^6 per shape; the #1257 string case also at 10^7 (`--quick`: 10^5) |
-//! | `insertion_order` | generator — each shape is inserted in its generator's order, stated per shape in the JSON |
+//! | `population` | 10^6 per synthetic shape; the #1257 string case also at 10^7 (`--quick`: 10^5); each SOSD dataset whole (`--sosd`) |
+//! | `insertion_order` | generator — each shape is inserted in its generator's order, stated per shape in the JSON; SOSD files in file order, which is sorted |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
@@ -295,6 +295,60 @@ fn main() {
         .unwrap_or(if quick { 100_000 } else { 1_000_000 });
     let mut out = Vec::new();
 
+    // Real sorted `u64` keys (SOSD, Kipf et al. 2019): `--sosd name=path`,
+    // repeatable, reads the benchmark's binary format — a little-endian u64
+    // count, then that many little-endian u64 keys — and censuses the whole
+    // file as map and set. `--sosd-only` skips the synthetic shapes.
+    let sosd: Vec<(String, String)> = args
+        .windows(2)
+        .filter(|w| w[0] == "--sosd")
+        .map(|w| {
+            let (name, path) = w[1].split_once('=').expect("--sosd name=path");
+            (name.to_string(), path.to_string())
+        })
+        .collect();
+    for (name, path) in &sosd {
+        let bytes = std::fs::read(path).expect("read SOSD file");
+        let count = u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
+        assert_eq!(bytes.len(), 8 + 8 * count, "{path}: not an SOSD u64 file");
+        let keys: Vec<u64> = bytes[8..]
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|c| u64::from_le_bytes(*c))
+            .collect();
+        drop(bytes);
+        let shape = format!("sosd_{name}");
+        let mut m = ExpanseMap::new();
+        for (i, &k) in keys.iter().enumerate() {
+            m.insert(k, i as u64);
+        }
+        record(
+            &mut out,
+            totals_only,
+            "map",
+            &shape,
+            "sorted",
+            m.mem_used(),
+            |r| m.layout_census(r),
+        );
+        drop(m);
+        let mut s = ExpanseSet::new();
+        for &k in &keys {
+            s.insert(k);
+        }
+        record(
+            &mut out,
+            totals_only,
+            "set",
+            &shape,
+            "sorted",
+            s.mem_used(),
+            |r| s.layout_census(r),
+        );
+    }
+    let synthetic = !args.iter().any(|a| a == "--sosd-only");
+
     for shape in [
         "sequential",
         "random",
@@ -302,6 +356,9 @@ fn main() {
         "decimal8_sparse",
         "adversarial",
     ] {
+        if !synthetic {
+            break;
+        }
         let keys = u64_keys(shape, n);
         let order = if shape == "random" || shape == "decimal8_sparse" {
             "generator"
@@ -337,6 +394,9 @@ fn main() {
     let mut str_cells = vec![("orders", n), ("orders_sparse", n), ("uuid_hex", n)];
     if !quick {
         str_cells.push(("orders", 10_000_000));
+    }
+    if !synthetic {
+        str_cells.clear();
     }
     for (shape, count) in str_cells {
         let keys = str_keys(shape, count);

@@ -1,4 +1,4 @@
-{"instrument": "leaf_layout_census", "commit": "c5a6f6886+layout-census", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
+{"instrument": "leaf_layout_census", "commit": "c5a6f6886+layout-census, features layout-census,ablation-leaf-class-10", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
 {"engine": "map", "shape": "sequential", "keys": 1000000, "mem_used": 8564160},
 {"engine": "set", "shape": "sequential", "keys": 1000000, "mem_used": 65152},
 {"engine": "map", "shape": "random", "keys": 1000000, "mem_used": 17424592},

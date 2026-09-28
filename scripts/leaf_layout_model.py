@@ -56,6 +56,7 @@ Usage:
 
 from __future__ import annotations
 
+import gzip
 import json
 import math
 import sys
@@ -327,6 +328,13 @@ def price(record: dict, option: str, max_keys: int = 128, max_digits: int = 16,
     return {"bytes": total, "merged_keys": merged_keys, "worse_groups": worse}
 
 
+def load(path: str) -> dict:
+    """A census or totals file, plain or gzip-compressed (`.gz`)."""
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rt") as f:
+        return json.load(f)
+
+
 def check_census_file(doc: dict) -> None:
     """Every record's baseline price equals its engine `mem_used()`."""
     for r in doc["records"]:
@@ -455,6 +463,7 @@ def test_pins() -> None:
 # the section's figures rest on: the census prices to mem_used, and each
 # engine that implements an option measured what the model predicted.
 ARTIFACT = "results/leaf_layout_census_c5a6f688.json"
+SOSD_ARTIFACT = "results/leaf_layout_census_sosd.json.gz"
 PREDICTIONS = (
     ("results/leaf_layout_census_c5a6f688_class10.json", "class_10", 128, 16, None),
     ("results/leaf_layout_census_c5a6f688_cap128.json", "leaf_cap", 128, 10,
@@ -467,7 +476,7 @@ PREDICTIONS = (
 def test_committed_artifacts() -> None:
     import os
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    doc = json.load(open(os.path.join(root, ARTIFACT)))
+    doc = load(os.path.join(root, ARTIFACT))
     check_census_file(doc)
     orders = next(r for r in doc["records"] if r["shape"] == "orders_10000000")
     assert orders["mem_used"] == 179_699_624                     # 17.97 B/key
@@ -475,9 +484,13 @@ def test_committed_artifacts() -> None:
     # 179,699,624 − 176,019,200 replaced + 100,010 ranges × raw(843) = 848 B
     assert price(orders, "product_leaf", 128, 16)["bytes"] == 88_488_904
     for path, option, mk, md, shapes in PREDICTIONS:
-        totals = json.load(open(os.path.join(root, path)))
+        totals = load(os.path.join(root, path))
         rows = check_prediction(doc, totals, option, mk, md, shapes)
         assert rows and all(pred == meas for _, _, pred, meas in rows), (path, rows)
+    # The four SOSD datasets, whole (§3.6): each census prices to its mem_used.
+    sosd = load(os.path.join(root, SOSD_ARTIFACT))
+    check_census_file(sosd)
+    assert len(sosd["records"]) == 8
 
 
 def main(argv: list) -> int:
@@ -490,12 +503,12 @@ def main(argv: list) -> int:
     if not paths:
         print(__doc__)
         return 0
-    doc = json.load(open(paths[0]))
+    doc = load(paths[0])
     check_census_file(doc)
     if "--check" in argv:
         # <census.json> --check <totals.json> <option> <max_keys> <max_digits> [shape,...]
         i = argv.index("--check")
-        totals = json.load(open(argv[i + 1]))
+        totals = load(argv[i + 1])
         option, mk, md = argv[i + 2], int(argv[i + 3]), int(argv[i + 4])
         shapes = argv[i + 5].split(",") if len(argv) > i + 5 else None
         bad = 0
