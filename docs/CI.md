@@ -470,7 +470,7 @@ the human accounts that benchmark on the host also join.
 | `/var/lib/expanse-bench/{cargo,cache}` | `expanse-bench 0700` | yes | `CARGO_HOME`, `XDG_CACHE_HOME`; emptied before every job |
 | `/run/expanse-bench/expanse-bench.flock{,.owner}` | `root:expanse-benchlock 0660`, in a `root 0755` directory | contents only | the host-wide benchmark lock and its owner record |
 | `/usr/local/sbin/expanse-governor` | `root:root 0755` | no | the scaling-governor helper (#1213) |
-| `/usr/local/libexec/expanse-bench/job-started` | `root:root 0755` | no | the job-started hook |
+| `/usr/local/libexec/expanse-bench/job-started.sh` | `root:root 0755` | no | the job-started hook |
 
 The home directory is not under `/home`, so the one home path a job log still
 prints — `actions/checkout` copying a global gitconfig, when one exists — names a
@@ -486,7 +486,7 @@ never "latest":
 |---|---|---|
 | Rust | `RUSTUP_HOME=/opt/expanse-toolchain/rustup`, installed by root with `--no-modify-path`, each toolchain by explicit version or dated nightly, with the components the suites use (the `wasm` suite's `rust-src`) | `rustc -Vv` of every toolchain the previous account had |
 | `iai-callgrind-runner` | `cargo install --locked --version <v> --root /opt/expanse-toolchain` | the `iai-callgrind` version in `Cargo.lock` |
-| valgrind | the distribution package, or a root-owned build under `/opt/expanse-toolchain` | `valgrind --version` |
+| valgrind | a root-owned build under `/opt/expanse-toolchain`, from the release and checksum `.github/actions/valgrind` pins for the hosted Callgrind jobs | `valgrind --version`, at or above the 3.24.0 floor `bench_baremetal.yml` enforces |
 | stock libjudy | the distribution package, or a root-owned build registered in `/etc/ld.so.conf.d/` rather than through `LD_LIBRARY_PATH` | `sha256sum` of the `.so` that `dlopen("libJudy.so.1")` resolved |
 | `perf` | the kernel's tools package, no file capabilities | `perf version` |
 | Python | system `python3` and its `venv` module; packages go into the per-run venv the workflow builds | `python3 -V` |
@@ -510,20 +510,24 @@ monitoring to every process on the machine, and `cap_sys_ptrace` lets any job
 attach to any of them.
 
 **Scaling governor.** The only privileged operation a run performs is setting
-and restoring the scaling governor (#1213), through a root-owned helper that
-validates its own arguments. The rule names the helper's path **and** every
-argument form it accepts — a sudoers command with no arguments listed permits
-any arguments — and the workflow calls it with `sudo -n`, so a missing rule
-fails the step instead of waiting on a password prompt:
+and restoring the scaling governor (#1213). It goes through the root-owned
+helper `/usr/local/sbin/expanse-governor`, which `scripts/bench_governor.py`
+calls with `sudo -n`, so a missing rule fails the step instead of waiting on a
+password prompt. The helper takes a CPU list that changes with the dispatch's
+pin, so the sudoers rule cannot enumerate argument forms. It names the path
+alone, and the helper is the argument boundary: a fixed operation and value
+vocabulary, a strict CPU-list grammar, and nothing read from the environment or
+`PATH`. That boundary holds only for the reviewed helper, so `provision.sh`
+grants the rule only while the installed helper is byte-identical to
+`scripts/host/expanse-governor`, and `check` fails when it is not:
 
 ```
-# /etc/sudoers.d/expanse-bench — edit with `visudo -f`, mode 0440
-Cmnd_Alias EXPANSE_GOVERNOR = /usr/local/sbin/expanse-governor <form-1>, \
-                              /usr/local/sbin/expanse-governor <form-2>
-expanse-bench ALL=(root) NOPASSWD: EXPANSE_GOVERNOR
+# /etc/sudoers.d/expanse-bench — mode 0440, checked with visudo
+expanse-bench ALL=(root) NOPASSWD: /usr/local/sbin/expanse-governor
 ```
 
-`sudo -l -U expanse-bench` must list exactly those forms and nothing else.
+`sudo -l -U expanse-bench` must list that line and nothing else. The AVX-512
+lane does not set the governor, and a host without the helper gets no rule.
 
 **The benchmark lock.** The host lock is `flock(2)` on
 `scripts/bench_lock.py`, and it excludes only runs that open the same
@@ -683,7 +687,7 @@ LD_LIBRARY_PATH=/opt/expanse-toolchain/lib
 LIBRARY_PATH=/opt/expanse-toolchain/lib
 C_INCLUDE_PATH=/opt/expanse-toolchain/include
 EXPANSE_BENCH_FLOCK=/run/expanse-bench/expanse-bench.flock
-ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/expanse-bench/job-started
+ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/expanse-bench/job-started.sh
 ```
 
 `EXPANSE_TOOLCHAIN` is what the workflows test for. When it is set they add
@@ -698,6 +702,9 @@ the unified cgroup hierarchy; check that a job can reach `github.com` and
 cannot reach a LAN address before relying on it. If the host resolves DNS
 through a resolver on the LAN rather than a local stub, add that one address
 with `IPAddressAllow=<resolver>/32`, which takes precedence over the deny list.
+
+The runner rejects a hook path that does not end in `.sh`, `.ps1` or `.js`,
+and fails every job at "Set up runner" when it does.
 
 `CARGO_HOME` is writable and deliberately **not** on `PATH`: `cargo install`
 lands there and runs nothing later.
