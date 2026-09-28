@@ -26,9 +26,9 @@
 #       Read-only. Verifies the arrangement and prints one line per property;
 #       exits non-zero on any FAIL.
 #
-# The scaling-governor sudoers rule is installed only when
-# EXPANSE_GOVERNOR_FORMS names the helper's argument forms, one per line
-# (e.g. "set performance"); without it the account has no sudo at all.
+# When the #1213 governor helper is installed and equals the repository's
+# reference copy, the account gets one NOPASSWD rule naming its path; without
+# the helper it has no sudo at all.
 
 # ok/bad/todo always return 0, so `test && ok || bad` is an if-then-else here.
 # shellcheck disable=SC2015
@@ -256,27 +256,27 @@ EOF
 }
 
 prepare_sudoers() {
-  local f=/etc/sudoers.d/expanse-bench
-  if [ -z "${EXPANSE_GOVERNOR_FORMS:-}" ]; then
+  # The #1213 helper takes a CPU list that changes with the dispatch's pin, so
+  # the rule cannot enumerate argument forms. It names the path alone, the rule
+  # #1213 documents, and the helper is the argument boundary: a fixed operation
+  # and value vocabulary, a strict CPU-list grammar, nothing read from the
+  # environment or PATH. That boundary holds only for the reviewed helper, so
+  # the installed one must equal the repository's reference copy.
+  local f=/etc/sudoers.d/expanse-bench ref="$REPO/scripts/host/expanse-governor"
+  if [ ! -e "$GOVERNOR" ]; then
     rm -f "$f"
-    say "no EXPANSE_GOVERNOR_FORMS: $SVC gets no sudo rule (the governor helper stays unusable to it)"
+    say "no $GOVERNOR on this host: $SVC gets no sudo rule"
     return
   fi
-  [ -x "$GOVERNOR" ] || die "$GOVERNOR is not installed; install the #1213 helper before its sudoers rule"
   [ "$(stat -c %U:%a "$GOVERNOR")" = "root:755" ] || die "$GOVERNOR must be root-owned 0755"
+  [ "$(stat -c %U:%a "$(dirname "$GOVERNOR")")" = "root:755" ] || die "$(dirname "$GOVERNOR") must be root-owned 0755"
+  [ -f "$ref" ] || die "no reference copy at $ref to compare $GOVERNOR against"
+  cmp -s "$GOVERNOR" "$ref" \
+    || die "$GOVERNOR differs from $ref; install the reviewed helper before granting sudo to it"
   local tmp; tmp="$(mktemp)"
   {
     echo "# docs/CI.md, 'Scaling governor'. Installed by scripts/bench_host/provision.sh."
-    printf 'Cmnd_Alias EXPANSE_GOVERNOR ='
-    local first=1
-    while IFS= read -r form; do
-      [ -n "$form" ] || continue
-      [[ "$form" =~ ^[a-z0-9_.\ -]+$ ]] || die "governor form has characters outside [a-z0-9_. -]: $form"
-      [ $first -eq 1 ] || printf ','
-      printf ' \\\n    %s %s' "$GOVERNOR" "$form"
-      first=0
-    done <<< "$EXPANSE_GOVERNOR_FORMS"
-    printf '\n%s ALL=(root) NOPASSWD: EXPANSE_GOVERNOR\n' "$SVC"
+    echo "$SVC ALL=(root) NOPASSWD: $GOVERNOR"
   } > "$tmp"
   visudo -cf "$tmp" >/dev/null || die "generated sudoers rule does not parse"
   install -o root -g root -m 0440 "$tmp" "$f"
@@ -408,7 +408,10 @@ cmd_check() {
     else ok "$SVC has no general sudo"; fi
     local rules; rules="$(sudo -l -U "$SVC" 2>/dev/null | sed -n '/may run the following/,$p' | tail -n +2 | grep -v "$GOVERNOR" | grep -v '^[[:space:]]*$' || true)"
     [ -z "$rules" ] && ok "sudo rules name only $GOVERNOR" || bad "unexpected sudo rules: $rules"
-    [ -f /etc/sudoers.d/expanse-bench ] || todo "no governor sudoers rule (set EXPANSE_GOVERNOR_FORMS once #1213's helper is installed)"
+    if [ -e "$GOVERNOR" ]; then
+      [ -f /etc/sudoers.d/expanse-bench ] && ok "governor rule installed" || bad "$GOVERNOR is installed but $SVC has no rule for it (run prepare)"
+      cmp -s "$GOVERNOR" "$REPO/scripts/host/expanse-governor" && ok "$GOVERNOR equals the reference copy" || bad "$GOVERNOR differs from the reference copy"
+    fi
     grep -qx "$SVC" /etc/cron.deny && ok "cron denied" || bad "$SVC not in /etc/cron.deny"
     [ "$(stat -c %U:%a "$SVC_HOME")" = "root:755" ] && ok "\$HOME is root-owned" || bad "$SVC_HOME is not root:755"
     local wr; wr="$(runuser -u "$SVC" -- find "$SVC_HOME" -maxdepth 1 -writable 2>/dev/null | grep -vx -e "$SVC_HOME/cargo" -e "$SVC_HOME/cache" || true)"

@@ -510,20 +510,24 @@ monitoring to every process on the machine, and `cap_sys_ptrace` lets any job
 attach to any of them.
 
 **Scaling governor.** The only privileged operation a run performs is setting
-and restoring the scaling governor (#1213), through a root-owned helper that
-validates its own arguments. The rule names the helper's path **and** every
-argument form it accepts — a sudoers command with no arguments listed permits
-any arguments — and the workflow calls it with `sudo -n`, so a missing rule
-fails the step instead of waiting on a password prompt:
+and restoring the scaling governor (#1213). It goes through the root-owned
+helper `/usr/local/sbin/expanse-governor`, which `scripts/bench_governor.py`
+calls with `sudo -n`, so a missing rule fails the step instead of waiting on a
+password prompt. The helper takes a CPU list that changes with the dispatch's
+pin, so the sudoers rule cannot enumerate argument forms. It names the path
+alone, and the helper is the argument boundary: a fixed operation and value
+vocabulary, a strict CPU-list grammar, and nothing read from the environment or
+`PATH`. That boundary holds only for the reviewed helper, so `provision.sh`
+grants the rule only while the installed helper is byte-identical to
+`scripts/host/expanse-governor`, and `check` fails when it is not:
 
 ```
-# /etc/sudoers.d/expanse-bench — edit with `visudo -f`, mode 0440
-Cmnd_Alias EXPANSE_GOVERNOR = /usr/local/sbin/expanse-governor <form-1>, \
-                              /usr/local/sbin/expanse-governor <form-2>
-expanse-bench ALL=(root) NOPASSWD: EXPANSE_GOVERNOR
+# /etc/sudoers.d/expanse-bench — mode 0440, checked with visudo
+expanse-bench ALL=(root) NOPASSWD: /usr/local/sbin/expanse-governor
 ```
 
-`sudo -l -U expanse-bench` must list exactly those forms and nothing else.
+`sudo -l -U expanse-bench` must list that line and nothing else. The AVX-512
+lane does not set the governor, and a host without the helper gets no rule.
 
 **The benchmark lock.** The host lock is `flock(2)` on
 `scripts/bench_lock.py`, and it excludes only runs that open the same
