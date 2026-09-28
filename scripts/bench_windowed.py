@@ -98,6 +98,9 @@ class Windower:
         self._open: tuple[str, dict] | None = None
         # A closed window too short to resolve, carried into the next one.
         self._carry: tuple[list[str], dict] | None = None
+        # The ids and opening snapshot of the last recorded window, so a
+        # trailing window too short to resolve can be folded back into it.
+        self._last: tuple[list[str], dict] | None = None
 
     def feed(self, kind: str, wid: str) -> None:
         if kind == "begin":
@@ -131,6 +134,7 @@ class Windower:
             self._carry = (self._ids, start)
             return
         self._record(self._ids, load)
+        self._last = (self._ids, start)
 
     def _record(self, ids: list[str], load: dict) -> None:
         entry = {"id": ids[-1] if len(ids) == 1 else "+".join(ids), "load": load}
@@ -143,10 +147,17 @@ class Windower:
             self.findings.append(f"window {self._open[0]!r} never closed")
             self._open = None
         if self._carry is not None:
-            # Too short, and nothing followed to merge it into: record it as
-            # measured, which is to say without a number.
+            # Too short, and nothing followed to merge it into. Fold it back
+            # into the last recorded window, re-closed from that window's
+            # start (#1214: `hashbrown_container_dists`' last case). With no
+            # window before it, record it as measured, which is to say
+            # without a number.
             ids, start = self._carry
             self._carry = None
+            if self._last is not None:
+                last_ids, last_start = self._last
+                self.windows.pop()
+                ids, start = last_ids + ids, last_start
             self._record(ids, self.close(start))
         if not self.windows:
             self.findings.append("no window boundary was read — the harness at this ref "
@@ -384,6 +395,27 @@ def _self_test() -> int:
     check("an unattributed window at the minimum merges",
           [x["id"] for x in w.windows], ["growth/expanse+growth/hashbrown"])
     check("the merged window attributes", w.findings, [])
+
+    # A last window too short to attribute folds back into the one before it,
+    # re-closed from that window's start.
+    clock2 = iter(range(100))
+    closes2 = iter([
+        {"wall_s": 5.0, "busy_cpus_since_prev": 1.0, "own_busy_cpus": 1.0,
+         "foreign_busy_cpus": 0.0},
+        {"wall_s": 0.095, "busy_cpus_since_prev": None, "own_busy_cpus": None,
+         "foreign_busy_cpus": None},
+        {"wall_s": 5.1, "busy_cpus_since_prev": 1.0, "own_busy_cpus": 1.0,
+         "foreign_busy_cpus": 0.0},
+    ])
+    w = Windower(lambda label, prev: {"label": label, "t": next(clock2)},
+                 lambda start: dict(next(closes2), start_t=start["t"]), min_window_s=0.1)
+    for kind, wid in [("begin", "clustered"), ("end", "clustered"),
+                      ("begin", "zipfian"), ("end", "zipfian")]:
+        w.feed(kind, wid)
+    w.finish()
+    check("a short last window folds back", [x["id"] for x in w.windows], ["clustered+zipfian"])
+    check("re-closed from the earlier window's start", w.windows[0]["load"]["start_t"], 0)
+    check("the folded window attributes", w.findings, [])
 
     # Harness kinds: the build command, the artifact picked from cargo's
     # output, and the argv the binary is run with.
