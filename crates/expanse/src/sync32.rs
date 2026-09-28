@@ -92,19 +92,25 @@
 //! sides (`trie32::word`), and the branch owner has no `DerefMut`, so the
 //! writer cannot form `&mut` to a published branch. The writer runs the
 //! shared instantiation of the engine's walks (`insert_shared`,
-//! `remove_shared`); the plain containers keep their plain stores. Leaves
-//! are copy-on-write in that instantiation: the writer never edits a
-//! published leaf, linear or bitmap, but builds the edited copy, publishes
-//! it through a fresh slot, rehandles the parent edge and retires the old
-//! node, so a reader's references into leaf bytes and bitmap-leaf fields
-//! only ever point at memory no one writes. One edit is made in place: a
-//! map bitmap leaf's value overwrite is one atomic word store into the
-//! value subarray, which both sides reach through the subarray box's own
-//! pointer rather than a reference, and readers load as one atomic word
-//! (`trie32::map_bitmap_overwrite_shared`). An overwrite with the value the
-//! key already holds opens no bracket at all. The Miri census runs the
+//! `remove_shared`); the plain containers keep their plain stores. Linear
+//! leaves are copy-on-write in that instantiation: the writer never edits a
+//! published linear leaf, but builds the edited copy, publishes it through a
+//! fresh slot, rehandles the parent edge and retires the old node, so a
+//! reader's references into leaf bytes only ever point at memory no one
+//! writes. Bitmap leaves are edited in place (#1233): the bitmap is stored
+//! and loaded as `u32` word pairs, a map bitmap leaf's value subarrays are
+//! raw-owned (`trie32::SubVals`: atomic address and length words, no `Box`
+//! over a published subarray) and shift value by value through atomic word
+//! stores inside their capacity class, and a class crossing publishes the
+//! new subarray (length, then address) and retires the old one. Readers
+//! reach a bitmap leaf only through its published address and those word
+//! loads, and validate a subarray's address and length before indexing it.
+//! An overwrite with the value the key already holds opens no bracket at
+//! all. The Miri census runs the
 //! threaded workloads (`sync32::map_reader_writer`,
-//! `sync32::set_reader_writer`, `sync32::map_branch_reader_writer` in
+//! `sync32::set_reader_writer`, `sync32::map_branch_reader_writer`, the
+//! bitmap-leaf workloads including `sync32::map_bitmap_resize_reader_writer`
+//! in
 //! `.github/miri-ub-sites.json`) and records them clean. The 64-bit `sync`
 //! module makes the same guarantee by other means (its shared accesses are
 //! atomic words and its writers use raw
@@ -1084,10 +1090,10 @@ mod tests {
              pending_len {len}, pending_bytes {bytes}"
         );
         assert_eq!(refused, WriteError::ReclaimBacklog);
-        assert_eq!((writes, len), (36_180, 16_513), "pinned census");
+        assert_eq!((writes, len), (347_663, 16_513), "pinned census");
         // Node sizes, and so the bytes, follow the pointer width.
         #[cfg(target_pointer_width = "64")]
-        assert_eq!(bytes, 14_033_968, "pinned census");
+        assert_eq!(bytes, 1_660_752, "pinned census");
         walk_counter(&w, 0).store(2, Ordering::Release);
         assert!(w.try_reclaim(), "the reader's exit drains the backlog");
     }
@@ -1414,8 +1420,9 @@ mod miri_ub_sites {
     }
 
     /// A reader under the map writer's overwrites, removals and reinsertions
-    /// in a map bitmap leaf, each of which the shared writer makes on a copy
-    /// (#1187, #1190).
+    /// in a map bitmap leaf, which the shared writer makes in place through
+    /// word stores (#1187, #1190, #1233), inside each value subarray's
+    /// capacity class.
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1190)")]
     fn map_bitmap_reader_writer() {
@@ -1454,6 +1461,9 @@ mod miri_ub_sites {
         assert_eq!(w.len(), BITMAP_KEYS as usize);
     }
 
+    /// Writer rounds over the churn keys in [`set_bitmap_reader_writer`].
+    const SET_BITMAP_ROUNDS: u32 = 4;
+
     /// The set form of [`map_bitmap_reader_writer`].
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1190)")]
@@ -1472,25 +1482,102 @@ mod miri_ub_sites {
         let done = AtomicBool::new(false);
         thread::scope(|s| {
             s.spawn(|| {
-                for i in 0..BITMAP_CHURN {
-                    assert_eq!(w.try_remove(bitmap_key(i)), Ok(true));
-                    assert_eq!(w.try_insert(bitmap_key(i)), Ok(true));
+                // Several rounds: the shared writer edits the leaf's bitmap
+                // in place (#1233), and each edit is short, so the reader
+                // needs many chances to load a word the writer stores.
+                for _ in 0..SET_BITMAP_ROUNDS {
+                    for i in 0..BITMAP_CHURN {
+                        assert_eq!(w.try_remove(bitmap_key(i)), Ok(true));
+                        assert_eq!(w.try_insert(bitmap_key(i)), Ok(true));
+                    }
                 }
                 done.store(true, Ordering::Release);
             });
             s.spawn(|| {
                 read_until(&done, || {
-                    for i in BITMAP_CHURN..BITMAP_KEYS {
-                        assert_ne!(r.try_contains(bitmap_key(i)), Ok(false));
-                    }
                     for i in 0..BITMAP_CHURN {
                         let _ = r.try_contains(bitmap_key(i));
+                    }
+                    for i in BITMAP_CHURN..BITMAP_KEYS {
+                        assert_ne!(r.try_contains(bitmap_key(i)), Ok(false));
                     }
                 });
             });
         });
         assert_eq!(form(&w), "set bitmap leaf");
         assert_eq!(w.len(), BITMAP_KEYS as usize);
+    }
+
+    /// The resize workload's key for low-byte `digit`, under one prefix.
+    fn resize_key(digit: u32) -> u32 {
+        0x0042_0800 | digit
+    }
+    /// Digits the resize workload prefills: 0..=11 fill subexpanse 0's value
+    /// subarray to exactly its capacity class (12), and 32..=127 fill
+    /// subexpanses 1 to 3, so the leaf is a bitmap leaf (108 keys) and stays
+    /// one through the churn.
+    fn resize_prefill() -> impl Iterator<Item = u32> {
+        (0..12).chain(32..128)
+    }
+    const _: () = assert!(108 > crate::types32::MAP_BITMAP_ENTER_32);
+    const _: () = assert!(107 > crate::types32::MAP_BITMAP_LEAVE_32);
+
+    /// A reader under the map writer's in-place key-set edits of a bitmap
+    /// leaf that change a value subarray's capacity class (#1233): digit 12
+    /// grows subexpanse 0 from 12 to 13 values (a published replacement) and
+    /// its removal shrinks it back; digit 200 creates subexpanse 6's subarray
+    /// and its removal empties it; digit 40 shifts subexpanse 1 in place and
+    /// resets its last slot. The reader loads the prefilled digits the shifts
+    /// move, which must read their own value or report `Busy`.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1233)")]
+    fn map_bitmap_resize_reader_writer() {
+        let mut m = SyncExpanseMap32::with_capacity(MUTATION_HEADROOM * 2, 1);
+        let (mut w, mut pool) = m.split();
+        for d in resize_prefill() {
+            w.try_insert(resize_key(d), d).expect("prefill");
+        }
+        let form = |w: &Writer32<'_, ExpanseMap32>| {
+            let t = w.inner();
+            trie32::terminal_form(t.arena(), &t.root_edge(), 4, resize_key(0))
+        };
+        assert_eq!(form(&w), "map bitmap leaf");
+        let mut r = pool.take().expect("one reader");
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for _ in 0..BITMAP_CHURN {
+                    for d in [12, 200] {
+                        assert_eq!(w.try_insert(resize_key(d), d), Ok(None));
+                        assert_eq!(w.try_remove(resize_key(d)), Ok(Some(d)));
+                    }
+                    for _ in 0..4 {
+                        assert_eq!(w.try_remove(resize_key(40)), Ok(Some(40)));
+                        assert_eq!(w.try_insert(resize_key(40), 40), Ok(None));
+                    }
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    // 41..44 sit just past the shifted slot; 63 ends
+                    // subexpanse 1, whose last slot the removal of digit 40
+                    // resets to filler, so it is probed repeatedly.
+                    for d in (0..12).chain(41..44).chain([63; 8]) {
+                        if let Ok(v) = r.try_get(resize_key(d)) {
+                            assert_eq!(v, Some(d), "prefilled digit {d}");
+                        }
+                    }
+                    for d in [12, 40, 200] {
+                        if let Ok(Some(v)) = r.try_get(resize_key(d)) {
+                            assert_eq!(v, d);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(form(&w), "map bitmap leaf");
+        assert_eq!(w.len(), 108);
     }
 
     /// Top-byte digits the branch workload's root branch holds at each

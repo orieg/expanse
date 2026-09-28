@@ -528,23 +528,35 @@ mod word {
     }
 }
 
-/// A bitmap branch's edge subarray (#1187): its address and allocation
-/// length each a word of its own, which the writer stores inside its
-/// bracket and a reader loads and validates before indexing, owned through
-/// the raw pointer `Box::into_raw` returned. An `Option<Box<[Edge32]>>` is
-/// two words no atomic load can read, and a `Box` retags its allocation on
-/// every mutable reborrow.
-pub(crate) struct SubEdges {
-    ptr: AtomicPtr<Edge32>,
+/// A bitmap node's rank-ordered subarray (#1187): a bitmap branch's edges
+/// ([`SubEdges`]) or a map bitmap leaf's values ([`SubVals`]). Its address
+/// and allocation length are each a word of its own, which the writer
+/// stores inside its bracket and a reader loads and validates before
+/// indexing, and the allocation is owned through the raw pointer
+/// `Box::into_raw` returned. An `Option<Box<[T]>>` is two words no atomic
+/// load can read, and a `Box` retags its allocation on every move and
+/// mutable reborrow, which under Stacked Borrows invalidates the pointers a
+/// reader derived from it.
+pub(crate) struct Sub<T> {
+    ptr: AtomicPtr<T>,
     len: AtomicU32,
 }
 
-impl SubEdges {
+/// A bitmap branch's edge subarray.
+pub(crate) type SubEdges = Sub<Edge32>;
+
+/// A map bitmap leaf's value subarray (#1233): the [`SubEdges`] owner for
+/// values, so a shared writer can publish a grown or shrunk subarray (length
+/// then address) and retire the old one without a `Box` over memory a
+/// reader holds.
+pub(crate) type SubVals = Sub<u32>;
+
+impl<T> Sub<T> {
     /// The address and allocation length as a reader loads them: racily, so
     /// the pair may be torn, and the caller validates the tree version
     /// before indexing.
     #[inline]
-    fn load_racy(&self) -> (*const Edge32, usize) {
+    fn load_racy(&self) -> (*const T, usize) {
         (
             self.ptr.load(Ordering::Relaxed).cast_const(),
             self.len.load(Ordering::Relaxed) as usize,
@@ -560,7 +572,7 @@ impl SubEdges {
 
     /// The allocation, for the writer or a single-threaded caller.
     #[inline]
-    fn get(&self) -> Option<(*mut Edge32, usize)> {
+    fn get(&self) -> Option<(*mut T, usize)> {
         // Plain reads: this runs only on the thread that writes these words
         // (the writer, or an unshared tree's owner), and a read never races
         // a concurrent reader's load. Atomic loads here cost the plain
@@ -575,43 +587,66 @@ impl SubEdges {
     /// The allocation as a slice, for single-threaded read paths. The
     /// writer must not hold it across a store to the subarray.
     #[inline]
-    fn as_slice(&self) -> Option<&[Edge32]> {
-        // SAFETY: a live allocation of `len` edges this subarray owns.
+    fn as_slice(&self) -> Option<&[T]> {
+        // SAFETY: a live allocation of `len` elements this subarray owns.
         self.get()
             .map(|(p, n)| unsafe { core::slice::from_raw_parts(p.cast_const(), n) })
     }
 
-    /// The allocation as a mutable slice, for the plain walks.
+    /// The allocation as a mutable slice, for the plain walks and for a
+    /// node no reader can reach (a copy under construction).
     #[inline]
-    fn as_mut_slice(&mut self) -> Option<&mut [Edge32]> {
+    fn as_mut_slice(&mut self) -> Option<&mut [T]> {
         let p = *self.ptr.get_mut();
         let n = *self.len.get_mut() as usize;
-        // SAFETY: a live allocation of `n` edges this subarray owns, borrowed
-        // through `&mut self`.
+        // SAFETY: a live allocation of `n` elements this subarray owns,
+        // borrowed through `&mut self`.
         (!p.is_null()).then(|| unsafe { core::slice::from_raw_parts_mut(p, n) })
     }
 
     /// Installs `new`, returning the allocation it replaces for the caller
     /// to retire. The length is stored first: a reader validates the pair
     /// before indexing, so a torn pair is discarded, never followed.
-    fn replace(&self, new: Option<Box<[Edge32]>>) -> Option<Raw<[Edge32]>> {
+    fn replace(&self, new: Option<Box<[T]>>) -> Option<Raw<[T]>> {
         let old = self.get();
         let (p, n) = match new {
             Some(b) => {
                 let n = b.len() as u32;
-                (Box::into_raw(b).cast::<Edge32>(), n)
+                (Box::into_raw(b).cast::<T>(), n)
             }
             None => (core::ptr::null_mut(), 0),
         };
         self.len.store(n, Ordering::Relaxed);
         self.ptr.store(p, Ordering::Relaxed);
-        // SAFETY: `old` was installed by `replace` from `Box::into_raw` with
-        // this length, and is no longer reachable from this subarray.
+        // SAFETY: `old` was installed by `replace` (or `replace_mut`) from
+        // `Box::into_raw` with this length, and is no longer reachable from
+        // this subarray.
+        old.map(|(p, n)| unsafe { Raw::from_raw_slice(p, n) })
+    }
+
+    /// [`Self::replace`] for a subarray no reader can load: an unshared
+    /// tree's, or a node not yet published. Plain stores, which keep the
+    /// plain engine's code what it was with an `Option<Box<[T]>>` field.
+    #[inline]
+    fn replace_mut(&mut self, new: Option<Box<[T]>>) -> Option<Raw<[T]>> {
+        let (op, on) = (*self.ptr.get_mut(), *self.len.get_mut() as usize);
+        // The owning pointer itself, not one derived from a slice borrow.
+        let old = (!op.is_null()).then_some((op, on));
+        let (p, n) = match new {
+            Some(b) => {
+                let n = b.len() as u32;
+                (Box::into_raw(b).cast::<T>(), n)
+            }
+            None => (core::ptr::null_mut(), 0),
+        };
+        *self.len.get_mut() = n;
+        *self.ptr.get_mut() = p;
+        // SAFETY: as in `replace`.
         old.map(|(p, n)| unsafe { Raw::from_raw_slice(p, n) })
     }
 }
 
-impl Drop for SubEdges {
+impl<T> Drop for Sub<T> {
     fn drop(&mut self) {
         // `&mut self`: no reader remains, so no store is needed to unpublish.
         let p = *self.ptr.get_mut();
@@ -625,32 +660,23 @@ impl Drop for SubEdges {
 
 pub(crate) struct LeafBitmapL32Data {
     pub(crate) header: LeafBitmapL_32,
-    pub(crate) subarrays: [Option<Box<[u32]>>; 8],
-}
-
-impl LeafBitmapL32Data {
-    /// A deep copy, for a shared tree's copy-on-write edit (#1187): the
-    /// writer edits the copy while readers keep the published node.
-    fn deep_clone(&self) -> Self {
-        Self {
-            header: self.header,
-            subarrays: core::array::from_fn(|i| self.subarrays[i].clone()),
-        }
-    }
+    /// Value subarrays, raw-owned (#1233): a published leaf's subarray is
+    /// never behind a `Box`, whose retag on a move would invalidate the
+    /// pointers readers derived from it.
+    pub(crate) subarrays: [SubVals; 8],
 }
 
 /// The first value of a map bitmap leaf's value subarray, and its length,
 /// without forming a reference to the values: the shared writer stores a
 /// value in place while readers load it (#1187), so each side reaches the
-/// values through the subarray box's own pointer, and each value is one
-/// atomic word ([`word`]).
+/// values through the subarray's raw owner (#1233), and each value is one
+/// atomic word ([`word`]). The pair is loaded racily: a reader validates
+/// the tree version before indexing, as for a bitmap branch's edges.
 /// `None` for an absent subarray.
 #[inline(always)]
-fn sub_vals_ptr(sub: &Option<Box<[u32]>>) -> Option<(*const u32, usize)> {
-    sub.as_ref().map(|sb| {
-        let p: *const [u32] = core::ptr::addr_of!(**sb);
-        (p.cast::<u32>(), p.len())
-    })
+fn sub_vals_ptr(sub: &SubVals) -> Option<(*const u32, usize)> {
+    let (p, n) = sub.load_racy();
+    (!p.is_null()).then_some((p, n))
 }
 
 /// A shared tree's value overwrite in a map bitmap leaf: when the leaf holds
@@ -670,9 +696,10 @@ fn map_bitmap_overwrite_shared(a: &Arena, h: u32, digit: u8, val: u32) -> Option
     let (p, len) = sub_vals_ptr(&b.subarrays[(digit >> 5) as usize])
         .expect("a set digit has a value subarray");
     assert!(rank < len, "a set digit's rank is inside its subarray");
-    // SAFETY: `rank < len` of a live `Box<[u32]>` this node owns, whose
-    // elements are 4-aligned; the pointer carries the box's provenance, not
-    // a shared reference's, and every other access to the slot while the
+    // SAFETY: `rank < len` of a live `[u32]` allocation this node's
+    // subarray owns, whose elements are 4-aligned; the pointer carries the
+    // allocation's provenance (from `Box::into_raw`), not a shared
+    // reference's, and every other access to the slot while the
     // leaf is published is a [`word`] load.
     let slot = unsafe { p.add(rank).cast_mut() };
     // SAFETY: as above; only this writer stores to the slot.
@@ -680,6 +707,200 @@ fn map_bitmap_overwrite_shared(a: &Arena, h: u32, digit: u8, val: u32) -> Option
     // SAFETY: as above.
     unsafe { word::store(slot, val) };
     Some(old)
+}
+
+/// Inserts `val` at rank `rank` of a map bitmap leaf's value subarray
+/// holding `pop` live values, on a shared tree (#1233): the
+/// [`subarray_insert`] of #615 for a published subarray. Inside the capacity
+/// class the tail shifts in place, value by value through the words readers
+/// load; a class crossing builds the grown subarray, publishes it (length,
+/// then address) and returns the old allocation for retirement.
+fn sub_vals_insert_shared(sub: &SubVals, pop: usize, rank: usize, val: u32) -> Option<Raw<[u32]>> {
+    debug_assert!(rank <= pop);
+    let new_cap = cap_class(pop + 1);
+    let cur = sub.get();
+    if let Some((p, len)) = cur {
+        debug_assert_eq!(len, cap_class(pop));
+        if len == new_cap {
+            // SAFETY: `rank <= pop < len`, values of the live allocation,
+            // each accessed as one atomic word, as readers load them.
+            unsafe {
+                for i in (rank..pop).rev() {
+                    word::store(p.add(i + 1), word::load(p.add(i)));
+                }
+                word::store(p.add(rank), val);
+            }
+            return None;
+        }
+    }
+    let mut new_sub: Vec<u32> = Vec::with_capacity(new_cap);
+    if let Some((p, _)) = cur {
+        // SAFETY: `pop` live values of the live allocation.
+        unsafe {
+            new_sub.extend((0..rank).map(|i| word::load(p.add(i))));
+            new_sub.push(val);
+            new_sub.extend((rank..pop).map(|i| word::load(p.add(i))));
+        }
+    } else {
+        new_sub.push(val);
+    }
+    new_sub.resize(new_cap, 0);
+    sub.replace(Some(new_sub.into_boxed_slice()))
+}
+
+/// Removes rank `rank` from a map bitmap leaf's value subarray holding `pop`
+/// live values, on a shared tree (#1233): the inverse of
+/// [`sub_vals_insert_shared`]. Returns the replaced allocation for
+/// retirement.
+fn sub_vals_remove_shared(sub: &SubVals, pop: usize, rank: usize) -> Option<Raw<[u32]>> {
+    debug_assert!(pop > 0 && rank < pop);
+    let new_pop = pop - 1;
+    if new_pop == 0 {
+        return sub.replace(None);
+    }
+    let new_cap = cap_class(new_pop);
+    let (p, len) = sub.get().expect("live subarray");
+    debug_assert_eq!(len, cap_class(pop));
+    if len == new_cap {
+        // SAFETY: `rank < pop <= len`, values of the live allocation, each
+        // accessed as one atomic word.
+        unsafe {
+            for i in rank..new_pop {
+                word::store(p.add(i), word::load(p.add(i + 1)));
+            }
+            word::store(p.add(new_pop), 0);
+        }
+        return None;
+    }
+    let mut new_sub: Vec<u32> = Vec::with_capacity(new_cap);
+    // SAFETY: `pop` live values of the live allocation.
+    unsafe {
+        new_sub.extend((0..rank).map(|i| word::load(p.add(i))));
+        new_sub.extend((rank + 1..pop).map(|i| word::load(p.add(i))));
+    }
+    new_sub.resize(new_cap, 0);
+    sub.replace(Some(new_sub.into_boxed_slice()))
+}
+
+/// The `u32` half of a 256-bit bitmap (`[u64; 4]` at `bitmap`) that holds
+/// `digit`'s bit, and the bit. A digit's subexpanse (`digit >> 5`) is exactly
+/// one such half, so its presence, its rank and the subexpanse's population
+/// all come from one word, and the shared writer and its readers access the
+/// bitmap as these words (#1233). The half's index follows the target's
+/// byte order, since the `u64` is stored in native order.
+#[inline(always)]
+fn bitmap_half(bitmap: *const u64, digit: u8) -> (*const u32, u32) {
+    let hi = usize::from((digit >> 5) & 1);
+    let lo_first = cfg!(target_endian = "little");
+    let idx = 2 * usize::from(digit >> 6) + if lo_first { hi } else { 1 - hi };
+    (bitmap.cast::<u32>().wrapping_add(idx), 1u32 << (digit & 31))
+}
+
+/// A shared tree's key-set insert into a map bitmap leaf (#1233), in place:
+/// the value subarray grows (in place inside its capacity class, or by a
+/// published replacement), then the digit's bit is set in its bitmap word
+/// ([`bitmap_half`]) as one atomic word store. The leaf's handle and tag are unchanged. Returns the replaced
+/// value when `digit` was present (a value overwrite).
+fn map_bitmap_insert_shared(a: &mut Arena, h: u32, digit: u8, val: u32) -> Option<u32> {
+    if let Some(old) = map_bitmap_overwrite_shared(a, h, digit, val) {
+        return Some(old);
+    }
+    let p = a.map_bitmap_ptr(h);
+    // SAFETY: a live node this arena owns, reached through its owning
+    // pointer; the bitmap is read and written only as `word`s.
+    let (hp, bit) = bitmap_half(unsafe { (&raw const (*p).header.bitmap).cast() }, digit);
+    let hp = hp.cast_mut();
+    // SAFETY: as above.
+    let half = unsafe { word::load(hp) };
+    debug_assert_eq!(half & bit, 0);
+    let rank = (half & (bit - 1)).count_ones() as usize;
+    // Population before the insert, off the pre-set word (#615).
+    let pop = half.count_ones() as usize;
+    // SAFETY: `&` only to the subarray's atomics.
+    let sub = unsafe { &(*p).subarrays[(digit >> 5) as usize] };
+    let retired = sub_vals_insert_shared(sub, pop, rank, val);
+    // SAFETY: as above.
+    unsafe {
+        word::store(hp, half | bit);
+        // A field no reader loads, written through its raw place.
+        (*p).header.pop0 += 1;
+    }
+    a.retire_vals(retired);
+    a.bytes = a
+        .bytes
+        .wrapping_add_signed(subarray_bytes_delta::<u32>(pop, pop + 1));
+    None
+}
+
+/// A shared tree's key-set removal from a map bitmap leaf (#1233), in place:
+/// the digit's bit is cleared as one atomic word store, then the value
+/// subarray shrinks (in place inside its capacity class, or by a published
+/// replacement). Returns the removed value and the leaf's `pop0` before the
+/// removal, or `None` when `digit` is absent.
+fn map_bitmap_remove_shared(a: &mut Arena, h: u32, digit: u8) -> Option<(u32, usize)> {
+    let p = a.map_bitmap_ptr(h);
+    // SAFETY: a live node this arena owns, reached through its owning
+    // pointer; the bitmap is read and written only as `word`s.
+    let (hp, bit) = bitmap_half(unsafe { (&raw const (*p).header.bitmap).cast() }, digit);
+    let hp = hp.cast_mut();
+    // SAFETY: as above.
+    let half = unsafe { word::load(hp) };
+    if half & bit == 0 {
+        return None;
+    }
+    let rank = (half & (bit - 1)).count_ones() as usize;
+    // Subexpanse population before the removal, off the pre-clear word (#615).
+    let sub_pop = half.count_ones() as usize;
+    // SAFETY: `&` only to the subarray's atomics.
+    let sub = unsafe { &(*p).subarrays[(digit >> 5) as usize] };
+    let (vp, len) = sub.get().expect("a set digit has a value subarray");
+    assert!(rank < len, "a set digit's rank is inside its subarray");
+    // SAFETY: `rank < len` of the live allocation; a word load.
+    let old_val = unsafe { word::load(vp.add(rank)) };
+    // SAFETY: as above.
+    unsafe { word::store(hp, half & !bit) };
+    let retired = sub_vals_remove_shared(sub, sub_pop, rank);
+    // SAFETY: a field no reader loads, written through its raw place.
+    let pop = unsafe {
+        let pop = (*p).header.pop0 as usize;
+        if pop > 0 {
+            (*p).header.pop0 -= 1;
+        }
+        pop
+    };
+    a.retire_vals(retired);
+    a.bytes = a
+        .bytes
+        .wrapping_add_signed(subarray_bytes_delta::<u32>(sub_pop, sub_pop - 1));
+    Some((old_val, pop))
+}
+
+/// A shared tree's key-set edit of a set bitmap leaf (#1233), in place: sets
+/// (or clears) `bit` in its bitmap word ([`bitmap_half`]) as one atomic word
+/// store. Returns whether the key set changed.
+fn set_bitmap_edit_shared(a: &Arena, h: u32, bit: u8, set: bool) -> bool {
+    let p = a.bitmap_ptr(h);
+    // SAFETY: a live node this arena owns, reached through its owning
+    // pointer; the bitmap is read and written only as `word`s.
+    let (hp, mask) = bitmap_half(unsafe { (&raw const (*p).bitmap).cast() }, bit);
+    let hp = hp.cast_mut();
+    // SAFETY: as above.
+    let prev = unsafe { word::load(hp) };
+    let next = if set { prev | mask } else { prev & !mask };
+    if next == prev {
+        return false;
+    }
+    // SAFETY: as above.
+    unsafe {
+        word::store(hp, next);
+        // A field no reader loads, written through its raw place.
+        if set {
+            (*p).pop0 += 1;
+        } else {
+            (*p).pop0 -= 1;
+        }
+    }
+    true
 }
 
 /// One arena-owned node. Each variant is an independent heap allocation
@@ -899,8 +1120,8 @@ impl NodeBox {
                 core::mem::size_of::<LeafBitmapL_32>()
                     + b.subarrays
                         .iter()
-                        .filter_map(|s| s.as_ref())
-                        .map(|s| s.len() * core::mem::size_of::<u32>())
+                        .filter_map(SubVals::get)
+                        .map(|(_, n)| n * core::mem::size_of::<u32>())
                         .sum::<usize>()
             }
             NodeBox::Leaf(b) => b.len(),
@@ -997,34 +1218,18 @@ impl NodeRef {
         Ok(self.ptr.cast::<T>())
     }
 
-    /// `ptr` as a `T` if this slot is published as `kind`.
-    ///
-    /// # Safety
-    ///
-    /// The caller has validated the tree version since loading this slot,
-    /// and `kind` is the kind whose node type is `T`.
-    #[inline]
-    unsafe fn as_node<'a, T>(self, kind: PubKind) -> Result<&'a T, Torn> {
-        if self.kind != kind as u32 {
-            return Err(Torn);
-        }
-        // SAFETY: per the contract, the slot was stable across the load and
-        // the validation, so it names a live node of type `T`, kept alive by
-        // the reader's pin.
-        Ok(unsafe { &*self.ptr.cast::<T>() })
-    }
-
     /// The leaf bytes this slot names.
     ///
     /// # Safety
     ///
-    /// As [`Self::as_node`].
+    /// The caller has validated the tree version since loading this slot, so
+    /// the slot names a live linear leaf, kept alive by the reader's pin.
     #[inline]
     unsafe fn as_leaf<'a>(self) -> Result<&'a [u8], Torn> {
         if self.kind != PubKind::Leaf as u32 {
             return Err(Torn);
         }
-        // SAFETY: as in `as_node`; `len` is the published buffer's length.
+        // SAFETY: per the contract; `len` is the published buffer's length.
         Ok(unsafe { core::slice::from_raw_parts(self.ptr, self.len) })
     }
 }
@@ -1131,7 +1336,7 @@ pub enum Retired {
     /// A `BranchB32Data` edge subarray replaced during mutation.
     Edges(Raw<[Edge32]>),
     /// A `LeafBitmapL32Data` value subarray replaced during mutation.
-    Vals(Box<[u32]>),
+    Vals(Raw<[u32]>),
 }
 
 impl Retired {
@@ -1279,7 +1484,7 @@ impl Arena {
 
     /// Parks a replaced `LeafBitmapL32Data` value subarray.
     #[inline]
-    fn retire_vals(&mut self, old: Option<Box<[u32]>>) {
+    fn retire_vals(&mut self, old: Option<Raw<[u32]>>) {
         if let Some(b) = old
             && self.deferred
         {
@@ -1543,6 +1748,21 @@ impl Arena {
     fn map_bitmap(&self, h: u32) -> &LeafBitmapL32Data {
         match self.get(h) {
             NodeBox::MapBitmap(b) => b,
+            _ => unreachable!("expected LeafBitmapL32Data"),
+        }
+    }
+    /// A published set bitmap leaf's owning address, for the shared writer's
+    /// in-place edits (#1233): it never forms `&mut` to a leaf readers load.
+    fn bitmap_ptr(&self, h: u32) -> *mut LeafBitmap1_32 {
+        match self.get(h) {
+            NodeBox::Bitmap(b) => b.as_ptr(),
+            _ => unreachable!("expected LeafBitmap1_32"),
+        }
+    }
+    /// A published map bitmap leaf's owning address; see [`Self::bitmap_ptr`].
+    fn map_bitmap_ptr(&self, h: u32) -> *mut LeafBitmapL32Data {
+        match self.get(h) {
+            NodeBox::MapBitmap(b) => b.as_ptr(),
             _ => unreachable!("expected LeafBitmapL32Data"),
         }
     }
@@ -2015,7 +2235,7 @@ fn bitmap_count_range(leaf: &LeafBitmap1_32, lo: u32, hi: u32) -> usize {
 fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
     let mut data = LeafBitmapL32Data {
         header: LeafBitmapL_32::new(),
-        subarrays: [None, None, None, None, None, None, None, None],
+        subarrays: [const { SubVals::empty() }; 8],
     };
     data.header.pop0 = (entries.len() - 1) as u16;
     for &(key, _) in entries {
@@ -2037,7 +2257,7 @@ fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
             // Class-sized like every other subarray, so the first insert
             // into this subexpanse can grow in place (#615).
             sub_vals.resize(cap_class(sub_vals.len()), 0u32);
-            data.subarrays[sub] = Some(sub_vals.into_boxed_slice());
+            data.subarrays[sub].replace_mut(Some(sub_vals.into_boxed_slice()));
         }
     }
     let h = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(data))));
@@ -2097,7 +2317,7 @@ fn bitmap_sub_pop(word: u64, digit: u8) -> usize {
 /// The subarray is allocated at `cap_class(pop)` slots with the live
 /// entries in `[0, pop)` and `filler` in the tail, so a growth that stays
 /// inside the class shifts in place and allocates nothing. Only a growth
-/// that crosses a class boundary allocates; the replaced box is returned
+/// that crosses a class boundary allocates; the replaced allocation is returned
 /// for the caller to retire (§2.3: it must outlive stalled OCC readers).
 ///
 /// The spare slots are always initialised — nothing may read them, since
@@ -2105,15 +2325,15 @@ fn bitmap_sub_pop(word: u64, digit: u8) -> usize {
 /// optimistic reader racing a shift must never observe uninitialised
 /// memory.
 fn subarray_insert<T: Copy>(
-    slot: &mut Option<Box<[T]>>,
+    slot: &mut Sub<T>,
     pop: usize,
     rank: usize,
     val: T,
     filler: T,
-) -> Option<Box<[T]>> {
+) -> Option<Raw<[T]>> {
     debug_assert!(rank <= pop);
     let new_cap = cap_class(pop + 1);
-    if let Some(existing) = slot.as_mut() {
+    if let Some(existing) = slot.as_mut_slice() {
         debug_assert_eq!(existing.len(), cap_class(pop));
         if existing.len() == new_cap {
             // Spare class capacity: shift the tail right and store in
@@ -2124,7 +2344,7 @@ fn subarray_insert<T: Copy>(
         }
     }
     let mut new_sub: Vec<T> = Vec::with_capacity(new_cap);
-    match slot.as_ref() {
+    match slot.as_slice() {
         Some(existing) => {
             new_sub.extend_from_slice(&existing[..rank]);
             new_sub.push(val);
@@ -2134,31 +2354,31 @@ fn subarray_insert<T: Copy>(
     }
     new_sub.resize(new_cap, filler);
     debug_assert_eq!(new_sub.len(), new_cap);
-    slot.replace(new_sub.into_boxed_slice())
+    slot.replace_mut(Some(new_sub.into_boxed_slice()))
 }
 
 /// Removes rank `rank` from a bitmap node's rank-ordered subarray holding
 /// `pop` live entries. The inverse of [`subarray_insert`]: a shrink that
 /// stays inside the capacity class compacts in place (the vacated tail slot
 /// is reset to `filler`), and only a class crossing reallocates. Returns
-/// the replaced box for the caller to retire.
+/// the replaced allocation for the caller to retire.
 // Forced inline (#1187): the shared instantiation gave this helper a second
 // caller, and wasm32 stopped inlining it into the plain remove walk (fuel
 // +4.63 % on `map_remove/sequential`); `main` inlined it into its one caller.
 #[inline(always)]
 fn subarray_remove<T: Copy>(
-    slot: &mut Option<Box<[T]>>,
+    slot: &mut Sub<T>,
     pop: usize,
     rank: usize,
     filler: T,
-) -> Option<Box<[T]>> {
+) -> Option<Raw<[T]>> {
     debug_assert!(pop > 0 && rank < pop);
     let new_pop = pop - 1;
     if new_pop == 0 {
-        return slot.take();
+        return slot.replace_mut(None);
     }
     let new_cap = cap_class(new_pop);
-    let existing = slot.as_mut().expect("live subarray");
+    let existing = slot.as_mut_slice().expect("live subarray");
     debug_assert_eq!(existing.len(), cap_class(pop));
     if existing.len() == new_cap {
         existing.copy_within(rank + 1..pop, rank);
@@ -2169,7 +2389,7 @@ fn subarray_remove<T: Copy>(
     new_sub.extend_from_slice(&existing[..rank]);
     new_sub.extend_from_slice(&existing[rank + 1..pop]);
     new_sub.resize(new_cap, filler);
-    slot.replace(new_sub.into_boxed_slice())
+    slot.replace_mut(Some(new_sub.into_boxed_slice()))
 }
 
 /// Byte delta a subarray of `T` undergoes when its population moves from
@@ -2190,7 +2410,7 @@ fn read_map_bitmap(a: &Arena, e: &Edge32) -> Vec<(u32, u32)> {
             let digit = (w * 64 + bit) as u8;
             let rank = bitmap_sub_rank(data.header.bitmap[w], digit);
             let sub = (digit >> 5) as usize;
-            let val = data.subarrays[sub].as_ref().unwrap()[rank];
+            let val = data.subarrays[sub].as_slice().unwrap()[rank];
             entries.push((digit as u32, val));
             word &= word - 1;
         }
@@ -3523,16 +3743,8 @@ pub(crate) fn set_insert_mode<const SHARED: bool>(
             true
         }
         Kind::Bitmap if SHARED => {
-            // Copy-on-write (#1187): edit a copy, then publish it.
-            let h = edge_handle(e);
-            let mut copy = *a.bitmap(h);
-            let inserted = copy.set(rem as u8);
-            if inserted {
-                let nh = a.alloc(NodeBox::Bitmap(Raw::new(Box::new(copy))));
-                a.free(h);
-                *e = rehandle(e, nh);
-            }
-            inserted
+            // In place through word stores (#1233); the handle is unchanged.
+            set_bitmap_edit_shared(a, edge_handle(e), rem as u8, true)
         }
         Kind::Bitmap => a.bitmap_mut(edge_handle(e)).set(rem as u8),
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
@@ -3628,16 +3840,8 @@ pub(crate) fn set_remove_mode<const SHARED: bool>(
         }
         Kind::Bitmap => {
             let removed = if SHARED {
-                // Copy-on-write (#1187): edit a copy, then publish it.
-                let h = edge_handle(e);
-                let mut copy = *a.bitmap(h);
-                let removed = copy.unset(rem as u8);
-                if removed {
-                    let nh = a.alloc(NodeBox::Bitmap(Raw::new(Box::new(copy))));
-                    a.free(h);
-                    *e = rehandle(e, nh);
-                }
-                removed
+                // In place through word stores (#1233).
+                set_bitmap_edit_shared(a, edge_handle(e), rem as u8, false)
             } else {
                 a.bitmap_mut(edge_handle(e)).unset(rem as u8)
             };
@@ -3728,7 +3932,7 @@ pub(crate) fn map_get(a: &Arena, e: &Edge32, mut kb: u8, mut rem: u32) -> Option
                 }
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
-                return b.subarrays[sub].as_ref().map(|s| s[rank]);
+                return b.subarrays[sub].as_slice().map(|s| s[rank]);
             }
             Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
                 let d = digit_at(rem, kb);
@@ -3849,8 +4053,8 @@ pub(crate) fn map_insert_via_finger_mode<const SHARED: bool>(
         let rank = bitmap_sub_rank(word, digit);
         if (word & bit_mask) != 0 {
             // Overwrite: a single in-place store, and no count anywhere moves.
-            let prev = b.subarrays[sub].as_ref().unwrap()[rank];
-            b.subarrays[sub].as_mut().unwrap()[rank] = val;
+            let prev = b.subarrays[sub].as_slice().unwrap()[rank];
+            b.subarrays[sub].as_mut_slice().unwrap()[rank] = val;
             return Some(Some(prev));
         }
         let pop = bitmap_sub_pop(word, digit);
@@ -3986,27 +4190,17 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
             // The one terminal an insert cannot restructure: the bit is set in
             // place and the handle and tag are unchanged, so the path stays
             // valid for every other key of this expanse.
-            // A shared tree copies the node (#1187), so the handle moves and
-            // the finger (disabled on the shared walk) is not armed.
+            // A shared tree edits the published leaf in place through word
+            // stores (#1233); the finger is disabled on the shared walk.
             if !SHARED {
                 f.arm(edge_handle(e));
             }
             let h = edge_handle(e);
-            // A shared tree's value overwrite is one word store in place: the
-            // copy below is for edits that change the key set.
-            if SHARED && let Some(old) = map_bitmap_overwrite_shared(a, h, rem as u8, val) {
-                return Some(old);
+            if SHARED {
+                return map_bitmap_insert_shared(a, h, rem as u8, val);
             }
-            let mut copy = if SHARED {
-                Some(a.map_bitmap(h).deep_clone())
-            } else {
-                None
-            };
             let (old, bytes_delta, retired_sub) = {
-                let b = match copy.as_mut() {
-                    Some(c) => c,
-                    None => a.map_bitmap_mut(h),
-                };
+                let b = a.map_bitmap_mut(h);
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
                 let word = b.header.bitmap[w];
@@ -4014,8 +4208,8 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
                 if (word & bit_mask) != 0 {
-                    let old = b.subarrays[sub].as_ref().unwrap()[rank];
-                    b.subarrays[sub].as_mut().unwrap()[rank] = val;
+                    let old = b.subarrays[sub].as_slice().unwrap()[rank];
+                    b.subarrays[sub].as_mut_slice().unwrap()[rank] = val;
                     (Some(old), 0, None)
                 } else {
                     // Population before the insert, read off the *pre-set*
@@ -4028,17 +4222,8 @@ pub(crate) fn map_insert_f_mode<const SHARED: bool>(
                     (None, subarray_bytes_delta::<u32>(pop, pop + 1), retired)
                 }
             };
-            if let Some(c) = copy {
-                // The copy was never published: its replaced subarray is
-                // freed now, and alloc/free account the whole node.
-                drop(retired_sub);
-                let nh = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(c))));
-                a.free(h);
-                *e = rehandle(e, nh);
-            } else {
-                a.retire_vals(retired_sub);
-                a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
-            }
+            a.retire_vals(retired_sub);
+            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
             old
         }
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
@@ -4139,38 +4324,8 @@ pub(crate) fn map_remove_mode<const SHARED: bool>(
             Some(old)
         }
         Kind::MapBitmap if SHARED => {
-            // A shared tree edits a copy and publishes it (#1187); a miss
-            // returns before copying.
-            let h = edge_handle(e);
-            let digit = rem as u8;
-            let w = (digit >> 6) as usize;
-            let bit_mask = 1u64 << (digit & 63);
-            if (a.map_bitmap(h).header.bitmap[w] & bit_mask) == 0 {
-                return None;
-            }
-            let mut copy = a.map_bitmap(h).deep_clone();
-            let (old_val, pop) = {
-                let b = &mut copy;
-                let word = b.header.bitmap[w];
-                let rank = bitmap_sub_rank(word, digit);
-                let sub = (digit >> 5) as usize;
-                // Subexpanse population before the removal, off the
-                // *pre-clear* word (#615).
-                let sub_pop = bitmap_sub_pop(word, digit);
-                b.header.bitmap[w] &= !bit_mask;
-                let old_val = b.subarrays[sub].as_ref().expect("live subarray")[rank];
-                let retired = subarray_remove(&mut b.subarrays[sub], sub_pop, rank, 0u32);
-                let pop = b.header.pop0 as usize;
-                if pop > 0 {
-                    b.header.pop0 -= 1;
-                }
-                // Never published: the copy's replaced subarray is freed now.
-                drop(retired);
-                (old_val, pop)
-            };
-            let nh = a.alloc(NodeBox::MapBitmap(Raw::new(Box::new(copy))));
-            a.free(h);
-            *e = rehandle(e, nh);
+            // In place through word stores (#1233); the handle is unchanged.
+            let (old_val, pop) = map_bitmap_remove_shared(a, edge_handle(e), rem as u8)?;
             if pop == 0 {
                 let old = edge_handle(e);
                 a.free(old);
@@ -4203,7 +4358,7 @@ pub(crate) fn map_remove_mode<const SHARED: bool>(
                 // *pre-clear* word (#615).
                 let sub_pop = bitmap_sub_pop(word, digit);
                 b.header.bitmap[w] &= !bit_mask;
-                let old_val = b.subarrays[sub].as_ref().expect("live subarray")[rank];
+                let old_val = b.subarrays[sub].as_slice().expect("live subarray")[rank];
                 let retired = subarray_remove(&mut b.subarrays[sub], sub_pop, rank, 0u32);
                 let pop = b.header.pop0 as usize;
                 if pop > 0 {
@@ -4467,21 +4622,27 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
                 let node = a.try_node(edge_handle(&edge))?;
                 // SAFETY: the reader is pinned, so the node the slot names stays
                 // allocated; every value read from it is validated before it is used.
-                let b: &LeafBitmapL32Data =
-                    unsafe { node.as_node::<LeafBitmapL32Data>(PubKind::MapBitmap) }?;
+                // The writer edits a published bitmap leaf in place (#1233):
+                // no reference to it, its bitmap as `word` pairs, and `&`
+                // only to a subarray's atomics.
+                let b = node.ptr_as::<LeafBitmapL32Data>(PubKind::MapBitmap)?;
                 if !still_valid() {
                     return Err(Torn);
                 }
                 let digit = rem as u8;
-                let w = (digit >> 6) as usize;
-                let word = b.header.bitmap[w];
-                let bit = 1u64 << (digit & 63);
-                if (word & bit) == 0 {
+                // SAFETY: validated and pinned; `digit`'s bitmap word, one
+                // atomic load.
+                let (hp, bit) =
+                    bitmap_half(unsafe { (&raw const (*b).header.bitmap).cast() }, digit);
+                // SAFETY: as above.
+                let half = unsafe { word::load(hp) };
+                if (half & bit) == 0 {
                     return seal(still_valid, None);
                 }
-                let rank = bitmap_sub_rank(word, digit);
+                let rank = (half & (bit - 1)).count_ones() as usize;
                 let sub = (digit >> 5) as usize;
-                let Some((vals, len)) = sub_vals_ptr(&b.subarrays[sub]) else {
+                // SAFETY: as above; `&` only to the subarray's atomics.
+                let Some((vals, len)) = sub_vals_ptr(unsafe { &(*b).subarrays[sub] }) else {
                     return Err(Torn);
                 };
                 if !still_valid() {
@@ -4559,12 +4720,18 @@ pub(crate) fn set_contains_validated<F: Fn() -> bool>(
                 let node = a.try_node(edge_handle(&edge))?;
                 // SAFETY: the reader is pinned, so the node the slot names stays
                 // allocated; every value read from it is validated before it is used.
-                let b: &LeafBitmap1_32 =
-                    unsafe { node.as_node::<LeafBitmap1_32>(PubKind::Bitmap) }?;
+                // The writer edits a published bitmap leaf in place (#1233):
+                // no reference to it, and its bitmap as `word` pairs.
+                let b = node.ptr_as::<LeafBitmap1_32>(PubKind::Bitmap)?;
                 if !still_valid() {
                     return Err(Torn);
                 }
-                return seal(still_valid, b.test(rem as u8));
+                // SAFETY: validated and pinned; the key's bitmap word, one
+                // atomic load.
+                let (hp, bit) = bitmap_half(unsafe { (&raw const (*b).bitmap).cast() }, rem as u8);
+                // SAFETY: as above.
+                let half = unsafe { word::load(hp) };
+                return seal(still_valid, half & bit != 0);
             }
             Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
                 match branch_child_validated(a, &edge, digit_at(rem, kb), still_valid)? {
@@ -4654,16 +4821,25 @@ fn seek_leaf<'a, F: Fn() -> bool>(
 }
 
 /// A map bitmap leaf and a copy of its bitmap, validated.
-fn seek_bitmap<'a, F: Fn() -> bool>(
+///
+/// The writer edits a published bitmap leaf in place (#1233), so the leaf is
+/// reached through its address, never a reference, and its bitmap is loaded
+/// as `word` pairs.
+fn seek_bitmap<F: Fn() -> bool>(
     a: PubTable,
     e: &Edge32,
     still_valid: &F,
-) -> Result<(&'a LeafBitmapL32Data, [u64; 4]), Torn> {
+) -> Result<(*const LeafBitmapL32Data, [u64; 4]), Torn> {
     let node = a.try_node(edge_handle(e))?;
+    let b = node.ptr_as::<LeafBitmapL32Data>(PubKind::MapBitmap)?;
+    if !still_valid() {
+        return Err(Torn);
+    }
     // SAFETY: the reader is pinned, so the node the slot names stays
-    // allocated; every value read from it is validated before it is used.
-    let b: &LeafBitmapL32Data = unsafe { node.as_node::<LeafBitmapL32Data>(PubKind::MapBitmap) }?;
-    let bitmap = b.header.bitmap;
+    // allocated, and the slot was validated as naming a map bitmap leaf;
+    // word-pair loads only, whose values are validated before use.
+    let bitmap: [u64; 4] =
+        core::array::from_fn(|w| unsafe { word::load_u64(&raw const (*b).header.bitmap[w]) });
     if !still_valid() {
         return Err(Torn);
     }
@@ -4673,13 +4849,16 @@ fn seek_bitmap<'a, F: Fn() -> bool>(
 /// The entry at set `digit` of a map bitmap leaf whose validated bitmap copy
 /// is `bitmap`. The value subarray is validated before it is indexed.
 fn seek_bitmap_entry<F: Fn() -> bool>(
-    b: &LeafBitmapL32Data,
+    b: *const LeafBitmapL32Data,
     bitmap: &[u64; 4],
     digit: u8,
     still_valid: &F,
 ) -> Result<(u32, u32), Torn> {
     let rank = bitmap_sub_rank(bitmap[(digit >> 6) as usize], digit);
-    let Some((vals, len)) = sub_vals_ptr(&b.subarrays[(digit >> 5) as usize]) else {
+    // SAFETY: a validated, pinned map bitmap leaf ([`seek_bitmap`]); `&` only
+    // to the subarray's atomics.
+    let sub = unsafe { &(*b).subarrays[(digit >> 5) as usize] };
+    let Some((vals, len)) = sub_vals_ptr(sub) else {
         return Err(Torn);
     };
     if !still_valid() {
@@ -5154,7 +5333,7 @@ fn map_bitmap_entry(b: &LeafBitmapL32Data, digit: u8) -> Option<(u32, u32)> {
     let w = (digit >> 6) as usize;
     let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
     let sub = (digit >> 5) as usize;
-    Some((u32::from(digit), b.subarrays[sub].as_ref()?[rank]))
+    Some((u32::from(digit), b.subarrays[sub].as_slice()?[rank]))
 }
 
 /// Index of the first key strictly greater than `after` in a linear leaf's
@@ -5466,7 +5645,7 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let mut removed = 0usize;
                 let mut bytes_delta = 0isize;
-                let mut retired: [Option<Box<[u32]>>; 8] = core::array::from_fn(|_| None);
+                let mut retired: [Option<Raw<[u32]>>; 8] = core::array::from_fn(|_| None);
                 for (sub, slot) in retired.iter_mut().enumerate() {
                     let sub_lo = (sub * 32) as u32;
                     let sub_hi = sub_lo + 31;
@@ -5484,7 +5663,7 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                     if hit == 0 {
                         continue;
                     }
-                    let Some(existing) = b.subarrays[sub].take() else {
+                    let Some(existing) = b.subarrays[sub].replace_mut(None) else {
                         continue;
                     };
                     let sub_pop = ((word >> base) & 0xFFFF_FFFF).count_ones() as usize;
@@ -5505,13 +5684,14 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                     }
                     b.header.bitmap[w] &= !hit;
                     bytes_delta += subarray_bytes_delta::<u32>(sub_pop, keep.len());
-                    b.subarrays[sub] = if keep.is_empty() {
+                    let vacant = b.subarrays[sub].replace_mut(if keep.is_empty() {
                         None
                     } else {
                         // Class-sized like every other subarray (#615).
                         keep.resize(cap_class(keep.len()), 0u32);
                         Some(keep.into_boxed_slice())
-                    };
+                    });
+                    debug_assert!(vacant.is_none(), "the subarray was taken above");
                     *slot = Some(existing);
                 }
                 // `pop0` is `count - 1` (see `LeafBitmapL32Data`); keep the
@@ -6085,7 +6265,7 @@ pub(crate) fn map_for_each_range(
                         bitmap_sub_rank(b.header.bitmap[w], digit),
                         "running rank diverged from the popcount it replaces"
                     );
-                    let Some(arr) = b.subarrays[this_sub as usize].as_ref() else {
+                    let Some(arr) = b.subarrays[this_sub as usize].as_slice() else {
                         return true;
                     };
                     if !f(u32::from(digit), arr[usize::from(rank)]) {
@@ -6420,7 +6600,7 @@ impl LeafCur32 {
                     bitmap_sub_rank(b.header.bitmap[(digit >> 6) as usize], digit),
                     "running rank diverged from the popcount it replaces"
                 );
-                let v = b.subarrays[this_sub as usize].as_ref()?[usize::from(*rank)];
+                let v = b.subarrays[this_sub as usize].as_slice()?[usize::from(*rank)];
                 return Some((*prefix | u32::from(digit), v));
             },
         }
@@ -6830,7 +7010,7 @@ mod tests {
                         let word = b.header.bitmap[sub / 2];
                         let base = ((sub & 1) * 32) as u32;
                         let pop = ((word >> base) & 0xFFFF_FFFF).count_ones() as usize;
-                        match &b.subarrays[sub] {
+                        match b.subarrays[sub].as_slice() {
                             Some(arr) => {
                                 assert!(pop > 0, "empty subexpanse {sub} holds an allocation");
                                 assert_eq!(
@@ -6910,7 +7090,7 @@ mod tests {
                     let word = b.header.bitmap[sub / 2];
                     let base = ((sub & 1) * 32) as u32;
                     let pop = ((word >> base) & 0xFFFF_FFFF).count_ones() as usize;
-                    if let Some(arr) = &b.subarrays[sub] {
+                    if let Some(arr) = b.subarrays[sub].as_slice() {
                         assert_eq!(arr.len(), cap_class(pop));
                         diverged |= arr.len() != pop;
                     }
