@@ -54,7 +54,7 @@ SCRIPTS_DIR = BASE_DIR / "scripts"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bench_provenance import (  # noqa: E402
-    add_load, attach, estimators, git_sha, host_facts, rewrite,
+    add_load, attach, begin_cell, end_cell, estimators, git_sha, host_facts, rewrite,
 )
 import bench_windowed  # noqa: E402
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
@@ -306,16 +306,46 @@ def run_process(bench_name: str, prov: dict, args: list[str], label: str):
     return parse_payload(bench_name, res.stdout), window
 
 
+def run_rounds_one_window(bench_name: str, prov: dict, args: list[str], rounds: int):
+    """Every round process of `bench_name` inside one load window.
+
+    For `--quick`: its populations make a round process shorter than
+    `bench_provenance.MIN_WINDOW_S`, which no window can attribute. The rounds
+    still run one process each; the window spans them all, and every row
+    carries it.
+    """
+    exe, pkg_dir = bench_windowed.build("expanse-trie", "bench", bench_name)
+    label = f"{bench_name}/rounds=0-{rounds - 1}"
+    start = begin_cell(prov, f"cell:{label}")
+    outs = []
+    for r in range(rounds):
+        res = subprocess.run(bench_windowed.harness_argv(exe, "bench", args + ["--round", str(r)]),
+                             cwd=pkg_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True)
+        if res.returncode != 0:
+            print(f"Error running {bench_name} round {r}:", file=sys.stderr)
+            print(res.stderr, file=sys.stderr)
+            sys.exit(1)
+        outs.append(parse_payload(bench_name, res.stdout))
+    window = end_cell(start)
+    prov["load_windows"] = True
+    prov.setdefault("windows", []).append({"id": label, "load": window})
+    return [(o, window) for o in outs]
+
+
 def run_bench(bench_name: str, out_file: str, out_dir: Path, prov: dict, quick: bool,
               rounds: int):
     print(f"==> Running benchmark: {bench_name} (quick={quick})...")
     args = ["--quick"] if quick else []
     args.append("--json")
     if bench_name in TIMED:
-        runs = [run_process(bench_name, prov, args + ["--round", str(r)],
-                            f"{bench_name}/round={r}") for r in range(rounds)]
+        if quick:
+            runs = run_rounds_one_window(bench_name, prov, args, rounds)
+        else:
+            runs = [run_process(bench_name, prov, args + ["--round", str(r)],
+                                f"{bench_name}/round={r}") for r in range(rounds)]
         art = stamp(annotate(bench_name, merge_rounds(bench_name, runs)), prov)
-        windows = [w for _, w in runs]
+        windows = list({id(w): w for _, w in runs}.values())
     else:
         parsed, window = run_process(bench_name, prov, args, bench_name)
         art = stamp(parsed, prov)
