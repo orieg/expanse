@@ -4216,4 +4216,84 @@ mod loom_tests {
     fn loom_bucket_removal_reading_before_the_lock_returns_a_stale_value() {
         bucket_removal_model(true);
     }
+
+    /// `SyncExpanseBlobMap`'s dead-byte charge reduced to one slot word
+    /// (#1280). The word names an arena record (`A`, then `B`) or is 0
+    /// (absent). An overwrite reads the word under its version lock, stores
+    /// `B` and unlocks; a removal reads the word before locking, as
+    /// `olc_remove_map_body!`'s pre-lock reads do, then locks expecting that
+    /// snapshot and stores 0. Each writer charges the record its unlink
+    /// replaced, and the model checks the accounting that `compact` later
+    /// recomputes from the index: every record that ended up unreferenced is
+    /// charged exactly once. `overwrite_unlocks_modified` false is the
+    /// negative control — the in-place publish shape #1055 found on the bytes
+    /// map, which leaves the version where the removal sampled it.
+    fn blob_dead_charge_model(overwrite_unlocks_modified: bool) {
+        const A: u64 = 0xA;
+        const B: u64 = 0xB;
+        loom::model(move || {
+            let v = Arc::new(VersionCell::new(0));
+            let word = Arc::new(AtomicU64::new(A));
+            let (ov, ow) = (Arc::clone(&v), Arc::clone(&word));
+            let overwrite = loom::thread::spawn(move || {
+                loop {
+                    let Ok(old_v) = version_try_lock(&ov) else {
+                        loom::thread::yield_now();
+                        continue;
+                    };
+                    let old = ow.load(Ordering::Relaxed);
+                    ow.store(B, Ordering::Relaxed);
+                    version_unlock(&ov, old_v, overwrite_unlocks_modified);
+                    return (old != 0).then_some(old);
+                }
+            });
+            let removed = loop {
+                let Some(snap) = node_sample(&v) else {
+                    loom::thread::yield_now();
+                    continue;
+                };
+                let seen = word.load(Ordering::Relaxed);
+                if !node_validate(&v, snap) {
+                    loom::thread::yield_now();
+                    continue;
+                }
+                if seen == 0 {
+                    break None;
+                }
+                let Ok(old_v) = version_try_lock_expect(&v, snap) else {
+                    loom::thread::yield_now();
+                    continue;
+                };
+                word.store(0, Ordering::Relaxed);
+                version_unlock(&v, old_v, true);
+                break Some(seen);
+            };
+            let overwritten = overwrite.join().unwrap();
+            let live = word.load(Ordering::Relaxed);
+            let charged: Vec<u64> = overwritten.into_iter().chain(removed).collect();
+            for rec in [A, B] {
+                let times = charged.iter().filter(|&&c| c == rec).count();
+                let expected = usize::from(rec != live);
+                assert_eq!(
+                    times, expected,
+                    "dead-byte charge miscounted record {rec:#x}: charged {charged:?}, live {live:#x}"
+                );
+            }
+        });
+    }
+
+    /// Every unreferenced record is charged once: the overwrite unlocks
+    /// modified, so a removal that sampled before it cannot lock over it.
+    #[test]
+    fn loom_blob_overwrite_and_removal_charge_each_record_once() {
+        blob_dead_charge_model(true);
+    }
+
+    /// The negative control: an overwrite that unlocks unmodified lets the
+    /// removal lock over it and charge the record it read before the lock.
+    #[test]
+    #[should_panic(expected = "dead-byte charge miscounted")]
+    fn loom_blob_overwrite_unlocking_unmodified_double_charges() {
+        blob_dead_charge_model(false);
+    }
 }
