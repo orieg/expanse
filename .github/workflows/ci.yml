@@ -801,6 +801,13 @@ jobs:
           python3 scripts/push_tree_verified.py --self-test
           python3 scripts/bench_windowed.py --self-test
           python3 scripts/branchu_band_bounds.py --self-test
+          # blob_mixed_bounds.py holds the #1280 bounds: the repaired mixed
+          # harness's arena ceiling under its compaction trigger, the mixed
+          # workload's equilibrium occupancy and remove-hit share, and the
+          # utilization-law ceiling a serialised removal puts on a mixed cell.
+          # Its self-test reads the constants it mirrors from the engine and
+          # the harness (AGENTS.md section 8.8 commit 1).
+          python3 scripts/blob_mixed_bounds.py --self-test
           # leaf_layout_model.py prices the #1257 layout census (ARCHITECTURE.md §3.6)
           # and re-checks the committed artifacts its figures rest on.
           python3 scripts/leaf_layout_model.py --self-test
