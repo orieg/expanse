@@ -471,8 +471,11 @@ _SKEWED = ["composite_skewed_10000000_" + c for c in ("sorted", "shuffled", "chu
 ENCODING_ARTIFACT = "results/leaf_layout_census_encodings.json"
 # Encodings whose every key byte takes at most 128 values, where a uniform
 # cap of 128 builds exactly the (128 keys, 128 digits) tree; base-255 is not.
-_ENC128 = [f"composite_{d}_{e}_10000000" for d in ("uniform", "skewed")
-           for e in ("enc7x10", "b32x4", "b16x5", "b32x4a7")]
+_ENC128 = [base + order
+           for base in [f"composite_{d}_{e}_10000000" for d in ("uniform", "skewed")
+                        for e in ("enc7x10", "b32x4", "b16x5", "b32x4a7", "b32full")]
+           + ["orders_text_10000000", "orders_b32a7_10000000"]
+           for order in ("", "_shuffled")]
 # Where the leaf-cap projection is NOT exact: the cap-128 engine measured
 # more than the model predicted, on these records only, by these bytes. The
 # cause is unexplained (a narrow-pointer key width was tested and refuted);
@@ -483,10 +486,13 @@ LEAF_CAP_RESIDUALS = {
     "composite_skewed_10000000_shuffled": 2352,
     "composite_skewed_10000000_churned": 3152,
     "composite_skewed_10000000_survivors": 6032,
-    "composite_uniform_b16x5_10000000": 320000,
-    "composite_skewed_enc7x10_10000000": 2352,
-    "composite_skewed_b32x4_10000000": 9744,
-    "composite_skewed_b16x5_10000000": 23104,
+    **{shape + order: delta
+       for shape, delta in (("composite_uniform_b16x5_10000000", 320000),
+                            ("composite_skewed_enc7x10_10000000", 2352),
+                            ("composite_skewed_b32x4_10000000", 9744),
+                            ("composite_skewed_b16x5_10000000", 23104),
+                            ("orders_b32a7_10000000", 528))
+       for order in ("", "_shuffled")},
 }
 ENCODING_PREDICTIONS = (
     ("results/leaf_layout_census_encodings_class10.json", "class_10", 128, 16, None),
