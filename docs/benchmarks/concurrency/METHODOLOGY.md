@@ -4073,3 +4073,81 @@ The reading those constants are compared with changed first. `bench_host_guard.p
 On a kernel without `CONFIG_VIRT_CPU_ACCOUNTING_GEN`, `/proc/stat` charges a CPU's user and system time by sampling at the scheduler tick, while a task's `utime + stime` is scaled to its measured runtime. In a smoke run on a non-reference Linux development host (`CONFIG_HZ=250`), the per-CPU counters under-read an injector with a fixed 10 ms period. With each period drawn from 5–15 ms, the counters read about what the injector's own CPU clock reported. The guard's task-time attribution read the injector correctly in both cases. The cause is unmeasured; a burst staying in phase with the tick is the hypothesis. That host also carried unrelated container load, so the smoke settled only the direction of the change. It was not committed, and none of its readings is an input to §25.4. §25.2's calibration measures the jittered injector on the reference host.
 
 **The change.** The injector draws each period's length uniformly from 0.5–1.5 × 10 ms, from a PRNG seeded with its PID, and burns ℓ of each period on its own thread CPU clock (`inject --jitter`, the default). Nothing else in §25 changes. This amendment lands before any run of §25, so no result is relabelled.
+
+## 26. Pre-registration for #1280 — the optimistic `SyncExpanseBlobMap` removal, on the repaired mixed instrument (appended and locked 2026-09-29, before any run of the repaired instrument or of the builds below)
+
+### 26.1 Context
+
+Every `SyncExpanseBlobMap::remove` took `Shared::remove_root_covered`, present key or not: the fallback mutex, a writer quiesce that drains every allocated writer slot, the writer mutex, a population re-sync and `fold_writer_arenas`, with the tree version word held for the section (`ExpanseBlobMap` publishes its root), so concurrent readers restart across it. `docs/ARCHITECTURE.md` §4 records blob removals as serialised; #929's blob gate (§21, README §19) measured fresh inserts only and states that removals were not measured.
+
+The published `core_concurrency` blob cells could not say what that costs: both Expanse blob arms timed an insert that failed once the arena reached its 1 GiB cap, and the key-parity write selector left every removal a miss (#1280). `benches/concurrency.rs` is repaired on `fix/1280-mixed-harness` (`859214cb`, `d1c3ca2a`): stationary occupancy at half the keyspace, 0.25 of writes removing a present key (checked per window by `mixed_concurrency.py`), in-window compaction on one trigger for both Expanse blob arms, one worker pool per cell. This section registers what is measured on that instrument and how it is read.
+
+### 26.2 Builds
+
+| build | what it is | ref |
+|---|---|---|
+| B | the repaired harness; blob removal serialised as on `main` | `fix/1280-mixed-harness` head |
+| M | B plus a remove-miss short-circuit: an absent key is answered by a validated read (`contains_key`), a present one takes B's serialised removal. Diagnostic, never merged | `exp/1280-m-miss-shortcut` |
+| C | B plus the optimistic removal: `olc_remove_map` over the blob host, the unlinked record charged through `charge_dead` under the writer-gate guard, B's serialised path for root-leaf state and fallbacks | `perf/1280-blob-optimistic-remove` head |
+| A | C plus `has_writer_deltas` stored only when it reads `false`. Diagnostic unless its gate below passes | `exp/1280-a-deltas-flag` |
+
+The exact commit of each build is the one its dispatch records in `provenance.commit`; a build whose commit differs between its two runs voids both.
+
+### 26.3 Instrument, runs and order
+
+- The `concurrency` suite of `bench_baremetal.yml`, unchanged: `mixed_concurrency.py --threads 1,4,16 --workloads 100,50 --engines all`, 18 rounds per cell, pin `0-15`, host guard as on `main`.
+- Two runs per build, dispatched in the order B, M, C, A, A, C, M, B. Run 1 of a build is its first dispatch; comparisons pair run k with run k.
+- B's two runs are also the baseline the harness PR publishes (§26.8).
+
+### 26.4 Gates
+
+All on `SyncExpanseBlobMap`, 50 % read, total ops/s. X ÷ Y is the ratio of mean total ops/s over a cell's 18 windows, two-sample BCa 95 % (`bca_bootstrap_ratio_ci_with_method`), computed by `docs/benchmarks/concurrency/scripts/blob_remove_gate.py`, which holds these floors as constants.
+
+| id | comparison | threads | floor | reading |
+|---|---|--:|--:|---|
+| G1 | C ÷ B | 16 | 1.0 | `PASS` when the lower bound exceeds the floor in both runs, `REFUTED` when the upper bound is below it in both, `INCONCLUSIVE` otherwise |
+| G2 | C ÷ B | 4 | 1.0 | as G1 |
+| G3 | C ÷ B | 1 | 0.90 | the single-thread price, as G1 (§21's floor) |
+| G4 | C's own paired C(16), `scaling_c_n` of the artifact | 16 | 1.0 | as G1: `PASS` means C's 16-thread cell is not below its 1-thread cell |
+| R1 | M ÷ B | 16, 4 | — | reported with intervals: the share of the change the miss path alone delivers |
+| R2 | A ÷ C | 16, 4 | — | reported; A is proposed for the PR only if its lower bound exceeds 1.0 at 16 threads in both runs and its Callgrind table meets §26.6 |
+
+C merges as the default when G1 and G3 pass. G2 and G4 are read and published whatever they show. No gate is evaluated on M or A beyond R1 and R2.
+
+### 26.5 Controls, and what voids a comparison
+
+- Cells the change should not move: `blob` 100 % read at 1 and 16 threads, `map` 50 % and 100 % read at 16 threads, read as C ÷ B. A control whose interval excludes [0.95, 1.05] in the same direction in both runs marks the comparison `DRIFT` (`docs/BENCHMARKING.md` rule 18) and G1–G4 are not read from that pair of runs.
+- A run the host guard voids, a window `mixed_concurrency.py` refuses (write mix drift, unbalanced design, a failed `.expect`), or a build whose commit differs between runs, voids the run; it is re-dispatched in the same position and the discard is disclosed.
+- A blob 50 % cell with zero compactions across its windows at 16 threads voids the run: the trigger did not fire and the arena bound of §26.7 was not exercised.
+
+### 26.6 Expected losses, before measuring
+
+Single-threaded instructions (the PR's own `instruction-counts` run). The price of an optimistic removal is known from its twin on the same body: on `main` at `d7b1df7c`, `sync_map_remove/random` is 65,649,541 Ir and `sync_blobmap_remove/random` 52,711,517 Ir over 50,000 removals each, 1,313.0 and 1,054.2 Ir per removal, a ratio of 1.245 (CI run [36597494345](https://github.com/orieg/expanse/actions/runs/36597494345), the `instruction-counts` report's comparison against `main`). `sync_blobmap_remove_miss/random` there is 22,191,055 Ir, 443.8 per absent-key removal. The blob removal adds the dead-byte charge and a slot `try_own` on each hit. Ceilings, set as policy; an arm over its ceiling is a stop-and-ask, not an override:
+
+| arm | ceiling |
+|---|--:|
+| `sync_blobmap_remove/random` | +40 % |
+| `sync_blobmap_churn/random` | +25 % |
+| `sync_blobmap_insert`, `sync_blobmap_overwrite`, `sync_blobmap_get` | +3 % (inlining only; no source change on their paths) |
+| `sync_strmap_*` | +3 % (a new instantiation of the generic `olc_remove_map` can change inlining crate-wide, `sync.rs` `OlcHost::edge_tag` note) |
+| `blobmap_remove/random` (plain map) | 0.0 %, a control |
+| every other arm | 0.1 % (AGENTS.md §6) |
+
+`sync_blobmap_remove_miss` (#1280's Callgrind arm) is expected to fall; it has no ceiling.
+
+### 26.7 Math-first inputs (`scripts/blob_mixed_bounds.py`, §8.8 commit 1)
+
+- The harness's arena ceiling under its trigger is 191,817,728 B, 5.60× under the cap, above the registered 2× margin.
+- At 50 % read the serialised share of operations is 0.25 on B, 0.125 on M and 0 by construction on C, whose fallbacks are measured, not derived.
+- Under the utilization law B's throughput at any thread count is at most 1 / (0.25 · s), s the serialised section's duration. s is not derivable and is not registered; no magnitude of G1 is predicted from it, and #1055's 10.97× on the bytes map is not an expectation here.
+
+### 26.8 What each outcome licenses
+
+- G1 and G3 `PASS`: "the optimistic removal raises the blob map's 50/50 throughput at 16 threads by [interval]", with R1 stating how much of it the miss path alone delivers. "Removal was the cause of the retrograde curve" is claimed only if G4 also passes; otherwise the remaining deficit is reported as unexplained (§8.20.4).
+- G1 `INCONCLUSIVE` or `REFUTED`: C does not merge as a performance change. The result, the intervals and R1 are recorded on #1280.
+- Independently of every gate, B's two runs are the repaired instrument's first measurement and are published as such in README §12, replacing the withheld blob cells.
+
+### 26.9 Not predicted, and out of scope
+
+- No magnitude for any ratio. No USL fit: three thread counts leave no residual for a two-parameter model.
+- Out of scope: a `writer_scaling` remove or churn cell (the repaired mixed cell removes a present key on 0.25 of writes, checked per window), compaction under load as its own measurement, the `ablation-blob-*` builds, and a Miri UB-site workload for concurrent blob removals (a follow-up on #1280).
