@@ -370,6 +370,42 @@ Figures are at 10⁷ keys *(measured on all three builds; engine at 45eb0f6ac, w
   - The cost is a mixture: slack in the encoded leaves as holes grow, and 17.6–22.4 B for each escaped text key. The text keys cost more than dense text `orders` because they are sparse.
 - **The ≤ 13.2 B/key load-time bar holds up to 10% escaped** (12.44), and fails at 50% (17.89, close to all-text `orders`).
 
+**W3 timing of the encodings: do they cost lookups?** The report asked whether the memory the encodings save costs lookups or inserts. `benches/leaf_layout_timing.rs`, driven by `scripts/leaf_layout_timing.py`, times the census's own key sets, byte for byte (`leaf_layout_census.rs --dump-keys`). Each process runs one cell:
+
+- a single-writer insert load into a `SyncExpanseStrMap`;
+- then 16 reader threads, each registering one `StrReader` before the timed region, on pre-generated Zipfian (θ = 0.99) probe streams: hits, then misses drawn from each shape's own generator and absent by construction (§8.6).
+
+The run design:
+
+- One process per arm, load order and round; 8 rounds with the arm order rotated each round, and two independent runs.
+- Each process has its own load window.
+- Every metric is reported as a per-round paired ratio with its BCa 95% interval.
+- A text-vs-text A/A arm measures how far two identical arms separate.
+
+*(measured: AMD Ryzen 9 9955HX, 16 cores, one reader per physical core, CPUs 0–15; `powersave` governor; 10⁷ keys per arm; commit 39c36d1a on branch `fix/leaf-layout-timing-reader`, whose harness squash-merged into `main` as 291d64cf2; foreign load at most 0.04 busy CPUs in any of the 160 windows; workload: `bench_leaf_layout_timing`; [`results/leaf_layout_timing_39c36d1a_ryzen_runa.json`](../results/leaf_layout_timing_39c36d1a_ryzen_runa.json) and [`…_runb.json`](../results/leaf_layout_timing_39c36d1a_ryzen_runb.json).)* This is not the reference host, and the figures are not comparable with its artifacts.
+
+Encoded over text, run A · run B, each a mean of per-round ratios with its 95% interval. For throughput, above 1 means the encoded keys are faster; for time and latency, above 1 means they are slower:
+
+| metric | `orders` transcoded / text, sorted | `orders` transcoded / text, shuffled | `composite` aligned base-32 / 7-bit, sorted | `composite` aligned base-32 / 7-bit, shuffled |
+|---|---|---|---|---|
+| insert time | 0.83 [0.83, 0.84] · 0.84 [0.83, 0.84] | 0.81 [0.81, 0.81] · 0.81 [0.80, 0.81] | 1.03 [1.02, 1.04] · 1.03 [1.03, 1.03] | 0.99 [0.99, 0.99] · 0.99 [0.98, 1.00] |
+| hit throughput | 1.27 [1.25, 1.28] · 1.27 [1.26, 1.30] | 1.32 [1.25, 1.39] · 1.33 [1.29, 1.36] | 1.07 [1.02, 1.10] · 1.03 [1.02, 1.05] | 1.16 [1.13, 1.20] · 1.15 [1.09, 1.17] |
+| hit median latency | 0.84 [0.83, 0.85] · 0.84 [0.82, 0.85] | 0.80 [0.80, 0.80] · 0.80 [0.80, 0.80] | 0.91 [0.90, 0.91] · 0.91 [0.90, 0.91] | 0.88 [0.88, 0.88] · 0.88 [0.88, 0.88] |
+| hit p99 latency | 0.80 [0.80, 0.80] · 0.80 [0.79, 0.80] | 0.78 [0.77, 0.78] · 0.77 [0.77, 0.78] | 0.97 [0.97, 0.97] · 0.97 [0.97, 0.97] | 0.96 [0.95, 0.96] · 0.95 [0.94, 0.96] |
+| miss throughput | 0.85 [0.79, 0.91] · 0.87 [0.83, 0.90] | 0.97 [0.91, 1.07] · 0.96 [0.91, 1.05] | 1.04 [1.00, 1.07] · 1.02 [0.98, 1.06] | 1.05 [0.98, 1.14] · 1.02 [0.96, 1.06] |
+| miss median latency | 1.21 [1.14, 1.25] · 1.24 [1.18, 1.30] | 1.14 [1.14, 1.14] · 1.14 [1.14, 1.14] | 0.88 [0.88, 0.88] · 0.88 [0.88, 0.88] | 0.96 [0.93, 0.98] · 0.94 [0.92, 0.96] |
+| miss p99 latency | 1.21 [1.20, 1.23] · 1.21 [1.20, 1.23] | 1.07 [1.04, 1.08] · 1.08 [1.06, 1.11] | 0.94 [0.94, 0.94] · 0.94 [0.94, 0.94] | 0.93 [0.92, 0.94] · 0.92 [0.92, 0.92] |
+
+- **The control.** The A/A arm stays within 3% of 1 on every metric. It excludes 1 only on sorted hit throughput, in both runs (1.02 [1.01, 1.06] and 1.02 [1.00, 1.06]), so a hit-throughput difference of about 2% is within this setup's noise. The latency percentiles are the timed probes' values, quantized by the host's timer: a median miss on `orders` is 70–91 ns. Five ratios of such percentiles repeat exactly across rounds, and their intervals are zero-width (`ci_method` `degenerate`, not BCa).
+- **Aligned base-32 `composite` costs no lookup time.** Hits are 3–16% faster in throughput and 9–12% faster in median latency, misses are equal or faster, and inserts are equal (shuffled) or 3% slower (sorted).
+- **Transcoded `orders` speeds up hits and inserts and slows misses.**
+  - Hit throughput is 27–33% higher, hit latency 16–23% lower, and inserts 16–19% faster.
+  - Misses are slower after a sorted load: median latency 1.21–1.24×, p99 1.21×, throughput 0.85–0.87×. After a shuffled load, miss latency is 1.07–1.14× and throughput is not distinguishable from 1.
+  - Why the misses slow down is **unmeasured**. A hypothesis: with the transcoded key, a miss shares a longer prefix with the present keys before it diverges, so its lookup descends further before failing. It has not been tested against a depth count.
+- **Discarded runs, disclosed (§8.17).** Two earlier sets of runs are not used.
+  - The first harness called `SyncExpanseStrMap::get` in the timed loop. That call registers a reader per call, which set every arm's cost at about 8.8 µs per probe (fixed in #1285).
+  - A run of the fixed harness on a 72-thread Xeon host had a median of 1.9–5.1 foreign busy CPUs per window. Its direction agreed with the table, but its A/A arm separated by up to 13%.
+
 No option raises `mem_used()` on any record. Under the merge options no single range grows on the synthetic shapes; on SOSD `osm_cellids` four do (below). These are **bytes at rest after an insert-only build**. What each option costs on the write path, and what memory it leaves after removals, is not in the table.
 
 The shapes cover the cases unevenly:
@@ -444,7 +480,7 @@ What each option is, and when a node enters and leaves it:
   - Its expected costs (unmeasured) are one more reallocation for a leaf that grows past 10, and one more arm in `cap_class`.
   - **Run even classes in the same round.** They are the alphabet-neutral alternative. On the SOSD datasets they save 2.6–3.7× what class 10 saves (map `fb` −5.4% against −1.5%), at the price of more reallocation boundaries, so their write-side cost (A1) decides between the two.
   - Whichever ladder passes every clause is the proposal for a default.
-- **For the downstream keys, change the encoding first.** Aligned base-32 digits meet the bar on the current layout for `composite`, with 4-digit or full-width ids, and for transcoded `orders` (10.71 against 17.97). A leaf form or an in-engine key codec becomes a question for keys whose encoding cannot be chosen.
+- **For the downstream keys, change the encoding first.** Aligned base-32 digits meet the bar on the current layout for `composite`, with 4-digit or full-width ids, and for transcoded `orders` (10.71 against 17.97). A leaf form or an in-engine key codec becomes a question for keys whose encoding cannot be chosen. Measured on a 16-core host (W3 above): aligned base-32 `composite` costs no lookup time, and transcoded `orders` makes hits and inserts faster but misses up to 1.24× slower after a sorted load.
 - **Then measure the adaptive cap.** The cap-128 patch measures its lookup and scan costs on plain trees at no code cost, on both downstream shapes. Its insert, reallocation and bracket-length costs need A1 and the concurrency cells. It also carries the 32-slot buffer work above. It meets the downstream need on `orders` and misses it on `composite` (14.78 B/key measured), so it cannot be the whole answer for that workload.
 - **Then prototype the product leaf** if the adaptive cap's lookup or insert costs are unacceptable, or if `composite` must meet the need:
   - It is the only candidate that meets ≤ 13.2 B/key on both downstream shapes as loaded (projected: 8.85 and 12.24). It misses on `composite` after a removal phase (13.77).
