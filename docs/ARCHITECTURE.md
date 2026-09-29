@@ -321,6 +321,34 @@ On the report's 7-bit ids it behaves as the uniform case does *(measured, same i
   - The width has to be chosen for the largest id a name will ever hold. At the minimum of 4 digits that is 32⁴ = 1,048,576; a name that outgrows its width has to be re-encoded.
   - **The alignment depends on the string map's 8-byte chunking and its NUL-terminated final chunk.** That is an implementation detail, not a stable contract (`strmap.rs` module docs). A future layout change can move the optimum, so an encoding that relies on it should be re-censused on every release that changes the string map's layout.
 
+**Full-width ids, and `orders` transcoded (the report's second follow-up).** Both use base-32 digits `0x01..=0x20` with the 7 (mod 8) whole-key alignment, and both are in `leaf_layout_census.rs --encodings`, which re-runs them on any release.
+
+- **`b32full`** is for ids that are full `u64`, so no width can be outgrown. The prefix is 7 digits (31 bits), and the id is at least 13 digits (32¹³ > 2⁶⁴), widened per name to the alignment, so 13–20 digits.
+- **`orders_b32a7`** keeps the `orders` key structure and rewrites each fixed-width decimal field in base 32: `%03d` → 2 digits, and `%010d` → 7 digits (32⁷ = 2³⁵), padded to 12 for the alignment.
+
+Figures are at 10⁷ keys *(measured on all three builds; engine at 45eb0f6ac, whose engine sources are those of c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_encodings.json`](../results/leaf_layout_census_encodings.json) and its `_class10` / `_cap128` totals)*:
+
+| B/key, 10⁷, sorted = shuffled | current | class 10 | leaf cap |
+|---|---:|---:|---:|
+| `composite` uniform, `b32x4a7` | 10.88 | 10.88 | 10.87 |
+| `composite` uniform, **`b32full`** | **10.93** | 10.93 | 10.93 |
+| `composite` skewed, `b32x4a7` | 10.70 | 10.70 | 10.70 |
+| `composite` skewed, **`b32full`** | **10.71** | 10.71 | 10.71 |
+| `orders`, text (#1257) | 17.97 | 14.41 | 12.37 |
+| `orders`, **`orders_b32a7`** | **10.71** | 10.70 | 10.71 |
+
+- **The constant high digits cost almost nothing per key; what they add is a per-name cost at the level of the 8-byte chunk.**
+  - Full-width ids cost +0.046 B/key over 4-digit ids on the uniform shape and +0.008 on the skewed one. Leaves and branches are unchanged (10.00 and 0.72 B/key).
+  - The difference is string-map nodes. The longer constant prefix spans one more 8-byte chunk, which adds a node per name: 28,001 → 36,701 nodes on the uniform shape, about 53 B each (a 40-byte shell and a small root leaf).
+  - That cost is per name, not per key. It is negligible at hundreds of ids per name, but approaches 53 B/key for names holding a single id.
+- **Transcoded `orders` meets the ≤ 13.2 B/key bar on the current layout:** 10.71 B/key against 17.97, with no engine change. That is 10.00 B/key of leaves (8 B value + 2 B key), 0.70 of branches and under 0.02 of everything else. Neither class 10 nor the leaf cap adds anything once the keys are transcoded.
+- **What this says about a key codec inside the engine.** It is an upper bound only: the census measures what the transcoded bytes cost, not what a codec would cost. A codec that stored `orders` this way would have to do three things:
+  - decode on every read that returns a key;
+  - keep JudySL's byte order, which a fixed-width field allows and a variable-width decimal run does not without a length prefix;
+  - pay its encode and decode cost on every operation, which is unmeasured.
+  It is a different trade from a leaf form, and the census cannot price it.
+- **Model check.** Class 10 matches the engine to the byte on all 28 records of this run. The leaf-cap projection matches on 14 of the 24 records the 128-digit rule applies to; the 4 base-255 records are outside it. The residuals are the eight composite cells above, now on shuffled loads too and identical to the sorted ones, plus +528 B on both `orders_b32a7` loads. They are unexplained and pinned exactly in the model's self-test.
+
 No option raises `mem_used()` on any record. Under the merge options no single range grows on the synthetic shapes; on SOSD `osm_cellids` four do (below). These are **bytes at rest after an insert-only build**. What each option costs on the write path, and what memory it leaves after removals, is not in the table.
 
 The shapes cover the cases unevenly:
@@ -395,7 +423,7 @@ What each option is, and when a node enters and leaves it:
   - Its expected costs (unmeasured) are one more reallocation for a leaf that grows past 10, and one more arm in `cap_class`.
   - **Run even classes in the same round.** They are the alphabet-neutral alternative. On the SOSD datasets they save 2.6–3.7× what class 10 saves (map `fb` −5.4% against −1.5%), at the price of more reallocation boundaries, so their write-side cost (A1) decides between the two.
   - Whichever ladder passes every clause is the proposal for a default.
-- **For the downstream `composite` keys, change the encoding first.** Base-32 ids aligned so the key is 7 (mod 8) bytes long meet the ≤ 13.2 B/key bar on the current layout (10.88 uniform, 10.70 skewed), with no engine change. That takes `composite` out of the case for a new leaf form. `orders` still needs the ladder or the leaf cap.
+- **For the downstream keys, change the encoding first.** Aligned base-32 digits meet the bar on the current layout for `composite`, with 4-digit or full-width ids, and for transcoded `orders` (10.71 against 17.97). A leaf form or an in-engine key codec becomes a question for keys whose encoding cannot be chosen.
 - **Then measure the adaptive cap.** The cap-128 patch measures its lookup and scan costs on plain trees at no code cost, on both downstream shapes. Its insert, reallocation and bracket-length costs need A1 and the concurrency cells. It also carries the 32-slot buffer work above. It meets the downstream need on `orders` and misses it on `composite` (14.78 B/key measured), so it cannot be the whole answer for that workload.
 - **Then prototype the product leaf** if the adaptive cap's lookup or insert costs are unacceptable, or if `composite` must meet the need:
   - It is the only candidate that meets ≤ 13.2 B/key on both downstream shapes as loaded (projected: 8.85 and 12.24). It misses on `composite` after a removal phase (13.77).
