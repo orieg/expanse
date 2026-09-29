@@ -26,11 +26,11 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once |
-//! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%) |
-//! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
+//! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), and `sync32_map_get` (50%) |
+//! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership |
 //! | `value_dereference` | `black_box` on retrieved values |
 //! | `measured_region` | Clean (setup in setup) |
 //! | `arm_symmetry` | Internal trie paths |
@@ -1386,6 +1386,92 @@ fn sync32_map_write(built: (expanse_trie::sync32::SyncExpanseMap32, Vec<S32Op>))
                 w.try_insert(black_box(k), black_box(v))
             };
             sink ^= u64::from(r.expect("no refusal with idle readers").unwrap_or(0));
+        }
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(m);
+    black_box(sink)
+}
+
+// One `SyncExpanseMap32` reader on one thread (#1274): `try_get`'s pin,
+// version sample and validated descent, which no plain `map32_*` arm reaches.
+// No writer runs, so every attempt validates; the arm counts the reader path
+// a concurrent attempt takes when its seal holds. Each variant fixes which
+// leaf kind every probe ends at:
+//
+// - `bitmap`: the `concurrency` suite's `sync32` shape (`S32W_STABLE` draws
+//   over twice that many keys), whose probes all end at map bitmap leaves;
+// - `linear`: `S32W_STABLE` draws over `1 << 16` keys, 256 bottom expanses
+//   of about 16 keys each, so every probe ends at a linear map leaf holding
+//   1-byte keys;
+// - `linear_wide`: the same draws over `1 << 24` keys, so most probes end
+//   at a linear map leaf holding 2-byte keys, which span word boundaries
+//   (the rest end at immediates, or miss in a branch).
+//
+// Half the probes are present keys in a shuffled order; the other half are
+// draws from the same generator rejected on membership (AGENTS.md §8.6),
+// interleaved with them.
+
+/// Probes per `sync32_map_get` arm: half hits, half misses.
+const S32R_OPS: usize = 4_000;
+
+/// The prefilled wrapper, one reader slot, and the arm's probe stream.
+fn built_sync32_read(arm: &str) -> (expanse_trie::sync32::SyncExpanseMap32, Vec<Key32>) {
+    let space: u64 = match arm {
+        "bitmap" => 2 * u64::from(S32W_STABLE),
+        "linear" => 1 << 16,
+        "linear_wide" => 1 << 24,
+        _ => unreachable!("unknown sync32 reader arm {arm}"),
+    };
+    let mut m = expanse_trie::sync32::SyncExpanseMap32::with_capacity(S32W_NODE_CAP, 1);
+    let mut present = Vec::new();
+    {
+        let (mut w, _) = m.split();
+        let mut rng = XorShift(0x5CA1_AB1E);
+        for _ in 0..S32W_STABLE {
+            let k = (rng.next() % space) as Key32;
+            if w.try_insert(k, !k).expect("prefill").is_none() {
+                present.push(k);
+            }
+        }
+    }
+    assert!(
+        present.len() >= S32R_OPS / 2,
+        "{} present keys",
+        present.len()
+    );
+    let mut rng = XorShift(0x1000);
+    for i in (1..present.len()).rev() {
+        present.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    let member: std::collections::HashSet<Key32> = present.iter().copied().collect();
+    let mut probes = Vec::with_capacity(S32R_OPS);
+    for &hit in &present[..S32R_OPS / 2] {
+        probes.push(hit);
+        let miss = loop {
+            let k = (rng.next() % space) as Key32;
+            if !member.contains(&k) {
+                break k;
+            }
+        };
+        probes.push(miss);
+    }
+    (m, probes)
+}
+
+#[library_benchmark]
+#[bench::bitmap(args = ("bitmap",), setup = built_sync32_read)]
+#[bench::linear(args = ("linear",), setup = built_sync32_read)]
+#[bench::linear_wide(args = ("linear_wide",), setup = built_sync32_read)]
+fn sync32_map_get(built: (expanse_trie::sync32::SyncExpanseMap32, Vec<Key32>)) -> u64 {
+    let (mut m, probes) = built;
+    let mut sink = 0u64;
+    {
+        let (_w, mut pool) = m.split();
+        let mut r = pool.take().expect("a reader slot");
+        for &k in &probes {
+            let v = r.try_get(black_box(k)).expect("no writer, so no busy");
+            sink = sink.wrapping_add(u64::from(v.unwrap_or(0)));
         }
     }
     // Leaked — see `map_get`.
@@ -3024,6 +3110,7 @@ library_benchmark_group!(
         map32_remove,
         set32_remove,
         sync32_map_write,
+        sync32_map_get,
         blobmap32_scan,
         strmap_insert,
         strmap_get,
