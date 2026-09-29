@@ -212,28 +212,28 @@ Total operations per second (reads + writes), bounded keyspaces, two independent
 
 | arm | keys → values | 1 Thread | 16 Threads, run 1 | 16 Threads, run 2 | Scaling, run 1 / run 2 |
 |---|---|---:|---:|---:|---:|
-| `SyncExpanseMap` (100% read) | u64 → u64, 1M draws | 38.4 M ops/s | **348 M ops/s** | **354 M ops/s** | **9.07× / 8.83×** |
-| `SyncExpanseSet` (100% read) | u64, 1M draws | 79.2 M ops/s | 605 M ops/s | 602 M ops/s | 7.64× / 7.58× |
-| `SyncExpanseMap` (50R/50W mixed) | u64 → u64, 1M draws | 28.4 M ops/s | **104 M ops/s** | **106 M ops/s** | **3.65× / 3.73×** |
-| `SyncExpanseSet` (50R/50W mixed) | u64, 1M draws | 42.7 M ops/s | 226 M ops/s | 225 M ops/s | 5.30× / 5.27× |
-| `SyncExpanseBlobMap` (100% read) | u64 → 128-byte payload, 200k draws | 33.9 M ops/s | 293 M ops/s | 304 M ops/s | 8.64× / 9.01× |
-| `SkipMap` (100% read) | u64 → 128-byte payload, 200k draws | 3.47 M ops/s | 38.6 M ops/s | 38.5 M ops/s | 11.14× / 11.14× |
-| `SyncExpanseBlobMap` (50R/50W mixed) | u64 → 128-byte payload, 200k draws | 17.6 M ops/s | 7.29 M ops/s | 6.83 M ops/s | 0.40× / 0.38× |
-| `SkipMap` (50R/50W mixed) | u64 → 128-byte payload, 200k draws | 2.06 M ops/s | 17.5 M ops/s | 17.6 M ops/s | 8.53× / 8.55× |
-| `SyncExpanseBytesMap` (100% read) | 37-byte string → u64, 100k draws | 11.5 M ops/s | 121 M ops/s | 116 M ops/s | 10.53× / 10.17× |
-| `SyncExpanseStrMap` (100% read) | 37-byte string → u64, 100k draws | 7.09 M ops/s | 77.5 M ops/s | 77.8 M ops/s | 10.93× / 10.97× |
-| `DashMap<Vec<u8>, u64>` (100% read) | 37-byte string → u64, 100k draws | 15.7 M ops/s | 131 M ops/s | 130 M ops/s | 8.36× / 8.38× |
-| `SyncExpanseStrMap` (50R/50W mixed) | 37-byte string → u64, 100k draws | 5.78 M ops/s | **53.5 M ops/s** | **52.8 M ops/s** | **9.25× / 9.14×** |
-| `SyncExpanseBytesMap` (50R/50W mixed) | 37-byte string → u64, 100k draws | 4.88 M ops/s | 33.6 M ops/s | 32.8 M ops/s | 6.92× / 6.75× |
-| `DashMap` (50R/50W mixed) | 37-byte string → u64, 100k draws | 10.8 M ops/s | 83.6 M ops/s | 83.2 M ops/s | 7.76× / 7.79× |
-| `Mutex<Expanse*>` baselines (100% read) | blob and string keys | 8.86–40.9 M ops/s | 2.73–5.39 M ops/s | 2.68–5.55 M ops/s | 0.13×–0.31× (collapse) |
+| `SyncExpanseMap` (100% read) | u64 → u64, 1M keys | 35.2 M ops/s | **327 M ops/s** | **324 M ops/s** | **9.29× / 9.20×** |
+| `SyncExpanseSet` (100% read) | u64, 1M keys | 76.8 M ops/s | 540 M ops/s | 534 M ops/s | 7.03× / 6.99× |
+| `SyncExpanseMap` (50R/50W mixed) | u64 → u64, 1M keys | 19.0 M ops/s | **66.8 M ops/s** | **65.2 M ops/s** | **3.51× / 3.42×** |
+| `SyncExpanseSet` (50R/50W mixed) | u64, 1M keys | 34.5 M ops/s | 130 M ops/s | 130 M ops/s | 3.77× / 3.74× |
+| `SyncExpanseBlobMap` (100% read) | u64 → 128-byte payload, 200k keys | 28.6 M ops/s | 267 M ops/s | 265 M ops/s | 9.32× / 9.19× |
+| `SkipMap` (100% read) | u64 → 128-byte payload, 200k keys | 3.02 M ops/s | 33.6 M ops/s | 33.3 M ops/s | 11.10× / 11.04× |
+| `SyncExpanseBlobMap` (50R/50W mixed) | u64 → 128-byte payload, 200k keys | 10.3 M ops/s | 4.60 M ops/s | 4.60 M ops/s | 0.45× / 0.44× |
+| `SkipMap` (50R/50W mixed) | u64 → 128-byte payload, 200k keys | 2.15 M ops/s | 17.9 M ops/s | 17.8 M ops/s | 8.32× / 8.27× |
+| `SyncExpanseBytesMap` (100% read) | 37-byte string → u64, 100k keys | 10.4 M ops/s | 117 M ops/s | 117 M ops/s | 11.19× / 11.13× |
+| `SyncExpanseStrMap` (100% read) | 37-byte string → u64, 100k keys | 6.97 M ops/s | 77.6 M ops/s | 77.5 M ops/s | 11.13× / 11.12× |
+| `DashMap<Vec<u8>, u64>` (100% read) | 37-byte string → u64, 100k keys | 14.5 M ops/s | 106 M ops/s | 108 M ops/s | 7.31× / 7.46× |
+| `SyncExpanseStrMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 5.80 M ops/s | **53.8 M ops/s** | **53.7 M ops/s** | **9.27× / 9.25×** |
+| `SyncExpanseBytesMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 4.82 M ops/s | 40.6 M ops/s | 41.7 M ops/s | 8.44× / 8.52× |
+| `DashMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 11.0 M ops/s | 86.5 M ops/s | 87.3 M ops/s | 7.85× / 7.91× |
+| `Mutex<Expanse*>` baselines (100% read) | blob and string keys | 8.68–35.3 M ops/s | 2.66–5.65 M ops/s | 2.66–5.71 M ops/s | 0.16×–0.31× (collapse) |
 
 How to read it:
 
 - **Compare rows only within a key type** (u64 → u64, u64 → 128-byte payload, 37-byte string → u64). Populations and key widths differ between the three.
 - **Read-only scaling holds to sixteen threads** on every wrapper, where a `Mutex` around the same structure falls below its single-thread rate.
-- **The 50R/50W rows are a mixed-operation rate, not read scaling**: every thread picks a read or a write per operation. The integer and string wrappers scale there; `SyncExpanseStrMap` reaches 53 M ops/s against 2.3–2.4 M for the same map behind one mutex, and `SyncExpanseBytesMap` 33 M against 2.6–2.9 M (workload: `core_concurrency`).
-- **Known losses at 50R/50W:** `SyncExpanseBlobMap` loses throughput as threads are added (0.38×–0.40×) where `SkipMap` scales 8.5× on the same keys, and `DashMap` serves 83 M ops/s on string keys against 53 M and 33 M for the two Expanse wrappers.
+- **The 50R/50W rows are a mixed-operation rate, not read scaling**: every thread picks a read or a write per operation. A write inserts or removes a uniform key, and half of each keyspace is present, so 0.25 of the writes remove a present key. The integer and string wrappers scale there; `SyncExpanseStrMap` reaches 53.8 M ops/s against 2.35 M for the same map behind one mutex, and `SyncExpanseBytesMap` 40.6 M against 2.31 M (workload: `core_concurrency`).
+- **Known losses at 50R/50W:** `SyncExpanseBlobMap` loses throughput as threads are added (0.45× / 0.44×) where `SkipMap` scales 8.3× on the same keys: every blob removal serialises the writers, and making it optimistic is tracked in [#1280](https://github.com/orieg/expanse/issues/1280). `DashMap` serves 86.5 M ops/s on string keys against 53.8 M and 40.6 M for the two Expanse wrappers (workload: `core_concurrency`). Earlier blob 50R/50W figures timed an insert that failed once the arena reached its cap, and are withdrawn (#1280).
 
 ### Against tries that admit concurrent writers
 

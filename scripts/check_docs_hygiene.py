@@ -920,6 +920,21 @@ def self_test() -> int:
     fatal, _ = scan_text("t.md", "The single-threaded build takes 254 ns per key at N = 10^6.\n", deny, False, reg)
     assert fatal == 0, "254 ns outside the reader/string/concurrent context must pass (context gate)"
 
+    # The #1280 blob mixed figures (registry id `blob_mixed_failing_insert_0a3ed07a`):
+    # the root README row and "Known losses" line verbatim as they stood at
+    # 0a3ed07a. They timed an insert that failed once the arena reached its cap.
+    for figure_1280 in (
+        "| `SyncExpanseBlobMap` (50R/50W mixed) | u64 → 128-byte payload, 200k draws | 17.6 M ops/s | 7.29 M ops/s | 6.83 M ops/s | 0.40× / 0.38× |",
+        "- **Known losses at 50R/50W:** `SyncExpanseBlobMap` loses throughput as threads are added (0.38×–0.40×) where `SkipMap` scales 8.5× on the same keys.",
+        "At 50/50 the blob wrapper falls: `SyncExpanseBlobMap` 0.27× against `SkipMap`'s 8.54×.",
+    ):
+        fatal, _ = scan_text("t.md", figure_1280 + "\n", deny, False, reg)
+        assert fatal >= 1, f"unretracted #1280 blob mixed figure must fail: {figure_1280!r}"
+    # YCSB Workload D's 7.29 Mops/s (docs/BENCHMARKING.md, DATABASE.md) is another
+    # measurement: no space before the unit and no blob-mixed context.
+    fatal, _ = scan_text("t.md", "| **D** (95R-Latest / 5I) | ExpanseMap | 7.29 Mops/s on Workload D |\n", deny, False, reg)
+    assert fatal == 0, "YCSB Workload D's 7.29 Mops/s must pass (unit and context gate)"
+
     # Pending issue validation
     _ISSUE_STATUS_CACHE[384] = "CLOSED"
     _ISSUE_STATUS_CACHE[382] = "OPEN"

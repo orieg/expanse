@@ -2447,29 +2447,68 @@ The `Sync*` read/write sweep, with the four properties
 [`METHODOLOGY.md`](METHODOLOGY.md) §10.3 asks of it. `scripts/mixed_concurrency.py`
 applies the core pin, builds the bench once and runs one process per engine and
 workload group. Each process builds one prefilled structure per table and runs
-whole Williams cycles of rounds over it: one 500 ms window per thread count per
-round, N ∈ {1, 4, 16}. A window starts at a barrier that every worker reaches
-after its own setup, and its rates divide by its own elapsed time. A cell is the
-mean over its windows with a BCa 95% interval; C(N) = T(N) / T(1) is paired
-within each round, T being read plus write operations per second. The two
-artifacts are two dispatches of the suite on one commit, so every cell has a
-second run (rule 18). The suite is report-only: no gate is pre-registered on it,
-so the tables print intervals and no verdicts.
+whole Williams cycles of rounds over it on one worker pool: one 500 ms window
+per thread count per round, N ∈ {1, 4, 16}, every window drawing its own
+operation stream. A window starts at a barrier that every worker reaches after
+its own setup, and its rates divide by its own elapsed time. A cell is the mean
+over its windows with a BCa 95% interval; C(N) = T(N) / T(1) is paired within
+each round, T being read plus write operations per second. The two artifacts are
+two dispatches of the suite on one commit, so every cell has a second run
+(rule 18). The suite is report-only: no gate is pre-registered on it, so the
+tables print intervals and no verdicts.
 
 Every thread picks a read or a write per operation, so under a mix a thread
 waiting on a write is not reading, and the total is a mixed-operation rate, not
-read scaling. The `sync32` rows fix the roles instead — one writer at the named
-duty, N readers on `try_get` — and report the share of read attempts abandoned
-to an open write bracket (Busy rate) and the writer's refused mutations.
+read scaling. A write inserts or removes a uniform key on an independent coin,
+and each structure is prefilled with half its keyspace, the occupancy that coin
+holds, so 0.25 of writes remove a present key in every window; the driver
+refuses a window more than 0.05 from that share, and every window here is
+within it. Both Expanse blob arms compact their arena inside the window on one
+trigger (`BLOB_COMPACT_APPENDS`: worker 0 compacts once its own inserts times
+the thread count reach 200k), and the compaction's cost is in their rates, as
+`SkipMap`'s deferred epoch reclamation and `BTreeMap`'s inline frees are in
+theirs. The `sync32` rows fix the roles instead — one writer at the named duty,
+N readers on `try_get` — and report the share of read attempts abandoned to an
+open write bracket (Busy rate) and the writer's refused mutations.
 
-Arms compare only within a key type: u64 → u64 over 1M draws (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload over 200k (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 over 100k (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`).
+Arms compare only within a key type: u64 → u64 with 1M of 2M keys present (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload with 200k of 400k present (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 with 100k of 200k present (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`).
 
-Artifacts: run 1 `baseline_concurrent_mixed.json` at `0a3ed07a`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.30; run 2 `baseline_concurrent_mixed_run2.json` at `0a3ed07a`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.05.
+Artifacts: run 1 `baseline_concurrent_mixed.json` at `d1c3ca2a`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.10; run 2 `baseline_concurrent_mixed_run2.json` at `d1c3ca2a`, pin `0-15`, 18 rounds, largest foreign busy CPUs over a group 0.09.
+
+**What these cells are, and what they replace (#1280).** They are the first
+runs of the repaired harness, dispatched at `d1c3ca2a` (runs
+[36615302601](https://github.com/orieg/expanse/actions/runs/36615302601) and
+[36628995380](https://github.com/orieg/expanse/actions/runs/36628995380)); the
+PR that merged it was rebased onto `main` afterwards without a change to
+`benches/concurrency.rs`, the driver or the engine's default build. No earlier
+artifact of this section measured the same workload, and none is comparable
+with these cells. Until #1280 the harness differed in three ways:
+
+- **Both Expanse blob arms timed a failing insert.** They discarded the insert
+  `Result`, and the arena, never compacted, reached its 1 GiB cap within the
+  first rounds; every later insert failed with `OffsetOverflow` and counted as a
+  write. The earlier blob and `Mutex<ExpanseBlobMap>` 50 % cells, and the
+  scaling quoted from them, are withdrawn: they describe that failure, not the
+  map.
+- **Removals were all misses.** Writes inserted even keys and removed odd
+  ones, and every window restarted each worker's stream, so after the first
+  window no removal found its key and every insert overwrote.
+- **Writer slots tracked the windows run.** Every window spawned new threads,
+  and a wrapper's writer table never recycles a slot.
+
+On the repaired workload `SyncExpanseBlobMap` still loses throughput as threads
+are added: at 50 % read it runs 10.35 and 10.39 M total ops/s at one thread and
+4.60 and 4.60 M at sixteen, C(16) 0.45 [0.44, 0.45] and 0.44 [0.44, 0.45], where
+`SkipMap` reaches 17.9 and 17.8 M (8.32× and 8.27×). Every one of its removals,
+present key or not, takes the serialised path that quiesces all writers; the
+optimistic removal that replaces it is tracked in #1280.
 
 **The `SyncExpanseBytesMap` 50/50 loss, and what repaired it (issue #1047).**
-The cells below are this head's, `0a3ed07a`, which carries the optimistic
-removal: at 16 threads and 50 % read the arm measures 33.6 and 32.8 M total
-ops/s. At `e7c97580` the same cell measured 1.13 and 1.36 M, under both its own
+This record is on the pre-#1280 harness. At `0a3ed07a`, which carries the
+optimistic removal, the arm measured 33.6 and 32.8 M total ops/s at 16 threads
+and 50 % read (runs
+[35617717693](https://github.com/orieg/expanse/actions/runs/35617717693) and
+[35619244412](https://github.com/orieg/expanse/actions/runs/35619244412)). At `e7c97580` the same cell measured 1.13 and 1.36 M, under both its own
 `Mutex` twin and the 3.12 M the optimistic build measured before its
 multi-writer insert path landed; that head's artifacts are in the history of
 `results/baseline_concurrent_mixed{,_run2}.json`. The cause: the wrapper's
@@ -2501,9 +2540,8 @@ separate from C in either run, 1.016 [0.954, 1.127] and 1.052 [0.977, 1.166]
 [35571440635](https://github.com/orieg/expanse/actions/runs/35571440635),
 [35572513385](https://github.com/orieg/expanse/actions/runs/35572513385),
 [35573564968](https://github.com/orieg/expanse/actions/runs/35573564968); workload:
-`core_concurrency`)*. Those are experiment builds; the cells below are the
-head that merges. The 16-thread 100 %-read `bytes` cell below (120.8 and
-116.2 M) is lower than `e7c97580`'s record (130.2 and 129.2 M), but that
+`core_concurrency`)*. Those are experiment builds. At `0a3ed07a` the 16-thread
+100 %-read `bytes` cell (120.8 and 116.2 M) was lower than `e7c97580`'s record (130.2 and 129.2 M), but that
 comparison spans two sessions. Measured in one session, in the order E, M, M, E
 (E = `e7c97580`, M = `00d7ffa5`, which carries this code), M ÷ E at that cell is
 0.993 [0.927, 1.058] and 0.979 [0.968, 0.986] total ops: the pairs do not agree
@@ -2521,99 +2559,99 @@ build.
 
 | arm | workload | N | total M ops/s, run 1 [BCa 95%] | run 2 | C(N), run 1 [paired BCa 95%] | run 2 |
 |---|---|--:|---|---|---|---|
-| `SyncExpanseMap` | 100% read | 1 | 38.4 [37.3, 39.1] | 40.1 [40.0, 40.2] | — | — |
-| `SyncExpanseMap` | 100% read | 4 | 150 [149, 151] | 153 [152, 153] | 3.91 [3.84, 4.01] | 3.81 [3.79, 3.82] |
-| `SyncExpanseMap` | 100% read | 16 | 348 [343, 351] | 354 [352, 356] | 9.07 [8.90, 9.31] | 8.83 [8.76, 8.89] |
-| `SyncExpanseMap` | 50% read | 1 | 28.4 [27.7, 28.7] | 28.4 [27.7, 28.7] | — | — |
-| `SyncExpanseMap` | 50% read | 4 | 74.6 [74.0, 75.3] | 75.7 [75.2, 76.1] | 2.63 [2.59, 2.70] | 2.66 [2.63, 2.75] |
-| `SyncExpanseMap` | 50% read | 16 | 104 [98, 108] | 106 [101, 111] | 3.65 [3.46, 3.85] | 3.73 [3.56, 3.92] |
-| `SyncExpanseSet` | 100% read | 1 | 79.2 [79.1, 79.3] | 79.5 [79.4, 79.5] | — | — |
-| `SyncExpanseSet` | 100% read | 4 | 302 [301, 303] | 303 [302, 304] | 3.82 [3.80, 3.83] | 3.82 [3.80, 3.83] |
-| `SyncExpanseSet` | 100% read | 16 | 605 [594, 612] | 602 [596, 609] | 7.64 [7.49, 7.72] | 7.58 [7.51, 7.66] |
-| `SyncExpanseSet` | 50% read | 1 | 42.7 [42.3, 42.9] | 42.7 [42.3, 42.8] | — | — |
-| `SyncExpanseSet` | 50% read | 4 | 121 [120, 121] | 119 [118, 120] | 2.83 [2.81, 2.84] | 2.79 [2.76, 2.81] |
-| `SyncExpanseSet` | 50% read | 16 | 226 [224, 233] | 225 [224, 227] | 5.30 [5.24, 5.44] | 5.27 [5.24, 5.31] |
-| `SyncExpanseBlobMap` | 100% read | 1 | 33.9 [33.8, 34.1] | 33.7 [33.7, 33.8] | — | — |
-| `SyncExpanseBlobMap` | 100% read | 4 | 128 [128, 128] | 128 [127, 128] | 3.78 [3.76, 3.79] | 3.79 [3.77, 3.81] |
-| `SyncExpanseBlobMap` | 100% read | 16 | 293 [291, 295] | 304 [302, 305] | 8.64 [8.57, 8.70] | 9.01 [8.93, 9.07] |
-| `SyncExpanseBlobMap` | 50% read | 1 | 17.6 [16.0, 18.3] | 17.7 [16.2, 18.3] | — | — |
-| `SyncExpanseBlobMap` | 50% read | 4 | 9.80 [8.92, 10.24] | 9.67 [8.78, 10.10] | 0.56 [0.54, 0.62] | 0.55 [0.53, 0.60] |
-| `SyncExpanseBlobMap` | 50% read | 16 | 7.29 [5.77, 8.10] | 6.83 [5.31, 7.86] | 0.40 [0.34, 0.44] | 0.38 [0.30, 0.43] |
-| `Mutex<ExpanseBlobMap>` | 100% read | 1 | 40.9 [40.8, 41.1] | 40.9 [40.8, 41.0] | — | — |
-| `Mutex<ExpanseBlobMap>` | 100% read | 4 | 10.1 [10.0, 10.2] | 9.69 [9.55, 9.85] | 0.25 [0.24, 0.25] | 0.24 [0.23, 0.24] |
-| `Mutex<ExpanseBlobMap>` | 100% read | 16 | 5.39 [5.33, 5.44] | 5.55 [5.50, 5.58] | 0.13 [0.13, 0.13] | 0.14 [0.13, 0.14] |
-| `Mutex<ExpanseBlobMap>` | 50% read | 1 | 38.2 [33.8, 40.4] | 38.1 [33.7, 40.4] | — | — |
-| `Mutex<ExpanseBlobMap>` | 50% read | 4 | 9.31 [8.83, 9.60] | 9.25 [8.73, 9.53] | 0.25 [0.24, 0.28] | 0.25 [0.24, 0.27] |
-| `Mutex<ExpanseBlobMap>` | 50% read | 16 | 5.45 [5.02, 5.66] | 5.11 [4.74, 5.30] | 0.14 [0.14, 0.16] | 0.14 [0.13, 0.15] |
-| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 100% read | 1 | 10.5 [10.5, 10.5] | 10.5 [10.5, 10.5] | — | — |
-| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 100% read | 4 | 19.8 [19.6, 20.1] | 20.7 [20.3, 21.1] | 1.89 [1.87, 1.92] | 1.97 [1.94, 2.02] |
-| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 100% read | 16 | 14.0 [13.9, 14.0] | 16.0 [15.9, 16.0] | 1.33 [1.33, 1.33] | 1.53 [1.52, 1.53] |
-| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 50% read | 1 | 8.59 [8.57, 8.60] | 8.58 [8.57, 8.59] | — | — |
-| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 50% read | 4 | 4.36 [4.32, 4.39] | 4.38 [4.33, 4.42] | 0.51 [0.50, 0.51] | 0.51 [0.51, 0.52] |
-| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 50% read | 16 | 3.55 [3.54, 3.55] | 3.54 [3.53, 3.54] | 0.41 [0.41, 0.41] | 0.41 [0.41, 0.41] |
-| `SkipMap<u64, Vec<u8>>` | 100% read | 1 | 3.47 [3.45, 3.47] | 3.46 [3.45, 3.46] | — | — |
-| `SkipMap<u64, Vec<u8>>` | 100% read | 4 | 13.0 [12.9, 13.0] | 12.9 [12.9, 12.9] | 3.74 [3.73, 3.76] | 3.73 [3.72, 3.74] |
-| `SkipMap<u64, Vec<u8>>` | 100% read | 16 | 38.6 [38.5, 38.7] | 38.5 [38.4, 38.6] | 11.14 [11.10, 11.19] | 11.14 [11.12, 11.17] |
-| `SkipMap<u64, Vec<u8>>` | 50% read | 1 | 2.06 [2.03, 2.10] | 2.07 [2.04, 2.10] | — | — |
-| `SkipMap<u64, Vec<u8>>` | 50% read | 4 | 6.65 [6.58, 6.74] | 6.70 [6.63, 6.79] | 3.23 [3.18, 3.27] | 3.25 [3.20, 3.29] |
-| `SkipMap<u64, Vec<u8>>` | 50% read | 16 | 17.5 [17.4, 17.7] | 17.6 [17.4, 17.8] | 8.53 [8.36, 8.68] | 8.55 [8.37, 8.72] |
-| `SyncExpanseStrMap` | 100% read | 1 | 7.09 [7.08, 7.10] | 7.09 [7.08, 7.10] | — | — |
-| `SyncExpanseStrMap` | 100% read | 4 | 27.0 [26.9, 27.0] | 26.9 [26.8, 27.0] | 3.81 [3.79, 3.81] | 3.80 [3.79, 3.81] |
-| `SyncExpanseStrMap` | 100% read | 16 | 77.5 [77.3, 77.7] | 77.8 [77.6, 77.9] | 10.93 [10.90, 10.96] | 10.97 [10.95, 11.00] |
-| `SyncExpanseStrMap` | 50% read | 1 | 5.78 [5.75, 5.83] | 5.78 [5.75, 5.83] | — | — |
-| `SyncExpanseStrMap` | 50% read | 4 | 20.2 [20.1, 20.3] | 20.1 [20.0, 20.2] | 3.49 [3.47, 3.51] | 3.48 [3.46, 3.49] |
-| `SyncExpanseStrMap` | 50% read | 16 | 53.5 [53.1, 53.9] | 52.8 [52.1, 53.5] | 9.25 [9.20, 9.31] | 9.14 [9.04, 9.22] |
-| `Mutex<ExpanseStrMap>` | 100% read | 1 | 8.90 [8.89, 8.91] | 8.86 [8.85, 8.88] | — | — |
-| `Mutex<ExpanseStrMap>` | 100% read | 4 | 4.69 [4.66, 4.73] | 4.60 [4.57, 4.63] | 0.53 [0.52, 0.53] | 0.52 [0.52, 0.52] |
-| `Mutex<ExpanseStrMap>` | 100% read | 16 | 2.73 [2.73, 2.74] | 2.68 [2.67, 2.68] | 0.31 [0.31, 0.31] | 0.30 [0.30, 0.30] |
-| `Mutex<ExpanseStrMap>` | 50% read | 1 | 7.54 [7.53, 7.56] | 7.55 [7.53, 7.56] | — | — |
-| `Mutex<ExpanseStrMap>` | 50% read | 4 | 3.70 [3.69, 3.72] | 3.70 [3.68, 3.72] | 0.49 [0.49, 0.49] | 0.49 [0.49, 0.49] |
-| `Mutex<ExpanseStrMap>` | 50% read | 16 | 2.36 [2.36, 2.37] | 2.31 [2.31, 2.32] | 0.31 [0.31, 0.31] | 0.31 [0.31, 0.31] |
-| `SyncExpanseBytesMap` | 100% read | 1 | 11.5 [11.5, 11.5] | 11.4 [11.4, 11.4] | — | — |
-| `SyncExpanseBytesMap` | 100% read | 4 | 43.5 [43.1, 43.6] | 43.5 [43.1, 43.6] | 3.79 [3.75, 3.80] | 3.81 [3.77, 3.82] |
-| `SyncExpanseBytesMap` | 100% read | 16 | 121 [113, 125] | 116 [109, 122] | 10.53 [9.82, 10.90] | 10.17 [9.54, 10.65] |
-| `SyncExpanseBytesMap` | 50% read | 1 | 4.88 [4.69, 5.09] | 4.92 [4.69, 5.14] | — | — |
-| `SyncExpanseBytesMap` | 50% read | 4 | 14.6 [14.3, 14.9] | 14.6 [14.3, 15.1] | 3.01 [2.91, 3.14] | 3.00 [2.89, 3.14] |
-| `SyncExpanseBytesMap` | 50% read | 16 | 33.6 [29.5, 36.0] | 32.8 [29.0, 35.7] | 6.92 [6.04, 7.44] | 6.75 [5.84, 7.40] |
-| `Mutex<ExpanseBytesMap>` | 100% read | 1 | 11.9 [11.9, 11.9] | 12.0 [12.0, 12.0] | — | — |
-| `Mutex<ExpanseBytesMap>` | 100% read | 4 | 5.31 [5.30, 5.32] | 6.05 [5.96, 6.14] | 0.45 [0.44, 0.45] | 0.51 [0.50, 0.51] |
-| `Mutex<ExpanseBytesMap>` | 100% read | 16 | 3.42 [3.39, 3.44] | 3.49 [3.47, 3.50] | 0.29 [0.28, 0.29] | 0.29 [0.29, 0.29] |
-| `Mutex<ExpanseBytesMap>` | 50% read | 1 | 6.69 [6.61, 6.91] | 6.71 [6.62, 6.93] | — | — |
-| `Mutex<ExpanseBytesMap>` | 50% read | 4 | 3.42 [3.40, 3.46] | 3.89 [3.86, 3.93] | 0.51 [0.50, 0.52] | 0.58 [0.57, 0.59] |
-| `Mutex<ExpanseBytesMap>` | 50% read | 16 | 2.57 [2.56, 2.58] | 2.86 [2.85, 2.87] | 0.38 [0.37, 0.39] | 0.43 [0.41, 0.43] |
-| `DashMap<Vec<u8>, u64>` | 100% read | 1 | 15.7 [15.6, 15.7] | 15.5 [15.5, 15.5] | — | — |
-| `DashMap<Vec<u8>, u64>` | 100% read | 4 | 51.2 [51.1, 51.3] | 50.7 [50.6, 50.9] | 3.27 [3.26, 3.27] | 3.27 [3.26, 3.28] |
-| `DashMap<Vec<u8>, u64>` | 100% read | 16 | 131 [131, 131] | 130 [130, 130] | 8.36 [8.32, 8.38] | 8.38 [8.36, 8.40] |
-| `DashMap<Vec<u8>, u64>` | 50% read | 1 | 10.8 [10.6, 11.0] | 10.7 [10.5, 10.9] | — | — |
-| `DashMap<Vec<u8>, u64>` | 50% read | 4 | 33.2 [32.7, 33.6] | 32.6 [32.0, 33.2] | 3.09 [3.01, 3.15] | 3.05 [3.00, 3.10] |
-| `DashMap<Vec<u8>, u64>` | 50% read | 16 | 83.6 [82.5, 85.1] | 83.2 [82.1, 84.5] | 7.76 [7.61, 7.92] | 7.79 [7.64, 7.94] |
+| `SyncExpanseMap` | 100% read | 1 | 35.2 [35.1, 35.3] | 35.2 [35.1, 35.3] | — | — |
+| `SyncExpanseMap` | 100% read | 4 | 134 [133, 134] | 134 [133, 134] | 3.80 [3.78, 3.82] | 3.80 [3.78, 3.81] |
+| `SyncExpanseMap` | 100% read | 16 | 327 [327, 327] | 324 [323, 325] | 9.29 [9.28, 9.33] | 9.20 [9.18, 9.23] |
+| `SyncExpanseMap` | 50% read | 1 | 19.0 [18.9, 19.1] | 19.0 [18.9, 19.1] | — | — |
+| `SyncExpanseMap` | 50% read | 4 | 48.6 [48.1, 49.0] | 48.6 [48.2, 48.9] | 2.56 [2.53, 2.58] | 2.55 [2.53, 2.57] |
+| `SyncExpanseMap` | 50% read | 16 | 66.8 [63.9, 69.8] | 65.2 [62.6, 67.5] | 3.51 [3.36, 3.66] | 3.42 [3.29, 3.54] |
+| `SyncExpanseSet` | 100% read | 1 | 76.8 [76.8, 76.9] | 76.3 [76.3, 76.4] | — | — |
+| `SyncExpanseSet` | 100% read | 4 | 293 [291, 294] | 292 [291, 292] | 3.81 [3.79, 3.83] | 3.83 [3.82, 3.83] |
+| `SyncExpanseSet` | 100% read | 16 | 540 [537, 544] | 534 [529, 537] | 7.03 [6.99, 7.08] | 6.99 [6.92, 7.04] |
+| `SyncExpanseSet` | 50% read | 1 | 34.5 [34.3, 34.5] | 34.7 [34.7, 34.8] | — | — |
+| `SyncExpanseSet` | 50% read | 4 | 68.6 [67.8, 69.4] | 68.3 [67.6, 68.8] | 1.99 [1.97, 2.01] | 1.97 [1.94, 1.98] |
+| `SyncExpanseSet` | 50% read | 16 | 130 [129, 131] | 130 [128, 131] | 3.77 [3.74, 3.81] | 3.74 [3.68, 3.78] |
+| `SyncExpanseBlobMap` | 100% read | 1 | 28.6 [28.5, 28.8] | 28.9 [28.7, 29.2] | — | — |
+| `SyncExpanseBlobMap` | 100% read | 4 | 109 [109, 110] | 110 [110, 110] | 3.82 [3.80, 3.84] | 3.81 [3.76, 3.84] |
+| `SyncExpanseBlobMap` | 100% read | 16 | 267 [266, 267] | 265 [265, 265] | 9.32 [9.27, 9.35] | 9.19 [9.07, 9.24] |
+| `SyncExpanseBlobMap` | 50% read | 1 | 10.3 [10.3, 10.4] | 10.4 [10.3, 10.5] | — | — |
+| `SyncExpanseBlobMap` | 50% read | 4 | 4.81 [4.78, 4.84] | 4.82 [4.79, 4.86] | 0.47 [0.46, 0.47] | 0.46 [0.46, 0.47] |
+| `SyncExpanseBlobMap` | 50% read | 16 | 4.60 [4.57, 4.64] | 4.60 [4.58, 4.63] | 0.45 [0.44, 0.45] | 0.44 [0.44, 0.45] |
+| `Mutex<ExpanseBlobMap>` | 100% read | 1 | 35.3 [35.2, 35.4] | 35.3 [34.5, 35.5] | — | — |
+| `Mutex<ExpanseBlobMap>` | 100% read | 4 | 10.0 [9.9, 10.2] | 10.2 [10.0, 10.3] | 0.28 [0.28, 0.29] | 0.29 [0.28, 0.30] |
+| `Mutex<ExpanseBlobMap>` | 100% read | 16 | 5.65 [5.57, 5.72] | 5.71 [5.66, 5.77] | 0.16 [0.16, 0.16] | 0.16 [0.16, 0.16] |
+| `Mutex<ExpanseBlobMap>` | 50% read | 1 | 14.6 [14.5, 14.7] | 14.5 [14.3, 14.7] | — | — |
+| `Mutex<ExpanseBlobMap>` | 50% read | 4 | 6.17 [6.11, 6.28] | 6.26 [6.20, 6.34] | 0.42 [0.42, 0.43] | 0.43 [0.43, 0.44] |
+| `Mutex<ExpanseBlobMap>` | 50% read | 16 | 3.03 [3.01, 3.05] | 3.02 [3.00, 3.04] | 0.21 [0.20, 0.21] | 0.21 [0.21, 0.21] |
+| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 100% read | 1 | 9.29 [9.21, 9.32] | 9.33 [9.31, 9.34] | — | — |
+| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 100% read | 4 | 18.0 [17.9, 18.1] | 18.8 [18.3, 19.1] | 1.93 [1.92, 1.95] | 2.01 [1.97, 2.05] |
+| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 100% read | 16 | 13.5 [13.4, 13.6] | 14.4 [14.4, 14.5] | 1.45 [1.44, 1.47] | 1.55 [1.54, 1.55] |
+| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 50% read | 1 | 7.46 [7.40, 7.51] | 7.42 [7.38, 7.47] | — | — |
+| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 50% read | 4 | 3.65 [3.62, 3.67] | 3.76 [3.72, 3.81] | 0.49 [0.48, 0.49] | 0.51 [0.50, 0.51] |
+| `RwLock<BTreeMap<u64, (Vec<u8>, u32)>>` | 50% read | 16 | 3.10 [3.09, 3.10] | 3.22 [3.21, 3.23] | 0.41 [0.41, 0.42] | 0.43 [0.43, 0.44] |
+| `SkipMap<u64, (Vec<u8>, u32)>` | 100% read | 1 | 3.02 [3.02, 3.03] | 3.02 [3.01, 3.03] | — | — |
+| `SkipMap<u64, (Vec<u8>, u32)>` | 100% read | 4 | 11.3 [11.2, 11.3] | 11.2 [11.2, 11.3] | 3.72 [3.71, 3.73] | 3.72 [3.71, 3.74] |
+| `SkipMap<u64, (Vec<u8>, u32)>` | 100% read | 16 | 33.6 [33.5, 33.6] | 33.3 [33.3, 33.4] | 11.10 [11.06, 11.13] | 11.04 [11.00, 11.07] |
+| `SkipMap<u64, (Vec<u8>, u32)>` | 50% read | 1 | 2.15 [2.14, 2.16] | 2.15 [2.14, 2.16] | — | — |
+| `SkipMap<u64, (Vec<u8>, u32)>` | 50% read | 4 | 6.84 [6.78, 6.90] | 6.91 [6.84, 6.99] | 3.19 [3.16, 3.21] | 3.21 [3.19, 3.24] |
+| `SkipMap<u64, (Vec<u8>, u32)>` | 50% read | 16 | 17.9 [17.6, 18.1] | 17.8 [17.5, 18.0] | 8.32 [8.20, 8.44] | 8.27 [8.15, 8.39] |
+| `SyncExpanseStrMap` | 100% read | 1 | 6.97 [6.96, 6.98] | 6.97 [6.96, 6.98] | — | — |
+| `SyncExpanseStrMap` | 100% read | 4 | 26.5 [26.4, 26.6] | 26.6 [26.5, 26.7] | 3.80 [3.79, 3.81] | 3.82 [3.80, 3.83] |
+| `SyncExpanseStrMap` | 100% read | 16 | 77.6 [77.4, 77.7] | 77.5 [77.4, 77.6] | 11.13 [11.10, 11.15] | 11.12 [11.09, 11.14] |
+| `SyncExpanseStrMap` | 50% read | 1 | 5.80 [5.77, 5.85] | 5.81 [5.77, 5.86] | — | — |
+| `SyncExpanseStrMap` | 50% read | 4 | 20.2 [20.0, 20.3] | 20.1 [20.0, 20.3] | 3.47 [3.45, 3.49] | 3.46 [3.44, 3.49] |
+| `SyncExpanseStrMap` | 50% read | 16 | 53.8 [53.5, 54.1] | 53.7 [53.5, 53.9] | 9.27 [9.20, 9.34] | 9.25 [9.17, 9.31] |
+| `Mutex<ExpanseStrMap>` | 100% read | 1 | 8.68 [8.66, 8.69] | 8.71 [8.70, 8.72] | — | — |
+| `Mutex<ExpanseStrMap>` | 100% read | 4 | 4.77 [4.73, 4.80] | 4.89 [4.87, 4.91] | 0.55 [0.55, 0.55] | 0.56 [0.56, 0.56] |
+| `Mutex<ExpanseStrMap>` | 100% read | 16 | 2.66 [2.65, 2.67] | 2.66 [2.64, 2.67] | 0.31 [0.31, 0.31] | 0.31 [0.30, 0.31] |
+| `Mutex<ExpanseStrMap>` | 50% read | 1 | 7.25 [7.23, 7.27] | 7.26 [7.25, 7.27] | — | — |
+| `Mutex<ExpanseStrMap>` | 50% read | 4 | 3.96 [3.94, 3.99] | 3.95 [3.93, 3.97] | 0.55 [0.54, 0.55] | 0.54 [0.54, 0.55] |
+| `Mutex<ExpanseStrMap>` | 50% read | 16 | 2.35 [2.35, 2.36] | 2.35 [2.33, 2.35] | 0.32 [0.32, 0.33] | 0.32 [0.32, 0.32] |
+| `SyncExpanseBytesMap` | 100% read | 1 | 10.4 [10.4, 10.5] | 10.5 [10.5, 10.5] | — | — |
+| `SyncExpanseBytesMap` | 100% read | 4 | 39.8 [39.8, 39.9] | 40.0 [39.9, 40.1] | 3.82 [3.81, 3.83] | 3.82 [3.81, 3.83] |
+| `SyncExpanseBytesMap` | 100% read | 16 | 117 [117, 117] | 117 [116, 117] | 11.19 [11.17, 11.22] | 11.13 [11.12, 11.15] |
+| `SyncExpanseBytesMap` | 50% read | 1 | 4.82 [4.76, 4.94] | 4.90 [4.86, 5.01] | — | — |
+| `SyncExpanseBytesMap` | 50% read | 4 | 14.5 [14.3, 14.6] | 14.7 [14.5, 14.8] | 3.01 [2.95, 3.04] | 3.00 [2.93, 3.04] |
+| `SyncExpanseBytesMap` | 50% read | 16 | 40.6 [40.2, 41.2] | 41.7 [41.4, 42.0] | 8.44 [8.34, 8.52] | 8.52 [8.35, 8.60] |
+| `Mutex<ExpanseBytesMap>` | 100% read | 1 | 11.0 [11.0, 11.0] | 11.0 [10.8, 11.0] | — | — |
+| `Mutex<ExpanseBytesMap>` | 100% read | 4 | 5.09 [5.02, 5.20] | 4.98 [4.96, 4.99] | 0.46 [0.46, 0.47] | 0.45 [0.45, 0.46] |
+| `Mutex<ExpanseBytesMap>` | 100% read | 16 | 3.13 [3.09, 3.15] | 3.13 [3.11, 3.14] | 0.28 [0.28, 0.29] | 0.29 [0.28, 0.29] |
+| `Mutex<ExpanseBytesMap>` | 50% read | 1 | 6.96 [6.84, 7.14] | 6.91 [6.77, 7.10] | — | — |
+| `Mutex<ExpanseBytesMap>` | 50% read | 4 | 3.36 [3.34, 3.39] | 3.55 [3.50, 3.59] | 0.48 [0.47, 0.49] | 0.51 [0.50, 0.53] |
+| `Mutex<ExpanseBytesMap>` | 50% read | 16 | 2.31 [2.31, 2.32] | 2.46 [2.45, 2.47] | 0.33 [0.33, 0.34] | 0.36 [0.35, 0.36] |
+| `DashMap<Vec<u8>, u64>` | 100% read | 1 | 14.5 [14.5, 14.5] | 14.5 [14.4, 14.5] | — | — |
+| `DashMap<Vec<u8>, u64>` | 100% read | 4 | 48.0 [47.5, 48.2] | 47.8 [47.7, 48.0] | 3.30 [3.27, 3.32] | 3.31 [3.30, 3.32] |
+| `DashMap<Vec<u8>, u64>` | 100% read | 16 | 106 [106, 107] | 108 [107, 108] | 7.31 [7.29, 7.33] | 7.46 [7.39, 7.51] |
+| `DashMap<Vec<u8>, u64>` | 50% read | 1 | 11.0 [10.9, 11.2] | 11.1 [10.9, 11.2] | — | — |
+| `DashMap<Vec<u8>, u64>` | 50% read | 4 | 34.1 [33.9, 34.3] | 34.3 [34.1, 34.5] | 3.10 [3.06, 3.13] | 3.11 [3.06, 3.15] |
+| `DashMap<Vec<u8>, u64>` | 50% read | 16 | 86.5 [86.1, 86.7] | 87.3 [87.1, 87.5] | 7.85 [7.76, 7.94] | 7.91 [7.83, 8.00] |
 
 | run | writer duty | readers | validated reads M/s [BCa 95%] | writes M/s [BCa 95%] | Busy rate | refused writes |
 |---|---|--:|---|---|--:|--:|
-| run 1 | full | 1 | 0.206 [0.168, 0.243] | 11.3 [11.0, 11.6] | 99.2% | 0 |
-| run 1 | full | 4 | 1.14 [1.05, 1.25] | 7.55 [7.43, 7.66] | 98.2% | 0 |
-| run 1 | full | 16 | 28.3 [17.9, 45.3] | 3.38 [3.19, 3.51] | 86.2% | 0 |
-| run 1 | 1M/s | 1 | 36.2 [35.9, 36.4] | 1.00 [1.00, 1.00] | 19.9% | 0 |
-| run 1 | 1M/s | 4 | 128 [126, 129] | 1.00 [1.00, 1.00] | 17.2% | 0 |
-| run 1 | 1M/s | 16 | 325 [324, 327] | 1.00 [1.00, 1.00] | 11.4% | 0 |
-| run 1 | 100k/s | 1 | 49.3 [49.3, 49.4] | 0.100 [0.100, 0.100] | 1.78% | 0 |
-| run 1 | 100k/s | 4 | 192 [192, 192] | 0.100 [0.100, 0.100] | 1.4% | 0 |
-| run 1 | 100k/s | 16 | 469 [465, 472] | 0.100 [0.100, 0.100] | 0.951% | 0 |
-| run 1 | 10k/s | 1 | 51.2 [51.1, 51.4] | 0.010 [0.010, 0.010] | 0.154% | 0 |
-| run 1 | 10k/s | 4 | 200 [199, 200] | 0.010 [0.010, 0.010] | 0.11% | 0 |
-| run 1 | 10k/s | 16 | 484 [480, 485] | 0.010 [0.010, 0.010] | 0.105% | 0 |
-| run 2 | full | 1 | 0.174 [0.154, 0.192] | 12.3 [12.0, 12.5] | 99.3% | 0 |
-| run 2 | full | 4 | 0.988 [0.905, 1.081] | 7.46 [7.26, 7.64] | 98.4% | 0 |
-| run 2 | full | 16 | 23.8 [14.9, 43.6] | 3.41 [3.17, 3.53] | 86.9% | 0 |
-| run 2 | 1M/s | 1 | 35.8 [35.6, 36.0] | 1.00 [1.00, 1.00] | 20% | 0 |
-| run 2 | 1M/s | 4 | 126 [125, 127] | 1.00 [1.00, 1.00] | 18.4% | 0 |
-| run 2 | 1M/s | 16 | 327 [324, 330] | 0.999 [0.996, 1.000] | 12.4% | 0 |
-| run 2 | 100k/s | 1 | 49.4 [49.3, 49.6] | 0.100 [0.100, 0.100] | 2.03% | 0 |
-| run 2 | 100k/s | 4 | 191 [191, 192] | 0.100 [0.100, 0.100] | 1.56% | 0 |
-| run 2 | 100k/s | 16 | 475 [471, 477] | 0.100 [0.100, 0.100] | 0.942% | 0 |
-| run 2 | 10k/s | 1 | 51.1 [51.0, 51.4] | 0.010 [0.010, 0.010] | 0.167% | 0 |
-| run 2 | 10k/s | 4 | 199 [199, 199] | 0.010 [0.010, 0.010] | 0.12% | 0 |
-| run 2 | 10k/s | 16 | 489 [485, 491] | 0.010 [0.010, 0.010] | 0.104% | 0 |
+| run 1 | full | 1 | 0.640 [0.579, 0.736] | 15.9 [15.5, 16.2] | 98.2% | 0 |
+| run 1 | full | 4 | 3.78 [3.55, 4.02] | 10.1 [9.7, 10.4] | 94.6% | 0 |
+| run 1 | full | 16 | 74.1 [55.6, 101.7] | 4.51 [3.94, 4.89] | 67.2% | 0 |
+| run 1 | 1M/s | 1 | 38.6 [38.5, 38.7] | 1.00 [1.00, 1.00] | 6.37% | 0 |
+| run 1 | 1M/s | 4 | 146 [144, 146] | 1.00 [1.00, 1.00] | 5.86% | 0 |
+| run 1 | 1M/s | 16 | 361 [359, 363] | 0.999 [0.996, 1.000] | 6.06% | 0 |
+| run 1 | 100k/s | 1 | 44.5 [44.5, 44.6] | 0.100 [0.100, 0.100] | 0.638% | 0 |
+| run 1 | 100k/s | 4 | 173 [173, 173] | 0.100 [0.100, 0.100] | 0.695% | 0 |
+| run 1 | 100k/s | 16 | 435 [431, 437] | 0.100 [0.100, 0.100] | 0.571% | 0 |
+| run 1 | 10k/s | 1 | 45.4 [45.2, 45.7] | 0.010 [0.010, 0.010] | 0.0558% | 0 |
+| run 1 | 10k/s | 4 | 177 [177, 177] | 0.010 [0.010, 0.010] | 0.0418% | 0 |
+| run 1 | 10k/s | 16 | 438 [436, 440] | 0.010 [0.010, 0.010] | 0.0615% | 0 |
+| run 2 | full | 1 | 0.631 [0.571, 0.710] | 16.1 [15.8, 16.4] | 98.2% | 0 |
+| run 2 | full | 4 | 3.67 [3.51, 3.83] | 9.99 [9.65, 10.24] | 94.3% | 0 |
+| run 2 | full | 16 | 56.5 [47.3, 76.7] | 4.83 [4.42, 5.04] | 70.9% | 0 |
+| run 2 | 1M/s | 1 | 38.6 [38.4, 38.7] | 1.00 [1.00, 1.00] | 6.45% | 0 |
+| run 2 | 1M/s | 4 | 146 [145, 147] | 1.00 [1.00, 1.00] | 4.8% | 0 |
+| run 2 | 1M/s | 16 | 363 [362, 364] | 1.000 [0.999, 1.002] | 5.84% | 0 |
+| run 2 | 100k/s | 1 | 44.5 [44.4, 44.5] | 0.100 [0.100, 0.100] | 0.592% | 0 |
+| run 2 | 100k/s | 4 | 173 [173, 173] | 0.100 [0.100, 0.100] | 0.499% | 0 |
+| run 2 | 100k/s | 16 | 438 [437, 440] | 0.100 [0.100, 0.100] | 0.57% | 0 |
+| run 2 | 10k/s | 1 | 45.3 [45.2, 45.4] | 0.010 [0.010, 0.010] | 0.0529% | 0 |
+| run 2 | 10k/s | 4 | 177 [177, 177] | 0.010 [0.010, 0.010] | 0.0388% | 0 |
+| run 2 | 10k/s | 16 | 441 [439, 443] | 0.010 [0.010, 0.010] | 0.0592% | 0 |
 
 ## 13. The readers-only string cell — a reduction of the committed rounds (Refs #730)
 

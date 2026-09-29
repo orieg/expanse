@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 476" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 492" width="100%" height="100%">
   <title>sync32 protocol health: Busy rate per writer duty</title>
   <defs>
     <style>
@@ -118,75 +118,85 @@
     <text x="258" y="10" class="t-legend">16 readers</text>
   </g>
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
-  <text x="30" y="74" class="t-note">Bars: run 1's Busy rate, 0&#8211;100% linear; Busy labels read run 1 / run 2, rates are run 1. Badge: the writer's refused mutations (ArenaFull / ReclaimBacklog) over both runs' windows.</text>
+  <text x="30" y="74" class="t-note">Bars: run 1's Busy rate on a log axis, 0.01&#8211;100% (decade lines); Busy labels read run 1 / run 2, rates are run 1. Badge: the writer's refused mutations (ArenaFull / ReclaimBacklog) over both runs' windows.</text>
   <text x="30" y="88" class="t-note">Writer duty: full (as fast as it can, the Busy ceiling) then deadline-paced 1M, 100k and 10k mutations/s; a saturated CAN bus is ~10k frames/s. reads/s = validated reads.</text>
-  <text x="30" y="113" class="t-bar-label">writer full</text>
-  <text x="202.0" y="113" class="t-axis-label" text-anchor="end">1R</text>
-  <rect x="210.0" y="104" width="238.1" height="11" rx="2" class="b-expanse"/>
-  <text x="456.1" y="113" class="t-row-muted">99.2% / 99.3% busy &#183; 206k reads/s &#183; 11.31M writes/s</text>
-  <rect x="796.0" y="102" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="115" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="128" class="t-axis-label" text-anchor="end">4R</text>
-  <rect x="210.0" y="119" width="235.6" height="11" rx="2" class="b-expanse-alt"/>
-  <text x="453.6" y="128" class="t-row-muted">98.2% / 98.4% busy &#183; 1.14M reads/s &#183; 7.55M writes/s</text>
-  <rect x="796.0" y="117" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="130" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="143" class="t-axis-label" text-anchor="end">16R</text>
-  <rect x="210.0" y="134" width="207.0" height="11" rx="2" class="b-hash"/>
-  <text x="425.0" y="143" class="t-row-muted">86.2% / 86.9% busy &#183; 28.29M reads/s &#183; 3.38M writes/s</text>
-  <rect x="796.0" y="132" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="145" class="badge-win-text">0 refused</text>
-  <text x="30" y="180" class="t-bar-label">writer 1M/s</text>
-  <text x="202.0" y="180" class="t-axis-label" text-anchor="end">1R</text>
-  <rect x="210.0" y="171" width="47.8" height="11" rx="2" class="b-expanse"/>
-  <text x="265.8" y="180" class="t-row-muted">19.9% / 20% busy &#183; 36.24M reads/s &#183; 1.00M writes/s</text>
-  <rect x="796.0" y="169" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="182" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="195" class="t-axis-label" text-anchor="end">4R</text>
-  <rect x="210.0" y="186" width="41.2" height="11" rx="2" class="b-expanse-alt"/>
-  <text x="259.2" y="195" class="t-row-muted">17.2% / 18.4% busy &#183; 128.12M reads/s &#183; 1.00M writes/s</text>
-  <rect x="796.0" y="184" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="197" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="210" class="t-axis-label" text-anchor="end">16R</text>
-  <rect x="210.0" y="201" width="27.4" height="11" rx="2" class="b-hash"/>
-  <text x="245.4" y="210" class="t-row-muted">11.4% / 12.4% busy &#183; 325.37M reads/s &#183; 1.00M writes/s</text>
-  <rect x="796.0" y="199" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="212" class="badge-win-text">0 refused</text>
-  <text x="30" y="247" class="t-bar-label">writer 100k/s</text>
-  <text x="202.0" y="247" class="t-axis-label" text-anchor="end">1R</text>
-  <rect x="210.0" y="238" width="4.3" height="11" rx="2" class="b-expanse"/>
-  <text x="222.3" y="247" class="t-row-muted">1.78% / 2.03% busy &#183; 49.35M reads/s &#183; 100k writes/s</text>
-  <rect x="796.0" y="236" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="249" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="262" class="t-axis-label" text-anchor="end">4R</text>
-  <rect x="210.0" y="253" width="3.4" height="11" rx="2" class="b-expanse-alt"/>
-  <text x="221.4" y="262" class="t-row-muted">1.4% / 1.56% busy &#183; 191.68M reads/s &#183; 100k writes/s</text>
-  <rect x="796.0" y="251" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="264" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="277" class="t-axis-label" text-anchor="end">16R</text>
-  <rect x="210.0" y="268" width="2.3" height="11" rx="2" class="b-hash"/>
-  <text x="220.3" y="277" class="t-row-muted">0.951% / 0.942% busy &#183; 469.44M reads/s &#183; 100k writes/s</text>
-  <rect x="796.0" y="266" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="279" class="badge-win-text">0 refused</text>
-  <text x="30" y="314" class="t-bar-label">writer 10k/s</text>
-  <text x="202.0" y="314" class="t-axis-label" text-anchor="end">1R</text>
-  <rect x="210.0" y="305" width="2.0" height="11" rx="2" class="b-expanse"/>
-  <text x="220.0" y="314" class="t-row-muted">0.154% / 0.167% busy &#183; 51.19M reads/s &#183; 10k writes/s</text>
-  <rect x="796.0" y="303" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="316" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="329" class="t-axis-label" text-anchor="end">4R</text>
-  <rect x="210.0" y="320" width="2.0" height="11" rx="2" class="b-expanse-alt"/>
-  <text x="220.0" y="329" class="t-row-muted">0.11% / 0.12% busy &#183; 199.57M reads/s &#183; 10k writes/s</text>
-  <rect x="796.0" y="318" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="331" class="badge-win-text">0 refused</text>
-  <text x="202.0" y="344" class="t-axis-label" text-anchor="end">16R</text>
-  <rect x="210.0" y="335" width="2.0" height="11" rx="2" class="b-hash"/>
-  <text x="220.0" y="344" class="t-row-muted">0.105% / 0.104% busy &#183; 483.66M reads/s &#183; 10k writes/s</text>
-  <rect x="796.0" y="333" width="134.0" height="18" class="badge-win"/>
-  <text x="863.0" y="346" class="badge-win-text">0 refused</text>
+  <line x1="210.0" y1="114" x2="210.0" y2="366" class="grid"/>
+  <text x="210.0" y="111" class="t-axis-label" text-anchor="middle">0.01%</text>
+  <line x1="270.0" y1="114" x2="270.0" y2="366" class="grid"/>
+  <text x="270.0" y="111" class="t-axis-label" text-anchor="middle">0.1%</text>
+  <line x1="330.0" y1="114" x2="330.0" y2="366" class="grid"/>
+  <text x="330.0" y="111" class="t-axis-label" text-anchor="middle">1%</text>
+  <line x1="390.0" y1="114" x2="390.0" y2="366" class="grid"/>
+  <text x="390.0" y="111" class="t-axis-label" text-anchor="middle">10%</text>
+  <line x1="450.0" y1="114" x2="450.0" y2="366" class="grid"/>
+  <text x="450.0" y="111" class="t-axis-label" text-anchor="middle">100%</text>
+  <text x="30" y="129" class="t-bar-label">writer full</text>
+  <text x="202.0" y="129" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="120" width="239.5" height="11" rx="2" class="b-expanse"/>
+  <text x="457.5" y="129" class="t-row-muted">98.2% / 98.2% busy &#183; 640k reads/s &#183; 15.88M writes/s</text>
+  <rect x="796.0" y="118" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="131" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="144" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="135" width="238.5" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="456.5" y="144" class="t-row-muted">94.6% / 94.3% busy &#183; 3.78M reads/s &#183; 10.06M writes/s</text>
+  <rect x="796.0" y="133" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="146" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="159" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="150" width="229.6" height="11" rx="2" class="b-hash"/>
+  <text x="447.6" y="159" class="t-row-muted">67.2% / 70.9% busy &#183; 74.08M reads/s &#183; 4.51M writes/s</text>
+  <rect x="796.0" y="148" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="161" class="badge-win-text">0 refused</text>
+  <text x="30" y="196" class="t-bar-label">writer 1M/s</text>
+  <text x="202.0" y="196" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="187" width="168.3" height="11" rx="2" class="b-expanse"/>
+  <text x="386.3" y="196" class="t-row-muted">6.37% / 6.45% busy &#183; 38.60M reads/s &#183; 1.00M writes/s</text>
+  <rect x="796.0" y="185" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="198" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="211" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="202" width="166.1" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="384.1" y="211" class="t-row-muted">5.86% / 4.8% busy &#183; 145.54M reads/s &#183; 1.00M writes/s</text>
+  <rect x="796.0" y="200" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="213" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="226" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="217" width="166.9" height="11" rx="2" class="b-hash"/>
+  <text x="384.9" y="226" class="t-row-muted">6.06% / 5.84% busy &#183; 361.00M reads/s &#183; 999k writes/s</text>
+  <rect x="796.0" y="215" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="228" class="badge-win-text">0 refused</text>
+  <text x="30" y="263" class="t-bar-label">writer 100k/s</text>
+  <text x="202.0" y="263" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="254" width="108.3" height="11" rx="2" class="b-expanse"/>
+  <text x="326.3" y="263" class="t-row-muted">0.638% / 0.592% busy &#183; 44.50M reads/s &#183; 100k writes/s</text>
+  <rect x="796.0" y="252" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="265" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="278" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="269" width="110.5" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="328.5" y="278" class="t-row-muted">0.695% / 0.499% busy &#183; 173.27M reads/s &#183; 100k writes/s</text>
+  <rect x="796.0" y="267" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="280" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="293" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="284" width="105.4" height="11" rx="2" class="b-hash"/>
+  <text x="323.4" y="293" class="t-row-muted">0.571% / 0.57% busy &#183; 434.61M reads/s &#183; 100k writes/s</text>
+  <rect x="796.0" y="282" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="295" class="badge-win-text">0 refused</text>
+  <text x="30" y="330" class="t-bar-label">writer 10k/s</text>
+  <text x="202.0" y="330" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="321" width="44.9" height="11" rx="2" class="b-expanse"/>
+  <text x="262.9" y="330" class="t-row-muted">0.056% / 0.053% busy &#183; 45.35M reads/s &#183; 10k writes/s</text>
+  <rect x="796.0" y="319" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="332" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="345" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="336" width="37.4" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="255.4" y="345" class="t-row-muted">0.042% / 0.039% busy &#183; 176.92M reads/s &#183; 10k writes/s</text>
+  <rect x="796.0" y="334" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="347" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="360" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="351" width="47.1" height="11" rx="2" class="b-hash"/>
+  <text x="265.1" y="360" class="t-row-muted">0.061% / 0.059% busy &#183; 437.82M reads/s &#183; 10k writes/s</text>
+  <rect x="796.0" y="349" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="362" class="badge-win-text">0 refused</text>
 
-  <line x1="30" y1="416" x2="930" y2="416" class="divider"/>
-  <text x="30" y="432" class="t-note">Reading: at the 10k/s duty, reads validate &#8805;99.8% of the time at every reader count in both runs. Refusals: none at any reader count.</text>
-  <text x="30" y="445" class="t-note">Reclamation frees a parked node once every reader has passed through a quiescent state since it was retired (per-reader walk counters, #594).</text>
-  <text x="30" y="463" class="t-note">Measured: reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15 &#183; runs 35617717693 and 35619244412, ref 0a3ed07a &#183; report-only, never gating (workload: core_concurrency).</text>
+  <line x1="30" y1="432" x2="930" y2="432" class="divider"/>
+  <text x="30" y="448" class="t-note">Reading: at the 10k/s duty, reads validate &#8805;99.9% of the time at every reader count in both runs. Refusals: none at any reader count.</text>
+  <text x="30" y="461" class="t-note">Reclamation frees a parked node once every reader has passed through a quiescent state since it was retired (per-reader walk counters, #594).</text>
+  <text x="30" y="479" class="t-note">Measured: reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15 &#183; runs 36615302601 and 36628995380, ref d1c3ca2a &#183; report-only, never gating (workload: core_concurrency).</text>
 </svg>

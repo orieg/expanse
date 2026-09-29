@@ -31,13 +31,17 @@
 //! count, in a Williams order that rotates across rounds, so over a full cycle
 //! every thread count takes every position and follows every other one equally
 //! often (`n` rounds for an even number of thread counts, `2n` for an odd
-//! one). A window starts at a barrier that every worker reaches after its own
-//! setup, and its rates are its counts over its own elapsed time to the stop
-//! signal, so thread creation and setup stay outside it. The tables print the
-//! mean over a thread count's windows. `EXPANSE_BENCH_SAMPLES` names a file to
-//! append every window to as one JSON line, which
+//! one). The workers are one pool per engine and workload that lives across
+//! its windows, so a wrapper's writer slots track the thread counts under test
+//! rather than the number of windows run (#1280). A window starts at a barrier
+//! that every worker reaches after its own setup, and its rates are its counts
+//! over its own elapsed time to the stop signal. Every window draws its own
+//! operation stream. The tables print the mean over a thread count's windows.
+//! `EXPANSE_BENCH_SAMPLES` names a file to append every window to as one JSON
+//! line, with the remove hits, compactions and arena bytes it recorded, which
 //! `docs/benchmarks/concurrency/scripts/mixed_concurrency.py` reads to put BCa
-//! 95% intervals on the cells. `EXPANSE_BENCH_ENGINES` selects arms by key:
+//! 95% intervals on the cells and to refuse a window whose write mix drifted.
+//! `EXPANSE_BENCH_ENGINES` selects arms by key:
 //! `map`, `set`, `blob`, `blob_mutex`, `blob_rwlock_btree`, `blob_skiplist`,
 //! `str`, `str_mutex`, `bytes`, `bytes_mutex`, `str_dashmap`, `sync32`.
 //!
@@ -47,16 +51,16 @@
 //! |---|---|
 //! | `workload_id` | `core_concurrency` |
 //! | `group` | 2 |
-//! | `population` | 1M draws (keyspace 2M); `SyncExpanseMap32` arm: 4,096 draws over an 8k keyspace whose upper 4,096 keys the writer churns (32-bit) |
+//! | `population` | Half the keyspace, distinct keys drawn until present: 1M over 2M (map, set), 200k over 400k (blob arms), 100k over 200k route strings (string arms) — the occupancy the mixed workloads' write bit holds; `SyncExpanseMap32` arm: 4,096 draws over an 8k keyspace whose upper 4,096 keys the writer churns (32-bit) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; prefill and the concurrent stream both draw from the bounded-keyspace PRNG |
-//! | `probes_and_reuse` | Continuous stream; `EXPANSE_BENCH_ROUNDS` interleaved 500 ms windows per thread count (Williams order), all on one prefilled structure per engine and workload |
-//! | `hit_rate` | ~39% at 100% read (derived: 1M uniform draws over 2M keys occupy 1 − e^(−1/2) of the keyspace); under a mix, writes insert even keys and remove odd ones, which moves occupancy toward half |
+//! | `probes_and_reuse` | Continuous stream, a fresh one per window; `EXPANSE_BENCH_ROUNDS` interleaved 500 ms windows per thread count (Williams order), all on one prefilled structure per engine and workload, run by one worker pool |
+//! | `hit_rate` | 50% at 100% read (half the keyspace is present). Under a mix a write inserts or removes a uniform key on an independent coin, so occupancy stays at half and 0.25 of writes remove a present key; `mixed_concurrency.py` refuses a window more than 0.05 from that share (#1280). Until #1280 writes inserted even keys and removed odd ones, which left every removal a miss and every insert an overwrite after the first window |
 //! | `miss_gen_method` | Bounded keyspace random stream |
 //! | `value_dereference` | `black_box(sink)` |
 //! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time |
-//! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 over 1M draws (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 over 200k (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, and `SkipMap`, whose values are `(Vec<u8>, u32)` although its label reads `Vec<u8>`), and 37-byte string keys → u64 over 100k (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type |
+//! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type. Reclamation differs by arm and is inside every rate: `BTreeMap` frees a replaced or removed `Vec` inline under its write lock, `SkipMap` defers node reclamation to crossbeam-epoch collection on the worker threads, and the two Expanse blob arms compact their arena on the shared trigger `BLOB_COMPACT_APPENDS` (count and arena bytes published per window). `DashMap` clones its key on every insert; the `Mutex` string arms draw their op choice inside the lock. |
 //! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`) |
-//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 34881026495 and 34882381735)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. The #375 bounded-keyspace correction still holds. |
+//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36615302601 and 36628995380, commit d1c3ca2a)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload |
 
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;
@@ -108,15 +112,13 @@ const WINDOW: Duration = Duration::from_millis(500);
 
 fn bench_map(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let m = Arc::new(SyncExpanseMap::new());
-    let mut rng = XorShift(0x5CA1_AB1E);
-    for _ in 0..POP {
-        let k = rng.next() % KEYSPACE;
+    for k in prefill_keys(KEYSPACE) {
         m.insert(k, !k);
     }
     run_rounds(plan, move |i, win| {
         let rd = m.reader();
-        let mut rng = XorShift(0x1000 + i as u64);
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -124,31 +126,30 @@ fn bench_map(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
             let k = rng.next() % KEYSPACE;
             if r < ratio_read {
                 sink ^= rd.get(k).unwrap_or(0);
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
-                if k & 1 == 0 {
+                if rng.next() & 1 == 0 {
                     m.insert(k, !k);
-                } else {
-                    m.remove(k);
+                } else if m.remove(k).is_some() {
+                    c.remove_hits += 1;
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
 fn bench_set(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let s = Arc::new(SyncExpanseSet::new());
-    let mut rng = XorShift(0x5CA1_AB1E);
-    for _ in 0..POP {
-        s.insert(rng.next() % KEYSPACE);
+    for k in prefill_keys(KEYSPACE) {
+        s.insert(k);
     }
     run_rounds(plan, move |i, win| {
         let rd = s.reader();
-        let mut rng = XorShift(0x1000 + i as u64);
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
         let mut sink = false;
         win.begin();
         while win.running() {
@@ -156,18 +157,18 @@ fn bench_set(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
             let k = rng.next() % KEYSPACE;
             if r < ratio_read {
                 sink ^= rd.contains(k);
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
-                if k & 1 == 0 {
+                if rng.next() & 1 == 0 {
                     s.insert(k);
-                } else {
-                    s.remove(k);
+                } else if s.remove(k) {
+                    c.remove_hits += 1;
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -176,6 +177,49 @@ fn bench_set(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
 const BLOB_POP: u64 = 200_000;
 const BLOB_KEYSPACE: u64 = 2 * BLOB_POP;
 const BLOB_LEN: usize = 128;
+
+/// The blob arms' reclamation policy (#1280). An arena record is never
+/// rewritten in place: every insert appends one, and the bytes an overwrite
+/// or a removal leaves behind come back only through `compact()`. Without it
+/// the arena fills its default cap mid-run and every later insert fails, which
+/// this instrument timed for most of its rounds until #1280. Both Expanse blob
+/// arms therefore compact inside the timed window, on the same trigger:
+/// worker 0 counts its own successful inserts and compacts when that count
+/// times the window's thread count reaches this many appends — about twice the
+/// live population's arena bytes, since the prefill holds `BLOB_POP` records.
+/// The estimate is thread-local on purpose: a shared counter would add a line
+/// every writer stores to, in these two arms only. The compaction's cost is
+/// inside the rate these arms publish, as `SkipMap`'s deferred epoch
+/// reclamation and `BTreeMap`'s inline frees are inside theirs; the count per
+/// window is published beside it (`compactions`, `arena_bytes`).
+const BLOB_COMPACT_APPENDS: u64 = BLOB_POP;
+
+thread_local! {
+    /// Worker 0's running estimate of the arena appends since the last
+    /// compaction ([`BLOB_COMPACT_APPENDS`]): each of its own inserts adds the
+    /// window's thread count. It lives on the pool thread, so it carries across
+    /// windows the way the arena's dead bytes do; each arm runs on a fresh pool,
+    /// so it starts at zero with the arm's structure.
+    static BLOB_APPENDS_EST: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Worker 0's side of the blob reclamation trigger: records one insert and
+/// reports whether the arena is due for compaction.
+fn blob_compaction_due(i: usize, win: &Window) -> bool {
+    if i != 0 {
+        return false;
+    }
+    BLOB_APPENDS_EST.with(|est| {
+        let v = est.get() + win.threads as u64;
+        if v >= BLOB_COMPACT_APPENDS {
+            est.set(0);
+            true
+        } else {
+            est.set(v);
+            false
+        }
+    })
+}
 
 fn blob_payload(k: u64, buf: &mut [u8; BLOB_LEN]) {
     let mut x = k | 1;
@@ -192,14 +236,39 @@ fn blob_payload(k: u64, buf: &mut [u8; BLOB_LEN]) {
 struct Window {
     stop: AtomicBool,
     start: Barrier,
+    /// Worker threads in this window (the `sync32` arm's own windows leave
+    /// it at the barrier's party count; nothing there reads it).
+    threads: usize,
+    /// This window's stream seed ([`Window::seed`]).
+    seed: u64,
 }
 
 impl Window {
     fn new(parties: usize) -> Self {
+        Self::with_seed(parties, parties, 0)
+    }
+
+    fn with_seed(parties: usize, threads: usize, seed: u64) -> Self {
         Self {
             stop: AtomicBool::new(false),
             start: Barrier::new(parties),
+            threads,
+            seed,
         }
+    }
+
+    /// Worker `i`'s operation-stream seed for this window. Every window draws
+    /// a stream of its own (#1280): a stream restarted at every window replays
+    /// the same keys, so later windows see the state the first one left and
+    /// the rounds sample timing noise over one fixed key sequence.
+    fn seed(&self, i: usize) -> u64 {
+        let mut z = self
+            .seed
+            .wrapping_add((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            .wrapping_add(0x1000);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        (z ^ (z >> 31)) | 1
     }
 
     /// Blocks until every worker and the driver are ready.
@@ -217,6 +286,28 @@ impl Window {
 struct Plan {
     threads: Vec<usize>,
     rounds: usize,
+}
+
+/// What one worker did in one window. `remove_hits` counts removals that
+/// found their key; `compactions` and `arena_bytes` are the blob arms'
+/// reclamation record ([`BLOB_COMPACT_APPENDS`]) and stay zero elsewhere.
+#[derive(Clone, Copy, Default)]
+struct Counts {
+    read_ops: u64,
+    write_ops: u64,
+    remove_hits: u64,
+    compactions: u64,
+    arena_bytes: u64,
+}
+
+impl From<(u64, u64)> for Counts {
+    fn from((read_ops, write_ops): (u64, u64)) -> Self {
+        Self {
+            read_ops,
+            write_ops,
+            ..Self::default()
+        }
+    }
 }
 
 /// One window's raw counts over its own elapsed time. `busy`, `ok` and
@@ -239,6 +330,9 @@ struct Sample {
     busy: u64,
     ok: u64,
     refused: u64,
+    remove_hits: u64,
+    compactions: u64,
+    arena_bytes: u64,
     #[cfg(feature = "occ-stats")]
     stats: [u64; expanse_trie::occ_stats::NUM_STATS],
 }
@@ -255,6 +349,9 @@ impl Default for Sample {
             busy: 0,
             ok: 0,
             refused: 0,
+            remove_hits: 0,
+            compactions: 0,
+            arena_bytes: 0,
             #[cfg(feature = "occ-stats")]
             stats: [0; expanse_trie::occ_stats::NUM_STATS],
         }
@@ -287,13 +384,53 @@ fn williams_order(n: usize, round: usize) -> Vec<usize> {
 
 /// Runs every round of `plan` over one shared structure. Each round is one
 /// window per thread count, in [`williams_order`]; a window is `threads`
-/// copies of `work(thread_idx, window) -> (read_ops, write_ops)`, and its
-/// elapsed time runs from the barrier to the stop signal.
-fn run_rounds<F>(plan: &Plan, work: F) -> Vec<Sample>
+/// calls of `work(thread_idx, window)`, and its elapsed time runs from the
+/// barrier to the stop signal.
+///
+/// The workers are one pool of `max(plan.threads)` threads that lives for the
+/// whole cell; window `w` hands work to its first `threads` of them (#1280).
+/// Spawning fresh threads per window, as this driver did before, gave every
+/// window new threads and so new writer slots: a wrapper's writer table never
+/// recycles a slot, so the allocated count grew with the spawn history rather
+/// than with the thread count under test, and every serialised section that
+/// drains or sums the slots paid for threads that had exited windows earlier.
+///
+/// A worker panic is caught and re-raised here with its message, so a failed
+/// `.expect` inside an arm stops the run instead of stalling the driver.
+fn run_rounds<F, R>(plan: &Plan, work: F) -> Vec<Sample>
 where
-    F: Fn(usize, &Window) -> (u64, u64) + Send + Sync + 'static,
+    F: Fn(usize, &Window) -> R + Send + Sync + 'static,
+    R: Into<Counts>,
 {
+    use std::sync::mpsc;
     let work = Arc::new(work);
+    let pool = plan.threads.iter().copied().max().unwrap_or(0);
+    let (done_tx, done_rx) = mpsc::channel::<Result<Counts, String>>();
+    let mut jobs = Vec::with_capacity(pool);
+    let mut handles = Vec::with_capacity(pool);
+    for i in 0..pool {
+        let (tx, rx) = mpsc::channel::<Arc<Window>>();
+        let work = Arc::clone(&work);
+        let done = done_tx.clone();
+        handles.push(std::thread::spawn(move || {
+            for window in rx {
+                let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    work(i, &window).into()
+                }))
+                .map_err(|e| {
+                    e.downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                        .unwrap_or_else(|| "non-string panic payload".to_string())
+                });
+                if done.send(out).is_err() {
+                    return;
+                }
+            }
+        }));
+        jobs.push(tx);
+    }
+    drop(done_tx);
     let mut samples = Vec::with_capacity(plan.rounds * plan.threads.len());
     for round in 0..plan.rounds {
         for (position, idx) in williams_order(plan.threads.len(), round)
@@ -301,14 +438,11 @@ where
             .enumerate()
         {
             let threads = plan.threads[idx];
-            let window = Arc::new(Window::new(threads + 1));
-            let handles: Vec<_> = (0..threads)
-                .map(|i| {
-                    let window = Arc::clone(&window);
-                    let work = Arc::clone(&work);
-                    std::thread::spawn(move || work(i, &window))
-                })
-                .collect();
+            let seed = ((round as u64) << 32) | position as u64;
+            let window = Arc::new(Window::with_seed(threads + 1, threads, seed));
+            for job in &jobs[..threads] {
+                job.send(Arc::clone(&window)).expect("worker pool alive");
+            }
             // Zeroed inside the barrier: every worker is parked in
             // `Window::begin` and the prefill is long done, so the census
             // below covers this window and nothing else.
@@ -319,42 +453,74 @@ where
             std::thread::sleep(WINDOW);
             window.stop.store(true, Ordering::Relaxed);
             let elapsed_s = t0.elapsed().as_secs_f64();
-            let (mut read_ops, mut write_ops) = (0u64, 0u64);
-            for h in handles {
-                let (r, w) = h.join().expect("thread join");
-                read_ops += r;
-                write_ops += w;
+            let mut total = Counts::default();
+            for _ in 0..threads {
+                let c = match done_rx.recv().expect("worker pool alive") {
+                    Ok(c) => c,
+                    Err(msg) => {
+                        panic!("worker panicked in round {round}, {threads} threads: {msg}")
+                    }
+                };
+                total.read_ops += c.read_ops;
+                total.write_ops += c.write_ops;
+                total.remove_hits += c.remove_hits;
+                total.compactions += c.compactions;
+                total.arena_bytes = total.arena_bytes.max(c.arena_bytes);
             }
             samples.push(Sample {
                 threads,
                 round,
                 position,
                 elapsed_s,
-                read_ops,
-                write_ops,
+                read_ops: total.read_ops,
+                write_ops: total.write_ops,
+                remove_hits: total.remove_hits,
+                compactions: total.compactions,
+                arena_bytes: total.arena_bytes,
                 #[cfg(feature = "occ-stats")]
                 stats: expanse_trie::occ_stats::snapshot(),
                 ..Sample::default()
             });
         }
     }
+    drop(jobs);
+    for h in handles {
+        h.join().expect("worker pool thread");
+    }
     samples
+}
+
+/// The keys a cell is prefilled with: distinct draws from `keyspace`, in draw
+/// order, until half of it is present. Half is where the mixed workloads'
+/// independent insert/remove bit holds occupancy (#1280), so a 50 % write
+/// window starts in the state it keeps rather than drifting toward it; at
+/// 100 % read the hit rate is 50 %.
+fn prefill_keys(keyspace: u64) -> Vec<u64> {
+    let mut rng = XorShift(0x5CA1_AB1E);
+    let target = (keyspace / 2) as usize;
+    let mut seen = std::collections::HashSet::with_capacity(target);
+    let mut keys = Vec::with_capacity(target);
+    while keys.len() < target {
+        let k = rng.next() % keyspace;
+        if seen.insert(k) {
+            keys.push(k);
+        }
+    }
+    keys
 }
 
 fn bench_blob_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let m = Arc::new(SyncExpanseBlobMap::new());
-    let mut rng = XorShift(0x5CA1_AB1E);
     let mut buf = [0u8; BLOB_LEN];
-    for _ in 0..BLOB_POP {
-        let k = rng.next() % BLOB_KEYSPACE;
+    for k in prefill_keys(BLOB_KEYSPACE) {
         blob_payload(k, &mut buf);
         m.insert(k, &buf, k as u32 & 0xFF_FFFF).expect("prefill");
     }
     run_rounds(plan, move |i, win| {
         let mut rd = m.reader();
-        let mut rng = XorShift(0x1000 + i as u64);
+        let mut rng = XorShift(win.seed(i));
         let mut buf = [0u8; BLOB_LEN];
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -365,19 +531,27 @@ fn bench_blob_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
                 if let Some((view, meta)) = guard.get(k) {
                     sink ^= u64::from(view.as_bytes()[0]) ^ u64::from(meta);
                 }
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
-                if k & 1 == 0 {
+                if rng.next() & 1 == 0 {
                     blob_payload(k, &mut buf);
-                    let _ = m.insert(k, &buf, k as u32 & 0xFF_FFFF);
-                } else {
-                    m.remove(k);
+                    m.insert(k, &buf, k as u32 & 0xFF_FFFF)
+                        .expect("SyncExpanseBlobMap insert");
+                    if blob_compaction_due(i, win) {
+                        m.compact().expect("SyncExpanseBlobMap compaction");
+                        c.compactions += 1;
+                    }
+                } else if m.remove(k) {
+                    c.remove_hits += 1;
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
+        if i == 0 {
+            c.arena_bytes = m.with_locked(|b| b.arena().mem_used()) as u64;
+        }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -389,20 +563,18 @@ fn bench_blob_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
 /// reader-counter scaling behaviour of an `RwLock` on a `Sync` structure.
 fn bench_blob_mutex(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let m = Arc::new(std::sync::Mutex::new(ExpanseBlobMap::new()));
-    let mut rng = XorShift(0x5CA1_AB1E);
     let mut buf = [0u8; BLOB_LEN];
     {
         let mut g = m.lock().expect("lock");
-        for _ in 0..BLOB_POP {
-            let k = rng.next() % BLOB_KEYSPACE;
+        for k in prefill_keys(BLOB_KEYSPACE) {
             blob_payload(k, &mut buf);
             g.insert(k, &buf, k as u32 & 0xFF_FFFF).expect("prefill");
         }
     }
     run_rounds(plan, move |i, win| {
-        let mut rng = XorShift(0x1000 + i as u64);
+        let mut rng = XorShift(win.seed(i));
         let mut buf = [0u8; BLOB_LEN];
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -416,21 +588,33 @@ fn bench_blob_mutex(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
                 if let Some((view, meta)) = g.get(k) {
                     sink ^= u64::from(view.as_bytes()[0]) ^ u64::from(meta);
                 }
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
-                if k & 1 == 0 {
+                if rng.next() & 1 == 0 {
                     blob_payload(k, &mut buf);
                     let mut g = m.lock().expect("lock");
-                    let _ = g.insert(k, &buf, k as u32 & 0xFF_FFFF);
+                    g.insert(k, &buf, k as u32 & 0xFF_FFFF)
+                        .expect("ExpanseBlobMap insert");
+                    // The same trigger as the OCC arm (`BLOB_COMPACT_APPENDS`),
+                    // under the lock this arm already holds.
+                    if blob_compaction_due(i, win) {
+                        g.compact().expect("ExpanseBlobMap compaction");
+                        c.compactions += 1;
+                    }
                 } else {
                     let mut g = m.lock().expect("lock");
-                    g.remove(k);
+                    if g.remove(k) {
+                        c.remove_hits += 1;
+                    }
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
+        if i == 0 {
+            c.arena_bytes = m.lock().expect("lock").arena().mem_used() as u64;
+        }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -438,20 +622,18 @@ type BlobBTree = std::collections::BTreeMap<u64, (Vec<u8>, u32)>;
 
 fn bench_blob_rwlock_btree(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let m: Arc<RwLock<BlobBTree>> = Arc::new(RwLock::new(BlobBTree::new()));
-    let mut rng = XorShift(0x5CA1_AB1E);
     let mut buf = [0u8; BLOB_LEN];
     {
         let mut g = m.write().expect("lock");
-        for _ in 0..BLOB_POP {
-            let k = rng.next() % BLOB_KEYSPACE;
+        for k in prefill_keys(BLOB_KEYSPACE) {
             blob_payload(k, &mut buf);
             g.insert(k, (buf.to_vec(), k as u32 & 0xFF_FFFF));
         }
     }
     run_rounds(plan, move |i, win| {
-        let mut rng = XorShift(0x1000 + i as u64);
+        let mut rng = XorShift(win.seed(i));
         let mut buf = [0u8; BLOB_LEN];
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -462,40 +644,42 @@ fn bench_blob_rwlock_btree(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
                 if let Some((bytes, meta)) = g.get(&k) {
                     sink ^= u64::from(bytes[0]) ^ u64::from(*meta);
                 }
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
                 // Payload generation and Vec construction stay outside the
-                // write lock (see the Mutex arm).
-                if k & 1 == 0 {
+                // write lock (see the Mutex arm). The replaced or removed
+                // `Vec` is freed inside it: `g` is still held when the
+                // returned `Option` drops.
+                if rng.next() & 1 == 0 {
                     blob_payload(k, &mut buf);
                     let v = buf.to_vec();
                     let mut g = m.write().expect("lock");
                     g.insert(k, (v, k as u32 & 0xFF_FFFF));
                 } else {
                     let mut g = m.write().expect("lock");
-                    g.remove(&k);
+                    if g.remove(&k).is_some() {
+                        c.remove_hits += 1;
+                    }
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
 fn bench_blob_skiplist(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let m: Arc<SkipMap<u64, (Vec<u8>, u32)>> = Arc::new(SkipMap::new());
-    let mut rng = XorShift(0x5CA1_AB1E);
     let mut buf = [0u8; BLOB_LEN];
-    for _ in 0..BLOB_POP {
-        let k = rng.next() % BLOB_KEYSPACE;
+    for k in prefill_keys(BLOB_KEYSPACE) {
         blob_payload(k, &mut buf);
         m.insert(k, (buf.to_vec(), k as u32 & 0xFF_FFFF));
     }
     run_rounds(plan, move |i, win| {
-        let mut rng = XorShift(0x1000 + i as u64);
+        let mut rng = XorShift(win.seed(i));
         let mut buf = [0u8; BLOB_LEN];
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -506,19 +690,22 @@ fn bench_blob_skiplist(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
                     let (bytes, meta) = e.value();
                     sink ^= u64::from(bytes[0]) ^ u64::from(*meta);
                 }
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
-                if k & 1 == 0 {
+                // A replaced or removed node is reclaimed through
+                // crossbeam-epoch's deferred collection, which runs on these
+                // worker threads inside the window.
+                if rng.next() & 1 == 0 {
                     blob_payload(k, &mut buf);
                     m.insert(k, (buf.to_vec(), k as u32 & 0xFF_FFFF));
-                } else {
-                    m.remove(&k);
+                } else if m.remove(&k).is_some() {
+                    c.remove_hits += 1;
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -540,14 +727,14 @@ fn bench_str_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let keys = str_keys();
     let m = Arc::new(SyncExpanseStrMap::new());
     let mut rng = XorShift(0x5CA1_AB1E);
-    for _ in 0..STR_POP {
-        let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+    for idx in prefill_keys(STR_KEYSPACE as u64) {
+        let k = &keys[idx as usize];
         m.insert(tk(k), rng.next());
     }
     run_rounds(plan, move |i, win| {
         let rd = m.reader();
-        let mut rng = XorShift(0x1000 + i as u64);
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -555,18 +742,20 @@ fn bench_str_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
             let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
             if r < ratio_read {
                 sink ^= rd.get(tk(k)).unwrap_or(0);
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
                 if rng.next() & 1 == 0 {
                     m.insert(tk(k), rng.next());
                 } else {
-                    m.remove(tk(k));
+                    if m.remove(tk(k)).is_some() {
+                        c.remove_hits += 1;
+                    }
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -576,14 +765,14 @@ fn bench_str_mutex(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let mut rng = XorShift(0x5CA1_AB1E);
     {
         let mut g = m.lock().expect("lock");
-        for _ in 0..STR_POP {
-            let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+        for idx in prefill_keys(STR_KEYSPACE as u64) {
+            let k = &keys[idx as usize];
             g.insert(tk(k), rng.next());
         }
     }
     run_rounds(plan, move |i, win| {
-        let mut rng = XorShift(0x1000 + i as u64);
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -592,18 +781,20 @@ fn bench_str_mutex(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
             let mut g = m.lock().expect("lock");
             if r < ratio_read {
                 sink ^= g.get(tk(k)).unwrap_or(0);
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
                 if rng.next() & 1 == 0 {
                     g.insert(tk(k), rng.next());
                 } else {
-                    g.remove(tk(k));
+                    if g.remove(tk(k)).is_some() {
+                        c.remove_hits += 1;
+                    }
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -614,14 +805,14 @@ fn bench_bytes_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let keys = str_keys();
     let m = Arc::new(SyncExpanseBytesMap::new());
     let mut rng = XorShift(0x5CA1_AB1E);
-    for _ in 0..STR_POP {
-        let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+    for idx in prefill_keys(STR_KEYSPACE as u64) {
+        let k = &keys[idx as usize];
         m.insert(k, rng.next());
     }
     run_rounds(plan, move |i, win| {
         let rd = m.reader();
-        let mut rng = XorShift(0x1000 + i as u64);
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -629,18 +820,20 @@ fn bench_bytes_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
             let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
             if r < ratio_read {
                 sink ^= rd.get(k).unwrap_or(0);
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
                 if rng.next() & 1 == 0 {
                     m.insert(k, rng.next());
                 } else {
-                    m.remove(k);
+                    if m.remove(k).is_some() {
+                        c.remove_hits += 1;
+                    }
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -650,14 +843,14 @@ fn bench_bytes_mutex(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let mut rng = XorShift(0x5CA1_AB1E);
     {
         let mut g = m.lock().expect("lock");
-        for _ in 0..STR_POP {
-            let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+        for idx in prefill_keys(STR_KEYSPACE as u64) {
+            let k = &keys[idx as usize];
             g.insert(k, rng.next());
         }
     }
     run_rounds(plan, move |i, win| {
-        let mut rng = XorShift(0x1000 + i as u64);
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -666,18 +859,20 @@ fn bench_bytes_mutex(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
             let mut g = m.lock().expect("lock");
             if r < ratio_read {
                 sink ^= g.get(k).unwrap_or(0);
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
                 if rng.next() & 1 == 0 {
                     g.insert(k, rng.next());
                 } else {
-                    g.remove(k);
+                    if g.remove(k).is_some() {
+                        c.remove_hits += 1;
+                    }
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -685,13 +880,13 @@ fn bench_str_dashmap(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     let keys = str_keys();
     let m: Arc<DashMap<Vec<u8>, u64>> = Arc::new(DashMap::new());
     let mut rng = XorShift(0x5CA1_AB1E);
-    for _ in 0..STR_POP {
-        let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+    for idx in prefill_keys(STR_KEYSPACE as u64) {
+        let k = &keys[idx as usize];
         m.insert(k.clone(), rng.next());
     }
     run_rounds(plan, move |i, win| {
-        let mut rng = XorShift(0x1000 + i as u64);
-        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
         let mut sink = 0u64;
         win.begin();
         while win.running() {
@@ -699,18 +894,20 @@ fn bench_str_dashmap(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
             let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
             if r < ratio_read {
                 sink ^= m.get(k.as_slice()).map_or(0, |e| *e.value());
-                read_ops += 1;
+                c.read_ops += 1;
             } else {
                 if rng.next() & 1 == 0 {
                     m.insert(k.clone(), rng.next());
                 } else {
-                    m.remove(k.as_slice());
+                    if m.remove(k.as_slice()).is_some() {
+                        c.remove_hits += 1;
+                    }
                 }
-                write_ops += 1;
+                c.write_ops += 1;
             }
         }
         std::hint::black_box(sink);
-        (read_ops, write_ops)
+        c
     })
 }
 
@@ -859,6 +1056,7 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                 refused: refused_total.load(Ordering::Relaxed),
                 #[cfg(feature = "occ-stats")]
                 stats: expanse_trie::occ_stats::snapshot(),
+                ..Sample::default()
             });
         }
     }
@@ -902,7 +1100,7 @@ const ENGINES: [(&str, &str, EngineBench); 11] = [
     ),
     (
         "blob_skiplist",
-        "SkipMap<u64, Vec<u8>>",
+        "SkipMap<u64, (Vec<u8>, u32)>",
         bench_blob_skiplist,
     ),
     ("str", "SyncExpanseStrMap", bench_str_sync),
@@ -994,6 +1192,9 @@ fn write_samples(
             "busy": s.busy,
             "ok": s.ok,
             "refused": s.refused,
+            "remove_hits": s.remove_hits,
+            "compactions": s.compactions,
+            "arena_bytes": s.arena_bytes,
         });
         writeln!(out, "{row}").expect("write EXPANSE_BENCH_SAMPLES");
     }

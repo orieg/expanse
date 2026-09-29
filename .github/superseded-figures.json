@@ -1427,6 +1427,28 @@
       "replacement": "docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json and _run2 at 2f82cd07: lookup Expanse/hashbrown clustered 1.990x [1.947, 2.049], sequential 1.740x [1.694, 1.787], zipfian 0.562x [0.518, 0.627], uniform 0.340x [0.338, 0.342]; Expanse/BTreeMap 9.003x, 7.260x, 6.135x, 2.837x",
       "provenance": "commit 2f82cd07, docs/benchmarks/hashbrown_comparison/results/baseline_distributions.json",
       "rationale": "One in-process pass at 7d87dff7 with unseeded Zipfian keys and no rounds or interval; re-measured as 9 one-process rounds per run, two runs"
+    },
+    {
+      "id": "blob_mixed_failing_insert_0a3ed07a",
+      "patterns": [
+        "(?<![\\w.])0\\.40\\s*[x\u00d7]\\s*/\\s*0\\.38\\s*[x\u00d7]",
+        "(?<![\\w.])0\\.38\\s*[x\u00d7]\\s*[\u2013-]\\s*0\\.40\\s*[x\u00d7]",
+        "(?<![\\w.])0\\.27\\s*[x\u00d7]",
+        "(?<![\\w.])7\\.29\\s+M ops/s",
+        "(?<![\\w.])6\\.83\\s+M ops/s",
+        "(?<![\\w.])17\\.6\\s+M ops/s"
+      ],
+      "context": [
+        "syncexpanseblobmap",
+        "blobmap",
+        "50r/50w",
+        "50/50",
+        "mixed",
+        "128-byte"
+      ],
+      "replacement": "docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json and _run2 at d1c3ca2a (runs 36615302601, 36628995380): SyncExpanseBlobMap at 50% read 10.35 and 10.39 M ops/s at one thread, 4.60 and 4.60 M at sixteen, C(16) 0.45 [0.44, 0.45] and 0.44 [0.44, 0.45]",
+      "provenance": "commit d1c3ca2a, docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json",
+      "rationale": "The pre-#1280 core_concurrency blob arms discarded the insert Result; the arena reached its 1 GiB cap within the first rounds and every later insert failed with OffsetOverflow while counting as a write (#1280)"
     }
   ]
 }
