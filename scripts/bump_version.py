@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime
 import re
 import subprocess
 import sys
@@ -294,6 +295,9 @@ PIN_NUGET_PACKAGEREF = re.compile(r'(<PackageReference Include="Orieg\.Expanse" 
 # CITATION.cff `version:` is validated against the workspace by
 # scripts/validate_citation.py, so it has to move with the bump.
 PIN_CFF_VERSION = re.compile(r"(^version: )(\d[^\s]*)($)", re.MULTILINE)
+# `date-released` is not a version pin (--check cannot compare it with one), so
+# a bump sets it directly; before this it kept v0.5.0's date through v0.9.1.
+CFF_DATE_RELEASED = re.compile(r"(^date-released: )(\S+)($)", re.MULTILINE)
 # Go modules resolve by git tag, so the install snippet must track the release.
 PIN_GO_MODULE = re.compile(
     r"(go get github\.com/orieg/expanse/bindings/go@v)(\d[^\s]*)(\s|$)", re.MULTILINE
@@ -609,6 +613,17 @@ def run_bump(root: Path, new_version: str, dry_run: bool = False, no_cargo_check
 
         print(f"  {'[DRY-RUN]' if dry_run else '[UPDATED]'} {h.rel_path:<52} ({old_str}) -> {new_version}")
         updated_count += 1
+
+    cff = root / "CITATION.cff"
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    cff_text = cff.read_text(encoding="utf-8")
+    cff_new, n = CFF_DATE_RELEASED.subn(rf"\g<1>{today}\g<3>", cff_text)
+    if n != 1:
+        print(f"[ERROR] CITATION.cff: expected one date-released line, found {n}")
+        return 1
+    if not dry_run:
+        cff.write_text(cff_new, encoding="utf-8")
+    print(f"  {'[DRY-RUN]' if dry_run else '[UPDATED]'} {'CITATION.cff (date-released)':<52} -> {today}")
 
     if not dry_run and not no_cargo_check:
         print("-" * 70)

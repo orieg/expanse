@@ -676,14 +676,21 @@ Two DOIs are minted. Cite the **concept DOI** for the project as a whole — it 
 | Scope | DOI |
 |---|---|
 | Concept (all versions) | [`10.5281/zenodo.22152112`](https://doi.org/10.5281/zenodo.22152112) |
+| v0.9.1 | [`10.5281/zenodo.23033289`](https://doi.org/10.5281/zenodo.23033289) |
+| v0.9.0 | [`10.5281/zenodo.23005353`](https://doi.org/10.5281/zenodo.23005353) |
+| v0.8.2 | [`10.5281/zenodo.22946275`](https://doi.org/10.5281/zenodo.22946275) |
+| v0.8.1 | [`10.5281/zenodo.22930163`](https://doi.org/10.5281/zenodo.22930163) |
+| v0.8.0 | [`10.5281/zenodo.22928508`](https://doi.org/10.5281/zenodo.22928508) |
+| v0.7.1 | [`10.5281/zenodo.22901468`](https://doi.org/10.5281/zenodo.22901468) |
+| v0.7.0 | [`10.5281/zenodo.22884696`](https://doi.org/10.5281/zenodo.22884696) |
 | v0.6.0 | [`10.5281/zenodo.22569440`](https://doi.org/10.5281/zenodo.22569440) |
 | v0.5.0 | [`10.5281/zenodo.22152113`](https://doi.org/10.5281/zenodo.22152113) |
 
 ```bibtex
 @software{brousse_expanse,
   author  = {Brousse, Nicolas},
-  title   = {{Expanse: clean-room, pure-Rust Judy arrays with a
-             drop-in libjudy-compatible C ABI}},
+  title   = {{Expanse: clean-room Judy arrays in Rust with a
+             drop-in libjudy C ABI}},
   year    = {2026},
   version = {0.9.1},
   doi     = {10.5281/zenodo.22152112},
