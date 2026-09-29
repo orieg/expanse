@@ -1105,10 +1105,26 @@ fn test_retracted_figures_absent() {
              docs/benchmarks/concurrency/README.md section 12"
         );
     }
-    // 2. The retracted vs-libjudy wall-clock random-lookup reading (unmeasured ns)
+    // 2. The retracted vs-libjudy wall-clock random-lookup reading (unmeasured ns).
+    // A latency in ns, so it is looked for outside the concurrency chart blocks,
+    // whose values are M ops/s: the #1280 re-measurement's `SyncExpanseMap` 50/50
+    // cell at 4 threads is 48.6 M ops/s, a different quantity with the same digits.
+    let assets_ns_text = if assets_path.exists() {
+        let mut a_data: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&assets_path).unwrap()).unwrap();
+        if let Some(obj) = a_data.as_object_mut() {
+            obj.remove("provenance");
+            obj.remove("retraction");
+            obj.remove("concurrency");
+            obj.remove("sync32_health");
+        }
+        serde_json::to_string(&a_data).unwrap()
+    } else {
+        String::new()
+    };
     for figure in ["26.8", "48.6"] {
         assert!(
-            !json_text.contains(figure) && !assets_text.contains(figure),
+            !json_text.contains(figure) && !assets_ns_text.contains(figure),
             "retracted vs-libjudy wall-clock figure {figure} ns is published again -- \
              see README.md and docs/BENCHMARKING.md"
         );

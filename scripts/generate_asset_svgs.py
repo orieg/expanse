@@ -31,6 +31,7 @@ each chart carries its own provenance footer (AGENTS.md 8.7).
 from __future__ import annotations
 
 import json
+import math
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -489,6 +490,10 @@ def render_ycsb(data: dict) -> None:
 # --------------------------------------------------------------------------
 
 
+# The sync32 health chart's log-axis floor, in percent.
+LOG_LO = 0.01
+
+
 def render_sync32_health(data: dict) -> None:
     h = data["sync32_health"]
     meta = h["meta"]
@@ -499,7 +504,7 @@ def render_sync32_health(data: dict) -> None:
     bar_x, bar_max = 210.0, 240.0
     badge_x, badge_w = 796.0, 134.0
     row_h, grp_gap = 15, 22
-    top = 104
+    top = 120
     grp_h = row_h * len(threads) + grp_gap
     height = top + grp_h * len(duties) + 104
 
@@ -519,16 +524,31 @@ def render_sync32_health(data: dict) -> None:
   <g transform="translate(600, 20)">
 {legend}  </g>
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
-  <text x="30" y="74" class="t-note">Bars: {"run 1's" if two_runs else "the"} Busy rate, 0&#8211;100% linear{"; Busy labels read run 1 / run 2, rates are run 1" if two_runs else ""}. Badge: the writer's refused mutations (ArenaFull / ReclaimBacklog) over {"both runs'" if two_runs else "the cell's"} windows.</text>
+  <text x="30" y="74" class="t-note">Bars: {"run 1's" if two_runs else "the"} Busy rate on a log axis, {LOG_LO:g}&#8211;100% (decade lines){"; Busy labels read run 1 / run 2, rates are run 1" if two_runs else ""}. Badge: the writer's refused mutations (ArenaFull / ReclaimBacklog) over {"both runs'" if two_runs else "the cell's"} windows.</text>
   <text x="30" y="88" class="t-note">Writer duty: full (as fast as it can, the Busy ceiling) then deadline-paced 1M, 100k and 10k mutations/s; a saturated CAN bus is ~10k frames/s. reads/s = validated reads.</text>
 """
+    # A log axis: the Busy rate spans four decades across the duties (full duty
+    # near 100%, 10k/s near 0.05%), and a linear axis pinned every paced bar
+    # below 1% to the same floor (AGENTS.md section 8.15a). Decade lines make
+    # the compression readable; a rate below the axis floor draws at the floor.
+    decades = int(round(math.log10(100.0 / LOG_LO)))
+
+    def bar_w(pct: float) -> float:
+        return max(2.0, (math.log10(max(pct, LOG_LO)) - math.log10(LOG_LO)) / decades * bar_max)
+
+    grid_bottom = top + grp_h * len(duties) - grp_gap
+    for k in range(decades + 1):
+        gx = bar_x + k * bar_max / decades
+        svg += (f'  <line x1="{gx:.1f}" y1="{top - 6}" x2="{gx:.1f}" y2="{grid_bottom}" class="grid"/>\n'
+                f'  <text x="{gx:.1f}" y="{top - 9}" class="t-axis-label" text-anchor="middle">'
+                f'{LOG_LO * 10 ** k:g}%</text>\n')
     for gi, d in enumerate(duties):
         gy = top + gi * grp_h
         svg += f'  <text x="30" y="{gy + 9}" class="t-bar-label">writer {esc(d["duty"])}</text>\n'
         for ri, r in enumerate(d["rows"]):
             y = gy + ri * row_h
             pct = r["busy_pct"]
-            w = max(2.0, pct / 100.0 * bar_max)
+            w = bar_w(pct)
             t = r["readers"]
             busy_txt = f"{pct:.3g}% / {r['busy_pct_run2']:.3g}%" if two_runs else f"{pct:.3g}%"
             svg += (

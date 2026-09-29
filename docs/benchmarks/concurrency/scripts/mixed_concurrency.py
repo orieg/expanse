@@ -1077,10 +1077,11 @@ RUN2_OUT = DEFAULT_OUT.with_name("baseline_concurrent_mixed_run2.json")
 CHART_READ = ("set", "map", "blob", "blob_skiplist", "blob_rwlock_btree", "bytes", "str", "str_dashmap")
 CHART_MIXED = ("map", "set", "blob", "blob_skiplist", "bytes", "str", "str_dashmap")
 CHART_FAMILY = {
-    "set": "u64 keys, 1M draws", "map": "u64 keys, 1M draws",
-    "blob": "u64 -> 128-byte payload, 200k", "blob_skiplist": "u64 -> 128-byte payload, 200k",
-    "blob_rwlock_btree": "u64 -> 128-byte payload, 200k",
-    "bytes": "string keys, 100k", "str": "string keys, 100k", "str_dashmap": "string keys, 100k",
+    "set": "u64 keys, 1M present", "map": "u64 keys, 1M present",
+    "blob": "u64 -> 128-byte payload, 200k present", "blob_skiplist": "u64 -> 128-byte payload, 200k present",
+    "blob_rwlock_btree": "u64 -> 128-byte payload, 200k present",
+    "bytes": "string keys, 100k present", "str": "string keys, 100k present",
+    "str_dashmap": "string keys, 100k present",
 }
 EXPANSE_OCC = frozenset({"map", "set", "blob", "bytes", "str"})
 CHART_LABEL = {"blob_rwlock_btree": "RwLock<BTreeMap<u64, ...>>"}
