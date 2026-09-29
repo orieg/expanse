@@ -10238,6 +10238,12 @@ impl SyncExpanseBlobMap {
             feature = "std"
         ))]
         {
+            // Experiment M (#1280, not for merge): an absent key is answered
+            // by a validated read, and only a present one takes the
+            // serialised removal.
+            if self.shared.published().is_tree() && !self.contains_key(key) {
+                return false;
+            }
             self.shared.remove_root_covered(|m| {
                 self.fold_writer_arenas(m);
                 m.remove_shared(key)
