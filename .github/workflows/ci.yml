@@ -804,6 +804,7 @@ jobs:
           # leaf_layout_model.py prices the #1257 layout census (ARCHITECTURE.md §3.6)
           # and re-checks the committed artifacts its figures rest on.
           python3 scripts/leaf_layout_model.py --self-test
+          python3 scripts/leaf_layout_timing.py --self-test
 
       - name: Shared Runner Provenance Unit Tests
         working-directory: scripts

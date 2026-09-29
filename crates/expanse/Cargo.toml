@@ -188,6 +188,10 @@ name = "leaf_layout_census"
 required-features = ["layout-census"]
 
 [[bench]]
+name = "leaf_layout_timing"
+harness = false
+
+[[bench]]
 name = "compare"
 harness = false
 test = false

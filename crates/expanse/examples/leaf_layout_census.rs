@@ -5,7 +5,7 @@
 //! candidate layout. Deterministic byte accounting — no timing, so host load
 //! does not enter.
 //!
-//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only] [--downstream] [--encodings] [--mixed] [--rules keys:digits,...]`
+//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only] [--downstream] [--encodings] [--mixed] [--rules keys:digits,...] [--dump-keys <dir>]`
 //!
 //! # Workload shape
 //!
@@ -477,6 +477,107 @@ fn orders_mixed_keys(n: usize, escaped_pct: u64) -> (Vec<Vec<u8>>, Vec<Vec<u8>>)
     (encoded, escaped)
 }
 
+/// Writes `keys` as a u64 count, then each key as a u32 length and its bytes
+/// (little-endian); keys may hold any byte but NUL, including newlines.
+fn write_keys(path: &std::path::Path, keys: &[Vec<u8>]) {
+    let mut buf = Vec::with_capacity(8 + keys.iter().map(|k| 4 + k.len()).sum::<usize>());
+    buf.extend_from_slice(&(keys.len() as u64).to_le_bytes());
+    for k in keys {
+        buf.extend_from_slice(&(k.len() as u32).to_le_bytes());
+        buf.extend_from_slice(k);
+    }
+    std::fs::write(path, buf).expect("write key file");
+}
+
+/// The key sets the W3 timing runs on (`benches/leaf_layout_timing.rs`,
+/// #1257 follow-up), written by `--dump-keys <dir>` as `<arm>.keys` and
+/// `<arm>.miss`, so the timed keys are the censused keys byte for byte.
+///
+/// Misses are drawn from each shape's own generator and are absent by
+/// construction (§8.6: never a fixed transform of a present key):
+/// - `orders`: a tenant and an id each drawn uniformly from the shape's own
+///   ranges, rejected when that id belongs to that tenant (then it is
+///   present), so a miss shares the tenant prefix and diverges in the id;
+/// - `composite`: the name's sequential ids continued past its population
+///   (ids `per_name..2·per_name`), the offset form §8.6 names for a
+///   sequential keyspace.
+///
+/// One draw of logical misses is encoded both ways, so the text and the
+/// encoded arm of a shape probe the same misses.
+fn dump_keys(dir: &std::path::Path, n: usize) {
+    std::fs::create_dir_all(dir).expect("create key dir");
+    const MISSES: usize = 1_000_000;
+    let per_t = (n / 1000).max(1);
+    let mut rng = XorShift(SEED ^ 0x3155);
+    let mut pairs = Vec::with_capacity(MISSES);
+    while pairs.len() < MISSES {
+        let t = rng.next() % 1000;
+        let id = rng.next() % n as u64;
+        if id / per_t as u64 != t {
+            pairs.push((t, id));
+        }
+    }
+    let text_miss: Vec<Vec<u8>> = pairs
+        .iter()
+        .map(|&(t, id)| format!("t{t:03}:orders:{id:010}").into_bytes())
+        .collect();
+    let b32 = |v: u64, width: usize, out: &mut Vec<u8>| {
+        IdEncoding {
+            name: "b32",
+            radix: 32,
+            width,
+            base_byte: 0x01,
+            align7: false,
+            prefix_too: false,
+        }
+        .push(v, out);
+    };
+    let enc_miss: Vec<Vec<u8>> = pairs
+        .iter()
+        .map(|&(t, id)| {
+            let mut k = vec![b't'];
+            b32(t, 2, &mut k);
+            k.extend_from_slice(b":orders:");
+            b32(id, 12, &mut k);
+            k
+        })
+        .collect();
+    write_keys(&dir.join("orders_text.keys"), &str_keys("orders", n));
+    write_keys(&dir.join("orders_text.miss"), &text_miss);
+    write_keys(&dir.join("orders_b32a7.keys"), &orders_b32_keys(n));
+    write_keys(&dir.join("orders_b32a7.miss"), &enc_miss);
+    for enc in [ENCODINGS[0], ENCODINGS[4]] {
+        let keys = composite_keys(n, "uniform", enc);
+        // Misses: every name's ids continued past its population, sampled.
+        let per_name = (n / 10_000).max(1) as u64;
+        let mut miss = Vec::with_capacity(MISSES);
+        let mut rng = XorShift(SEED ^ 0x3156);
+        for _ in 0..MISSES {
+            // A present key's prefix and name, with an id past the population.
+            let k = &keys[(rng.next() % keys.len() as u64) as usize];
+            let id_width = if enc.align7 {
+                // The aligned width varies per name: recover it from the key.
+                let slash = k.iter().rposition(|&b| b == b'/').unwrap();
+                k.len() - slash - 1
+            } else {
+                enc.width
+            };
+            let mut m = k[..k.len() - id_width].to_vec();
+            let id = per_name + rng.next() % per_name;
+            IdEncoding {
+                width: id_width,
+                align7: false,
+                ..enc
+            }
+            .push(id, &mut m);
+            miss.push(m);
+        }
+        let arm = format!("composite_uniform_{}", enc.name);
+        write_keys(&dir.join(format!("{arm}.keys")), &keys);
+        write_keys(&dir.join(format!("{arm}.miss")), &miss);
+    }
+}
+
 /// A Fisher–Yates permutation from the suite PRNG (§8.12.4's shuffled order).
 fn shuffled<T: Clone>(v: &[T], seed: u64) -> Vec<T> {
     let mut out = v.to_vec();
@@ -797,6 +898,15 @@ fn main() {
                 );
             }
         }
+    }
+
+    if let Some(i) = args.iter().position(|a| a == "--dump-keys") {
+        let dn = args
+            .iter()
+            .position(|a| a == "--population")
+            .map_or(10_000_000, |_| n);
+        dump_keys(std::path::Path::new(&args[i + 1]), dn);
+        return;
     }
 
     let synthetic = !args
