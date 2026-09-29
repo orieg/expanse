@@ -130,7 +130,8 @@ struct Phase {
     found: u64,
 }
 
-/// Every thread probes its own stream once, all released by one barrier;
+/// Every thread registers one reader, then probes its own stream once
+/// through it, all released by one barrier;
 /// throughput is total probes over the wall time from release to the last
 /// join. Every 64th probe is also timed alone, for the latency percentiles.
 fn probe_phase(map: &SyncExpanseStrMap, keys: &[Vec<u8>], streams: &[Vec<u32>]) -> Phase {
@@ -141,6 +142,12 @@ fn probe_phase(map: &SyncExpanseStrMap, keys: &[Vec<u8>], streams: &[Vec<u32>]) 
             .map(|stream| {
                 let barrier = &barrier;
                 s.spawn(move || {
+                    // One registered reader per thread, outside the timed
+                    // region. `SyncExpanseStrMap::get` registers a throwaway
+                    // reader on every call, which is what a hot loop must not
+                    // time: under 16 threads that registration, not the tree,
+                    // set every probe's cost.
+                    let reader = map.reader();
                     let mut sink = 0u64;
                     let mut found = 0u64;
                     let mut samples = Vec::with_capacity(stream.len() / 64 + 1);
@@ -149,13 +156,13 @@ fn probe_phase(map: &SyncExpanseStrMap, keys: &[Vec<u8>], streams: &[Vec<u32>]) 
                         let key = NulFreeStr::new(&keys[idx as usize]).unwrap();
                         if i % 64 == 0 {
                             let t0 = Instant::now();
-                            let v = black_box(map.get(black_box(key)));
+                            let v = black_box(reader.get(black_box(key)));
                             samples.push(t0.elapsed().as_nanos() as u64);
                             if let Some(v) = v {
                                 sink = sink.wrapping_add(v);
                                 found += 1;
                             }
-                        } else if let Some(v) = map.get(key) {
+                        } else if let Some(v) = reader.get(key) {
                             sink = sink.wrapping_add(v);
                             found += 1;
                         }
