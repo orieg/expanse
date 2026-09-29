@@ -694,4 +694,32 @@ mod tests {
             "the decimal ranges form groups"
         );
     }
+    /// `strmap::CHUNK_BYTES` is a published alignment contract (#1257
+    /// follow-up): keys of `CHUNK_BYTES - 1 (mod CHUNK_BYTES)` bytes whose
+    /// last byte takes 32 values fill one 32-key leaf per range. Pinned on
+    /// the engine, so a chunking change fails here and not only downstream:
+    /// 1,024 keys, 32 per last-byte range, cost what 32 full leaves of
+    /// 2-byte keys and one level of branches cost.
+    #[test]
+    fn chunk_bytes_alignment_contract() {
+        use crate::strmap::CHUNK_BYTES;
+        assert_eq!(CHUNK_BYTES, 8);
+        let mut m = ExpanseStrMap::new();
+        for i in 0..1024u32 {
+            // `CHUNK_BYTES - 3` constant bytes, then two base-32 digits.
+            let mut k = vec![b'k'; CHUNK_BYTES - 3];
+            k.push(0x01 + (i / 32) as u8);
+            k.push(0x01 + (i % 32) as u8);
+            assert_eq!(k.len() % CHUNK_BYTES, CHUNK_BYTES - 1);
+            m.insert(NulFreeStr::new(&k).unwrap(), u64::from(i));
+        }
+        let c = m.layout_census(None);
+        // Every key lives in a full 32-key linear leaf of 2-byte remainders.
+        assert_eq!(c.linear_leaves.values().sum::<usize>(), 32);
+        assert!(
+            c.linear_leaves
+                .keys()
+                .all(|&(_, kb, pop)| kb == 2 && pop == 32)
+        );
+    }
 }

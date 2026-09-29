@@ -47,7 +47,30 @@ type DeferHandle<'a> = Option<&'a Arc<Collector>>;
 #[cfg(not(feature = "std"))]
 type DeferHandle<'a> = Option<&'a ()>;
 
-const CHUNK: usize = 8;
+/// Bytes of a key that one level of the string map decodes: keys are cut
+/// into chunks of this many bytes, each packed big-endian into one word of a
+/// word map, and the chunk holding the key's terminating NUL is the key's
+/// terminal chunk.
+///
+/// **Encoders may align to this value.** A key whose length is
+/// `CHUNK_BYTES - 1 (mod CHUNK_BYTES)` fills its terminal chunk exactly:
+/// `CHUNK_BYTES - 1` key bytes and the NUL. A key of a fixed-width,
+/// order-preserving field layout aligned that way puts its last byte at the
+/// same word level for every key, which is what lets a range of keys that
+/// differ only in that byte share one linear leaf (`docs/ARCHITECTURE.md`
+/// §3.6 measures the effect). Other lengths are valid keys; they are only
+/// stored less compactly.
+///
+/// This value is part of the crate's public contract, not an internal
+/// detail: changing it is a breaking change (a new minor version under the
+/// 0.x rule) and is recorded in the changelog, so an encoder that derives
+/// its alignment from it sees the change at compile time.
+pub const CHUNK_BYTES: usize = 8;
+const CHUNK: usize = CHUNK_BYTES;
+const _: () = assert!(
+    CHUNK == size_of::<u64>(),
+    "a chunk is packed into one u64 word of the word map"
+);
 const TAG_SUFFIX: u64 = 1;
 
 /// Leaf suffix header: the value, then the length of the suffix bytes that
