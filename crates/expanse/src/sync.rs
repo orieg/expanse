@@ -9960,9 +9960,18 @@ impl SyncExpanseBlobMap {
         }
         st.cursor = (off + needed + 15) & !15;
         st.live_delta += needed as isize;
-        self.writer_arenas
+        // Experiment A (#1280, not for merge): store the flag only when it
+        // reads clear, so a steady stream of writers shares the line instead
+        // of taking it exclusive on every allocation and charge.
+        if !self
+            .writer_arenas
             .has_writer_deltas
-            .store(true, core::sync::atomic::Ordering::Release);
+            .load(core::sync::atomic::Ordering::Relaxed)
+        {
+            self.writer_arenas
+                .has_writer_deltas
+                .store(true, core::sync::atomic::Ordering::Release);
+        }
         let global = (chunk.index as u64) * (chunk_size as u64) + (off as u64);
         crate::blobmap::slot_from_global(global, hot_meta)
     }
@@ -10021,9 +10030,18 @@ impl SyncExpanseBlobMap {
                     .fetch_sub(dead, core::sync::atomic::Ordering::AcqRel);
             }
         }
-        self.writer_arenas
+        // Experiment A (#1280, not for merge): store the flag only when it
+        // reads clear, so a steady stream of writers shares the line instead
+        // of taking it exclusive on every allocation and charge.
+        if !self
+            .writer_arenas
             .has_writer_deltas
-            .store(true, core::sync::atomic::Ordering::Release);
+            .load(core::sync::atomic::Ordering::Relaxed)
+        {
+            self.writer_arenas
+                .has_writer_deltas
+                .store(true, core::sync::atomic::Ordering::Release);
+        }
     }
 
     /// Inserts `key → data` with 24-bit hot metadata.
