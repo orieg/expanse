@@ -625,7 +625,11 @@ pub(crate) unsafe fn resolve_meta_in_table(
 
 /// Multi-writer private arena (Refs #929, AGENTS.md §2.7): the geometry of a
 /// chunk granted to one writer slot by [`BlobArena::grant_private_chunk`].
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 #[derive(Clone, Copy)]
 pub(crate) struct PrivateChunk {
     /// Base of the chunk allocation.
@@ -647,7 +651,11 @@ pub(crate) struct PrivateChunk {
 /// `base + off .. base + off + 8 + data.len()` must lie inside one live chunk
 /// allocation, and no other thread may read or write those bytes until the
 /// caller publishes a locator to them.
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 #[inline]
 pub(crate) unsafe fn write_record(base: *mut u8, off: usize, generation: u32, data: &[u8]) {
     let header = BlobRecordHeader {
@@ -1216,7 +1224,11 @@ impl BlobArena {
     /// owner's per-slot delta ([`Self::fold_live_delta`]).
     ///
     /// The same caps as [`Self::alloc_blob`]'s growth path apply.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     pub(crate) fn grant_private_chunk(&mut self) -> Result<PrivateChunk, ArenaError> {
         let index = self.chunks.len();
         if index >= MAX_ARENA_CHUNKS {
@@ -1247,7 +1259,11 @@ impl BlobArena {
     /// A negative total is an accounting defect and is not clamped to the
     /// clean value (AGENTS.md §8.22.3): debug builds panic, and a release
     /// build wraps to a conspicuous value instead of reporting zero.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     pub(crate) fn fold_live_delta(&mut self, delta: isize) {
         let sum = (self.live_bytes as isize).wrapping_add(delta);
         debug_assert!(sum >= 0, "arena live_bytes folded below zero: {sum}");
@@ -1440,7 +1456,11 @@ impl ExpanseBlobMap {
 
     /// [`Self::insert_slot`] for the concurrent wrapper (#1086): the index's
     /// shared entry, whose root-leaf stores are atomic words.
-    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers")
+    ))]
     pub(crate) fn insert_slot_shared(&mut self, key: Key, slot: ValueSlot) {
         if let Some(old_raw) = self.index.insert_shared(key, slot.to_raw()) {
             let old = ValueSlot::from_raw(old_raw);
@@ -1463,7 +1483,11 @@ impl ExpanseBlobMap {
     /// `this` must point to a live map, and the caller must exclude every other
     /// mutation of the arena's chunk set for the call (the wrapper's
     /// `arena_write` mutex inside the writer gate, or quiescence).
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     pub(crate) unsafe fn grant_private_chunk_raw(
         this: *mut Self,
     ) -> Result<PrivateChunk, ArenaError> {
@@ -1477,7 +1501,11 @@ impl ExpanseBlobMap {
     }
 
     /// Multi-writer private arena (Refs #929): see [`BlobArena::fold_live_delta`].
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     pub(crate) fn fold_arena_live_delta(&mut self, delta: isize) {
         self.arena.fold_live_delta(delta);
     }
