@@ -44,6 +44,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+# After the path insert above, which is what makes these importable.
+import bench_pin
+import bench_windowed
+from bca_bootstrap import bca_bootstrap_ci_with_method
+from bench_provenance import add_load, attach, estimators, git_sha, host_facts
+
 CONFIDENCE = 0.95
 RESAMPLES = 2000
 SEED = 42
@@ -84,7 +90,6 @@ def rotated(seq, k: int) -> list:
 
 def interval(samples: list[float]) -> dict:
     """Mean of `samples`, its BCa 95% interval and the construction that produced it."""
-    from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: PLC0415
     if len(samples) < MIN_ROUNDS:
         return {"point": sum(samples) / len(samples), "ci_lower": None, "ci_upper": None,
                 "ci_method": None, "why_no_interval": "fewer than 3 rounds"}
@@ -125,11 +130,6 @@ def summarise(rows: list[dict]) -> dict:
 
 
 def run(keys_dir: Path, out: Path, rounds: int, threads: int, ops: int) -> int:
-    import bench_pin  # noqa: PLC0415
-    import bench_windowed  # noqa: PLC0415
-    from bench_provenance import (  # noqa: PLC0415
-        add_load, attach, estimators, git_sha, host_facts)
-
     pin = bench_pin.apply("leaf_layout_timing")
     if not os.environ.get("EXPANSE_BENCH_LOCK_HELD"):
         sys.exit("run under scripts/bench_lock.py (docs/BENCHMARKING.md rule 8)")
