@@ -164,7 +164,9 @@ def run(keys_dir: Path, out: Path, rounds: int, threads: int, ops: int) -> int:
                     print(res.stderr, file=sys.stderr)
                     sys.exit(f"{label} failed")
                 row = json.loads(res.stdout.strip().splitlines()[-1])
-                row.update({"arm": arm, "load": window})
+                # The key file by name only: its directory is host-local, and
+                # a committed artifact carries no home paths.
+                row.update({"arm": arm, "load": window, "keys": keys.name})
                 rows.append(row)
                 print(f"{label}: insert {row['insert_ns_per_key']:.1f} ns/key, "
                       f"hit {row['hit_mops']:.2f} Mops, miss {row['miss_mops']:.2f} Mops, "
