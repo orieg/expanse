@@ -9967,17 +9967,32 @@ impl SyncExpanseBlobMap {
         crate::blobmap::slot_from_global(global, hot_meta)
     }
 
-    /// Promoted architecture (Refs #929, AGENTS.md §2.7): charges an overwritten arena
-    /// record's bytes as dead, without the shared mutex. The record's length is
-    /// read through the published chunk table, as a reader would.
+    /// Promoted architecture (Refs #929, AGENTS.md §2.7): charges the bytes of an
+    /// arena record an optimistic writer just unlinked — by overwriting its key
+    /// or removing it (#1280) — as dead, without the shared mutex. The record's
+    /// length is read through the published chunk table, as a reader would.
+    ///
+    /// `_gate` is the writer-gate guard the unlink ran under. Taking it makes a
+    /// charge after the gate is left fail to compile: outside the gate a
+    /// compaction may already have rebuilt the arena, and the old locator then
+    /// resolves to nothing or to another record. No `arena_epoch` check is
+    /// needed here, unlike the insert's serialised fallback: that fallback
+    /// re-publishes a locator it prepared before leaving the gate, while the
+    /// word charged here was unlinked, and is charged, inside it.
     ///
     /// # Safety
     ///
-    /// The caller must hold an epoch pin and be inside the writer gate, and
-    /// `old_slot` must be the `ArenaMeta` word its insert just replaced.
+    /// The caller must hold an epoch pin, and `old_slot` must be the `ArenaMeta`
+    /// word its own unlink just replaced under `_gate` — the word an
+    /// `olc_insert_map` or `olc_remove_map` returned as `Done(Some(_))`. Each
+    /// such word is returned to exactly one writer: every value-word store in
+    /// the OLC bodies unlocks its parent version as modified, and a removal
+    /// that read the word before locking takes an expecting lock on the same
+    /// snapshot, so an overwrite and a removal of one word cannot both claim it.
     #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
-    unsafe fn charge_overwritten(
+    unsafe fn charge_dead(
         &self,
+        _gate: &crate::occ::WriterGuard<'_>,
         owner: Option<&mut WriterArenaOwner<'_>>,
         old_slot: ValueSlot,
     ) {
@@ -10130,7 +10145,7 @@ impl SyncExpanseBlobMap {
                                         // SAFETY: inside `with_writer_pin` and the
                                         // writer gate; `old_slot` is the word this
                                         // insert replaced.
-                                        unsafe { self.charge_overwritten(own.as_mut(), old_slot) };
+                                        unsafe { self.charge_dead(&guard, own.as_mut(), old_slot) };
                                     }
                                     #[cfg(feature = "ablation-blob-shared-arena")]
                                     if old_slot.tag() == SlotTag::ArenaMeta {
@@ -10227,28 +10242,136 @@ impl SyncExpanseBlobMap {
     }
 
     /// Removes `key`; returns `true` if it was present.
+    ///
+    /// Multi-writer (#1280): on a tree-rooted map a removal descends under
+    /// per-node version locks (`olc_remove_map`, the map wrapper's removal
+    /// over the same host), unlinks the key's slot word, and charges the
+    /// record it named as dead to the writer's own arena delta. A key that is
+    /// absent costs a validated descent and nothing else. Root-leaf state, a
+    /// structural shrink, a closed gate and an exhausted retry budget take the
+    /// serialised path, which quiesces the writers and folds their deltas
+    /// first. With `ablation-blob-serial-writers` every removal serialises on
+    /// the writer mutex instead (AGENTS.md §2.7).
     pub fn remove(&self, key: Key) -> bool {
         #[cfg(feature = "ablation-blob-serial-writers")]
         {
             self.shared.write(|m| m.remove_shared(key))
         }
-        #[cfg(all(
-            not(feature = "ablation-blob-serial-writers"),
-            not(feature = "ablation-blob-shared-arena"),
-            feature = "std"
-        ))]
+        #[cfg(all(not(feature = "ablation-blob-serial-writers"), feature = "std"))]
+        {
+            if !self.shared.published().is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                return self.remove_serialised(key);
+            }
+            let guard = self.shared.enter_writer_blocking();
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
+
+                let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
+                        break;
+                    }
+                    match olc_remove_map(&*self.shared, key) {
+                        OlcOutcome::Done(prev) => {
+                            if let Some(old_raw) = prev {
+                                self.shared.tree_pop.add(guard.slot_id(), -1);
+                                let old_slot = ValueSlot::from_raw(old_raw);
+                                if old_slot.tag() == SlotTag::ArenaMeta {
+                                    self.charge_removed(&guard, old_slot);
+                                }
+                            }
+                            self.shared.collector.tick_advance();
+                            crate::occ_stats::op_end();
+                            return Ok(prev.is_some());
+                        }
+                        OlcOutcome::Retry => {
+                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                            core::hint::spin_loop();
+                            #[cfg(loom)]
+                            loom::thread::yield_now();
+                        }
+                        OlcOutcome::Fallback(c) => {
+                            cause = c;
+                            break;
+                        }
+                    }
+                }
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
+                Err(cause)
+            });
+            drop(guard);
+            match res {
+                Ok(hit) => hit,
+                Err(_) => self.remove_serialised(key),
+            }
+        }
+        #[cfg(all(not(feature = "ablation-blob-serial-writers"), not(feature = "std")))]
+        {
+            self.shared.remove_root_covered(|m| m.remove_shared(key))
+        }
+    }
+
+    /// The removal's serialised path: the writers quiesced and, under private
+    /// arenas, their live-byte deltas folded first, since `remove_shared`
+    /// subtracts from the arena's total with `saturating_sub`.
+    #[cfg(all(not(feature = "ablation-blob-serial-writers"), feature = "std"))]
+    fn remove_serialised(&self, key: Key) -> bool {
+        #[cfg(not(feature = "ablation-blob-shared-arena"))]
         {
             self.shared.remove_root_covered(|m| {
                 self.fold_writer_arenas(m);
                 m.remove_shared(key)
             })
         }
-        #[cfg(all(
-            not(feature = "ablation-blob-serial-writers"),
-            any(feature = "ablation-blob-shared-arena", not(feature = "std"))
-        ))]
+        #[cfg(feature = "ablation-blob-shared-arena")]
         {
             self.shared.remove_root_covered(|m| m.remove_shared(key))
+        }
+    }
+
+    /// Charges the arena record an optimistic removal unlinked (#1280). Under
+    /// private arenas the charge goes to the writer slot's own delta when the
+    /// slot's arena is free, as an overwrite's does; the slot is taken only
+    /// here, on a hit, so a removal that misses never touches it. Under
+    /// `ablation-blob-shared-arena` the arena's own total is charged under
+    /// `arena_write`, as that build's overwrite does.
+    #[cfg(all(not(feature = "ablation-blob-serial-writers"), feature = "std"))]
+    fn charge_removed(&self, guard: &crate::occ::WriterGuard<'_>, old_slot: ValueSlot) {
+        #[cfg(not(feature = "ablation-blob-shared-arena"))]
+        {
+            let mut own = self.writer_arenas.arenas[guard.slot_id()].try_own();
+            // SAFETY: called inside `with_writer_pin` and under `guard`, the
+            // writer gate the unlink ran in; `old_slot` is the word
+            // `olc_remove_map` returned as removed.
+            unsafe { self.charge_dead(guard, own.as_mut(), old_slot) };
+        }
+        #[cfg(feature = "ablation-blob-shared-arena")]
+        {
+            let _ = guard;
+            let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
+            // SAFETY: `arena_write` is held, which serialises every arena
+            // mutation on this build's optimistic paths; only the `arena`
+            // field is borrowed, never `&mut ExpanseBlobMap`, while other
+            // writers descend the index.
+            unsafe {
+                let arena_ptr = core::ptr::addr_of_mut!((*self.shared.tree_ptr()).arena);
+                (*arena_ptr).record_deleted_slot(old_slot);
+            }
         }
     }
 
@@ -15383,6 +15506,118 @@ mod tests {
         for r in readers {
             r.join().expect("reader panicked");
         }
+    }
+
+    /// Optimistic removals keep the arena's live-byte accounting exact
+    /// (#1280). Four writers each insert, overwrite and remove on their own
+    /// keys of a tree-rooted map, and remove keys that are absent; afterwards
+    /// `compact` folds every writer's delta and then recomputes the live bytes
+    /// from the index, so the two figures it reports agree only if every
+    /// unlinked record was charged exactly once. Red when the removal's charge
+    /// is deleted or doubled, and (through `len`) when its population
+    /// decrement is deleted.
+    #[test]
+    fn concurrent_blob_removals_keep_live_bytes_exact() {
+        let m = Arc::new(SyncExpanseBlobMap::new());
+        const W: u64 = 4;
+        const PER: u64 = 800;
+        let payload = |k: u64, round: u64| -> Vec<u8> {
+            (0..(24 + (k % 5) * 16))
+                .map(|i| (k ^ round ^ i) as u8)
+                .collect()
+        };
+        let meta = |k: u64| (k & 0x00FF_FFFF) as u32 | 1;
+        // A tree-rooted prefill, so the writers below take the optimistic paths.
+        for k in 0..W * PER {
+            m.insert(k, &payload(k, 0), meta(k)).unwrap();
+        }
+        assert!(
+            m.shared.published().is_tree(),
+            "the prefill must root a tree"
+        );
+        let barrier = Arc::new(std::sync::Barrier::new(W as usize));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let base = w * PER;
+                    let fresh = 1_000_000 + base;
+                    b.wait();
+                    for i in 0..PER {
+                        m.insert(fresh + i, &payload(fresh + i, 1), meta(i))
+                            .unwrap();
+                        m.insert(base + i, &payload(base + i, 2), meta(i)).unwrap();
+                    }
+                    for i in (0..PER).step_by(2) {
+                        assert!(m.remove(base + i), "prefilled key {} was absent", base + i);
+                        assert!(m.remove(fresh + i), "inserted key {} was absent", fresh + i);
+                        assert!(!m.remove(5_000_000 + base + i), "an absent key was removed");
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+        assert_eq!(m.len(), W * PER, "population after the removals");
+        let stats = m.compact().expect("compaction");
+        assert_eq!(
+            stats.live_bytes_before, stats.live_bytes_after,
+            "the charged live bytes disagree with the index's"
+        );
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        for w in 0..W {
+            for i in 0..PER {
+                let (base, fresh) = (w * PER + i, 1_000_000 + w * PER + i);
+                let present = i % 2 == 1;
+                assert_eq!(guard.get(base).is_some(), present, "key {base}");
+                assert_eq!(guard.get(fresh).is_some(), present, "key {fresh}");
+                if present {
+                    assert_eq!(guard.get(base).unwrap().0.as_bytes(), &payload(base, 2)[..]);
+                }
+            }
+        }
+    }
+
+    /// The removal's serialised path folds the writers' deltas before it
+    /// subtracts (#1280). The fold only changes the result when the arena's
+    /// folded total is smaller than a record a serialised removal subtracts,
+    /// because `record_deleted` clamps at zero, and a single-threaded insert
+    /// stream folds often (its structural fallbacks are quiesced sections).
+    /// So the tree is built from inline payloads, which own no arena bytes,
+    /// and every key is then overwritten optimistically with a 200-byte
+    /// record: a present key's overwrite changes no structure, so those bytes
+    /// sit only in the writer's delta. Removing in key order, the removals
+    /// that empty a node fall back to the serialised path and subtract a
+    /// record the folded total does not hold. Red when `remove_serialised`
+    /// stops folding: the clamp drops those bytes and `compact` reports live
+    /// bytes the index does not hold.
+    #[test]
+    fn blob_serialised_removal_folds_writer_deltas_first() {
+        let m = SyncExpanseBlobMap::new();
+        const KEYS: u64 = 4_096;
+        for k in 0..KEYS {
+            m.insert(k, &[k as u8; 7], 0).unwrap();
+        }
+        assert!(
+            m.shared.published().is_tree(),
+            "the inserts must root a tree"
+        );
+        for k in 0..KEYS {
+            m.insert(k, &[k as u8; 200], 1).unwrap();
+        }
+        for k in 0..KEYS {
+            assert!(m.remove(k), "key {k} was absent");
+        }
+        assert!(m.is_empty());
+        let stats = m.compact().expect("compaction");
+        assert_eq!(stats.live_bytes_after, 0);
+        assert_eq!(
+            stats.live_bytes_before, 0,
+            "live bytes charged against an unfolded total"
+        );
     }
 
     /// Multi-writer optimistic inserts for `SyncExpanseBlobMap` (Refs #929).
