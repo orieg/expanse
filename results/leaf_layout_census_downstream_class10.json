@@ -1,0 +1,10 @@
+{"instrument": "leaf_layout_census", "commit": "d8ee02d99+wip, features layout-census,ablation-leaf-class-10", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
+{"engine": "strmap", "shape": "orders_10000000_sorted", "keys": 10000000, "mem_used": 144145672},
+{"engine": "strmap", "shape": "orders_10000000_shuffled", "keys": 10000000, "mem_used": 144145672},
+{"engine": "strmap", "shape": "orders_10000000_churned", "keys": 5001307, "mem_used": 109013176},
+{"engine": "strmap", "shape": "orders_10000000_survivors", "keys": 5001307, "mem_used": 108305608},
+{"engine": "strmap", "shape": "composite_10000000_sorted", "keys": 10000000, "mem_used": 183255496},
+{"engine": "strmap", "shape": "composite_10000000_shuffled", "keys": 10000000, "mem_used": 183255496},
+{"engine": "strmap", "shape": "composite_10000000_churned", "keys": 5001307, "mem_used": 112693944},
+{"engine": "strmap", "shape": "composite_10000000_survivors", "keys": 5001307, "mem_used": 112693944}
+]}

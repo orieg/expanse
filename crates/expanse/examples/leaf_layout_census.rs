@@ -5,7 +5,7 @@
 //! candidate layout. Deterministic byte accounting — no timing, so host load
 //! does not enter.
 //!
-//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only]`
+//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only] [--downstream] [--rules keys:digits,...]`
 //!
 //! # Workload shape
 //!
@@ -13,8 +13,8 @@
 //! |---|---|
 //! | `workload_id` | `example_leaf_layout_census` |
 //! | `group` | 5 |
-//! | `population` | 10^6 per synthetic shape; the #1257 string case also at 10^7 (`--quick`: 10^5); each SOSD dataset whole (`--sosd`) |
-//! | `insertion_order` | generator — each shape is inserted in its generator's order, stated per shape in the JSON; SOSD files in file order, which is sorted |
+//! | `population` | 10^6 per synthetic shape; the #1257 string case also at 10^7 (`--quick`: 10^5); each SOSD dataset whole (`--sosd`); the downstream `orders` and `composite` cells at 10^7 (`--downstream`) |
+//! | `insertion_order` | generator — each shape is inserted in its generator's order, stated per shape in the JSON; SOSD files in file order, which is sorted; the downstream cells sorted, and shuffled by a Fisher–Yates permutation from the suite PRNG |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
@@ -112,7 +112,17 @@ fn u64_keys(shape: &str, n: usize) -> Vec<u64> {
     }
 }
 
-fn str_keys(shape: &str, n: usize) -> Vec<String> {
+fn str_keys(shape: &str, n: usize) -> Vec<Vec<u8>> {
+    if shape == "composite" {
+        return composite_keys(n);
+    }
+    text_keys(shape, n)
+        .into_iter()
+        .map(String::into_bytes)
+        .collect()
+}
+
+fn text_keys(shape: &str, n: usize) -> Vec<String> {
     let mut rng = XorShift(SEED);
     match shape {
         // #1257: `t%03d:orders:%010d`, 1000 tenants in order, one global
@@ -150,6 +160,73 @@ fn str_keys(shape: &str, n: usize) -> Vec<String> {
             .collect(),
         _ => unreachable!("unknown shape {shape}"),
     }
+}
+
+/// `v` in `width` bytes of 7 bits each, big-endian, each byte offset by +1:
+/// every byte lies in `0x01..=0x80`, byte order is numeric order at a fixed
+/// width, and no byte is NUL, so the key is a valid `ExpanseStrMap` key.
+fn enc7(v: u64, width: usize) -> impl Iterator<Item = u8> {
+    (0..width)
+        .rev()
+        .map(move |i| ((v >> (7 * i)) & 0x7F) as u8 + 1)
+}
+
+/// The downstream composite shape of the #1257 follow-up:
+/// `prefix(5 B) ‖ name ‖ '/' ‖ id(10 B)`, prefix and id in [`enc7`], names
+/// `[A-Za-z0-9_]{1,32}`, and `'/'` below every name byte. The distribution
+/// is this harness's choice, not the report's: 100 prefixes × 100 names
+/// (drawn once from the suite PRNG and shared by every prefix) × sequential
+/// ids from 0, `n / 10_000` per name. Emitted sorted.
+fn composite_keys(n: usize) -> Vec<Vec<u8>> {
+    const ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz";
+    let mut rng = XorShift(SEED ^ 0xC0);
+    let mut names: Vec<Vec<u8>> = Vec::new();
+    while names.len() < 100 {
+        let len = 1 + (rng.next() % 32) as usize;
+        let name: Vec<u8> = (0..len)
+            .map(|_| ALPHABET[(rng.next() % ALPHABET.len() as u64) as usize])
+            .collect();
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    // `'/'` sorts below every name byte, so byte order of the names is the
+    // order of the keys that carry them.
+    names.sort();
+    let per_name = (n / 10_000).max(1) as u64;
+    let mut out = Vec::with_capacity(n);
+    for prefix in 0..100u64 {
+        for name in &names {
+            for id in 0..per_name {
+                let mut k: Vec<u8> = enc7(prefix, 5).collect();
+                k.extend_from_slice(name);
+                k.push(b'/');
+                k.extend(enc7(id, 10));
+                out.push(k);
+            }
+        }
+    }
+    debug_assert!(out.windows(2).all(|w| w[0] < w[1]), "composite keys sorted");
+    out
+}
+
+/// A Fisher–Yates permutation from the suite PRNG (§8.12.4's shuffled order).
+fn shuffled<T: Clone>(v: &[T], seed: u64) -> Vec<T> {
+    let mut out = v.to_vec();
+    let mut rng = XorShift(seed);
+    for i in (1..out.len()).rev() {
+        let j = (rng.next() % (i as u64 + 1)) as usize;
+        out.swap(i, j);
+    }
+    out
+}
+
+fn build_str(keys: &[Vec<u8>]) -> ExpanseStrMap {
+    let mut m = ExpanseStrMap::new();
+    for (i, k) in keys.iter().enumerate() {
+        m.insert(NulFreeStr::new(k).unwrap(), i as u64);
+    }
+    m
 }
 
 fn json_census(c: &LayoutCensus) -> String {
@@ -219,9 +296,16 @@ fn json_groups(c: &LayoutCensus) -> String {
 }
 
 /// One shape's record: the census, then the groups under every rule.
+/// What a run records: the merge rules, and whether only byte totals.
+#[derive(Clone, Copy)]
+struct Run<'a> {
+    rules: &'a [MergeRule],
+    totals_only: bool,
+}
+
 fn record(
     out: &mut Vec<String>,
-    totals_only: bool,
+    run: Run<'_>,
     engine: &str,
     shape: &str,
     order: &str,
@@ -233,7 +317,7 @@ fn record(
         base.bytes, mem_used,
         "{engine}/{shape}: census does not sum to mem_used"
     );
-    if totals_only {
+    if run.totals_only {
         eprintln!(
             "{engine:6} {shape:16} n={:>9} mem_used={mem_used:>11}",
             base.keys
@@ -246,7 +330,7 @@ fn record(
         return;
     }
     let mut rules = String::new();
-    for (i, r) in RULES.iter().enumerate() {
+    for (i, r) in run.rules.iter().enumerate() {
         let c = census(Some(*r));
         assert_eq!(
             c.bytes, mem_used,
@@ -294,6 +378,26 @@ fn main() {
         .map(|i| args[i + 1].parse::<usize>().expect("--population N"))
         .unwrap_or(if quick { 100_000 } else { 1_000_000 });
     let mut out = Vec::new();
+    // `--rules 128:10,128:128` replaces the default rule list: `max_keys:max_digits`.
+    let rules: Vec<MergeRule> = args.iter().position(|a| a == "--rules").map_or_else(
+        || RULES.to_vec(),
+        |i| {
+            args[i + 1]
+                .split(',')
+                .map(|r| {
+                    let (k, d) = r.split_once(':').expect("--rules keys:digits,...");
+                    MergeRule {
+                        max_keys: k.parse().expect("max_keys"),
+                        max_digits: d.parse().expect("max_digits"),
+                    }
+                })
+                .collect()
+        },
+    );
+    let run = Run {
+        rules: &rules,
+        totals_only,
+    };
 
     // Real sorted `u64` keys (SOSD, Kipf et al. 2019): `--sosd name=path`,
     // repeatable, reads the benchmark's binary format — a little-endian u64
@@ -323,31 +427,21 @@ fn main() {
         for (i, &k) in keys.iter().enumerate() {
             m.insert(k, i as u64);
         }
-        record(
-            &mut out,
-            totals_only,
-            "map",
-            &shape,
-            "sorted",
-            m.mem_used(),
-            |r| m.layout_census(r),
-        );
+        record(&mut out, run, "map", &shape, "sorted", m.mem_used(), |r| {
+            m.layout_census(r)
+        });
         drop(m);
         let mut s = ExpanseSet::new();
         for &k in &keys {
             s.insert(k);
         }
-        record(
-            &mut out,
-            totals_only,
-            "set",
-            &shape,
-            "sorted",
-            s.mem_used(),
-            |r| s.layout_census(r),
-        );
+        record(&mut out, run, "set", &shape, "sorted", s.mem_used(), |r| {
+            s.layout_census(r)
+        });
     }
-    let synthetic = !args.iter().any(|a| a == "--sosd-only");
+    let synthetic = !args
+        .iter()
+        .any(|a| a == "--sosd-only" || a == "--downstream");
 
     for shape in [
         "sequential",
@@ -371,24 +465,82 @@ fn main() {
             m.insert(k, k);
             s.insert(k);
         }
-        record(
-            &mut out,
-            totals_only,
-            "map",
-            shape,
-            order,
-            m.mem_used(),
-            |r| m.layout_census(r),
-        );
-        record(
-            &mut out,
-            totals_only,
-            "set",
-            shape,
-            order,
-            s.mem_used(),
-            |r| s.layout_census(r),
-        );
+        record(&mut out, run, "map", shape, order, m.mem_used(), |r| {
+            m.layout_census(r)
+        });
+        record(&mut out, run, "set", shape, order, s.mem_used(), |r| {
+            s.layout_census(r)
+        });
+    }
+
+    // The downstream cells of the #1257 follow-up: `orders` and `composite`
+    // at 10^7 (or `--population`), each loaded sorted and shuffled, then — from
+    // the sorted load — a seeded random half removed (`_churned`), beside a
+    // fresh sorted build of the same survivors (`_survivors`). The difference
+    // between those two is what a removal phase leaves behind.
+    if args.iter().any(|a| a == "--downstream") {
+        let dn = args
+            .iter()
+            .position(|a| a == "--population")
+            .map_or(10_000_000, |_| n);
+        for shape in ["orders", "composite"] {
+            let keys = str_keys(shape, dn);
+            let m = build_str(&keys);
+            let base = format!("{shape}_{dn}");
+            record(
+                &mut out,
+                run,
+                "strmap",
+                &format!("{base}_sorted"),
+                "sorted",
+                m.mem_used(),
+                |r| m.layout_census(r),
+            );
+            drop(m);
+            let mix = shuffled(&keys, SEED ^ 0x5F);
+            let m = build_str(&mix);
+            drop(mix);
+            record(
+                &mut out,
+                run,
+                "strmap",
+                &format!("{base}_shuffled"),
+                "shuffled",
+                m.mem_used(),
+                |r| m.layout_census(r),
+            );
+            drop(m);
+            let mut m = build_str(&keys);
+            let mut rng = XorShift(SEED ^ 0xDE1);
+            let mut survivors = Vec::with_capacity(keys.len() / 2);
+            for k in &keys {
+                if rng.next() & 1 == 1 {
+                    m.remove(NulFreeStr::new(k).unwrap());
+                } else {
+                    survivors.push(k.clone());
+                }
+            }
+            record(
+                &mut out,
+                run,
+                "strmap",
+                &format!("{base}_churned"),
+                "sorted, then a random half removed",
+                m.mem_used(),
+                |r| m.layout_census(r),
+            );
+            drop(m);
+            let m = build_str(&survivors);
+            record(
+                &mut out,
+                run,
+                "strmap",
+                &format!("{base}_survivors"),
+                "sorted",
+                m.mem_used(),
+                |r| m.layout_census(r),
+            );
+        }
     }
 
     let mut str_cells = vec![("orders", n), ("orders_sparse", n), ("uuid_hex", n)];
@@ -405,24 +557,15 @@ fn main() {
         } else {
             "generator"
         };
-        let mut m = ExpanseStrMap::new();
-        for (i, k) in keys.iter().enumerate() {
-            m.insert(NulFreeStr::new(k.as_bytes()).unwrap(), i as u64);
-        }
+        let m = build_str(&keys);
         let name = if count == n {
             shape.to_string()
         } else {
             format!("{shape}_{count}")
         };
-        record(
-            &mut out,
-            totals_only,
-            "strmap",
-            &name,
-            order,
-            m.mem_used(),
-            |r| m.layout_census(r),
-        );
+        record(&mut out, run, "strmap", &name, order, m.mem_used(), |r| {
+            m.layout_census(r)
+        });
     }
 
     let commit = std::env::var("EXPANSE_COMMIT").unwrap_or_else(|_| "unknown".into());

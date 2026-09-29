@@ -1124,12 +1124,18 @@ impl StrNode {
     /// Adds every node's sub-map, shell and suffix leaves under `self` to
     /// `c` (feature `layout-census`). Iterative for the reason
     /// [`Self::shell_bytes`] is.
+    ///
+    /// Returns the number of strings under `self`, counted from the walk (one
+    /// terminal chunk entry or one suffix leaf per string) rather than read
+    /// from a population field, which an optimistic writer on a shared map
+    /// can leave stale.
     #[cfg(feature = "layout-census")]
     fn layout_census_into(
         &self,
         c: &mut crate::census::LayoutCensus,
         rule: Option<crate::census::MergeRule>,
-    ) {
+    ) -> u64 {
+        let mut strings = 0u64;
         let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(self)];
         while let Some(p) = stack.pop() {
             // SAFETY: `self` plus continuation values, all live nodes.
@@ -1141,8 +1147,11 @@ impl StrNode {
             // them, and the string map's key count is set by the caller.
             node.map.layout_census_into(c, rule);
             for (k, v) in node.map.iter() {
-                if !is_terminal(k) {
+                if is_terminal(k) {
+                    strings += 1;
+                } else {
                     if is_suffix_ptr(v) {
+                        strings += 1;
                         // SAFETY: tagged pointer encodes a live suffix leaf.
                         let len = unsafe { (*unpack_suffix(v)).len };
                         *c.suffix_leaves.entry(len).or_insert(0) += 1;
@@ -1161,6 +1170,7 @@ impl StrNode {
                 }
             }
         }
+        strings
     }
 }
 
@@ -1768,10 +1778,10 @@ impl ExpanseStrMap {
         rule: Option<crate::census::MergeRule>,
     ) -> crate::census::LayoutCensus {
         let mut c = crate::census::LayoutCensus::default();
-        if let Some(r) = self.root.as_deref() {
-            r.layout_census_into(&mut c, rule);
-        }
-        c.keys = self.pop;
+        c.keys = self
+            .root
+            .as_deref()
+            .map_or(0, |r| r.layout_census_into(&mut c, rule));
         c
     }
 

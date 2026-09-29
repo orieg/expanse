@@ -592,4 +592,101 @@ mod tests {
             assert!(c.str_nodes > 0);
         }
     }
+    /// A removal-heavy phase (#1257 follow-up): load, remove a random half,
+    /// census. The census still decomposes `mem_used()` exactly and counts
+    /// the survivors, so what a removal phase leaves behind is measured by
+    /// the same instrument as a fresh build, not assumed.
+    #[test]
+    fn census_after_random_half_removal() {
+        let mut state = 0x0DDB_1A5E_5EED_0002u64;
+        let n = 20_000u64;
+        let keys: Vec<u64> = (0..n).map(|i| i * 7 + 3).collect();
+        let doomed: Vec<bool> = (0..n).map(|_| xorshift(&mut state) & 1 == 1).collect();
+        let mut m = ExpanseMap::new();
+        let mut s = ExpanseSet::new();
+        let mut sm = ExpanseStrMap::new();
+        let names: Vec<_> = (0..n)
+            .map(|i| format!("t{:03}:orders:{i:010}", i % 13))
+            .collect();
+        for (i, &k) in keys.iter().enumerate() {
+            m.insert(k, k);
+            s.insert(k);
+            sm.insert(NulFreeStr::new(names[i].as_bytes()).unwrap(), k);
+        }
+        for (i, &k) in keys.iter().enumerate() {
+            if doomed[i] {
+                m.remove(k);
+                s.remove(k);
+                sm.remove(NulFreeStr::new(names[i].as_bytes()).unwrap());
+            }
+        }
+        let live = doomed.iter().filter(|&&d| !d).count() as u64;
+        assert!(
+            live > n / 3 && live < 2 * n / 3,
+            "a random half, not a degenerate one"
+        );
+        let rule = Some(MergeRule {
+            max_keys: 128,
+            max_digits: 16,
+        });
+        for rule in [None, rule] {
+            let (cm, cs, csm) = (
+                m.layout_census(rule),
+                s.layout_census(rule),
+                sm.layout_census(rule),
+            );
+            assert_eq!((cm.bytes, cm.keys), (m.mem_used(), live));
+            assert_eq!((cs.bytes, cs.keys), (s.mem_used(), live));
+            assert_eq!((csm.bytes, csm.keys), (sm.mem_used(), live));
+        }
+    }
+
+    /// The census through the `Sync*` wrappers (#1257 follow-up): after
+    /// inserts from several threads, taken with writers excluded, it sums to
+    /// the wrapped tree's `mem_used()` and counts every key. The string
+    /// map's count comes from the walk, not from a population field an
+    /// optimistic writer may have left stale.
+    #[test]
+    #[cfg(feature = "std")]
+    fn census_through_sync_wrappers() {
+        use crate::sync::{SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
+        let m = SyncExpanseMap::new();
+        let s = SyncExpanseSet::new();
+        let sm = SyncExpanseStrMap::new();
+        let per = 5_000u64;
+        std::thread::scope(|scope| {
+            for t in 0..4u64 {
+                let (m, s, sm) = (&m, &s, &sm);
+                scope.spawn(move || {
+                    for i in 0..per {
+                        let k = (i << 8) | t;
+                        m.insert(k, k);
+                        s.insert(k);
+                        let name = format!("t{t:03}:orders:{i:010}");
+                        sm.insert(NulFreeStr::new(name.as_bytes()).unwrap(), k);
+                    }
+                });
+            }
+        });
+        let rule = Some(MergeRule {
+            max_keys: 128,
+            max_digits: 16,
+        });
+        let cm = m.layout_census(rule);
+        assert_eq!((cm.bytes, cm.keys), (m.mem_used(), 4 * per));
+        let cs = s.layout_census(rule);
+        assert_eq!(
+            (cs.bytes, cs.keys),
+            (s.with_locked(ExpanseSet::mem_used), 4 * per)
+        );
+        let csm = sm.layout_census(rule);
+        assert_eq!(
+            (csm.bytes, csm.keys),
+            (sm.with_locked(ExpanseStrMap::mem_used), 4 * per)
+        );
+        assert!(
+            !csm.merge_groups.is_empty(),
+            "the decimal ranges form groups"
+        );
+    }
 }

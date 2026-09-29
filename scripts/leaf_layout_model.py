@@ -464,6 +464,16 @@ def test_pins() -> None:
 # engine that implements an option measured what the model predicted.
 ARTIFACT = "results/leaf_layout_census_c5a6f688.json"
 SOSD_ARTIFACT = "results/leaf_layout_census_sosd.json.gz"
+DOWNSTREAM_ARTIFACT = "results/leaf_layout_census_downstream.json"
+_ORDERS = ["orders_10000000_" + c for c in ("sorted", "shuffled", "churned", "survivors")]
+_COMPOSITE = ["composite_10000000_" + c for c in ("sorted", "shuffled", "churned", "survivors")]
+DOWNSTREAM_PREDICTIONS = (
+    ("results/leaf_layout_census_downstream_class10.json", "class_10", 128, 16, None),
+    ("results/leaf_layout_census_downstream_cap128.json", "leaf_cap", 128, 10, _ORDERS),
+    # 7-bit bytes take at most 128 values, so a uniform cap of 128 builds the
+    # (128 keys, 128 digits) tree exactly.
+    ("results/leaf_layout_census_downstream_cap128.json", "leaf_cap", 128, 128, _COMPOSITE),
+)
 PREDICTIONS = (
     ("results/leaf_layout_census_c5a6f688_class10.json", "class_10", 128, 16, None),
     ("results/leaf_layout_census_c5a6f688_cap128.json", "leaf_cap", 128, 10,
@@ -486,6 +496,15 @@ def test_committed_artifacts() -> None:
     for path, option, mk, md, shapes in PREDICTIONS:
         totals = load(os.path.join(root, path))
         rows = check_prediction(doc, totals, option, mk, md, shapes)
+        assert rows and all(pred == meas for _, _, pred, meas in rows), (path, rows)
+    # The downstream string shapes (§3.6): the census prices to mem_used, and
+    # both engine builds measured what the model predicted, removal phase
+    # included.
+    down = load(os.path.join(root, DOWNSTREAM_ARTIFACT))
+    check_census_file(down)
+    for path, option, mk, md, shapes in DOWNSTREAM_PREDICTIONS:
+        totals = load(os.path.join(root, path))
+        rows = check_prediction(down, totals, option, mk, md, shapes)
         assert rows and all(pred == meas for _, _, pred, meas in rows), (path, rows)
     # The four SOSD datasets, whole (§3.6): each census prices to its mem_used.
     sosd = load(os.path.join(root, SOSD_ARTIFACT))
@@ -517,7 +536,9 @@ def main(argv: list) -> int:
             bad += pred != meas
             print(f"{engine:6} {shape:16} predicted {pred:>11} measured {meas:>11}{flag}")
         return 1 if bad else 0
-    for mk, md in ((128, 10), (128, 16), (256, 16)):
+    present = sorted({(x["max_keys"], x["max_digits"]) for r in doc["records"]
+                      for x in r["rules"]})
+    for mk, md in present:
         print(f"\nmerge rule: max_keys={mk}, max_digits={md}")
         print("| engine | shape | keys | " + " | ".join(OPTIONS) + " |")
         print("|---|---|---:|" + "---:|" * len(OPTIONS))
