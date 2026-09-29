@@ -97,7 +97,8 @@ ablation-str-serial-writers = []
 # mutex under the whole-operation tree bracket — the protocol the blob
 # wrapper's per-node optimistic write path replaced (Refs #929, METHODOLOGY
 # section 21), kept so the default can be measured against it (AGENTS.md
-# section 2.7).
+# section 2.7). The per-writer private arenas compile out with it: only the
+# optimistic path allocates from them.
 ablation-blob-serial-writers = []
 # Diagnostic-only: serialises every `SyncExpanseBytesMap` mutation on the writer
 # mutex under the whole-operation tree bracket — the protocol the bytes

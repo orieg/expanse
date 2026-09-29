@@ -1,3 +1,4 @@
+ablation-clippy
 callgrind-smoke
 ci-gate
 detect-changes

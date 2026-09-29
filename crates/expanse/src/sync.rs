@@ -1165,7 +1165,9 @@ pub(crate) mod fold_edges {
         EDGES.with(|c| c.set(c.get() + 1));
     }
 
-    /// Edges folded on this thread since it started.
+    /// Edges folded on this thread since it started. Read only by the string
+    /// wrapper's optimistic-insert tests, which that ablation compiles out.
+    #[cfg(not(feature = "ablation-str-serial-writers"))]
     pub(crate) fn get() -> u64 {
         EDGES.with(Cell::get)
     }
@@ -2703,13 +2705,7 @@ impl<T: SharedTree> Shared<T> {
     /// count in a field the optimistic writers never touch. The same
     /// instantiation as [`Self::remove_root_covered`], under the name of what
     /// it does.
-    #[cfg(all(
-        feature = "std",
-        not(all(
-            feature = "ablation-str-serial-writers",
-            feature = "ablation-blob-serial-writers"
-        ))
-    ))]
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
     #[inline(always)]
     fn write_root_covered_exact<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
@@ -2905,7 +2901,16 @@ impl<T: SharedTree> Shared<T> {
     /// drained and before `f` sees it, so state the optimistic writers keep
     /// outside the engine (the blob wrapper's per-slot live-byte deltas) is
     /// folded in under the same quiescence `f` reads under.
-    #[cfg(feature = "std")]
+    #[cfg(all(
+        feature = "std",
+        any(
+            all(
+                not(feature = "ablation-blob-shared-arena"),
+                not(feature = "ablation-blob-serial-writers")
+            ),
+            not(feature = "ablation-bytes-serial-writers")
+        )
+    ))]
     fn with_locked_pre<R>(&self, pre: impl FnOnce(&mut T), f: impl FnOnce(&T) -> R) -> R {
         crate::occ_stats::bump(crate::occ_stats::Stat::LockedReads);
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
@@ -9033,8 +9038,7 @@ macro_rules! olc_remove_map_body {
     feature = "std",
     not(all(
         feature = "ablation-str-serial-writers",
-        feature = "ablation-blob-serial-writers",
-        feature = "ablation-bytes-serial-writers"
+        feature = "ablation-blob-serial-writers"
     ))
 ))]
 pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
@@ -9049,14 +9053,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
 // The `// SAFETY:` comments sit on each block inside the macro body; clippy
 // cannot see a comment through a macro expansion.
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(all(
-    feature = "std",
-    not(all(
-        feature = "ablation-str-serial-writers",
-        feature = "ablation-blob-serial-writers",
-        feature = "ablation-bytes-serial-writers"
-    ))
-))]
+#[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
 pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
     olc_remove_map_body!(host, false, _old => false, key)
 }
@@ -9278,14 +9275,9 @@ pub(crate) fn olc_cas_publish_shorter_bucket_map<H: OlcHost>(
 
 /// The conditional remove over any [`OlcHost`]; see [`olc_insert_map`].
 #[allow(clippy::undocumented_unsafe_blocks)]
-#[cfg(all(
-    feature = "std",
-    not(all(
-        feature = "ablation-str-serial-writers",
-        feature = "ablation-blob-serial-writers",
-        feature = "ablation-bytes-serial-writers"
-    ))
-))]
+// The map wrapper's own insert and remove call these on every build: no
+// wrapper's serial-writers ablation reaches `SyncExpanseMap`.
+#[cfg(feature = "std")]
 impl SyncExpanseMap {
     /// The map wrapper's OLC insert: `olc_insert_map_body!` as the method it
     /// always was.
@@ -9649,14 +9641,22 @@ impl OwnedMapReader {
 /// **Quiesced sections** (`fold_writer_arenas`, `reset_writer_chunks`) touch
 /// `state` without taking `busy`: they run with the gate closed and every slot
 /// drained, and a writer holds `busy` only inside the gate.
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 #[repr(align(64))]
 struct WriterArena {
     busy: core::sync::atomic::AtomicBool,
     state: UnsafeCell<WriterArenaState>,
 }
 
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 struct WriterArenaState {
     /// The chunk this slot bump-allocates into; `None` until the first arena
     /// insert, and again after every compaction or clear.
@@ -9669,18 +9669,30 @@ struct WriterArenaState {
     live_delta: isize,
 }
 
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 // SAFETY: `state` is reached only by the holder of `busy` or by a quiesced
 // section (see the type's docs), so it is never accessed from two threads at
 // once; the raw chunk pointer it holds refers to an allocation the arena owns
 // and that outlives every access (chunks are dropped only by compaction or
 // clear, which reset this state in the same quiesced section).
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
 unsafe impl Sync for WriterArena {}
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 // SAFETY: as above — the pointer is to arena-owned memory, not thread-affine.
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
 unsafe impl Send for WriterArena {}
 
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 impl WriterArena {
     fn new() -> Self {
         Self {
@@ -9706,10 +9718,18 @@ impl WriterArena {
 }
 
 /// Holder of a [`WriterArena`]'s `busy` flag; releases it on drop.
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 struct WriterArenaOwner<'a>(&'a WriterArena);
 
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 impl WriterArenaOwner<'_> {
     #[inline]
     fn state(&mut self) -> &mut WriterArenaState {
@@ -9720,7 +9740,11 @@ impl WriterArenaOwner<'_> {
     }
 }
 
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 impl Drop for WriterArenaOwner<'_> {
     fn drop(&mut self) {
         self.0
@@ -9732,7 +9756,11 @@ impl Drop for WriterArenaOwner<'_> {
 /// Promoted architecture (Refs #929, AGENTS.md §2.7): heap-allocated per-writer
 /// arena state for [`SyncExpanseBlobMap`]. Boxed so that `SyncExpanseBlobMap` contains
 /// no unboxed interior-mutable fields, preserving `Freeze` and struct size invariants.
-#[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
 struct BlobWriterArenas {
     arenas: Box<[WriterArena]>,
     unowned_live_delta: core::sync::atomic::AtomicIsize,
@@ -9777,7 +9805,11 @@ pub struct SyncExpanseBlobMap {
     arena_write: Box<Line<Mutex<()>>>,
     /// Promoted architecture (Refs #929, AGENTS.md §2.7): per-writer-slot private
     /// arenas, indexed by the writer guard's `slot_id()`.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     writer_arenas: Box<BlobWriterArenas>,
 }
 
@@ -9831,14 +9863,22 @@ impl SyncExpanseBlobMap {
             .arena()
             .deferred_cell()
             .expect("the arena was deferred on the line above");
-        #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+        #[cfg(all(
+            not(feature = "ablation-blob-shared-arena"),
+            not(feature = "ablation-blob-serial-writers"),
+            feature = "std"
+        ))]
         let chunk_size = map.arena().chunk_size();
         Self {
             shared: Shared::with_collector(map, collector),
             tables,
             #[cfg(feature = "std")]
             arena_write: Box::new(line(Mutex::new(()))),
-            #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+            #[cfg(all(
+                not(feature = "ablation-blob-shared-arena"),
+                not(feature = "ablation-blob-serial-writers"),
+                feature = "std"
+            ))]
             writer_arenas: Box::new(BlobWriterArenas {
                 arenas: (0..crate::occ::MAX_WRITER_SLOTS)
                     .map(|_| WriterArena::new())
@@ -9860,7 +9900,11 @@ impl SyncExpanseBlobMap {
     ///
     /// Must run inside a quiesced section (gate closed, slots drained, writer
     /// mutex held): that is what makes the unsynchronised `state` access sound.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     fn fold_writer_arenas(&self, m: &mut ExpanseBlobMap) {
         use core::sync::atomic::Ordering;
         if !self
@@ -9894,7 +9938,11 @@ impl SyncExpanseBlobMap {
     /// retire the old chunks, so a slot that kept its chunk would write records
     /// into retired memory under a chunk index that now names a different
     /// chunk (or none). Same quiescence requirement as `fold_writer_arenas`.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     fn reset_writer_chunks(&self) {
         use core::sync::atomic::Ordering;
         self.writer_arenas
@@ -9915,7 +9963,11 @@ impl SyncExpanseBlobMap {
     /// Promoted architecture (Refs #929, AGENTS.md §2.7): allocates `data` in the
     /// calling writer's private chunk, taking the shared `arena_write` mutex
     /// only to obtain a new chunk when the current one cannot fit the record.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     fn alloc_private(
         &self,
         owner: &mut WriterArenaOwner<'_>,
@@ -9975,7 +10027,11 @@ impl SyncExpanseBlobMap {
     ///
     /// The caller must hold an epoch pin and be inside the writer gate, and
     /// `old_slot` must be the `ArenaMeta` word its insert just replaced.
-    #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
     unsafe fn charge_overwritten(
         &self,
         owner: Option<&mut WriterArenaOwner<'_>>,
@@ -10406,12 +10462,20 @@ impl SyncExpanseBlobMap {
     /// the full single-threaded read API (`scan_filtered`, iteration over
     /// [`ExpanseBlobMap::index`], persistence, …).
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBlobMap) -> R) -> R {
-        #[cfg(all(not(feature = "ablation-blob-shared-arena"), feature = "std"))]
+        #[cfg(all(
+            not(feature = "ablation-blob-shared-arena"),
+            not(feature = "ablation-blob-serial-writers"),
+            feature = "std"
+        ))]
         {
             self.shared
                 .with_locked_pre(|m| self.fold_writer_arenas(m), f)
         }
-        #[cfg(any(feature = "ablation-blob-shared-arena", not(feature = "std")))]
+        #[cfg(any(
+            feature = "ablation-blob-shared-arena",
+            feature = "ablation-blob-serial-writers",
+            not(feature = "std")
+        ))]
         {
             self.shared.with_locked(f)
         }
