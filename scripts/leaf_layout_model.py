@@ -551,6 +551,8 @@ def test_committed_artifacts() -> None:
         residual = LEAF_CAP_RESIDUALS if option == "leaf_cap" else {}
         assert rows and all(meas - pred == residual.get(shape, 0)
                             for _, shape, pred, meas in rows), (path, rows)
+    # Mixed ranges (§3.6): each census prices to its mem_used.
+    check_census_file(load(os.path.join(root, "results/leaf_layout_census_mixed.json")))
     # The four SOSD datasets, whole (§3.6): each census prices to its mem_used.
     sosd = load(os.path.join(root, SOSD_ARTIFACT))
     check_census_file(sosd)

@@ -5,7 +5,7 @@
 //! candidate layout. Deterministic byte accounting — no timing, so host load
 //! does not enter.
 //!
-//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only] [--downstream] [--encodings] [--rules keys:digits,...]`
+//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only] [--downstream] [--encodings] [--mixed] [--rules keys:digits,...]`
 //!
 //! # Workload shape
 //!
@@ -27,7 +27,7 @@
 use expanse_trie::census::{LayoutCensus, MergeRule};
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
-use expanse_trie::strmap::{ExpanseStrMap, NulFreeStr};
+use expanse_trie::strmap::{CHUNK_BYTES, ExpanseStrMap, NulFreeStr};
 use std::fmt::Write as _;
 
 /// The suite PRNG (`bytes_per_key.rs`).
@@ -262,7 +262,7 @@ impl IdEncoding {
     fn push(self, id: u64, out: &mut Vec<u8>) {
         let width = if self.align7 {
             let mut w = self.width;
-            while (out.len() + w) % 8 != 7 {
+            while (out.len() + w) % CHUNK_BYTES != CHUNK_BYTES - 1 {
                 w += 1;
             }
             w
@@ -434,10 +434,47 @@ fn orders_b32_keys(n: usize) -> Vec<Vec<u8>> {
             .push((i / per_t) as u64, &mut k);
             k.extend_from_slice(b":orders:");
             enc.push(i as u64, &mut k);
-            debug_assert_eq!(k.len() % 8, 7);
+            debug_assert_eq!(k.len() % CHUNK_BYTES, CHUNK_BYTES - 1);
             k
         })
         .collect()
+}
+
+/// A mixed `orders` range (#1257 follow-up): each id is either transcoded
+/// behind a leading `0x01` marker byte — `0x01` ‖ `t` ‖ 2 base-32 digits ‖
+/// `:orders:` ‖ the id padded to the 7 (mod 8) whole-key alignment, which
+/// with the marker is 11 digits — or, for a seeded random `escaped_pct`
+/// percent of ids, kept as its text key. The marker sorts every encoded key
+/// below every text one. Returns (encoded, escaped), each sorted.
+fn orders_mixed_keys(n: usize, escaped_pct: u64) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    let per_t = (n / 1000).max(1);
+    let digits = |v: u64, width: usize, out: &mut Vec<u8>| {
+        IdEncoding {
+            name: "b32",
+            radix: 32,
+            width,
+            base_byte: 0x01,
+            align7: false,
+            prefix_too: false,
+        }
+        .push(v, out);
+    };
+    let mut rng = XorShift(SEED ^ 0xE5C);
+    let (mut encoded, mut escaped) = (Vec::new(), Vec::new());
+    for i in 0..n {
+        let t = (i / per_t) as u64;
+        if rng.next() % 100 < escaped_pct {
+            escaped.push(format!("t{t:03}:orders:{i:010}").into_bytes());
+        } else {
+            let mut k = vec![0x01, b't'];
+            digits(t, 2, &mut k);
+            k.extend_from_slice(b":orders:");
+            digits(i as u64, 11, &mut k);
+            debug_assert_eq!(k.len() % CHUNK_BYTES, CHUNK_BYTES - 1);
+            encoded.push(k);
+        }
+    }
+    (encoded, escaped)
 }
 
 /// A Fisher–Yates permutation from the suite PRNG (§8.12.4's shuffled order).
@@ -728,9 +765,43 @@ fn main() {
         }
     }
 
+    // Mixed ranges (#1257 follow-up): transcoded `orders` with 0%, 1%, 10%
+    // and 50% of ids escaped to text, as one map, and each part alone so the
+    // census can attribute the mixture.
+    if args.iter().any(|a| a == "--mixed") {
+        let dn = args
+            .iter()
+            .position(|a| a == "--population")
+            .map_or(10_000_000, |_| n);
+        for pct in [0u64, 1, 10, 50] {
+            let (encoded, escaped) = orders_mixed_keys(dn, pct);
+            let mut all = encoded.clone();
+            all.extend(escaped.iter().cloned());
+            for (part, keys) in [
+                ("mixed", &all),
+                ("encoded_part", &encoded),
+                ("escaped_part", &escaped),
+            ] {
+                if keys.is_empty() {
+                    continue;
+                }
+                let m = build_str(keys);
+                record(
+                    &mut out,
+                    run,
+                    "strmap",
+                    &format!("orders_escaped{pct}pct_{part}_{dn}"),
+                    "sorted",
+                    m.mem_used(),
+                    |r| m.layout_census(r),
+                );
+            }
+        }
+    }
+
     let synthetic = !args
         .iter()
-        .any(|a| a == "--sosd-only" || a == "--downstream" || a == "--encodings");
+        .any(|a| a == "--sosd-only" || a == "--downstream" || a == "--encodings" || a == "--mixed");
 
     for shape in [
         "sequential",

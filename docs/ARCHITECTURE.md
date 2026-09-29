@@ -319,7 +319,7 @@ On the report's 7-bit ids it behaves as the uniform case does *(measured, same i
 - **Conditions and caveats:**
   - The width is fixed per name, so ids stay order-preserving within a name, and the leading zero digits it adds are shared by every id of the name.
   - The width has to be chosen for the largest id a name will ever hold. At the minimum of 4 digits that is 32⁴ = 1,048,576; a name that outgrows its width has to be re-encoded.
-  - **The alignment depends on the string map's 8-byte chunking and its NUL-terminated final chunk.** That is an implementation detail, not a stable contract (`strmap.rs` module docs). A future layout change can move the optimum, so an encoding that relies on it should be re-censused on every release that changes the string map's layout.
+  - **The alignment is a published contract.** `strmap::CHUNK_BYTES` (8) is public. An encoder derives its alignment from it: key length ≡ `CHUNK_BYTES - 1` (mod `CHUNK_BYTES`). Changing the value is a breaking change, so an encoder that derives from it sees the change at compile time. `census::tests::chunk_bytes_alignment_contract` pins the effect on the engine: 1,024 aligned keys with a 32-valued last byte fill exactly 32 two-byte-key leaves. `leaf_layout_census.rs` derives the alignment from the same constant.
 
 **Full-width ids, and `orders` transcoded (the report's second follow-up).** Both use base-32 digits `0x01..=0x20` with the 7 (mod 8) whole-key alignment, and both are in `leaf_layout_census.rs --encodings`, which re-runs them on any release.
 
@@ -348,6 +348,27 @@ Figures are at 10⁷ keys *(measured on all three builds; engine at 45eb0f6ac, w
   - pay its encode and decode cost on every operation, which is unmeasured.
   It is a different trade from a leaf form, and the census cannot price it.
 - **Model check.** Class 10 matches the engine to the byte on all 28 records of this run. The leaf-cap projection matches on 14 of the 24 records the 128-digit rule applies to; the 4 base-255 records are outside it. The residuals are the eight composite cells above, now on shuffled loads too and identical to the sorted ones, plus +528 B on both `orders_b32a7` loads. They are unexplained and pinned exactly in the model's self-test.
+
+**Mixed ranges: transcoded `orders` with escaped text keys.** A codec needs an escape form for keys that do not match a range's template. The census models it as follows:
+
+- A seeded random fraction of ids stays as text `orders` keys.
+- The rest are transcoded behind a leading `0x01` marker, which sorts every encoded key below every text key. With the marker, the id pads to 11 base-32 digits for the alignment.
+- Each cell is censused as one map and as each part alone.
+
+*(measured: `mem_used()`, current layout, 10⁷ keys, sorted; engine sources of c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_mixed.json`](../results/leaf_layout_census_mixed.json))*
+
+| escaped to text | whole map, B/key | encoded part, B/key | escaped part, B/key |
+|---:|---:|---:|---:|
+| 0% | 10.71 | 10.71 | — |
+| 1% | 10.91 | 10.81 | 20.51 |
+| 10% | 12.44 | 11.86 | 17.59 |
+| 50% | 17.89 | 13.35 | 22.44 |
+
+- **Escaped keys do not break the encoded region's leaf fill; they dilute it.**
+  - The whole map costs its two parts together to within 104 B, so neither part changes the other's layout.
+  - At 1% the encoded part's bytes are identical to the unescaped map's: a 32-key range that loses a key keeps its 32-slot class.
+  - The cost is a mixture: slack in the encoded leaves as holes grow, and 17.6–22.4 B for each escaped text key. The text keys cost more than dense text `orders` because they are sparse.
+- **The ≤ 13.2 B/key load-time bar holds up to 10% escaped** (12.44), and fails at 50% (17.89, close to all-text `orders`).
 
 No option raises `mem_used()` on any record. Under the merge options no single range grows on the synthetic shapes; on SOSD `osm_cellids` four do (below). These are **bytes at rest after an insert-only build**. What each option costs on the write path, and what memory it leaves after removals, is not in the table.
 
