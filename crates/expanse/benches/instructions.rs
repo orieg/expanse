@@ -29,8 +29,8 @@
 //! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
 //! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once |
-//! | `hit_rate` | 100% |
-//! | `miss_gen_method` | None for reads; the concurrent count arms write absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
+//! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%) |
+//! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`) |
 //! | `value_dereference` | `black_box` on retrieved values |
 //! | `measured_region` | Clean (setup in setup) |
 //! | `arm_symmetry` | Internal trie paths |
@@ -2642,6 +2642,14 @@ fn built_sync_blobmap(dist: &str) -> (SyncExpanseBlobMap, Vec<u64>) {
     (map, shuffled(ks))
 }
 
+/// The map `built_sync_blobmap(dist)` builds, probed with `fresh_keys(dist)`:
+/// absent keys drawn from the population's distribution and rejected on
+/// membership (§8.6 miss shape), so every probe is a removal miss.
+fn built_sync_blobmap_misses(dist: &str) -> (SyncExpanseBlobMap, Vec<u64>) {
+    let (map, _) = built_sync_blobmap(dist);
+    (map, fresh_keys(dist))
+}
+
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = str_keys)]
 fn sync_strmap_insert(ks: Vec<Vec<u8>>) -> u64 {
@@ -2824,6 +2832,20 @@ fn sync_blobmap_insert(ks: Vec<u64>) -> u64 {
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_blobmap)]
 fn sync_blobmap_remove(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut removed = 0u64;
+    for &k in &probes {
+        removed += u64::from(map.remove(black_box(k)));
+    }
+    core::mem::forget(map);
+    black_box(removed)
+}
+
+// `sync_blobmap_remove` with every probe absent (#1280): the removal miss
+// path, which the all-hit arm above never takes.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap_misses)]
+fn sync_blobmap_remove_miss(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut removed = 0u64;
     for &k in &probes {
@@ -3048,6 +3070,7 @@ library_benchmark_group!(
         sync_bytesmap_churn,
         sync_blobmap_insert,
         sync_blobmap_remove,
+        sync_blobmap_remove_miss,
         sync_blobmap_churn,
         bytesmap_remove,
         bytesmap_overwrite,

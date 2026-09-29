@@ -210,6 +210,8 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_bytesmap_churn": 50_000,
     "sync_blobmap_insert": 50_000,
     "sync_blobmap_remove": 50_000,
+    # Every probe absent (#1280): `fresh_keys("random")`, POP = 50,000.
+    "sync_blobmap_remove_miss": 50_000,
     "sync_blobmap_churn": 50_000,
     # The byte-string and blob map paths the arms above left uncovered (#929):
     # one pass over `str_keys` or `keys("random")` (POP = 50,000). `overwrite`
@@ -433,6 +435,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_bytesmap_churn",
             "sync_blobmap_insert",
             "sync_blobmap_remove",
+            "sync_blobmap_remove_miss",
             "sync_blobmap_churn",
             "bytesmap_remove",
             "bytesmap_overwrite",
