@@ -63,8 +63,8 @@ type DeferHandle<'a> = Option<&'a ()>;
 ///
 /// This value is part of the crate's public contract, not an internal
 /// detail: changing it is a breaking change (a new minor version under the
-/// 0.x rule) and is recorded in the changelog, so an encoder that derives
-/// its alignment from it sees the change at compile time.
+/// 0.x rule) and is stated in that release's notes, and an encoder that
+/// derives its alignment from it picks the new value up when it recompiles.
 pub const CHUNK_BYTES: usize = 8;
 const CHUNK: usize = CHUNK_BYTES;
 const _: () = assert!(
