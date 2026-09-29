@@ -277,6 +277,50 @@ What the table shows:
 
   The 128-digit rule needed for `composite` is a dense-range rule, not a low-cardinality one. Its lookup cost is the cascaded-regime trade §3.5 measured for `LEAF_CAP = 48` (+17–19% Ir per lookup), at a larger leaf.
 
+**The bar and the acceptance conditions, as the report states them.**
+
+- **The ≤ 13.2 B/key need is a load-time bar**, taken after a bulk load. The post-removal figures above are reported, not gated on. A candidate that meets the bar at load and degrades gracefully after removals is acceptable to the report.
+- **A product-space leaf is acceptable to the report** only if all of these hold. They are added to that option's clauses below:
+  - lookup-neutral against current `main` under W3: hit and miss, sorted and shuffled loads;
+  - ordered iteration, successor/predecessor and prefix/range scans keep their semantics and order;
+  - bounded insert cost, with no whole-leaf rebuild on the common append-at-end path;
+  - `Edge` stays 16 B and `ValueSlot` one machine word;
+  - descent stays $O(k)$ over key bytes.
+
+**A skewed `composite` distribution (assumed).** The report has no production traffic, so both distributions are assumptions. The skewed one:
+
+- 100 prefixes, each with its own 5–20 names of 4–20 bytes (1,158 names in all);
+- sequential ids per name, sized by a power law over name rank, $`\min(10^6, \lfloor A\, r^{-1.4} \rfloor)`$, with $A$ chosen so the sizes sum to 10⁷ and ranks assigned to names by a seeded shuffle;
+- that gives a median of 696 ids per name, 61% of names under 1,000, and 16 names at 10⁵ or more, 3 of them at the 10⁶ cap (derived by replaying the generator's PRNG).
+
+On the report's 7-bit ids it behaves as the uniform case does *(measured, same instrument and workload; [`results/leaf_layout_census_downstream.json`](../results/leaf_layout_census_downstream.json))*:
+
+- Current layout: 18.48 B/key, identical for sorted and shuffled loads; 22.29 after removal against 22.28 for the survivors built fresh.
+- Class 10: 18.48.
+- Leaf cap at 128 digits: 14.90 at load and 16.04 after removal.
+- Product leaf: 12.43 at load, projected.
+
+**Choosing the id encoding (the report's question).** The report controls the id encoding and would rather change it than depend on a new leaf form. The census compares five order-preserving, NUL-free encodings. Each writes the id at a fixed width as big-endian digits, one per byte, with byte = base + digit. It covers both distributions, 10⁷ keys, sorted, same prefixes and names *(measured: current, class 10, and leaf cap on every encoding whose bytes take at most 128 values; projected: product leaf; engine at 91be9dbb2, whose engine sources are those of c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_encodings.json`](../results/leaf_layout_census_encodings.json), totals in `results/leaf_layout_census_encodings_{class10,cap128}.json`, model output in [`results/leaf_layout_model_encodings.txt`](../results/leaf_layout_model_encodings.txt))*:
+
+| id encoding | values per byte | bytes | uniform: current | uniform: leaf cap | skewed: current | skewed: leaf cap |
+|---|---:|---:|---:|---:|---:|---:|
+| `enc7x10` (the report's) | 128 | 10 | 18.36 | 14.78 | 18.48 | 14.90 |
+| `b255x3` | 255 | 3 | 17.92 | 17.91 | 17.75 | 17.73 |
+| `b16x5` | 16 | 5 | 17.58 | 17.60 | 16.87 | 16.87 |
+| `b32x4` | 32 | 4 | 15.87 | 15.86 | 14.94 | 14.94 |
+| **`b32x4a7`**: base 32, width per name so the key is 7 (mod 8) bytes | 32 | ≥ 4 | **10.88** | 10.87 | **10.70** | 10.70 |
+
+(`b255x3` under the cap-128 build is not the 128-digit rule, since its bytes take up to 255 values.)
+
+- **Answer: base-32 digits, with the id width chosen per name so the whole key is 7 (mod 8) bytes long.** That encoding meets the ≤ 13.2 B/key bar on the **current layout**: 10.88 B/key uniform and 10.70 skewed, with no engine change. Class 10 and the leaf cap add nothing to it (10.88 and 10.87). What is left is close to the layout's floor: 8 B of value, about 2 B of key, and under 1 B of branches and shells.
+- **Why it works — two effects, both measured by the census:**
+  - **The low byte's alphabet decides whether a range fits a leaf.** A range whose last id byte takes 32 values holds at most 32 keys, which fills one linear leaf at `LEAF_CAP` = 32. At 128 values (`enc7x10`) or 255 (`b255x3`), the range cascades into a branch of single-key 16-byte edges. At 16 values (`b16x5`), two digits of 256 keys fall into more, smaller leaves under more branches.
+  - **Where the id's last byte lands in the string map's final 8-byte chunk decides the key width of those leaves.** The final chunk ends in the terminating NUL, so its data bytes sit at word levels 2 and up. When the key is 7 (mod 8) bytes long, the id's low byte sits at level 2, and each leaf key costs 2 bytes beside its 8-byte value. At other lengths the leaf keys are wider. When the key is 0 (mod 8) bytes long, every string ends in a separate suffix leaf. When it is 1 (mod 8), the last byte sits alone in its chunk, where 32 values cascade into single-key edges. Unaligned `b32x4` pays both costs on the names whose length puts it there: 15.87 against 10.88.
+- **Conditions and caveats:**
+  - The width is fixed per name, so ids stay order-preserving within a name, and the leading zero digits it adds are shared by every id of the name.
+  - The width has to be chosen for the largest id a name will ever hold. At the minimum of 4 digits that is 32⁴ = 1,048,576; a name that outgrows its width has to be re-encoded.
+  - **The alignment depends on the string map's 8-byte chunking and its NUL-terminated final chunk.** That is an implementation detail, not a stable contract (`strmap.rs` module docs). A future layout change can move the optimum, so an encoding that relies on it should be re-censused on every release that changes the string map's layout.
+
 No option raises `mem_used()` on any record. Under the merge options no single range grows on the synthetic shapes; on SOSD `osm_cellids` four do (below). These are **bytes at rest after an insert-only build**. What each option costs on the write path, and what memory it leaves after removals, is not in the table.
 
 The shapes cover the cases unevenly:
@@ -307,6 +351,7 @@ What each option is, and when a node enters and leaves it:
   - **The figure is a lower bound.** It is a steady-state, insert-only figure, and the pricing omits a rank directory over bitmaps of up to 1,024 bits.
   - **Unspecified transitions.** A value new to any byte's alphabet multiplies the product space and rewrites the bitmap. The density test can then fail and demand a conversion. Removal leaves alphabet entries stale unless it compacts. None of this has entry/exit thresholds or a hysteresis band yet.
   - **Lookup mechanics (unmeasured).** Its lookup reads a few dictionary bytes, one bitmap word and a popcount, with no data-dependent search loop. That may make it the best lookup form as well as the smallest, which is the case for revisiting it.
+  - **Acceptance.** It is acceptable to the downstream report only under the conditions listed with the downstream results above: lookup-neutral under W3, ordered semantics kept, bounded insert cost with no whole-leaf rebuild on append, `Edge` and `ValueSlot` unchanged, and $O(k)$ descent.
   - **Audit.** It needs a new `EdgeType`, and so the full §2.3 five-subsystem audit: OCC reader decode inside the bracket, the binary-image format version, the C ABI value-pointer lifetime (values stay in rank order in one array, as in a linear leaf, so "valid until the next mutation" holds), and every binding's iteration.
 - **NUL-tail encoding (not evaluated).** Two of the three key bytes in #1257's leaves are the terminal chunk's constant NUL padding. A string-map change to how the last chunk is keyed could remove them with no new node form. Whether any such encoding keeps JudySL's byte-lexicographic order is unverified.
 
@@ -350,6 +395,7 @@ What each option is, and when a node enters and leaves it:
   - Its expected costs (unmeasured) are one more reallocation for a leaf that grows past 10, and one more arm in `cap_class`.
   - **Run even classes in the same round.** They are the alphabet-neutral alternative. On the SOSD datasets they save 2.6–3.7× what class 10 saves (map `fb` −5.4% against −1.5%), at the price of more reallocation boundaries, so their write-side cost (A1) decides between the two.
   - Whichever ladder passes every clause is the proposal for a default.
+- **For the downstream `composite` keys, change the encoding first.** Base-32 ids aligned so the key is 7 (mod 8) bytes long meet the ≤ 13.2 B/key bar on the current layout (10.88 uniform, 10.70 skewed), with no engine change. That takes `composite` out of the case for a new leaf form. `orders` still needs the ladder or the leaf cap.
 - **Then measure the adaptive cap.** The cap-128 patch measures its lookup and scan costs on plain trees at no code cost, on both downstream shapes. Its insert, reallocation and bracket-length costs need A1 and the concurrency cells. It also carries the 32-slot buffer work above. It meets the downstream need on `orders` and misses it on `composite` (14.78 B/key measured), so it cannot be the whole answer for that workload.
 - **Then prototype the product leaf** if the adaptive cap's lookup or insert costs are unacceptable, or if `composite` must meet the need:
   - It is the only candidate that meets ≤ 13.2 B/key on both downstream shapes as loaded (projected: 8.85 and 12.24). It misses on `composite` after a removal phase (13.77).
