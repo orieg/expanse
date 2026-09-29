@@ -54,6 +54,7 @@ PREFIX = "ablation-"
 
 _FEATURE = re.compile(r'feature\s*=\s*"([^"]+)"')
 _CFG_OPEN = re.compile(r"#!?\[cfg(?:_attr)?\(")
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def ablation_features(cargo_toml: str) -> list[str]:
@@ -152,6 +153,16 @@ def load_plan():
     return plan(CARGO_TOML.read_text(encoding="utf-8"), LIB_RS.read_text(encoding="utf-8"), sources)
 
 
+def diagnostic_names(log: str, feat: str) -> bool:
+    """True when an `error:` line of `log` names `feat`. ANSI colour is
+    stripped first: CI forces cargo's colour on, and a coloured line starts
+    with an escape code, not `error:`."""
+    return any(
+        ln.startswith("error:") and feat in ln
+        for ln in _ANSI.sub("", log).splitlines()
+    )
+
+
 def run(cmd: list[str]) -> tuple[int, str]:
     try:
         proc = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
@@ -164,22 +175,23 @@ def execute(configs, retired) -> int:
     failures = []
     for combo in configs:
         feats = ",".join(combo)
-        cmd = ["cargo", "clippy", "-p", PACKAGE, "--all-targets",
+        cmd = ["cargo", "clippy", "--color", "never", "-p", PACKAGE, "--all-targets",
                "--features", feats, "--", "-D", "warnings"]
         print(f"::group::clippy --features {feats}", flush=True)
         rc, log = run(cmd)
         print(log, flush=True)
         print("::endgroup::", flush=True)
         if rc != 0:
-            errs = sorted({ln for ln in log.splitlines()
+            errs = sorted({ln for ln in _ANSI.sub("", log).splitlines()
                            if ln.startswith("error") and "could not compile" not in ln})
             failures.append((feats, errs))
             print(f"::error::clippy -D warnings fails with --features {feats}")
     for feat in retired:
         # A retired name must still fail, and fail on its own compile_error!,
         # not on an unrelated build error (AGENTS.md §5 string-gated controls).
-        rc, log = run(["cargo", "check", "-p", PACKAGE, "--features", feat])
-        named = any(ln.startswith("error:") and feat in ln for ln in log.splitlines())
+        rc, log = run(["cargo", "check", "--color", "never", "-p", PACKAGE,
+                       "--features", feat])
+        named = diagnostic_names(log, feat)
         if rc == 0 or not named:
             why = "builds" if rc == 0 else "fails without a diagnostic naming it"
             failures.append((f"retired {feat}", [why]))
@@ -231,6 +243,13 @@ def self_test() -> int:
         ("ablation-a",), ("ablation-b",), ("ablation-c",), ("ablation-x",),
         ("ablation-a", "ablation-c"), ("ablation-b", "ablation-c"),
     ])
+    # The retired-name check read CI's coloured cargo output as unnamed (#1286's
+    # first run): the line began with an escape code, not `error:`.
+    coloured = "\x1b[1m\x1b[91merror\x1b[0m\x1b[1m: ablation-old is retired\x1b[0m\n"
+    check("coloured diagnostic", diagnostic_names(coloured, "ablation-old"), True)
+    check("plain diagnostic", diagnostic_names("error: ablation-old is retired\n", "ablation-old"), True)
+    check("other feature", diagnostic_names("error: ablation-new is retired\n", "ablation-old"), False)
+    check("not an error line", diagnostic_names("note: ablation-old\n", "ablation-old"), False)
     try:
         plan("[features]\nstd = []\n", lib, srcs)
         fails.append("an empty feature table did not fail")
