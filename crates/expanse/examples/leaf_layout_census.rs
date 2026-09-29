@@ -13,8 +13,8 @@
 //! |---|---|
 //! | `workload_id` | `example_leaf_layout_census` |
 //! | `group` | 5 |
-//! | `population` | 10^6 per synthetic shape; the #1257 string case also at 10^7 (`--quick`: 10^5); each SOSD dataset whole (`--sosd`); the downstream `orders` and `composite` (uniform and skewed) cells at 10^7 (`--downstream`); both composite distributions under each id encoding at 10^7 (`--encodings`) |
-//! | `insertion_order` | generator — each shape is inserted in its generator's order, stated per shape in the JSON; SOSD files in file order, which is sorted; the downstream cells sorted, and shuffled by a Fisher–Yates permutation from the suite PRNG |
+//! | `population` | 10^6 per synthetic shape; the #1257 string case also at 10^7 (`--quick`: 10^5); each SOSD dataset whole (`--sosd`); the downstream `orders` and `composite` (uniform and skewed) cells at 10^7 (`--downstream`); both composite distributions under each id encoding, and `orders` as text and transcoded to base 32, at 10^7 (`--encodings`) |
+//! | `insertion_order` | generator — each shape is inserted in its generator's order, stated per shape in the JSON; SOSD files in file order, which is sorted; the downstream and `--encodings` cells sorted, and shuffled by a Fisher–Yates permutation from the suite PRNG |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
@@ -193,6 +193,10 @@ struct IdEncoding {
     /// so ids stay order-preserving within a name, and extra width is
     /// leading zero digits shared by every id of the name.
     align7: bool,
+    /// Write the 5-byte prefix field in this encoding's digits too, at the
+    /// fixed width that covers 31 bits (7 base-32 digits), instead of the
+    /// report's 7-bit field.
+    prefix_too: bool,
 }
 
 /// The encodings the census compares (#1257 follow-up). `enc7x10` is the
@@ -207,6 +211,7 @@ const ENCODINGS: &[IdEncoding] = &[
         width: 10,
         base_byte: 0x01,
         align7: false,
+        prefix_too: false,
     },
     IdEncoding {
         name: "b32x4",
@@ -214,6 +219,7 @@ const ENCODINGS: &[IdEncoding] = &[
         width: 4,
         base_byte: 0x41,
         align7: false,
+        prefix_too: false,
     },
     IdEncoding {
         name: "b16x5",
@@ -221,6 +227,7 @@ const ENCODINGS: &[IdEncoding] = &[
         width: 5,
         base_byte: 0x41,
         align7: false,
+        prefix_too: false,
     },
     IdEncoding {
         name: "b255x3",
@@ -228,6 +235,7 @@ const ENCODINGS: &[IdEncoding] = &[
         width: 3,
         base_byte: 0x01,
         align7: false,
+        prefix_too: false,
     },
     IdEncoding {
         name: "b32x4a7",
@@ -235,6 +243,18 @@ const ENCODINGS: &[IdEncoding] = &[
         width: 4,
         base_byte: 0x41,
         align7: true,
+        prefix_too: false,
+    },
+    // Full-width ids (#1257 follow-up): every u64 fits (13 digits cover
+    // 2^64), the prefix is in the same digits, and the width is widened per
+    // name to the 7 (mod 8) alignment, so 13-20 digits.
+    IdEncoding {
+        name: "b32full",
+        radix: 32,
+        width: 13,
+        base_byte: 0x01,
+        align7: true,
+        prefix_too: true,
     },
 ];
 
@@ -256,9 +276,15 @@ impl IdEncoding {
             "{}: id {id} does not fit",
             self.name
         );
-        for i in (0..width as u32).rev() {
-            out.push(self.base_byte + ((id / self.radix.pow(i)) % self.radix) as u8);
+        // Least significant digit first, then reversed: `radix^i` overflows
+        // u64 for the widest ids (32^13 > 2^64).
+        let start = out.len();
+        let mut v = id;
+        for _ in 0..width {
+            out.push(self.base_byte + (v % self.radix) as u8);
+            v /= self.radix;
         }
+        out[start..].reverse();
     }
 }
 
@@ -358,7 +384,18 @@ fn composite_keys(n: usize, dist: &str, enc: IdEncoding) -> Vec<Vec<u8>> {
     let mut out = Vec::with_capacity(n);
     for (prefix, name, ids) in &groups {
         for id in 0..*ids {
-            let mut k: Vec<u8> = enc7(*prefix, 5).collect();
+            let mut k: Vec<u8> = if enc.prefix_too {
+                let mut p = Vec::new();
+                IdEncoding {
+                    width: 7,
+                    align7: false,
+                    ..enc
+                }
+                .push(*prefix, &mut p);
+                p
+            } else {
+                enc7(*prefix, 5).collect()
+            };
             k.extend_from_slice(name);
             k.push(b'/');
             enc.push(id, &mut k);
@@ -369,6 +406,38 @@ fn composite_keys(n: usize, dist: &str, enc: IdEncoding) -> Vec<Vec<u8>> {
     // within a prefix; ids are fixed-width, so they sort numerically.
     out.sort_unstable();
     out
+}
+
+/// `orders` transcoded (#1257 follow-up): the same keys as `text_keys("orders")`
+/// with each fixed-width decimal field rewritten order-preservingly in base-32
+/// digits `0x01..=0x20` — the `%03d` tenant in 2 digits, the `%010d` id
+/// (below 32^7) padded to the width that makes the key 7 (mod 8) bytes
+/// long. `t` + 2 + `:orders:` is 11 bytes, so the id takes 12 digits.
+fn orders_b32_keys(n: usize) -> Vec<Vec<u8>> {
+    let per_t = (n / 1000).max(1);
+    let enc = IdEncoding {
+        name: "orders_b32a7",
+        radix: 32,
+        width: 7,
+        base_byte: 0x01,
+        align7: true,
+        prefix_too: false,
+    };
+    (0..n)
+        .map(|i| {
+            let mut k = vec![b't'];
+            IdEncoding {
+                width: 2,
+                align7: false,
+                ..enc
+            }
+            .push((i / per_t) as u64, &mut k);
+            k.extend_from_slice(b":orders:");
+            enc.push(i as u64, &mut k);
+            debug_assert_eq!(k.len() % 8, 7);
+            k
+        })
+        .collect()
 }
 
 /// A Fisher–Yates permutation from the suite PRNG (§8.12.4's shuffled order).
@@ -610,22 +679,52 @@ fn main() {
             .iter()
             .position(|a| a == "--population")
             .map_or(10_000_000, |_| n);
+        // Each cell's keys are generated when it runs, so only one key set
+        // is resident at a time.
+        type KeyGen = Box<dyn Fn() -> Vec<Vec<u8>>>;
+        let mut shapes: Vec<(String, KeyGen)> = Vec::new();
         for dist in ["uniform", "skewed"] {
             for &enc in ENCODINGS {
-                let keys = composite_keys(dn, dist, enc);
-                let m = build_str(&keys);
-                drop(keys);
-                let shape = format!("composite_{dist}_{}_{dn}", enc.name);
-                record(
-                    &mut out,
-                    run,
-                    "strmap",
-                    &shape,
-                    "sorted",
-                    m.mem_used(),
-                    |r| m.layout_census(r),
-                );
+                shapes.push((
+                    format!("composite_{dist}_{}_{dn}", enc.name),
+                    Box::new(move || composite_keys(dn, dist, enc)),
+                ));
             }
+        }
+        shapes.push((
+            format!("orders_text_{dn}"),
+            Box::new(move || str_keys("orders", dn)),
+        ));
+        shapes.push((
+            format!("orders_b32a7_{dn}"),
+            Box::new(move || orders_b32_keys(dn)),
+        ));
+        for (shape, keys) in &shapes {
+            let keys = keys();
+            let m = build_str(&keys);
+            record(
+                &mut out,
+                run,
+                "strmap",
+                shape,
+                "sorted",
+                m.mem_used(),
+                |r| m.layout_census(r),
+            );
+            drop(m);
+            let mix = shuffled(&keys, SEED ^ 0x5F);
+            drop(keys);
+            let m = build_str(&mix);
+            drop(mix);
+            record(
+                &mut out,
+                run,
+                "strmap",
+                &format!("{shape}_shuffled"),
+                "shuffled",
+                m.mem_used(),
+                |r| m.layout_census(r),
+            );
         }
     }
 
