@@ -264,17 +264,25 @@ jobs:
     # by `miri_ub_sites.py --self-test`): Miri's schedule for a seed depends on
     # both, so another target or nightly could report a different site for the
     # same code. `macos-latest` is arm64.
-    # Sharded by whole workload (`--shard I/N`): the unsharded job outgrew its
+    # Sharded by entry (`--shard I/N`): the unsharded job outgrew its
     # 90-minute limit, and a job that times out ends cancelled, not failed.
-    # `--self-test` checks that the matrix list and the `/N` agree.
-    name: Safety / Miri UB-site census (Sync*) (${{ matrix.shard }}/5)
+    # Fourteen shards dealing single entries (one workload under one check),
+    # not five dealing whole workloads: at five, shards 1 and 2 were cancelled
+    # at the limit (#1269), and one workload's three checks alone take about
+    # half the limit, so a shard holding a whole workload cannot be sized
+    # below that. A workload's three checks are adjacent, so they land in
+    # three shards; 14 is not a multiple of 3, so every shard mixes checks
+    # rather than holding only the costly Tree Borrows entries (`--self-test`
+    # checks it). macOS runs five jobs at a time,
+    # so the matrix runs in waves; the limit applies per job, from its start.
+    name: Safety / Miri UB-site census (Sync*) (${{ matrix.shard }}/14)
     if: inputs.only != 'bench'
     runs-on: macos-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust-toolchain
@@ -283,7 +291,7 @@ jobs:
           components: miri
       - uses: Swatinem/rust-cache@v2
       - name: Every Sync* UB site is in the state the manifest records
-        run: python3 scripts/miri_ub_sites.py --check --shard ${{ matrix.shard }}/5
+        run: python3 scripts/miri_ub_sites.py --check --shard ${{ matrix.shard }}/14
 
       # A job that hits its timeout ends cancelled, so that is reported too.
       - name: Report or Update Nightly Failure Issue
@@ -306,13 +314,13 @@ jobs:
               `- **Commit**: [${context.sha}](${context.payload.repository?.html_url}/commit/${context.sha})`,
               `- **Workflow Run**: [View Failed Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
               '- **Failing Target**: `scripts/miri_ub_sites.py --check` against `.github/miri-ub-sites.json` (Refs #1086)',
-              '- **Shard**: ${{ matrix.shard }}/5, job status `${{ job.status }}` (`cancelled` is the 90-minute timeout)',
+              '- **Shard**: ${{ matrix.shard }}/14, job status `${{ job.status }}` (`cancelled` is the 90-minute timeout)',
               '',
               'A `mismatch` is a site whose state changed: one that stopped reproducing (flip its entry to `clean`), a different kind of UB, or UB where the manifest records `clean`. A moved innermost frame is only a notice. `could-not-check` is a run that neither reported UB nor passed.',
               '',
               '#### Local Reproduction Commands:',
               '```bash',
-              'python3 scripts/miri_ub_sites.py --toolchain nightly --check --shard ${{ matrix.shard }}/5',
+              'python3 scripts/miri_ub_sites.py --toolchain nightly --check --shard ${{ matrix.shard }}/14',
               'python3 scripts/miri_ub_sites.py --toolchain nightly --observe --only <workload>',
               '```'
             ].join('\n');
