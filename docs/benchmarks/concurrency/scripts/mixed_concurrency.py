@@ -139,9 +139,22 @@ LOAD_SCOPE = (
 SAMPLE_KEYS = (
     "workload_id", "engine_key", "engine", "workload", "read_pct", "write_rate",
     "threads", "round", "position", "elapsed_s", "read_ops", "write_ops",
-    "busy", "ok", "refused",
+    "busy", "ok", "refused", "remove_hits", "compactions", "arena_bytes",
 )
-RAW_KEYS = ("round", "position", "elapsed_s", "read_ops", "write_ops", "busy", "ok", "refused")
+# The #568 Step 2 mode (`--step2-gate`) is a closed, pre-registered gate that
+# reads only the fields it was registered with; the #1280 counters are not
+# part of it.
+STEP2_SAMPLE_KEYS = SAMPLE_KEYS[:SAMPLE_KEYS.index("remove_hits")]
+RAW_KEYS = ("round", "position", "elapsed_s", "read_ops", "write_ops", "busy", "ok", "refused",
+            "remove_hits", "compactions", "arena_bytes")
+# The share of writes that removed a present key once the independent write
+# bit holds occupancy at half the keyspace (#1280): half the writes are
+# removals and half of those find their key. A mixed window far from it
+# means the workload drifted, which is what the key-parity selector did.
+REMOVE_HIT_SHARE = 0.25
+REMOVE_HIT_TOLERANCE = 0.05
+# Below this many writes a window's share is too noisy to check.
+REMOVE_HIT_MIN_WRITES = 10_000
 
 
 class InstrumentError(RuntimeError):
@@ -275,8 +288,8 @@ def run_group(exe: Path, key: str, read_pct: int | None, threads: list[int], rou
         )
 
 
-def read_samples(path: Path) -> list[dict[str, Any]]:
-    """Every window the bench appended, validated field by field."""
+def read_samples(path: Path, keys: tuple[str, ...] = SAMPLE_KEYS) -> list[dict[str, Any]]:
+    """Every window the bench appended, validated field by field against `keys`."""
     if not path.is_file():
         raise InstrumentError(f"the bench wrote no samples file ({path})")
     rows = []
@@ -284,7 +297,7 @@ def read_samples(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         row = json.loads(line)
-        missing = [k for k in SAMPLE_KEYS if k not in row]
+        missing = [k for k in keys if k not in row]
         if missing:
             raise InstrumentError(f"{path}:{n}: sample lacks {missing}")
         if row["workload_id"] != WORKLOAD_ID:
@@ -398,9 +411,41 @@ def summarize_cell(rows: list[dict[str, Any]], base: dict[int, float] | None,
             "scaling_c_n_ci_method": scale_method,
             "scaling_c_n_median": _median(ratios),
         })
+    if first["engine_key"] != SYNC32:
+        writes = sum(r["write_ops"] for r in rows)
+        cell["remove_hits_per_write"] = sum(r["remove_hits"] for r in rows) / writes if writes else 0.0
+        cell["compactions"] = sum(r["compactions"] for r in rows)
+        cell["arena_bytes_max"] = max(r["arena_bytes"] for r in rows)
+        # Report-only drift check (#1280): the second half of the rounds over
+        # the first, by median total ops/s. A cell whose later windows run in
+        # a different regime from its early ones shows here before any mean.
+        half = len(total) // 2
+        if half:
+            by_round = [t for _, t in sorted(zip((r["round"] for r in rows), total))]
+            cell["later_over_earlier_median"] = _median(by_round[half:]) / _median(by_round[:half])
     cell["load"] = dict(load, scope=LOAD_SCOPE)
     cell["rounds_raw"] = [{k: r[k] for k in RAW_KEYS} for r in rows]
     return cell
+
+
+def workload_problems(rows: list[dict[str, Any]]) -> list[str]:
+    """Windows whose write mix is not the stationary one the bench declares (#1280).
+
+    Every mixed window of a counting arm must remove a present key on about a
+    quarter of its writes. A window that does not has drifted from the
+    declared workload, and its throughput describes some other one.
+    """
+    problems = []
+    for r in rows:
+        if r["engine_key"] == SYNC32 or r["write_ops"] < REMOVE_HIT_MIN_WRITES:
+            continue
+        share = r["remove_hits"] / r["write_ops"]
+        if abs(share - REMOVE_HIT_SHARE) > REMOVE_HIT_TOLERANCE:
+            problems.append(
+                f"{r['engine_key']} ({r['workload']}) round {r['round']} at {r['threads']} threads: "
+                f"{share:.3f} of writes removed a present key, not {REMOVE_HIT_SHARE}"
+            )
+    return problems
 
 
 def summarize_group(rows: list[dict[str, Any]], threads: list[int], rounds: int,
@@ -417,7 +462,7 @@ def summarize_group(rows: list[dict[str, Any]], threads: list[int], rounds: int,
                 f"{key} ({workload}): windows cover thread counts {seen}, not {sorted(threads)} — "
                 f"the bench drops thread counts above the CPUs it may use"
             )
-        problems = balance_problems(table, threads, rounds)
+        problems = balance_problems(table, threads, rounds) + workload_problems(table)
         if problems:
             raise InstrumentError(f"{key} ({workload}): " + "; ".join(problems))
         base = None
@@ -717,7 +762,7 @@ def run_window(exe: Path, cwd: Path, arm: str, threads: int, samples: Path) -> N
 
 def read_window(samples: Path, arm: str, threads: int) -> dict[str, Any]:
     """The single row one window's process wrote, checked against what was requested (§13.5)."""
-    rows = read_samples(samples)
+    rows = read_samples(samples, STEP2_SAMPLE_KEYS)
     if len(rows) != 1:
         raise InstrumentError(f"{samples.name}: the process wrote {len(rows)} window rows, not exactly one")
     row = rows[0]
@@ -1271,6 +1316,9 @@ def _synthetic_rows(key: str, workload: str, read_pct: int | None, threads: list
                 "busy": 3 * t if key == SYNC32 else 0,
                 "ok": int(1_000_000 * t ** 0.8 * jitter) if key == SYNC32 else 0,
                 "refused": 0,
+                "remove_hits": 0 if key == SYNC32 else int(400_000 * t ** 0.5 * jitter) // 4,
+                "compactions": 0,
+                "arena_bytes": 0,
             })
     return rows
 
@@ -1312,6 +1360,15 @@ def self_test() -> int:
             assert c[prefix + "ci_method"] in CI_METHODS, c[prefix + "ci_method"]
         assert c["load"]["foreign_busy_cpus"] == 0.0 and c["load"]["scope"] == LOAD_SCOPE
     assert "scaling_c_n_mean" not in cells[0]
+    assert all(abs(c["remove_hits_per_write"] - REMOVE_HIT_SHARE) < 0.01 for c in cells)
+    # A drifted window (#1280: the key-parity selector left every removal a
+    # miss) voids its group; a window too small to judge does not.
+    drifted = [dict(r) for r in rows]
+    drifted[5]["remove_hits"] = 0
+    expect_error(summarize_group, drifted, threads, rounds, load, what="a mixed window whose removals all miss")
+    tiny = [dict(r) for r in rows]
+    tiny[5].update(write_ops=REMOVE_HIT_MIN_WRITES - 1, remove_hits=0)
+    assert len(summarize_group(tiny, threads, rounds, load)) == len(threads)
     assert cells[2]["scaling_c_n_ci_method"] in CI_METHODS and cells[2]["scaling_c_n_mean"] > 1.0
 
     # The sync32 group: several duty tables in one process, busy telemetry kept.
