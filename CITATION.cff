@@ -3,7 +3,7 @@ message: "If you use Expanse, please cite it using the metadata in this file. Ci
 title: "Expanse: clean-room Judy arrays in Rust with a drop-in libjudy C ABI"
 type: software
 version: 0.9.1
-date-released: 2026-08-29
+date-released: 2026-09-29
 doi: "10.5281/zenodo.22152112"
 abstract: "Expanse is a clean-room, pure-Rust implementation of Judy arrays — sparse, dynamic associative structures built as 256-ary digital tries partitioned by key range (expanse) rather than by population — targeting 64-bit and 32-bit embedded microarchitectures. It ships libexpanse, a high-performance drop-in C ABI replacement for libjudy, plus C++, Go, Java, .NET, Node.js, PHP, Python, Ruby and WebAssembly bindings."
 authors:
@@ -34,6 +34,27 @@ identifiers:
   - type: doi
     value: "10.5281/zenodo.22152112"
     description: "Concept DOI — all versions; always resolves to the latest release"
+  - type: doi
+    value: "10.5281/zenodo.23033289"
+    description: "Version DOI — v0.9.1"
+  - type: doi
+    value: "10.5281/zenodo.23005353"
+    description: "Version DOI — v0.9.0"
+  - type: doi
+    value: "10.5281/zenodo.22946275"
+    description: "Version DOI — v0.8.2"
+  - type: doi
+    value: "10.5281/zenodo.22930163"
+    description: "Version DOI — v0.8.1"
+  - type: doi
+    value: "10.5281/zenodo.22928508"
+    description: "Version DOI — v0.8.0"
+  - type: doi
+    value: "10.5281/zenodo.22901468"
+    description: "Version DOI — v0.7.1"
+  - type: doi
+    value: "10.5281/zenodo.22884696"
+    description: "Version DOI — v0.7.0"
   - type: doi
     value: "10.5281/zenodo.22569440"
     description: "Version DOI — v0.6.0"
