@@ -114,6 +114,13 @@ GOLDEN_CASES = [
         set(),
     ),
     (
+        "a core trie edit re-checks every ablation configuration (Refs #1280: "
+        "the default-feature clippy never compiled them)",
+        ["crates/expanse/src/sync.rs"],
+        {"ablation-clippy", "lint"},
+        set(),
+    ),
+    (
         "hot-bench reaches `lint` (check_bench_shapes reads its src/bin) "
         "but not the safety lane",
         ["crates/expanse-hot-bench/src/bin/ffi_probe.rs"],

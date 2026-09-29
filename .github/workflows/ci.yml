@@ -445,6 +445,8 @@ jobs:
       - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors / miri shards / rocksdb locate bound / olc bounds / c2c ranking / callgrind wrapper ranking)
         run: |
           python3 scripts/perf_report.py --self-test
+          # The ablation-clippy job's plan: parsers and the live-tree configurations.
+          python3 scripts/check_ablation_clippy.py --self-test
           # Unit tests for perf_report.py, including that every Callgrind arm
           # in the harnesses has a category and an explicit N, and that the
           # displayed memory ceilings are the ones examples/bytes_per_key.rs
@@ -640,6 +642,30 @@ jobs:
 
       - name: Check workspace on the declared MSRV
         run: cargo check --workspace --exclude expanse-php --all-targets
+
+  ablation-clippy:
+    name: Core / Ablation Features Clippy
+    needs: [detect-changes, fast-lane]
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|ablation-clippy|')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `lint`'s clippy compiles default features only, so an item left dead
+      # under an ablation feature failed nowhere (Refs #1280). AGENTS.md §2.7
+      # keeps every `ablation-un…` inverse re-testable, which it is only while
+      # it builds. The script derives the configurations from `Cargo.toml`,
+      # `lib.rs` and the crate's `cfg` predicates, and checks that every
+      # retired name still fails on its own `compile_error!`.
+      - name: Clippy under every ablation configuration
+        run: python3 scripts/check_ablation_clippy.py
 
   man-examples:
     name: Docs / Man Page Examples Compile and Match
@@ -3369,6 +3395,7 @@ jobs:
       - supply-chain
       - public-api
       - msrv
+      - ablation-clippy
       - man-examples
       - docs-lint
       - fast-lane
