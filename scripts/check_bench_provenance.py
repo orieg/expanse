@@ -158,6 +158,9 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/concurrency/scripts/host_guard_sensitivity.py",
     # The #1191 AArch64 default-vs-+rcpc A/B: per-cell paired ratios.
     "docs/benchmarks/concurrency/scripts/rcpc_ab.py",
+    # METHODOLOGY.md §26 (#1280): the optimistic blob removal's two-sample
+    # build ratios, each recorded with its `ci_method`.
+    "docs/benchmarks/concurrency/scripts/blob_remove_gate.py",
     # README §11.8's paired throughput ratio: the interval goes into the README
     # table, which names the construction whenever it is not BCa.
     "docs/benchmarks/concurrency/scripts/tables.py",
