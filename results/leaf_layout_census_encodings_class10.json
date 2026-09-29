@@ -1,0 +1,12 @@
+{"instrument": "leaf_layout_census", "commit": "91be9dbb2+wip, features layout-census,ablation-leaf-class-10", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
+{"engine": "strmap", "shape": "composite_uniform_enc7x10_10000000", "keys": 10000000, "mem_used": 183255496},
+{"engine": "strmap", "shape": "composite_uniform_b32x4_10000000", "keys": 10000000, "mem_used": 158710696},
+{"engine": "strmap", "shape": "composite_uniform_b16x5_10000000", "keys": 10000000, "mem_used": 175846696},
+{"engine": "strmap", "shape": "composite_uniform_b255x3_10000000", "keys": 10000000, "mem_used": 179163496},
+{"engine": "strmap", "shape": "composite_uniform_b32x4a7_10000000", "keys": 10000000, "mem_used": 108797096},
+{"engine": "strmap", "shape": "composite_skewed_enc7x10_10000000", "keys": 10000000, "mem_used": 184769752},
+{"engine": "strmap", "shape": "composite_skewed_b32x4_10000000", "keys": 10000000, "mem_used": 149411678},
+{"engine": "strmap", "shape": "composite_skewed_b16x5_10000000", "keys": 10000000, "mem_used": 168669845},
+{"engine": "strmap", "shape": "composite_skewed_b255x3_10000000", "keys": 10000000, "mem_used": 177487168},
+{"engine": "strmap", "shape": "composite_skewed_b32x4a7_10000000", "keys": 10000000, "mem_used": 106977376}
+]}

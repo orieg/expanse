@@ -1,0 +1,12 @@
+{"instrument": "leaf_layout_census", "commit": "91be9dbb2+wip, feature layout-census, results/leaf_layout_census_c5a6f688_cap128.patch applied", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
+{"engine": "strmap", "shape": "composite_uniform_enc7x10_10000000", "keys": 10000000, "mem_used": 147773896},
+{"engine": "strmap", "shape": "composite_uniform_b32x4_10000000", "keys": 10000000, "mem_used": 158633896},
+{"engine": "strmap", "shape": "composite_uniform_b16x5_10000000", "keys": 10000000, "mem_used": 176025896},
+{"engine": "strmap", "shape": "composite_uniform_b255x3_10000000", "keys": 10000000, "mem_used": 179086696},
+{"engine": "strmap", "shape": "composite_uniform_b32x4a7_10000000", "keys": 10000000, "mem_used": 108720296},
+{"engine": "strmap", "shape": "composite_skewed_enc7x10_10000000", "keys": 10000000, "mem_used": 148996808},
+{"engine": "strmap", "shape": "composite_skewed_b32x4_10000000", "keys": 10000000, "mem_used": 149422542},
+{"engine": "strmap", "shape": "composite_skewed_b16x5_10000000", "keys": 10000000, "mem_used": 168680581},
+{"engine": "strmap", "shape": "composite_skewed_b255x3_10000000", "keys": 10000000, "mem_used": 177321936},
+{"engine": "strmap", "shape": "composite_skewed_b32x4a7_10000000", "keys": 10000000, "mem_used": 106985040}
+]}

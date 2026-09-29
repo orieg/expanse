@@ -1,4 +1,4 @@
-{"instrument": "leaf_layout_census", "commit": "d8ee02d99+wip, feature layout-census, results/leaf_layout_census_c5a6f688_cap128.patch applied", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
+{"instrument": "leaf_layout_census", "commit": "91be9dbb2+wip, feature layout-census, results/leaf_layout_census_c5a6f688_cap128.patch applied", "population": 1000000, "seed": "0xddb1a5e5eed0001", "records": [
 {"engine": "strmap", "shape": "orders_10000000_sorted", "keys": 10000000, "mem_used": 123694504},
 {"engine": "strmap", "shape": "orders_10000000_shuffled", "keys": 10000000, "mem_used": 123694504},
 {"engine": "strmap", "shape": "orders_10000000_churned", "keys": 5001307, "mem_used": 65505256},
@@ -6,5 +6,9 @@
 {"engine": "strmap", "shape": "composite_10000000_sorted", "keys": 10000000, "mem_used": 147773896},
 {"engine": "strmap", "shape": "composite_10000000_shuffled", "keys": 10000000, "mem_used": 147773896},
 {"engine": "strmap", "shape": "composite_10000000_churned", "keys": 5001307, "mem_used": 81663992},
-{"engine": "strmap", "shape": "composite_10000000_survivors", "keys": 5001307, "mem_used": 81663992}
+{"engine": "strmap", "shape": "composite_10000000_survivors", "keys": 5001307, "mem_used": 81663992},
+{"engine": "strmap", "shape": "composite_skewed_10000000_sorted", "keys": 10000000, "mem_used": 148996808},
+{"engine": "strmap", "shape": "composite_skewed_10000000_shuffled", "keys": 10000000, "mem_used": 148996808},
+{"engine": "strmap", "shape": "composite_skewed_10000000_churned", "keys": 5001307, "mem_used": 80201496},
+{"engine": "strmap", "shape": "composite_skewed_10000000_survivors", "keys": 5001307, "mem_used": 80202833}
 ]}
