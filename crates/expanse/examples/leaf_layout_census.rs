@@ -5,7 +5,7 @@
 //! candidate layout. Deterministic byte accounting — no timing, so host load
 //! does not enter.
 //!
-//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only] [--downstream] [--rules keys:digits,...]`
+//! Run: `cargo run --release -p expanse-trie --features layout-census --example leaf_layout_census -- --json <path> [--quick | --population N] [--totals-only] [--sosd name=path ...] [--sosd-only] [--downstream] [--encodings] [--rules keys:digits,...]`
 //!
 //! # Workload shape
 //!
@@ -13,7 +13,7 @@
 //! |---|---|
 //! | `workload_id` | `example_leaf_layout_census` |
 //! | `group` | 5 |
-//! | `population` | 10^6 per synthetic shape; the #1257 string case also at 10^7 (`--quick`: 10^5); each SOSD dataset whole (`--sosd`); the downstream `orders` and `composite` cells at 10^7 (`--downstream`) |
+//! | `population` | 10^6 per synthetic shape; the #1257 string case also at 10^7 (`--quick`: 10^5); each SOSD dataset whole (`--sosd`); the downstream `orders` and `composite` (uniform and skewed) cells at 10^7 (`--downstream`); both composite distributions under each id encoding at 10^7 (`--encodings`) |
 //! | `insertion_order` | generator — each shape is inserted in its generator's order, stated per shape in the JSON; SOSD files in file order, which is sorted; the downstream cells sorted, and shuffled by a Fisher–Yates permutation from the suite PRNG |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
@@ -114,7 +114,10 @@ fn u64_keys(shape: &str, n: usize) -> Vec<u64> {
 
 fn str_keys(shape: &str, n: usize) -> Vec<Vec<u8>> {
     if shape == "composite" {
-        return composite_keys(n);
+        return composite_keys(n, "uniform", ENCODINGS[0]);
+    }
+    if shape == "composite_skewed" {
+        return composite_keys(n, "skewed", ENCODINGS[0]);
     }
     text_keys(shape, n)
         .into_iter()
@@ -171,42 +174,200 @@ fn enc7(v: u64, width: usize) -> impl Iterator<Item = u8> {
         .map(move |i| ((v >> (7 * i)) & 0x7F) as u8 + 1)
 }
 
-/// The downstream composite shape of the #1257 follow-up:
-/// `prefix(5 B) ‖ name ‖ '/' ‖ id(10 B)`, prefix and id in [`enc7`], names
-/// `[A-Za-z0-9_]{1,32}`, and `'/'` below every name byte. The distribution
-/// is this harness's choice, not the report's: 100 prefixes × 100 names
-/// (drawn once from the suite PRNG and shared by every prefix) × sequential
-/// ids from 0, `n / 10_000` per name. Emitted sorted.
-fn composite_keys(n: usize) -> Vec<Vec<u8>> {
-    const ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz";
-    let mut rng = XorShift(SEED ^ 0xC0);
-    let mut names: Vec<Vec<u8>> = Vec::new();
-    while names.len() < 100 {
-        let len = 1 + (rng.next() % 32) as usize;
-        let name: Vec<u8> = (0..len)
-            .map(|_| ALPHABET[(rng.next() % ALPHABET.len() as u64) as usize])
-            .collect();
-        if !names.contains(&name) {
-            names.push(name);
+/// An order-preserving, NUL-free id encoding for the composite shape: every
+/// byte is `base_byte + digit`, big-endian at a fixed width, so byte order
+/// is numeric order and no byte is NUL.
+#[derive(Clone, Copy)]
+struct IdEncoding {
+    name: &'static str,
+    /// Values per byte.
+    radix: u64,
+    /// Bytes per id.
+    width: usize,
+    /// The byte for digit 0.
+    base_byte: u8,
+    /// Widen the id, per name, to the smallest width of at least `width`
+    /// that makes the whole key `7 (mod 8)` bytes long: the string map's
+    /// terminal chunk then holds seven key bytes and its NUL, so the id's
+    /// low byte always sits at word level 2. The width is fixed per name,
+    /// so ids stay order-preserving within a name, and extra width is
+    /// leading zero digits shared by every id of the name.
+    align7: bool,
+}
+
+/// The encodings the census compares (#1257 follow-up). `enc7x10` is the
+/// report's own: 7 bits per byte, +1. The rest fit every id below 10^6 (the
+/// skewed shape's largest name) in fewer bytes and differ in how many values
+/// the low byte takes — which decides whether a range of ids fits one linear
+/// leaf (at most `LEAF_CAP` = 32 keys) or cascades into single-key edges.
+const ENCODINGS: &[IdEncoding] = &[
+    IdEncoding {
+        name: "enc7x10",
+        radix: 128,
+        width: 10,
+        base_byte: 0x01,
+        align7: false,
+    },
+    IdEncoding {
+        name: "b32x4",
+        radix: 32,
+        width: 4,
+        base_byte: 0x41,
+        align7: false,
+    },
+    IdEncoding {
+        name: "b16x5",
+        radix: 16,
+        width: 5,
+        base_byte: 0x41,
+        align7: false,
+    },
+    IdEncoding {
+        name: "b255x3",
+        radix: 255,
+        width: 3,
+        base_byte: 0x01,
+        align7: false,
+    },
+    IdEncoding {
+        name: "b32x4a7",
+        radix: 32,
+        width: 4,
+        base_byte: 0x41,
+        align7: true,
+    },
+];
+
+impl IdEncoding {
+    fn push(self, id: u64, out: &mut Vec<u8>) {
+        let width = if self.align7 {
+            let mut w = self.width;
+            while (out.len() + w) % 8 != 7 {
+                w += 1;
+            }
+            w
+        } else {
+            self.width
+        };
+        assert!(
+            self.radix
+                .checked_pow(self.width as u32)
+                .is_none_or(|span| id < span),
+            "{}: id {id} does not fit",
+            self.name
+        );
+        for i in (0..width as u32).rev() {
+            out.push(self.base_byte + ((id / self.radix.pow(i)) % self.radix) as u8);
         }
     }
-    // `'/'` sorts below every name byte, so byte order of the names is the
-    // order of the keys that carry them.
-    names.sort();
-    let per_name = (n / 10_000).max(1) as u64;
-    let mut out = Vec::with_capacity(n);
-    for prefix in 0..100u64 {
-        for name in &names {
-            for id in 0..per_name {
-                let mut k: Vec<u8> = enc7(prefix, 5).collect();
-                k.extend_from_slice(name);
-                k.push(b'/');
-                k.extend(enc7(id, 10));
-                out.push(k);
+}
+
+const NAME_ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz";
+
+fn random_name(rng: &mut XorShift, min: usize, max: usize) -> Vec<u8> {
+    let len = min + (rng.next() % (max - min + 1) as u64) as usize;
+    (0..len)
+        .map(|_| NAME_ALPHABET[(rng.next() % NAME_ALPHABET.len() as u64) as usize])
+        .collect()
+}
+
+/// Ids per name for the skewed composite distribution: a power law over
+/// name rank, `min(10^6, max(1, floor(A · r^-1.4)))`, with `A` found by
+/// bisection so the sizes sum to `n` (any remainder goes to the smallest
+/// names). Exponent 1.4 gives, at 10^7 over this generator's 1,158 names, a
+/// median of 696 ids, 61% of names under 1,000 and 16 names at 10^5 or more,
+/// 3 of them at the cap.
+fn skewed_sizes(names: usize, n: usize) -> Vec<u64> {
+    const S: f64 = 1.4;
+    const CAP: u64 = 1_000_000;
+    let size = |a: f64, r: usize| ((a * (r as f64).powf(-S)) as u64).clamp(1, CAP);
+    let (mut lo, mut hi) = (1.0f64, 1e12f64);
+    for _ in 0..200 {
+        let a = (lo * hi).sqrt();
+        let total: u64 = (1..=names).map(|r| size(a, r)).sum();
+        if total < n as u64 {
+            lo = a;
+        } else {
+            hi = a;
+        }
+    }
+    let mut sizes: Vec<u64> = (1..=names).map(|r| size(lo, r)).collect();
+    let mut short = n as u64 - sizes.iter().sum::<u64>();
+    let mut r = names;
+    while short > 0 {
+        r = if r == 0 { names - 1 } else { r - 1 };
+        sizes[r] += 1;
+        short -= 1;
+    }
+    sizes
+}
+
+/// The downstream composite shape of the #1257 follow-up:
+/// `prefix(5 B) ‖ name ‖ '/' ‖ id`, prefix in [`enc7`], names
+/// `[A-Za-z0-9_]`, and `'/'` below every name byte. Both distributions are
+/// assumptions, not measured traffic:
+///
+/// - `uniform`: 100 prefixes × 100 names of 1–32 bytes (drawn once, shared
+///   by every prefix) × `n / 10_000` sequential ids per name;
+/// - `skewed`: 100 prefixes, each with its own 5–20 names of 4–20 bytes,
+///   and sequential ids per name sized by [`skewed_sizes`]; ranks are
+///   assigned to names by a seeded shuffle, so large names fall anywhere.
+///
+/// Emitted sorted.
+fn composite_keys(n: usize, dist: &str, enc: IdEncoding) -> Vec<Vec<u8>> {
+    let mut rng = XorShift(SEED ^ 0xC0);
+    // (prefix, name, ids) triples.
+    let mut groups: Vec<(u64, Vec<u8>, u64)> = Vec::new();
+    match dist {
+        "uniform" => {
+            let mut names: Vec<Vec<u8>> = Vec::new();
+            while names.len() < 100 {
+                let name = random_name(&mut rng, 1, 32);
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+            let per_name = (n / 10_000).max(1) as u64;
+            for prefix in 0..100u64 {
+                for name in &names {
+                    groups.push((prefix, name.clone(), per_name));
+                }
             }
         }
+        "skewed" => {
+            for prefix in 0..100u64 {
+                let count = 5 + (rng.next() % 16) as usize;
+                let mut names: Vec<Vec<u8>> = Vec::new();
+                while names.len() < count {
+                    let name = random_name(&mut rng, 4, 20);
+                    if !names.contains(&name) {
+                        names.push(name);
+                    }
+                }
+                for name in names {
+                    groups.push((prefix, name, 0));
+                }
+            }
+            let sizes = shuffled(&skewed_sizes(groups.len(), n), SEED ^ 0x51);
+            for (g, size) in groups.iter_mut().zip(sizes) {
+                g.2 = size;
+            }
+        }
+        _ => unreachable!("unknown composite distribution {dist}"),
     }
-    debug_assert!(out.windows(2).all(|w| w[0] < w[1]), "composite keys sorted");
+    let mut out = Vec::with_capacity(n);
+    for (prefix, name, ids) in &groups {
+        for id in 0..*ids {
+            let mut k: Vec<u8> = enc7(*prefix, 5).collect();
+            k.extend_from_slice(name);
+            k.push(b'/');
+            enc.push(id, &mut k);
+            out.push(k);
+        }
+    }
+    // `'/'` sorts below every name byte, so sorting the keys orders names
+    // within a prefix; ids are fixed-width, so they sort numerically.
+    out.sort_unstable();
     out
 }
 
@@ -270,24 +431,26 @@ fn json_census(c: &LayoutCensus) -> String {
 /// bytes, key count and per-byte cardinalities — with `count` groups and
 /// `bytes` the total they replace (the census keys them by subtree size too).
 fn json_groups(c: &LayoutCensus) -> String {
-    let mut agg: std::collections::BTreeMap<(u8, usize, [u16; 7]), (usize, usize)> =
+    // (key bytes, slot level, keys, byte cards) -> (groups, bytes).
+    type GroupKey = (u8, u8, usize, [u16; 7]);
+    let mut agg: std::collections::BTreeMap<GroupKey, (usize, usize)> =
         std::collections::BTreeMap::new();
     for (g, n) in &c.merge_groups {
         let e = agg
-            .entry((g.key_bytes, g.keys, g.byte_cards))
+            .entry((g.key_bytes, g.slot_level, g.keys, g.byte_cards))
             .or_insert((0, 0));
         e.0 += n;
         e.1 += n * g.bytes;
     }
     let rows: Vec<String> = agg
         .iter()
-        .map(|((kb, keys, cards), (n, bytes))| {
+        .map(|((kb, slot, keys, cards), (n, bytes))| {
             let cards: Vec<String> = cards[..*kb as usize]
                 .iter()
                 .map(u16::to_string)
                 .collect();
             format!(
-                "{{\"key_bytes\": {kb}, \"keys\": {keys}, \"byte_cards\": [{}], \"count\": {n}, \"bytes\": {bytes}}}",
+                "{{\"key_bytes\": {kb}, \"slot_level\": {slot}, \"keys\": {keys}, \"byte_cards\": [{}], \"count\": {n}, \"bytes\": {bytes}}}",
                 cards.join(", ")
             )
         })
@@ -439,9 +602,36 @@ fn main() {
             s.layout_census(r)
         });
     }
+    // The id-encoding comparison of the #1257 follow-up: both composite
+    // distributions under every encoding, 10^7 keys (or `--population`),
+    // loaded sorted.
+    if args.iter().any(|a| a == "--encodings") {
+        let dn = args
+            .iter()
+            .position(|a| a == "--population")
+            .map_or(10_000_000, |_| n);
+        for dist in ["uniform", "skewed"] {
+            for &enc in ENCODINGS {
+                let keys = composite_keys(dn, dist, enc);
+                let m = build_str(&keys);
+                drop(keys);
+                let shape = format!("composite_{dist}_{}_{dn}", enc.name);
+                record(
+                    &mut out,
+                    run,
+                    "strmap",
+                    &shape,
+                    "sorted",
+                    m.mem_used(),
+                    |r| m.layout_census(r),
+                );
+            }
+        }
+    }
+
     let synthetic = !args
         .iter()
-        .any(|a| a == "--sosd-only" || a == "--downstream");
+        .any(|a| a == "--sosd-only" || a == "--downstream" || a == "--encodings");
 
     for shape in [
         "sequential",
@@ -483,7 +673,7 @@ fn main() {
             .iter()
             .position(|a| a == "--population")
             .map_or(10_000_000, |_| n);
-        for shape in ["orders", "composite"] {
+        for shape in ["orders", "composite", "composite_skewed"] {
             let keys = str_keys(shape, dn);
             let m = build_str(&keys);
             let base = format!("{shape}_{dn}");

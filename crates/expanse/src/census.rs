@@ -47,8 +47,12 @@ pub struct MergeRule {
 /// One class of merge candidates: every field but the count is a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MergeGroup {
-    /// Remainder width of the projected leaf: the branch's form level.
+    /// The branch's form level: the width of the remainders its keys differ in.
     pub key_bytes: u8,
+    /// The level of the slot that holds the branch. Above `key_bytes` only
+    /// behind a narrow pointer; a leaf that grows in that slot instead of
+    /// cascading keeps this width.
+    pub slot_level: u8,
     /// Keys in the subtree.
     pub keys: usize,
     /// Distinct values at each byte of the `key_bytes`-byte remainder, most
@@ -422,6 +426,7 @@ unsafe fn walk<const MAP: bool>(
                 }
                 groups = vec![MergeGroup {
                     key_bytes: bl,
+                    slot_level: level,
                     keys: pop,
                     byte_cards,
                     bytes,
