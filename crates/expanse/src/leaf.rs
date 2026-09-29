@@ -28,11 +28,35 @@ use crate::types::Key;
 /// boundaries while staying strictly within the 1M random memory budget gate
 /// (< 9.0 B/key set, < 18.0 B/key map). Allocation sizes stay derivable from
 /// the current population alone — `free` needs no stored capacity.
+#[cfg(not(feature = "ablation-leaf-class-10"))]
 #[inline]
 #[must_use]
 pub const fn cap_class(pop: usize) -> usize {
     if pop <= 2 {
         pop
+    } else if pop <= 16 {
+        (pop + 3) & !3
+    } else if pop <= 24 {
+        24
+    } else if pop <= 32 {
+        32
+    } else {
+        (pop + 3) & !3
+    }
+}
+
+/// The diagnostic `ablation-leaf-class-10` ladder (#1257): the default ladder
+/// with one class at 10 slots, which a decimal-digit range fills exactly.
+/// The SIMD gates in `lower_bound_fixed` and `search_fixed` cover
+/// populations 3..=8 and 13..=16, so none reads through the new class.
+#[cfg(feature = "ablation-leaf-class-10")]
+#[inline]
+#[must_use]
+pub const fn cap_class(pop: usize) -> usize {
+    if pop <= 2 {
+        pop
+    } else if pop == 9 || pop == 10 {
+        10
     } else if pop <= 16 {
         (pop + 3) & !3
     } else if pop <= 24 {
@@ -1290,7 +1314,14 @@ mod tests {
         assert_eq!(cap_class(4), 4);
         assert_eq!(cap_class(5), 8);
         assert_eq!(cap_class(8), 8);
+        #[cfg(not(feature = "ablation-leaf-class-10"))]
         assert_eq!(cap_class(9), 12);
+        #[cfg(feature = "ablation-leaf-class-10")]
+        {
+            assert_eq!(cap_class(9), 10);
+            assert_eq!(cap_class(10), 10);
+            assert_eq!(cap_class(11), 12);
+        }
         assert_eq!(cap_class(12), 12);
         assert_eq!(cap_class(13), 16);
         assert_eq!(cap_class(16), 16);

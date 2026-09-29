@@ -49,6 +49,8 @@ PIN_HELPER_PY = "scripts/bench_pin.py"
 # this list exists to close: adding a directly-invoked wall-clock harness means
 # adding it here, and the gate names it if it does not take the pin.
 DIRECT_HARNESSES = {
+    "scripts/leaf_layout_timing.py":
+        "the #1257 W3 encoding timing, run by hand on the reference host under the bench lock",
     "bindings/python/bench_concurrency.py":
         "the concurrency artifact this gate's gap already shipped unpinned (#774)",
     "bindings/python/bench.py":

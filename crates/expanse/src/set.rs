@@ -1641,6 +1641,30 @@ impl ExpanseSet {
         }
         stats
     }
+
+    /// Decomposes [`Self::mem_used`] into allocation shapes and, given a
+    /// rule, the branches a low-cardinality leaf form would absorb. A
+    /// diagnostic for layout studies (feature `layout-census`, Refs #1257);
+    /// not a stability surface.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        let mut c = crate::census::LayoutCensus::default();
+        match &self.root {
+            Root::Empty => {}
+            Root::Leaf { pop, .. } => crate::census::root_leaf(&mut c, *pop, root_leaf_size(*pop)),
+            Root::Tree { top, .. } => {
+                self.flush_path();
+                // SAFETY: the live top edge of a set-flavor tree; `&self`
+                // rules out a concurrent writer on an unshared set.
+                unsafe { crate::census::tree::<false>(&mut c, top, rule) };
+            }
+        }
+        c
+    }
 }
 
 impl ExpanseSet {

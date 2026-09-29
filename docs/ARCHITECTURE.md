@@ -170,6 +170,290 @@ Cells that share a $\lambda$ agree to within 0.05 B/key although they differ in 
 
 **What this obliges.** A per-key memory figure on `random` keys — or on any workload whose occupancy is not fixed by construction — is under-specified without its $\lambda$. Two cells at different $\lambda$ are two points on this curve, not a before/after: a keyspace restriction, a population change and a change to `LEAF_CAP` all move the same number. Every published `bytes/key` cell states its $\lambda$ ([`BENCHMARKING.md`](BENCHMARKING.md) rule 17), and the `memory-budget` gate records the density it was calibrated at (`examples/bytes_per_key.rs`).
 
+### 3.6 Low-cardinality key bytes: leaf layout evaluation (#1257) — *evaluation, no layout change shipped*
+
+> **Status.** Nothing here changes the default layout. The section records the evaluation [#1257](https://github.com/orieg/expanse/issues/1257) asks for: what the current layout costs, the byte model for each candidate, two measured checks of that model, and the gate a candidate must pass. Time costs are **unmeasured** for every candidate; the plan below is the pre-registration for measuring them.
+
+**The case.** Keys whose byte at a trie level takes few of its 256 values fill leaves poorly. #1257's example is 10⁷ sorted keys `t%03d:orders:%010d` in an `ExpanseStrMap` with 8-byte values. Its last word-map chunk is six decimal digits and two NUL bytes, so every range below one hundreds digit holds 100 keys whose two top remainder bytes each take 10 values. 100 exceeds `LEAF_CAP` = 32, so the range cascades into a `BranchB` whose ten children are 10-key `Leaf3` leaves in the 12-slot capacity class. One such range costs 128 B (branch) + 192 B (a 12-edge subarray) + 10 × 144 B (`size_map(3, 10)` = 132, rounded to 16) = **1,760 B, 17.60 B/key**. On current `main` the case is unchanged from 0.8.2: `mem_used()` = 179,699,624 B, **17.97 B/key**, and the census attributes 176,000,000 B (97.9%) to exactly 100,000 such ranges *(measured: `mem_used()` and `layout_census()`, deterministic byte accounting, host-independent; engine at c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_c5a6f688.json`](../results/leaf_layout_census_c5a6f688.json) record `strmap/orders_10000000`)*. The remaining 3,699,624 B are 11,011 upper-level `BranchB` nodes of 320 B, 1,001 `BranchL3`, 1,000 one-entry root leaves, 100 `Leaf5` leaves and 2,001 node shells of 40 B.
+
+**Instruments.** Two, and the second is only as good as its agreement with the first.
+
+- **`layout_census()`** (feature `layout-census`, diagnostic, compiled out by default) on `ExpanseMap`, `ExpanseSet` and `ExpanseStrMap` decomposes `mem_used()` into allocation *shapes*: linear leaves by (slot level, key bytes, population) — the joint histogram of [#1256](https://github.com/orieg/expanse/issues/1256), whose row sums are pinned equal to `stats().leaf_depth_histogram` — subarrays by entry count, branch forms, and for a string map the node shells and suffix leaves ([#1255](https://github.com/orieg/expanse/issues/1255)). Its byte total is pinned equal to `mem_used()` on every shape and flavor (`census::tests`; deleting the subarray byte term from the walk turns both sum tests red). Given a merge rule (at most `max_keys` keys, at most `max_digits` values of the decoded byte), it also reports every **topmost** branch the rule would keep as one leaf, with its key count, the number of distinct values at each remainder byte, and the bytes of the subtree it would replace. `examples/leaf_layout_census.rs` writes it as JSON. It is also reachable on `SyncExpanseMap`, `SyncExpanseSet` and `SyncExpanseStrMap`, as a `layout_census` method taken with writers excluded (as `with_locked` reads). There the string map counts strings from the walk, because an optimistic writer can leave a population field stale. `census::tests` pin it after multi-threaded inserts through each wrapper, and after a random half of a loaded tree is removed.
+- **`scripts/leaf_layout_model.py`** (pinned tests, `--self-test`) mirrors every engine size function and re-prices a census under each option. Under the current layout it reproduces `mem_used()` exactly for every record, which it checks on load. An option's figure is therefore the same tree with only the named allocations re-priced.
+
+**Two checks of the model against engines.** Both builds reproduced the model's figure **to the byte on every record they share**. What each check can and cannot catch differs:
+
+1. **Pricing consistency, class-10 ladder.** Built as the diagnostic `ablation-leaf-class-10` feature (`cap_class` gains a class at 10 slots): 14 of 14 records, all shapes and flavors *(measured: [`results/leaf_layout_census_c5a6f688_class10.json`](../results/leaf_layout_census_c5a6f688_class10.json); `leaf_layout_model.py <census> --check <totals> class_10 128 16`)*. The ladder changes no node form, so the tree shape is identical by construction. The match proves the model applies the class at every site the engine does (linear and root leaves, subarrays, immediate and bitmap-leaf value arrays). It cannot catch a shape error, a transient peak, or allocator overhead beyond `mem_used()` ([#1095](https://github.com/orieg/expanse/issues/1095) records how RSS departs from it).
+2. **Merge projection, where the key bound alone decides.** Built with the build-time patch [`results/leaf_layout_census_c5a6f688_cap128.patch`](../results/leaf_layout_census_c5a6f688_cap128.patch) (`LEAF_CAP = 128`), on the 10 records where every range of at most 128 keys has at most 10 (or 16) values of its split byte. There a uniform cap builds the same tree as the adaptive rule, and all 10 match *(measured: [`results/leaf_layout_census_c5a6f688_cap128.json`](../results/leaf_layout_census_c5a6f688_cap128.json))*. This validates the priced leaf, the narrow leaf's key width, and topmost selection by key count. Two of the 10 (`sequential`) do not change at all, and `uuid_hex` moves by 1,104 B. The **digit bound was never the deciding clause** on any checked record. `adversarial`, the one shape where it decides, is excluded, because there the uniform patch also merges the 17-value ranges. The rule's behaviour with qualifying and non-qualifying siblings side by side is therefore unvalidated, and every figure that depends on the digit bound is a projection.
+
+The grouped and product forms are priced by the same census but built by no engine, so their figures are projections.
+
+**Options.** Bytes per key, `map` and `strmap` with 8-byte values, `set` with none. Merge options use the rule (at most 128 keys, at most 16 values of the split byte). The random rows sit at a single $\lambda = 15.26$ (§3.5), in the sawtooth's trough, and move with $\lambda$. Legend:
+
+- **Measured:** current, class 10, and leaf cap on the rows check 2 covers (the three `orders` rows and both `decimal8` rows).
+- **Projected** by the model from the same census: every other cell.
+- Percentages are the share of entries inside merged ranges. String-map entries are chunk entries.
+- Engine at c5a6f6886; workload: `example_leaf_layout_census`.
+
+| engine / shape | keys | current | exact classes | even classes | class 10 | leaf cap (adaptive) | grouped leaf | product leaf |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| strmap `orders` (#1257) | 10⁷ | **17.97** | 14.41 | 14.41 | **14.41** | **12.37** | 11.73 | 8.85 |
+| strmap `orders` | 10⁶ | 18.10 | 14.55 | 14.55 | 14.55 | 12.49 | 11.85 | 8.97 |
+| strmap `orders_sparse` (random 10-digit ids) | 10⁶ | 38.41 | 36.79 | 37.28 | 37.63 | 34.45 (95%) | 33.71 (95%) | 38.39 (0%) |
+| strmap `uuid_hex` (random, 16 values per byte) | 10⁶ | 60.02 | 58.08 | 59.46 | 59.81 | 60.02 (0%) | 60.02 (0%) | 60.02 |
+| map `decimal8` (ASCII `%08d` words) | 10⁶ | 14.76 | 12.80 | 12.80 | 12.80 | 10.44 | 9.64 | 8.84 |
+| set `decimal8` | 10⁶ | 3.56 | 3.20 | 3.20 | 3.20 | 2.44 | 1.64 | 0.84 |
+| map `decimal8_sparse` | 994,982 | 17.17 | 14.96 | 15.63 | 15.99 | 12.55 | 11.84 | 17.17 (0%) |
+| map `random` | 10⁶ | 17.58 | 15.53 | 17.22 | 17.42 | 17.58 (0%) | 17.58 (0%) | 17.58 |
+| set `random` | 10⁶ | 8.21 | 7.53 | 8.13 | 8.13 | 8.21 (0%) | 8.21 (0%) | 8.21 |
+| map `sequential` | 10⁶ | 8.56 | 8.56 | 8.56 | 8.56 | 8.56 | 8.56 | 8.56 |
+| map `adversarial` (projected) | 10⁶ | 18.51 | 18.26 | 18.51 | 18.51 | 14.88 (50%) | 14.76 (50%) | 13.63 (50%) |
+| set `adversarial` (projected) | 10⁶ | 6.63 | 6.38 | 6.63 | 6.63 | 5.01 (50%) | 4.88 (50%) | 3.76 (50%) |
+
+**Real sorted keys (SOSD).** The four SOSD `u64` datasets were each inserted whole and in order, as map (value = index) and set. Every census summed to `mem_used()` and prices to it in the model. The data is SOSD's `fb`, `wiki_ts`, `books` and `osm_cellids` (200M keys each, 90,437,011 distinct in `wiki_ts`), from the Harvard Dataverse deposit `doi:10.7910/DVN/JGVF9A`. The SHA-256 of each `.zst` is recorded in the artifact's commit message. Merge options use the same rule as above. *(measured: current; projected: every other column; engine sources of c5a6f6886, built with this change's census tooling; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_sosd.json.gz`](../results/leaf_layout_census_sosd.json.gz))*
+
+| engine / dataset | keys | current | exact classes | even classes | class 10 | leaf cap | grouped leaf | product leaf |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| map `fb` | 200M | 15.25 | 13.61 | 14.42 | 15.02 | 15.24 (0%) | 15.24 (0%) | 15.25 (0%) |
+| set `fb` | 200M | 6.86 | 6.01 | 6.58 | 6.77 | 6.85 (0%) | 6.85 (0%) | 6.86 (0%) |
+| map `wiki_ts` | 90.4M | 9.98 | 9.14 | 9.85 | 9.93 | 9.98 (0%) | 9.98 (0%) | 9.98 |
+| map `books` | 200M | 21.33 | 18.75 | 19.92 | 20.91 | 21.33 (0%) | 21.33 (0%) | 21.33 |
+| set `books` | 200M | 15.85 | 13.75 | 14.62 | 15.46 | 15.85 (0%) | 15.85 (0%) | 15.85 |
+| map `osm_cellids` | 200M | 19.79 | 17.79 | 18.95 | 19.56 | 19.78 (0%) | 19.78 (0%) | 19.79 |
+| set `osm_cellids` | 200M | 11.98 | 10.73 | 11.50 | 11.82 | 11.97 (0%) | 11.97 (0%) | 11.98 |
+
+**What the real keys say.**
+
+- **Merge options.** On all four datasets they touch well under 1% of entries. Low-cardinality ranges of the #1257 kind do not occur in them. The merge options are a remedy for keys built from small alphabets, such as decimal or hex text and composite string keys, not for real numeric keys.
+- **Ladder options.** These help on every dataset:
+  - class 10 saves 0.5–2.5% (map `books` 21.33 → 20.91);
+  - even classes save 1.3–7.8% (map `fb` 15.25 → 14.42, set `books` 15.85 → 14.62);
+  - exact classes, the lower bound, save 8.4–13.2%.
+- **A range can grow.** On map `osm_cellids`, four merged ranges would grow by 16–32 B each under the leaf cap. They are ranges of 33–37 keys whose split byte takes 2–7 values, where a small branch over narrower leaves beats one leaf with an extra key byte. A merge rule that admits by digit count alone is therefore not monotone in bytes. An implementation would also need a byte test, or would accept these losses.
+
+**Downstream string shapes (the #1257 follow-up).** Two string shapes, each 10⁷ keys, in an `ExpanseStrMap` with 8-byte values:
+
+- **`orders`** is #1257's `t%03d:orders:%010d`.
+- **`composite`** is `prefix(5 B) ‖ name ‖ '/' ‖ id(10 B)`, where:
+  - the prefix and id use a 7-bit big-endian encoding offset by +1, so every byte is in `0x01..=0x80` and byte order is numeric order;
+  - names match `[A-Za-z0-9_]{1,32}`.
+
+  The distribution is this harness's choice: 100 prefixes × 100 seeded names × 1,000 sequential ids per name.
+
+Each shape is loaded sorted and shuffled (a Fisher–Yates permutation). From the sorted load, a seeded random half is then removed (`churned`), and a fresh sorted build of the same survivors is kept beside it (`survivors`).
+
+The report sets a need of **≤ 13.2 B/key** on these shapes. It is derived from a resident-bytes ratio against a compressed LSM baseline; it is arithmetic, not a measurement of any layout. *(measured: current, class 10 and leaf cap; projected: every other cell; engine sources of c5a6f6886, built with this change's census tooling; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_downstream.json`](../results/leaf_layout_census_downstream.json), totals under both builds in `results/leaf_layout_census_downstream_{class10,cap128}.json`, model output in [`results/leaf_layout_model_downstream.txt`](../results/leaf_layout_model_downstream.txt))*
+
+| strmap shape (10⁷ loaded) | current | exact classes | even classes | class 10 | leaf cap | grouped leaf | product leaf |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `orders`, sorted or shuffled | 17.97 | 14.41 | 14.41 | **14.41** | **12.37** (128 keys, 10 digits) | 11.73 | 8.85 |
+| `orders`, random half removed | 22.58 | 19.19 | 20.35 | **21.80** | **13.10** | 12.68 | 9.94 |
+| `orders`, survivors built fresh | 22.43 | 19.05 | 20.21 | **21.66** | **13.10** | 12.68 | 9.94 |
+| `composite`, sorted or shuffled | 18.36 | 18.19 | 18.32 | **18.33** | **14.78** (128 keys, 128 digits) | 15.64 | 12.24 |
+| `composite`, random half removed | 22.58 | 19.75 | 22.13 | **22.53** | **16.33** | 17.14 | 13.77 |
+| `composite`, survivors built fresh | 22.58 | 19.75 | 22.13 | **22.53** | **16.33** | 17.14 | 13.77 |
+
+The class-10 and leaf-cap columns (bold) were built and matched the model to the byte on all 16 records. That includes the removal phase, so what a removal phase leaves behind under the leaf cap is **measured, not assumed**. On `composite` the cap-128 build is exactly the (128 keys, 128 digits) rule, because 7-bit bytes take at most 128 values.
+
+What the table shows:
+
+- **Load order does not change memory.** Sorted and shuffled loads give identical `mem_used()` on both shapes, under every build.
+- **A removal phase leaves little behind.**
+  - Under the current layout a removed half leaves 0.14 B/key (0.6%) more than a fresh build of the survivors on `orders`, and nothing on `composite`.
+  - Under the leaf cap it leaves nothing on either. Merged leaves shrink in place; they are not stranded as branches.
+  - This does not cover removal patterns that empty whole ranges and then refill them. That is the churn stress shape of step 1.
+- **`composite` is not a low-cardinality case of the #1257 kind.**
+  - 16.05 of its 18.36 B/key are bitmap branches whose children are single-key immediates (9,202,000 of the 10⁷ keys), one 16-byte edge per key. This is the cascaded regime of §3.5, caused by a dense 7-bit id byte (128 values) rather than by random density.
+  - The ladder options cannot reach that cost (−0.2% at best), and a 16-digit merge rule excludes it by design.
+  - A leaf-cap rule admitting up to 128 values (measured, 14.78) and the product leaf (projected, 12.24) do reach it. The grouped leaf is worse than the leaf cap here, because its directory costs 2 × 128 + 1 bytes per range.
+  - The 23% of entries left unmerged sit in ranges of about 1,000 ids over an 8 × 128 product space. Only a product leaf with a larger key bound reaches them; that is unexplored.
+- **Against the ≤ 13.2 B/key need:**
+
+  | option | `orders` loaded | `orders` after removal | `composite` loaded | `composite` after removal |
+  |---|---|---|---|---|
+  | leaf cap (measured) | 12.37, meets it | 13.10, meets it narrowly | 14.78, misses | 16.33, misses |
+  | product leaf (projected) | 8.85, meets it | 9.94, meets it | 12.24, meets it | 13.77, misses |
+  | ladder options | miss | miss | miss | miss |
+
+  The 128-digit rule needed for `composite` is a dense-range rule, not a low-cardinality one. Its lookup cost is the cascaded-regime trade §3.5 measured for `LEAF_CAP = 48` (+17–19% Ir per lookup), at a larger leaf.
+
+**The bar and the acceptance conditions, as the report states them.**
+
+- **The ≤ 13.2 B/key need is a load-time bar**, taken after a bulk load. The post-removal figures above are reported, not gated on. A candidate that meets the bar at load and degrades gracefully after removals is acceptable to the report.
+- **A product-space leaf is acceptable to the report** only if all of these hold. They are added to that option's clauses below:
+  - lookup-neutral against current `main` under W3: hit and miss, sorted and shuffled loads;
+  - ordered iteration, successor/predecessor and prefix/range scans keep their semantics and order;
+  - bounded insert cost, with no whole-leaf rebuild on the common append-at-end path;
+  - `Edge` stays 16 B and `ValueSlot` one machine word;
+  - descent stays $O(k)$ over key bytes.
+
+**A skewed `composite` distribution (assumed).** The report has no production traffic, so both distributions are assumptions. The skewed one:
+
+- 100 prefixes, each with its own 5–20 names of 4–20 bytes (1,158 names in all);
+- sequential ids per name, sized by a power law over name rank, $`\min(10^6, \lfloor A\, r^{-1.4} \rfloor)`$, with $A$ chosen so the sizes sum to 10⁷ and ranks assigned to names by a seeded shuffle;
+- that gives a median of 696 ids per name, 61% of names under 1,000, and 16 names at 10⁵ or more, 3 of them at the 10⁶ cap (derived by replaying the generator's PRNG).
+
+On the report's 7-bit ids it behaves as the uniform case does *(measured, same instrument and workload; [`results/leaf_layout_census_downstream.json`](../results/leaf_layout_census_downstream.json))*:
+
+- Current layout: 18.48 B/key, identical for sorted and shuffled loads; 22.29 after removal against 22.28 for the survivors built fresh.
+- Class 10: 18.48.
+- Leaf cap at 128 digits: 14.90 at load and 16.04 after removal.
+- Product leaf: 12.43 at load, projected.
+
+**Choosing the id encoding (the report's question).** The report controls the id encoding and would rather change it than depend on a new leaf form. The census compares five order-preserving, NUL-free encodings. Each writes the id at a fixed width as big-endian digits, one per byte, with byte = base + digit. It covers both distributions, 10⁷ keys, sorted, same prefixes and names *(measured: current, class 10, and leaf cap on every encoding whose bytes take at most 128 values; projected: product leaf; engine sources of c5a6f6886, built with this change's census tooling; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_encodings.json`](../results/leaf_layout_census_encodings.json), totals in `results/leaf_layout_census_encodings_{class10,cap128}.json`, model output in [`results/leaf_layout_model_encodings.txt`](../results/leaf_layout_model_encodings.txt))*:
+
+| id encoding | values per byte | bytes | uniform: current | uniform: leaf cap | skewed: current | skewed: leaf cap |
+|---|---:|---:|---:|---:|---:|---:|
+| `enc7x10` (the report's) | 128 | 10 | 18.36 | 14.78 | 18.48 | 14.90 |
+| `b255x3` | 255 | 3 | 17.92 | 17.91 | 17.75 | 17.73 |
+| `b16x5` | 16 | 5 | 17.58 | 17.60 | 16.87 | 16.87 |
+| `b32x4` | 32 | 4 | 15.87 | 15.86 | 14.94 | 14.94 |
+| **`b32x4a7`**: base 32, width per name so the key is 7 (mod 8) bytes | 32 | ≥ 4 | **10.88** | 10.87 | **10.70** | 10.70 |
+
+(`b255x3` under the cap-128 build is not the 128-digit rule, since its bytes take up to 255 values.)
+
+- **Answer: base-32 digits, with the id width chosen per name so the whole key is 7 (mod 8) bytes long.** That encoding meets the ≤ 13.2 B/key bar on the **current layout**: 10.88 B/key uniform and 10.70 skewed, with no engine change. Class 10 and the leaf cap add nothing to it (10.88 and 10.87). What is left is close to the layout's floor: 8 B of value, about 2 B of key, and under 1 B of branches and shells.
+- **Why it works — two effects, both measured by the census:**
+  - **The low byte's alphabet decides whether a range fits a leaf.** A range whose last id byte takes 32 values holds at most 32 keys, which fills one linear leaf at `LEAF_CAP` = 32. At 128 values (`enc7x10`) or 255 (`b255x3`), the range cascades into a branch of single-key 16-byte edges. At 16 values (`b16x5`), two digits of 256 keys fall into more, smaller leaves under more branches.
+  - **Where the id's last byte lands in the string map's final 8-byte chunk decides the key width of those leaves.** The final chunk ends in the terminating NUL, so its data bytes sit at word levels 2 and up. When the key is 7 (mod 8) bytes long, the id's low byte sits at level 2, and each leaf key costs 2 bytes beside its 8-byte value. At other lengths the leaf keys are wider. When the key is 0 (mod 8) bytes long, every string ends in a separate suffix leaf. When it is 1 (mod 8), the last byte sits alone in its chunk, where 32 values cascade into single-key edges. Unaligned `b32x4` pays both costs on the names whose length puts it there: 15.87 against 10.88.
+- **Conditions and caveats:**
+  - The width is fixed per name, so ids stay order-preserving within a name, and the leading zero digits it adds are shared by every id of the name.
+  - The width has to be chosen for the largest id a name will ever hold. At the minimum of 4 digits that is 32⁴ = 1,048,576; a name that outgrows its width has to be re-encoded.
+  - **The alignment is a published contract.** `strmap::CHUNK_BYTES` (8) is public. An encoder derives its alignment from it: key length ≡ `CHUNK_BYTES - 1` (mod `CHUNK_BYTES`). Changing the value is a breaking change, so an encoder that derives from it sees the change at compile time. `census::tests::chunk_bytes_alignment_contract` pins the effect on the engine: 1,024 aligned keys with a 32-valued last byte fill exactly 32 two-byte-key leaves. `leaf_layout_census.rs` derives the alignment from the same constant.
+
+**Full-width ids, and `orders` transcoded (the report's second follow-up).** Both use base-32 digits `0x01..=0x20` with the 7 (mod 8) whole-key alignment, and both are in `leaf_layout_census.rs --encodings`, which re-runs them on any release.
+
+- **`b32full`** is for ids that are full `u64`, so no width can be outgrown. The prefix is 7 digits (31 bits), and the id is at least 13 digits (32¹³ > 2⁶⁴), widened per name to the alignment, so 13–20 digits.
+- **`orders_b32a7`** keeps the `orders` key structure and rewrites each fixed-width decimal field in base 32: `%03d` → 2 digits, and `%010d` → 7 digits (32⁷ = 2³⁵), padded to 12 for the alignment.
+
+Figures are at 10⁷ keys *(measured on all three builds; engine at 45eb0f6ac, whose engine sources are those of c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_encodings.json`](../results/leaf_layout_census_encodings.json) and its `_class10` / `_cap128` totals)*:
+
+| B/key, 10⁷, sorted = shuffled | current | class 10 | leaf cap |
+|---|---:|---:|---:|
+| `composite` uniform, `b32x4a7` | 10.88 | 10.88 | 10.87 |
+| `composite` uniform, **`b32full`** | **10.93** | 10.93 | 10.93 |
+| `composite` skewed, `b32x4a7` | 10.70 | 10.70 | 10.70 |
+| `composite` skewed, **`b32full`** | **10.71** | 10.71 | 10.71 |
+| `orders`, text (#1257) | 17.97 | 14.41 | 12.37 |
+| `orders`, **`orders_b32a7`** | **10.71** | 10.70 | 10.71 |
+
+- **The constant high digits cost almost nothing per key; what they add is a per-name cost at the level of the 8-byte chunk.**
+  - Full-width ids cost +0.046 B/key over 4-digit ids on the uniform shape and +0.008 on the skewed one. Leaves and branches are unchanged (10.00 and 0.72 B/key).
+  - The difference is string-map nodes. The longer constant prefix spans one more 8-byte chunk, which adds a node per name: 28,001 → 36,701 nodes on the uniform shape, about 53 B each (a 40-byte shell and a small root leaf).
+  - That cost is per name, not per key. It is negligible at hundreds of ids per name, but approaches 53 B/key for names holding a single id.
+- **Transcoded `orders` meets the ≤ 13.2 B/key bar on the current layout:** 10.71 B/key against 17.97, with no engine change. That is 10.00 B/key of leaves (8 B value + 2 B key), 0.70 of branches and under 0.02 of everything else. Neither class 10 nor the leaf cap adds anything once the keys are transcoded.
+- **What this says about a key codec inside the engine.** It is an upper bound only: the census measures what the transcoded bytes cost, not what a codec would cost. A codec that stored `orders` this way would have to do three things:
+  - decode on every read that returns a key;
+  - keep JudySL's byte order, which a fixed-width field allows and a variable-width decimal run does not without a length prefix;
+  - pay its encode and decode cost on every operation, which is unmeasured.
+  It is a different trade from a leaf form, and the census cannot price it.
+- **Model check.** Class 10 matches the engine to the byte on all 28 records of this run. The leaf-cap projection matches on 14 of the 24 records the 128-digit rule applies to; the 4 base-255 records are outside it. The residuals are the eight composite cells above, now on shuffled loads too and identical to the sorted ones, plus +528 B on both `orders_b32a7` loads. They are unexplained and pinned exactly in the model's self-test.
+
+**Mixed ranges: transcoded `orders` with escaped text keys.** A codec needs an escape form for keys that do not match a range's template. The census models it as follows:
+
+- A seeded random fraction of ids stays as text `orders` keys.
+- The rest are transcoded behind a leading `0x01` marker, which sorts every encoded key below every text key. With the marker, the id pads to 11 base-32 digits for the alignment.
+- Each cell is censused as one map and as each part alone.
+
+*(measured: `mem_used()`, current layout, 10⁷ keys, sorted; engine sources of c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_mixed.json`](../results/leaf_layout_census_mixed.json))*
+
+| escaped to text | whole map, B/key | encoded part, B/key | escaped part, B/key |
+|---:|---:|---:|---:|
+| 0% | 10.71 | 10.71 | — |
+| 1% | 10.91 | 10.81 | 20.51 |
+| 10% | 12.44 | 11.86 | 17.59 |
+| 50% | 17.89 | 13.35 | 22.44 |
+
+- **Escaped keys do not break the encoded region's leaf fill; they dilute it.**
+  - The whole map costs its two parts together to within 104 B, so neither part changes the other's layout.
+  - At 1% the encoded part's bytes are identical to the unescaped map's: a 32-key range that loses a key keeps its 32-slot class.
+  - The cost is a mixture: slack in the encoded leaves as holes grow, and 17.6–22.4 B for each escaped text key. The text keys cost more than dense text `orders` because they are sparse.
+- **The ≤ 13.2 B/key load-time bar holds up to 10% escaped** (12.44), and fails at 50% (17.89, close to all-text `orders`).
+
+No option raises `mem_used()` on any record. Under the merge options no single range grows on the synthetic shapes; on SOSD `osm_cellids` four do (below). These are **bytes at rest after an insert-only build**. What each option costs on the write path, and what memory it leaves after removals, is not in the table.
+
+The shapes cover the cases unevenly:
+
+- They are either complete dense decimal ranges, which are the product leaf's best case, or uniformly sparse. Partly filled ranges are unprobed: counters with deletions, timestamps, sharded sequences.
+- `adversarial` stresses only the digit bound. Every range holds 64 keys, is dense, and is built sorted, so the key bound never binds.
+- At a single λ some verdicts sit on a cliff. `uuid_hex` merges 0% of its entries at a 128-key bound and 77% at 256.
+
+What each option is, and when a node enters and leaves it:
+
+- **Exact classes** size every class-sized array to its population. They are the lower bound of the ladder options, not a candidate: every insert and removal would reallocate, which the ladder exists to avoid (`leaf.rs::cap_class`).
+- **Even classes** (…, 8, 10, 12, 14, 16, then as now) are the alphabet-neutral form of the next option. They also help `random` (17.58 → 17.22) and `uuid_hex` (60.02 → 59.46), at the cost of more reallocation boundaries.
+- **Class 10** adds one class, so populations 9 and 10 take 10 slots rather than 12. That fixes #1257's slack exactly, because a decimal digit range holds 10 keys.
+  - **Reallocations.** A leaf growing to 10 reallocates as often as today (at 1, 2, 4, 8, 10 rather than 1, 2, 4, 8, 12). Only a leaf that grows past 10 pays one more reallocation. As with every class boundary today, grow and shrink share the boundary with no band.
+  - **SIMD safety.** No SIMD gate reads through the new class: the gates in `lower_bound_fixed` and `search_fixed` cover populations 3–8 and 13–16 only. `simd_gate_safety` enumerates those gate ranges only, so a gate later widened into 9–12 would not be caught by it.
+  - **Lookup path.** `cap_class` runs on the map-leaf lookup path (`map_keys_offset`), and one more arm there is an unmeasured cost. The disassembly of that path is read before any timing. If the arm compiles to a branch, a table-lookup `cap_class` is measured as its own increment.
+  - **Tests.** Two tests are pinned to the current ladder: a Miri UB-site churn fixture, and `slot_calls_on_a_warm_insert_path`, which appends 10 → 11 → 12 in place. Under the arm the first is re-pinned and the second compiled out. The memory pins in `test_visualizer_sync.rs` move by design.
+- **Leaf cap (adaptive)** keeps a linear leaf past `LEAF_CAP` while it holds at most `LOWCARD_LEAF_CAP` keys and its **split byte** takes at most `LOWCARD_MAX_DIGITS` values. It cascades as now when either bound is crossed.
+  - **The split byte** is the byte a cascade would branch on: the first remainder byte below the prefix all the leaf's keys share. It is not the leaf's first remainder byte, which a narrow-pointer leaf's keys may all share. The census counts that byte, and an implementation has to count the same one.
+  - **Constants.** Proposed: `LOWCARD_LEAF_CAP = 4 * LEAF_CAP` (128, derived) and `LOWCARD_MAX_DIGITS = 16` (a primary constant: the hex alphabet, which also covers decimal). 128 is chosen to admit #1257's 100-key ranges, so it is fitted to that case. 64 and 96 have to be priced against it in bytes and in lookup cost before it is fixed.
+  - **Implementation scope.** It adds no tag, so no §2.3 audit. But it is not a threshold change alone. The cascade decision changes in the flat and the OCC insert walks (§2.1 invariant 5), and three fixed 32-slot stack buffers have to be checked, and sized from the cap wherever they can hold a whole linear leaf. They are the shared-tree key rewrite (`leaf.rs`, `[MaybeUninit<u64>; 32]`, commented as sized for `LEAF_CAP` keys), `StackEntries32` (`mutate_map.rs`) and `StackKeys32` (`mutate.rs`). For the same reason, the cap-128 patch is a valid instrument only for plain, single-threaded trees.
+  - **Write amplification.** Above `LEAF_CAP` the class ladder steps by 4. A leaf growing to 128 keys is therefore reallocated and copied about every 4 inserts, and an in-place insert or removal moves up to about 1.5 KB. The bytes-at-rest saving is bought with write traffic that no figure above counts. On a shared tree that traffic also sits inside a version bracket and in the epoch bins.
+  - **Hysteresis.** No interior branch condenses back into a leaf on removal today: the remove walks of both flavors demote only leaves (linear leaf → immediate, bitmap leaf → `Leaf1`) and branch forms, and only a whole tree condenses, into a root leaf. Form conversion is therefore one-way. It cannot thrash, but a range that once crossed a bound stays branched after removals bring it back under. If branch→leaf condensation is ever added, its thresholds are `LOWCARD_LEAF_CAP - LEAF_CAP` keys and `LOWCARD_MAX_DIGITS - 4` values, derived, never new literals (§2.1 invariant 6).
+- **Grouped leaf** holds the same ranges in one allocation: the $d$ present values of the split byte with a key count each ($2d + 1$ bytes), then $(L-1)$-byte suffixes. It is a bitmap branch and its leaves merged into one block. It saves about one key byte per key over the adaptive leaf cap, and needs a new leaf tag.
+- **Product leaf** keeps a dictionary per remainder byte, a presence bitmap over the product of the dictionaries, and values in rank order.
+  - **Scope.** It applies where the range fills at least 1/8 of that product space, and otherwise leaves the range unchanged. It is the only form that also drops the two constant NUL bytes below #1257's digits: 8.85 against 12.37 B/key on #1257's case (workload: `example_leaf_layout_census`). The 8 B/key of values is the floor any layout keeps, since the JudyL `*mut Word` contract needs one value slot per key.
+  - **Why the sparse shapes gain nothing.** A dense decimal range fills its product space; random decimal ids do not.
+  - **The figure is a lower bound.** It is a steady-state, insert-only figure, and the pricing omits a rank directory over bitmaps of up to 1,024 bits.
+  - **Unspecified transitions.** A value new to any byte's alphabet multiplies the product space and rewrites the bitmap. The density test can then fail and demand a conversion. Removal leaves alphabet entries stale unless it compacts. None of this has entry/exit thresholds or a hysteresis band yet.
+  - **Lookup mechanics (unmeasured).** Its lookup reads a few dictionary bytes, one bitmap word and a popcount, with no data-dependent search loop. That may make it the best lookup form as well as the smallest, which is the case for revisiting it.
+  - **Acceptance.** It is acceptable to the downstream report only under the conditions listed with the downstream results above: lookup-neutral under W3, ordered semantics kept, bounded insert cost with no whole-leaf rebuild on append, `Edge` and `ValueSlot` unchanged, and $O(k)$ descent.
+  - **Audit.** It needs a new `EdgeType`, and so the full §2.3 five-subsystem audit: OCC reader decode inside the bracket, the binary-image format version, the C ABI value-pointer lifetime (values stay in rank order in one array, as in a linear leaf, so "valid until the next mutation" holds), and every binding's iteration.
+- **NUL-tail encoding (not evaluated).** Two of the three key bytes in #1257's leaves are the terminal chunk's constant NUL padding. A string-map change to how the last chunk is keyed could remove them with no new node form. Whether any such encoding keeps JudySL's byte-lexicographic order is unverified.
+
+**Measurement plan and proposed gate.** The maintainer ratifies the thresholds; nothing below has been run. The plan is fixed before any timing and not changed after it (§8.19). Every clause is stated per candidate, and the combination of class 10 with the adaptive cap is a candidate of its own.
+
+1. **Before any timing.**
+   - Run ASan, the Tier-1 Miri filter and the C-ABI tests under `ablation-leaf-class-10`.
+   - Read the disassembly of the map lookup path's `cap_class`.
+   - Add Callgrind arms for the string `orders` shape, with their `Sync*` twins, registered in `perf_report.py`: lookup (50% hit; misses drawn from the same generator and rejected on membership, §8.6), insert sorted and shuffled, remove, ordered scan, next/prev.
+   - Add to the census a λ sweep over one sawtooth period for `random`, `uuid_hex` and `orders_sparse` ($n = 10^6 \cdot 2^{k/8}$, $k = 0..8$).
+   - Add a fill-fraction sweep: decimal ranges with 10–90% of keys kept.
+   - Add stress shapes: ranges of exactly `LOWCARD_LEAF_CAP` keys, ranges whose digit count grows after they are full, and churn (load, remove 50%, reload; a sliding window over the oldest ids).
+2. **Memory (deterministic).**
+   - **M1:** `mem_used()` is at most the current layout's on every cell. It is strictly lower on each cell where the model predicts a decrease for that candidate: class 10 on `orders` and `decimal8`, and the merge options also on `adversarial`. It equals the model's prediction to the byte.
+   - **M2:** on the `orders` 10⁷ cell, `mem_held()` and RSS are not higher than the current layout's.
+   - **M3:** on the churn shapes, the bytes left after removal and reload are reported against the insert-only projection. A merge option does not lose its saving there.
+3. **Write amplification (deterministic).** **A1:** the candidate's allocations and bytes copied per insert and per removal are reported against the current layout on sorted, shuffled and churn workloads, and so are retired bytes per operation on `Sync*` trees. Pre-registered bounds: class 10, at most one extra reallocation per leaf that grows past 10 keys. The adaptive cap's bound is set by the maintainer before its run. **A2:** on a workload oscillating across one class boundary, reallocations per operation are counted. This replaces a form-conversion count, which one-way conversion makes vacuous.
+4. **Instructions (review gate, beside the CI gate).**
+   - **I1:** no untargeted arm above +0.1% unless a base-vs-head `callgrind_annotate` diff attributes it (§6), and none above +0.5%.
+   - The arms expected to lose are named with their bounds now: for class 10, the insert and remove arms whose leaves cross 10 ↔ 11 (≤ +0.5%); for the adaptive cap, lookup Ir per probe on the merged ranges. The `LEAF_CAP = 48` analogue measured +17–19% (§3.5). The bound is set by the maintainer before the run, together with the bytes per key it buys.
+   - Callgrind `--cache-sim=yes --branch-sim=yes` is the deterministic twin for the counters in step 5.
+5. **Wall clock and counters** on the reference host, pinned, with load snapshots (§8.17), interleaved A/B, fixed seeds, paired BCa 95% intervals, two runs (rule 18).
+   - **Ratio and calibration.** The ratio is candidate time over current time. An A/A run of identical builds comes first, to measure the false-separation rate across the cells.
+   - **W1 (equivalence):** on every existing-suite cell, the interval's upper bound is at most 1.02 in both runs.
+   - **W2 (target):** on `orders` 10⁷, which is larger than L3 on both layouts, lookup time does not rise.
+   - **Counters:** branch misses, L1D and LLC load misses and dTLB misses per probe are reported beside it (`perf stat`), so a pass or a fail can be attributed.
+   - **Concurrency:** under `SyncExpanseMap` / `SyncExpanseStrMap` at 1, 4 and 8 readers and 1, 2 and 8 writers, OCC fallback counts are reported (`occ-stats`), as are p99 for shuffled insert and remove.
+   - **W3 (downstream serving profile):** on `orders` and `composite` at 10⁷, loaded sorted and loaded shuffled, the following are reported against current `main` on the same host:
+     - lookup latency and throughput, hit and miss, with 16 reader threads on `SyncExpanseStrMap` under a skewed (Zipfian) key choice;
+     - insert cost during the load.
+
+     Lookups must not regress (W1's bound, on these cells). Extra reallocation on the load path is accepted only when they do not.
+6. **No re-tuning.** A candidate that fails a clause is rejected and recorded here with its number (§8.19).
+
+**Recommendation.**
+
+- **No default change now.** Every candidate's time cost and write cost is unmeasured.
+- **Measure the class-10 ladder first**, after the step-1 checks.
+  - It is one function, already built as `ablation-leaf-class-10`, and the `expanse-trie` test suite passes under it. Miri, ASan and the C-ABI crate have not yet been run under it.
+  - It recovers 3.56 of the 5.60 B/key the adaptive cap would, on #1257's case (−19.8%), and never costs bytes.
+  - Its expected costs (unmeasured) are one more reallocation for a leaf that grows past 10, and one more arm in `cap_class`.
+  - **Run even classes in the same round.** They are the alphabet-neutral alternative. On the SOSD datasets they save 2.6–3.7× what class 10 saves (map `fb` −5.4% against −1.5%), at the price of more reallocation boundaries, so their write-side cost (A1) decides between the two.
+  - Whichever ladder passes every clause is the proposal for a default.
+- **For the downstream keys, change the encoding first.** Aligned base-32 digits meet the bar on the current layout for `composite`, with 4-digit or full-width ids, and for transcoded `orders` (10.71 against 17.97). A leaf form or an in-engine key codec becomes a question for keys whose encoding cannot be chosen.
+- **Then measure the adaptive cap.** The cap-128 patch measures its lookup and scan costs on plain trees at no code cost, on both downstream shapes. Its insert, reallocation and bracket-length costs need A1 and the concurrency cells. It also carries the 32-slot buffer work above. It meets the downstream need on `orders` and misses it on `composite` (14.78 B/key measured), so it cannot be the whole answer for that workload.
+- **Then prototype the product leaf** if the adaptive cap's lookup or insert costs are unacceptable, or if `composite` must meet the need:
+  - It is the only candidate that meets ≤ 13.2 B/key on both downstream shapes as loaded (projected: 8.85 and 12.24). It misses on `composite` after a removal phase (13.77).
+  - It saves nothing on sparse ranges, and its lookup may be the cheapest of the forms.
+  - Its transitions are unspecified, and it needs the full §2.3 audit, so its design comes before any code.
+  - The grouped leaf is dominated on both shapes and is dropped.
+- **What the SOSD census already settles.** The merge options (adaptive cap, grouped and product leaves) do not apply to real numeric keys. Their case rests on string and text-encoded keys alone, which is what #1257 reported. The ladder options are the only candidates with a general memory effect.
+- **What would reverse this.** A ladder regression on untargeted arms. A λ or fill-fraction sweep where the savings vanish. Real string-key datasets where low-cardinality ranges turn out to be rare.
+
 ## 4. Algorithms
 
 - **Lookup** (`get::test_set` / `get::get_map`): iterative tag-dispatched descent. Zero allocation, zero locks. The branch step is a direct digit compare (`BranchL3`) or a presence-filter test and an 8-byte digit find (`BranchL7`), a bitmap test plus subexpanse popcount rank (bitmap), or a direct index (uncompressed). The terminal step is a linear-leaf scan, a bitmap-leaf test/rank, or an immediate key scan, with narrow-pointer decode validation on leaf children. Leaves skip via decode bytes, branches via header-stored levels (see §6 step 3). Immediates never skip — their key size *is* their level. Full-expanse edges cover their whole current expanse, and `BranchU`/level-8 slots never skip.

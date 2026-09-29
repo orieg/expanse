@@ -5997,6 +5997,21 @@ impl SyncExpanseSet {
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseSet) -> R) -> R {
         self.shared.with_locked(f)
     }
+
+    /// [`ExpanseSet::layout_census`] over the shared set, taken as
+    /// [`Self::with_locked`] reads: writers are excluded, so the census is the
+    /// tree's between two mutations and sums to the wrapped tree's
+    /// `mem_used()` read the same way. Nodes retired to the epoch collector are not counted, as
+    /// `mem_used` does not count them. A diagnostic (feature `layout-census`,
+    /// Refs #1257); writers wait for it.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        self.with_locked(|t| t.layout_census(rule))
+    }
 }
 
 /// A per-thread reader handle for [`SyncExpanseSet`].
@@ -6551,6 +6566,21 @@ impl SyncExpanseMap {
     /// hatch to the full single-threaded read API.
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseMap) -> R) -> R {
         self.shared.with_locked(f)
+    }
+
+    /// [`ExpanseMap::layout_census`] over the shared map, taken as
+    /// [`Self::with_locked`] reads: writers are excluded, so the census is the
+    /// tree's between two mutations and sums to the wrapped tree's
+    /// `mem_used()` read the same way. Nodes retired to the epoch collector are not counted, as
+    /// `mem_used` does not count them. A diagnostic (feature `layout-census`,
+    /// Refs #1257); writers wait for it.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        self.with_locked(|t| t.layout_census(rule))
     }
 }
 
@@ -11014,6 +11044,21 @@ impl SyncExpanseStrMap {
         self.shared.with_locked(f)
     }
 
+    /// [`ExpanseStrMap::layout_census`] over the shared string map, taken as
+    /// [`Self::with_locked`] reads: writers are excluded, so the census is the
+    /// tree's between two mutations and sums to the wrapped tree's
+    /// `mem_used()` read the same way. Nodes retired to the epoch collector are not counted, as
+    /// `mem_used` does not count them. A diagnostic (feature `layout-census`,
+    /// Refs #1257); writers wait for it.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        self.with_locked(|t| t.layout_census(rule))
+    }
+
     /// Runs `f` with every other writer excluded, through a handle that
     /// reads and changes the map by key. Operations inside `f` apply as one
     /// step: no other writer runs between them, and a reader that overlaps
@@ -12340,7 +12385,13 @@ mod miri_ub_sites {
     /// Keys a churn workload keeps in its root leaf: pops `CHURN_KEYS - 1`
     /// and `CHURN_KEYS` share one capacity class, so every removal and
     /// reinsertion shifts the leaf in place rather than reallocating it.
-    const CHURN_KEYS: u64 = 11;
+    /// The `ablation-leaf-class-10` ladder splits 10 from 11, so that arm
+    /// churns at 12, which shares a class with 11 under both ladders.
+    const CHURN_KEYS: u64 = if cfg!(feature = "ablation-leaf-class-10") {
+        12
+    } else {
+        11
+    };
     const _: () = assert!(
         crate::leaf::cap_class(CHURN_KEYS as usize - 1)
             == crate::leaf::cap_class(CHURN_KEYS as usize)

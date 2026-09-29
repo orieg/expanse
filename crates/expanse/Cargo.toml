@@ -140,6 +140,21 @@ ablation-branchu-header-count = []
 # default: the default build's allocation path, accounting and codegen are
 # unchanged. `results/allocator_overhead_*.txt` carries the census.
 packed-suffix = []
+# Diagnostic-only (Refs #1257, #1256, #1255): `layout_census()` on
+# `ExpanseMap`, `ExpanseSet` and `ExpanseStrMap` — a walk that decomposes
+# `mem_used()` into allocation shapes (linear leaves by level, key bytes and
+# population; subarrays by entry count; string-map shells and suffixes) and,
+# given a merge rule, the topmost branches a low-cardinality leaf form would
+# absorb. Feeds `scripts/leaf_layout_model.py`. Off by default and compiled out
+# entirely; no default path changes.
+layout-census = []
+# Diagnostic-only candidate (Refs #1257, AGENTS.md §2.7): `leaf::cap_class`
+# gains one class at 10 slots, so populations 9 and 10 take 10 slots instead
+# of 12 — the class a decimal-digit range fills exactly. It re-sizes every
+# class-sized array (linear and root leaves, subarrays, immediate value
+# arrays) and so changes memory and the reallocation schedule: never enable
+# it for a published benchmark outside the #1257 comparison.
+ablation-leaf-class-10 = []
 
 
 [dependencies]
@@ -167,6 +182,14 @@ qp-trie = "=0.8.2"
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.7"
+
+[[example]]
+name = "leaf_layout_census"
+required-features = ["layout-census"]
+
+[[bench]]
+name = "leaf_layout_timing"
+harness = false
 
 [[bench]]
 name = "compare"

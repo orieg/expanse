@@ -47,7 +47,30 @@ type DeferHandle<'a> = Option<&'a Arc<Collector>>;
 #[cfg(not(feature = "std"))]
 type DeferHandle<'a> = Option<&'a ()>;
 
-const CHUNK: usize = 8;
+/// Bytes of a key that one level of the string map decodes: keys are cut
+/// into chunks of this many bytes, each packed big-endian into one word of a
+/// word map, and the chunk holding the key's terminating NUL is the key's
+/// terminal chunk.
+///
+/// **Encoders may align to this value.** A key whose length is
+/// `CHUNK_BYTES - 1 (mod CHUNK_BYTES)` fills its terminal chunk exactly:
+/// `CHUNK_BYTES - 1` key bytes and the NUL. A key of a fixed-width,
+/// order-preserving field layout aligned that way puts its last byte at the
+/// same word level for every key, which is what lets a range of keys that
+/// differ only in that byte share one linear leaf (`docs/ARCHITECTURE.md`
+/// §3.6 measures the effect). Other lengths are valid keys; they are only
+/// stored less compactly.
+///
+/// This value is part of the crate's public contract, not an internal
+/// detail: changing it is a breaking change (a new minor version under the
+/// 0.x rule) and is recorded in the changelog, so an encoder that derives
+/// its alignment from it sees the change at compile time.
+pub const CHUNK_BYTES: usize = 8;
+const CHUNK: usize = CHUNK_BYTES;
+const _: () = assert!(
+    CHUNK == size_of::<u64>(),
+    "a chunk is packed into one u64 word of the word map"
+);
 const TAG_SUFFIX: u64 = 1;
 
 /// Leaf suffix header: the value, then the length of the suffix bytes that
@@ -1120,6 +1143,58 @@ impl StrNode {
         }
         bytes
     }
+
+    /// Adds every node's sub-map, shell and suffix leaves under `self` to
+    /// `c` (feature `layout-census`). Iterative for the reason
+    /// [`Self::shell_bytes`] is.
+    ///
+    /// Returns the number of strings under `self`, counted from the walk (one
+    /// terminal chunk entry or one suffix leaf per string) rather than read
+    /// from a population field, which an optimistic writer on a shared map
+    /// can leave stale.
+    #[cfg(feature = "layout-census")]
+    fn layout_census_into(
+        &self,
+        c: &mut crate::census::LayoutCensus,
+        rule: Option<crate::census::MergeRule>,
+    ) -> u64 {
+        let mut strings = 0u64;
+        let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(self)];
+        while let Some(p) = stack.pop() {
+            // SAFETY: `self` plus continuation values, all live nodes.
+            let node = unsafe { &*p };
+            c.str_nodes += 1;
+            c.str_node_shell_bytes += size_of::<Self>();
+            c.bytes += size_of::<Self>();
+            // The sub-map's entries are chunks, not keys: the walk counts
+            // them, and the string map's key count is set by the caller.
+            node.map.layout_census_into(c, rule);
+            for (k, v) in node.map.iter() {
+                if is_terminal(k) {
+                    strings += 1;
+                } else {
+                    if is_suffix_ptr(v) {
+                        strings += 1;
+                        // SAFETY: tagged pointer encodes a live suffix leaf.
+                        let len = unsafe { (*unpack_suffix(v)).len };
+                        *c.suffix_leaves.entry(len).or_insert(0) += 1;
+                        #[cfg(feature = "packed-suffix")]
+                        let b = crate::alloc::accounted_size(
+                            packed_suffix_bytes(suffix_layout(len)),
+                            crate::types::RAW_ALIGN,
+                        );
+                        #[cfg(not(feature = "packed-suffix"))]
+                        let b = suffix_layout(len).size();
+                        c.suffix_bytes += b;
+                        c.bytes += b;
+                    } else {
+                        stack.push(unpack_child(v));
+                    }
+                }
+            }
+        }
+        strings
+    }
 }
 
 /// One level of a [`StrCursor`]'s path: the node, the chunk the cursor sits
@@ -1710,6 +1785,27 @@ impl ExpanseStrMap {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+    }
+
+    /// Decomposes [`Self::mem_used`] into node shells, suffix leaves and the
+    /// allocation shapes of every node's word map, whose entries are 8-byte
+    /// chunks: `keys` counts the map's strings, and every other count is per
+    /// chunk entry. Given a rule, also the word-map branches a
+    /// low-cardinality leaf form would absorb. A diagnostic for layout
+    /// studies (feature `layout-census`, Refs #1257, #1255); not a stability
+    /// surface.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        let mut c = crate::census::LayoutCensus::default();
+        c.keys = self
+            .root
+            .as_deref()
+            .map_or(0, |r| r.layout_census_into(&mut c, rule));
+        c
     }
 
     /// Heap bytes the map holds from the system allocator: [`Self::mem_used`]

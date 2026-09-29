@@ -3592,6 +3592,22 @@ impl MapCore {
         }
         stats
     }
+
+    /// Adds this sub-map's allocation shapes to `c` (feature `layout-census`).
+    #[cfg(feature = "layout-census")]
+    pub(crate) fn layout_census_into(
+        &self,
+        c: &mut crate::census::LayoutCensus,
+        rule: Option<crate::census::MergeRule>,
+    ) {
+        match &self.root {
+            Root::Empty => {}
+            Root::Leaf { pop, .. } => crate::census::root_leaf(c, *pop, leaf_size(*pop)),
+            // SAFETY: the live top edge of a map-flavor tree; `&self` rules
+            // out a concurrent writer on an unshared map.
+            Root::Tree { top } => unsafe { crate::census::tree::<true>(c, top, rule) },
+        }
+    }
 }
 
 impl MapCore {
@@ -4707,6 +4723,22 @@ impl ExpanseMap {
         self.core.stats()
     }
 
+    /// Decomposes [`Self::mem_used`] into allocation shapes and, given a
+    /// rule, the branches a low-cardinality leaf form would absorb. A
+    /// diagnostic for layout studies (feature `layout-census`, Refs #1257);
+    /// not a stability surface.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        self.flush_path();
+        let mut c = crate::census::LayoutCensus::default();
+        self.core.layout_census_into(&mut c, rule);
+        c
+    }
+
     /// Smallest entry in the map.
     #[must_use]
     pub fn first(&self) -> Option<(u64, u64)> {
@@ -5241,7 +5273,12 @@ mod tests {
     /// cache is warm, which must not be served from it. `pending_pop` moves
     /// only on a warm insert, which pins the branch each `ins_slot` took.
     /// Sized for Miri, which checks the cache's raw dereferences.
+    ///
+    /// Pinned to the default capacity ladder (10, 11 and 12 keys share one
+    /// class); the diagnostic `ablation-leaf-class-10` ladder splits 10 from
+    /// 11, so the arm compiles the test out. Promoting that ladder re-pins it.
     #[test]
+    #[cfg(not(feature = "ablation-leaf-class-10"))]
     fn slot_calls_on_a_warm_insert_path() {
         fn slot_value(m: &mut ExpanseMap, key: u64) -> Option<u64> {
             // SAFETY: the slot is read before the next mutation of `m`.
