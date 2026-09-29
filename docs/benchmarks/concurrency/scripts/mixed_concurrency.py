@@ -431,8 +431,8 @@ def summarize_cell(rows: list[dict[str, Any]], base: dict[int, float] | None,
 def workload_problems(rows: list[dict[str, Any]]) -> list[str]:
     """Windows whose write mix is not the stationary one the bench declares (#1280).
 
-    Every mixed window of a counting arm must remove a present key on about a
-    quarter of its writes. A window that does not has drifted from the
+    Every mixed window of a counting arm must remove a present key on about
+    0.25 of its writes (`REMOVE_HIT_SHARE`). A window that does not has drifted from the
     declared workload, and its throughput describes some other one.
     """
     problems = []
