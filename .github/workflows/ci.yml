@@ -927,8 +927,11 @@ jobs:
       # `layout-census` (Refs #1257) adds the diagnostic census walk; its
       # tests pin that it sums to mem_used() on the default ladder. The
       # diagnostic `ablation-leaf-class-10` ladder re-sizes every class-sized
-      # array, so the whole suite runs under it, with the census.
+      # array, so the whole suite runs under it, with the census. Linux only:
+      # both change allocation sizes, which do not vary by OS, and a third
+      # full suite run pushed the Windows job past its 20-minute limit.
       - name: Test the layout census and the class-10 ladder
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           set -o pipefail
