@@ -66,7 +66,7 @@ INSERT_PROBABILITY = 0.5
 # The registered margin: the high-water ceiling must fit under the cap twice.
 REQUIRED_CAP_MARGIN = 2.0
 # METHODOLOGY §27's ablation build: the compaction trigger at four times the
-# default, so compactions fire a quarter as often (#1280).
+# default, so it fires once for every four of the default's compactions (#1280).
 ABLATION_COMPACT_APPENDS = 4 * BLOB_POP
 
 
@@ -241,7 +241,7 @@ def self_test() -> int:
     assert margin >= REQUIRED_CAP_MARGIN
 
     # METHODOLOGY §27's ablation build: (200k + 800k) * 144 + 64 * 2 MiB, still
-    # 3.86x under the cap, and a quarter of the compactions at the same rate.
+    # 3.86x under the cap, and one compaction for every four at the same rate.
     hw4 = arena_high_water_bytes(BLOB_POP, ABLATION_COMPACT_APPENDS, BLOB_LEN, MAX_WRITER_SLOTS, DEFAULT_CHUNK_SIZE)
     assert hw4 == 278_217_728
     assert abs(cap_margin(MAX_ARENA_CAPACITY, hw4) - 3.8593) < 1e-3
