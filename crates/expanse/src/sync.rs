@@ -9820,7 +9820,9 @@ pub struct SyncExpanseBlobMap {
     ))]
     writer_arenas: Box<BlobWriterArenas>,
     /// The fast refusal on a map the reclaim rule last declined (§28a C2).
-    reclaim_latch: ReclaimLatch,
+    /// Boxed, as the other cold state is, so the wrapper holds no interior
+    /// mutability inline.
+    reclaim_latch: Box<ReclaimLatch>,
 }
 
 /// How many fast refusals [`ReclaimLatch`] allows between two quiesced
@@ -9948,7 +9950,7 @@ impl SyncExpanseBlobMap {
                 arena_epoch: core::sync::atomic::AtomicU64::new(0),
                 has_writer_deltas: core::sync::atomic::AtomicBool::new(false),
             }),
-            reclaim_latch: ReclaimLatch::default(),
+            reclaim_latch: Box::default(),
         }
     }
 
