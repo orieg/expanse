@@ -1007,7 +1007,10 @@ impl WriterGate {
     /// word, and a store of 0 by either would drain it under the other.
     /// The Dekker pairing with [`Self::close`] stays fence-to-fence, the
     /// form loom models: it treats `SeqCst` accesses as `AcqRel` and
-    /// supports only `fence(SeqCst)`.
+    /// supports only `fence(SeqCst)`. The re-check itself acquires the
+    /// [`Self::open`] that let this writer in, which orders a locked
+    /// fallback's reads before the writer's stores
+    /// (`loom_writer_entry_acquires_gate_reopen`).
     ///
     /// Returns `Some(WriterGuard)` if entry succeeded, or `None` if the gate is closed.
     #[inline]
@@ -1021,7 +1024,12 @@ impl WriterGate {
         }
         in_flight.fetch_add(1, Ordering::Relaxed);
         fence(Ordering::SeqCst);
-        if self.is_closed() {
+        // Acquire, pairing with the `Release` in [`Self::open`] (#1295): when
+        // this re-check reads the reopen, everything the quiescent section
+        // read happens-before this writer's stores. The fence above cannot
+        // supply that edge, since it precedes the load, and the first check
+        // may have read the gate's state from before the close.
+        if self.closed.load(Ordering::Acquire) {
             in_flight.fetch_sub(1, Ordering::Relaxed);
             None
         } else {
@@ -3426,6 +3434,49 @@ mod loom_tests {
 
             w1.join().unwrap();
             w2.join().unwrap();
+        });
+    }
+
+    /// The other direction of quiescence (#1295): the coordinator closes the
+    /// gate, drains, reads the data as a locked fallback reads the tree, and
+    /// reopens; a writer that enters after the reopen then stores to the same
+    /// data. The writer takes no lock the coordinator released, so the reopen
+    /// and the writer's entry check are the only edge that can order the
+    /// fallback's read before the writer's store: loom reports a causality
+    /// violation on the cell unless the entry check acquires the reopen.
+    ///
+    /// The writer starts before the close, so its first check may read the
+    /// gate's initial `false` while its re-check after the fence reads the
+    /// reopen's: then only the re-check reads from the reopen, and it must
+    /// acquire it.
+    #[test]
+    fn loom_writer_entry_acquires_gate_reopen() {
+        loom::model(|| {
+            let gate = Arc::new(WriterGate::new());
+            let in_flight = Arc::new(AtomicUsize::new(0));
+            let data = Arc::new(loom::cell::UnsafeCell::new(0usize));
+
+            let (g, f, d) = (Arc::clone(&gate), Arc::clone(&in_flight), Arc::clone(&data));
+            let w = loom::thread::spawn(move || {
+                loop {
+                    if let Some(_guard) = g.enter_writer(&f, 0) {
+                        // SAFETY: loom's cell checks this access; the gate
+                        // protocol is what the test puts under that check.
+                        d.with_mut(|p| unsafe { *p += 1 });
+                        return;
+                    }
+                    loom::thread::yield_now();
+                }
+            });
+
+            gate.close();
+            WriterGate::wait_drained(&in_flight);
+            // SAFETY: as above. The writer may have entered and left before
+            // the close; the drain orders that store before this read.
+            let seen = data.with(|p| unsafe { *p });
+            assert!(seen <= 1);
+            gate.open();
+            w.join().unwrap();
         });
     }
 
