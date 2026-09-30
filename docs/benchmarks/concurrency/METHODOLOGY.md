@@ -4151,3 +4151,51 @@ Single-threaded instructions (the PR's own `instruction-counts` run). The price 
 
 - No magnitude for any ratio. No USL fit: three thread counts leave no residual for a two-parameter model.
 - Out of scope: a `writer_scaling` remove or churn cell (the repaired mixed cell removes a present key on 0.25 of writes, checked per window), compaction under load as its own measurement, the `ablation-blob-*` builds, and a Miri UB-site workload for concurrent blob removals (a follow-up on #1280).
+
+## 27. Pre-registration for #1280 — does in-window compaction set the blob map's four-thread peak? (appended and locked 2026-09-30, before any run of the builds below)
+
+### 27.1 Context
+
+With the optimistic removal (§26, README §26) `SyncExpanseBlobMap` at 50 % read runs 11.9 M total ops/s at one thread, 20.7 M at four and 13.4 M at sixteen: it peaks at four and falls from there, cause unmeasured. Both Expanse blob arms of the `core_concurrency` harness compact their arena inside the window: worker 0 compacts once its own inserts times the thread count reach `BLOB_COMPACT_APPENDS` (`BLOB_POP`, 200k), and a compaction excludes every other writer — the OCC arm's `compact` runs under `write_quiesced`, the `Mutex` arm's under the lock. At the §26 rates that is 18–26 compactions a second. This section tests whether that exclusion is a measurable part of the sixteen-thread cell, by one intervention and one direct measurement.
+
+### 27.2 Builds
+
+| build | what it is | ref |
+|---|---|---|
+| D | `main` plus the `compact_ns` instrument: worker 0 times each in-window `compact()` and the driver reports `compaction_time_share`, the summed compaction time over the summed window time | the PR head that carries this section |
+| K | D with `BLOB_COMPACT_APPENDS = 4 * BLOB_POP`: the same trigger, a quarter as often | `exp/1280-k-compact-4x`, D plus that one constant |
+
+K changes only the two Expanse blob arms. Its arena ceiling is 278,217,728 B, 3.86× under the cap, above the §26 2× margin (`scripts/blob_mixed_bounds.py`, `ABLATION_COMPACT_APPENDS`). Each build's commit is the one its dispatch records; a build whose commit differs between its two runs voids both.
+
+### 27.3 Instrument, runs and order
+
+The `concurrency` suite of `bench_baremetal.yml`, unchanged (`--threads 1,4,16 --workloads 100,50 --engines all`, 18 rounds per cell, pin `0-15`, host guard as on `main`). Two runs per build, dispatched in the order D, K, K, D; run k of each build pairs with run k of the other.
+
+### 27.4 The gate, and what is reported
+
+K ÷ D is the ratio of mean total ops/s over a cell's 18 windows, two-sample BCa 95 %, computed by `docs/benchmarks/concurrency/scripts/blob_compaction_gate.py`, which holds these cells as constants.
+
+| id | comparison | cell | floor | reading |
+|---|---|---|--:|---|
+| H1 | K ÷ D | `SyncExpanseBlobMap`, 50 % read, 16 threads | 1.0 | `PASS` when the lower bound exceeds the floor in both runs, `REFUTED` when the upper bound is below it in both, `INCONCLUSIVE` otherwise |
+
+Reported with their intervals, not gated: K ÷ D for the blob arm at 4 and 1 threads and for `Mutex<ExpanseBlobMap>` at 16 and 4 threads; and `compaction_time_share` of both builds for the blob arm at 1, 4 and 16 threads and for `Mutex<ExpanseBlobMap>` at 16.
+
+### 27.5 Controls
+
+Cells the trigger does not reach, read as K ÷ D: `blob` 100 % read at 16 threads, `map` 50 % read at 16, `str` 50 % read at 16. A control whose interval excludes [0.95, 1.05] in the same direction in both runs marks the comparison `DRIFT` (`docs/BENCHMARKING.md` rule 18) and H1 is not read.
+
+### 27.6 What voids a run
+
+A run the host guard voids, a window `mixed_concurrency.py` refuses, a build whose commit differs between its runs, or a blob 50 % cell at 16 threads with no compaction in any window. A voided run is re-dispatched in the same position and the discard is disclosed.
+
+### 27.7 What each outcome licenses
+
+- H1 `PASS`: "in-window compaction is a measurable part of the blob map's sixteen-thread cell on this harness", with the ratio and D's `compaction_time_share` beside it. It licenses nothing about the engine without compaction; how much of the four-to-sixteen fall remains in K is reported and, where it remains, called unexplained.
+- H1 `REFUTED` or `INCONCLUSIVE`: compaction at this trigger is not shown to set the sixteen-thread cell; the fall stays unexplained, and #1290's priority is not raised by this measurement.
+- Either way the harness keeps its registered trigger (`BLOB_COMPACT_APPENDS = BLOB_POP`); K is a diagnostic build and never merges. The `compact_ns` instrument merges with this section.
+
+### 27.8 Not predicted, and out of scope
+
+- No magnitude for any ratio or share. The share is a wall-clock sum over one worker's compactions; it bounds the time no write could proceed only where every other writer was excluded for it, which both arms' compaction does by construction (above).
+- Out of scope: the engine's own reclamation (#1290), the `enter_writer` hot/cold split, other payload sizes, and changing the published harness's trigger.
