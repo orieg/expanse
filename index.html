@@ -1523,65 +1523,65 @@
   <text x="30" y="88" class="t-note">Two runs of one commit: bars are run 1, labels and badges read run 1 / run 2. Compare arms only within the key type under each name.</text>
   <text x="30" y="113" class="t-bar-label">SyncExpanseSet</text>
   <rect x="300.0" y="104" width="263.2" height="11" rx="2" class="b-expanse"/>
-  <text x="571.2" y="113" class="t-row-accent">532.8 / 528.8 M ops/s</text>
+  <text x="571.2" y="113" class="t-row-accent">522.6 / 529.3 M ops/s</text>
   <rect x="800" y="100" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="113" class="badge-win-text">7.02x / 6.93x</text>
+  <text x="865.0" y="113" class="badge-win-text">6.84x / 6.93x</text>
   <text x="30" y="125" class="t-note">u64 keys, 1M present</text>
   <text x="30" y="139" class="t-bar-label">SyncExpanseMap</text>
-  <rect x="300.0" y="130" width="160.4" height="11" rx="2" class="b-expanse"/>
-  <text x="468.4" y="139" class="t-row-accent">324.7 / 322.8 M ops/s</text>
+  <rect x="300.0" y="130" width="162.5" height="11" rx="2" class="b-expanse"/>
+  <text x="470.5" y="139" class="t-row-accent">322.8 / 321.6 M ops/s</text>
   <rect x="800" y="126" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="139" class="badge-win-text">9.12x / 9.28x</text>
+  <text x="865.0" y="139" class="badge-win-text">9.12x / 9.15x</text>
   <text x="30" y="151" class="t-note">u64 keys, 1M present</text>
   <text x="30" y="165" class="t-bar-label">SyncExpanseBlobMap</text>
-  <rect x="300.0" y="156" width="132.6" height="11" rx="2" class="b-expanse"/>
-  <text x="440.6" y="165" class="t-row-accent">268.5 / 268.1 M ops/s</text>
+  <rect x="300.0" y="156" width="134.2" height="11" rx="2" class="b-expanse"/>
+  <text x="442.2" y="165" class="t-row-accent">266.6 / 267.4 M ops/s</text>
   <rect x="800" y="152" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="165" class="badge-win-text">9.24x / 9.28x</text>
+  <text x="865.0" y="165" class="badge-win-text">9.23x / 9.24x</text>
   <text x="30" y="177" class="t-note">u64 -&gt; 128-byte payload, 200k present</text>
   <text x="30" y="191" class="t-bar-label">SkipMap&lt;u64, (Vec&lt;u8&gt;, u32)&gt;</text>
-  <rect x="300.0" y="182" width="16.5" height="11" rx="2" class="b-other"/>
-  <text x="324.5" y="191" class="t-row-muted">33.4 / 33.2 M ops/s</text>
+  <rect x="300.0" y="182" width="17.0" height="11" rx="2" class="b-other"/>
+  <text x="325.0" y="191" class="t-row-muted">33.7 / 33.7 M ops/s</text>
   <rect x="800" y="178" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="191" class="badge-win-text">11.11x / 11.09x</text>
+  <text x="865.0" y="191" class="badge-win-text">11.15x / 11.16x</text>
   <text x="30" y="203" class="t-note">u64 -&gt; 128-byte payload, 200k present</text>
   <text x="30" y="217" class="t-bar-label">RwLock&lt;BTreeMap&lt;u64, ...&gt;&gt;</text>
-  <rect x="300.0" y="208" width="7.2" height="11" rx="2" class="b-other"/>
-  <text x="315.2" y="217" class="t-row-muted">14.5 / 14.5 M ops/s</text>
+  <rect x="300.0" y="208" width="6.8" height="11" rx="2" class="b-other"/>
+  <text x="314.8" y="217" class="t-row-muted">13.5 / 13.7 M ops/s</text>
   <rect x="800" y="204" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="217" class="badge-win-text">1.60x / 1.61x</text>
+  <text x="865.0" y="217" class="badge-win-text">1.48x / 1.52x</text>
   <text x="30" y="229" class="t-note">u64 -&gt; 128-byte payload, 200k present</text>
   <text x="30" y="243" class="t-bar-label">SyncExpanseBytesMap</text>
-  <rect x="300.0" y="234" width="57.3" height="11" rx="2" class="b-expanse"/>
-  <text x="365.3" y="243" class="t-row-accent">116.0 / 117.0 M ops/s</text>
+  <rect x="300.0" y="234" width="58.7" height="11" rx="2" class="b-expanse"/>
+  <text x="366.7" y="243" class="t-row-accent">116.6 / 116.4 M ops/s</text>
   <rect x="800" y="230" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="243" class="badge-win-text">11.13x / 11.13x</text>
+  <text x="865.0" y="243" class="badge-win-text">11.09x / 11.10x</text>
   <text x="30" y="255" class="t-note">string keys, 100k present</text>
   <text x="30" y="269" class="t-bar-label">SyncExpanseStrMap</text>
-  <rect x="300.0" y="260" width="37.9" height="11" rx="2" class="b-expanse"/>
-  <text x="345.9" y="269" class="t-row-accent">76.8 / 77.0 M ops/s</text>
+  <rect x="300.0" y="260" width="39.1" height="11" rx="2" class="b-expanse"/>
+  <text x="347.1" y="269" class="t-row-accent">77.6 / 77.6 M ops/s</text>
   <rect x="800" y="256" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="269" class="badge-win-text">11.09x / 11.12x</text>
+  <text x="865.0" y="269" class="badge-win-text">11.08x / 11.13x</text>
   <text x="30" y="281" class="t-note">string keys, 100k present</text>
   <text x="30" y="295" class="t-bar-label">DashMap&lt;Vec&lt;u8&gt;, u64&gt;</text>
-  <rect x="300.0" y="286" width="55.3" height="11" rx="2" class="b-other"/>
-  <text x="363.3" y="295" class="t-row-muted">111.9 / 107.6 M ops/s</text>
+  <rect x="300.0" y="286" width="55.0" height="11" rx="2" class="b-other"/>
+  <text x="363.0" y="295" class="t-row-muted">109.2 / 107.2 M ops/s</text>
   <rect x="800" y="282" width="130" height="18" class="badge-win"/>
-  <text x="865.0" y="295" class="badge-win-text">7.77x / 7.47x</text>
+  <text x="865.0" y="295" class="badge-win-text">7.68x / 7.51x</text>
   <text x="30" y="307" class="t-note">string keys, 100k present</text>
 
   <line x1="30" y1="324" x2="930" y2="324" class="divider"/>
   <text x="30" y="338" class="t-bar-label">At 50% read / 50% write &#8212; 1&#8594;16 threads, read + write ops/s (a mixed-operation rate), then that arm's scaling in run 1 / run 2:</text>
-  <text x="42" y="354" class="t-row-accent">SyncExpanseMap [u64 keys, 1M present]: 18.9 &#8594; 48.6 &#8594; 66.0 M ops/s (run 1) &#183; 3.49x / 3.61x</text>
-  <text x="42" y="370" class="t-row-accent">SyncExpanseSet [u64 keys, 1M present]: 34.6 &#8594; 68.1 &#8594; 128.0 M ops/s (run 1) &#183; 3.70x / 3.72x</text>
-  <text x="42" y="386" class="t-row-accent">SyncExpanseBlobMap [u64 -&gt; 128-byte payload, 200k present]: 11.9 &#8594; 20.8 &#8594; 13.4 M ops/s (run 1) &#183; 1.13x / 1.13x</text>
-  <text x="42" y="402" class="t-row-accent">SkipMap&lt;u64, (Vec&lt;u8&gt;, u32)&gt; [u64 -&gt; 128-byte payload, 200k present]: 2.1 &#8594; 6.9 &#8594; 17.9 M ops/s (run 1) &#183; 8.34x / 8.38x</text>
-  <text x="42" y="418" class="t-row-accent">SyncExpanseBytesMap [string keys, 100k present]: 4.8 &#8594; 14.6 &#8594; 40.6 M ops/s (run 1) &#183; 8.41x / 8.50x</text>
-  <text x="42" y="434" class="t-row-accent">SyncExpanseStrMap [string keys, 100k present]: 5.8 &#8594; 20.0 &#8594; 53.2 M ops/s (run 1) &#183; 9.23x / 9.14x</text>
-  <text x="42" y="450" class="t-row-accent">DashMap&lt;Vec&lt;u8&gt;, u64&gt; [string keys, 100k present]: 11.0 &#8594; 34.4 &#8594; 86.6 M ops/s (run 1) &#183; 7.89x / 7.82x</text>
+  <text x="42" y="354" class="t-row-accent">SyncExpanseMap [u64 keys, 1M present]: 18.9 &#8594; 49.0 &#8594; 63.4 M ops/s (run 1) &#183; 3.35x / 3.53x</text>
+  <text x="42" y="370" class="t-row-accent">SyncExpanseSet [u64 keys, 1M present]: 34.5 &#8594; 66.7 &#8594; 126.7 M ops/s (run 1) &#183; 3.67x / 3.73x</text>
+  <text x="42" y="386" class="t-row-accent">SyncExpanseBlobMap [u64 -&gt; 128-byte payload, 200k present]: 11.9 &#8594; 20.4 &#8594; 13.2 M ops/s (run 1) &#183; 1.11x / 1.13x</text>
+  <text x="42" y="402" class="t-row-accent">SkipMap&lt;u64, (Vec&lt;u8&gt;, u32)&gt; [u64 -&gt; 128-byte payload, 200k present]: 2.2 &#8594; 6.9 &#8594; 17.8 M ops/s (run 1) &#183; 8.25x / 8.23x</text>
+  <text x="42" y="418" class="t-row-accent">SyncExpanseBytesMap [string keys, 100k present]: 4.9 &#8594; 14.5 &#8594; 40.0 M ops/s (run 1) &#183; 8.26x / 8.17x</text>
+  <text x="42" y="434" class="t-row-accent">SyncExpanseStrMap [string keys, 100k present]: 5.8 &#8594; 20.3 &#8594; 53.5 M ops/s (run 1) &#183; 9.17x / 9.23x</text>
+  <text x="42" y="450" class="t-row-accent">DashMap&lt;Vec&lt;u8&gt;, u64&gt; [string keys, 100k present]: 10.6 &#8594; 33.2 &#8594; 82.7 M ops/s (run 1) &#183; 7.79x / 7.91x</text>
 
-  <text x="30" y="482" class="t-note">Measured: reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15 &#183; runs 36619261906 and 36625125183, ref 8fd8e540</text>
-  <text x="30" y="495" class="t-note">threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.10 across both runs</text>
+  <text x="30" y="482" class="t-note">Measured: reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15 &#183; runs 36658309874 and 36661955960, ref f9853201</text>
+  <text x="30" y="495" class="t-note">threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.09 across both runs</text>
 </svg>
 
             </div>
@@ -2628,7 +2628,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.9.2</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/1813cc1"><code>1813cc1</code></a> &bull; Built on 2026-09-30
+        <span class="badge" style="font-size: 0.78rem;">Release v0.9.2</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/79184f2"><code>79184f2</code></a> &bull; Built on 2026-09-30
       </p>
       <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
         Judy &amp; Systems Ecosystem:
