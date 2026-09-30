@@ -12424,40 +12424,42 @@ mod miri_tests {
         z ^ (z >> 31)
     }
 
-    /// #1290 G1.6 (METHODOLOGY §28.3), under Miri in the Tier-1 filter: one
-    /// writer overwrites a live set at a 64 KiB cap, so each refused chunk
-    /// takes the quiesced retry, the fold, the compaction and the reset of
-    /// the writer's private chunk. The live sets are
-    /// `max_sustained_live_records` in `scripts/blob_reclaim_bounds.py` with
-    /// the cap less one chunk: after a compaction the writer takes a fresh
-    /// private chunk instead of filling the last compacted one, so each cycle
-    /// can strand up to a chunk. None of the inserts may be refused.
+    /// #1290, the reclaim path under Miri in the Tier-1 filter: a smaller
+    /// workload than G1.6 (`tests::blob_overwrites_reclaim_at_the_cap`), sized
+    /// for the lane. 48 live 128 B records root a tree (the root leaf holds 31),
+    /// so the overwrites take the optimistic writer and its private chunks; at
+    /// a 20 KiB cap, 280 overwrites drive the arena to the cap repeatedly.
+    /// 48 is under the 56 that `max_sustained_live_records` sustains with one
+    /// chunk held back, so no insert may be refused.
     #[test]
     fn blob_overwrites_reclaim_at_the_cap_under_miri() {
-        for (live, len, overwrites) in [(210u64, 128usize, 1792u64), (1204, 9, 8192)] {
-            let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 64 * 1024);
-            let payload = |k: u64, round: u64| -> Vec<u8> {
-                (0..len as u64).map(|i| (k ^ round ^ i) as u8).collect()
-            };
-            for k in 0..live {
-                m.insert(k, &payload(k, 0), 1).unwrap();
-            }
-            assert!(
-                m.shared.published().is_tree(),
-                "the overwrites must take the optimistic path"
-            );
-            for i in 0..overwrites {
-                let (k, round) = (i % live, i / live + 1);
-                m.insert(k, &payload(k, round), 1)
-                    .unwrap_or_else(|e| panic!("{len} B, overwrite {i}: {e:?}"));
-            }
-            let rounds = overwrites / live;
-            let mut rd = m.reader();
-            let guard = rd.pin();
-            for k in 0..live {
-                let last = rounds + u64::from(k < overwrites % live);
-                assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, last)[..]);
-            }
+        const LIVE: u64 = 48;
+        const OVERWRITES: u64 = 280;
+        let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 20 * 1024);
+        let payload =
+            |k: u64, round: u64| -> Vec<u8> { (0..128).map(|i| (k ^ round ^ i) as u8).collect() };
+        for k in 0..LIVE {
+            m.insert(k, &payload(k, 0), 1).unwrap();
+        }
+        assert!(
+            m.shared.published().is_tree(),
+            "the overwrites must take the optimistic path"
+        );
+        let g0 = m.with_locked(|t| t.arena().generation());
+        for i in 0..OVERWRITES {
+            let (k, round) = (i % LIVE, i / LIVE + 1);
+            m.insert(k, &payload(k, round), 1)
+                .unwrap_or_else(|e| panic!("overwrite {i}: {e:?}"));
+        }
+        assert!(
+            m.with_locked(|t| t.arena().generation()) - g0 >= 2,
+            "the overwrites must reach the cap more than once"
+        );
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        for k in 0..LIVE {
+            let last = OVERWRITES / LIVE + u64::from(k < OVERWRITES % LIVE);
+            assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, last)[..]);
         }
     }
 
@@ -15811,6 +15813,44 @@ mod tests {
             assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k)[..]);
         }
         assert!(guard.get(0).is_none());
+    }
+
+    /// #1290 G1.6 (METHODOLOGY §28.3): one writer overwrites a live set at a
+    /// 64 KiB cap, so each refused chunk takes the quiesced retry, the fold,
+    /// the compaction and the reset of the writer's private chunk. The live
+    /// sets are `max_sustained_live_records` in `scripts/blob_reclaim_bounds.py`
+    /// with the cap less one chunk: after a compaction the writer takes a fresh
+    /// private chunk instead of filling the last compacted one, so each cycle
+    /// can strand up to a chunk. None of the inserts may be refused. Too large
+    /// for the Tier-1 Miri lane; `miri_tests::blob_overwrites_reclaim_at_the_cap_under_miri`
+    /// runs a smaller workload through the same path.
+    #[test]
+    fn blob_overwrites_reclaim_at_the_cap() {
+        for (live, len, overwrites) in [(210u64, 128usize, 1792u64), (1204, 9, 8192)] {
+            let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 64 * 1024);
+            let payload = |k: u64, round: u64| -> Vec<u8> {
+                (0..len as u64).map(|i| (k ^ round ^ i) as u8).collect()
+            };
+            for k in 0..live {
+                m.insert(k, &payload(k, 0), 1).unwrap();
+            }
+            assert!(
+                m.shared.published().is_tree(),
+                "the overwrites must take the optimistic path"
+            );
+            for i in 0..overwrites {
+                let (k, round) = (i % live, i / live + 1);
+                m.insert(k, &payload(k, round), 1)
+                    .unwrap_or_else(|e| panic!("{len} B, overwrite {i}: {e:?}"));
+            }
+            let rounds = overwrites / live;
+            let mut rd = m.reader();
+            let guard = rd.pin();
+            for k in 0..live {
+                let last = rounds + u64::from(k < overwrites % live);
+                assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, last)[..]);
+            }
+        }
     }
 
     /// #1290 G1.7: four writers overwrite their own keys at a 256 KiB cap,
