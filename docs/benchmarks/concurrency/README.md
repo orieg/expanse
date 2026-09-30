@@ -5340,6 +5340,24 @@ Controls, C ÷ B:
 | map 50% read T=16 | 0.987 [0.928, 1.052] | 1.046 [0.992, 1.101] | no |
 | map 100% read T=16 | 0.993 [0.991, 0.995] | 0.996 [0.994, 0.999] | no |
 
+§26.6's instruction ceilings, read on this PR's own `instruction-counts` run at
+`2d4befc3`, the head that merges (CI run
+[36651101321](https://github.com/orieg/expanse/actions/runs/36651101321),
+Callgrind, against `main`):
+
+| arm | `main` | head | change | §26.6 ceiling |
+|---|--:|--:|--:|--:|
+| `sync_blobmap_remove/random` | 52,711,517 | 67,803,207 | +28.63 % | +40 % |
+| `sync_blobmap_churn/random` | 139,423,606 | 143,826,709 | +3.16 % | +25 % |
+| `sync_blobmap_overwrite/random` | 33,506,107 | 34,456,111 | +2.84 % | +3 % |
+| `sync_blobmap_insert/random` | 58,103,928 | 59,303,164 | +2.06 % | +3 % |
+| `sync_blobmap_remove_miss/random` | 22,191,055 | 19,167,056 | −13.63 % | none |
+| `blobmap_remove/random` (control) | 25,908,756 | 25,908,756 | 0.00 % | 0.0 % |
+
+Every other arm moved by 0.1 % or less. The single-thread removal costs 28.6 %
+more instructions, the price §26.6 registered for an optimistic descent against
+the serialised one; the absent-key removal costs 13.6 % fewer.
+
 What the verdict licenses, per §26.8:
 
 - **The optimistic removal raises the blob map's 50/50 throughput** by 2.9× at
