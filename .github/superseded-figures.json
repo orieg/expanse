@@ -1435,8 +1435,7 @@
         "(?<![\\w.])0\\.38\\s*[x\u00d7]\\s*[\u2013-]\\s*0\\.40\\s*[x\u00d7]",
         "(?<![\\w.])0\\.27\\s*[x\u00d7]",
         "(?<![\\w.])7\\.29\\s+M ops/s",
-        "(?<![\\w.])6\\.83\\s+M ops/s",
-        "(?<![\\w.])17\\.6\\s+M ops/s"
+        "(?<![\\w.])6\\.83\\s+M ops/s"
       ],
       "context": [
         "syncexpanseblobmap",
@@ -1446,7 +1445,7 @@
         "mixed",
         "128-byte"
       ],
-      "replacement": "docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json and _run2 at d1c3ca2a (runs 36615302601, 36628995380): SyncExpanseBlobMap at 50% read 10.35 and 10.39 M ops/s at one thread, 4.60 and 4.60 M at sixteen, C(16) 0.45 [0.44, 0.45] and 0.44 [0.44, 0.45]",
+      "replacement": "docs/benchmarks/concurrency/README.md sections 12 and 26: the serialised removal on the repaired harness at d1c3ca2a (runs 36615302601, 36628995380), 4.60 and 4.60 M ops/s at sixteen threads, C(16) 0.45 and 0.44; the optimistic removal at 8fd8e540 (runs 36619261906, 36625125183), 13.43 and 13.34 M ops/s, C(16) 1.13 [1.12, 1.14] in both runs",
       "provenance": "commit d1c3ca2a, docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json",
       "rationale": "The pre-#1280 core_concurrency blob arms discarded the insert Result; the arena reached its 1 GiB cap within the first rounds and every later insert failed with OffsetOverflow while counting as a write (#1280)"
     }
