@@ -34,10 +34,10 @@
     "meta": {
       "source": "docs/benchmarks/concurrency/README.md section 12; written by docs/benchmarks/concurrency/scripts/mixed_concurrency.py --write-assets from results/baseline_concurrent_mixed.json (run 1), with results/baseline_concurrent_mixed_run2.json as its second run",
       "host": "reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15",
-      "run": "36619261906",
-      "run2": "36625125183",
-      "ref": "8fd8e540",
-      "config": "threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.10 across both runs",
+      "run": "36658309874",
+      "run2": "36661955960",
+      "ref": "f9853201",
+      "config": "threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.09 across both runs",
       "keyspace": "bounded 2xPOP keyspace (#375)",
       "retraction": "The earlier 1..16-thread SyncExpanseMap curve (22.1 / 42.7 / 83.7 / 160.7 / 265.8 M ops/s, '12.0x') probed unbounded random u64 keys and measured a near-100%-miss descent walk. Retracted; every arm has used a bounded keyspace since #375."
     },
@@ -50,16 +50,16 @@
       {
         "arm": "SyncExpanseSet",
         "mops": [
-          75.9,
+          76.4,
           291.4,
-          532.8
+          522.6
         ],
         "mops_run2": [
-          76.3,
-          290.6,
-          528.8
+          76.4,
+          291.6,
+          529.3
         ],
-        "scale_16t": 7.02,
+        "scale_16t": 6.84,
         "scale_16t_run2": 6.93,
         "kind": "expanse",
         "family": "u64 keys, 1M present"
@@ -67,34 +67,34 @@
       {
         "arm": "SyncExpanseMap",
         "mops": [
-          35.6,
-          135.6,
-          324.7
-        ],
-        "mops_run2": [
-          34.8,
-          133.7,
+          35.4,
+          134.6,
           322.8
         ],
+        "mops_run2": [
+          35.1,
+          134.5,
+          321.6
+        ],
         "scale_16t": 9.12,
-        "scale_16t_run2": 9.28,
+        "scale_16t_run2": 9.15,
         "kind": "expanse",
         "family": "u64 keys, 1M present"
       },
       {
         "arm": "SyncExpanseBlobMap",
         "mops": [
-          29.1,
-          110.8,
-          268.5
+          28.9,
+          110.1,
+          266.6
         ],
         "mops_run2": [
           28.9,
-          111.1,
-          268.1
+          110.8,
+          267.4
         ],
-        "scale_16t": 9.24,
-        "scale_16t_run2": 9.28,
+        "scale_16t": 9.23,
+        "scale_16t_run2": 9.24,
         "kind": "expanse",
         "family": "u64 -> 128-byte payload, 200k present"
       },
@@ -102,16 +102,16 @@
         "arm": "SkipMap<u64, (Vec<u8>, u32)>",
         "mops": [
           3.0,
-          11.2,
-          33.4
+          11.3,
+          33.7
         ],
         "mops_run2": [
           3.0,
-          11.2,
-          33.2
+          11.3,
+          33.7
         ],
-        "scale_16t": 11.11,
-        "scale_16t_run2": 11.09,
+        "scale_16t": 11.15,
+        "scale_16t_run2": 11.16,
         "kind": "other",
         "family": "u64 -> 128-byte payload, 200k present"
       },
@@ -119,67 +119,67 @@
         "arm": "RwLock<BTreeMap<u64, ...>>",
         "mops": [
           9.1,
-          18.9,
-          14.5
+          18.0,
+          13.5
         ],
         "mops_run2": [
           9.0,
-          18.5,
-          14.5
+          18.7,
+          13.7
         ],
-        "scale_16t": 1.6,
-        "scale_16t_run2": 1.61,
+        "scale_16t": 1.48,
+        "scale_16t_run2": 1.52,
         "kind": "other",
         "family": "u64 -> 128-byte payload, 200k present"
       },
       {
         "arm": "SyncExpanseBytesMap",
         "mops": [
-          10.4,
-          39.8,
-          116.0
+          10.5,
+          40.0,
+          116.6
         ],
         "mops_run2": [
           10.5,
-          40.0,
-          117.0
+          39.6,
+          116.4
         ],
-        "scale_16t": 11.13,
-        "scale_16t_run2": 11.13,
+        "scale_16t": 11.09,
+        "scale_16t_run2": 11.1,
         "kind": "expanse",
         "family": "string keys, 100k present"
       },
       {
         "arm": "SyncExpanseStrMap",
         "mops": [
-          6.9,
-          26.3,
-          76.8
+          7.0,
+          26.4,
+          77.6
         ],
         "mops_run2": [
-          6.9,
-          26.3,
-          77.0
+          7.0,
+          26.5,
+          77.6
         ],
-        "scale_16t": 11.09,
-        "scale_16t_run2": 11.12,
+        "scale_16t": 11.08,
+        "scale_16t_run2": 11.13,
         "kind": "expanse",
         "family": "string keys, 100k present"
       },
       {
         "arm": "DashMap<Vec<u8>, u64>",
         "mops": [
-          14.4,
-          48.1,
-          111.9
+          14.2,
+          47.2,
+          109.2
         ],
         "mops_run2": [
-          14.4,
-          47.6,
-          107.6
+          14.3,
+          46.9,
+          107.2
         ],
-        "scale_16t": 7.77,
-        "scale_16t_run2": 7.47,
+        "scale_16t": 7.68,
+        "scale_16t_run2": 7.51,
         "kind": "other",
         "family": "string keys, 100k present"
       }
@@ -189,33 +189,33 @@
         "arm": "SyncExpanseMap",
         "mops": [
           18.9,
-          48.6,
-          66.0
+          49.0,
+          63.4
         ],
         "mops_run2": [
-          18.9,
-          48.9,
-          68.2
+          18.8,
+          48.6,
+          66.4
         ],
-        "scale_16t": 3.49,
-        "scale_16t_run2": 3.61,
+        "scale_16t": 3.35,
+        "scale_16t_run2": 3.53,
         "kind": "expanse",
         "family": "u64 keys, 1M present"
       },
       {
         "arm": "SyncExpanseSet",
         "mops": [
-          34.6,
-          68.1,
-          128.0
+          34.5,
+          66.7,
+          126.7
         ],
         "mops_run2": [
-          34.6,
-          67.8,
-          128.7
+          34.7,
+          67.7,
+          129.5
         ],
-        "scale_16t": 3.7,
-        "scale_16t_run2": 3.72,
+        "scale_16t": 3.67,
+        "scale_16t_run2": 3.73,
         "kind": "expanse",
         "family": "u64 keys, 1M present"
       },
@@ -223,15 +223,15 @@
         "arm": "SyncExpanseBlobMap",
         "mops": [
           11.9,
-          20.8,
-          13.4
+          20.4,
+          13.2
         ],
         "mops_run2": [
           11.8,
-          20.6,
-          13.3
+          20.8,
+          13.4
         ],
-        "scale_16t": 1.13,
+        "scale_16t": 1.11,
         "scale_16t_run2": 1.13,
         "kind": "expanse",
         "family": "u64 -> 128-byte payload, 200k present"
@@ -239,34 +239,34 @@
       {
         "arm": "SkipMap<u64, (Vec<u8>, u32)>",
         "mops": [
-          2.1,
+          2.2,
           6.9,
-          17.9
+          17.8
         ],
         "mops_run2": [
           2.1,
           6.9,
-          17.8
+          17.6
         ],
-        "scale_16t": 8.34,
-        "scale_16t_run2": 8.38,
+        "scale_16t": 8.25,
+        "scale_16t_run2": 8.23,
         "kind": "other",
         "family": "u64 -> 128-byte payload, 200k present"
       },
       {
         "arm": "SyncExpanseBytesMap",
         "mops": [
-          4.8,
-          14.6,
-          40.6
+          4.9,
+          14.5,
+          40.0
         ],
         "mops_run2": [
-          4.9,
-          14.6,
-          41.7
+          4.8,
+          14.4,
+          38.9
         ],
-        "scale_16t": 8.41,
-        "scale_16t_run2": 8.5,
+        "scale_16t": 8.26,
+        "scale_16t_run2": 8.17,
         "kind": "expanse",
         "family": "string keys, 100k present"
       },
@@ -274,33 +274,33 @@
         "arm": "SyncExpanseStrMap",
         "mops": [
           5.8,
-          20.0,
-          53.2
+          20.3,
+          53.5
         ],
         "mops_run2": [
-          5.8,
+          5.9,
           20.2,
-          53.2
+          54.0
         ],
-        "scale_16t": 9.23,
-        "scale_16t_run2": 9.14,
+        "scale_16t": 9.17,
+        "scale_16t_run2": 9.23,
         "kind": "expanse",
         "family": "string keys, 100k present"
       },
       {
         "arm": "DashMap<Vec<u8>, u64>",
         "mops": [
-          11.0,
-          34.4,
-          86.6
+          10.6,
+          33.2,
+          82.7
         ],
         "mops_run2": [
-          11.1,
-          34.1,
-          86.4
+          10.9,
+          33.8,
+          86.2
         ],
-        "scale_16t": 7.89,
-        "scale_16t_run2": 7.82,
+        "scale_16t": 7.79,
+        "scale_16t_run2": 7.91,
         "kind": "other",
         "family": "string keys, 100k present"
       }
@@ -395,10 +395,10 @@
     "meta": {
       "source": "docs/benchmarks/concurrency/README.md section 12; written by docs/benchmarks/concurrency/scripts/mixed_concurrency.py --write-assets from results/baseline_concurrent_mixed.json (run 1), with results/baseline_concurrent_mixed_run2.json as its second run",
       "host": "reference host -- 12th Gen Intel(R) Core(TM) i9-12900F, pin 0-15",
-      "run": "36619261906",
-      "run2": "36625125183",
-      "ref": "8fd8e540",
-      "config": "threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.10 across both runs; one writer thread (full duty or deadline-paced), N readers on try_get over a 2x keyspace",
+      "run": "36658309874",
+      "run2": "36661955960",
+      "ref": "f9853201",
+      "config": "threads 1,4,16, 18 interleaved rounds of 500 ms windows, largest foreign busy CPUs over a group 0.09 across both runs; one writer thread (full duty or deadline-paced), N readers on try_get over a 2x keyspace",
       "workload_id": "core_concurrency"
     },
     "threads": [
@@ -412,35 +412,35 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 1078602,
-            "writes_per_s": 14882024,
-            "busy": 262736020,
-            "attempts": 272445831,
-            "busy_pct": 96.436,
+            "reads_per_s": 693319,
+            "writes_per_s": 16351069,
+            "busy": 316240985,
+            "attempts": 322482321,
+            "busy_pct": 98.065,
             "refused": 0,
-            "busy_pct_run2": 98.089,
+            "busy_pct_run2": 97.605,
             "refused_run2": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 3619804,
-            "writes_per_s": 10135928,
-            "busy": 564259925,
-            "attempts": 596845560,
-            "busy_pct": 94.54,
+            "reads_per_s": 3535695,
+            "writes_per_s": 10451625,
+            "busy": 545005886,
+            "attempts": 576833991,
+            "busy_pct": 94.482,
             "refused": 0,
-            "busy_pct_run2": 94.467,
+            "busy_pct_run2": 93.799,
             "refused_run2": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 60144590,
-            "writes_per_s": 4731356,
-            "busy": 1208785204,
-            "attempts": 1751302233,
-            "busy_pct": 69.022,
+            "reads_per_s": 69967636,
+            "writes_per_s": 4599803,
+            "busy": 1274535796,
+            "attempts": 1905745457,
+            "busy_pct": 66.879,
             "refused": 0,
-            "busy_pct_run2": 70.067,
+            "busy_pct_run2": 71.026,
             "refused_run2": 0
           }
         ]
@@ -450,35 +450,35 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 39074768,
-            "writes_per_s": 1000047,
-            "busy": 18851755,
-            "attempts": 370607473,
-            "busy_pct": 5.087,
+            "reads_per_s": 39061291,
+            "writes_per_s": 1000032,
+            "busy": 26254410,
+            "attempts": 377884110,
+            "busy_pct": 6.948,
             "refused": 0,
-            "busy_pct_run2": 7.286,
+            "busy_pct_run2": 5.421,
             "refused_run2": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 146863687,
-            "writes_per_s": 1000034,
-            "busy": 82412069,
-            "attempts": 1404463276,
-            "busy_pct": 5.868,
+            "reads_per_s": 146734517,
+            "writes_per_s": 1000038,
+            "busy": 79998121,
+            "attempts": 1400892983,
+            "busy_pct": 5.711,
             "refused": 0,
-            "busy_pct_run2": 5.391,
+            "busy_pct_run2": 4.043,
             "refused_run2": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 363073351,
-            "writes_per_s": 999537,
-            "busy": 199414833,
-            "attempts": 3475104674,
-            "busy_pct": 5.738,
+            "reads_per_s": 368634906,
+            "writes_per_s": 1000231,
+            "busy": 199329762,
+            "attempts": 3523426365,
+            "busy_pct": 5.657,
             "refused": 0,
-            "busy_pct_run2": 5.37,
+            "busy_pct_run2": 5.589,
             "refused_run2": 0
           }
         ]
@@ -488,35 +488,35 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 45038971,
+            "reads_per_s": 45195865,
             "writes_per_s": 100008,
-            "busy": 2661997,
-            "attempts": 408110043,
-            "busy_pct": 0.652,
+            "busy": 2421877,
+            "attempts": 409289147,
+            "busy_pct": 0.592,
             "refused": 0,
-            "busy_pct_run2": 0.607,
+            "busy_pct_run2": 0.576,
             "refused_run2": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 175416501,
-            "writes_per_s": 100005,
-            "busy": 7478920,
-            "attempts": 1586584901,
-            "busy_pct": 0.471,
+            "reads_per_s": 176214607,
+            "writes_per_s": 100007,
+            "busy": 8533208,
+            "attempts": 1594889405,
+            "busy_pct": 0.535,
             "refused": 0,
-            "busy_pct_run2": 0.566,
+            "busy_pct_run2": 0.463,
             "refused_run2": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 429283762,
-            "writes_per_s": 100084,
-            "busy": 21662979,
-            "attempts": 3894040844,
-            "busy_pct": 0.556,
+            "reads_per_s": 441987163,
+            "writes_per_s": 99951,
+            "busy": 22086585,
+            "attempts": 4007970434,
+            "busy_pct": 0.551,
             "refused": 0,
-            "busy_pct_run2": 0.539,
+            "busy_pct_run2": 0.564,
             "refused_run2": 0
           }
         ]
@@ -526,35 +526,35 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 45912715,
+            "reads_per_s": 46122127,
             "writes_per_s": 10003,
-            "busy": 224201,
-            "attempts": 413532825,
-            "busy_pct": 0.054,
+            "busy": 247459,
+            "attempts": 415442971,
+            "busy_pct": 0.06,
             "refused": 0,
-            "busy_pct_run2": 0.059,
+            "busy_pct_run2": 0.052,
             "refused_run2": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 178975559,
+            "reads_per_s": 180141603,
             "writes_per_s": 10003,
-            "busy": 647289,
-            "attempts": 1611770948,
-            "busy_pct": 0.04,
+            "busy": 820295,
+            "attempts": 1622463006,
+            "busy_pct": 0.051,
             "refused": 0,
-            "busy_pct_run2": 0.041,
+            "busy_pct_run2": 0.034,
             "refused_run2": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 432412956,
-            "writes_per_s": 10002,
-            "busy": 2398223,
-            "attempts": 3901403567,
-            "busy_pct": 0.061,
+            "reads_per_s": 441896762,
+            "writes_per_s": 9999,
+            "busy": 2468756,
+            "attempts": 3991255611,
+            "busy_pct": 0.062,
             "refused": 0,
-            "busy_pct_run2": 0.057,
+            "busy_pct_run2": 0.055,
             "refused_run2": 0
           }
         ]

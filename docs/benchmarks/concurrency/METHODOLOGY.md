@@ -4163,7 +4163,7 @@ With the optimistic removal (§26, README §26) `SyncExpanseBlobMap` at 50 % rea
 | build | what it is | ref |
 |---|---|---|
 | D | `main` plus the `compact_ns` instrument: worker 0 times each in-window `compact()` and the driver reports `compaction_time_share`, the summed compaction time over the summed window time | the PR head that carries this section |
-| K | D with `BLOB_COMPACT_APPENDS = 4 * BLOB_POP`: the same trigger, a quarter as often | `exp/1280-k-compact-4x`, D plus that one constant |
+| K | D with `BLOB_COMPACT_APPENDS = 4 * BLOB_POP`: the same trigger, firing once for every four of D's compactions | `exp/1280-k-compact-4x`, D plus that one constant |
 
 K changes only the two Expanse blob arms. Its arena ceiling is 278,217,728 B, 3.86× under the cap, above the §26 2× margin (`scripts/blob_mixed_bounds.py`, `ABLATION_COMPACT_APPENDS`). Each build's commit is the one its dispatch records; a build whose commit differs between its two runs voids both.
 
