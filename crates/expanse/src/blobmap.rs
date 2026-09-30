@@ -950,6 +950,10 @@ impl BlobArena {
     /// cross the [`MAX_ARENA_CHUNKS`] chunk-count cap or the shipped
     /// [`MAX_ARENA_CAPACITY`] safety cap, and with [`ArenaError::AllocationFailed`]
     /// if a single record cannot fit one chunk (`8 + data.len() > chunk_size`).
+    ///
+    /// Inlined, so a caller's fast path (the active chunk has room) makes no
+    /// call; opening a chunk is [`Self::alloc_blob_in_new_chunk`], out of line.
+    #[inline]
     pub fn alloc_blob(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
         let needed = 8 + data.len();
         if needed > self.chunk_size {
@@ -963,7 +967,14 @@ impl BlobArena {
             self.live_bytes += needed;
             return Ok(self.global_offset(idx, offset_in_chunk));
         }
+        self.alloc_blob_in_new_chunk(data)
+    }
 
+    /// [`Self::alloc_blob`]'s growth path: the active chunk cannot fit the
+    /// record, so a new chunk is opened, within the caps.
+    #[inline(never)]
+    fn alloc_blob_in_new_chunk(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
+        let needed = 8 + data.len();
         // A new chunk is required — enforce the chunk-count and total capacity
         // caps before allocating anything.
         let idx = self.chunks.len();
@@ -1600,11 +1611,7 @@ impl ExpanseBlobMap {
             if hot_meta > ValueSlot::ARENA_META_MAX {
                 return Err(ArenaError::MetaOverflow);
             }
-            let global = match self.arena.alloc_blob(data) {
-                Ok(global) => global,
-                Err(ArenaError::OffsetOverflow) => self.alloc_after_reclaim(data)?,
-                Err(e) => return Err(e),
-            };
+            let global = self.alloc_payload(data)?;
             slot_from_global(global, hot_meta)?
         };
 
@@ -1612,6 +1619,19 @@ impl ExpanseBlobMap {
             self.arena.record_deleted_slot(ValueSlot::from_raw(old_raw));
         }
         Ok(())
+    }
+
+    /// [`Self::insert`]'s arena allocation, out of line so `insert` makes one
+    /// call and holds nothing across it, as it did before the reclaim rule. The
+    /// retry needs `data` after a refusal, and only [`BlobArena::alloc_blob`]'s
+    /// growth call can refuse; with the fast path inlined here, `data` stays live
+    /// across that cold call alone.
+    #[inline(never)]
+    fn alloc_payload(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
+        match self.arena.alloc_blob(data) {
+            Err(ArenaError::OffsetOverflow) => self.alloc_after_reclaim(data),
+            res => res,
+        }
     }
 
     /// The cap refused [`Self::insert`] a new chunk: compact once if the
