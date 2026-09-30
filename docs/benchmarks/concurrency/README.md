@@ -2480,7 +2480,10 @@ harness's runs of build D of METHODOLOGY §27, dispatched at `f9853201` (runs
 [36658309874](https://github.com/orieg/expanse/actions/runs/36658309874) and
 [36661955960](https://github.com/orieg/expanse/actions/runs/36661955960)): the
 optimistic blob removal of §26 with the blob arms' compactions timed
-(`compact_ns`), the code that merged. No artifact before #1280 measured this
+(`compact_ns`), the code that merged. The engine's reclamation at the arena cap
+(#1290) changed the insert path these cells measure; METHODOLOGY §28's
+re-measurement found its head non-inferior on the 16-thread blob cell, with
+every re-measured blob cell beside it in §28 below, one of them a loss. No artifact before #1280 measured this
 workload, and none is comparable with these cells. Until #1280 the harness
 differed in three ways:
 
@@ -5474,4 +5477,88 @@ What the verdict licenses, per §27.7:
   serialises every operation.
 - The harness keeps its registered trigger. What compaction costs a caller who
   must stay under the arena cap is the product question of #1290.
+
+## 28. Engine reclamation at the arena cap — METHODOLOGY §28's evaluation (Refs #1290)
+
+METHODOLOGY §28 registered two builds, two runs each, dispatched in the order
+B, R, R, B: B the change's merge base (`79184f25`) and R its head (`d50f4f05`).
+Every run is admissible: each build's two runs measured one commit, every run's
+host guard read quiet, and no control moved outside ±5 % in both runs
+*(measured: reference host — Intel Core i9-12900F, pin `0-15`, 18 rounds per
+cell; runs B [36684219365](https://github.com/orieg/expanse/actions/runs/36684219365)
+and [36689085182](https://github.com/orieg/expanse/actions/runs/36689085182), R
+[36685745781](https://github.com/orieg/expanse/actions/runs/36685745781) and
+[36687394690](https://github.com/orieg/expanse/actions/runs/36687394690);
+artifacts `results/gate_1290_reclaim_{b,r}_run{1,2}.json`, verdict
+`results/blob_reclaim_verdict_1290.json` from `scripts/blob_reclaim_gate.py`;
+workload: `core_concurrency`)*. The harness's arena stays under the cap, so no
+cell executes the reclaim branch; the comparison measures the insert path's
+code, not reclamation.
+
+| gate | cell | floor | R ÷ B, run 1 | run 2 | verdict |
+|---|---|--:|---|---|---|
+| G3 | blob 50% read T=16 | 0.95 | 1.025 [1.012, 1.041] | 1.001 [0.990, 1.013] | `PASS` (non-inferior) |
+
+Reported, not gated (R ÷ B):
+
+| cell | run 1 | run 2 |
+|---|---|---|
+| blob 50% read T=4 | 1.013 [1.005, 1.022] | 1.002 [0.992, 1.012] |
+| blob 50% read T=1 | 0.998 [0.987, 1.008] | 1.012 [1.003, 1.021] |
+| blob 100% read T=16 | 0.989 [0.986, 0.992] | 0.989 [0.986, 0.992] |
+| blob_mutex 50% read T=16 | 1.019 [1.007, 1.034] | 1.035 [1.025, 1.044] |
+| blob_mutex 50% read T=4 | 1.029 [1.015, 1.046] | 1.027 [1.015, 1.040] |
+
+Controls, R ÷ B:
+
+| cell | run 1 | run 2 | moved outside ±5 % in both runs |
+|---|---|---|---|
+| map 50% read T=16 | 1.022 [0.959, 1.089] | 0.969 [0.917, 1.029] | no |
+| str 50% read T=16 | 1.007 [1.001, 1.014] | 1.009 [1.002, 1.016] | no |
+
+- **G3 licenses non-inferiority only:** the head is not slower than the base by
+  more than 5 % on the 16-thread 50 % read blob cell. It licenses no claim that
+  the change is faster there; run 2's interval contains 1.
+- **The read-only blob cell is a loss in both runs**, 0.989 [0.986, 0.992]
+  twice, so rule 18's two-run condition holds. The change does not touch the
+  concurrent blob map's read path; the cause is unmeasured.
+- **`Mutex<ExpanseBlobMap>` gains in both runs**, 1.019–1.035. Its insert is
+  `ExpanseBlobMap::insert`, whose instruction count fell 1.7–2.8 % on the
+  Callgrind arms in the same change (`alloc_payload`,
+  [CI run 36681492675](https://github.com/orieg/expanse/actions/runs/36681492675));
+  that a fall in instructions produced this gain is a hypothesis, not a
+  measurement.
+- G1 and G2 are recorded in the change itself: its tests, and the Callgrind
+  run above (0 of 187 arms regressed).
+
+### 28a. The amended head, re-measured — METHODOLOGY §28a.5
+
+§28a amended the change (a waste guard, a fast refusal on the concurrent map, a fallible relocation list, an opt-out). Its Callgrind run on `07b925b0` ([36746068863](https://github.com/orieg/expanse/actions/runs/36746068863)) regressed none of 187 arms against `main`. But `sync_blobmap_overwrite` read +0.146 % against R (`d50f4f05`), over §28a.5's 0.1 % carry-over bound, so G3 was re-run rather than carried over.
+
+The re-run used the same order B, R′, R′, B, with B `79184f25` and R′ `07b925b0`. Every run is admissible: each build's two runs measured one commit, every host guard read quiet, and no control moved outside ±5 % in both runs *(measured: reference host — Intel Core i9-12900F, pin `0-15`, 18 rounds per cell; runs B [36750304919](https://github.com/orieg/expanse/actions/runs/36750304919) and [36757036225](https://github.com/orieg/expanse/actions/runs/36757036225), R′ [36753060187](https://github.com/orieg/expanse/actions/runs/36753060187) and [36755051110](https://github.com/orieg/expanse/actions/runs/36755051110); artifacts `results/gate_1290a_reclaim_{b,r}_run{1,2}.json`, verdict `results/blob_reclaim_verdict_1290a.json` from `scripts/blob_reclaim_gate.py`; workload: `core_concurrency`)*.
+
+| gate | cell | floor | R′ ÷ B, run 1 | run 2 | verdict |
+|---|---|--:|---|---|---|
+| G3 | blob 50% read T=16 | 0.95 | 0.995 [0.980, 1.012] | 1.017 [1.005, 1.031] | `PASS` (non-inferior) |
+
+Reported, not gated (R′ ÷ B):
+
+| cell | run 1 | run 2 |
+|---|---|---|
+| blob 50% read T=4 | 0.994 [0.984, 1.004] | 0.996 [0.986, 1.008] |
+| blob 50% read T=1 | 1.000 [0.990, 1.010] | 1.013 [1.002, 1.023] |
+| blob 100% read T=16 | 0.994 [0.991, 0.997] | 1.002 [0.999, 1.005] |
+| blob_mutex 50% read T=16 | 1.025 [1.016, 1.035] | 1.041 [1.031, 1.049] |
+| blob_mutex 50% read T=4 | 0.994 [0.982, 1.004] | 1.031 [1.018, 1.042] |
+
+Controls, R′ ÷ B:
+
+| cell | run 1 | run 2 | moved outside ±5 % in both runs |
+|---|---|---|---|
+| map 50% read T=16 | 0.894 [0.851, 0.945] | 1.002 [0.955, 1.055] | no (run 1 only) |
+| str 50% read T=16 | 1.005 [0.998, 1.018] | 1.001 [0.995, 1.006] | no |
+
+- **G3 on R′ licenses non-inferiority only.** Run 1's interval contains 1.
+- **The read-only 16-thread blob cell is a loss in run 1 only.** It reads 0.994 in run 1 and 1.002 [0.999, 1.005] in run 2, so rule 18's two-run condition does not hold here. §28's reading of R (0.989 in both runs) stands as published for R.
+- **The `map` control moved outside the band in run 1 only**, so by §27.5's rule the comparison is not voided. It is reported beside the gate rather than read as drift.
 

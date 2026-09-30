@@ -4199,3 +4199,157 @@ A run the host guard voids, a window `mixed_concurrency.py` refuses, a build who
 
 - No magnitude for any ratio or share. The share is a wall-clock sum over one worker's compactions; it bounds the time no write could proceed only where every other writer was excluded for it, which both arms' compaction does by construction (above).
 - Out of scope: the engine's own reclamation (#1290), the `enter_writer` hot/cold split, other payload sizes, and changing the published harness's trigger.
+
+## 28. Pre-registration for #1290 — the blob arena reclaims itself at the cap (appended and locked 2026-09-30, before any code or run of the builds below)
+
+### 28.1 Context
+
+An `ExpanseBlobMap` or `SyncExpanseBlobMap` arena never rewrites a record in place, and only the caller's `compact()` reclaims dead records. Once the chunk bytes reach `max_capacity`, every insert that needs a new chunk fails with `ArenaError::OffsetOverflow`, however much of the arena is dead (#1290). The #1280 harness hit this and timed failing inserts until #1288 gave it an in-window compaction policy.
+
+### 28.2 The change
+
+On a refused growth, an insert compacts the arena once and retries once. It does so only if the live bytes, which the compaction would copy, are at most `RECLAIM_COPY_PER_GROWTH` (1) times the bytes freeable since the previous compaction: the chunk bytes grown plus the net drop in live bytes. Otherwise it fails as today. `docs/design/large-values.md` §6.3.1 states the rule, and `scripts/blob_reclaim_bounds.py` bounds it:
+
+- an overwrite-forever workload of 128-byte payloads is sustained at the default cap up to 3,830,069 live records, 0.514 of the records the arena can hold;
+- no workload triggers two compactions without inserting or removing in between.
+
+The branch sits on the insert's error path. The `core_concurrency` blob arms never reach it: their arena high-water mark is 191,817,728 B, 5.60× under the cap (`scripts/blob_mixed_bounds.py`).
+
+### 28.3 G1 — correctness, deterministic
+
+Tests in the change, each shown red by a mutation that disables the rule or its removal term:
+
+| id | map | workload (chunk 4,096 B, cap 64 KiB, `hot_meta = 1` so every payload is an arena record) | expected |
+|---|---|---|---|
+| G1.1 | `ExpanseBlobMap` | 224 live 128 B records, 1,792 overwrites | 0 errors, 7 compactions |
+| G1.2 | `ExpanseBlobMap` | 225 live 128 B records, 1,792 overwrites | 1,346 errors, 1 compaction |
+| G1.3 | `ExpanseBlobMap` | 1,280 live 9 B records, 8,192 overwrites | 0 errors, 10 compactions |
+| G1.4 | `ExpanseBlobMap` | 1,281 live 9 B records, 8,192 overwrites | 6,658 errors, 1 compaction |
+| G1.5 | both | distinct 128 B keys until an insert fails, one more insert, remove half, insert | the fill stops at 448 keys after 1 compaction; the next insert fails with no compaction; the insert after the removals succeeds after a second |
+| G1.6 | `SyncExpanseBlobMap`, one thread | 210 live 128 B and 1,204 live 9 B records, overwrites as G1.1 and G1.3 | 0 errors |
+| G1.7 | `SyncExpanseBlobMap`, four writers, cap 256 KiB | 400 live 128 B records, 100 per writer, each writer overwriting its own keys 2,000 times | 0 errors; every key reads its last payload; the live bytes equal the sum over the index |
+
+- G1.1–G1.5's expected counts are `simulate` and `simulate_fill_then_remove` in `scripts/blob_reclaim_bounds.py`. The engine must match the model exactly.
+- G1.6's live sets are `max_sustained_live_records` with the cap reduced by one chunk. After a compaction, `SyncExpanseBlobMap`'s writer takes a fresh private chunk instead of filling the tail of the last compacted one, so each cycle can lose up to one chunk.
+- G1.7's live set is under half of `max_sustained_live_records(128, 4096, 256 KiB − 8 chunks)` = 812, which covers each writer holding and abandoning a private chunk per cycle.
+- G1.6 also runs under Miri in the Tier-1 filter.
+
+### 28.4 G2 — single-threaded cost, deterministic
+
+Every arm of `instruction-counts` and `callgrind-smoke` within the §6 review threshold (0.1 %) of `main`, the `sync_blobmap_*` and `blobmap_*` arms included. No arm reaches the cap, so the branch never executes; a change in any arm is inlining or layout. An arm over the threshold is a stop-and-ask, not an `allow-regression:` line.
+
+### 28.5 G3 — the published blob cells, wall clock
+
+The change touches the insert path that §12, §26 and §27 measured, so those figures are stale for the merged code until re-measured (AGENTS.md §8.7).
+
+- **Builds and order:** B, the change's merge base, and R, the change's head. The `concurrency` suite of `bench_baremetal.yml`, unchanged from §27.3, runs twice per build in the order B, R, R, B; run k of each build pairs with run k of the other.
+- **Evaluator:** R ÷ B is the ratio of mean total ops/s over a cell's 18 windows, two-sample BCa 95 %. The evaluator is `docs/benchmarks/concurrency/scripts/blob_reclaim_gate.py`, committed with the data. It reuses `blob_remove_gate.py`'s ratio, verdict and drift rules.
+
+| id | comparison | cell | floor | reading |
+|---|---|---|--:|---|
+| G3 | R ÷ B | `SyncExpanseBlobMap`, 50 % read, 16 threads | 0.95 | `PASS` (non-inferior) when the lower bound exceeds the floor in both runs, `REFUTED` when the upper bound is below it in both, `INCONCLUSIVE` otherwise |
+
+- **Reported with intervals, not gated:** R ÷ B for the blob arm at 50 % read with 4 and 1 threads and at 100 % read with 16; and for `Mutex<ExpanseBlobMap>`, whose plain `insert` also changes, at 50 % read with 16 and 4 threads.
+- **Controls:** `map` 50 % read at 16 threads and `str` 50 % read at 16 threads, read as in §27.5. A control outside [0.95, 1.05] in the same direction in both runs marks the comparison `DRIFT`, and G3 is not read.
+- **Voids:** as §27.6, without the compaction clause.
+
+### 28.6 What each outcome licenses
+
+- **G1 and G2 met:** the change is eligible to merge after G3.
+- **G3 `PASS`:** the published blob cells stand for the merged code, with R's runs beside them as the re-measurement. It licenses "not slower by more than 5 % on these cells", never "faster".
+- **G3 `REFUTED` or `INCONCLUSIVE`, or any G2 arm over its threshold:** stop and ask, and do not merge on this pre-registration.
+
+### 28.7 Not predicted, and out of scope
+
+- No ratio is predicted beyond the non-inferiority floor.
+- The latency of an insert that triggers a compaction is not measured. Its copy is bounded by the live bytes (`stall_copy_bytes`: 25.9 MiB for the #1280 harness's live set, at most 512 MiB at the default cap), and during it `SyncExpanseBlobMap` excludes every writer, as a caller's `compact()` does.
+- Out of scope:
+  - incremental or per-chunk compaction;
+  - an error that reports the dead share;
+  - `ExpanseBlobMap32` (a fixed 4,096-slot arena);
+  - any change to the harness's own trigger;
+  - a different `RECLAIM_COPY_PER_GROWTH`.
+
+## 28a. Amendment to §28 — the waste guard, a fast refusal, and corrected bounds (appended and locked 2026-09-30, before any code of the amended build; §28 above is not edited)
+
+### 28a.1 Why §28 is amended
+
+§28's gates were met (README §28). A review of the change with four synthetic reviewers, read as adversarial brainstorming rather than as peer review, raised the points below. Each was then checked against the code at `3d4b46a6`.
+
+- **§28.7's stall bound is wrong.**
+  - It says an automatic compaction copies "at most 512 MiB at the default cap". That holds only in the steady overwrite cycle.
+  - After construction or `clear` the rule's baseline is zero, so the first refusal compacts whatever the dead share is. The copy is then bounded only by the live bytes: about 1 GiB at the cap, and 967 MiB for 128 B records filled to the cap (`stall_copy_bytes(7,456,256, 128)`).
+  - G1.5 pinned that first compaction, and it frees nothing (`simulate_fill_then_remove`, `compactions_at_fill: 1`).
+- **New reads wait for the compaction.**
+  - On `SyncExpanseBlobMap`, a compaction runs under `write_quiesced`. That opens the tree `SeqVersion` bracket for the whole closure (`write_root_covered_with::<true, true>`, sync.rs:2777 and 2790), and `SeqVersion::sample` spins while the bracket is odd (occ.rs:132–157).
+  - Only borrows taken before the bracket opened keep reading the retired chunks.
+  - §28.2 says only that every writer waits, so it is incomplete. This holds for a caller's `compact()` on `main` too.
+- **A refusal the rule declines now quiesces the map.** Every `OffsetOverflow` from `SyncExpanseBlobMap::insert_once` enters `write_quiesced` before the rule is read. On a full map, callers that retry turn each refused insert into a writer drain plus a reader bracket; before §28 the refusal returned without either.
+- **The memory peak is not bounded by the cap.**
+  - `compact_with_index` holds the old and new chunk sets at once, plus two vectors of 16 B per arena record. `live_entries` grows by doubling, with no size hint.
+  - A failed vector allocation aborts the process inside an `insert`.
+  - On `SyncExpanseBlobMap` the old set stays allocated until the epoch collector frees it.
+- **Documentation contradicts the behaviour.**
+  - `with_chunk_size_and_max_capacity` on `BlobArena`, `ExpanseBlobMap` and `SyncExpanseBlobMap` (blobmap.rs:792, 1403; sync.rs:9851) says an insert at the ceiling "fails atomically and leaves … completely unmodified". Under the rule, an insert can compact and still fail.
+  - A compaction that cannot allocate makes the insert return `AllocationFailed`.
+  - `expanse.h`, the man page and COMPAT.md do not say that an insert can relocate and free every payload.
+
+### 28a.2 The amended build (R′), one change per item
+
+- **C1 — the waste guard.**
+  - `BlobArena::reclaim_allowed` also requires `2 * live_bytes < total_allocated`.
+  - An arena filled with live records never passes it, so a bulk load that reaches the cap fails with no copy.
+  - It bounds every automatic copy below half the cap (`max_stall_bytes`: 512 MiB − 1 B at the default cap).
+  - The budget (A) is unchanged. `scripts/blob_reclaim_bounds.py` models both conditions, and the sustained live sets and every G1.1–G1.4, G1.6 and G1.7 count are unchanged: (A) binds in each, as the script's self-test pins.
+- **C2 — a fast refusal on the concurrent map.**
+  - When the quiesced decision declines, `SyncExpanseBlobMap` records the population at that point.
+  - A later refused insert fails with `OffsetOverflow` without quiescing, while the population is at least the recorded one. Every `RECLAIM_RECHECK_EVERY` (64) such refusals it re-checks under quiescence instead, so a live-byte drop that removes no key (an overwrite with a shorter payload) is seen.
+  - `compact`, `clear`, a successful reclaim and the policy setter (C5) clear the record.
+  - The hot path is unchanged: the record is read only after a refusal.
+- **C3 — one home for the wrapper's compaction invariant.** "Fold the writers' deltas before a compaction, reset their private chunks after it" becomes one private function, which `SyncExpanseBlobMap::compact` and the insert's reclaim both call.
+- **C4 — a bounded, fallible relocation list.**
+  - `compact_with_index` collects into one vector, reserved once with `try_reserve_exact` for the index's entry count, and rewrites it in place. A failed reservation returns `AllocationFailed` before anything is changed.
+  - The transient peak becomes the old chunk set, plus the new chunk set, plus 16 B per index entry (`compaction_peak_bytes`).
+- **C5 — a Rust opt-out.**
+  - `ExpanseBlobMap::set_reclaim_at_cap(bool)` and `SyncExpanseBlobMap::set_reclaim_at_cap(bool)`, with getters. The default is on.
+  - Off restores the pre-#1290 behaviour at the cap: `OffsetOverflow` with no compaction.
+  - The C API and the bindings keep the default. Exposing the switch and the cap there is out of scope (28a.6).
+- **C6 — documentation stating what is true.**
+  - The three `with_chunk_size_and_max_capacity` docs and `insert`'s docs: the map's contents are unchanged on failure, its layout may not be, and `AllocationFailed` can be returned.
+  - `MAX_ARENA_CAPACITY`: it bounds allocated chunk bytes, not peak memory.
+  - `docs/design/large-values.md` §6.3.1: the rule with (B); the stall is under half the cap; new reads wait for the compaction; the peak; the fast refusal; the opt-out.
+  - `include/expanse.h`, `man/man3/expanse_blob_map.3` and `docs/COMPAT.md`: an insert may relocate and free every arena payload.
+
+### 28a.3 G1a — correctness, deterministic
+
+§28.3's G1.1–G1.4, G1.6 and G1.7 keep their workloads and expected counts. The amended model gives the same numbers. Replaced or added:
+
+| id | map | workload (as §28.3 where not stated) | expected |
+|---|---|---|---|
+| G1.5a | both | distinct 128 B keys until an insert fails, one more insert, remove half, insert | the fill stops at 448 keys with **no** compaction; the next insert fails with no compaction; the insert after the removals succeeds after **one** compaction (`simulate_fill_then_remove`) |
+| G1.8 | both | G1.1's workload with `set_reclaim_at_cap(false)` | refusals begin at the first refused chunk; the arena generation never changes |
+| G1.9 | `SyncExpanseBlobMap`, four writers | a full 64 KiB arena (the G1.5a fill); each writer inserts a fresh key 1,000 times | every insert returns `OffsetOverflow`; the number of quiesced reclaim decisions, counted by a test-only counter, is at most 4,000 / 64 + 4; after one writer removes half the keys, the next insert succeeds |
+| G1.10 | `ExpanseBlobMap` | a map with 1,000 inline keys and 10 arena keys, compacted | the relocation list is reserved for 1,010 entries and the compaction succeeds; the counts are read through a test-only accessor |
+
+Each new or changed test is shown red by a mutation of the clause it pins: C1's guard removed, C2's record ignored, C2's periodic re-check removed, C5's flag ignored.
+
+### 28a.4 G2a — single-threaded cost, deterministic
+
+As §28.4: every arm of `instruction-counts` and `callgrind-smoke` within 0.1 % of `main`, and a stop-and-ask above.
+
+### 28a.5 G3 — carried over, or re-run
+
+- **Carried over if:** on the CI Callgrind run of R′, every `blobmap_*` and `sync_blobmap_*` arm is within 0.1 % of its count on R (`d50f4f05`, [run 36681492675](https://github.com/orieg/expanse/actions/runs/36681492675)). Then §28's G3 reading (README §28) stands for R′: the amendment changed only paths those cells never execute.
+- **Otherwise:** G3 is re-run as §28.5 with the same B (`79184f25`) and R′, in the order B, R′, R′, B, against the same floor.
+
+### 28a.6 Not predicted, and out of scope
+
+- No latency figure.
+  - The stall's worst case is bounded by construction (C1) but unmeasured.
+  - An estimate derived from §27's committed runs, about 11 ms per compaction of the harness's 200,000 records, is an extrapolation, not a measurement, and is not published as one.
+- Follow-ups, each needing its own registration:
+  - latency histograms of inserts and reads across a triggered reclaim, and peak memory, on the reference host;
+  - running phase 1 of a concurrent compaction outside the reader bracket;
+  - a distinct error, or error context, separating "full" from "fragmented";
+  - exposing the cap and the switch in `expanse.h` and the bindings, after splitting the cap's image-validation role from its runtime budget;
+  - incremental compaction. It needs per-chunk live counters and a key in the record header, which is a format change under AGENTS.md §2.3.

@@ -277,6 +277,10 @@ stay `uint64_t` at both widths — they are populations, not keys.
 
 Modern features (optimistic concurrent reads, iterators, arena controls) are exposed through the native Rust API and through the `expanse_*` C API in `expanse.h`. Existing `Judy*` symbols never change semantics. Swapping in libexpanse must be a pure substitution.
 
+### Blob map reclamation at the capacity cap (`expanse_blob_map_insert`)
+
+An `expanse_blob_map_insert` that the arena's 1 GiB capacity cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1) and retry once, instead of returning `false` straight away. The call's contract is unchanged: it returns `false` on refusal and leaves the map's contents unchanged, and any insert already invalidated every `ExpanseBlobView`. What changes in practice is that such an insert can copy every live payload and free the chunks earlier views pointed into, so a view held across an insert reads freed memory rather than stale bytes. The C API has no switch for it; the Rust API's `set_reclaim_at_cap(false)` restores the refusal without compaction.
+
 ### Reader-handle ownership (64-bit `expanse_sync_*`)
 
 The contract for `expanse_sync_set_reader_t` and `expanse_sync_map_reader_t`, stated next to the declarations in `include/expanse.h` and in `expanse_sync(3)`:

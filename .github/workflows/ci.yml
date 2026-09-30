@@ -816,6 +816,7 @@ jobs:
           python3 docs/benchmarks/concurrency/scripts/ablations.py --self-test
           python3 docs/benchmarks/concurrency/scripts/blob_remove_gate.py --self-test
           python3 docs/benchmarks/concurrency/scripts/blob_compaction_gate.py --self-test
+          python3 docs/benchmarks/concurrency/scripts/blob_reclaim_gate.py --self-test
           python3 docs/benchmarks/concurrency/scripts/multi_writer_olc_gate.py --self-test
           python3 docs/benchmarks/concurrency/scripts/fine_grained_brackets_gate.py --self-test
           python3 docs/benchmarks/hot_comparison/scripts/run_all.py --self-test
@@ -836,6 +837,11 @@ jobs:
           # Its self-test reads the constants it mirrors from the engine and
           # the harness (AGENTS.md section 8.8 commit 1).
           python3 scripts/blob_mixed_bounds.py --self-test
+          # blob_reclaim_bounds.py holds the #1290 bounds: which live sets the
+          # engine's reclaim-on-refused-growth rule sustains at the arena cap, and
+          # what it copies, cross-checked against a record-level allocator model
+          # (AGENTS.md section 8.8 commit 1).
+          python3 scripts/blob_reclaim_bounds.py --self-test
           # leaf_layout_model.py prices the #1257 layout census (ARCHITECTURE.md §3.6)
           # and re-checks the committed artifacts its figures rest on.
           python3 scripts/leaf_layout_model.py --self-test
