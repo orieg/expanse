@@ -94,6 +94,23 @@ class TestExpanse < Minitest::Test
     assert_equal 2, strmap.size
   end
 
+  # The C ABI reads a string-map key as a NUL-terminated const char*, so an
+  # unchecked "a\0b" reached the engine as "a" and overwrote that entry. Every
+  # call that takes a key must reject it, and "a" must be left alone.
+  def test_strmap_rejects_embedded_nul
+    strmap = Expanse::StrMap.new
+    strmap["a"] = 1
+
+    assert_raises(ArgumentError) { strmap["a\0b"] = 2 }
+    assert_raises(ArgumentError) { strmap["a\0b"] }
+    assert_raises(ArgumentError) { strmap.get("a\0b") }
+    assert_raises(ArgumentError) { strmap.key?("a\0b") }
+    assert_raises(ArgumentError) { strmap.delete("a\0b") }
+
+    assert_equal 1, strmap["a"]
+    assert_equal 1, strmap.size
+  end
+
   # A map, set or string map drained by delete keeps its freed blocks;
   # shrink_to_fit returns exactly mem_held - mem_used, after which the two
   # agree.

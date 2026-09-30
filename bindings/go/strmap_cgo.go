@@ -22,14 +22,23 @@ func NewStrMap() *StrMap {
 	return m
 }
 
-func (m *StrMap) Set(key string, value uint64) {
+// Set stores value under key, replacing any previous value. It returns
+// ErrNulInKey, and leaves the map unchanged, when key contains a NUL byte.
+func (m *StrMap) Set(key string, value uint64) error {
+	if nulIndex(key) >= 0 {
+		return ErrNulInKey
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
 	C.expanse_strmap_insert(m.ptr, cKey, C.uint64_t(value), nil)
+	return nil
 }
 
 func (m *StrMap) Get(key string) (uint64, bool) {
+	if nulIndex(key) >= 0 {
+		return 0, false // a NUL-bearing key is never stored
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
@@ -41,6 +50,9 @@ func (m *StrMap) Get(key string) (uint64, bool) {
 }
 
 func (m *StrMap) Delete(key string) bool {
+	if nulIndex(key) >= 0 {
+		return false // a NUL-bearing key is never stored
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
@@ -48,6 +60,9 @@ func (m *StrMap) Delete(key string) bool {
 }
 
 func (m *StrMap) Contains(key string) bool {
+	if nulIndex(key) >= 0 {
+		return false // a NUL-bearing key is never stored
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
@@ -121,6 +136,9 @@ func (m *StrMap) Last() (string, uint64, bool) {
 }
 
 func (m *StrMap) Next(key string) (string, uint64, bool) {
+	if i := nulIndex(key); i >= 0 {
+		return m.Next(key[:i]) // see nulIndex
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
@@ -141,6 +159,9 @@ func (m *StrMap) Next(key string) (string, uint64, bool) {
 }
 
 func (m *StrMap) NextAtOrAfter(key string) (string, uint64, bool) {
+	if i := nulIndex(key); i >= 0 {
+		return m.Next(key[:i]) // see nulIndex
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
@@ -161,6 +182,9 @@ func (m *StrMap) NextAtOrAfter(key string) (string, uint64, bool) {
 }
 
 func (m *StrMap) Prev(key string) (string, uint64, bool) {
+	if i := nulIndex(key); i >= 0 {
+		return m.PrevAtOrBefore(key[:i]) // see nulIndex
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
@@ -181,6 +205,9 @@ func (m *StrMap) Prev(key string) (string, uint64, bool) {
 }
 
 func (m *StrMap) PrevAtOrBefore(key string) (string, uint64, bool) {
+	if i := nulIndex(key); i >= 0 {
+		return m.PrevAtOrBefore(key[:i]) // see nulIndex
+	}
 	defer runtime.KeepAlive(m)
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))

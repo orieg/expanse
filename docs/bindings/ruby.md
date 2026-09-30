@@ -163,6 +163,8 @@ strmap.delete("alpha") # => 1
 strmap.size        # => 2
 ```
 
+Keys are NUL-free: the C ABI reads a string-map key as a NUL-terminated `const char*`, so every `StrMap` call that takes a key raises `ArgumentError` for a key containing `"\0"` rather than let `"a\0b"` address the entry for `"a"`. Use `Expanse::BytesMap` for binary keys.
+
 ### 3.4 `Expanse::BytesMap` (Arbitrary Binary Key Map / JudyHS)
 
 `Expanse::BytesMap` supports arbitrary binary strings, including binary buffers containing embedded null bytes (`\x00`):
