@@ -34,7 +34,8 @@ Sources
 -------
 Engine constants, read by the self-test from `crates/expanse/src/blobmap.rs`
   so a change there fails it: `DEFAULT_CHUNK_SIZE`, `MAX_ARENA_CAPACITY`,
-  `MAX_ARENA_CHUNKS`, `ARENA_ALIGN`. The record layout — an 8-byte header, the
+  `MAX_ARENA_CHUNKS`, `ARENA_ALIGN`, `RECLAIM_COPY_PER_GROWTH`, and the rule's
+  lines in `BlobArena::reclaim_allowed`. The record layout — an 8-byte header, the
   payload, the chunk cursor rounded up to 16 bytes after each record, a record
   fitting when `cursor + 8 + len <= capacity`, and a new chunk refused when
   `total_allocated + chunk_size > max_capacity` — is `ArenaChunk::alloc` and
@@ -286,6 +287,12 @@ def self_test() -> int:
     src = BLOBMAP_RS.read_text()
     assert "self.cursor = (next_cursor + 15) & !15;" in src, "ArenaChunk::alloc's cursor rounding moved"
     assert "self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity" in src
+    # The rule itself, as the engine states it (`BlobArena::reclaim_allowed`).
+    assert _read_const(r"^pub\(crate\) const RECLAIM_COPY_PER_GROWTH: usize = (.+);") == RECLAIM_COPY_PER_GROWTH
+    for line in ("let grown = self.total_allocated.saturating_sub(self.compacted_total);",
+                 "let dropped = self.compacted_live.saturating_sub(self.live_bytes);",
+                 "self.live_bytes <= RECLAIM_COPY_PER_GROWTH.saturating_mul(grown.saturating_add(dropped))"):
+        assert line in src, f"BlobArena::reclaim_allowed no longer reads: {line}"
 
     # Record geometry: 128 B payload -> 136 charged, 144 stride (as blob_mixed_bounds.py).
     assert record_needed(128) == 136 and record_stride(128) == 144

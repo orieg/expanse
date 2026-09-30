@@ -859,7 +859,7 @@ pub struct BlobRecordHeader {
 
 ### 6.3 Garbage Collection & Compaction Algorithm
 
-Because blobs are append-allocated, updates and deletions generate dead space in older chunks. Nothing reclaims it automatically: there is no fragmentation threshold, and compaction runs only when the caller invokes `ExpanseBlobMap::compact()` (or `expanse_blob_map_compact`).
+Because blobs are append-allocated, updates and deletions generate dead space in older chunks. It is reclaimed by compaction, which runs when the caller invokes `ExpanseBlobMap::compact()` (or `expanse_blob_map_compact`), or inside an insert that the capacity cap refuses a chunk, under the rule of §6.3.1. No threshold below the cap triggers one.
 
 #### Compaction (`BlobArena::compact_with_index`):
 1. Build a fresh arena with the same chunk size and capacity cap, stamped with the next arena generation (skipping 0, so zeroed bytes never match a live generation).
@@ -883,7 +883,7 @@ pub struct ArenaChunk {
 }
 ```
 
-#### 6.3.1 Reclamation at the cap *(proposed, #1290; pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §28)*
+#### 6.3.1 Reclamation at the cap *(#1290; pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §28)*
 
 An insert that needs a new chunk the cap refuses (`total_allocated + chunk_size > max_capacity`, or `MAX_ARENA_CHUNKS`) compacts the arena once and retries once, if
 
@@ -893,7 +893,7 @@ An insert that needs a new chunk the cap refuses (`total_allocated + chunk_size 
 
 where
 
-- $`k`$ is `RECLAIM_COPY_PER_GROWTH` = 1;
+- $`k`$ is `RECLAIM_COPY_PER_GROWTH` = 1 (`crates/expanse/src/blobmap.rs`; the rule is `BlobArena::reclaim_allowed`);
 - grown is the chunk bytes allocated since the previous compaction, or since the arena was created or cleared;
 - $`\text{live}_{c}`$ is the live bytes right after that compaction.
 

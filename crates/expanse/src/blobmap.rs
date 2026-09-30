@@ -510,6 +510,13 @@ pub const MAX_ARENA_CHUNKS: usize = 1 << 16;
 /// to lift the shipped cap toward that envelope.
 pub const MAX_ARENA_CAPACITY: usize = 1 << 30;
 
+/// The reclaim rule's copy budget (#1290, `docs/design/large-values.md`
+/// §6.3.1). An insert that the cap refuses a new chunk compacts the arena once
+/// and retries once, and only if the live bytes the compaction copies are at
+/// most this many times the bytes freeable since the previous compaction.
+/// `scripts/blob_reclaim_bounds.py` bounds what the rule sustains and copies.
+pub(crate) const RECLAIM_COPY_PER_GROWTH: usize = 1;
+
 /// Builds the uniform [`ArenaMeta`](SlotTag::ArenaMeta) [`ValueSlot`] for a blob
 /// at flat `global_offset` carrying `hot_meta`.
 ///
@@ -691,6 +698,11 @@ pub struct BlobArena {
     chunk_size: usize,
     total_allocated: usize,
     live_bytes: usize,
+    /// `total_allocated` and `live_bytes` right after the last compaction,
+    /// zero since construction or [`Self::clear`]: the reclaim rule's baseline
+    /// ([`Self::reclaim_allowed`]).
+    compacted_total: usize,
+    compacted_live: usize,
     /// Current generation, stamped into every chunk allocated by this arena
     /// and bumped on each [`compact_with_index`](Self::compact_with_index) so
     /// that an arena offset held across a compaction fails the generation
@@ -757,6 +769,8 @@ impl BlobArena {
             chunk_size: aligned,
             total_allocated: 0,
             live_bytes: 0,
+            compacted_total: 0,
+            compacted_live: 0,
             generation: 1,
             max_capacity: MAX_ARENA_CAPACITY,
             #[cfg(feature = "std")]
@@ -1150,6 +1164,7 @@ impl BlobArena {
         self.active_chunk = new_arena.active_chunk;
         self.total_allocated = new_arena.total_allocated;
         self.live_bytes = new_arena.live_bytes;
+        self.reset_reclaim_baseline();
         self.generation = new_arena.generation;
         self.republish_table();
         self.dispose_chunks(old_chunks);
@@ -1270,6 +1285,29 @@ impl BlobArena {
         self.live_bytes = sum as usize;
     }
 
+    /// Whether the reclaim rule lets an insert that the cap refused compact
+    /// the arena (#1290): the live bytes a compaction copies are at most
+    /// [`RECLAIM_COPY_PER_GROWTH`] times the chunk bytes grown plus the live
+    /// bytes dropped since the baseline. Every compaction resets the baseline,
+    /// so no workload triggers two without an insert or a removal in between.
+    ///
+    /// On a concurrent map `live_bytes` is exact only once the writers'
+    /// private deltas are folded, so the wrapper reads this after folding.
+    #[must_use]
+    pub(crate) fn reclaim_allowed(&self) -> bool {
+        let grown = self.total_allocated.saturating_sub(self.compacted_total);
+        let dropped = self.compacted_live.saturating_sub(self.live_bytes);
+        self.live_bytes <= RECLAIM_COPY_PER_GROWTH.saturating_mul(grown.saturating_add(dropped))
+    }
+
+    /// Moves the reclaim rule's baseline to the arena's current state: after a
+    /// compaction, a `clear`, or a compaction that failed and must not be
+    /// retried until the arena grows or loses live bytes.
+    fn reset_reclaim_baseline(&mut self) {
+        self.compacted_total = self.total_allocated;
+        self.compacted_live = self.live_bytes;
+    }
+
     /// Resets and frees all arena chunks (retired through the collector in
     /// deferred mode — pinned readers may still hold payload borrows).
     pub fn clear(&mut self) {
@@ -1277,6 +1315,7 @@ impl BlobArena {
         self.active_chunk = None;
         self.total_allocated = 0;
         self.live_bytes = 0;
+        self.reset_reclaim_baseline();
         // Unpublish (null table) before the chunks enter the grace period.
         self.republish_table();
         self.dispose_chunks(old_chunks);
@@ -1539,6 +1578,15 @@ impl ExpanseBlobMap {
     /// report their metadata as `0`. Arena payloads (`> 7` bytes) all carry the
     /// 24-bit metadata; `hot_meta` exceeding 24 bits returns
     /// [`ArenaError::MetaOverflow`] rather than being truncated.
+    ///
+    /// When the arena's capacity cap refuses the chunk an arena payload needs,
+    /// the insert runs one [`Self::compact`] and retries once, if the live
+    /// bytes the compaction copies are at most the chunk bytes grown plus the
+    /// live bytes dropped since the previous compaction (#1290,
+    /// `docs/design/large-values.md` §6.3.1). That insert pays for copying
+    /// every live payload. When the rule declines, or the arena is still full
+    /// after compacting, the insert fails with [`ArenaError::OffsetOverflow`]
+    /// and the map is unchanged.
     pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         let slot = if data.len() <= 7 {
             ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
@@ -1552,7 +1600,11 @@ impl ExpanseBlobMap {
             if hot_meta > ValueSlot::ARENA_META_MAX {
                 return Err(ArenaError::MetaOverflow);
             }
-            let global = self.arena.alloc_blob(data)?;
+            let global = match self.arena.alloc_blob(data) {
+                Ok(global) => global,
+                Err(ArenaError::OffsetOverflow) => self.alloc_after_reclaim(data)?,
+                Err(e) => return Err(e),
+            };
             slot_from_global(global, hot_meta)?
         };
 
@@ -1560,6 +1612,58 @@ impl ExpanseBlobMap {
             self.arena.record_deleted_slot(ValueSlot::from_raw(old_raw));
         }
         Ok(())
+    }
+
+    /// The cap refused [`Self::insert`] a new chunk: compact once if the
+    /// reclaim rule allows, then allocate again (#1290). The index is untouched
+    /// until the allocation succeeds, so the compaction relocates only records
+    /// that are already indexed.
+    #[cold]
+    #[inline(never)]
+    fn alloc_after_reclaim(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
+        if !self.reclaim_for_insert()? {
+            return Err(ArenaError::OffsetOverflow);
+        }
+        self.arena.alloc_blob(data)
+    }
+
+    /// Compacts once if the reclaim rule allows (#1290), returning whether it
+    /// did. A compaction that fails leaves the map untouched, and the rule's
+    /// baseline moves to the current state so the next refused insert does not
+    /// repeat it before the arena grows or loses live bytes.
+    fn reclaim_for_insert(&mut self) -> Result<bool, ArenaError> {
+        if !self.arena.reclaim_allowed() {
+            return Ok(false);
+        }
+        match self.compact() {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                self.arena.reset_reclaim_baseline();
+                Err(e)
+            }
+        }
+    }
+
+    /// [`Self::insert_shared`], compacting once under the reclaim rule if the
+    /// cap refuses its allocation (#1290). Returns the insert's result and
+    /// whether a compaction ran, which the concurrent wrapper needs in order
+    /// to reset its writers' private chunks. The caller must exclude every
+    /// other writer and have folded their live-byte deltas.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn insert_shared_reclaiming(
+        &mut self,
+        key: Key,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> (Result<(), ArenaError>, bool) {
+        match self.insert_shared(key, data, hot_meta) {
+            Err(ArenaError::OffsetOverflow) => match self.reclaim_for_insert() {
+                Ok(true) => (self.insert_shared(key, data, hot_meta), true),
+                Ok(false) => (Err(ArenaError::OffsetOverflow), false),
+                Err(e) => (Err(e), false),
+            },
+            res => (res, false),
+        }
     }
 
     /// [`Self::insert`] for the concurrent wrapper; see [`Self::insert_slot_shared`].
@@ -2056,6 +2160,114 @@ mod tests {
     use core_alloc::format;
     use core_alloc::vec;
     use core_alloc::vec::Vec;
+
+    /// The #1290 reclaim tests' arena (METHODOLOGY §28.3): 4 KiB chunks
+    /// under a 64 KiB cap, so 16 chunks, and `hot_meta = 1` on every insert
+    /// so no payload is stored inline.
+    const RECLAIM_CHUNK: usize = 4096;
+    const RECLAIM_CAP: usize = 64 * 1024;
+
+    fn reclaim_payload(key: u64, round: u64, len: usize) -> Vec<u8> {
+        (0..len)
+            .map(|i| (key as u8) ^ ((round as u8).wrapping_mul(31)) ^ (i as u8))
+            .collect()
+    }
+
+    /// Overwrites `live` keys round-robin `overwrites` times on a
+    /// [`RECLAIM_CAP`] arena, returning the refused inserts and the
+    /// compactions, counted by the arena generation, after the live set.
+    fn overwrite_at_cap(live: u64, len: usize, overwrites: u64) -> (u64, u32) {
+        let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(RECLAIM_CHUNK, RECLAIM_CAP);
+        for k in 0..live {
+            m.insert(k, &reclaim_payload(k, 0, len), 1)
+                .expect("the live set fits the arena");
+        }
+        let generation = m.arena().generation();
+        let mut last = vec![0u64; live as usize];
+        let mut refused = 0;
+        for i in 0..overwrites {
+            let (k, round) = (i % live, i / live + 1);
+            match m.insert(k, &reclaim_payload(k, round, len), 1) {
+                Ok(()) => last[k as usize] = round,
+                Err(ArenaError::OffsetOverflow) => refused += 1,
+                Err(e) => panic!("overwrite {i} failed with {e:?}"),
+            }
+        }
+        for k in 0..live {
+            let (view, meta) = m.get(k).expect("a live key went missing");
+            assert_eq!(
+                view.as_bytes(),
+                &reclaim_payload(k, last[k as usize], len)[..]
+            );
+            assert_eq!(meta, 1);
+        }
+        let stats = m.compact().expect("compaction");
+        assert_eq!(
+            stats.live_bytes_before, stats.live_bytes_after,
+            "the charged live bytes disagree with the index's"
+        );
+        (refused, m.arena().generation().wrapping_sub(generation) - 1)
+    }
+
+    /// #1290 G1.1-G1.4: the engine against `simulate` in
+    /// `scripts/blob_reclaim_bounds.py`, which gives these counts: at the
+    /// largest sustained live set no insert is refused, one record more and
+    /// the rule compacts once, then declines.
+    #[test]
+    fn reclaim_matches_the_model_at_the_cap() {
+        // 16 chunks hold 448 records of 128 B (28 per chunk); 4 x 448 overwrites.
+        assert_eq!(overwrite_at_cap(224, 128, 1792), (0, 7), "G1.1");
+        assert_eq!(overwrite_at_cap(225, 128, 1792), (1346, 1), "G1.2");
+        // 9 B records: 17 bytes charged, a 32-byte stride, 128 per chunk.
+        assert_eq!(overwrite_at_cap(1280, 9, 8192), (0, 10), "G1.3");
+        assert_eq!(overwrite_at_cap(1281, 9, 8192), (6658, 1), "G1.4");
+    }
+
+    /// #1290 G1.5, `simulate_fill_then_remove` in the bounds script: distinct
+    /// keys until the cap refuses one, where the rule's first compaction frees
+    /// nothing; the next insert is refused without compacting again; after
+    /// half the keys are removed the rule compacts again and admits it.
+    #[test]
+    fn reclaim_after_removals_at_a_full_arena() {
+        let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(RECLAIM_CHUNK, RECLAIM_CAP);
+        let g0 = m.arena().generation();
+        let mut n = 0u64;
+        loop {
+            match m.insert(n, &reclaim_payload(n, 0, 128), 1) {
+                Ok(()) => n += 1,
+                Err(ArenaError::OffsetOverflow) => break,
+                Err(e) => panic!("insert {n} failed with {e:?}"),
+            }
+        }
+        assert_eq!(n, 448, "16 chunks of 28 records");
+        assert_eq!(
+            m.arena().generation() - g0,
+            1,
+            "one compaction at the first refusal"
+        );
+        assert_eq!(
+            m.insert(n, &reclaim_payload(n, 0, 128), 1),
+            Err(ArenaError::OffsetOverflow)
+        );
+        assert_eq!(
+            m.arena().generation() - g0,
+            1,
+            "nothing grew or was removed since"
+        );
+        for k in 0..n / 2 {
+            assert!(m.remove(k));
+        }
+        m.insert(n, &reclaim_payload(n, 0, 128), 1)
+            .expect("the removals pay for a compaction");
+        assert_eq!(m.arena().generation() - g0, 2);
+        for k in n / 2..=n {
+            assert_eq!(
+                m.get(k).unwrap().0.as_bytes(),
+                &reclaim_payload(k, 0, 128)[..]
+            );
+        }
+        assert!(m.get(0).is_none());
+    }
 
     /// Phase 7 (issue #219): deferred-mode round trip — single-threaded and
     /// Miri-clean. Chunks dropped by compaction and `clear` are retired

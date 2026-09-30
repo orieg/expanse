@@ -10099,8 +10099,63 @@ impl SyncExpanseBlobMap {
     /// Inline payloads (`<= 7` bytes or compressed) avoid arena allocation entirely.
     /// With `ablation-blob-serial-writers` every mutation serializes on the writer
     /// mutex under the whole-operation tree bracket instead (AGENTS.md §2.7).
+    ///
+    /// When the arena's capacity cap refuses a new chunk, the insert retries
+    /// with every writer excluded, first compacting once if the reclaim rule of
+    /// [`ExpanseBlobMap::insert`] allows (#1290). Other writers wait for that
+    /// compaction as they wait for [`Self::compact`].
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
+        match self.insert_once(key, data, hot_meta) {
+            Err(ArenaError::OffsetOverflow) => self.insert_after_reclaim(key, data, hot_meta),
+            res => res,
+        }
+    }
+
+    /// The cap refused [`Self::insert`] a new chunk, and the attempt left the
+    /// writer gate without changing the map. Retry with every writer excluded,
+    /// compacting once first if the reclaim rule allows (#1290,
+    /// `docs/design/large-values.md` §6.3.1). Another writer may have compacted
+    /// or removed since the refusal, so the retry comes first and the rule is
+    /// read only if it fails again, after the writers' deltas are folded.
+    #[cold]
+    #[inline(never)]
+    fn insert_after_reclaim(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
+        #[cfg(feature = "ablation-blob-serial-writers")]
+        {
+            self.shared
+                .write(|m| m.insert_shared_reclaiming(key, data, hot_meta).0)
+        }
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            not(feature = "ablation-blob-shared-arena"),
+            feature = "std"
+        ))]
+        {
+            self.shared.write_quiesced(|m| {
+                self.fold_writer_arenas(m);
+                let (res, compacted) = m.insert_shared_reclaiming(key, data, hot_meta);
+                if compacted {
+                    self.reset_writer_chunks();
+                }
+                res
+            })
+        }
+        #[cfg(all(
+            not(feature = "ablation-blob-serial-writers"),
+            any(feature = "ablation-blob-shared-arena", not(feature = "std"))
+        ))]
+        {
+            self.shared
+                .write_quiesced(|m| m.insert_shared_reclaiming(key, data, hot_meta).0)
+        }
+    }
+
+    /// One attempt at [`Self::insert`]. A refused chunk returns
+    /// [`ArenaError::OffsetOverflow`] with the map unchanged and the writer
+    /// gate left.
+    #[inline(always)]
+    fn insert_once(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         #[cfg(feature = "ablation-blob-serial-writers")]
         {
             self.shared.write(|m| m.insert_shared(key, data, hot_meta))
@@ -12367,6 +12422,43 @@ mod miri_tests {
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
+    }
+
+    /// #1290 G1.6 (METHODOLOGY §28.3), under Miri in the Tier-1 filter: one
+    /// writer overwrites a live set at a 64 KiB cap, so each refused chunk
+    /// takes the quiesced retry, the fold, the compaction and the reset of
+    /// the writer's private chunk. The live sets are
+    /// `max_sustained_live_records` in `scripts/blob_reclaim_bounds.py` with
+    /// the cap less one chunk: after a compaction the writer takes a fresh
+    /// private chunk instead of filling the last compacted one, so each cycle
+    /// can strand up to a chunk. None of the inserts may be refused.
+    #[test]
+    fn blob_overwrites_reclaim_at_the_cap_under_miri() {
+        for (live, len, overwrites) in [(210u64, 128usize, 1792u64), (1204, 9, 8192)] {
+            let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 64 * 1024);
+            let payload = |k: u64, round: u64| -> Vec<u8> {
+                (0..len as u64).map(|i| (k ^ round ^ i) as u8).collect()
+            };
+            for k in 0..live {
+                m.insert(k, &payload(k, 0), 1).unwrap();
+            }
+            assert!(
+                m.shared.published().is_tree(),
+                "the overwrites must take the optimistic path"
+            );
+            for i in 0..overwrites {
+                let (k, round) = (i % live, i / live + 1);
+                m.insert(k, &payload(k, round), 1)
+                    .unwrap_or_else(|e| panic!("{len} B, overwrite {i}: {e:?}"));
+            }
+            let rounds = overwrites / live;
+            let mut rd = m.reader();
+            let guard = rd.pin();
+            for k in 0..live {
+                let last = rounds + u64::from(k < overwrites % live);
+                assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, last)[..]);
+            }
+        }
     }
 
     /// Past the root-leaf capacity: the 363rd insert of this key sequence
@@ -15684,6 +15776,108 @@ mod tests {
     /// unlinked record was charged exactly once. Red when the removal's charge
     /// is deleted or doubled, and (through `len`) when its population
     /// decrement is deleted.
+    /// #1290 G1.5 on the concurrent map (METHODOLOGY §28.3): the counts of
+    /// `simulate_fill_then_remove` in `scripts/blob_reclaim_bounds.py`, as on
+    /// `ExpanseBlobMap` (`blobmap::tests::reclaim_after_removals_at_a_full_arena`).
+    /// 448 records fill the 16 chunks exactly, so the writer's private chunks
+    /// strand nothing.
+    #[test]
+    fn blob_reclaim_after_removals_at_a_full_arena() {
+        let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 64 * 1024);
+        let payload = |k: u64| -> Vec<u8> { (0..128).map(|i| (k ^ i) as u8).collect() };
+        let generation = || m.with_locked(|t| t.arena().generation());
+        let g0 = generation();
+        let mut n = 0u64;
+        loop {
+            match m.insert(n, &payload(n), 1) {
+                Ok(()) => n += 1,
+                Err(ArenaError::OffsetOverflow) => break,
+                Err(e) => panic!("insert {n} failed with {e:?}"),
+            }
+        }
+        assert_eq!(n, 448, "16 chunks of 28 records");
+        assert_eq!(generation() - g0, 1, "one compaction at the first refusal");
+        assert_eq!(m.insert(n, &payload(n), 1), Err(ArenaError::OffsetOverflow));
+        assert_eq!(generation() - g0, 1, "nothing grew or was removed since");
+        for k in 0..n / 2 {
+            assert!(m.remove(k));
+        }
+        m.insert(n, &payload(n), 1)
+            .expect("the removals pay for a compaction");
+        assert_eq!(generation() - g0, 2);
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        for k in n / 2..=n {
+            assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k)[..]);
+        }
+        assert!(guard.get(0).is_none());
+    }
+
+    /// #1290 G1.7: four writers overwrite their own keys at a 256 KiB cap,
+    /// many times its size in total. 400 live records are under half the
+    /// 812 that `max_sustained_live_records` allows with eight chunks held
+    /// back for the writers' private chunks, so no insert may be refused;
+    /// every key must read its last payload, and the charged live bytes must
+    /// equal the index's.
+    #[test]
+    fn concurrent_blob_overwrites_reclaim_at_the_cap() {
+        const W: u64 = 4;
+        const PER: u64 = 100;
+        const ROUNDS: u64 = 20;
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size_and_max_capacity(
+            4096,
+            256 * 1024,
+        ));
+        let payload = |k: u64, round: u64| -> Vec<u8> {
+            (0..128)
+                .map(|i| (k ^ round.wrapping_mul(31) ^ i) as u8)
+                .collect()
+        };
+        for k in 0..W * PER {
+            m.insert(k, &payload(k, 0), 1).unwrap();
+        }
+        let g0 = m.with_locked(|t| t.arena().generation());
+        assert!(
+            m.shared.published().is_tree(),
+            "the writers must take the optimistic path"
+        );
+        let barrier = Arc::new(std::sync::Barrier::new(W as usize));
+        let handles: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                let b = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    b.wait();
+                    for round in 1..=ROUNDS {
+                        for k in w * PER..(w + 1) * PER {
+                            m.insert(k, &payload(k, round), 1)
+                                .unwrap_or_else(|e| panic!("key {k} round {round}: {e:?}"));
+                        }
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().expect("writer panicked");
+        }
+        assert!(
+            m.with_locked(|t| t.arena().generation()) - g0 >= 2,
+            "the writers must have driven the arena to the cap more than once"
+        );
+        {
+            let mut rd = m.reader();
+            let guard = rd.pin();
+            for k in 0..W * PER {
+                assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, ROUNDS)[..]);
+            }
+        }
+        let stats = m.compact().expect("compaction");
+        assert_eq!(
+            stats.live_bytes_before, stats.live_bytes_after,
+            "the charged live bytes disagree with the index's"
+        );
+    }
+
     #[test]
     fn concurrent_blob_removals_keep_live_bytes_exact() {
         let m = Arc::new(SyncExpanseBlobMap::new());
