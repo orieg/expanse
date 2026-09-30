@@ -2473,32 +2473,42 @@ $judy[42] = 999;</code></pre>
 
         <div id="tab-go" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add the Go module to your project (PureGo and CGO bindings for 64-bit and 32-bit embedded):</p>
-          <pre><code>go get github.com/orieg/expanse/bindings/go/v0.5.0</code></pre>
-          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Go (Maps, Sets, and Slab-Backed BlobMaps):</p>
+          <pre><code>go get github.com/orieg/expanse/bindings/go</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Go (Maps and Slab-Backed BlobMaps):</p>
           <pre><code>package main
 
 import (
+    "errors"
     "fmt"
-    "github.com/orieg/expanse/bindings/go/v0.5.0"
+    "log"
+
+    expanse "github.com/orieg/expanse/bindings/go"
 )
 
 func main() {
     m := expanse.NewMap()
-    defer m.Close()
+    defer m.Free()
 
-    m.Insert(42, 100)
+    m.Set(42, 100)
     if val, ok := m.Get(42); ok {
-        fmt.Printf("Found key 42 -> %d
-", val)
+        fmt.Printf("Found key 42 -&gt; %d\n", val)
     }
 
-    // Off-heap blob map with 32-bit hot metadata
-    bm := expanse.NewBlobMap()
-    defer bm.Close()
-    bm.Insert(1001, []byte("payload data"), 0x2A)
+    // Off-heap blob map with hot metadata; 0 selects the default chunk size.
+    bm := expanse.NewBlobMap(0)
+    defer bm.Free()
+    if err := bm.Set(1001, []byte("payload data"), 0x2A); err != nil {
+        log.Fatal(err)
+    }
     if data, meta, ok := bm.Get(1001); ok {
-        fmt.Printf("Blob: %s, meta: 0x%X
-", string(data), meta)
+        fmt.Printf("Blob: %s, meta: 0x%X\n", string(data), meta)
+    }
+
+    // A refused insert returns an error and leaves the key unchanged: here,
+    // hot metadata wider than 24 bits on a payload longer than 7 bytes.
+    err := bm.Set(1002, []byte("sixteen byte val"), 1&lt;&lt;24)
+    if errors.Is(err, expanse.ErrBlobInsertRefused) {
+        fmt.Println("Insert refused; key 1002 present:", bm.Contains(1002))
     }
 }</code></pre>
         </div>
@@ -2628,7 +2638,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.9.2</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/d1f16d6"><code>d1f16d6</code></a> &bull; Built on 2026-09-30
+        <span class="badge" style="font-size: 0.78rem;">Release v0.9.2</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/6ed5103"><code>6ed5103</code></a> &bull; Built on 2026-09-30
       </p>
       <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
         Judy &amp; Systems Ecosystem:
