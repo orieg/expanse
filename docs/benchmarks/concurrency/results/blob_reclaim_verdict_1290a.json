@@ -1,0 +1,161 @@
+{
+  "gates": [
+    {
+      "id": "G3",
+      "comparison": "R/B",
+      "cell": "blob 50% read T=16",
+      "floor": 0.95,
+      "runs": [
+        {
+          "ratio": 0.9954933733439779,
+          "ci_lower": 0.9801168107332743,
+          "ci_upper": 1.0119498800473,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0167371191077297,
+          "ci_lower": 1.0048773563281352,
+          "ci_upper": 1.0312268987862958,
+          "ci_method": "bca"
+        }
+      ],
+      "verdict": "PASS"
+    }
+  ],
+  "reported": [
+    {
+      "comparison": "R/B",
+      "cell": "blob 50% read T=4",
+      "runs": [
+        {
+          "ratio": 0.9938993618030384,
+          "ci_lower": 0.9838415280955487,
+          "ci_upper": 1.003642437608746,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 0.9961377329198983,
+          "ci_lower": 0.9855683010595464,
+          "ci_upper": 1.0084934056191481,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "R/B",
+      "cell": "blob 50% read T=1",
+      "runs": [
+        {
+          "ratio": 0.9995312510186771,
+          "ci_lower": 0.9896848954921754,
+          "ci_upper": 1.0099819156187173,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.012889961114007,
+          "ci_lower": 1.0024384978598981,
+          "ci_upper": 1.0233944721614623,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "R/B",
+      "cell": "blob 100% read T=16",
+      "runs": [
+        {
+          "ratio": 0.9940252733792713,
+          "ci_lower": 0.991072349159005,
+          "ci_upper": 0.9965591798790705,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.002012630882046,
+          "ci_lower": 0.9987672165539416,
+          "ci_upper": 1.0052426949900288,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "R/B",
+      "cell": "blob_mutex 50% read T=16",
+      "runs": [
+        {
+          "ratio": 1.0253129534162808,
+          "ci_lower": 1.0156129304973034,
+          "ci_upper": 1.035097908253209,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0407606404837237,
+          "ci_lower": 1.0306118624047627,
+          "ci_upper": 1.048754783602829,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "R/B",
+      "cell": "blob_mutex 50% read T=4",
+      "runs": [
+        {
+          "ratio": 0.9937311710553888,
+          "ci_lower": 0.9818781637249585,
+          "ci_upper": 1.0037151962138542,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0306110365452805,
+          "ci_lower": 1.0180148256761012,
+          "ci_upper": 1.0423637768061174,
+          "ci_method": "bca"
+        }
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "cell": "map 50% read T=16",
+      "R/B": [
+        {
+          "ratio": 0.8941941384817739,
+          "ci_lower": 0.8507139883428352,
+          "ci_upper": 0.9445429824690976,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0015523869192033,
+          "ci_lower": 0.9549035519601222,
+          "ci_upper": 1.0546940977705044,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    },
+    {
+      "cell": "str 50% read T=16",
+      "R/B": [
+        {
+          "ratio": 1.0046020791471668,
+          "ci_lower": 0.9977485889046369,
+          "ci_upper": 1.0183501997704218,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.000927419390678,
+          "ci_lower": 0.995425314278668,
+          "ci_upper": 1.0058097044355985,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    }
+  ],
+  "drift": false,
+  "control_band": 0.05,
+  "inputs": {
+    "B": "docs/benchmarks/concurrency/results/gate_1290a_reclaim_b_run1.json,docs/benchmarks/concurrency/results/gate_1290a_reclaim_b_run2.json",
+    "R": "docs/benchmarks/concurrency/results/gate_1290a_reclaim_r_run1.json,docs/benchmarks/concurrency/results/gate_1290a_reclaim_r_run2.json"
+  }
+}

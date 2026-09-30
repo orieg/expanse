@@ -5531,3 +5531,34 @@ Controls, R ÷ B:
 - G1 and G2 are recorded in the change itself: its tests, and the Callgrind
   run above (0 of 187 arms regressed).
 
+### 28a. The amended head, re-measured — METHODOLOGY §28a.5
+
+§28a amended the change (a waste guard, a fast refusal on the concurrent map, a fallible relocation list, an opt-out). Its Callgrind run on `07b925b0` ([36746068863](https://github.com/orieg/expanse/actions/runs/36746068863)) regressed none of 187 arms against `main`. But `sync_blobmap_overwrite` read +0.146 % against R (`d50f4f05`), over §28a.5's 0.1 % carry-over bound, so G3 was re-run rather than carried over.
+
+The re-run used the same order B, R′, R′, B, with B `79184f25` and R′ `07b925b0`. Every run is admissible: each build's two runs measured one commit, every host guard read quiet, and no control moved outside ±5 % in both runs *(measured: reference host — Intel Core i9-12900F, pin `0-15`, 18 rounds per cell; runs B [36750304919](https://github.com/orieg/expanse/actions/runs/36750304919) and [36757036225](https://github.com/orieg/expanse/actions/runs/36757036225), R′ [36753060187](https://github.com/orieg/expanse/actions/runs/36753060187) and [36755051110](https://github.com/orieg/expanse/actions/runs/36755051110); artifacts `results/gate_1290a_reclaim_{b,r}_run{1,2}.json`, verdict `results/blob_reclaim_verdict_1290a.json` from `scripts/blob_reclaim_gate.py`; workload: `core_concurrency`)*.
+
+| gate | cell | floor | R′ ÷ B, run 1 | run 2 | verdict |
+|---|---|--:|---|---|---|
+| G3 | blob 50% read T=16 | 0.95 | 0.995 [0.980, 1.012] | 1.017 [1.005, 1.031] | `PASS` (non-inferior) |
+
+Reported, not gated (R′ ÷ B):
+
+| cell | run 1 | run 2 |
+|---|---|---|
+| blob 50% read T=4 | 0.994 [0.984, 1.004] | 0.996 [0.986, 1.008] |
+| blob 50% read T=1 | 1.000 [0.990, 1.010] | 1.013 [1.002, 1.023] |
+| blob 100% read T=16 | 0.994 [0.991, 0.997] | 1.002 [0.999, 1.005] |
+| blob_mutex 50% read T=16 | 1.025 [1.016, 1.035] | 1.041 [1.031, 1.049] |
+| blob_mutex 50% read T=4 | 0.994 [0.982, 1.004] | 1.031 [1.018, 1.042] |
+
+Controls, R′ ÷ B:
+
+| cell | run 1 | run 2 | moved outside ±5 % in both runs |
+|---|---|---|---|
+| map 50% read T=16 | 0.894 [0.851, 0.945] | 1.002 [0.955, 1.055] | no (run 1 only) |
+| str 50% read T=16 | 1.005 [0.998, 1.018] | 1.001 [0.995, 1.006] | no |
+
+- **G3 on R′ licenses non-inferiority only.** Run 1's interval contains 1.
+- **The read-only 16-thread blob cell is a loss in run 1 only.** It reads 0.994 in run 1 and 1.002 [0.999, 1.005] in run 2, so rule 18's two-run condition does not hold here. §28's reading of R (0.989 in both runs) stands as published for R.
+- **The `map` control moved outside the band in run 1 only**, so by §27.5's rule the comparison is not voided. It is reported beside the gate rather than read as drift.
+
