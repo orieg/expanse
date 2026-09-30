@@ -82,10 +82,7 @@
       "context": [
         "workload e",
         "ycsb",
-        "range scan",
-        "scan",
-        "expanseblobmap",
-        "skipmap"
+        "range scan"
       ],
       "replacement": "Workload E re-measured with symmetric predicate (BTreeMap wins Workload E)",
       "provenance": "#375, #385, #470",
@@ -495,8 +492,6 @@
       "context": [
         "b/key",
         "bytes/key",
-        "expanseset",
-        "expansemap",
         "memory",
         "occupancy",
         "λ"

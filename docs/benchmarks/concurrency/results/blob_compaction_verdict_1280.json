@@ -1,0 +1,206 @@
+{
+  "gates": [
+    {
+      "comparison": "K/D",
+      "cell": "blob 50% read T=16",
+      "floor": 1.0,
+      "runs": [
+        {
+          "ratio": 1.185163165608559,
+          "ci_lower": 1.1682117530212408,
+          "ci_upper": 1.2018140904212522,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.1870646407161334,
+          "ci_lower": 1.1730677751845304,
+          "ci_upper": 1.199893206464273,
+          "ci_method": "bca"
+        }
+      ],
+      "verdict": "PASS"
+    }
+  ],
+  "reported": [
+    {
+      "comparison": "K/D",
+      "cell": "blob 50% read T=4",
+      "runs": [
+        {
+          "ratio": 1.2763767569011852,
+          "ci_lower": 1.260932414844339,
+          "ci_upper": 1.2929023739856846,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.2741672277000782,
+          "ci_lower": 1.2641435782881605,
+          "ci_upper": 1.2837741835118954,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "K/D",
+      "cell": "blob 50% read T=1",
+      "runs": [
+        {
+          "ratio": 1.0890432319652883,
+          "ci_lower": 1.082068244343436,
+          "ci_upper": 1.097952133251527,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0964803432713959,
+          "ci_lower": 1.0896902418053704,
+          "ci_upper": 1.1034359305827446,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "K/D",
+      "cell": "blob_mutex 50% read T=16",
+      "runs": [
+        {
+          "ratio": 1.0026019216741715,
+          "ci_lower": 0.993467806846465,
+          "ci_upper": 1.0137193370219926,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0197988661507502,
+          "ci_lower": 1.0081207263857346,
+          "ci_upper": 1.0313972175779604,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "K/D",
+      "cell": "blob_mutex 50% read T=4",
+      "runs": [
+        {
+          "ratio": 1.0525402614495367,
+          "ci_lower": 1.0387697648177396,
+          "ci_upper": 1.0671598262658395,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.049079165216321,
+          "ci_lower": 1.0371684397209826,
+          "ci_upper": 1.0610166718000982,
+          "ci_method": "bca"
+        }
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "cell": "blob 100% read T=16",
+      "K/D": [
+        {
+          "ratio": 1.0057489811451608,
+          "ci_lower": 1.0034767010517074,
+          "ci_upper": 1.008020492458828,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0031622958879998,
+          "ci_lower": 1.000430438382037,
+          "ci_upper": 1.0059435342318814,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    },
+    {
+      "cell": "map 50% read T=16",
+      "K/D": [
+        {
+          "ratio": 1.0599458156671553,
+          "ci_lower": 1.0019298071306348,
+          "ci_upper": 1.1273699185720996,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 0.9494002645866928,
+          "ci_lower": 0.8962500837866931,
+          "ci_upper": 1.012702669914167,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    },
+    {
+      "cell": "str 50% read T=16",
+      "K/D": [
+        {
+          "ratio": 1.002390623022257,
+          "ci_lower": 0.9963669516104464,
+          "ci_upper": 1.0082665640167925,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 0.9903886104506582,
+          "ci_lower": 0.9865034439809892,
+          "ci_upper": 0.9951673826872153,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    }
+  ],
+  "shares": [
+    {
+      "cell": "blob 50% read T=1",
+      "D": [
+        0.15327822869287921,
+        0.15635018218312977
+      ],
+      "K": [
+        0.058236366382969196,
+        0.059691793673248957
+      ]
+    },
+    {
+      "cell": "blob 50% read T=4",
+      "D": [
+        0.28072989119789915,
+        0.2769619736202978
+      ],
+      "K": [
+        0.09673617195366664,
+        0.09363273799402183
+      ]
+    },
+    {
+      "cell": "blob 50% read T=16",
+      "D": [
+        0.18968738561832,
+        0.19862743103731076
+      ],
+      "K": [
+        0.06313444204778809,
+        0.06621751539515607
+      ]
+    },
+    {
+      "cell": "blob_mutex 50% read T=16",
+      "D": [
+        0.04245539636601673,
+        0.04311174421575866
+      ],
+      "K": [
+        0.01708075000980318,
+        0.008965075282408388
+      ]
+    }
+  ],
+  "drift": false,
+  "control_band": 0.05,
+  "inputs": {
+    "D": "docs/benchmarks/concurrency/results/gate_1280_compaction_d_run1.json,docs/benchmarks/concurrency/results/gate_1280_compaction_d_run2.json",
+    "K": "docs/benchmarks/concurrency/results/gate_1280_compaction_k_run1.json,docs/benchmarks/concurrency/results/gate_1280_compaction_k_run2.json"
+  }
+}

@@ -212,28 +212,28 @@ Total operations per second (reads + writes), bounded keyspaces, two independent
 
 | arm | keys → values | 1 Thread | 16 Threads, run 1 | 16 Threads, run 2 | Scaling, run 1 / run 2 |
 |---|---|---:|---:|---:|---:|
-| `SyncExpanseMap` (100% read) | u64 → u64, 1M keys | 35.6 M ops/s | **325 M ops/s** | **323 M ops/s** | **9.12× / 9.28×** |
-| `SyncExpanseSet` (100% read) | u64, 1M keys | 75.9 M ops/s | 533 M ops/s | 529 M ops/s | 7.02× / 6.93× |
-| `SyncExpanseMap` (50R/50W mixed) | u64 → u64, 1M keys | 18.9 M ops/s | **66.0 M ops/s** | **68.2 M ops/s** | **3.49× / 3.61×** |
-| `SyncExpanseSet` (50R/50W mixed) | u64, 1M keys | 34.6 M ops/s | 128 M ops/s | 129 M ops/s | 3.70× / 3.72× |
-| `SyncExpanseBlobMap` (100% read) | u64 → 128-byte payload, 200k keys | 29.1 M ops/s | 269 M ops/s | 268 M ops/s | 9.24× / 9.28× |
-| `SkipMap` (100% read) | u64 → 128-byte payload, 200k keys | 3.00 M ops/s | 33.4 M ops/s | 33.2 M ops/s | 11.11× / 11.09× |
-| `SyncExpanseBlobMap` (50R/50W mixed) | u64 → 128-byte payload, 200k keys | 11.9 M ops/s | 13.4 M ops/s | 13.3 M ops/s | 1.13× / 1.13× |
-| `SkipMap` (50R/50W mixed) | u64 → 128-byte payload, 200k keys | 2.14 M ops/s | 17.9 M ops/s | 17.8 M ops/s | 8.34× / 8.38× |
-| `SyncExpanseBytesMap` (100% read) | 37-byte string → u64, 100k keys | 10.4 M ops/s | 116 M ops/s | 117 M ops/s | 11.13× / 11.13× |
-| `SyncExpanseStrMap` (100% read) | 37-byte string → u64, 100k keys | 6.93 M ops/s | 76.8 M ops/s | 77.0 M ops/s | 11.09× / 11.12× |
-| `DashMap<Vec<u8>, u64>` (100% read) | 37-byte string → u64, 100k keys | 14.4 M ops/s | 112 M ops/s | 108 M ops/s | 7.77× / 7.47× |
-| `SyncExpanseStrMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 5.77 M ops/s | **53.2 M ops/s** | **53.2 M ops/s** | **9.23× / 9.14×** |
-| `SyncExpanseBytesMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 4.84 M ops/s | 40.6 M ops/s | 41.7 M ops/s | 8.41× / 8.50× |
-| `DashMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 11.0 M ops/s | 86.6 M ops/s | 86.4 M ops/s | 7.89× / 7.82× |
-| `Mutex<Expanse*>` baselines (100% read) | blob and string keys | 8.69–35.2 M ops/s | 2.76–5.66 M ops/s | 2.70–5.61 M ops/s | 0.16×–0.32× (collapse) |
+| `SyncExpanseMap` (100% read) | u64 → u64, 1M keys | 35.4 M ops/s | **323 M ops/s** | **322 M ops/s** | **9.12× / 9.15×** |
+| `SyncExpanseSet` (100% read) | u64, 1M keys | 76.4 M ops/s | 523 M ops/s | 529 M ops/s | 6.84× / 6.93× |
+| `SyncExpanseMap` (50R/50W mixed) | u64 → u64, 1M keys | 18.9 M ops/s | **63.4 M ops/s** | **66.4 M ops/s** | **3.35× / 3.53×** |
+| `SyncExpanseSet` (50R/50W mixed) | u64, 1M keys | 34.5 M ops/s | 127 M ops/s | 129 M ops/s | 3.67× / 3.73× |
+| `SyncExpanseBlobMap` (100% read) | u64 → 128-byte payload, 200k keys | 28.9 M ops/s | 267 M ops/s | 267 M ops/s | 9.23× / 9.24× |
+| `SkipMap` (100% read) | u64 → 128-byte payload, 200k keys | 3.02 M ops/s | 33.7 M ops/s | 33.7 M ops/s | 11.15× / 11.16× |
+| `SyncExpanseBlobMap` (50R/50W mixed) | u64 → 128-byte payload, 200k keys | 11.9 M ops/s | 13.2 M ops/s | 13.4 M ops/s | 1.11× / 1.13× |
+| `SkipMap` (50R/50W mixed) | u64 → 128-byte payload, 200k keys | 2.15 M ops/s | 17.8 M ops/s | 17.6 M ops/s | 8.25× / 8.23× |
+| `SyncExpanseBytesMap` (100% read) | 37-byte string → u64, 100k keys | 10.5 M ops/s | 117 M ops/s | 116 M ops/s | 11.09× / 11.10× |
+| `SyncExpanseStrMap` (100% read) | 37-byte string → u64, 100k keys | 7.00 M ops/s | 77.6 M ops/s | 77.6 M ops/s | 11.08× / 11.13× |
+| `DashMap<Vec<u8>, u64>` (100% read) | 37-byte string → u64, 100k keys | 14.2 M ops/s | 109 M ops/s | 107 M ops/s | 7.68× / 7.51× |
+| `SyncExpanseStrMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 5.84 M ops/s | **53.5 M ops/s** | **54.0 M ops/s** | **9.17× / 9.23×** |
+| `SyncExpanseBytesMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 4.85 M ops/s | 40.0 M ops/s | 38.9 M ops/s | 8.26× / 8.17× |
+| `DashMap` (50R/50W mixed) | 37-byte string → u64, 100k keys | 10.6 M ops/s | 82.7 M ops/s | 86.2 M ops/s | 7.79× / 7.91× |
+| `Mutex<Expanse*>` baselines (100% read) | blob and string keys | 8.67–35.3 M ops/s | 2.65–5.76 M ops/s | 2.70–5.65 M ops/s | 0.16×–0.31× (collapse) |
 
 How to read it:
 
 - **Compare rows only within a key type** (u64 → u64, u64 → 128-byte payload, 37-byte string → u64). Populations and key widths differ between the three.
 - **Read-only scaling holds to sixteen threads** on every wrapper, where a `Mutex` around the same structure falls below its single-thread rate.
-- **The 50R/50W rows are a mixed-operation rate, not read scaling**: every thread picks a read or a write per operation. A write inserts or removes a uniform key, and half of each keyspace is present, so 0.25 of the writes remove a present key. The integer and string wrappers scale there; `SyncExpanseStrMap` reaches 53.2 M ops/s against 2.37 M for the same map behind one mutex, and `SyncExpanseBytesMap` 40.6 M against 2.73 M (workload: `core_concurrency`).
-- **Known losses at 50R/50W:** `SyncExpanseBlobMap` scales 1.13× to sixteen threads where `SkipMap` scales 8.3× on the same keys: its removals no longer serialise the writers (#1280, [concurrency §26](docs/benchmarks/concurrency/README.md)), but it peaks at four threads and what limits it past four is unmeasured. `DashMap` serves 86.6 M ops/s on string keys against 53.2 M and 40.6 M for the two Expanse wrappers (workload: `core_concurrency`). Earlier blob 50R/50W figures timed an insert that failed once the arena reached its cap, and are withdrawn (#1280).
+- **The 50R/50W rows are a mixed-operation rate, not read scaling**: every thread picks a read or a write per operation. A write inserts or removes a uniform key, and half of each keyspace is present, so 0.25 of the writes remove a present key. The integer and string wrappers scale there; `SyncExpanseStrMap` reaches 53.5 M ops/s against 2.43 M for the same map behind one mutex, and `SyncExpanseBytesMap` 40.1 M against 2.65 M (workload: `core_concurrency`).
+- **Known losses at 50R/50W:** `SyncExpanseBlobMap` scales 1.11× / 1.13× to sixteen threads where `SkipMap` scales 8.2× on the same keys: its removals no longer serialise the writers (#1280), but it peaks at four threads, its in-window arena compactions take 0.15–0.28 of window time, and what limits it past four threads is unmeasured ([concurrency §26–§27](docs/benchmarks/concurrency/README.md)). `DashMap` serves 82.7 M ops/s on string keys against 53.5 M and 40.1 M for the two Expanse wrappers (workload: `core_concurrency`). Earlier blob 50R/50W figures timed an insert that failed once the arena reached its cap, and are withdrawn (#1280).
 
 ### Against tries that admit concurrent writers
 

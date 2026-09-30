@@ -60,7 +60,7 @@
 //! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time |
 //! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type. Reclamation differs by arm and is inside every rate: `BTreeMap` frees a replaced or removed `Vec` inline under its write lock, `SkipMap` defers node reclamation to crossbeam-epoch collection on the worker threads, and the two Expanse blob arms compact their arena on the shared trigger `BLOB_COMPACT_APPENDS` (count and arena bytes published per window). `DashMap` clones its key on every insert; the `Mutex` string arms draw their op choice inside the lock. |
 //! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`) |
-//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36615302601 and 36628995380, commit d1c3ca2a)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload |
+//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36658309874 and 36661955960, commit f9853201)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload |
 
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;
@@ -289,14 +289,19 @@ struct Plan {
 }
 
 /// What one worker did in one window. `remove_hits` counts removals that
-/// found their key; `compactions` and `arena_bytes` are the blob arms'
-/// reclamation record ([`BLOB_COMPACT_APPENDS`]) and stay zero elsewhere.
+/// found their key; `compactions`, `compact_ns` and `arena_bytes` are the blob
+/// arms' reclamation record ([`BLOB_COMPACT_APPENDS`]) and stay zero elsewhere.
+/// `compact_ns` is the wall time worker 0 spent inside `compact()`; both blob
+/// arms exclude every other writer for that time (the OCC arm quiesces them,
+/// the `Mutex` arm holds the lock), so over the window's elapsed time it is
+/// the share of the window no write could proceed in (#1280).
 #[derive(Clone, Copy, Default)]
 struct Counts {
     read_ops: u64,
     write_ops: u64,
     remove_hits: u64,
     compactions: u64,
+    compact_ns: u64,
     arena_bytes: u64,
 }
 
@@ -332,6 +337,7 @@ struct Sample {
     refused: u64,
     remove_hits: u64,
     compactions: u64,
+    compact_ns: u64,
     arena_bytes: u64,
     #[cfg(feature = "occ-stats")]
     stats: [u64; expanse_trie::occ_stats::NUM_STATS],
@@ -351,6 +357,7 @@ impl Default for Sample {
             refused: 0,
             remove_hits: 0,
             compactions: 0,
+            compact_ns: 0,
             arena_bytes: 0,
             #[cfg(feature = "occ-stats")]
             stats: [0; expanse_trie::occ_stats::NUM_STATS],
@@ -465,6 +472,7 @@ where
                 total.write_ops += c.write_ops;
                 total.remove_hits += c.remove_hits;
                 total.compactions += c.compactions;
+                total.compact_ns += c.compact_ns;
                 total.arena_bytes = total.arena_bytes.max(c.arena_bytes);
             }
             samples.push(Sample {
@@ -476,6 +484,7 @@ where
                 write_ops: total.write_ops,
                 remove_hits: total.remove_hits,
                 compactions: total.compactions,
+                compact_ns: total.compact_ns,
                 arena_bytes: total.arena_bytes,
                 #[cfg(feature = "occ-stats")]
                 stats: expanse_trie::occ_stats::snapshot(),
@@ -538,7 +547,9 @@ fn bench_blob_sync(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
                     m.insert(k, &buf, k as u32 & 0xFF_FFFF)
                         .expect("SyncExpanseBlobMap insert");
                     if blob_compaction_due(i, win) {
+                        let t = Instant::now();
                         m.compact().expect("SyncExpanseBlobMap compaction");
+                        c.compact_ns += t.elapsed().as_nanos() as u64;
                         c.compactions += 1;
                     }
                 } else if m.remove(k) {
@@ -598,7 +609,9 @@ fn bench_blob_mutex(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
                     // The same trigger as the OCC arm (`BLOB_COMPACT_APPENDS`),
                     // under the lock this arm already holds.
                     if blob_compaction_due(i, win) {
+                        let t = Instant::now();
                         g.compact().expect("ExpanseBlobMap compaction");
+                        c.compact_ns += t.elapsed().as_nanos() as u64;
                         c.compactions += 1;
                     }
                 } else {
@@ -1194,6 +1207,7 @@ fn write_samples(
             "refused": s.refused,
             "remove_hits": s.remove_hits,
             "compactions": s.compactions,
+            "compact_ns": s.compact_ns,
             "arena_bytes": s.arena_bytes,
         });
         writeln!(out, "{row}").expect("write EXPANSE_BENCH_SAMPLES");

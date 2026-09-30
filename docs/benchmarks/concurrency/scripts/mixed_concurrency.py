@@ -139,14 +139,14 @@ LOAD_SCOPE = (
 SAMPLE_KEYS = (
     "workload_id", "engine_key", "engine", "workload", "read_pct", "write_rate",
     "threads", "round", "position", "elapsed_s", "read_ops", "write_ops",
-    "busy", "ok", "refused", "remove_hits", "compactions", "arena_bytes",
+    "busy", "ok", "refused", "remove_hits", "compactions", "arena_bytes", "compact_ns",
 )
 # The #568 Step 2 mode (`--step2-gate`) is a closed, pre-registered gate that
 # reads only the fields it was registered with; the #1280 counters are not
 # part of it.
 STEP2_SAMPLE_KEYS = SAMPLE_KEYS[:SAMPLE_KEYS.index("remove_hits")]
 RAW_KEYS = ("round", "position", "elapsed_s", "read_ops", "write_ops", "busy", "ok", "refused",
-            "remove_hits", "compactions", "arena_bytes")
+            "remove_hits", "compactions", "arena_bytes", "compact_ns")
 # The share of writes that removed a present key once the independent write
 # bit holds occupancy at half the keyspace (#1280): half the writes are
 # removals and half of those find their key. A mixed window far from it
@@ -415,6 +415,10 @@ def summarize_cell(rows: list[dict[str, Any]], base: dict[int, float] | None,
         writes = sum(r["write_ops"] for r in rows)
         cell["remove_hits_per_write"] = sum(r["remove_hits"] for r in rows) / writes if writes else 0.0
         cell["compactions"] = sum(r["compactions"] for r in rows)
+        # The share of the cell's windows that no write could proceed in, the
+        # blob arms' compactions excluding every other writer (#1280).
+        cell["compaction_time_share"] = (
+            sum(r["compact_ns"] for r in rows) / (1e9 * sum(r["elapsed_s"] for r in rows)))
         cell["arena_bytes_max"] = max(r["arena_bytes"] for r in rows)
         # Report-only drift check (#1280): the second half of the rounds over
         # the first, by median total ops/s. A cell whose later windows run in
@@ -1320,6 +1324,7 @@ def _synthetic_rows(key: str, workload: str, read_pct: int | None, threads: list
                 "remove_hits": 0 if key == SYNC32 else int(400_000 * t ** 0.5 * jitter) // 4,
                 "compactions": 0,
                 "arena_bytes": 0,
+                "compact_ns": 0,
             })
     return rows
 
