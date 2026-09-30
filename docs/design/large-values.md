@@ -883,6 +883,27 @@ pub struct ArenaChunk {
 }
 ```
 
+#### 6.3.1 Reclamation at the cap *(proposed, #1290; pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §28)*
+
+An insert that needs a new chunk the cap refuses (`total_allocated + chunk_size > max_capacity`, or `MAX_ARENA_CHUNKS`) compacts the arena once and retries once, if
+
+```math
+\text{live\_bytes} \le k \cdot \bigl(\text{grown} + \max(0,\ \text{live}_{c} - \text{live\_bytes})\bigr)
+```
+
+where
+
+- $`k`$ is `RECLAIM_COPY_PER_GROWTH` = 1;
+- grown is the chunk bytes allocated since the previous compaction, or since the arena was created or cleared;
+- $`\text{live}_{c}`$ is the live bytes right after that compaction.
+
+Otherwise the insert fails with `ArenaError::OffsetOverflow`, as without the rule. A caller's `compact()` resets both terms, and so does an automatic compaction.
+
+- **Cost.** A compaction copies at most $`k`$ bytes per byte grown or removed since the previous one. No workload can trigger two without inserting or removing in between.
+- **Why the removal term.** Growth alone never fires again for an arena filled with live keys and then emptied by removals: at the cap it cannot grow.
+- **Reach.** For payloads of one size overwritten forever, `scripts/blob_reclaim_bounds.py` gives the largest live set the rule sustains. At the default 2 MiB chunk and 1 GiB cap that is 3,830,069 records of 128 B, 0.514 of the records the arena holds. Above it, the first refusal compacts once and later inserts fail until the caller removes keys or compacts.
+- **Stall.** The triggering insert pays the whole copy, up to the live bytes. On `SyncExpanseBlobMap` it runs under `write_quiesced`, which excludes every writer, as a caller's `compact()` does.
+
 ### 6.4 Concurrent Access: `SyncExpanseBlobMap` (issue #219 Phase 1, shipped)
 
 The Phase 7 OCC protocol (`occ` + `sync`) extends to the blob map. The single
