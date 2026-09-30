@@ -225,7 +225,9 @@ func TestHandlesSurviveConcurrentCollection(t *testing.T) {
 			s.Add(k)
 			bm.Set([]byte{byte(k), 0x5A}, k)
 			sm.Set(string(rune('a'+k%26))+"key", k)
-			blob.Set(k, []byte{byte(k), byte(k), byte(k)}, uint32(k))
+			if err := blob.Set(k, []byte{byte(k), byte(k), byte(k)}, uint32(k)); err != nil {
+				t.Fatalf("blob set %d: %v", k, err)
+			}
 		}
 		for k := uint64(0); k < 32; k++ {
 			if v, ok := m.Get(k); !ok || v != k {
