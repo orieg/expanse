@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """Bounds behind engine-driven blob-arena reclamation (#1290, AGENTS.md §8.8 commit 1).
 
-The proposed rule (`docs/design/large-values.md` §6.3.1): when an insert
-cannot grow the arena because it would cross `max_capacity` (or
-`MAX_ARENA_CHUNKS`), the engine compacts once and retries the insert once, but
-only if the bytes the compaction would copy — the live bytes — are no more
-than `RECLAIM_COPY_PER_GROWTH` times the bytes it can have freed since its
-previous compaction (or since the arena was created or cleared): the chunk
-bytes the arena grew by, plus the net drop in live bytes. Otherwise the insert
-fails with `ArenaError::OffsetOverflow` as it does today. Growth alone would
-never fire again for an arena filled with live records and then emptied by
-removals, since at the cap it cannot grow.
+The rule (`docs/design/large-values.md` §6.3.1, amended by METHODOLOGY §28a):
+when an insert cannot grow the arena because it would cross `max_capacity` (or
+`MAX_ARENA_CHUNKS`), the engine compacts once and retries the insert once,
+only if both hold:
+
+(A) the copy budget: the live bytes, which the compaction copies, are at most
+    `RECLAIM_COPY_PER_GROWTH` times the bytes it can have freed since its
+    previous compaction (or since the arena was created or cleared): the chunk
+    bytes the arena grew by, plus the net drop in live bytes. Growth alone
+    would never fire again for an arena filled with live records and then
+    emptied by removals, since at the cap it cannot grow;
+(B) the waste guard (§28a): the live bytes are under half the allocated chunk
+    bytes, `2 * live_bytes < total_allocated`. An arena filled with live
+    records never passes it, so a bulk load that reaches the cap fails without
+    a copy that frees nothing, and no automatic copy reaches half the cap.
+
+Otherwise the insert fails with `ArenaError::OffsetOverflow`.
 
 The functions below answer, for a single-size workload that overwrites a fixed
 set of live keys forever (the shape that fills the arena in #1280):
@@ -21,7 +28,9 @@ set of live keys forever (the shape that fills the arena in #1280):
    (`sustains_overwrite`), and the largest live set for which it does
    (`max_sustained_live_records`);
 3. what it costs: bytes copied per byte appended in the steady state
-   (`copy_per_append`), and the largest single compaction (`stall_copy_bytes`).
+   (`copy_per_append`), the largest single compaction (`stall_copy_bytes`,
+   under `max_stall_bytes` by (B)), and the transient memory a compaction
+   holds (`compaction_peak_bytes`).
 
 By construction a compaction copies at most `RECLAIM_COPY_PER_GROWTH` bytes
 per byte of growth or removal since the previous one, and both reset at every
@@ -126,8 +135,9 @@ def sustains_overwrite(live_records: int, payload_len: int, chunk: int, cap: int
 
     After the first compaction every cycle is the same: the arena grows from
     `compacted_chunks` to `max_chunks`, and at the next refused growth the rule
-    compacts iff live_bytes <= k * (max_chunks - compacted_chunks) * chunk:
-    an overwrite leaves the live bytes unchanged, so the removal term is zero.
+    compacts iff live_bytes <= k * (max_chunks - compacted_chunks) * chunk
+    (an overwrite leaves the live bytes unchanged, so the removal term is
+    zero) and 2 * live_bytes < max_chunks * chunk (the waste guard).
     The first compaction's growth is the whole arena, so the steady state is
     the binding cycle. The compacted layout must also leave room for one more
     record, or the retry fails.
@@ -139,7 +149,8 @@ def sustains_overwrite(live_records: int, payload_len: int, chunk: int, cap: int
         return False
     cc = compacted_chunks(live_records, payload_len, chunk)
     growth = (mc - cc) * chunk
-    return live_records * record_needed(payload_len) <= k * growth
+    live = live_records * record_needed(payload_len)
+    return live <= k * growth and 2 * live < mc * chunk
 
 
 def max_sustained_live_records(payload_len: int, chunk: int, cap: int,
@@ -174,6 +185,32 @@ def copy_per_append(live_records: int, payload_len: int, chunk: int, cap: int) -
 def stall_copy_bytes(live_records: int, payload_len: int) -> int:
     """Bytes the single compaction inside a triggering insert copies: every live record."""
     return live_records * record_needed(payload_len)
+
+
+def max_stall_bytes(cap: int) -> int:
+    """Largest live-byte copy an automatic compaction can make: the waste guard
+    requires 2 * live_bytes < total_allocated <= cap, so live_bytes < cap / 2."""
+    _pos_int("cap", cap)
+    return (cap - 1) // 2
+
+
+def compaction_peak_bytes(total_allocated: int, live_records: int, payload_len: int,
+                          chunk: int, index_entries: int) -> int:
+    """Bytes a compaction holds at its peak, beside the index.
+
+    The old chunk set (`total_allocated`) and the new one (the live records
+    repacked) coexist until the new table is published, and the relocation
+    list holds one 16-byte `(Key, ValueSlot)` per index entry, reserved once
+    (`compact_with_index`, amended by §28a from two growing vectors to one
+    reserved vector). On `SyncExpanseBlobMap` the old set then stays allocated
+    until the epoch collector frees it, which pinned readers delay.
+    """
+    for name, v in (("total_allocated", total_allocated), ("live_records", live_records),
+                    ("index_entries", index_entries)):
+        _nonneg_int(name, v)
+    if index_entries < live_records:
+        raise ValueError("every arena record is an index entry")
+    return total_allocated + compacted_chunks(live_records, payload_len, chunk) * chunk + 16 * index_entries
 
 
 class _ArenaModel:
@@ -212,6 +249,8 @@ class _ArenaModel:
         freed = (self.chunks - self.floor_chunks) * self.chunk + max(0, self.floor_live - self.live_bytes)
         if self.live_bytes > self.k * freed:
             return False
+        if 2 * self.live_bytes >= self.chunks * self.chunk:
+            return False  # (B), the waste guard
         self.compactions += 1
         self.copied += self.live_bytes
         self.chunks = self.cursor = 0
@@ -258,8 +297,7 @@ def simulate_fill_then_remove(payload_len: int, chunk: int, cap: int, keep_share
         a.live_bytes += a.needed
     filled = a.live_bytes // a.needed
     compactions_at_fill = a.compactions
-    # Nothing grew or was removed since that compaction, so the rule refuses
-    # without compacting again.
+    # Nothing changed since the refusal, so the rule refuses again.
     retry_refused = not a.insert()
     a.live_bytes = int(filled * keep_share) * a.needed
     ok = a.insert()
@@ -309,6 +347,8 @@ def self_test() -> int:
     # Pinned: the largest L with L * 136 <= (512 - ceil(L / 14,563)) * 2 MiB.
     # L = 3,830,069 fills 263 chunks exactly: 520,889,384 <= 249 * 2 MiB =
     # 522,190,848. One more record opens a 264th: 520,889,520 > 520,093,696.
+    # The waste guard allows up to 2 * L * 136 < 2^30, L <= 3,947,580, so (A)
+    # binds here and the amendment leaves this figure unchanged.
     assert m == 3_830_069, m
     assert sustains_overwrite(m, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
     assert not sustains_overwrite(m + 1, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
@@ -322,6 +362,18 @@ def self_test() -> int:
     # At the sustained maximum the copy per appended byte stays near k (here k = 1).
     assert copy_per_append(m, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) < 1.1
     assert stall_copy_bytes(HARNESS_LIVE, 128) == 27_200_000
+    # (B) bounds every automatic copy below half the cap: 512 MiB - 1 byte at
+    # the default cap, whatever the live set or the payload size.
+    assert max_stall_bytes(MAX_ARENA_CAPACITY) == (1 << 29) - 1
+    for plen in (8, 9, 128, 1_048_577):
+        mm = max_sustained_live_records(plen, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+        assert stall_copy_bytes(mm, plen) <= max_stall_bytes(MAX_ARENA_CAPACITY), plen
+    # Transient peak at the harness's live set and at the sustained maximum:
+    # old arena at the cap + repacked live set + 16 B per index entry.
+    assert compaction_peak_bytes(MAX_ARENA_CAPACITY, HARNESS_LIVE, 128, DEFAULT_CHUNK_SIZE,
+                                 HARNESS_LIVE) == (1 << 30) + 14 * (2 << 20) + 3_200_000
+    assert compaction_peak_bytes(MAX_ARENA_CAPACITY, m, 128, DEFAULT_CHUNK_SIZE, m) == \
+        (1 << 30) + 263 * (2 << 20) + 16 * 3_830_069
 
     # The closed forms against the record-level model on small arenas, over
     # payload sizes that exercise alignment waste (9 B), dense packing (8 B),
@@ -346,20 +398,35 @@ def self_test() -> int:
                 # A refused compaction is not retried until the arena grows again:
                 # at most one compaction, the first (its growth is the whole arena).
                 assert sim["compactions"] <= 1, (plen, live, sim)
+            # (B): no automatic copy reaches half the cap.
+            assert sim["copied"] <= max(sim["compactions"], 1) * max_stall_bytes(cap), (plen, live, sim)
 
-    # Removals count as reclaimable: an arena filled with distinct live keys
-    # compacts once at the first refusal (growth = the whole arena), frees
-    # nothing, refuses the next insert without compacting, and after half the
-    # keys are removed compacts again and admits the insert. A rule on growth
-    # alone would refuse it (freed = 0 after the futile compaction).
+    # An arena filled with distinct live keys fails at the first refusal with
+    # no compaction: its live bytes are more than half its chunk bytes, so the
+    # waste guard (B) refuses a copy that would free nothing (§28a; before it,
+    # the rule compacted once here). After half the keys are removed the guard
+    # passes, and the budget (A) counts the whole arena grown since creation,
+    # so one compaction admits the insert.
     for plen in (9, 128, 2100):
         r = simulate_fill_then_remove(plen, 4096, 64 * 1024, keep_share=0.5)
         assert r == {"filled": max_chunks(4096, 64 * 1024) * records_per_chunk(plen, 4096),
-                     "compactions_at_fill": 1, "retry_refused": 1, "compactions": 2,
+                     "compactions_at_fill": 0, "retry_refused": 1, "compactions": 1,
                      "insert_after_removals": 1}, (plen, r)
-        # Keeping nearly everything: the removals do not pay for the copy.
+        # Keeping nearly everything: 128 B records leave the arena more than
+        # half live, so nothing is copied. For 9 B records (15 bytes of padding
+        # each) and 2,100 B records (one per chunk) the charged live bytes fall
+        # under half the chunk bytes, and the compaction does free chunks
+        # (1,843 records repack into 15; 14 records into 14): it admits the insert.
         r = simulate_fill_then_remove(plen, 4096, 64 * 1024, keep_share=0.9)
-        assert r["compactions"] == 1 and r["insert_after_removals"] == 0, (plen, r)
+        want = (0, 0) if plen == 128 else (1, 1)
+        assert (r["compactions"], r["insert_after_removals"]) == want, (plen, r)
+    # No compaction the guard admits in these sequences is futile: every one
+    # is followed by a successful insert.
+    for plen in (8, 9, 128, 2100):
+        for keep in (0.0, 0.25, 0.5, 0.75, 0.9, 1.0):
+            r = simulate_fill_then_remove(plen, 4096, 64 * 1024, keep_share=keep)
+            assert r["compactions_at_fill"] == 0, (plen, keep, r)
+            assert r["compactions"] <= r["insert_after_removals"], (plen, keep, r)
 
     # Invalid inputs fail loudly.
     for bad in (lambda: records_per_chunk(5000, 4096), lambda: record_needed(-1),
@@ -378,7 +445,7 @@ def self_test() -> int:
 def report() -> None:
     chunk, cap = DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY
     print(f"rule: compact on refused growth iff live_bytes <= {RECLAIM_COPY_PER_GROWTH} x (chunk growth + live drop) "
-          "since the previous compaction")
+          "since the previous compaction, and 2 x live_bytes < allocated chunk bytes")
     print(f"{'payload B':>10} {'rec/chunk':>10} {'max live recs':>14} {'share of cap':>13} "
           f"{'copy/append at max':>19} {'stall MiB at max':>17}")
     for plen in (8, 9, 64, 128, 1024, 65536, 1_048_577):
