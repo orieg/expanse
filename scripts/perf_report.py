@@ -151,6 +151,9 @@ BENCH_N_MAP: Dict[str, int] = {
     # The `SyncExpanseMap32` writer on one thread (#1187): `S32W_OPS`
     # mutations per arm (`benches/instructions.rs`).
     "sync32_map_write": 2_000,
+    # One `SyncExpanseMap32` reader's `try_get` (#1274): `S32R_OPS` probes,
+    # half hits and half misses (`benches/instructions.rs`).
+    "sync32_map_get": 4_000,
     # 32-bit ordered walks over the 2,000-key `keys32` maps and sets.
     "map32_iterate": 2_000,
     "set32_iterate": 2_000,
@@ -320,6 +323,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "cascaded_set_contains",
             "cascaded_map_get",
             "map32_get",
+            "sync32_map_get",
             "sync_map_get",
             "sync_set_contains",
             "judyl_get",

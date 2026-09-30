@@ -1266,18 +1266,20 @@ impl LeafView {
 
     /// The `kb`-byte key `i` of the key area starting at byte `off`. The
     /// caller has checked `off + (i + 1) * kb <= len`.
+    ///
+    /// The one or two words the key spans, read as one little-endian
+    /// integer, hold its bytes in memory order from byte `start % 4`, so a
+    /// shift and a mask assemble it. A byte copy of a runtime `kb` would
+    /// lower to a libc `memcpy` call per key, as `read_rem` records (#1274).
     #[inline(always)]
     fn rem(self, off: usize, i: usize, kb: usize) -> u32 {
         let start = off + i * kb;
         let (w, sh) = (start / 4, start % 4);
-        let mut b = [0u8; 8];
-        b[..4].copy_from_slice(&self.word(w));
+        let mut x = u64::from(u32::from_le_bytes(self.word(w)));
         if sh + kb > 4 {
-            b[4..].copy_from_slice(&self.word(w + 1));
+            x |= u64::from(u32::from_le_bytes(self.word(w + 1))) << 32;
         }
-        let mut r = [0u8; 4];
-        r[..kb].copy_from_slice(&b[sh..sh + kb]);
-        u32::from_le_bytes(r)
+        ((x >> (8 * sh)) & ((1u64 << (8 * kb)) - 1)) as u32
     }
 
     /// Value `i` of a map leaf. The caller has checked `4 * (i + 1) <= len`.
@@ -1287,8 +1289,21 @@ impl LeafView {
     }
 
     /// First index in `0..pop` whose key is `>= needle` (`pop` when none is).
+    ///
+    /// One search per key width a linear leaf below the root holds, so the
+    /// span test and the mask in `rem` fold to constants inside the loop.
     #[inline]
     fn lower_bound(self, off: usize, pop: usize, kb: usize, needle: u32) -> usize {
+        match kb {
+            1 => self.search(off, pop, 1, needle),
+            2 => self.search(off, pop, 2, needle),
+            3 => self.search(off, pop, 3, needle),
+            _ => self.search(off, pop, kb, needle),
+        }
+    }
+
+    #[inline(always)]
+    fn search(self, off: usize, pop: usize, kb: usize, needle: u32) -> usize {
         let (mut lo, mut hi) = (0usize, pop);
         while lo < hi {
             let mid = (lo + hi) / 2;
@@ -4841,30 +4856,7 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
                     None
                 });
             }
-            Kind::MapLeaf(_) => {
-                let pop = edge_pop(&edge);
-                let cap = cap_class(pop);
-                let node = a.try_node(edge_handle(&edge))?;
-                // The reader is pinned, so the leaf stays allocated; the view
-                // loads it as atomic words once the version is validated.
-                let v = node.leaf_view()?;
-                if !still_valid() {
-                    return Err(Torn);
-                }
-                let kbz = kb as usize;
-                let keys_off = 4usize.checked_mul(cap).ok_or(Torn)?;
-                let keys_len = pop.checked_mul(kbz).ok_or(Torn)?;
-                let keys_end = keys_off.checked_add(keys_len).ok_or(Torn)?;
-                if keys_end > v.len || pop > cap {
-                    return Err(Torn);
-                }
-                let pos = v.lower_bound(keys_off, pop, kbz, rem);
-                if pos >= pop || v.rem(keys_off, pos, kbz) != rem {
-                    return seal(still_valid, None);
-                }
-                // `pos < pop <= cap`: a value word below `keys_off`.
-                return seal(still_valid, Some(v.val(pos)));
-            }
+            Kind::MapLeaf(_) => return map_leaf_get_validated(a, edge, kb, rem, still_valid),
             Kind::MapBitmap => {
                 let node = a.try_node(edge_handle(&edge))?;
                 // SAFETY: the reader is pinned, so the node the slot names stays
@@ -4922,6 +4914,46 @@ pub(crate) fn map_get_validated<F: Fn() -> bool>(
         }
     }
     Err(Torn)
+}
+
+/// The linear-leaf step of [`map_get_validated`]: `rem`, a `kb`-byte
+/// remainder, looked up in the linear map leaf `edge` names.
+///
+/// Out of line (#1274): inlined, its `LeafView` reads share one function
+/// body with the descent and the bitmap-leaf step, and a change to either
+/// moves the other's instruction count (`sync32_map_get` in
+/// `benches/instructions.rs`). It takes `edge` by value: by reference, the
+/// descent stores the edge to the stack on every step.
+#[inline(never)]
+fn map_leaf_get_validated<F: Fn() -> bool>(
+    a: PubTable,
+    edge: Edge32,
+    kb: u8,
+    rem: u32,
+    still_valid: &F,
+) -> Result<Option<u32>, Torn> {
+    let pop = edge_pop(&edge);
+    let cap = cap_class(pop);
+    let node = a.try_node(edge_handle(&edge))?;
+    // The reader is pinned, so the leaf stays allocated; the view loads it
+    // as atomic words once the version is validated.
+    let v = node.leaf_view()?;
+    if !still_valid() {
+        return Err(Torn);
+    }
+    let kbz = kb as usize;
+    let keys_off = 4usize.checked_mul(cap).ok_or(Torn)?;
+    let keys_len = pop.checked_mul(kbz).ok_or(Torn)?;
+    let keys_end = keys_off.checked_add(keys_len).ok_or(Torn)?;
+    if keys_end > v.len || pop > cap {
+        return Err(Torn);
+    }
+    let pos = v.lower_bound(keys_off, pop, kbz, rem);
+    if pos >= pop || v.rem(keys_off, pos, kbz) != rem {
+        return seal(still_valid, None);
+    }
+    // `pos < pop <= cap`: a value word below `keys_off`.
+    seal(still_valid, Some(v.val(pos)))
 }
 
 /// Validated optimistic set membership test. Same contract and discipline
@@ -7161,6 +7193,62 @@ mod tests {
             }
         }
         assert_eq!(max, LEAF_KEYS_MAX);
+    }
+
+    /// `LeafView`'s reads, which assemble a key from the one or two words it
+    /// spans (#1274), agree with the plain byte reads `read_rem` and
+    /// `leaf_lower_bound`: every key width at every byte offset and key
+    /// index of allocations of every length mod 4, partial trailing words
+    /// included, and every search position in ascending key areas.
+    #[test]
+    fn leaf_view_reads_match_the_plain_byte_reads() {
+        let mut x: u32 = 0x9E37_79B9;
+        for len in 1..=40usize {
+            let mut buf = alloc_zeroed_bytes(len);
+            for b in buf.iter_mut() {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                *b = x as u8;
+            }
+            let v = LeafView {
+                p: buf.as_ptr().cast_const(),
+                len,
+            };
+            for kb in 1..=4usize {
+                for off in 0..len {
+                    for i in 0..(len - off) / kb {
+                        assert_eq!(
+                            v.rem(off, i, kb),
+                            read_rem(&buf[off..], i, kb),
+                            "len {len} kb {kb} off {off} i {i}"
+                        );
+                    }
+                }
+            }
+        }
+        for kb in 1..=4u8 {
+            for pop in 0..=12usize {
+                for off in [0usize, 1, 4, 7, 8] {
+                    let len = (off + pop * kb as usize).max(1);
+                    let mut buf = alloc_zeroed_bytes(len);
+                    for i in 0..pop {
+                        write_rem(&mut buf[off..], i, kb as usize, 3 * i as u32 + 1);
+                    }
+                    let v = LeafView {
+                        p: buf.as_ptr().cast_const(),
+                        len,
+                    };
+                    for needle in 0..3 * pop as u32 + 3 {
+                        assert_eq!(
+                            v.lower_bound(off, pop, kb as usize, needle),
+                            leaf_lower_bound(&buf[off..], pop, kb, needle).unwrap(),
+                            "kb {kb} pop {pop} off {off} needle {needle}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// The byte lengths trees actually hold match the derivation above: no
