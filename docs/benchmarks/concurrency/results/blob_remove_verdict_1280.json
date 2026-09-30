@@ -1,0 +1,239 @@
+{
+  "gates": [
+    {
+      "comparison": "C/B",
+      "threads": 16,
+      "floor": 1.0,
+      "runs": [
+        {
+          "ratio": 2.9179354100152994,
+          "ci_lower": 2.8828633198905433,
+          "ci_upper": 2.950215606969895,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 2.8983772096561724,
+          "ci_lower": 2.8743514382586324,
+          "ci_upper": 2.924460163222347,
+          "ci_method": "bca"
+        }
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "comparison": "C/B",
+      "threads": 4,
+      "floor": 1.0,
+      "runs": [
+        {
+          "ratio": 4.31424223760363,
+          "ci_lower": 4.269471040271455,
+          "ci_upper": 4.36369983288462,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 4.274085981058308,
+          "ci_lower": 4.229582924425161,
+          "ci_upper": 4.311035494336502,
+          "ci_method": "bca"
+        }
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "comparison": "C/B",
+      "threads": 1,
+      "floor": 0.9,
+      "runs": [
+        {
+          "ratio": 1.1504733353441974,
+          "ci_lower": 1.1388850392173795,
+          "ci_upper": 1.1632657319366606,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.1388032117924602,
+          "ci_lower": 1.1266548308279138,
+          "ci_upper": 1.1491376971561975,
+          "ci_method": "bca"
+        }
+      ],
+      "verdict": "PASS"
+    }
+  ],
+  "reported": [
+    {
+      "comparison": "M/B",
+      "threads": 16,
+      "runs": [
+        {
+          "ratio": 1.20227857416965,
+          "ci_lower": 1.1901423312159012,
+          "ci_upper": 1.212500620992928,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.1879682172228054,
+          "ci_lower": 1.177147198137675,
+          "ci_upper": 1.1991601093369175,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "M/B",
+      "threads": 4,
+      "runs": [
+        {
+          "ratio": 1.2024081475376962,
+          "ci_lower": 1.1899484842177621,
+          "ci_upper": 1.2162601731198803,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.131706335011067,
+          "ci_lower": 1.113401146481741,
+          "ci_upper": 1.1517958439865954,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "A/C",
+      "threads": 16,
+      "runs": [
+        {
+          "ratio": 1.2324730139954645,
+          "ci_lower": 1.2169480337447698,
+          "ci_upper": 1.2472756970555694,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.245748996256937,
+          "ci_lower": 1.2338095237317102,
+          "ci_upper": 1.2603647154328639,
+          "ci_method": "bca"
+        }
+      ]
+    },
+    {
+      "comparison": "A/C",
+      "threads": 4,
+      "runs": [
+        {
+          "ratio": 1.0861737364992328,
+          "ci_lower": 1.074685996067571,
+          "ci_upper": 1.096648062165934,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0844154809962527,
+          "ci_lower": 1.0747045936524742,
+          "ci_upper": 1.0951791585829884,
+          "ci_method": "bca"
+        }
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "cell": "blob 100% read T=16",
+      "C/B": [
+        {
+          "ratio": 1.005696337982594,
+          "ci_lower": 1.0033668207117459,
+          "ci_upper": 1.0081730930215962,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0113508039359171,
+          "ci_lower": 1.0086666270247409,
+          "ci_upper": 1.014226637566078,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    },
+    {
+      "cell": "blob 100% read T=1",
+      "C/B": [
+        {
+          "ratio": 1.0151545597628107,
+          "ci_lower": 1.009874231519393,
+          "ci_upper": 1.020421092854992,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0012130543548299,
+          "ci_lower": 0.9870877762162206,
+          "ci_upper": 1.0079493221494475,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    },
+    {
+      "cell": "map 50% read T=16",
+      "C/B": [
+        {
+          "ratio": 0.98712707832502,
+          "ci_lower": 0.9275148081526984,
+          "ci_upper": 1.0522282732073842,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 1.0464372020519583,
+          "ci_lower": 0.9921716742566189,
+          "ci_upper": 1.100941944987108,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    },
+    {
+      "cell": "map 100% read T=16",
+      "C/B": [
+        {
+          "ratio": 0.9927790118705923,
+          "ci_lower": 0.9909668257639845,
+          "ci_upper": 0.9945432529083652,
+          "ci_method": "bca"
+        },
+        {
+          "ratio": 0.996035988584354,
+          "ci_lower": 0.9938088834039932,
+          "ci_upper": 0.9989588639910829,
+          "ci_method": "bca"
+        }
+      ],
+      "moved_both_runs": false
+    }
+  ],
+  "scaling": {
+    "build": "C",
+    "threads": 16,
+    "floor": 1.0,
+    "runs": [
+      {
+        "ratio": 1.1285722606552322,
+        "ci_lower": 1.117184753846146,
+        "ci_upper": 1.1402407795599148,
+        "ci_method": "bca"
+      },
+      {
+        "ratio": 1.1284529443220197,
+        "ci_lower": 1.1166805894569876,
+        "ci_upper": 1.1396503649227852,
+        "ci_method": "bca"
+      }
+    ],
+    "verdict": "PASS"
+  },
+  "drift": false,
+  "inputs": {
+    "B": "docs/benchmarks/concurrency/results/gate_1280_b_run1.json,docs/benchmarks/concurrency/results/gate_1280_b_run2.json",
+    "M": "docs/benchmarks/concurrency/results/gate_1280_m_run1.json,docs/benchmarks/concurrency/results/gate_1280_m_run2.json",
+    "C": "docs/benchmarks/concurrency/results/gate_1280_c_run1.json,docs/benchmarks/concurrency/results/gate_1280_c_run2.json",
+    "A": "docs/benchmarks/concurrency/results/gate_1280_a_run1.json,docs/benchmarks/concurrency/results/gate_1280_a_run2.json"
+  }
+}
