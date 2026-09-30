@@ -13687,6 +13687,102 @@ mod miri_ub_sites {
         });
         assert_eq!(map.len(), KEYS);
     }
+
+    /// Filler keys the removal workload keeps throughout: past
+    /// `ROOT_LEAF_CAP`, so the root stays a tree however many of the other
+    /// keys are removed, and a removal never meets root-leaf state.
+    const BLOB_FILLER: u64 = ROOT_LEAF_CAP as u64 + 1;
+
+    /// The remover's `i`-th key. The `KEYS` of them share one leaf, so a
+    /// removal edits that leaf in place under its parent's version lock
+    /// rather than dropping a whole child from a branch; only the removal
+    /// that empties the leaf is structural.
+    fn blob_removed(i: u64) -> u64 {
+        0x7171_7171_7171_0000 + i
+    }
+
+    /// The writer's `i`-th key, in a leaf of its own, disjoint from the
+    /// remover's and from the filler.
+    fn blob_written(i: u64) -> u64 {
+        0x3E3E_3E3E_3E3E_0000 + i
+    }
+
+    /// A 16-byte payload for `k` at generation `generation`: longer than an
+    /// inline slot holds, so every value is an arena record and every
+    /// removal or overwrite unlinks one.
+    fn blob_payload(k: u64, generation: u8) -> [u8; 16] {
+        let mut p = [generation; 16];
+        p[..8].copy_from_slice(&k.to_le_bytes());
+        p
+    }
+
+    /// Optimistic removals (#1280) beside an optimistic writer and a reader,
+    /// on a tree-rooted map: one thread removes its keys, each an arena
+    /// record charged dead through the writer's own delta; another overwrites
+    /// its first `KEYS / 2` keys and inserts the rest, disjoint from the
+    /// remover's; the reader checks every payload it sees.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn blob_writer_remover() {
+        let map = SyncExpanseBlobMap::new();
+        for i in 0..BLOB_FILLER {
+            let k = key(0, i);
+            map.insert(k, &blob_payload(k, 0), 0).expect("insert");
+        }
+        for i in 0..KEYS {
+            let k = blob_removed(i);
+            map.insert(k, &blob_payload(k, 0), 0).expect("insert");
+        }
+        for i in 0..KEYS / 2 {
+            let k = blob_written(i);
+            map.insert(k, &blob_payload(k, 0), 0).expect("insert");
+        }
+        assert!(map.shared.published().is_tree());
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            let remover = s.spawn(|| {
+                for i in 0..KEYS {
+                    assert!(map.remove(blob_removed(i)));
+                }
+            });
+            let writer = s.spawn(|| {
+                for i in 0..KEYS {
+                    let k = blob_written(i);
+                    map.insert(k, &blob_payload(k, 1), 0).expect("insert");
+                }
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in 0..KEYS {
+                        let k = blob_removed(i);
+                        if let Some((data, _)) = map.get(k) {
+                            assert_eq!(data, blob_payload(k, 0));
+                        }
+                        let k = blob_written(i);
+                        match map.get(k) {
+                            Some((data, _)) => {
+                                assert!(data == blob_payload(k, 0) || data == blob_payload(k, 1))
+                            }
+                            None => assert!(i >= KEYS / 2, "an overwritten key went missing"),
+                        }
+                    }
+                });
+            });
+            remover.join().expect("remover");
+            writer.join().expect("writer");
+            done.store(true, Ordering::Release);
+        });
+        for i in 0..BLOB_FILLER {
+            let k = key(0, i);
+            assert_eq!(map.get(k).expect("filler present").0, blob_payload(k, 0));
+        }
+        for i in 0..KEYS {
+            assert!(map.get(blob_removed(i)).is_none());
+            let k = blob_written(i);
+            assert_eq!(map.get(k).expect("written").0, blob_payload(k, 1));
+        }
+        assert_eq!(map.len(), BLOB_FILLER + KEYS);
+    }
 }
 
 #[cfg(all(test, not(miri)))]
