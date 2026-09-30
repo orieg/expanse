@@ -370,9 +370,17 @@ impl PhpExpanseBlobMap {
     }
 
     /// Sets key -> payload blob with optional 32-bit hot metadata.
-    pub fn set(&mut self, key: u64, payload: String, hot_meta: Option<u32>) -> Result<(), String> {
+    ///
+    /// `hot_meta` is taken as a PHP int and range-checked here: declared as
+    /// `u32`, a negative or wider-than-32-bit value failed the argument
+    /// conversion and arrived as `None`, so it was stored as 0 without an
+    /// error, where the FFI driver refuses it.
+    pub fn set(&mut self, key: u64, payload: String, hot_meta: Option<i64>) -> Result<(), String> {
+        let hot_meta = hot_meta.unwrap_or(0);
+        let meta = u32::try_from(hot_meta)
+            .map_err(|_| format!("hot_meta {hot_meta} is outside the 32-bit unsigned range"))?;
         self.inner
-            .insert(key, payload.as_bytes(), hot_meta.unwrap_or(0))
+            .insert(key, payload.as_bytes(), meta)
             .map_err(|e| format!("{e:?}"))
     }
 

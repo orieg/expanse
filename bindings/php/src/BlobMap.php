@@ -59,9 +59,17 @@ if (!class_exists(BlobMap::class)) {
          *     Every driver throws the same class; the native extension's message
          *     names the engine error, while the FFI driver's C call reports only
          *     that the insert was refused.
+         * @throws \Exception when $hotMeta is outside 0..0xFFFFFFFF, on every
+         *     driver, before any driver is called. The engine's field is a
+         *     uint32_t: the FFI driver would wrap a negative value (-1 to
+         *     0xFFFFFFFF) and truncate a wider one, and the in-memory fallback
+         *     stored either as given, so the three backends disagreed.
          */
         public function set(int $key, string $payload, int $hotMeta = 0): void
         {
+            if ($hotMeta < 0 || $hotMeta > 0xFFFFFFFF) {
+                throw new \Exception("hot_meta $hotMeta is outside the 32-bit unsigned range for key $key");
+            }
             if ($this->native !== null) {
                 $this->native->set($key, $payload, $hotMeta);
                 return;
@@ -82,7 +90,10 @@ if (!class_exists(BlobMap::class)) {
                 throw new \Exception("MetaOverflow: hot_meta $hotMeta exceeds 24 bits for key $key");
             }
             $this->data[$key] = $payload;
-            $this->meta[$key] = $hotMeta;
+            // The engine stores a payload of at most 7 bytes inside the value
+            // slot, which has no metadata field, so it ignores hot_meta there
+            // and reads it back as 0 (docs/design/large-values.md). Match it.
+            $this->meta[$key] = strlen($payload) > 7 ? $hotMeta : 0;
         }
 
         public function get(int $key, int &$hotMeta = 0): ?string

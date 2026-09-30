@@ -242,6 +242,38 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
         $this->assertEquals(0xFFFFFF, $meta);
     }
 
+    /**
+     * hot_meta is a uint32_t in the engine. A negative value, or one wider
+     * than 32 bits, must be refused the same way on every driver: the \FFI
+     * driver wrapped -1 to 0xFFFFFFFF and truncated 2^32 + 1 to 1, while the
+     * in-memory fallback stored both as given. The engine also ignores
+     * hot_meta for a payload of at most 7 bytes and reads it back as 0.
+     */
+    public function testBlobMapHotMetaRangeIsIdenticalOnEveryDriver()
+    {
+        $map = new BlobMap();
+        foreach (["short", "sixteen byte val"] as $payload) {
+            foreach ([-1, -(1 << 40), 0x100000001] as $bad) {
+                $threw = false;
+                try {
+                    $map->set(1, $payload, $bad);
+                } catch (\Exception $e) {
+                    $threw = true;
+                }
+                $this->assertTrue($threw, "set() with hot_meta $bad must throw (payload " . strlen($payload) . " bytes)");
+                $this->assertFalse($map->has(1), "a refused hot_meta $bad must not store the key");
+            }
+        }
+
+        // The whole uint32 range is accepted for an inline payload, whose
+        // metadata the engine does not keep.
+        $map->set(3, "short", 0xFFFFFFFF);
+        $meta = -1;
+        $this->assertEquals("short", $map->get(3, $meta));
+        $this->assertEquals(0, $meta, 'an inline payload reads back hot_meta 0');
+        $this->assertEquals(0, $map->getMeta(3));
+    }
+
     public function testSyncMapAndSet()
     {
         $set = new SyncSet();
