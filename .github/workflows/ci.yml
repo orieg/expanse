@@ -2486,9 +2486,47 @@ jobs:
           composer validate --no-check-publish --no-check-lock bindings/php/composer.json
           composer validate --no-check-publish --no-check-lock crates/expanse-php/composer.json
 
-      - name: Run PHP test suite
+      # The wrappers in bindings/php pick one of three drivers at runtime --
+      # the native extension, the \FFI driver, or an in-memory fallback -- and
+      # promise the same contract on each, so the suite runs once per driver.
+      # A driver that fails to load degrades silently to the next one, so each
+      # run names the driver it is for in EXPANSE_PHP_DRIVER and the runner
+      # fails if a different one is active.
+      - name: Run PHP test suite (FFI driver)
         run: php -d ffi.enable=1 tests/ExpanseTest.php
         working-directory: bindings/php
+        env:
+          EXPANSE_PHP_DRIVER: ffi
+
+      - name: Run PHP test suite (in-memory fallback driver)
+        run: php -d ffi.enable=0 tests/ExpanseTest.php
+        working-directory: bindings/php
+        env:
+          EXPANSE_PHP_DRIVER: fallback
+
+      # The native extension (crates/expanse-php, ext-php-rs) is built and run
+      # on Linux and macOS only. The ext-php-rs 0.15 README's Windows
+      # requirements rule it out here: a nightly Rust toolchain (PHP on Windows
+      # uses the vectorcall calling convention, a nightly-only feature) and a
+      # PHP build from windows.php.net, where this job has stable Rust and
+      # setup-php's build. The FFI and fallback runs above still cover Windows.
+      - name: Build native PHP extension
+        if: runner.os != 'Windows'
+        run: cargo build --release -p expanse-php
+
+      - name: Run PHP test suite (native extension driver)
+        if: runner.os != 'Windows'
+        shell: bash
+        working-directory: bindings/php
+        env:
+          EXPANSE_PHP_DRIVER: native
+        run: |
+          ext="$GITHUB_WORKSPACE/target/release/libexpanse_php.so"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ext="$GITHUB_WORKSPACE/target/release/libexpanse_php.dylib"
+          fi
+          test -f "$ext" || { echo "::error::native extension not built: $ext"; exit 1; }
+          php -d ffi.enable=0 -d "extension=$ext" tests/ExpanseTest.php
 
       - name: Run PHP comparative benchmark smoke
         if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.3'

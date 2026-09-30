@@ -355,6 +355,21 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
 }
 
 if (php_sapi_name() === 'cli' && basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    // The driver the wrappers selected on this host: 'native', 'ffi' or
+    // 'fallback'. A driver that fails to load degrades silently to the next
+    // one (a missing extension is only a startup warning), so a CI run meant
+    // for one driver states it in EXPANSE_PHP_DRIVER and the runner refuses
+    // to report a pass for another.
+    $probe = new BlobMap();
+    $read = static fn(string $prop) => (new \ReflectionProperty($probe, $prop))->getValue($probe);
+    $driver = $read('native') !== null ? 'native' : ($read('handle') !== null ? 'ffi' : 'fallback');
+    unset($probe, $read);
+    echo "Driver: $driver\n";
+    $expected = getenv('EXPANSE_PHP_DRIVER');
+    if ($expected !== false && $expected !== '' && $expected !== $driver) {
+        fwrite(STDERR, "FAIL: EXPANSE_PHP_DRIVER=$expected but the active driver is $driver\n");
+        exit(1);
+    }
     $test = new ExpanseTest();
     $methods = get_class_methods($test);
     $count = 0;
