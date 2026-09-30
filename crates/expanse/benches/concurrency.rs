@@ -192,7 +192,7 @@ const BLOB_LEN: usize = 128;
 /// inside the rate these arms publish, as `SkipMap`'s deferred epoch
 /// reclamation and `BTreeMap`'s inline frees are inside theirs; the count per
 /// window is published beside it (`compactions`, `arena_bytes`).
-const BLOB_COMPACT_APPENDS: u64 = BLOB_POP;
+const BLOB_COMPACT_APPENDS: u64 = 4 * BLOB_POP;
 
 thread_local! {
     /// Worker 0's running estimate of the arena appends since the last
