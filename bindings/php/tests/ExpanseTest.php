@@ -208,6 +208,40 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
         $this->assertEquals(1, count($map));
     }
 
+    /**
+     * A refused blob insert must throw, not read as success, and must leave
+     * the key's previous value in place. hot_meta above 24 bits on a payload
+     * longer than 7 bytes is refused by the engine (MetaOverflow) before the
+     * index is touched; every driver throws \Exception for it.
+     */
+    public function testBlobMapRefusedInsertThrows()
+    {
+        $map = new BlobMap();
+        $payload = "sixteen byte val";
+
+        $threw = false;
+        try {
+            $map->set(1, $payload, 1 << 24);
+        } catch (\Exception $e) {
+            $threw = true;
+        }
+        $this->assertTrue($threw, 'set() with hot_meta 1<<24 must throw');
+        $this->assertFalse($map->has(1), 'a refused insert must not store the key');
+        $this->assertEquals(0, count($map));
+
+        $map->set(2, $payload, 0xFFFFFF);
+        $threw = false;
+        try {
+            $map->set(2, "replacement value", 1 << 24);
+        } catch (\Exception $e) {
+            $threw = true;
+        }
+        $this->assertTrue($threw, 'overwrite with hot_meta 1<<24 must throw');
+        $meta = 0;
+        $this->assertEquals($payload, $map->get(2, $meta));
+        $this->assertEquals(0xFFFFFF, $meta);
+    }
+
     public function testSyncMapAndSet()
     {
         $set = new SyncSet();

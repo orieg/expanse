@@ -192,6 +192,8 @@ $payload = $blobs->get(2, $meta);
 $hotMeta = $blobs->getMeta(2); // 1
 ```
 
+`set()` throws `\Exception` when the engine refuses the insert: a payload longer than 7 bytes with `hotMeta` above 24 bits, the arena capacity cap reached, or an allocation failure. The key keeps its previous value. The native extension and the FFI driver throw the same class; only the native extension's message names the engine error.
+
 ### 3.6 `Judy` (1:1 Legacy Drop-In Compatibility)
 
 Modernize existing `php-judy` applications with zero code changes:
