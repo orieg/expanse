@@ -242,6 +242,38 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
         $this->assertEquals(0xFFFFFF, $meta);
     }
 
+    /**
+     * hot_meta is a uint32_t in the engine. A negative value, or one wider
+     * than 32 bits, must be refused the same way on every driver: the \FFI
+     * driver wrapped -1 to 0xFFFFFFFF and truncated 2^32 + 1 to 1, while the
+     * in-memory fallback stored both as given. The engine also ignores
+     * hot_meta for a payload of at most 7 bytes and reads it back as 0.
+     */
+    public function testBlobMapHotMetaRangeIsIdenticalOnEveryDriver()
+    {
+        $map = new BlobMap();
+        foreach (["short", "sixteen byte val"] as $payload) {
+            foreach ([-1, -(1 << 40), 0x100000001] as $bad) {
+                $threw = false;
+                try {
+                    $map->set(1, $payload, $bad);
+                } catch (\Exception $e) {
+                    $threw = true;
+                }
+                $this->assertTrue($threw, "set() with hot_meta $bad must throw (payload " . strlen($payload) . " bytes)");
+                $this->assertFalse($map->has(1), "a refused hot_meta $bad must not store the key");
+            }
+        }
+
+        // The whole uint32 range is accepted for an inline payload, whose
+        // metadata the engine does not keep.
+        $map->set(3, "short", 0xFFFFFFFF);
+        $meta = -1;
+        $this->assertEquals("short", $map->get(3, $meta));
+        $this->assertEquals(0, $meta, 'an inline payload reads back hot_meta 0');
+        $this->assertEquals(0, $map->getMeta(3));
+    }
+
     public function testSyncMapAndSet()
     {
         $set = new SyncSet();
@@ -323,6 +355,21 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
 }
 
 if (php_sapi_name() === 'cli' && basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    // The driver the wrappers selected on this host: 'native', 'ffi' or
+    // 'fallback'. A driver that fails to load degrades silently to the next
+    // one (a missing extension is only a startup warning), so a CI run meant
+    // for one driver states it in EXPANSE_PHP_DRIVER and the runner refuses
+    // to report a pass for another.
+    $probe = new BlobMap();
+    $read = static fn(string $prop) => (new \ReflectionProperty($probe, $prop))->getValue($probe);
+    $driver = $read('native') !== null ? 'native' : ($read('handle') !== null ? 'ffi' : 'fallback');
+    unset($probe, $read);
+    echo "Driver: $driver\n";
+    $expected = getenv('EXPANSE_PHP_DRIVER');
+    if ($expected !== false && $expected !== '' && $expected !== $driver) {
+        fwrite(STDERR, "FAIL: EXPANSE_PHP_DRIVER=$expected but the active driver is $driver\n");
+        exit(1);
+    }
     $test = new ExpanseTest();
     $methods = get_class_methods($test);
     $count = 0;

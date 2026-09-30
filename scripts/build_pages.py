@@ -2,6 +2,7 @@
 """Builds the complete GitHub Pages web distribution with portal index, visualizer, APT, and RPM repositories."""
 
 import datetime
+import html
 import os
 import shutil
 import subprocess
@@ -39,6 +40,57 @@ def get_workspace_version(repo_root: str) -> str:
                         if v and not v.endswith(".workspace"):
                             return v
     return "0.4.0"
+
+
+GO_EXAMPLE_FILE = os.path.join("bindings", "go", "example_test.go")
+
+
+def go_usage_example(repo_root: str) -> tuple:
+    """Returns (module_path, program) for the landing page's Go tab.
+
+    The program is read from bindings/go/example_test.go, which the Go test job
+    compiles and runs as a testable example (its `// Output:` block is checked),
+    so the page cannot drift from the binding again: a hand-written copy here
+    once used a module path, constructor and method names the binding no longer
+    had. The module path is read from bindings/go/go.mod. Everything from the
+    import block down is rendered as `package main`, with `func Example()`
+    renamed to `func main()` and the `// Output:` block removed. Fails loud
+    (AGENTS.md section 8.1) if the file no longer has that shape.
+    """
+    def fail(msg: str):
+        raise SystemExit(f"FATAL: Go usage example: {msg}")
+
+    gomod = os.path.join(repo_root, "bindings", "go", "go.mod")
+    try:
+        with open(gomod, "r", encoding="utf-8") as f:
+            module = next(
+                (ln.split()[1] for ln in f if ln.startswith("module ") and len(ln.split()) == 2),
+                None,
+            )
+        with open(os.path.join(repo_root, GO_EXAMPLE_FILE), "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError as exc:
+        fail(str(exc))
+    if not module:
+        fail(f"no `module` line in {gomod}")
+
+    try:
+        start = lines.index("import (")
+        example = lines.index("func Example() {")
+        output = lines.index("\t// Output:", example)
+    except ValueError as exc:
+        fail(f"{GO_EXAMPLE_FILE} lacks an expected line ({exc})")
+    end = output + 1
+    while end < len(lines) and lines[end].startswith("\t// "):
+        end += 1
+    if end >= len(lines) or lines[end] != "}":
+        fail(f"{GO_EXAMPLE_FILE}: the `// Output:` block must close Example()")
+    if f'"{module}"' not in "\n".join(lines[start:example]):
+        fail(f"{GO_EXAMPLE_FILE} does not import the module path {module}")
+
+    body = lines[start:example] + ["func main() {"] + lines[example + 1:output] + ["}"]
+    program = "package main\n\n" + "\n".join(body).replace("\t", "    ") + "\n"
+    return module, program
 
 
 def get_git_metadata(repo_root: str, default_version: str) -> dict:
@@ -824,6 +876,9 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     density_svg = _read_chart(density_svg_path)
     rocksdb_svg = _read_chart(rocksdb_svg_path)
 
+    go_module, go_example = go_usage_example(repo_root)
+    go_example_html = html.escape(go_example.rstrip("\n"), quote=False)
+
     # 2. Main Portal index.html
     main_html_template = """<!DOCTYPE html>
 <html lang="en">
@@ -1406,32 +1461,9 @@ $judy[42] = 999;</code></pre>
 
         <div id="tab-go" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add the Go module to your project (PureGo and CGO bindings for 64-bit and 32-bit embedded):</p>
-          <pre><code>go get github.com/orieg/expanse/bindings/go/v0.5.0</code></pre>
-          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Go (Maps, Sets, and Slab-Backed BlobMaps):</p>
-          <pre><code>package main
-
-import (
-    "fmt"
-    "github.com/orieg/expanse/bindings/go/v0.5.0"
-)
-
-func main() {
-    m := expanse.NewMap()
-    defer m.Close()
-
-    m.Insert(42, 100)
-    if val, ok := m.Get(42); ok {
-        fmt.Printf("Found key 42 -> %d\n", val)
-    }
-
-    // Off-heap blob map with 32-bit hot metadata
-    bm := expanse.NewBlobMap()
-    defer bm.Close()
-    bm.Insert(1001, []byte("payload data"), 0x2A)
-    if data, meta, ok := bm.Get(1001); ok {
-        fmt.Printf("Blob: %s, meta: 0x%X\n", string(data), meta)
-    }
-}</code></pre>
+          <pre><code>go get """ + go_module + """</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Go (Maps and Slab-Backed BlobMaps):</p>
+          <pre><code>""" + go_example_html + """</code></pre>
         </div>
 
         <div id="tab-ruby" class="install-panel" role="tabpanel" style="display: none;">

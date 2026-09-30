@@ -345,14 +345,14 @@ module Expanse
     end
 
     def []=(key, val)
-      s = key.to_s
+      s = c_key(key)
       Native.expanse_strmap_insert(@ptr, s, val, nil)
       val
     end
     alias set []=
 
     def [](key)
-      s = key.to_s
+      s = c_key(key)
       buf = Fiddle::Pointer.malloc(8)
       if Native.expanse_strmap_get(@ptr, s, buf) != 0
         buf.to_str(8).unpack1("Q<")
@@ -361,7 +361,7 @@ module Expanse
     alias get []
 
     def delete(key)
-      s = key.to_s
+      s = c_key(key)
       buf = Fiddle::Pointer.malloc(8)
       if Native.expanse_strmap_remove(@ptr, s, buf) != 0
         buf.to_str(8).unpack1("Q<")
@@ -379,6 +379,20 @@ module Expanse
     def clear
       Native.expanse_strmap_clear(@ptr)
       self
+    end
+
+    private
+
+    # The key as the C ABI will read it. Every expanse_strmap_* call takes the
+    # key as a NUL-terminated const char*, so a Ruby String carrying "\0" would
+    # reach the engine truncated and "a\0b" would address the entry for "a".
+    # ExpanseStrMap keys are NUL-free; reject the key instead, as the PHP
+    # binding does.
+    def c_key(key)
+      s = key.to_s
+      raise ArgumentError, 'NUL bytes ("\0") are not allowed in StrMap keys' if s.include?("\0")
+
+      s
     end
   end
 

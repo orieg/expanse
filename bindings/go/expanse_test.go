@@ -548,6 +548,62 @@ func TestStrMapEdgeCases(t *testing.T) {
 	}
 }
 
+// A key with an embedded NUL must not alias its truncation: the C ABI reads
+// the key as a NUL-terminated string, so "a\x00b" used to reach the engine as
+// "a" and overwrite that entry. Set refuses it; the read-only calls answer for
+// the key as given (absent, and ordered between "a" and "a\x01").
+func TestStrMapEmbeddedNulDoesNotAlias(t *testing.T) {
+	m := NewStrMap()
+	defer m.Free()
+
+	if err := m.Set("a", 1); err != nil {
+		t.Fatalf("Set(\"a\"): %v", err)
+	}
+	if err := m.Set("a\x00b", 2); !errors.Is(err, ErrNulInKey) {
+		t.Fatalf("Set(\"a\\x00b\"): want ErrNulInKey, got %v", err)
+	}
+	if v, ok := m.Get("a"); !ok || v != 1 {
+		t.Fatalf("\"a\" was overwritten through \"a\\x00b\": ok=%v v=%d", ok, v)
+	}
+	if n := m.Size(); n != 1 {
+		t.Fatalf("size after a refused Set: want 1, got %d", n)
+	}
+	if v, ok := m.Get("a\x00b"); ok {
+		t.Fatalf("Get(\"a\\x00b\") aliased \"a\": v=%d", v)
+	}
+	if m.Contains("a\x00b") {
+		t.Fatalf("Contains(\"a\\x00b\") aliased \"a\"")
+	}
+	if m.Delete("a\x00b") {
+		t.Fatalf("Delete(\"a\\x00b\") removed \"a\"")
+	}
+	if !m.Contains("a") {
+		t.Fatalf("\"a\" is gone after Delete(\"a\\x00b\")")
+	}
+
+	// Ordering: "a" < "a\x00b" < "a\x01" < "b".
+	for _, k := range []string{"a\x01", "b"} {
+		if err := m.Set(k, 9); err != nil {
+			t.Fatalf("Set(%q): %v", k, err)
+		}
+	}
+	nav := []struct {
+		name string
+		fn   func(string) (string, uint64, bool)
+		want string
+	}{
+		{"Next", m.Next, "a\x01"},
+		{"NextAtOrAfter", m.NextAtOrAfter, "a\x01"},
+		{"Prev", m.Prev, "a"},
+		{"PrevAtOrBefore", m.PrevAtOrBefore, "a"},
+	}
+	for _, c := range nav {
+		if k, _, ok := c.fn("a\x00b"); !ok || k != c.want {
+			t.Fatalf("%s(\"a\\x00b\"): want %q, got %q (ok=%v)", c.name, c.want, k, ok)
+		}
+	}
+}
+
 func TestConcurrentSyncMapStress(t *testing.T) {
 	m := NewSyncMap()
 	defer m.Free()

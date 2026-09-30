@@ -222,7 +222,7 @@ func main() {
 
 - **`Set`**: Ordered `uint64` set with rank, select, range counts, and batch membership queries (`ContainsBatch`).
 - **`Map`**: Ordered `uint64 -> uint64` map with rank, select, range counts, and batch lookups (`GetBatch`).
-- **`StrMap`**: Ordered NUL-terminated string map with truncation-safe navigation (`First`, `Next`, `Prev`, `Last`).
+- **`StrMap`**: Ordered string map with truncation-safe navigation (`First`, `Next`, `Prev`, `Last`). Keys are NUL-free, because the C ABI takes a key as a NUL-terminated string: `Set` returns an `error`, `ErrNulInKey`, for a key containing a NUL byte and leaves the map unchanged, so `"a\x00b"` never overwrites `"a"`. The read-only calls answer for such a key as given: `Get`, `Contains` and `Delete` report it absent, and the navigation calls order it after its NUL-free prefix.
 - **`BytesMap`**: Unordered arbitrary byte-slice map.
 - **`BlobMap`**: Large-value blob arena map with predicate-based pruning (`Prune`) and memory compaction (`Compact`). `Set` returns an `error`: `ErrBlobInsertRefused` when the native insert is refused (`hotMeta` above 24 bits, the arena capacity cap reached, or an allocation failure), in which case the key keeps its previous value.
 - **`SyncSet` / `SyncMap`**: Single-writer, optimistic concurrency control (OCC) reader collections.
