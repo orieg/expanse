@@ -35,50 +35,58 @@ module Expanse
 
     raise "Could not load libexpanse native library" unless loaded
 
+    # Every function whose C return type is `bool` is imported as
+    # `unsigned char`, never `int`. The System V x86-64 and AArch64 ABIs define
+    # only the low 8 bits of a `bool` return; a 32-bit read can see non-zero
+    # upper bits for `false`. Fiddle converts an `unsigned char` return through
+    # an `(unsigned char)` cast, so the call sites' `!= 0` reads exactly the
+    # byte the callee defined. `unsigned char` is used rather than Fiddle's
+    # `bool` type so the declaration does not depend on the Fiddle version.
+
     # Library metadata
     extern "const char* expanse_version(void)"
 
     # Set
     extern "void* expanse_set_new(void)"
     extern "void expanse_set_free(void*)"
-    extern "int expanse_set_insert(void*, unsigned long long)"
-    extern "int expanse_set_remove(void*, unsigned long long)"
-    extern "int expanse_set_contains(void*, unsigned long long)"
+    extern "unsigned char expanse_set_insert(void*, unsigned long long)"
+    extern "unsigned char expanse_set_remove(void*, unsigned long long)"
+    extern "unsigned char expanse_set_contains(void*, unsigned long long)"
     extern "unsigned long long expanse_set_len(void*)"
     extern "size_t expanse_set_mem_used(void*)"
     extern "size_t expanse_set_mem_held(void*)"
     extern "size_t expanse_set_shrink_to_fit(void*)"
     extern "void expanse_set_clear(void*)"
-    extern "int expanse_set_first(void*, void*)"
-    extern "int expanse_set_last(void*, void*)"
-    extern "int expanse_set_next_after(void*, unsigned long long, void*)"
-    extern "int expanse_set_prev_before(void*, unsigned long long, void*)"
+    extern "unsigned char expanse_set_first(void*, void*)"
+    extern "unsigned char expanse_set_last(void*, void*)"
+    extern "unsigned char expanse_set_next_after(void*, unsigned long long, void*)"
+    extern "unsigned char expanse_set_prev_before(void*, unsigned long long, void*)"
     extern "unsigned long long expanse_set_count_below(void*, unsigned long long)"
     extern "unsigned long long expanse_set_count_range(void*, unsigned long long, unsigned long long)"
-    extern "int expanse_set_by_count(void*, unsigned long long, void*)"
+    extern "unsigned char expanse_set_by_count(void*, unsigned long long, void*)"
 
     # Map
     extern "void* expanse_map_new(void)"
     extern "void expanse_map_free(void*)"
-    extern "int expanse_map_insert(void*, unsigned long long, unsigned long long, void*)"
-    extern "int expanse_map_get(void*, unsigned long long, void*)"
-    extern "int expanse_map_remove(void*, unsigned long long, void*)"
+    extern "unsigned char expanse_map_insert(void*, unsigned long long, unsigned long long, void*)"
+    extern "unsigned char expanse_map_get(void*, unsigned long long, void*)"
+    extern "unsigned char expanse_map_remove(void*, unsigned long long, void*)"
     extern "unsigned long long expanse_map_len(void*)"
     extern "size_t expanse_map_mem_used(void*)"
     extern "size_t expanse_map_mem_held(void*)"
     extern "size_t expanse_map_shrink_to_fit(void*)"
     extern "void expanse_map_clear(void*)"
-    extern "int expanse_map_first(void*, void*, void*)"
-    extern "int expanse_map_last(void*, void*, void*)"
-    extern "int expanse_map_next_after(void*, unsigned long long, void*, void*)"
-    extern "int expanse_map_prev_before(void*, unsigned long long, void*, void*)"
+    extern "unsigned char expanse_map_first(void*, void*, void*)"
+    extern "unsigned char expanse_map_last(void*, void*, void*)"
+    extern "unsigned char expanse_map_next_after(void*, unsigned long long, void*, void*)"
+    extern "unsigned char expanse_map_prev_before(void*, unsigned long long, void*, void*)"
 
     # StrMap
     extern "void* expanse_strmap_new(void)"
     extern "void expanse_strmap_free(void*)"
-    extern "int expanse_strmap_insert(void*, const char*, unsigned long long, void*)"
-    extern "int expanse_strmap_get(void*, const char*, void*)"
-    extern "int expanse_strmap_remove(void*, const char*, void*)"
+    extern "unsigned char expanse_strmap_insert(void*, const char*, unsigned long long, void*)"
+    extern "unsigned char expanse_strmap_get(void*, const char*, void*)"
+    extern "unsigned char expanse_strmap_remove(void*, const char*, void*)"
     extern "unsigned long long expanse_strmap_len(void*)"
     extern "void expanse_strmap_clear(void*)"
     extern "size_t expanse_strmap_mem_held(void*)"
@@ -87,21 +95,21 @@ module Expanse
     # BytesMap
     extern "void* expanse_bytesmap_new(void)"
     extern "void expanse_bytesmap_free(void*)"
-    extern "int expanse_bytesmap_insert(void*, const void*, size_t, unsigned long long, void*)"
-    extern "int expanse_bytesmap_get(void*, const void*, size_t, void*)"
-    extern "int expanse_bytesmap_remove(void*, const void*, size_t, void*)"
+    extern "unsigned char expanse_bytesmap_insert(void*, const void*, size_t, unsigned long long, void*)"
+    extern "unsigned char expanse_bytesmap_get(void*, const void*, size_t, void*)"
+    extern "unsigned char expanse_bytesmap_remove(void*, const void*, size_t, void*)"
     extern "unsigned long long expanse_bytesmap_len(void*)"
     extern "void expanse_bytesmap_clear(void*)"
 
     # BlobMap
     extern "void* expanse_blob_map_new(size_t)"
     extern "void expanse_blob_map_free(void*)"
-    extern "int expanse_blob_map_insert(void*, unsigned long long, const void*, size_t, unsigned int)"
-    extern "int expanse_blob_map_get(void*, unsigned long long, void*)"
-    extern "int expanse_blob_map_remove(void*, unsigned long long)"
+    extern "unsigned char expanse_blob_map_insert(void*, unsigned long long, const void*, size_t, unsigned int)"
+    extern "unsigned char expanse_blob_map_get(void*, unsigned long long, void*)"
+    extern "unsigned char expanse_blob_map_remove(void*, unsigned long long)"
     extern "unsigned long long expanse_blob_map_len(void*)"
     extern "void expanse_blob_map_clear(void*)"
-    extern "int expanse_blob_map_contains_key(void*, unsigned long long)"
+    extern "unsigned char expanse_blob_map_contains_key(void*, unsigned long long)"
   end
 
   def self.version
