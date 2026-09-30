@@ -224,5 +224,5 @@ func main() {
 - **`Map`**: Ordered `uint64 -> uint64` map with rank, select, range counts, and batch lookups (`GetBatch`).
 - **`StrMap`**: Ordered NUL-terminated string map with truncation-safe navigation (`First`, `Next`, `Prev`, `Last`).
 - **`BytesMap`**: Unordered arbitrary byte-slice map.
-- **`BlobMap`**: Large-value blob arena map with predicate-based pruning (`Prune`) and memory compaction (`Compact`).
+- **`BlobMap`**: Large-value blob arena map with predicate-based pruning (`Prune`) and memory compaction (`Compact`). `Set` returns an `error`: `ErrBlobInsertRefused` when the native insert is refused (`hotMeta` above 24 bits, the arena capacity cap reached, or an allocation failure), in which case the key keeps its previous value.
 - **`SyncSet` / `SyncMap`**: Single-writer, optimistic concurrency control (OCC) reader collections.

@@ -200,6 +200,8 @@ blobmap.delete(100) # => true
 blobmap.size       # => 1
 ```
 
+`set` returns `true` when the value is stored and `false` when the engine refuses the insert: a payload longer than 7 bytes with `hot_meta` above 24 bits, the arena capacity cap reached, or an allocation failure. A refused insert leaves the key's previous value in place.
+
 ---
 
 ## 4. Packaging Layout

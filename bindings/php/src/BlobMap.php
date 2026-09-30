@@ -50,6 +50,16 @@ if (!class_exists(BlobMap::class)) {
             }
         }
 
+        /**
+         * Stores $payload under $key with $hotMeta, replacing any previous value.
+         *
+         * @throws \Exception when the engine refuses the insert: a payload longer
+         *     than 7 bytes with $hotMeta above 24 bits, the arena capacity cap
+         *     reached, or an allocation failure. The key keeps its previous value.
+         *     Every driver throws the same class; the native extension's message
+         *     names the engine error, while the FFI driver's C call reports only
+         *     that the insert was refused.
+         */
         public function set(int $key, string $payload, int $hotMeta = 0): void
         {
             if ($this->native !== null) {
@@ -58,8 +68,18 @@ if (!class_exists(BlobMap::class)) {
             }
             if ($this->handle !== null) {
                 $ffi = FFIDriver::getFFI();
-                $ffi->expanse_blob_map_insert($this->handle, $key, $payload, strlen($payload), $hotMeta);
+                if (!$ffi->expanse_blob_map_insert($this->handle, $key, $payload, strlen($payload), $hotMeta)) {
+                    throw new \Exception(
+                        "expanse_blob_map_insert refused key $key (hot_meta above 24 bits, "
+                        . 'arena capacity cap reached, or allocation failure)'
+                    );
+                }
                 return;
+            }
+            // The in-memory fallback has no arena, but it keeps the one refusal a
+            // caller can trigger by argument so the contract matches the drivers.
+            if (strlen($payload) > 7 && $hotMeta > 0xFFFFFF) {
+                throw new \Exception("MetaOverflow: hot_meta $hotMeta exceeds 24 bits for key $key");
             }
             $this->data[$key] = $payload;
             $this->meta[$key] = $hotMeta;

@@ -8,6 +8,14 @@ import (
 	"unsafe"
 )
 
+// ErrBlobInsertRefused is returned by (*BlobMap).Set when the native
+// expanse_blob_map_insert call reports failure: hotMeta needs more than the
+// 24 bits the arena slot holds, the arena has reached its capacity cap, or an
+// allocation failed. The index is not modified, so the key keeps whatever
+// value it held before the call. The C API returns only a bool, so the error
+// does not say which of these occurred.
+var ErrBlobInsertRefused = errors.New("expanse: blob map insert refused (hot_meta above 24 bits, arena capacity cap reached, or allocation failure)")
+
 type BlobMap struct {
 	ptr uintptr
 }
@@ -21,14 +29,20 @@ func NewBlobMap(chunkSize uint64) *BlobMap {
 	return m
 }
 
-func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) {
+// Set stores data under key with the given hot metadata, replacing any
+// previous value. It returns ErrBlobInsertRefused when the native insert is
+// refused; a nil error means the value is stored.
+func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) error {
 	defer runtime.KeepAlive(b)
 	defer runtime.KeepAlive(data)
 	var cData unsafe.Pointer
 	if len(data) > 0 {
 		cData = unsafe.Pointer(&data[0])
 	}
-	expanse_blob_map_insert(b.ptr, key, cData, uintptr(len(data)), hotMeta)
+	if !expanse_blob_map_insert(b.ptr, key, cData, uintptr(len(data)), hotMeta) {
+		return ErrBlobInsertRefused
+	}
+	return nil
 }
 
 func (b *BlobMap) Get(key uint64) ([]byte, uint32, bool) {

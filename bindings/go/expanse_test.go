@@ -2,6 +2,7 @@ package expanse
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -275,8 +276,12 @@ func TestBytesMap(t *testing.T) {
 
 func TestBlobMap(t *testing.T) {
 	b := NewBlobMap(4096)
-	b.Set(10, []byte("hello world 1"), 1)
-	b.Set(20, []byte("hello world 2"), 2)
+	if err := b.Set(10, []byte("hello world 1"), 1); err != nil {
+		t.Fatalf("set 10: %v", err)
+	}
+	if err := b.Set(20, []byte("hello world 2"), 2); err != nil {
+		t.Fatalf("set 20: %v", err)
+	}
 
 	data, meta, ok := b.Get(10)
 	if !ok || !bytes.Equal(data, []byte("hello world 1")) || meta != 1 {
@@ -590,13 +595,42 @@ func TestConcurrentSyncMapStress(t *testing.T) {
 	wg.Wait()
 }
 
+// A refused native insert must surface as an error, not read as success.
+// hot_meta above 24 bits on a payload longer than the 7-byte inline form is
+// rejected by the arena (MetaOverflow) before the index is touched.
+func TestBlobMapInsertRefused(t *testing.T) {
+	b := NewBlobMap(4096)
+	defer b.Free()
+	payload := []byte("sixteen byte val")
+	if err := b.Set(1, payload, 1<<24); !errors.Is(err, ErrBlobInsertRefused) {
+		t.Fatalf("hot_meta 1<<24: want ErrBlobInsertRefused, got %v", err)
+	}
+	if b.Contains(1) || b.Size() != 0 {
+		t.Fatalf("refused insert left key 1 present (size %d)", b.Size())
+	}
+
+	// A refused overwrite leaves the previous value in place.
+	if err := b.Set(2, payload, 0xFFFFFF); err != nil {
+		t.Fatalf("hot_meta 0xFFFFFF (24-bit max): %v", err)
+	}
+	if err := b.Set(2, []byte("replacement value"), 1<<24); !errors.Is(err, ErrBlobInsertRefused) {
+		t.Fatalf("overwrite with hot_meta 1<<24: want ErrBlobInsertRefused, got %v", err)
+	}
+	data, meta, ok := b.Get(2)
+	if !ok || !bytes.Equal(data, payload) || meta != 0xFFFFFF {
+		t.Fatalf("refused overwrite changed key 2: ok=%v data=%q meta=%#x", ok, string(data), meta)
+	}
+}
+
 func TestBlobMapCompaction(t *testing.T) {
 	b := NewBlobMap(0)
 	defer b.Clear()
 
 	// Large payload (64 KB)
 	largeData := bytes.Repeat([]byte("X"), 65536)
-	b.Set(100, largeData, 42)
+	if err := b.Set(100, largeData, 42); err != nil {
+		t.Fatalf("set large blob: %v", err)
+	}
 
 	out, meta, ok := b.Get(100)
 	if !ok || len(out) != 65536 || meta != 42 {

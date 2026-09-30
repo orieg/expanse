@@ -168,4 +168,38 @@ class TestExpanse < Minitest::Test
     refute blobmap.key?(100)
     assert_equal 1, blobmap.size
   end
+
+  # A refused native insert must return false, not read as success. hot_meta
+  # above 24 bits on a payload longer than 7 bytes is refused by the engine
+  # (MetaOverflow) before the index is touched.
+  def test_blobmap_refused_insert_returns_false
+    blobmap = Expanse::BlobMap.new
+    payload = "sixteen byte val"
+
+    assert_equal false, blobmap.set(1, payload, hot_meta: 1 << 24)
+    refute blobmap.key?(1)
+    assert_equal 0, blobmap.size
+
+    assert_equal true, blobmap.set(2, payload, hot_meta: 0xFFFFFF)
+    assert_equal false, blobmap.set(2, "replacement value", hot_meta: 1 << 24)
+    assert_equal [payload, 0xFFFFFF], blobmap.get(2)
+  end
+
+  # Every function the header declares `bool` must be imported with a 1-byte
+  # return type: the ABI defines only the low 8 bits of a `bool` return, so an
+  # `int` import can read non-zero garbage for `false`.
+  def test_bool_returns_imported_as_one_byte
+    header = File.read(File.expand_path("../../../include/expanse.h", __dir__))
+    bool_fns = header.scan(/^bool\s+(expanse_\w+)\s*\(/).flatten
+    refute_empty bool_fns
+
+    func_map = Expanse::Native.instance_variable_get(:@func_map)
+    refute_nil func_map, "Fiddle::Importer no longer keeps @func_map; update this test"
+    imported = bool_fns.select { |name| func_map.key?(name) }
+    assert_operator imported.size, :>=, 25, "expected the 25 bool imports, found #{imported.size}"
+    imported.each do |name|
+      assert_equal(-Fiddle::TYPE_CHAR, func_map[name].instance_variable_get(:@return_type),
+                   "#{name} returns C bool and must be imported as unsigned char")
+    end
+  end
 end
