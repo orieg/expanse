@@ -703,6 +703,11 @@ typedef struct ExpanseBlobMap expanse_blob_map_t;
  * is undefined behavior. Copy the bytes out before mutating if you need them to
  * outlive the next mutation. Views delivered to a scan callback are valid only
  * for the duration of that callback invocation.
+ *
+ * An insert that the arena's capacity cap refuses may compact the arena before
+ * it returns, whether it then succeeds or fails: every arena payload moves and
+ * the chunks earlier views pointed into are freed. A view held across any
+ * insert can therefore read freed memory, not merely stale bytes.
  */
 typedef struct {
     const uint8_t *ptr;
@@ -727,6 +732,13 @@ typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view, void *use
 ExpanseBlobMap *expanse_blob_map_new(size_t chunk_size);
 void            expanse_blob_map_free(ExpanseBlobMap *map);
 
+/*
+ * Returns false when the insert is refused: hot_meta wider than 24 bits, a
+ * payload larger than a chunk, an allocation failure, or an arena at its 1 GiB
+ * capacity cap that the reclaim rule cannot free enough of. At the cap the
+ * insert may first compact the arena (see the view contract above), which
+ * copies every live payload; the map's contents are unchanged on refusal.
+ */
 bool expanse_blob_map_insert(
     ExpanseBlobMap *map,
     uint64_t key,

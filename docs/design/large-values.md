@@ -883,26 +883,31 @@ pub struct ArenaChunk {
 }
 ```
 
-#### 6.3.1 Reclamation at the cap *(#1290; pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §28)*
+#### 6.3.1 Reclamation at the cap *(#1290; pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §28, amended by §28a)*
 
-An insert that needs a new chunk the cap refuses (`total_allocated + chunk_size > max_capacity`, or `MAX_ARENA_CHUNKS`) compacts the arena once and retries once, if
+An insert that needs a new chunk the cap refuses (`total_allocated + chunk_size > max_capacity`, or `MAX_ARENA_CHUNKS`) compacts the arena once and retries once, if both
 
 ```math
 \text{live\_bytes} \le k \cdot \bigl(\text{grown} + \max(0,\ \text{live}_{c} - \text{live\_bytes})\bigr)
+\qquad\text{and}\qquad
+2 \cdot \text{live\_bytes} < \text{total\_allocated}
 ```
 
-where
+hold, where
 
 - $`k`$ is `RECLAIM_COPY_PER_GROWTH` = 1 (`crates/expanse/src/blobmap.rs`; the rule is `BlobArena::reclaim_allowed`);
 - grown is the chunk bytes allocated since the previous compaction, or since the arena was created or cleared;
 - $`\text{live}_{c}`$ is the live bytes right after that compaction.
 
-Otherwise the insert fails with `ArenaError::OffsetOverflow`, as without the rule. A caller's `compact()` resets both terms, and so does an automatic compaction.
+Otherwise the insert fails with `ArenaError::OffsetOverflow`, as without the rule. A caller's `compact()` resets both terms, and so does an automatic compaction, or one that failed. `set_reclaim_at_cap(false)`, on `ExpanseBlobMap` and `SyncExpanseBlobMap`, turns the rule off; the C API and the bindings keep the default, on.
 
-- **Cost.** A compaction copies at most $`k`$ bytes per byte grown or removed since the previous one. No workload can trigger two without inserting or removing in between.
+- **Cost.** The first condition, the copy budget, makes a compaction copy at most $`k`$ bytes per byte grown or removed since the previous one. No workload can trigger two without inserting or removing in between.
 - **Why the removal term.** Growth alone never fires again for an arena filled with live keys and then emptied by removals: at the cap it cannot grow.
-- **Reach.** For payloads of one size overwritten forever, `scripts/blob_reclaim_bounds.py` gives the largest live set the rule sustains. At the default 2 MiB chunk and 1 GiB cap that is 3,830,069 records of 128 B, 0.514 of the records the arena holds. Above it, the first refusal compacts once and later inserts fail until the caller removes keys or compacts.
-- **Stall.** The triggering insert pays the whole copy, up to the live bytes. On `SyncExpanseBlobMap` it runs under `write_quiesced`, which excludes every writer, as a caller's `compact()` does.
+- **Why the waste guard.** The second condition declines a compaction of an arena more than half live. An arena filled with live records, such as a bulk load that reaches the cap, fails straight away instead of copying everything and freeing nothing.
+- **Reach.** For payloads of one size overwritten forever, `scripts/blob_reclaim_bounds.py` gives the largest live set the rule sustains. At the default 2 MiB chunk and 1 GiB cap that is 3,830,069 records of 128 B, 0.514 of the records the arena holds; the budget binds there, not the guard. Above it, one compaction may run, and later inserts fail until the caller removes keys or compacts.
+- **Stall.** The triggering insert pays the whole copy: every live byte, which the waste guard keeps under half the cap (`max_stall_bytes`, 512 MiB at the default cap). On `SyncExpanseBlobMap` it runs under `write_quiesced`, as a caller's `compact()` does. Every other writer waits for it, and so does every read that starts during it, since the tree bracket is open for the whole copy. Only views pinned before it keep reading the retired chunks. Its duration is unmeasured.
+- **Memory.** A compaction holds the old chunk set, the new one and a relocation list of 16 bytes per index entry at once (`compaction_peak_bytes`). The list is reserved once, and a failed reservation returns `AllocationFailed` before anything changes. On `SyncExpanseBlobMap` the old set stays allocated until the epoch collector frees it. The cap bounds allocated chunk bytes, not this peak.
+- **A declined refusal on `SyncExpanseBlobMap`** is decided once with every writer excluded. Later refused inserts then fail without excluding anyone while the population has not dropped, re-checking every 64 refusals, so a full map does not turn each refused insert into a drain of every writer.
 
 ### 6.4 Concurrent Access: `SyncExpanseBlobMap` (issue #219 Phase 1, shipped)
 

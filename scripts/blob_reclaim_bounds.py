@@ -329,7 +329,8 @@ def self_test() -> int:
     assert _read_const(r"^pub\(crate\) const RECLAIM_COPY_PER_GROWTH: usize = (.+);") == RECLAIM_COPY_PER_GROWTH
     for line in ("let grown = self.total_allocated.saturating_sub(self.compacted_total);",
                  "let dropped = self.compacted_live.saturating_sub(self.live_bytes);",
-                 "self.live_bytes <= RECLAIM_COPY_PER_GROWTH.saturating_mul(grown.saturating_add(dropped))"):
+                 "self.live_bytes <= RECLAIM_COPY_PER_GROWTH.saturating_mul(grown.saturating_add(dropped))",
+                 "&& self.live_bytes.saturating_mul(2) < self.total_allocated"):
         assert line in src, f"BlobArena::reclaim_allowed no longer reads: {line}"
 
     # Record geometry: 128 B payload -> 136 charged, 144 stride (as blob_mixed_bounds.py).

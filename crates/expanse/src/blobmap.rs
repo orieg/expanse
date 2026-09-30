@@ -501,6 +501,12 @@ pub const MAX_ARENA_CHUNKS: usize = 1 << 16;
 
 /// Shipped safety cap on total arena capacity (**1 GiB**).
 ///
+/// It bounds allocated chunk bytes, dead and live, not the process's memory:
+/// a compaction holds the old and the new chunk sets at once, plus a
+/// relocation list of 16 bytes per index entry, and on
+/// `SyncExpanseBlobMap` the old set stays allocated until the
+/// epoch collector frees it (#1290).
+///
 /// Growth is bounded to this cap so a runaway workload — or a crafted image
 /// declaring a huge `chunk_count * chunk_size` — cannot drive an unbounded
 /// `alloc_zeroed`. 1 GiB comfortably exceeds any single-socket last-level cache
@@ -516,6 +522,13 @@ pub const MAX_ARENA_CAPACITY: usize = 1 << 30;
 /// most this many times the bytes freeable since the previous compaction.
 /// `scripts/blob_reclaim_bounds.py` bounds what the rule sustains and copies.
 pub(crate) const RECLAIM_COPY_PER_GROWTH: usize = 1;
+
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// The capacity `compact_with_index` last reserved for its relocation list
+    /// on this thread (#1290 G1.10).
+    static LAST_RELOCATION_RESERVE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
 
 /// Builds the uniform [`ArenaMeta`](SlotTag::ArenaMeta) [`ValueSlot`] for a blob
 /// at flat `global_offset` carrying `hot_meta`.
@@ -788,8 +801,9 @@ impl BlobArena {
     /// ## Behavior at Capacity Ceiling
     ///
     /// When total chunk allocations reach `max_capacity`, attempting to allocate an additional chunk
-    /// fails with [`ArenaError::OffsetOverflow`]. Any calling operation (such as [`ExpanseBlobMap::insert`])
-    /// fails atomically and leaves the digital tree index and existing arena records completely unmodified.
+    /// fails with [`ArenaError::OffsetOverflow`], and the arena is unchanged. The arena never
+    /// reclaims on its own; [`ExpanseBlobMap::insert`] may compact it under the reclaim rule
+    /// before failing (see there).
     ///
     /// Note on 32-bit targets: [`ExpanseBlobMap32`](crate::blobmap32::ExpanseBlobMap32) uses a fixed
     /// 12-bit addressable slab (at most 4095 entries) optimized for embedded systems per
@@ -950,9 +964,11 @@ impl BlobArena {
     /// cross the [`MAX_ARENA_CHUNKS`] chunk-count cap or the shipped
     /// [`MAX_ARENA_CAPACITY`] safety cap, and with [`ArenaError::AllocationFailed`]
     /// if a single record cannot fit one chunk (`8 + data.len() > chunk_size`).
+    /// The arena cannot compact without the index, so this never reclaims;
+    /// [`ExpanseBlobMap::insert`] does, under the reclaim rule.
     ///
     /// Inlined, so a caller's fast path (the active chunk has room) makes no
-    /// call; opening a chunk is [`Self::alloc_blob_in_new_chunk`], out of line.
+    /// call; opening a chunk is `alloc_blob_in_new_chunk`, out of line.
     #[inline]
     pub fn alloc_blob(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
         let needed = 8 + data.len();
@@ -1112,30 +1128,38 @@ impl BlobArena {
             if g == 0 { 1 } else { g }
         };
 
-        // Collect every arena-backed (`ArenaMeta`) entry.
-        let live_entries: Vec<(Key, ValueSlot)> = index
-            .iter()
-            .filter_map(|(key, raw_slot)| {
-                let slot = ValueSlot::from_raw(raw_slot);
-                (slot.tag() == SlotTag::ArenaMeta).then_some((key, slot))
-            })
-            .collect();
+        // Collect every arena-backed (`ArenaMeta`) entry into one list,
+        // reserved once for the index's entry count (#1290 §28a): a failed
+        // reservation returns before anything is changed, where a growing
+        // vector would abort the process on allocation failure.
+        let entries = usize::try_from(index.len()).map_err(|_| ArenaError::AllocationFailed)?;
+        let mut rewrites: Vec<(Key, u64)> = Vec::new();
+        rewrites
+            .try_reserve_exact(entries)
+            .map_err(|_| ArenaError::AllocationFailed)?;
+        #[cfg(all(test, feature = "std"))]
+        LAST_RELOCATION_RESERVE.with(|c| c.set(rewrites.capacity()));
+        rewrites.extend(index.iter().filter_map(|(key, raw_slot)| {
+            (ValueSlot::from_raw(raw_slot).tag() == SlotTag::ArenaMeta).then_some((key, raw_slot))
+        }));
 
-        // Phase 1: relocate every live payload into the new arena, collecting
-        // the (key, new raw slot) rewrites. A failure here returns before any
-        // index slot is touched, so `self`/`index` stay consistent. The blob's
-        // 24-bit hot metadata rides along; only its locator changes with the new
-        // location.
-        let mut rewrites: Vec<(Key, u64)> = Vec::with_capacity(live_entries.len());
-        for (key, slot) in live_entries {
-            let meta = slot.arena_meta_meta();
-            let payload = self.resolve_meta(slot.arena_meta_locator());
-            if let Some(payload) = payload {
+        // Phase 1: relocate every live payload into the new arena, rewriting
+        // each entry in place to its new raw slot and keeping only the ones
+        // relocated. A failure here returns before any index slot is touched,
+        // so `self`/`index` stay consistent. The blob's 24-bit hot metadata
+        // rides along; only its locator changes with the new location.
+        let mut kept = 0;
+        for i in 0..rewrites.len() {
+            let (key, raw) = rewrites[i];
+            let slot = ValueSlot::from_raw(raw);
+            if let Some(payload) = self.resolve_meta(slot.arena_meta_locator()) {
                 let global = new_arena.alloc_blob(payload)?;
-                let new_slot = slot_from_global(global, meta)?;
-                rewrites.push((key, new_slot.to_raw()));
+                let new_slot = slot_from_global(global, slot.arena_meta_meta())?;
+                rewrites[kept] = (key, new_slot.to_raw());
+                kept += 1;
             }
         }
+        rewrites.truncate(kept);
 
         let live_records_moved = rewrites.len();
 
@@ -1297,10 +1321,17 @@ impl BlobArena {
     }
 
     /// Whether the reclaim rule lets an insert that the cap refused compact
-    /// the arena (#1290): the live bytes a compaction copies are at most
-    /// [`RECLAIM_COPY_PER_GROWTH`] times the chunk bytes grown plus the live
-    /// bytes dropped since the baseline. Every compaction resets the baseline,
-    /// so no workload triggers two without an insert or a removal in between.
+    /// the arena (#1290, `docs/benchmarks/concurrency/METHODOLOGY.md` §28a):
+    ///
+    /// - the copy budget: the live bytes a compaction copies are at most
+    ///   [`RECLAIM_COPY_PER_GROWTH`] times the chunk bytes grown plus the live
+    ///   bytes dropped since the baseline. Every compaction resets the
+    ///   baseline, so no workload triggers two without an insert or a removal
+    ///   in between;
+    /// - the waste guard: the live bytes are under half the allocated chunk
+    ///   bytes. An arena filled with live records never passes it, so a bulk
+    ///   load that reaches the cap fails without a copy that frees nothing,
+    ///   and no automatic copy reaches half the cap.
     ///
     /// On a concurrent map `live_bytes` is exact only once the writers'
     /// private deltas are folded, so the wrapper reads this after folding.
@@ -1309,6 +1340,7 @@ impl BlobArena {
         let grown = self.total_allocated.saturating_sub(self.compacted_total);
         let dropped = self.compacted_live.saturating_sub(self.live_bytes);
         self.live_bytes <= RECLAIM_COPY_PER_GROWTH.saturating_mul(grown.saturating_add(dropped))
+            && self.live_bytes.saturating_mul(2) < self.total_allocated
     }
 
     /// Moves the reclaim rule's baseline to the arena's current state: after a
@@ -1368,6 +1400,9 @@ impl Drop for BlobArena {
 pub struct ExpanseBlobMap {
     index: ExpanseMap,
     pub(crate) arena: BlobArena,
+    /// Whether an insert that the capacity cap refuses may compact the arena
+    /// under the reclaim rule ([`Self::set_reclaim_at_cap`]).
+    reclaim_at_cap: bool,
 }
 
 impl ExpanseBlobMap {
@@ -1387,6 +1422,7 @@ impl ExpanseBlobMap {
         Self {
             index: ExpanseMap::new(),
             arena: BlobArena::new(chunk_size),
+            reclaim_at_cap: true,
         }
     }
 
@@ -1398,9 +1434,11 @@ impl ExpanseBlobMap {
     ///
     /// ## Behavior at Capacity Ceiling
     ///
-    /// When total chunk allocations reach `max_capacity`, attempting to allocate an additional chunk
-    /// fails with [`ArenaError::OffsetOverflow`]. Any [`insert`](Self::insert) that cannot be satisfied
-    /// fails atomically and leaves the digital tree index and existing arena records completely unmodified.
+    /// When total chunk allocations reach `max_capacity`, an [`insert`](Self::insert) that needs
+    /// another chunk may compact the arena under the reclaim rule and retry once (#1290); if it
+    /// still cannot be satisfied it fails with [`ArenaError::OffsetOverflow`] (or
+    /// [`ArenaError::AllocationFailed`] if the compaction cannot allocate). The map's contents are
+    /// then unchanged, but after a compaction every arena payload has moved.
     ///
     /// Note on 32-bit targets: [`ExpanseBlobMap32`](crate::blobmap32::ExpanseBlobMap32) uses a fixed
     /// 12-bit addressable slab (at most 4095 entries) per `docs/design/32-bit-embedded.md`, where
@@ -1410,6 +1448,7 @@ impl ExpanseBlobMap {
         Self {
             index: ExpanseMap::new(),
             arena: BlobArena::with_chunk_size_and_max_capacity(chunk_size, max_capacity),
+            reclaim_at_cap: true,
         }
     }
 
@@ -1591,13 +1630,21 @@ impl ExpanseBlobMap {
     /// [`ArenaError::MetaOverflow`] rather than being truncated.
     ///
     /// When the arena's capacity cap refuses the chunk an arena payload needs,
-    /// the insert runs one [`Self::compact`] and retries once, if the live
-    /// bytes the compaction copies are at most the chunk bytes grown plus the
-    /// live bytes dropped since the previous compaction (#1290,
-    /// `docs/design/large-values.md` §6.3.1). That insert pays for copying
-    /// every live payload. When the rule declines, or the arena is still full
-    /// after compacting, the insert fails with [`ArenaError::OffsetOverflow`]
-    /// and the map is unchanged.
+    /// the insert runs one [`Self::compact`] and retries once, if the reclaim
+    /// rule allows: the live bytes the compaction copies are at most the chunk
+    /// bytes grown plus the live bytes dropped since the previous compaction,
+    /// and under half the allocated chunk bytes (#1290,
+    /// `docs/design/large-values.md` §6.3.1; [`Self::set_reclaim_at_cap`]
+    /// turns it off). That insert pays for copying every live payload, under
+    /// half the cap, and holds the old and the new chunk sets at once while it
+    /// does.
+    ///
+    /// When the rule declines, or the arena is still full after compacting,
+    /// the insert fails with [`ArenaError::OffsetOverflow`]; if the compaction
+    /// itself cannot allocate, with [`ArenaError::AllocationFailed`]. Either
+    /// way the map's contents are unchanged, but after a compaction its layout
+    /// is not: every arena payload has moved, the arena generation has
+    /// advanced and [`Self::mem_used`] reports the compacted size.
     pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         let slot = if data.len() <= 7 {
             ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
@@ -1652,7 +1699,7 @@ impl ExpanseBlobMap {
     /// baseline moves to the current state so the next refused insert does not
     /// repeat it before the arena grows or loses live bytes.
     fn reclaim_for_insert(&mut self) -> Result<bool, ArenaError> {
-        if !self.arena.reclaim_allowed() {
+        if !self.reclaim_at_cap || !self.arena.reclaim_allowed() {
             return Ok(false);
         }
         match self.compact() {
@@ -1859,6 +1906,22 @@ impl ExpanseBlobMap {
                 break;
             }
         }
+    }
+
+    /// Whether an insert that the capacity cap refuses a chunk may compact the
+    /// arena under the reclaim rule (#1290, `docs/design/large-values.md`
+    /// §6.3.1). On by default.
+    #[must_use]
+    pub fn reclaim_at_cap(&self) -> bool {
+        self.reclaim_at_cap
+    }
+
+    /// Turns the reclaim at the capacity cap on or off. Off, an insert that the
+    /// cap refuses fails with [`ArenaError::OffsetOverflow`] and compacts
+    /// nothing, as before #1290: a caller that needs every insert's cost
+    /// bounded by its own payload calls [`Self::compact`] itself.
+    pub fn set_reclaim_at_cap(&mut self, on: bool) {
+        self.reclaim_at_cap = on;
     }
 
     /// Runs in-place garbage collection and compaction.
@@ -2243,10 +2306,11 @@ mod tests {
         assert_eq!(overwrite_at_cap(1281, 9, 8192), (6658, 1), "G1.4");
     }
 
-    /// #1290 G1.5, `simulate_fill_then_remove` in the bounds script: distinct
-    /// keys until the cap refuses one, where the rule's first compaction frees
-    /// nothing; the next insert is refused without compacting again; after
-    /// half the keys are removed the rule compacts again and admits it.
+    /// #1290 G1.5a (METHODOLOGY §28a), `simulate_fill_then_remove` in the
+    /// bounds script: distinct keys until the cap refuses one. The arena is
+    /// then more than half live, so the waste guard declines a compaction that
+    /// would free nothing, and the next insert is refused the same way. After
+    /// half the keys are removed, one compaction admits it.
     #[test]
     fn reclaim_after_removals_at_a_full_arena() {
         let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(RECLAIM_CHUNK, RECLAIM_CAP);
@@ -2261,25 +2325,21 @@ mod tests {
         }
         assert_eq!(n, 448, "16 chunks of 28 records");
         assert_eq!(
-            m.arena().generation() - g0,
-            1,
-            "one compaction at the first refusal"
+            m.arena().generation(),
+            g0,
+            "no compaction of an arena more than half live"
         );
         assert_eq!(
             m.insert(n, &reclaim_payload(n, 0, 128), 1),
             Err(ArenaError::OffsetOverflow)
         );
-        assert_eq!(
-            m.arena().generation() - g0,
-            1,
-            "nothing grew or was removed since"
-        );
+        assert_eq!(m.arena().generation(), g0, "nothing changed since");
         for k in 0..n / 2 {
             assert!(m.remove(k));
         }
         m.insert(n, &reclaim_payload(n, 0, 128), 1)
             .expect("the removals pay for a compaction");
-        assert_eq!(m.arena().generation() - g0, 2);
+        assert_eq!(m.arena().generation() - g0, 1);
         for k in n / 2..=n {
             assert_eq!(
                 m.get(k).unwrap().0.as_bytes(),
@@ -2287,6 +2347,66 @@ mod tests {
             );
         }
         assert!(m.get(0).is_none());
+    }
+
+    /// #1290 G1.8 (METHODOLOGY §28a): G1.1's workload with the reclaim off.
+    /// 224 live records fill 8 of the 16 chunks, so 224 overwrites fit and the
+    /// other 1,568 are refused, and the arena is never compacted.
+    #[test]
+    fn reclaim_off_refuses_at_the_cap_without_compacting() {
+        let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(RECLAIM_CHUNK, RECLAIM_CAP);
+        m.set_reclaim_at_cap(false);
+        assert!(!m.reclaim_at_cap());
+        for k in 0..224u64 {
+            m.insert(k, &reclaim_payload(k, 0, 128), 1).unwrap();
+        }
+        let g0 = m.arena().generation();
+        let mut refused = 0u64;
+        let mut first_refusal = None;
+        for i in 0..1792u64 {
+            let k = i % 224;
+            match m.insert(k, &reclaim_payload(k, i / 224 + 1, 128), 1) {
+                Ok(()) => assert!(
+                    first_refusal.is_none(),
+                    "an insert succeeded after a refusal"
+                ),
+                Err(ArenaError::OffsetOverflow) => {
+                    refused += 1;
+                    first_refusal.get_or_insert(i);
+                }
+                Err(e) => panic!("overwrite {i} failed with {e:?}"),
+            }
+        }
+        assert_eq!((first_refusal, refused), (Some(224), 1568));
+        assert_eq!(m.arena().generation(), g0, "the reclaim is off");
+        m.set_reclaim_at_cap(true);
+        m.insert(0, &reclaim_payload(0, 99, 128), 1)
+            .expect("turned back on, the rule compacts");
+        assert_eq!(m.arena().generation() - g0, 1);
+    }
+
+    /// #1290 G1.10 (METHODOLOGY §28a C4): the relocation list is reserved once
+    /// for the index's entry count, inline entries included, and the
+    /// compaction relocates exactly the arena entries.
+    #[test]
+    #[cfg(feature = "std")]
+    fn compaction_reserves_its_relocation_list_once() {
+        let mut m = ExpanseBlobMap::with_chunk_size(RECLAIM_CHUNK);
+        for k in 0..1_000u64 {
+            m.insert(k, &[1, 2, 3], 0).unwrap();
+        }
+        for k in 1_000..1_010u64 {
+            m.insert(k, &reclaim_payload(k, 0, 128), 1).unwrap();
+        }
+        let stats = m.compact().unwrap();
+        assert_eq!(LAST_RELOCATION_RESERVE.with(core::cell::Cell::get), 1_010);
+        assert_eq!(stats.live_records_moved, 10);
+        for k in 1_000..1_010u64 {
+            assert_eq!(
+                m.get(k).unwrap().0.as_bytes(),
+                &reclaim_payload(k, 0, 128)[..]
+            );
+        }
     }
 
     /// Phase 7 (issue #219): deferred-mode round trip — single-threaded and

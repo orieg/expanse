@@ -83,6 +83,15 @@ scans without touching off-trie payload memory.
 or arena slab. It remains valid \fBONLY until the next mutation\fR of the map
 (\fIinsert\fR, \fIremove\fR, \fIclear\fR, \fIcompact\fR, or \fIfree\fR).
 Views delivered to a scan callback are valid only during that invocation.
+.PP
+An insert that the arena's 1 GiB capacity cap refuses may compact the arena
+before it returns, whether it then succeeds or fails: every arena payload
+moves and the chunks earlier views pointed into are freed, so a view held
+across any insert can read freed memory.
+\fBexpanse_blob_map_insert\fR returns false when the insert is refused
+(\fIhot_meta\fR wider than 24 bits, a payload larger than a chunk, an
+allocation failure, or an arena at its cap that the reclaim rule cannot free
+enough of); the map's contents are then unchanged.
 .SH EXAMPLES
 .nf
 #include <stdio.h>
