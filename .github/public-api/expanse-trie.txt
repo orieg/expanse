@@ -1142,8 +1142,53 @@ impl core::marker::UnsafeUnpin for expanse_trie::node32::LeafBitmapL_32
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::node32::LeafBitmapL_32
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::node32::LeafBitmapL_32
 pub mod expanse_trie::occ
+#[non_exhaustive] pub struct expanse_trie::occ::BlockTally
+pub expanse_trie::occ::BlockTally::blocks: usize
+pub expanse_trie::occ::BlockTally::bytes: usize
+impl core::clone::Clone for expanse_trie::occ::BlockTally
+pub fn expanse_trie::occ::BlockTally::clone(&self) -> expanse_trie::occ::BlockTally
+impl core::cmp::Eq for expanse_trie::occ::BlockTally
+impl core::cmp::PartialEq for expanse_trie::occ::BlockTally
+pub fn expanse_trie::occ::BlockTally::eq(&self, &expanse_trie::occ::BlockTally) -> bool
+impl core::default::Default for expanse_trie::occ::BlockTally
+pub fn expanse_trie::occ::BlockTally::default() -> expanse_trie::occ::BlockTally
+impl core::fmt::Debug for expanse_trie::occ::BlockTally
+pub fn expanse_trie::occ::BlockTally::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for expanse_trie::occ::BlockTally
+impl core::marker::StructuralPartialEq for expanse_trie::occ::BlockTally
+impl core::marker::Freeze for expanse_trie::occ::BlockTally
+impl core::marker::Send for expanse_trie::occ::BlockTally
+impl core::marker::Sync for expanse_trie::occ::BlockTally
+impl core::marker::Unpin for expanse_trie::occ::BlockTally
+impl core::marker::UnsafeUnpin for expanse_trie::occ::BlockTally
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ::BlockTally
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ::BlockTally
+#[non_exhaustive] pub struct expanse_trie::occ::ClassCensus
+pub expanse_trie::occ::ClassCensus::align: usize
+pub expanse_trie::occ::ClassCensus::block_bytes: usize
+pub expanse_trie::occ::ClassCensus::free: expanse_trie::occ::BlockTally
+pub expanse_trie::occ::ClassCensus::grace: expanse_trie::occ::BlockTally
+impl core::clone::Clone for expanse_trie::occ::ClassCensus
+pub fn expanse_trie::occ::ClassCensus::clone(&self) -> expanse_trie::occ::ClassCensus
+impl core::cmp::Eq for expanse_trie::occ::ClassCensus
+impl core::cmp::PartialEq for expanse_trie::occ::ClassCensus
+pub fn expanse_trie::occ::ClassCensus::eq(&self, &expanse_trie::occ::ClassCensus) -> bool
+impl core::default::Default for expanse_trie::occ::ClassCensus
+pub fn expanse_trie::occ::ClassCensus::default() -> expanse_trie::occ::ClassCensus
+impl core::fmt::Debug for expanse_trie::occ::ClassCensus
+pub fn expanse_trie::occ::ClassCensus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for expanse_trie::occ::ClassCensus
+impl core::marker::StructuralPartialEq for expanse_trie::occ::ClassCensus
+impl core::marker::Freeze for expanse_trie::occ::ClassCensus
+impl core::marker::Send for expanse_trie::occ::ClassCensus
+impl core::marker::Sync for expanse_trie::occ::ClassCensus
+impl core::marker::Unpin for expanse_trie::occ::ClassCensus
+impl core::marker::UnsafeUnpin for expanse_trie::occ::ClassCensus
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ::ClassCensus
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ::ClassCensus
 #[repr(C)] pub struct expanse_trie::occ::Collector
 impl expanse_trie::occ::Collector
+pub fn expanse_trie::occ::Collector::census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::occ::Collector::new() -> Self
 pub fn expanse_trie::occ::Collector::register(&alloc::sync::Arc<Self>) -> expanse_trie::occ::Reader
 pub fn expanse_trie::occ::Collector::retained_bytes(&self) -> usize
@@ -1162,6 +1207,31 @@ impl core::marker::Unpin for expanse_trie::occ::Collector
 impl core::marker::UnsafeUnpin for expanse_trie::occ::Collector
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ::Collector
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ::Collector
+#[non_exhaustive] pub struct expanse_trie::occ::CollectorCensus
+pub expanse_trie::occ::CollectorCensus::classes: alloc::vec::Vec<expanse_trie::occ::ClassCensus>
+pub expanse_trie::occ::CollectorCensus::stripes: alloc::vec::Vec<expanse_trie::occ::BlockTally>
+pub expanse_trie::occ::CollectorCensus::unclassed_grace: expanse_trie::occ::BlockTally
+impl expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::occ::CollectorCensus::free_bytes(&self) -> usize
+pub fn expanse_trie::occ::CollectorCensus::grace_bytes(&self) -> usize
+pub fn expanse_trie::occ::CollectorCensus::total_bytes(&self) -> usize
+impl core::clone::Clone for expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::occ::CollectorCensus::clone(&self) -> expanse_trie::occ::CollectorCensus
+impl core::cmp::Eq for expanse_trie::occ::CollectorCensus
+impl core::cmp::PartialEq for expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::occ::CollectorCensus::eq(&self, &expanse_trie::occ::CollectorCensus) -> bool
+impl core::default::Default for expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::occ::CollectorCensus::default() -> expanse_trie::occ::CollectorCensus
+impl core::fmt::Debug for expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::occ::CollectorCensus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::occ::CollectorCensus
+impl core::marker::Freeze for expanse_trie::occ::CollectorCensus
+impl core::marker::Send for expanse_trie::occ::CollectorCensus
+impl core::marker::Sync for expanse_trie::occ::CollectorCensus
+impl core::marker::Unpin for expanse_trie::occ::CollectorCensus
+impl core::marker::UnsafeUnpin for expanse_trie::occ::CollectorCensus
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::occ::CollectorCensus
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::occ::CollectorCensus
 pub struct expanse_trie::occ::Pin<'a>
 impl core::ops::drop::Drop for expanse_trie::occ::Pin<'_>
 pub fn expanse_trie::occ::Pin<'_>::drop(&mut self)
@@ -1972,6 +2042,7 @@ impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::StrReader
 pub struct expanse_trie::sync::SyncExpanseBlobMap
 impl expanse_trie::sync::SyncExpanseBlobMap
 pub fn expanse_trie::sync::SyncExpanseBlobMap::clear(&self)
+pub fn expanse_trie::sync::SyncExpanseBlobMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseBlobMap::compact(&self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get(&self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
@@ -2008,6 +2079,7 @@ impl<S: core::hash::BuildHasher + core::clone::Clone + core::marker::Send + core
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_hasher(S) -> Self
 impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync> expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::clear(&self)
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::contains_key(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::insert(&self, &[u8], u64) -> core::option::Option<u64>
@@ -2034,6 +2106,7 @@ impl<S> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanse
 pub struct expanse_trie::sync::SyncExpanseMap
 impl expanse_trie::sync::SyncExpanseMap
 pub fn expanse_trie::sync::SyncExpanseMap::clear(&self)
+pub fn expanse_trie::sync::SyncExpanseMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseMap::compare_exchange(&self, expanse_trie::types::Key, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseMap::detached_reader(&self) -> expanse_trie::sync::DetachedMapReader
 pub fn expanse_trie::sync::SyncExpanseMap::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
@@ -2060,6 +2133,7 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseMap
 pub struct expanse_trie::sync::SyncExpanseSet
 impl expanse_trie::sync::SyncExpanseSet
 pub fn expanse_trie::sync::SyncExpanseSet::clear(&self)
+pub fn expanse_trie::sync::SyncExpanseSet::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseSet::contains(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::insert(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::is_empty(&self) -> bool
@@ -2082,6 +2156,7 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseSet
 pub struct expanse_trie::sync::SyncExpanseStrMap
 impl expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::clear(&self) -> u64
+pub fn expanse_trie::sync::SyncExpanseStrMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseStrMap::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::insert(&self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>

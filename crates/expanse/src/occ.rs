@@ -1149,13 +1149,297 @@ unsafe impl Send for Garbage {}
 #[cfg(feature = "std")]
 use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
 
+/// One size-class freelist of one stripe: the list head and, with
+/// `collector-census`, the list's cumulative counters. Both are read and
+/// written only under the list's mutex. Without the feature the second field
+/// does not exist, so the type is one pointer, as it always was (asserted
+/// below).
 #[cfg(feature = "std")]
 #[derive(Debug)]
-struct FreeListHead(*mut FreeBlock);
+struct FreeListHead(
+    *mut FreeBlock,
+    #[cfg(feature = "collector-census")] FreeListCounts,
+);
+
+#[cfg(feature = "std")]
+impl FreeListHead {
+    /// An empty list.
+    #[cfg(not(feature = "collector-census"))]
+    const fn empty() -> Self {
+        Self(core::ptr::null_mut())
+    }
+
+    /// An empty list with zeroed counters.
+    #[cfg(feature = "collector-census")]
+    const fn empty() -> Self {
+        Self(core::ptr::null_mut(), FreeListCounts::ZERO)
+    }
+}
 
 #[cfg(feature = "std")]
 // SAFETY: Access to the raw pointer in FreeListHead is synchronized by a Mutex.
 unsafe impl Send for FreeListHead {}
+
+/// What one epoch-bin stripe holds under its mutex: the retired blocks and,
+/// with `collector-census`, the stripe's cumulative counters. Without the
+/// feature it is the `Vec` alone, with the `Vec`'s layout (asserted below).
+#[cfg(feature = "std")]
+#[derive(Debug, Default)]
+struct BinList {
+    list: Vec<Garbage>,
+    #[cfg(feature = "collector-census")]
+    counts: BinCounts,
+}
+
+// G0 of #1310: with `collector-census` off, the two types the feature extends
+// keep the layout of the types they wrap, so every field of `Collector` keeps
+// its size and offset and `Collector` its size (`#[repr(C)]`, no other field
+// changes with the feature).
+#[cfg(all(feature = "std", not(feature = "collector-census")))]
+const _: () = {
+    assert!(core::mem::size_of::<FreeListHead>() == core::mem::size_of::<*mut FreeBlock>());
+    assert!(core::mem::align_of::<FreeListHead>() == core::mem::align_of::<*mut FreeBlock>());
+    assert!(core::mem::size_of::<BinList>() == core::mem::size_of::<Vec<Garbage>>());
+    assert!(core::mem::align_of::<BinList>() == core::mem::align_of::<Vec<Garbage>>());
+};
+
+/// A freelist's cumulative counters (feature `collector-census`). Every field
+/// is written under the list's mutex, which the path that moves the block
+/// already holds.
+#[cfg(feature = "collector-census")]
+#[derive(Debug, Clone, Copy)]
+struct FreeListCounts {
+    /// Blocks on the list now. Kept so a release can count what it detaches
+    /// while it holds the lock; the walk that frees them runs after the lock
+    /// is dropped.
+    len: u64,
+    /// Blocks pushed by an epoch advance at the end of their grace period.
+    reclaimed: u64,
+    /// Blocks pushed by `recycle_unpublished` (never published, no grace).
+    recycled: u64,
+    /// Blocks popped by an allocation.
+    reused: u64,
+    /// Blocks released to the allocator by `release_free_lists`.
+    released: u64,
+    /// Blocks released to the allocator by `drain`.
+    drained: u64,
+}
+
+#[cfg(feature = "collector-census")]
+impl FreeListCounts {
+    const ZERO: Self = Self {
+        len: 0,
+        reclaimed: 0,
+        recycled: 0,
+        reused: 0,
+        released: 0,
+        drained: 0,
+    };
+}
+
+/// One epoch-bin stripe's cumulative counters (feature `collector-census`),
+/// written under the stripe's mutex.
+#[cfg(feature = "collector-census")]
+#[derive(Debug)]
+struct BinCounts {
+    /// Blocks retired into this stripe, per size class.
+    retired: [u64; NUM_CLASSES],
+    /// Classed blocks this stripe held when `drain` freed them.
+    drained: [u64; NUM_CLASSES],
+    /// Retired blocks no size class serves.
+    unclassed: UnclassedCounters,
+}
+
+#[cfg(feature = "collector-census")]
+impl Default for BinCounts {
+    fn default() -> Self {
+        Self {
+            retired: [0; NUM_CLASSES],
+            drained: [0; NUM_CLASSES],
+            unclassed: UnclassedCounters::default(),
+        }
+    }
+}
+
+/// Blocks and bytes, summed.
+#[cfg(feature = "std")]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BlockTally {
+    /// Number of blocks.
+    pub blocks: usize,
+    /// Their bytes, each block at the size it was allocated with.
+    pub bytes: usize,
+}
+
+#[cfg(feature = "std")]
+impl BlockTally {
+    fn add(&mut self, blocks: usize, bytes: usize) {
+        self.blocks += blocks;
+        self.bytes += bytes;
+    }
+}
+
+/// One size class's share of a [`CollectorCensus`].
+#[cfg(feature = "std")]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ClassCensus {
+    /// The class's block size in bytes.
+    pub block_bytes: usize,
+    /// The class's block alignment. Two classes can share a size and differ
+    /// in alignment.
+    pub align: usize,
+    /// Blocks past their grace period on the collector's freelists, summed
+    /// over every stripe: reusable by the tree now, and what
+    /// `shrink_to_fit` releases.
+    pub free: BlockTally,
+    /// Retired blocks of this class still in their grace period, in the
+    /// epoch bins. Neither reusable nor releasable until an epoch advance
+    /// moves them to a freelist.
+    pub grace: BlockTally,
+}
+
+/// Where an epoch collector's bytes sit, by size class and by freelist
+/// stripe: a snapshot taken by [`Collector::census`].
+///
+/// Each list and bin is walked under its own lock, one at a time, so the
+/// snapshot is exact for a quiesced collector (no writer running) and
+/// otherwise a sum of per-list snapshots taken at slightly different times.
+#[cfg(feature = "std")]
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CollectorCensus {
+    /// One entry per node size class, in the allocator's class order.
+    pub classes: Vec<ClassCensus>,
+    /// Retired blocks in their grace period that no size class serves (for
+    /// example string-map suffix leaves). They never reach a freelist: the
+    /// advance that ends their grace period returns them to the allocator.
+    pub unclassed_grace: BlockTally,
+    /// Freelist blocks per writer stripe, every class summed. A reclaimed
+    /// block goes to the freelist of the stripe that retired it and is
+    /// reused only by allocations from that stripe, so blocks accumulating
+    /// on a stripe whose writer has stopped show here. One entry per stripe,
+    /// or a single entry under `ablation-unstriped-freelist`.
+    pub stripes: Vec<BlockTally>,
+}
+
+#[cfg(feature = "std")]
+impl CollectorCensus {
+    /// Bytes on the freelists, every class and stripe.
+    #[must_use]
+    pub fn free_bytes(&self) -> usize {
+        self.classes.iter().map(|c| c.free.bytes).sum()
+    }
+
+    /// Bytes still in their grace period: every class plus the unclassed
+    /// bucket.
+    #[must_use]
+    pub fn grace_bytes(&self) -> usize {
+        self.classes.iter().map(|c| c.grace.bytes).sum::<usize>() + self.unclassed_grace.bytes
+    }
+
+    /// `free_bytes() + grace_bytes()`: everything the collector holds.
+    #[must_use]
+    pub fn total_bytes(&self) -> usize {
+        self.free_bytes() + self.grace_bytes()
+    }
+}
+
+/// One size class's cumulative counters (feature `collector-census`), as
+/// [`Collector::counters`] sums them over every bin and stripe.
+///
+/// On a collector no writer is using, and before it drains, the counters
+/// and a [`CollectorCensus`] of the same class agree:
+/// `free.blocks == reclaimed + recycled - reused - released` and
+/// `grace.blocks == retired - reclaimed`.
+#[cfg(feature = "collector-census")]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ClassCounters {
+    /// The class's block size in bytes.
+    pub block_bytes: usize,
+    /// The class's block alignment.
+    pub align: usize,
+    /// Blocks retired into the epoch bins.
+    pub retired: u64,
+    /// Blocks moved from the bins to a freelist at the end of their grace
+    /// period.
+    pub reclaimed: u64,
+    /// Blocks put on a freelist without a grace period: allocations the tree
+    /// made and abandoned before publishing them.
+    pub recycled: u64,
+    /// Blocks an allocation took from a freelist instead of the system
+    /// allocator.
+    pub reused: u64,
+    /// Freelist blocks returned to the allocator by `shrink_to_fit`.
+    pub released: u64,
+    /// Blocks returned to the allocator when the collector drained, from the
+    /// bins and the freelists.
+    pub drained: u64,
+}
+
+/// Cumulative counters for retired blocks no size class serves (feature
+/// `collector-census`).
+///
+/// Before the collector drains,
+/// `retired_blocks - released_blocks` equals the census's
+/// `unclassed_grace.blocks` on a collector no writer is using.
+#[cfg(feature = "collector-census")]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UnclassedCounters {
+    /// Blocks retired into the epoch bins.
+    pub retired_blocks: u64,
+    /// Their bytes.
+    pub retired_bytes: u64,
+    /// Blocks returned to the allocator by the epoch advance that ended
+    /// their grace period. Counted when the advance takes them from their
+    /// bin, under the bin's lock; the free follows once the lock is dropped.
+    pub released_blocks: u64,
+    /// Their bytes.
+    pub released_bytes: u64,
+    /// Blocks returned to the allocator when the collector drained.
+    pub drained_blocks: u64,
+    /// Their bytes.
+    pub drained_bytes: u64,
+}
+
+/// An epoch collector's cumulative block counters (feature
+/// `collector-census`): a snapshot taken by [`Collector::counters`].
+///
+/// Each counter is a plain integer updated inside a critical section the
+/// path already holds (a bin's or a freelist's mutex), so the feature adds no
+/// atomic and no thread-local read; it does add work under those locks, and
+/// grows the collector.
+#[cfg(feature = "collector-census")]
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CollectorCounters {
+    /// One entry per node size class, in the allocator's class order (the
+    /// order of [`CollectorCensus::classes`]).
+    pub classes: Vec<ClassCounters>,
+    /// Retired blocks no size class serves.
+    pub unclassed: UnclassedCounters,
+}
+
+#[cfg(feature = "collector-census")]
+impl CollectorCounters {
+    /// Bytes `shrink_to_fit` has returned to the allocator, every class.
+    #[must_use]
+    pub fn released_bytes(&self) -> u64 {
+        self.classes
+            .iter()
+            .map(|c| c.released * c.block_bytes as u64)
+            .sum()
+    }
+
+    /// Blocks reused from a freelist, every class.
+    #[must_use]
+    pub fn reused_blocks(&self) -> u64 {
+        self.classes.iter().map(|c| c.reused).sum()
+    }
+}
 
 #[cfg(not(feature = "ablation-unpadded-lock"))]
 #[derive(Debug)]
@@ -1242,7 +1526,7 @@ const _: () = assert!(
 #[derive(Debug)]
 #[repr(align(64))]
 pub(crate) struct PaddedBin {
-    garbage: Mutex<Vec<Garbage>>,
+    garbage: Mutex<BinList>,
     /// Set when garbage is pushed and cleared when it is taken, both under
     /// `garbage`'s lock; read without it. It lets an advance skip empty
     /// stripes with a load instead of a lock, since an advance runs on the
@@ -1255,16 +1539,40 @@ pub(crate) struct PaddedBin {
 impl PaddedBin {
     fn new() -> Self {
         Self {
-            garbage: Mutex::new(Vec::new()),
+            garbage: Mutex::new(BinList::default()),
             nonempty: AtomicBool::new(false),
         }
     }
 
-    /// Takes everything queued in this stripe.
-    fn take(&self) -> Vec<Garbage> {
+    /// Takes everything queued in this stripe. `DRAIN` says which path takes
+    /// it, for the `collector-census` counters only: `drain`, which frees
+    /// every block, or an epoch advance, which frees only the blocks no size
+    /// class serves. Without the feature the parameter is unused.
+    fn take<const DRAIN: bool>(&self) -> Vec<Garbage> {
         let mut guard = self.garbage.lock().expect("garbage bin poisoned");
         self.nonempty.store(false, Ordering::Relaxed);
-        core::mem::take(&mut *guard)
+        let taken = core::mem::take(&mut guard.list);
+        #[cfg(feature = "collector-census")]
+        {
+            let counts = &mut guard.counts;
+            for g in &taken {
+                match class_for(g.bytes, g.align) {
+                    Some(class) if DRAIN => counts.drained[class] += 1,
+                    // An advance reclaims a classed block to a freelist; the
+                    // freelist counts it under its own lock.
+                    Some(_) => {}
+                    None if DRAIN => {
+                        counts.unclassed.drained_blocks += 1;
+                        counts.unclassed.drained_bytes += g.bytes as u64;
+                    }
+                    None => {
+                        counts.unclassed.released_blocks += 1;
+                        counts.unclassed.released_bytes += g.bytes as u64;
+                    }
+                }
+            }
+        }
+        taken
     }
 }
 
@@ -1535,12 +1843,10 @@ impl Collector {
             readers: Mutex::new(Vec::new()),
             retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(feature = "ablation-unstriped-freelist")]
-            freelists: core::array::from_fn(|_| Mutex::new(FreeListHead(core::ptr::null_mut()))),
+            freelists: core::array::from_fn(|_| Mutex::new(FreeListHead::empty())),
             #[cfg(not(feature = "ablation-unstriped-freelist"))]
             freelists: core::array::from_fn(|_| {
-                PaddedFreelists(core::array::from_fn(|_| {
-                    Mutex::new(FreeListHead(core::ptr::null_mut()))
-                }))
+                PaddedFreelists(core::array::from_fn(|_| Mutex::new(FreeListHead::empty())))
             }),
             #[cfg(test)]
             registrations: core::sync::atomic::AtomicU64::new(0),
@@ -1589,6 +1895,11 @@ impl Collector {
         }
         // SAFETY: block points to a valid FreeBlock in this size class.
         head.0 = unsafe { (*block).next };
+        #[cfg(feature = "collector-census")]
+        {
+            head.1.len -= 1;
+            head.1.reused += 1;
+        }
         drop(head);
         let bytes = CLASS_SPECS[class].0;
         // SAFETY: zero out the reused memory before returning.
@@ -1621,6 +1932,11 @@ impl Collector {
                 (*block).next = head.0;
             }
             head.0 = block;
+            #[cfg(feature = "collector-census")]
+            {
+                head.1.len += 1;
+                head.1.recycled += 1;
+            }
         } else {
             // SAFETY: ptr was never published and matches layout contract.
             free_raw(ptr, bytes, align);
@@ -1720,6 +2036,10 @@ impl Collector {
         let g = Garbage { ptr, bytes, align };
         let stripe = slot % NUM_EPOCH_STRIPES;
         let p_bin = &self.bins[e % BINS][stripe];
+        // Classified before the lock is taken, so the critical section only
+        // gains the increment.
+        #[cfg(feature = "collector-census")]
+        let class = class_for(bytes, align);
         let mut garbage = p_bin.garbage.lock().expect("garbage bin poisoned");
         // Counted before the push: an advance may take the block as soon
         // as the lock drops, and its per-stripe subtraction must not come
@@ -1727,7 +2047,15 @@ impl Collector {
         self.retained_bytes[stripe]
             .0
             .fetch_add(bytes, Ordering::Relaxed);
-        garbage.push(g);
+        #[cfg(feature = "collector-census")]
+        match class {
+            Some(class) => garbage.counts.retired[class] += 1,
+            None => {
+                garbage.counts.unclassed.retired_blocks += 1;
+                garbage.counts.unclassed.retired_bytes += bytes as u64;
+            }
+        }
+        garbage.list.push(g);
         p_bin.nonempty.store(true, Ordering::Relaxed);
         crate::occ_stats::record_retire(bytes);
     }
@@ -1793,7 +2121,7 @@ impl Collector {
             if !p_bin.nonempty.load(Ordering::Relaxed) {
                 continue;
             }
-            let stale = p_bin.take();
+            let stale = p_bin.take::<false>();
             let mut freed_bytes = 0;
             for g in stale {
                 freed_bytes += g.bytes;
@@ -1809,6 +2137,11 @@ impl Collector {
                         (*block).next = head.0;
                     }
                     head.0 = block;
+                    #[cfg(feature = "collector-census")]
+                    {
+                        head.1.len += 1;
+                        head.1.reclaimed += 1;
+                    }
                 } else {
                     free_raw(g.ptr, g.bytes, g.align);
                 }
@@ -1901,7 +2234,7 @@ impl Collector {
             for stripe in 0..NUM_EPOCH_STRIPES {
                 // Every stripe, whatever its flag says: nothing may
                 // outlive the collector.
-                let stale = self.bins[b][stripe].take();
+                let stale = self.bins[b][stripe].take::<true>();
                 if stale.is_empty() {
                     continue;
                 }
@@ -1916,7 +2249,7 @@ impl Collector {
                 crate::occ_stats::record_reclaim(freed_bytes);
             }
         }
-        self.release_free_lists();
+        self.release_free_lists_as::<true>();
     }
 
     /// The freelist rows: one per stripe, or the single shared row under
@@ -1957,12 +2290,28 @@ impl Collector {
     /// period stay in their bins. Concurrent writers that find a list empty
     /// fall through to the system allocator, as on any miss.
     pub(crate) fn release_free_lists(&self) -> usize {
+        self.release_free_lists_as::<false>()
+    }
+
+    /// [`Self::release_free_lists`]; `DRAIN` says whether `drain` is the
+    /// caller, for the `collector-census` counters only.
+    fn release_free_lists_as<const DRAIN: bool>(&self) -> usize {
         let mut released = 0;
         for row in self.free_list_rows() {
             for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
                 let mut head = row[class].lock().expect("freelist poisoned");
                 let mut cur = head.0;
                 head.0 = core::ptr::null_mut();
+                #[cfg(feature = "collector-census")]
+                {
+                    let counts = &mut head.1;
+                    if DRAIN {
+                        counts.drained += counts.len;
+                    } else {
+                        counts.released += counts.len;
+                    }
+                    counts.len = 0;
+                }
                 drop(head);
                 let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
                 while !cur.is_null() {
@@ -1980,6 +2329,124 @@ impl Collector {
             }
         }
         released
+    }
+
+    /// Where this collector's bytes sit: per size class, the blocks on the
+    /// freelists and the retired blocks still in their grace period; the
+    /// grace-period blocks no class serves; and the freelist blocks per
+    /// writer stripe.
+    ///
+    /// Computed on demand by walking every freelist and every epoch bin
+    /// under its own lock, one lock at a time, as `free_list_bytes` walks
+    /// the freelists: a writer popping, retiring into or reclaiming onto the list being
+    /// walked waits for the walk, and nothing is added to any write or read
+    /// path. O(free blocks + retired blocks). Exact on a collector no writer
+    /// is using; with writers running, each list's figure is exact at the
+    /// moment it was walked.
+    ///
+    /// On a quiesced collector, [`CollectorCensus::free_bytes`] is the sum
+    /// of the freelist bytes and [`CollectorCensus::grace_bytes`] equals
+    /// [`Self::retained_bytes`].
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn census(&self) -> CollectorCensus {
+        let mut classes: Vec<ClassCensus> = CLASS_SPECS
+            .iter()
+            .map(|&(block_bytes, align)| ClassCensus {
+                block_bytes,
+                align,
+                ..ClassCensus::default()
+            })
+            .collect();
+        let mut stripes = Vec::new();
+        for row in self.free_list_rows() {
+            let mut stripe = BlockTally::default();
+            for (class, &(bytes, _)) in CLASS_SPECS.iter().enumerate() {
+                let head = row[class].lock().expect("freelist poisoned");
+                let mut blocks = 0;
+                let mut cur = head.0;
+                while !cur.is_null() {
+                    blocks += 1;
+                    // SAFETY: a freelist entry is a free block of this class
+                    // with `next` written; the lock keeps it on the list.
+                    cur = unsafe { (*cur).next };
+                }
+                drop(head);
+                classes[class].free.add(blocks, blocks * bytes);
+                stripe.add(blocks, blocks * bytes);
+            }
+            stripes.push(stripe);
+        }
+        let mut unclassed_grace = BlockTally::default();
+        for bin in &self.bins {
+            // Every stripe, whatever its `nonempty` hint says.
+            for p_bin in bin {
+                let garbage = p_bin.garbage.lock().expect("garbage bin poisoned");
+                for g in &garbage.list {
+                    match class_for(g.bytes, g.align) {
+                        Some(class) => classes[class].grace.add(1, g.bytes),
+                        None => unclassed_grace.add(1, g.bytes),
+                    }
+                }
+            }
+        }
+        CollectorCensus {
+            classes,
+            unclassed_grace,
+            stripes,
+        }
+    }
+
+    /// This collector's cumulative block counters, per size class (feature
+    /// `collector-census`): blocks retired, reclaimed to a freelist after
+    /// their grace period, recycled unpublished, reused by an allocation,
+    /// released by `shrink_to_fit`, and drained; and for the blocks no class
+    /// serves, retired, released after their grace period, and drained.
+    ///
+    /// Summed over every bin and freelist, each read under its own lock, one
+    /// at a time: exact on a quiesced collector. A counter never decreases.
+    #[cfg(feature = "collector-census")]
+    #[cold]
+    #[inline(never)]
+    #[must_use]
+    pub fn counters(&self) -> CollectorCounters {
+        let mut classes: Vec<ClassCounters> = CLASS_SPECS
+            .iter()
+            .map(|&(block_bytes, align)| ClassCounters {
+                block_bytes,
+                align,
+                ..ClassCounters::default()
+            })
+            .collect();
+        for row in self.free_list_rows() {
+            for (class, out) in classes.iter_mut().enumerate() {
+                let c = row[class].lock().expect("freelist poisoned").1;
+                out.reclaimed += c.reclaimed;
+                out.recycled += c.recycled;
+                out.reused += c.reused;
+                out.released += c.released;
+                out.drained += c.drained;
+            }
+        }
+        let mut unclassed = UnclassedCounters::default();
+        for bin in &self.bins {
+            for p_bin in bin {
+                let garbage = p_bin.garbage.lock().expect("garbage bin poisoned");
+                let c = &garbage.counts;
+                for (class, out) in classes.iter_mut().enumerate() {
+                    out.retired += c.retired[class];
+                    out.drained += c.drained[class];
+                }
+                unclassed.retired_blocks += c.unclassed.retired_blocks;
+                unclassed.retired_bytes += c.unclassed.retired_bytes;
+                unclassed.released_blocks += c.unclassed.released_blocks;
+                unclassed.released_bytes += c.unclassed.released_bytes;
+                unclassed.drained_blocks += c.unclassed.drained_blocks;
+                unclassed.drained_bytes += c.unclassed.drained_bytes;
+            }
+        }
+        CollectorCounters { classes, unclassed }
     }
 }
 
@@ -2640,8 +3107,10 @@ mod tests {
     }
 
     /// Verifies static memory layout and footprint bounds for the striped epoch architecture (Refs #568).
+    /// The default layout: `collector-census` grows the bins and the
+    /// freelists by design (its own test below).
     #[test]
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(feature = "collector-census")))]
     fn test_collector_striped_epoch_layout_bounds() {
         assert_eq!(core::mem::size_of::<PaddedBin>(), 64);
         assert_eq!(core::mem::align_of::<PaddedBin>(), 64);
@@ -2860,6 +3329,324 @@ mod tests {
             // SAFETY: `got2` was allocated with `layout` and the test now owns it.
             unsafe { dealloc(got2, layout) };
         }
+    }
+
+    /// The stripe a census reports for blocks reclaimed by a writer on
+    /// `slot`: the slot's own stripe, or the single shared row under the
+    /// ablation.
+    fn census_stripe(slot: usize) -> usize {
+        #[cfg(feature = "ablation-unstriped-freelist")]
+        {
+            let _ = slot;
+            0
+        }
+        #[cfg(not(feature = "ablation-unstriped-freelist"))]
+        {
+            slot % NUM_FREELIST_STRIPES
+        }
+    }
+
+    /// The number of rows a census reports per-stripe totals for.
+    fn census_rows() -> usize {
+        if cfg!(feature = "ablation-unstriped-freelist") {
+            1
+        } else {
+            NUM_FREELIST_STRIPES
+        }
+    }
+
+    /// #1310: a census places each block by size class, by stripe, and by
+    /// whether it is still in its grace period; a block no class serves
+    /// lands in the unclassed bucket; and the totals match the two figures
+    /// `mem_held` sums (`free_list_bytes`, `retained_bytes`). Runs on a
+    /// thread of its own so its writer slot is the one it pins.
+    #[test]
+    fn collector_census_places_blocks_by_class_stripe_and_grace() {
+        const SLOT: usize = 3;
+        std::thread::spawn(|| {
+            set_writer_slot(SLOT);
+            let classed = class_for(64, TEST_ALIGN).expect("(64, 16) is a size class");
+            assert_eq!(
+                class_for(256, TEST_ALIGN),
+                None,
+                "(256, 16) must be unclassed"
+            );
+            let c = Arc::new(Collector::new());
+
+            let empty = c.census();
+            assert_eq!(empty.classes.len(), NUM_CLASSES);
+            assert_eq!(empty.stripes.len(), census_rows());
+            assert_eq!(empty.total_bytes(), 0);
+
+            // SAFETY: fresh `(64, 16)` and `(256, 16)` global allocations,
+            // never published.
+            unsafe {
+                c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+                c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+                c.retire(alloc_test_block(256), 256, TEST_ALIGN);
+            }
+            let s = c.census();
+            assert_eq!(s.classes[classed].block_bytes, 64);
+            assert_eq!(s.classes[classed].align, TEST_ALIGN);
+            assert_eq!(
+                s.classes[classed].grace,
+                BlockTally {
+                    blocks: 2,
+                    bytes: 128
+                }
+            );
+            assert_eq!(
+                s.unclassed_grace,
+                BlockTally {
+                    blocks: 1,
+                    bytes: 256
+                },
+                "a retired block no class serves is counted in the unclassed bucket"
+            );
+            assert_eq!(s.free_bytes(), 0);
+            assert_eq!(s.grace_bytes(), c.retained_bytes());
+            assert_eq!(s.grace_bytes(), 384);
+
+            // Two advances end the grace period: the classed blocks move to
+            // this writer's stripe, the unclassed one is freed.
+            c.try_advance();
+            c.try_advance();
+            let s = c.census();
+            assert_eq!(
+                s.classes[classed].free,
+                BlockTally {
+                    blocks: 2,
+                    bytes: 128
+                }
+            );
+            assert_eq!(s.classes[classed].grace, BlockTally::default());
+            assert_eq!(s.unclassed_grace, BlockTally::default());
+            for (i, row) in s.stripes.iter().enumerate() {
+                let want = if i == census_stripe(SLOT) {
+                    BlockTally {
+                        blocks: 2,
+                        bytes: 128,
+                    }
+                } else {
+                    BlockTally::default()
+                };
+                assert_eq!(*row, want, "stripe {i}");
+            }
+            assert_eq!(s.free_bytes(), c.free_list_bytes());
+            assert_eq!(s.total_bytes(), c.free_list_bytes() + c.retained_bytes());
+
+            assert_eq!(c.release_free_lists(), 128);
+            assert_eq!(c.census().total_bytes(), 0);
+            c.drain();
+        })
+        .join()
+        .unwrap();
+    }
+
+    /// #1310: a block retired with an alignment no class uses is unclassed
+    /// even when its size matches a class, and a block of a cache-line
+    /// class is placed in that class rather than the raw class of the same
+    /// size.
+    #[test]
+    fn collector_census_classes_by_size_and_alignment() {
+        let c = Arc::new(Collector::new());
+        let cache_line = class_for(64, CACHE_LINE_ALIGN).expect("(64, 64) is a size class");
+        let raw = class_for(64, TEST_ALIGN).expect("(64, 16) is a size class");
+        assert_ne!(cache_line, raw);
+        let line = Layout::from_size_align(64, CACHE_LINE_ALIGN).unwrap();
+        let odd = Layout::from_size_align(64, 8).unwrap();
+        // SAFETY: non-zero sizes.
+        let (p_line, p_odd) = unsafe {
+            (
+                NonNull::new(alloc_zeroed(line)).unwrap(),
+                NonNull::new(alloc_zeroed(odd)).unwrap(),
+            )
+        };
+        // SAFETY: fresh global allocations retired with their own layouts,
+        // never published.
+        unsafe {
+            c.retire(p_line, 64, CACHE_LINE_ALIGN);
+            c.retire(p_odd, 64, 8);
+        }
+        let s = c.census();
+        assert_eq!(s.classes[cache_line].grace.blocks, 1);
+        assert_eq!(s.classes[raw].grace.blocks, 0);
+        assert_eq!(s.unclassed_grace.blocks, 1);
+        assert_eq!(s.grace_bytes(), 128);
+        c.drain();
+    }
+
+    const CACHE_LINE_ALIGN: usize = crate::types::CACHE_LINE;
+
+    /// The census and the counters agree, class by class, on a collector no
+    /// writer is using and before it drains (the identities stated on
+    /// `ClassCounters` and `UnclassedCounters`).
+    #[cfg(feature = "collector-census")]
+    fn assert_counters_match_census(c: &Collector) {
+        let s = c.census();
+        let k = c.counters();
+        for (class, (sc, kc)) in s.classes.iter().zip(&k.classes).enumerate() {
+            assert_eq!(
+                sc.free.blocks as u64,
+                kc.reclaimed + kc.recycled - kc.reused - kc.released,
+                "class {class}: freelist blocks"
+            );
+            assert_eq!(
+                sc.grace.blocks as u64,
+                kc.retired - kc.reclaimed,
+                "class {class}: grace blocks"
+            );
+        }
+        assert_eq!(
+            s.unclassed_grace.blocks as u64,
+            k.unclassed.retired_blocks - k.unclassed.released_blocks
+        );
+        assert_eq!(
+            s.unclassed_grace.bytes as u64,
+            k.unclassed.retired_bytes - k.unclassed.released_bytes
+        );
+    }
+
+    /// #1310, feature `collector-census`: a block retired, reclaimed and
+    /// reallocated by the same writer counts once in each of `retired`,
+    /// `reclaimed` and `reused`; a writer on another stripe cannot reuse it
+    /// and moves no counter.
+    #[cfg(feature = "collector-census")]
+    #[test]
+    fn collector_census_counters_reuse_on_the_retiring_stripe() {
+        const HOME: usize = 2;
+        let c = Arc::new(Collector::new());
+        let class = class_for(64, TEST_ALIGN).unwrap();
+        let c2 = Arc::clone(&c);
+        std::thread::spawn(move || {
+            set_writer_slot(HOME);
+            // SAFETY: a fresh `(64, 16)` global allocation, never published.
+            unsafe { c2.retire(alloc_test_block(64), 64, TEST_ALIGN) };
+            let k = c2.counters();
+            assert_eq!(k.classes[class].retired, 1);
+            assert_eq!(k.classes[class].reclaimed, 0);
+            assert_counters_match_census(&c2);
+            c2.try_advance();
+            c2.try_advance();
+            let k = c2.counters();
+            assert_eq!(k.classes[class].reclaimed, 1);
+            assert_counters_match_census(&c2);
+        })
+        .join()
+        .unwrap();
+
+        #[cfg(not(feature = "ablation-unstriped-freelist"))]
+        {
+            let c3 = Arc::clone(&c);
+            std::thread::spawn(move || {
+                set_writer_slot(HOME + 1);
+                assert!(c3.pop_freelist(class).is_null(), "another stripe's block");
+                assert_eq!(c3.counters().classes[class].reused, 0);
+            })
+            .join()
+            .unwrap();
+        }
+
+        let c4 = Arc::clone(&c);
+        std::thread::spawn(move || {
+            set_writer_slot(HOME);
+            let got = c4.pop_freelist(class);
+            assert!(!got.is_null(), "the retiring stripe gets its block back");
+            let k = c4.counters();
+            assert_eq!(k.classes[class].reused, 1);
+            assert_eq!(k.reused_blocks(), 1);
+            assert_eq!(c4.census().classes[class].free.blocks, 0);
+            assert_counters_match_census(&c4);
+            // SAFETY: `got` is a `(64, 16)` block the test now owns.
+            unsafe { dealloc(got, Layout::from_size_align(64, TEST_ALIGN).unwrap()) };
+        })
+        .join()
+        .unwrap();
+        c.drain();
+    }
+
+    /// #1310, feature `collector-census`: `release_free_lists` counts what it
+    /// releases, by class, and the counted bytes equal the bytes it returns.
+    #[cfg(feature = "collector-census")]
+    #[test]
+    fn collector_census_counters_release_counts_the_bytes_returned() {
+        let c = Arc::new(Collector::new());
+        let small = class_for(64, TEST_ALIGN).unwrap();
+        let large = class_for(128, TEST_ALIGN).unwrap();
+        // SAFETY: fresh global allocations, never published.
+        unsafe {
+            c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+            c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+            c.retire(alloc_test_block(128), 128, TEST_ALIGN);
+        }
+        c.try_advance();
+        c.try_advance();
+        assert_counters_match_census(&c);
+        let before = c.counters().released_bytes();
+        let returned = c.release_free_lists();
+        assert_eq!(returned, 256);
+        let k = c.counters();
+        assert_eq!(k.released_bytes() - before, returned as u64);
+        assert_eq!(k.classes[small].released, 2);
+        assert_eq!(k.classes[large].released, 1);
+        assert_eq!(c.census().free_bytes(), 0);
+        assert_counters_match_census(&c);
+        c.drain();
+    }
+
+    /// #1310, feature `collector-census`: a block no class serves is counted
+    /// when retired and when the advance that ends its grace period frees
+    /// it, with its bytes.
+    #[cfg(feature = "collector-census")]
+    #[test]
+    fn collector_census_counters_unclassed_release_after_grace() {
+        let c = Arc::new(Collector::new());
+        // SAFETY: a fresh `(256, 16)` global allocation, never published.
+        unsafe { c.retire(alloc_test_block(256), 256, TEST_ALIGN) };
+        let k = c.counters();
+        assert_eq!(k.unclassed.retired_blocks, 1);
+        assert_eq!(k.unclassed.retired_bytes, 256);
+        assert_eq!(k.unclassed.released_blocks, 0);
+        assert_counters_match_census(&c);
+        c.try_advance();
+        c.try_advance();
+        let k = c.counters();
+        assert_eq!(k.unclassed.released_blocks, 1);
+        assert_eq!(k.unclassed.released_bytes, 256);
+        assert!(k.classes.iter().all(|kc| kc.retired == 0));
+        assert_counters_match_census(&c);
+        c.drain();
+    }
+
+    /// #1310, feature `collector-census`: an unpublished block put straight
+    /// on a freelist counts as recycled; `drain` counts what it frees from
+    /// the bins and from the freelists, classed and unclassed.
+    #[cfg(feature = "collector-census")]
+    #[test]
+    fn collector_census_counters_recycle_and_drain() {
+        let c = Arc::new(Collector::new());
+        let class = class_for(64, TEST_ALIGN).unwrap();
+        // SAFETY: fresh global allocations, never published; the collector
+        // owns each from the call on.
+        unsafe {
+            c.recycle_unpublished(alloc_test_block(64), 64, TEST_ALIGN);
+            c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+            c.retire(alloc_test_block(256), 256, TEST_ALIGN);
+        }
+        let k = c.counters();
+        assert_eq!(k.classes[class].recycled, 1);
+        assert_eq!(c.census().classes[class].free.blocks, 1);
+        assert_counters_match_census(&c);
+        c.drain();
+        let k = c.counters();
+        assert_eq!(
+            k.classes[class].drained, 2,
+            "one from a freelist, one from a bin"
+        );
+        assert_eq!(k.unclassed.drained_blocks, 1);
+        assert_eq!(k.unclassed.drained_bytes, 256);
+        assert_eq!(k.classes[class].released, 0, "a drain is not a release");
+        assert_eq!(c.census().total_bytes(), 0);
     }
 }
 

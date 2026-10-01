@@ -149,6 +149,16 @@ packed-suffix = []
 # absorb. Feeds `scripts/leaf_layout_model.py`. Off by default and compiled out
 # entirely; no default path changes.
 layout-census = []
+# Diagnostic (Refs #1310): cumulative per-size-class block counters on the
+# 64-bit epoch collector — retired, reclaimed, recycled, reused, released and
+# drained — read through `collector_counters()` on the `Sync*` wrappers and
+# `occ::Collector::counters()`. Plain integers updated inside the bin and
+# freelist critical sections the paths already hold: no new atomic and no
+# thread-local read, but more work under those locks and a larger collector.
+# Off by default, and with it off every hot path and `Collector`'s layout are
+# unchanged (asserted at compile time in `occ.rs`). The census snapshot
+# (`collector_census()`) needs no feature.
+collector-census = ["std"]
 # Diagnostic-only candidate (Refs #1257, AGENTS.md §2.7): `leaf::cap_class`
 # gains one class at 10 slots, so populations 9 and 10 take 10 slots instead
 # of 12 — the class a decimal-digit range fills exactly. It re-sizes every
