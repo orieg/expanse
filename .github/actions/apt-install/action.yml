@@ -1,0 +1,51 @@
+name: Install apt packages (bounded, with retry)
+description: >-
+  apt-get update and install with a timeout on each attempt and up to three
+  attempts. A hosted runner's package mirror can stall an unbounded install
+  until the job's own timeout cancels the job (the Arm GNU toolchain install
+  did so twice in a row on #1296), so each attempt is bounded, apt retries its
+  own connections, and a stalled attempt is retried instead of failing the job.
+inputs:
+  packages:
+    description: Space-separated apt package names
+    required: true
+  attempts:
+    description: Attempts before failing
+    required: false
+    default: '3'
+  update-timeout:
+    description: Seconds allowed for `apt-get update` in one attempt
+    required: false
+    default: '90'
+  install-timeout:
+    description: Seconds allowed for `apt-get install` in one attempt
+    required: false
+    default: '150'
+
+runs:
+  using: composite
+  steps:
+    - name: apt-get update and install, bounded and retried
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        ATTEMPTS: ${{ inputs.attempts }}
+        UPDATE_TIMEOUT: ${{ inputs.update-timeout }}
+        INSTALL_TIMEOUT: ${{ inputs.install-timeout }}
+      run: |
+        set -u
+        opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+        read -r -a pkgs <<< "$PACKAGES"
+        for i in $(seq 1 "$ATTEMPTS"); do
+          if timeout "$UPDATE_TIMEOUT" sudo apt-get "${opts[@]}" update -q \
+            && timeout "$INSTALL_TIMEOUT" sudo apt-get "${opts[@]}" install -y -q "${pkgs[@]}"; then
+            echo "installed ${pkgs[*]} on attempt $i"
+            exit 0
+          fi
+          echo "::warning::apt attempt $i of $ATTEMPTS failed or timed out"
+          if [ "$i" -lt "$ATTEMPTS" ]; then
+            sleep 15
+          fi
+        done
+        echo "::error::apt could not install ${pkgs[*]} in $ATTEMPTS attempts"
+        exit 1
