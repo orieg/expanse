@@ -1031,6 +1031,42 @@ impl fmt::Debug for ExpanseSet32 {
     }
 }
 
+/// A deep copy: a new set holding the same keys and sharing no node with
+/// this one, so later writes to either are invisible to the other. This is
+/// the supported way to keep a point-in-time snapshot of a set.
+///
+/// Built by ordered iteration into a fresh set: O(n) time and one full tree of
+/// memory. Because the 32-bit trie has no bottom-up builder, the clone is
+/// reconstructed via an ordered insert loop into a fresh arena. This is not a
+/// raw layout copy of the arena tables: `mem_used()` of the clone reflects a
+/// fresh tree containing those keys inserted in ascending order, taking none
+/// of the original's fragmentation or freelist entries from past removals.
+///
+/// Copying a root edge out of a set's internals is *not* a snapshot: the
+/// engine mutates nodes in place on every insert and remove
+/// (`docs/ARCHITECTURE.md`, "Snapshots").
+impl Clone for ExpanseSet32 {
+    fn clone(&self) -> Self {
+        self.iter().collect()
+    }
+}
+
+impl FromIterator<Key32> for ExpanseSet32 {
+    fn from_iter<I: IntoIterator<Item = Key32>>(iter: I) -> Self {
+        let mut set = Self::new();
+        set.extend(iter);
+        set
+    }
+}
+
+impl Extend<Key32> for ExpanseSet32 {
+    fn extend<I: IntoIterator<Item = Key32>>(&mut self, iter: I) {
+        for k in iter {
+            self.insert(k);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1656,6 +1692,85 @@ mod tests {
                     k, n
                 );
             }
+        }
+    }
+
+    #[test]
+    fn clone_keeps_keys_and_isolates_mutations() {
+        let mut set = ExpanseSet32::new();
+        for k in [10u32, 20, 30, 40, 50, 1000, 2000, 50000] {
+            set.insert(k);
+        }
+        let copy = set.clone();
+        assert_eq!(copy.len(), set.len());
+        assert!(copy.iter().eq(set.iter()));
+
+        // Mutate original: insert and remove
+        set.insert(999);
+        set.remove(20);
+
+        // Copy must be completely isolated
+        assert_eq!(copy.len(), 8);
+        assert!(copy.contains(20));
+        assert!(!copy.contains(999));
+        assert!(!set.contains(20));
+        assert!(set.contains(999));
+
+        // Dropping original leaves copy intact
+        drop(set);
+        assert_eq!(copy.len(), 8);
+        assert!(copy.contains(10));
+        assert!(copy.contains(50000));
+    }
+
+    #[test]
+    fn from_iterator_and_extend() {
+        let keys = [40u32, 10, 20, 30, 10, 50, 20];
+        let mut set: ExpanseSet32 = keys.into_iter().collect();
+        assert_eq!(set.len(), 5);
+        for k in [10, 20, 30, 40, 50] {
+            assert!(set.contains(k));
+        }
+
+        set.extend([60u32, 70, 30]);
+        assert_eq!(set.len(), 7);
+        for k in [10, 20, 30, 40, 50, 60, 70] {
+            assert!(set.contains(k));
+        }
+    }
+
+    #[test]
+    fn trait_parity_set() {
+        fn assert_set_traits<S, K>(sample: K) -> (usize, usize)
+        where
+            S: Clone + Default,
+            S: FromIterator<K> + Extend<K>,
+            for<'a> &'a S: IntoIterator<Item = K>,
+            K: Copy,
+        {
+            let mut s: S = [sample].into_iter().collect();
+            s.extend([sample]);
+            let copy = s.clone();
+            (s.into_iter().count(), copy.into_iter().count())
+        }
+
+        // Concrete 32-bit type (unconditionally available on all targets)
+        let (s_len, copy_len) = assert_set_traits::<ExpanseSet32, u32>(42);
+        assert_eq!(s_len, 1);
+        assert_eq!(copy_len, 1);
+
+        // Public alias (points to 64-bit on 64-bit targets, and 32-bit on 32-bit targets)
+        #[cfg(target_pointer_width = "64")]
+        {
+            let (s_len, copy_len) = assert_set_traits::<crate::ExpanseSet, u64>(42);
+            assert_eq!(s_len, 1);
+            assert_eq!(copy_len, 1);
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            let (s_len, copy_len) = assert_set_traits::<crate::ExpanseSet, u32>(42);
+            assert_eq!(s_len, 1);
+            assert_eq!(copy_len, 1);
         }
     }
 }

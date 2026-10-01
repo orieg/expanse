@@ -670,6 +670,42 @@ impl fmt::Debug for ExpanseMap32 {
     }
 }
 
+/// A deep copy: a new map holding the same entries and sharing no node with
+/// this one, so later writes to either are invisible to the other. This is
+/// the supported way to keep a point-in-time snapshot of a map.
+///
+/// Built by ordered iteration into a fresh map: O(n) time and one full tree of
+/// memory. Because the 32-bit trie has no bottom-up builder, the clone is
+/// reconstructed via an ordered insert loop into a fresh arena. This is not a
+/// raw layout copy of the arena tables: `mem_used()` of the clone reflects a
+/// fresh tree containing those keys inserted in ascending order, taking none
+/// of the original's fragmentation or freelist entries from past removals.
+///
+/// Copying a root edge out of a map's internals is *not* a snapshot: the
+/// engine mutates nodes in place on every insert and remove
+/// (`docs/ARCHITECTURE.md`, "Snapshots").
+impl Clone for ExpanseMap32 {
+    fn clone(&self) -> Self {
+        self.iter().collect()
+    }
+}
+
+impl FromIterator<(Key32, Value32)> for ExpanseMap32 {
+    fn from_iter<I: IntoIterator<Item = (Key32, Value32)>>(iter: I) -> Self {
+        let mut map = Self::new();
+        map.extend(iter);
+        map
+    }
+}
+
+impl Extend<(Key32, Value32)> for ExpanseMap32 {
+    fn extend<I: IntoIterator<Item = (Key32, Value32)>>(&mut self, iter: I) {
+        for (k, v) in iter {
+            self.insert(k, v);
+        }
+    }
+}
+
 /// Test-only census of the insert finger: how many inserts the cached path
 /// answered and how many took the full descent. Compiled out of every
 /// non-test build, so the insert path is untouched (AGENTS.md §6). Per
@@ -1445,5 +1481,95 @@ mod tests {
             misses, expected_misses,
             "the finger should miss exactly the pre-promotion, promoting and arming inserts of each expanse"
         );
+    }
+
+    #[test]
+    fn clone_keeps_entries_and_isolates_mutations() {
+        let mut map = ExpanseMap32::new();
+        for (k, v) in [
+            (10u32, 100u32),
+            (20, 200),
+            (30, 300),
+            (40, 400),
+            (50000, 500000),
+        ] {
+            map.insert(k, v);
+        }
+        let copy = map.clone();
+        assert_eq!(copy.len(), map.len());
+        assert!(copy.iter().eq(map.iter()));
+
+        // Mutate original: insert, overwrite, remove
+        map.insert(999, 9990);
+        map.insert(20, 201);
+        map.remove(30);
+
+        // Copy must be completely isolated
+        assert_eq!(copy.len(), 5);
+        assert_eq!(copy.get(20), Some(200));
+        assert_eq!(copy.get(30), Some(300));
+        assert_eq!(copy.get(999), None);
+        assert_eq!(map.get(20), Some(201));
+        assert_eq!(map.get(30), None);
+        assert_eq!(map.get(999), Some(9990));
+
+        // Dropping original leaves copy intact
+        drop(map);
+        assert_eq!(copy.len(), 5);
+        assert_eq!(copy.get(10), Some(100));
+        assert_eq!(copy.get(50000), Some(500000));
+    }
+
+    #[test]
+    fn from_iterator_and_extend_last_value_wins() {
+        let entries = [(10u32, 1u32), (20, 2), (10, 10), (30, 3), (20, 20)];
+        let mut map: ExpanseMap32 = entries.into_iter().collect();
+        assert_eq!(map.len(), 3);
+        assert_eq!(map.get(10), Some(10));
+        assert_eq!(map.get(20), Some(20));
+        assert_eq!(map.get(30), Some(3));
+
+        map.extend([(30u32, 300u32), (40, 400), (10, 100)]);
+        assert_eq!(map.len(), 4);
+        assert_eq!(map.get(10), Some(100));
+        assert_eq!(map.get(20), Some(20));
+        assert_eq!(map.get(30), Some(300));
+        assert_eq!(map.get(40), Some(400));
+    }
+
+    #[test]
+    fn trait_parity_map() {
+        fn assert_map_traits<M, K, V>(sample_k: K, sample_v: V) -> (usize, usize)
+        where
+            M: Clone + Default,
+            M: FromIterator<(K, V)> + Extend<(K, V)>,
+            for<'a> &'a M: IntoIterator<Item = (K, V)>,
+            K: Copy,
+            V: Copy,
+        {
+            let mut m: M = [(sample_k, sample_v)].into_iter().collect();
+            m.extend([(sample_k, sample_v)]);
+            let copy = m.clone();
+            (m.into_iter().count(), copy.into_iter().count())
+        }
+
+        // Concrete 32-bit type (unconditionally available on all targets)
+        let (m_len, copy_len) = assert_map_traits::<ExpanseMap32, u32, u32>(42, 100);
+        assert_eq!(m_len, 1);
+        assert_eq!(copy_len, 1);
+
+        // Public alias (points to 64-bit on 64-bit targets, and 32-bit on 32-bit targets)
+        #[cfg(target_pointer_width = "64")]
+        {
+            let (m_len, copy_len) = assert_map_traits::<crate::ExpanseMap, u64, u64>(42, 100);
+            assert_eq!(m_len, 1);
+            assert_eq!(copy_len, 1);
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            let (m_len, copy_len) = assert_map_traits::<crate::ExpanseMap, u32, u32>(42, 100);
+            assert_eq!(m_len, 1);
+            assert_eq!(copy_len, 1);
+        }
     }
 }
