@@ -1,31 +1,31 @@
 Package: libjudy-compat
-Version: 0.9.2
+Version: 0.10.0
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
-Filename: pool/main/libjudy-compat_0.9.2_riscv64.deb
+Filename: pool/main/libjudy-compat_0.10.0_riscv64.deb
 Size: 7796
-SHA256: dd17aadefcee7bc78dea5ba2b763c49d2ab817cff2f338bdf07da33eb683edb7
-Depends: libexpanse1 (= 0.9.2)
+SHA256: d51ab729ca313efe9d42b8144fabace081d25eeb4053f57ec6d82d760eb78a55
+Depends: libexpanse1 (= 0.10.0)
 Provides: libjudy
 Conflicts: libjudy
 
-Package: libexpanse-dev
-Version: 0.9.2
-Architecture: riscv64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine development files (headers, static library, man pages).
-Filename: pool/main/libexpanse-dev_0.9.2_riscv64.deb
-Size: 8354080
-SHA256: a0bacea5a81b7f4f5a6ad1d2dbadb7859a434a66fc9727a432ab4864a1530586
-Depends: libexpanse1 (= 0.9.2)
-
 Package: libexpanse1
-Version: 0.9.2
+Version: 0.10.0
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
-Filename: pool/main/libexpanse1_0.9.2_riscv64.deb
-Size: 619104
-SHA256: 463821bfbe9c0bd4395b231f172fb88bbbc3cbc86d5b2242c51aa156f2d293f6
+Filename: pool/main/libexpanse1_0.10.0_riscv64.deb
+Size: 606090
+SHA256: 53f3b7ba83f5ac4091675b091843f2acdcb2a88071439e1fd90428d93d7036f5
+
+Package: libexpanse-dev
+Version: 0.10.0
+Architecture: riscv64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine development files (headers, static library, man pages).
+Filename: pool/main/libexpanse-dev_0.10.0_riscv64.deb
+Size: 8761206
+SHA256: 1bcef126f3524aecc428f0869d27974f9bc6e4647bf689c30fa3c2bf418c46de
+Depends: libexpanse1 (= 0.10.0)
 
