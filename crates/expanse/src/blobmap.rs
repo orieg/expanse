@@ -312,6 +312,17 @@ pub struct CompactionStats {
     pub live_records_moved: usize,
 }
 
+/// A compaction whose copy has run and whose index rewrites have not
+/// ([`BlobArena::prepare_compaction`], #1300 item 2): the compacted arena and
+/// each relocated key's new slot word. Applying it is infallible; dropping it
+/// frees the copy and changes nothing.
+pub(crate) struct PreparedCompaction {
+    new_arena: BlobArena,
+    rewrites: Vec<(Key, u64)>,
+    source_generation: u32,
+    source_total_allocated: usize,
+}
+
 /// A single contiguous 16-byte aligned bump-allocated slab chunk.
 pub struct ArenaChunk {
     ptr: NonNull<u8>,
@@ -563,6 +574,11 @@ std::thread_local! {
     /// The capacity `compact_with_index` last reserved for its relocation list
     /// on this thread (#1290 G1.10).
     static LAST_RELOCATION_RESERVE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// Runs once at the start of the next [`BlobArena::prepare_compaction`] on
+    /// this thread: the tests that pin where the copy runs relative to the
+    /// tree bracket read the map from another thread inside it (#1300 item 2).
+    pub(crate) static PREPARE_HOOK: core::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { core::cell::RefCell::new(None) };
 }
 
 /// An insert's retry after the reclaim rule compacted the arena: a refusal
@@ -1158,10 +1174,24 @@ impl BlobArena {
         &mut self,
         index: &mut ExpanseMap,
     ) -> Result<CompactionStats, ArenaError> {
-        let live_bytes_before = self.live_bytes;
-        let total_allocated_before = self.total_allocated;
-        let chunks_before = self.chunks.len();
+        let prepared = self.prepare_compaction(index)?;
+        Ok(self.apply_compaction(index, prepared))
+    }
 
+    /// [`Self::compact_with_index`]'s first half: collects every `ArenaMeta`
+    /// entry of `index` and copies its payload into a fresh arena that nothing
+    /// else can reach (#1300 item 2). It writes nothing a reader of `self` or
+    /// `index` loads, which is why it takes both by shared reference: a
+    /// concurrent map runs it with writers excluded and readers admitted.
+    /// A failure returns before anything observable has changed.
+    pub(crate) fn prepare_compaction(
+        &self,
+        index: &ExpanseMap,
+    ) -> Result<PreparedCompaction, ArenaError> {
+        #[cfg(all(test, feature = "std"))]
+        if let Some(hook) = PREPARE_HOOK.with(|h| h.borrow_mut().take()) {
+            hook();
+        }
         let mut new_arena = BlobArena::new(self.chunk_size);
         // Inherit the source arena's capacity cap so the compacted arena is held
         // to the same ceiling.
@@ -1207,6 +1237,37 @@ impl BlobArena {
         }
         rewrites.truncate(kept);
 
+        Ok(PreparedCompaction {
+            new_arena,
+            rewrites,
+            source_generation: self.generation,
+            source_total_allocated: self.total_allocated,
+        })
+    }
+
+    /// [`Self::compact_with_index`]'s second half: rewrites every relocated
+    /// key's index slot, installs the compacted chunk set, republishes the
+    /// reader table and disposes of the old chunks. Infallible: everything
+    /// that could fail ran in [`Self::prepare_compaction`], which must have
+    /// been taken from this arena with nothing changed since.
+    pub(crate) fn apply_compaction(
+        &mut self,
+        index: &mut ExpanseMap,
+        prepared: PreparedCompaction,
+    ) -> CompactionStats {
+        let PreparedCompaction {
+            mut new_arena,
+            rewrites,
+            source_generation,
+            source_total_allocated,
+        } = prepared;
+        debug_assert!(
+            self.generation == source_generation && self.total_allocated == source_total_allocated,
+            "a prepared compaction applied to an arena that changed after it was prepared"
+        );
+        let live_bytes_before = self.live_bytes;
+        let total_allocated_before = self.total_allocated;
+        let chunks_before = self.chunks.len();
         let live_records_moved = rewrites.len();
 
         // Phase 2: every relocation succeeded — apply the index rewrites.
@@ -1250,7 +1311,7 @@ impl BlobArena {
         self.republish_table();
         self.dispose_chunks(old_chunks);
 
-        Ok(CompactionStats {
+        CompactionStats {
             live_bytes_before,
             live_bytes_after,
             total_allocated_before,
@@ -1258,7 +1319,7 @@ impl BlobArena {
             chunks_before,
             chunks_after,
             live_records_moved,
-        })
+        }
     }
 
     /// Total allocated heap bytes in arena chunks: what the capacity cap
@@ -1400,6 +1461,29 @@ impl BlobArena {
         let dropped = self.compacted_live.saturating_sub(self.live_bytes);
         self.live_bytes <= RECLAIM_COPY_PER_GROWTH.saturating_mul(grown.saturating_add(dropped))
             && self.live_bytes.saturating_mul(2) < self.total_allocated
+    }
+
+    /// Whether [`Self::alloc_blob`] would refuse a `len`-byte payload at the
+    /// capacity cap or the chunk-count limit ([`ArenaError::OffsetOverflow`]):
+    /// the active chunk cannot fit it, and opening another chunk would cross a
+    /// limit. Reads only; a payload larger than a chunk is not a cap refusal.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    pub(crate) fn alloc_would_refuse_at_cap(&self, len: usize) -> bool {
+        if 8 + len > self.chunk_size {
+            return false;
+        }
+        if let Some(idx) = self.active_chunk
+            && self.chunks[idx].can_fit(len)
+        {
+            return false;
+        }
+        self.chunks.len() >= MAX_ARENA_CHUNKS
+            || self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity
     }
 
     /// Moves the reclaim rule's baseline to the arena's current state: after a
@@ -1796,6 +1880,114 @@ impl ExpanseBlobMap {
                     true,
                 ),
                 Ok(false) => (Err(ArenaError::OffsetOverflow), false),
+                Err(e) => (Err(e), false),
+            },
+            res => (res, false),
+        }
+    }
+
+    /// The half of a compaction that runs with readers admitted (#1300 item 2):
+    /// the copy into a fresh arena. [`Self::apply_compaction`] finishes it.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    pub(crate) fn prepare_compaction(&self) -> Result<PreparedCompaction, ArenaError> {
+        self.arena.prepare_compaction(&self.index)
+    }
+
+    /// The half of a compaction that changes what readers load: the index
+    /// rewrites, the chunk-set swap and the table republish.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    pub(crate) fn apply_compaction(&mut self, prepared: PreparedCompaction) -> CompactionStats {
+        self.arena.apply_compaction(&mut self.index, prepared)
+    }
+
+    /// Whether [`Self::insert_shared`] of `data` would be refused at the
+    /// capacity cap with the reclaim rule allowing a compaction: the payload
+    /// goes to the arena (not inline, not compressed inline, metadata in
+    /// range), the arena would refuse its chunk, and the rule admits a copy.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    fn insert_needs_reclaim(&self, data: &[u8], hot_meta: u32) -> bool {
+        let to_arena = data.len() > 7
+            && hot_meta <= ValueSlot::ARENA_META_MAX
+            && !(hot_meta == 0 && crate::codec::try_compress_inline(data).is_some());
+        self.reclaim_at_cap
+            && to_arena
+            && self.arena.alloc_would_refuse_at_cap(data.len())
+            && self.arena.reclaim_allowed()
+    }
+
+    /// The part of [`Self::insert_shared_reclaiming`] that may run before the
+    /// concurrent wrapper opens the tree bracket (#1300 item 2): when the
+    /// insert would be refused at the cap and the rule allows a compaction,
+    /// the copy. `None` when no compaction is foreseen. A failed copy moves
+    /// the rule's baseline, as a failed compaction does, and is returned for
+    /// [`Self::insert_shared_after_prepare`] to report.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    pub(crate) fn prepare_reclaim_for_insert(
+        &mut self,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> Option<Result<PreparedCompaction, ArenaError>> {
+        if !self.insert_needs_reclaim(data, hot_meta) {
+            return None;
+        }
+        let prepared = self.arena.prepare_compaction(&self.index);
+        if prepared.is_err() {
+            self.arena.reset_reclaim_baseline();
+        }
+        Some(prepared)
+    }
+
+    /// [`Self::insert_shared_reclaiming`] with the copy already prepared by
+    /// [`Self::prepare_reclaim_for_insert`]. The insert is attempted first, so
+    /// the outcome is the one the unprepared path would give: a prepared copy
+    /// is applied only if the cap refuses the insert, and dropped otherwise.
+    /// With nothing prepared it is [`Self::insert_shared_reclaiming`].
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    pub(crate) fn insert_shared_after_prepare(
+        &mut self,
+        key: Key,
+        data: &[u8],
+        hot_meta: u32,
+        prepared: Option<Result<PreparedCompaction, ArenaError>>,
+    ) -> (Result<(), ArenaError>, bool) {
+        let Some(prepared) = prepared else {
+            return self.insert_shared_reclaiming(key, data, hot_meta);
+        };
+        match self.insert_shared(key, data, hot_meta) {
+            Err(ArenaError::OffsetOverflow) => match prepared {
+                Ok(p) => {
+                    self.arena.apply_compaction(&mut self.index, p);
+                    (
+                        self.insert_shared(key, data, hot_meta)
+                            .map_err(refused_after_compaction),
+                        true,
+                    )
+                }
                 Err(e) => (Err(e), false),
             },
             res => (res, false),
@@ -2979,6 +3171,98 @@ mod tests {
     /// The arena holds one 4 KiB chunk (a 6000-byte cap admits no second), so
     /// compacting packs the live record at the chunk's start and a record
     /// larger than the remaining tail still does not fit.
+    /// #1300 item 2 (METHODOLOGY §30, H2/H3): an insert through
+    /// `prepare_reclaim_for_insert` and `insert_shared_after_prepare` has the
+    /// outcome `insert_shared_reclaiming` gives on an identical map, at every
+    /// step of a run that reaches the cap many times; a copy is prepared
+    /// exactly when that insert compacts, and every key reads its last payload.
+    #[test]
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    fn prepared_reclaiming_insert_matches_the_unprepared_one() {
+        let new = || {
+            let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 20 * 1024);
+            for k in 0..16u64 {
+                m.insert_shared(k, &[k as u8; 128], 1).unwrap();
+            }
+            m
+        };
+        let (mut staged, mut plain) = (new(), new());
+        let mut compactions = 0;
+        for i in 0..2_000u64 {
+            let (k, len) = (i % 16, 100 + (i % 7) as usize * 40);
+            let data = vec![(i % 251) as u8; len];
+            let prepared = staged.prepare_reclaim_for_insert(&data, 1);
+            let foreseen = matches!(prepared, Some(Ok(_)));
+            let got = staged.insert_shared_after_prepare(k, &data, 1, prepared);
+            let want = plain.insert_shared_reclaiming(k, &data, 1);
+            assert_eq!(got, want, "insert {i}");
+            assert_eq!(
+                foreseen, want.1,
+                "insert {i}: the copy was prepared {foreseen}, the insert compacted {}",
+                want.1
+            );
+            compactions += usize::from(want.1);
+        }
+        assert!(compactions >= 10, "{compactions} compactions");
+        for k in 0..16u64 {
+            assert_eq!(
+                staged.get(k).map(|(v, m)| (v.as_bytes().to_vec(), m)),
+                plain.get(k).map(|(v, m)| (v.as_bytes().to_vec(), m))
+            );
+        }
+        assert_eq!(staged.arena().generation(), plain.arena().generation());
+        assert_eq!(staged.arena().live_bytes(), plain.arena().live_bytes());
+    }
+
+    /// The fallbacks of `insert_shared_after_prepare` (§30, H3): a prepared
+    /// copy is dropped, and nothing compacted, when the insert fits after
+    /// all; a failed copy is reported only if the cap refuses the insert.
+    #[test]
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers"),
+        not(feature = "ablation-blob-shared-arena")
+    ))]
+    fn prepared_insert_fallbacks() {
+        let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 8192);
+        m.insert_shared(1, &[1; 1000], 1).unwrap();
+        m.insert_shared(2, &[2; 1000], 1).unwrap();
+        let g0 = m.arena().generation();
+        // The insert fits: a prepared copy is dropped and the arena keeps its generation.
+        let p = m.prepare_compaction().unwrap();
+        assert_eq!(
+            m.insert_shared_after_prepare(3, &[3; 1000], 1, Some(Ok(p))),
+            (Ok(()), false)
+        );
+        assert_eq!(m.arena().generation(), g0);
+        // The insert fits: a failed copy is not reported.
+        assert_eq!(
+            m.insert_shared_after_prepare(4, &[4; 100], 1, Some(Err(ArenaError::AllocationFailed))),
+            (Ok(()), false)
+        );
+        // Fill the cap: a refused insert reports the failed copy and compacts nothing.
+        while m.insert_shared(9, &[9; 3000], 1).is_ok() {
+            assert!(m.remove(9));
+        }
+        assert_eq!(
+            m.insert_shared_after_prepare(
+                9,
+                &[9; 3000],
+                1,
+                Some(Err(ArenaError::AllocationFailed))
+            ),
+            (Err(ArenaError::AllocationFailed), false)
+        );
+        assert_eq!(m.arena().generation(), g0);
+        assert_eq!(m.get(1).unwrap().0.as_bytes(), &[1u8; 1000][..]);
+    }
+
     #[test]
     fn arena_full_after_compaction_is_distinct_from_a_declined_reclaim() {
         let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 6000);
