@@ -1,0 +1,69 @@
+# host: Intel Core i9-12900F, Linux 6.8, pin 0-15; tree: d71e65bd + probe.patch; built: cargo build --profile bench -p expanse-trie --bench reclaim_stall
+# load before: 0.77 0.45 0.19 1/538 376468
+== map=plain live=200000 writers=1 readers=0 round=0
+PHASE {"reserve_ns":2524,"collect_ns":1881888,"phase1_ns":11731653,"phase2_ns":1534643,"publish_ns":95,"dispose_ns":30481160,"drop_new_ns":172,"old_chunks":512,"new_chunks":14,"moved":200000}
+PHASE {"reserve_ns":2400,"collect_ns":1929360,"phase1_ns":11883689,"phase2_ns":1386747,"publish_ns":89,"dispose_ns":585000,"drop_new_ns":50,"old_chunks":512,"new_chunks":14,"moved":200000}
+{"appends":15963763,"arena_total_allocated":239075328,"compactions":2,"elapsed_s":3.27874155,"heap_before_window":31151251,"heap_end":241094338,"heap_peak":1108330715,"index_mem_used":1713152,"insert":{"count":15963763,"max_ns":45645823,"p50_ns":113,"p999_ns":1449,"p99_ns":842},"insert_top_ns":[45643585,15795838,185865,184884,161775,156579,155706,155109],"inserts_ok":15963763,"inserts_refused":0,"live":200000,"map":"plain","mode":"overwrite","payload_len":128,"readers":0,"round":0,"seed":318767104,"workload_id":"reclaim_stall","writers":1}
+== map=plain live=200000 writers=1 readers=0 round=1
+PHASE {"reserve_ns":3035,"collect_ns":1942912,"phase1_ns":11903592,"phase2_ns":1651805,"publish_ns":81,"dispose_ns":28954005,"drop_new_ns":160,"old_chunks":512,"new_chunks":14,"moved":200000}
+PHASE {"reserve_ns":2089,"collect_ns":1926044,"phase1_ns":11899671,"phase2_ns":1451939,"publish_ns":85,"dispose_ns":616383,"drop_new_ns":27,"old_chunks":512,"new_chunks":14,"moved":200000}
+{"appends":15963763,"arena_total_allocated":239075328,"compactions":2,"elapsed_s":3.273025979,"heap_before_window":31151251,"heap_end":241094338,"heap_peak":1108330715,"index_mem_used":1713152,"insert":{"count":15963763,"max_ns":44466175,"p50_ns":113,"p999_ns":1451,"p99_ns":841},"insert_top_ns":[44465863,15904021,184220,179062,159664,158317,155699,153585],"inserts_ok":15963763,"inserts_refused":0,"live":200000,"map":"plain","mode":"overwrite","payload_len":128,"readers":0,"round":1,"seed":318767105,"workload_id":"reclaim_stall","writers":1}
+== map=plain live=200000 writers=1 readers=0 round=2
+PHASE {"reserve_ns":2700,"collect_ns":1887306,"phase1_ns":11659935,"phase2_ns":1495356,"publish_ns":83,"dispose_ns":28702776,"drop_new_ns":171,"old_chunks":512,"new_chunks":14,"moved":200000}
+PHASE {"reserve_ns":2119,"collect_ns":1916454,"phase1_ns":11705832,"phase2_ns":1435285,"publish_ns":75,"dispose_ns":569444,"drop_new_ns":34,"old_chunks":512,"new_chunks":14,"moved":200000}
+{"appends":15963763,"arena_total_allocated":239075328,"compactions":2,"elapsed_s":3.283227503,"heap_before_window":31151251,"heap_end":241094338,"heap_peak":1108330715,"index_mem_used":1713152,"insert":{"count":15963763,"max_ns":43778047,"p50_ns":113,"p999_ns":1478,"p99_ns":855},"insert_top_ns":[43761038,15638354,183849,180358,179808,172437,157358,155103],"inserts_ok":15963763,"inserts_refused":0,"live":200000,"map":"plain","mode":"overwrite","payload_len":128,"readers":0,"round":2,"seed":318767106,"workload_id":"reclaim_stall","writers":1}
+== map=sync live=200000 writers=1 readers=2 round=0
+PHASE {"reserve_ns":2454,"collect_ns":1997032,"phase1_ns":11566807,"phase2_ns":1585693,"publish_ns":831,"dispose_ns":11490,"drop_new_ns":58,"old_chunks":512,"new_chunks":14,"moved":200000}
+SYNC {"enter_ns":28,"inside_ns":15176899,"after_ns":265}
+PHASE {"reserve_ns":2814,"collect_ns":1960164,"phase1_ns":11452961,"phase2_ns":1481242,"publish_ns":502,"dispose_ns":11332,"drop_new_ns":51,"old_chunks":512,"new_chunks":14,"moved":200000}
+SYNC {"enter_ns":28,"inside_ns":14920273,"after_ns":171}
+{"appends":15963763,"arena_total_allocated":239075328,"compactions":2,"elapsed_s":3.784224065,"heap_before_window":33215906,"heap_end":241285962,"heap_peak":1108974642,"index_mem_used":1713152,"insert":{"count":15963763,"max_ns":31408127,"p50_ns":123,"p999_ns":1530,"p99_ns":903},"insert_top_ns":[31397163,15179071,14922136,680050,646958,643919,553038,518247],"inserts_ok":15963763,"inserts_refused":0,"live":200000,"map":"sync","mode":"overwrite","payload_len":128,"read":{"count":66483840,"max_ns":15179775,"p50_ns":82,"p999_ns":470,"p99_ns":215},"readers":2,"round":0,"seconds":0,"seed":318767104,"workload_id":"reclaim_stall","writers":1}
+== map=sync live=200000 writers=1 readers=2 round=1
+PHASE {"reserve_ns":2495,"collect_ns":1947617,"phase1_ns":11503491,"phase2_ns":1537644,"publish_ns":952,"dispose_ns":11863,"drop_new_ns":53,"old_chunks":512,"new_chunks":14,"moved":200000}
+SYNC {"enter_ns":27,"inside_ns":15015165,"after_ns":167}
+PHASE {"reserve_ns":2877,"collect_ns":1993127,"phase1_ns":11739198,"phase2_ns":1528032,"publish_ns":547,"dispose_ns":11310,"drop_new_ns":20,"old_chunks":512,"new_chunks":14,"moved":200000}
+SYNC {"enter_ns":28,"inside_ns":15285014,"after_ns":231}
+{"appends":15963763,"arena_total_allocated":239075328,"compactions":2,"elapsed_s":3.808825592,"heap_before_window":33215906,"heap_end":241285962,"heap_peak":1108974642,"index_mem_used":1713152,"insert":{"count":15963763,"max_ns":29163519,"p50_ns":124,"p999_ns":1527,"p99_ns":904},"insert_top_ns":[29155545,15286995,15016915,641773,573725,568548,521318,519110],"inserts_ok":15963763,"inserts_refused":0,"live":200000,"map":"sync","mode":"overwrite","payload_len":128,"read":{"count":66880562,"max_ns":15294463,"p50_ns":83,"p999_ns":470,"p99_ns":213},"readers":2,"round":1,"seconds":0,"seed":318767105,"workload_id":"reclaim_stall","writers":1}
+== map=sync live=200000 writers=1 readers=2 round=2
+PHASE {"reserve_ns":2618,"collect_ns":1949585,"phase1_ns":11727992,"phase2_ns":1567685,"publish_ns":838,"dispose_ns":12208,"drop_new_ns":53,"old_chunks":512,"new_chunks":14,"moved":200000}
+SYNC {"enter_ns":28,"inside_ns":15273603,"after_ns":197}
+PHASE {"reserve_ns":2845,"collect_ns":2035981,"phase1_ns":11552148,"phase2_ns":1508527,"publish_ns":664,"dispose_ns":11618,"drop_new_ns":25,"old_chunks":512,"new_chunks":14,"moved":200000}
+SYNC {"enter_ns":28,"inside_ns":15121046,"after_ns":146}
+{"appends":15963763,"arena_total_allocated":239075328,"compactions":2,"elapsed_s":3.775088475,"heap_before_window":33215906,"heap_end":241285962,"heap_peak":1108974642,"index_mem_used":1713152,"insert":{"count":15963763,"max_ns":32686079,"p50_ns":121,"p999_ns":1527,"p99_ns":901},"insert_top_ns":[32678119,15275316,15122765,624966,600900,590234,518196,510014],"inserts_ok":15963763,"inserts_refused":0,"live":200000,"map":"sync","mode":"overwrite","payload_len":128,"read":{"count":65869684,"max_ns":15278079,"p50_ns":84,"p999_ns":474,"p99_ns":210},"readers":2,"round":2,"seconds":0,"seed":318767106,"workload_id":"reclaim_stall","writers":1}
+== map=plain live=3600000 writers=1 readers=0 round=0
+PHASE {"reserve_ns":2942,"collect_ns":35286942,"phase1_ns":217022676,"phase2_ns":24767427,"publish_ns":87,"dispose_ns":28744381,"drop_new_ns":43,"old_chunks":512,"new_chunks":248,"moved":3600000}
+PHASE {"reserve_ns":8607,"collect_ns":36038668,"phase1_ns":222306878,"phase2_ns":24846736,"publish_ns":111,"dispose_ns":9917679,"drop_new_ns":40,"old_chunks":512,"new_chunks":248,"moved":3600000}
+{"appends":8483763,"arena_total_allocated":631242752,"compactions":2,"elapsed_s":3.183848674,"heap_before_window":551062548,"heap_end":662444099,"heap_peak":1682642012,"index_mem_used":30829952,"insert":{"count":8483763,"max_ns":305922047,"p50_ns":203,"p999_ns":1560,"p99_ns":938},"insert_top_ns":[305838142,293128260,184159,166751,154447,154182,153970,153908],"inserts_ok":8483763,"inserts_refused":0,"live":3600000,"map":"plain","mode":"overwrite","payload_len":128,"readers":0,"round":0,"seed":318767104,"workload_id":"reclaim_stall","writers":1}
+== map=plain live=3600000 writers=1 readers=0 round=1
+PHASE {"reserve_ns":2821,"collect_ns":34192601,"phase1_ns":218934934,"phase2_ns":24905479,"publish_ns":92,"dispose_ns":29705449,"drop_new_ns":50,"old_chunks":512,"new_chunks":248,"moved":3600000}
+PHASE {"reserve_ns":8030,"collect_ns":34695243,"phase1_ns":223034584,"phase2_ns":24875225,"publish_ns":75,"dispose_ns":9793880,"drop_new_ns":49,"old_chunks":512,"new_chunks":248,"moved":3600000}
+{"appends":8483763,"arena_total_allocated":631242752,"compactions":2,"elapsed_s":3.171438639,"heap_before_window":551062548,"heap_end":662444099,"heap_peak":1682642012,"index_mem_used":30829952,"insert":{"count":8483763,"max_ns":307757055,"p50_ns":202,"p999_ns":1555,"p99_ns":938},"insert_top_ns":[307753246,292416946,180870,180548,153574,153492,153003,152602],"inserts_ok":8483763,"inserts_refused":0,"live":3600000,"map":"plain","mode":"overwrite","payload_len":128,"readers":0,"round":1,"seed":318767105,"workload_id":"reclaim_stall","writers":1}
+== map=plain live=3600000 writers=1 readers=0 round=2
+PHASE {"reserve_ns":2605,"collect_ns":34157779,"phase1_ns":219192601,"phase2_ns":25695710,"publish_ns":114,"dispose_ns":29390701,"drop_new_ns":118,"old_chunks":512,"new_chunks":248,"moved":3600000}
+PHASE {"reserve_ns":9126,"collect_ns":34512539,"phase1_ns":225036702,"phase2_ns":24977700,"publish_ns":80,"dispose_ns":9764111,"drop_new_ns":41,"old_chunks":512,"new_chunks":248,"moved":3600000}
+{"appends":8483763,"arena_total_allocated":631242752,"compactions":2,"elapsed_s":3.182824247,"heap_before_window":551062548,"heap_end":662444099,"heap_peak":1682642012,"index_mem_used":30829952,"insert":{"count":8483763,"max_ns":308543487,"p50_ns":203,"p999_ns":1570,"p99_ns":942},"insert_top_ns":[308460339,294312222,184740,180657,154425,154180,154152,153699],"inserts_ok":8483763,"inserts_refused":0,"live":3600000,"map":"plain","mode":"overwrite","payload_len":128,"readers":0,"round":2,"seed":318767106,"workload_id":"reclaim_stall","writers":1}
+== map=sync live=3600000 writers=1 readers=2 round=0
+PHASE {"reserve_ns":2859,"collect_ns":35377315,"phase1_ns":223244825,"phase2_ns":25635687,"publish_ns":1493,"dispose_ns":15010,"drop_new_ns":48,"old_chunks":512,"new_chunks":248,"moved":3600000}
+SYNC {"enter_ns":26,"inside_ns":284288036,"after_ns":292}
+PHASE {"reserve_ns":5226,"collect_ns":36366299,"phase1_ns":231276768,"phase2_ns":26463409,"publish_ns":1422,"dispose_ns":16602,"drop_new_ns":57,"old_chunks":512,"new_chunks":248,"moved":3600000}
+SYNC {"enter_ns":27,"inside_ns":294139718,"after_ns":622}
+{"appends":8483763,"arena_total_allocated":633339904,"compactions":2,"elapsed_s":3.433780793,"heap_before_window":553079859,"heap_end":664684331,"heap_peak":1683232883,"index_mem_used":30829952,"insert":{"count":8483763,"max_ns":294387711,"p50_ns":223,"p999_ns":1672,"p99_ns":1027},"insert_top_ns":[294142078,284290082,32603025,10613414,516288,515963,515383,509948],"inserts_ok":8483763,"inserts_refused":0,"live":3600000,"map":"sync","mode":"overwrite","payload_len":128,"read":{"count":25330463,"max_ns":294387711,"p50_ns":201,"p999_ns":746,"p99_ns":542},"readers":2,"round":0,"seconds":0,"seed":318767104,"workload_id":"reclaim_stall","writers":1}
+== map=sync live=3600000 writers=1 readers=2 round=1
+PHASE {"reserve_ns":2795,"collect_ns":35643696,"phase1_ns":224417691,"phase2_ns":25897893,"publish_ns":1463,"dispose_ns":14693,"drop_new_ns":51,"old_chunks":512,"new_chunks":248,"moved":3600000}
+SYNC {"enter_ns":27,"inside_ns":285989886,"after_ns":88}
+PHASE {"reserve_ns":9086,"collect_ns":35833210,"phase1_ns":226147060,"phase2_ns":26326164,"publish_ns":1308,"dispose_ns":18084,"drop_new_ns":44,"old_chunks":512,"new_chunks":248,"moved":3600000}
+SYNC {"enter_ns":27,"inside_ns":288345397,"after_ns":87}
+{"appends":8483763,"arena_total_allocated":633339904,"compactions":2,"elapsed_s":3.423927743,"heap_before_window":553079859,"heap_end":664684331,"heap_peak":1683232883,"index_mem_used":30829952,"insert":{"count":8483763,"max_ns":288358399,"p50_ns":222,"p999_ns":1661,"p99_ns":1030},"insert_top_ns":[288347178,285991841,30940485,11434946,592285,517438,510799,510122],"inserts_ok":8483763,"inserts_refused":0,"live":3600000,"map":"sync","mode":"overwrite","payload_len":128,"read":{"count":25350971,"max_ns":288358399,"p50_ns":200,"p999_ns":704,"p99_ns":541},"readers":2,"round":1,"seconds":0,"seed":318767105,"workload_id":"reclaim_stall","writers":1}
+== map=sync live=3600000 writers=1 readers=2 round=2
+PHASE {"reserve_ns":3422,"collect_ns":35535727,"phase1_ns":223762868,"phase2_ns":25727136,"publish_ns":1264,"dispose_ns":15558,"drop_new_ns":43,"old_chunks":512,"new_chunks":248,"moved":3600000}
+SYNC {"enter_ns":28,"inside_ns":285065125,"after_ns":220}
+PHASE {"reserve_ns":4870,"collect_ns":36003872,"phase1_ns":228978127,"phase2_ns":26222824,"publish_ns":1368,"dispose_ns":16042,"drop_new_ns":100,"old_chunks":512,"new_chunks":248,"moved":3600000}
+SYNC {"enter_ns":27,"inside_ns":291238254,"after_ns":194}
+{"appends":8483763,"arena_total_allocated":633339904,"compactions":2,"elapsed_s":3.42088666,"heap_before_window":553079859,"heap_end":664684331,"heap_peak":1683232883,"index_mem_used":30829952,"insert":{"count":8483763,"max_ns":291241983,"p50_ns":222,"p999_ns":1665,"p99_ns":1026},"insert_top_ns":[291240603,285067550,30420919,11306840,516042,512386,512328,509098],"inserts_ok":8483763,"inserts_refused":0,"live":3600000,"map":"sync","mode":"overwrite","payload_len":128,"read":{"count":25347437,"max_ns":291241983,"p50_ns":200,"p999_ns":663,"p99_ns":540},"readers":2,"round":2,"seconds":0,"seed":318767106,"workload_id":"reclaim_stall","writers":1}
+# load after: 1.35 0.65 0.27 1/539 376518
+# munmap census, plain live=200000 round=0 (strace -f -e trace=munmap):
+    526 2101248
+      1 32588
+      1 3203072
+      1 225280
+      1 12288
