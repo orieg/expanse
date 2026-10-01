@@ -71,10 +71,8 @@ fn counters_match_the_census_on_quiesced_wrappers() {
     let m = SyncExpanseMap::new();
     let sm = SyncExpanseStrMap::new();
     on_fresh_thread(|| {
-        // One wrapper after the other: the advance tick counts a thread's
-        // writes across every collector it writes to, so writes alternating
-        // between two wrappers can land nearly every advance on one of them
-        // (Refs #1314).
+        // One wrapper after the other, so each collector's census reflects
+        // only its own writes (the advance cadence is per tree since #1314).
         for k in (0..N).map(splitmix64) {
             m.insert(k, !k);
         }

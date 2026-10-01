@@ -180,8 +180,8 @@ fn bytes_and_blob_census_totals_match_mem_held_minus_mem_used() {
     let blob = SyncExpanseBlobMap::new();
     let ks = keys();
     on_fresh_thread(|| {
-        // One wrapper after the other: the advance tick counts a thread's
-        // writes across every collector it writes to (Refs #1314).
+        // One wrapper after the other, so each collector's census reflects
+        // only its own writes (the advance cadence is per tree since #1314).
         for &k in &ks {
             b.insert(&k.to_be_bytes(), k);
         }
