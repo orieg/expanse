@@ -219,4 +219,16 @@ class TestExpanse < Minitest::Test
                    "#{name} returns C bool and must be imported as unsigned char")
     end
   end
+
+  # examples/usage.rb is the landing page's Ruby tab (scripts/build_pages.py
+  # renders it); its `# Output:` block must be what it prints.
+  def test_usage_example_matches_its_output
+    path = File.expand_path("../examples/usage.rb", __dir__)
+    source = File.read(path)
+    marker = source.index("\n# Output:\n")
+    refute_nil marker, "examples/usage.rb has no `# Output:` block"
+    expected = source[(marker + "\n# Output:\n".length)..].lines.map { |l| l.sub(/\A# ?/, "") }.join
+    out, = capture_io { load path }
+    assert_equal expected, out
+  end
 end

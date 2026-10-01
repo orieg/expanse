@@ -4,6 +4,7 @@
 import datetime
 import html
 import os
+import re
 import shutil
 import subprocess
 from build_apt_repo import build_apt_repo
@@ -91,6 +92,46 @@ def go_usage_example(repo_root: str) -> tuple:
     body = lines[start:example] + ["func main() {"] + lines[example + 1:output] + ["}"]
     program = "package main\n\n" + "\n".join(body).replace("\t", "    ") + "\n"
     return module, program
+
+
+RUBY_EXAMPLE_FILE = os.path.join("bindings", "ruby", "examples", "usage.rb")
+RUBY_GEMSPEC = os.path.join("bindings", "ruby", "expanse.gemspec")
+
+
+def ruby_usage_example(repo_root: str) -> tuple:
+    """Returns (gem_version, program) for the landing page's Ruby tab.
+
+    The program is bindings/ruby/examples/usage.rb, which test/test_expanse.rb
+    runs and checks against its own `# Output:` block, so the page cannot drift
+    from the binding; a hand-written copy here once named a gem version three
+    minor releases old and described a native extension the Fiddle-based gem
+    never had. The rendered program is the file's lines from `require` down to
+    the line before the `# Output:` block. The version is the gemspec's. Fails
+    loud (AGENTS.md section 8.1) if either file no longer has that shape.
+    """
+    def fail(msg: str):
+        raise SystemExit(f"FATAL: Ruby usage example: {msg}")
+
+    try:
+        with open(os.path.join(repo_root, RUBY_GEMSPEC), "r", encoding="utf-8") as f:
+            m = re.search(r'^\s*spec\.version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+        with open(os.path.join(repo_root, RUBY_EXAMPLE_FILE), "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError as exc:
+        fail(str(exc))
+    if not m:
+        fail(f"no `spec.version = \"...\"` line in {RUBY_GEMSPEC}")
+    try:
+        start = next(i for i, ln in enumerate(lines) if ln.startswith("require "))
+        output = lines.index("# Output:")
+    except (StopIteration, ValueError):
+        fail(f"{RUBY_EXAMPLE_FILE} needs a `require` line and a `# Output:` block")
+    body = lines[start:output]
+    while body and not body[-1].strip():
+        body.pop()
+    if not body:
+        fail(f"{RUBY_EXAMPLE_FILE} has no program before its `# Output:` block")
+    return m.group(1), "\n".join(body) + "\n"
 
 
 def get_git_metadata(repo_root: str, default_version: str) -> dict:
@@ -878,6 +919,8 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
 
     go_module, go_example = go_usage_example(repo_root)
     go_example_html = html.escape(go_example.rstrip("\n"), quote=False)
+    ruby_gem_version, ruby_example = ruby_usage_example(repo_root)
+    ruby_example_html = html.escape(ruby_example.rstrip("\n"), quote=False)
 
     # 2. Main Portal index.html
     main_html_template = """<!DOCTYPE html>
@@ -1467,23 +1510,11 @@ $judy[42] = 999;</code></pre>
         </div>
 
         <div id="tab-ruby" class="install-panel" role="tabpanel" style="display: none;">
-          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official Ruby gem from RubyGems (native C extension with Rice/Magnus integration):</p>
-          <pre><code>gem install expanse -v 0.5.0
-# Or in Gemfile: gem 'expanse', '~&gt; 0.5.0'</code></pre>
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the gem from RubyGems. It is pure Ruby over the C ABI through <code>Fiddle</code>, so there is no extension to compile; it loads <code>libexpanse</code> (<code>.so</code> / <code>.dylib</code> / <code>.dll</code>) from the library path, or from <code>target/release</code> after <code>cargo build --release -p expanse-capi</code>:</p>
+          <pre><code>gem install expanse -v """ + ruby_gem_version + """
+# Or in Gemfile: gem 'expanse', '~&gt; """ + ruby_gem_version + """'</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Ruby:</p>
-          <pre><code>require 'expanse'
-
-# Integer word map with zero-allocation immediates
-map = Expanse::Map.new
-map[42] = 100
-puts "Key 42: #{map[42]}"
-
-# Bitmap-backed integer set with O(depth) rank/select
-set = Expanse::Set.new
-set.add(1001)
-set.add(1002)
-puts "Contains 1001: #{set.include?(1001)}"
-puts "Rank: #{set.rank(1002)}"</code></pre>
+          <pre><code>""" + ruby_example_html + """</code></pre>
         </div>
 
         <div id="tab-wasm" class="install-panel" role="tabpanel" style="display: none;">
