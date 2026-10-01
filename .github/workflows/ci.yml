@@ -2479,7 +2479,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # One cache per PHP version. ext-php-rs's build script does not rerun
+      # when the PHP it builds against changes, so a shared cache restored an
+      # extension built for another version's module API, which then failed to
+      # load and dropped the native run to the fallback driver.
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: php-${{ matrix.php-version }}
 
       - name: Build native addon
         run: cargo build --release -p expanse-capi
