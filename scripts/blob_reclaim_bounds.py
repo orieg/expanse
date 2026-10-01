@@ -91,7 +91,7 @@ STEP0_PROBE_LOG = (REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
 RECORD_HEADER_BYTES = 8
 ARENA_ALIGN = 16
 DEFAULT_CHUNK_SIZE = 2 * 1024 * 1024
-DEFAULT_ARENA_CAPACITY = 1 << 30
+MAX_ARENA_CAPACITY = 1 << 30
 MAX_ARENA_CHUNKS = 1 << 16
 # The proposed rule's one parameter: a compaction may copy at most this many
 # bytes per byte of chunk growth since the previous compaction.
@@ -407,7 +407,7 @@ def _read_const(pattern: str) -> int:
 def self_test() -> int:
     # Engine constants this module mirrors.
     assert _read_const(r"^pub const DEFAULT_CHUNK_SIZE: usize = (.+);") == DEFAULT_CHUNK_SIZE
-    assert _read_const(r"^pub const DEFAULT_ARENA_CAPACITY: usize = (.+);") == DEFAULT_ARENA_CAPACITY
+    assert _read_const(r"^pub const DEFAULT_ARENA_CAPACITY: usize = (.+);") == MAX_ARENA_CAPACITY
     assert _read_const(r"^pub const MAX_ARENA_CHUNKS: usize = (.+);") == MAX_ARENA_CHUNKS
     assert _read_const(r"^pub const ARENA_ALIGN: usize = (.+);") == ARENA_ALIGN
     src = BLOBMAP_RS.read_text()
@@ -426,42 +426,42 @@ def self_test() -> int:
     assert record_stride(9) == 32 and record_stride(8) == 16
     # (2 MiB - 136) // 144 + 1 = 14,562 + 1.
     assert records_per_chunk(128, DEFAULT_CHUNK_SIZE) == 14_563
-    assert max_chunks(DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY) == 512
-    assert max_chunks(4096, DEFAULT_ARENA_CAPACITY) == MAX_ARENA_CHUNKS  # the chunk count binds
+    assert max_chunks(DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) == 512
+    assert max_chunks(4096, MAX_ARENA_CAPACITY) == MAX_ARENA_CHUNKS  # the chunk count binds
     assert compacted_chunks(HARNESS_LIVE, 128, DEFAULT_CHUNK_SIZE) == 14  # ceil(200,000 / 14,563)
 
     # The #1280 harness's live set is sustained at the default cap with a wide margin.
-    assert sustains_overwrite(HARNESS_LIVE, HARNESS_LEN, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY)
-    m = max_sustained_live_records(HARNESS_LEN, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY)
+    assert sustains_overwrite(HARNESS_LIVE, HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    m = max_sustained_live_records(HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
     # Pinned: the largest L with L * 136 <= (512 - ceil(L / 14,563)) * 2 MiB.
     # L = 3,830,069 fills 263 chunks exactly: 520,889,384 <= 249 * 2 MiB =
     # 522,190,848. One more record opens a 264th: 520,889,520 > 520,093,696.
     # The waste guard allows up to 2 * L * 136 < 2^30, L <= 3,947,580, so (A)
     # binds here and the amendment leaves this figure unchanged.
     assert m == 3_830_069, m
-    assert sustains_overwrite(m, 128, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY)
-    assert not sustains_overwrite(m + 1, 128, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY)
-    assert 0.51 < live_share_of_cap(m, 128, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY) < 0.52
+    assert sustains_overwrite(m, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    assert not sustains_overwrite(m + 1, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    assert 0.51 < live_share_of_cap(m, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) < 0.52
     # A larger k admits more live data (monotone in k).
-    assert max_sustained_live_records(128, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY, k=2) > m
+    assert max_sustained_live_records(128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY, k=2) > m
 
     # Cost at the harness's live set: about 0.027 bytes copied per byte appended.
-    c = copy_per_append(HARNESS_LIVE, 128, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY)
+    c = copy_per_append(HARNESS_LIVE, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
     assert abs(c - 200_000 / (512 * 14_563 - 200_000)) < 1e-12 and c < 0.03
     # At the sustained maximum the copy per appended byte stays near k (here k = 1).
-    assert copy_per_append(m, 128, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY) < 1.1
+    assert copy_per_append(m, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) < 1.1
     assert stall_copy_bytes(HARNESS_LIVE, 128) == 27_200_000
     # (B) bounds every automatic copy below half the cap: 512 MiB - 1 byte at
     # the default cap, whatever the live set or the payload size.
-    assert max_stall_bytes(DEFAULT_ARENA_CAPACITY) == (1 << 29) - 1
+    assert max_stall_bytes(MAX_ARENA_CAPACITY) == (1 << 29) - 1
     for plen in (8, 9, 128, 1_048_577):
-        mm = max_sustained_live_records(plen, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY)
-        assert stall_copy_bytes(mm, plen) <= max_stall_bytes(DEFAULT_ARENA_CAPACITY), plen
+        mm = max_sustained_live_records(plen, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+        assert stall_copy_bytes(mm, plen) <= max_stall_bytes(MAX_ARENA_CAPACITY), plen
     # Transient peak at the harness's live set and at the sustained maximum:
     # old arena at the cap + repacked live set + 16 B per index entry.
-    assert compaction_peak_bytes(DEFAULT_ARENA_CAPACITY, HARNESS_LIVE, 128, DEFAULT_CHUNK_SIZE,
+    assert compaction_peak_bytes(MAX_ARENA_CAPACITY, HARNESS_LIVE, 128, DEFAULT_CHUNK_SIZE,
                                  HARNESS_LIVE) == (1 << 30) + 14 * (2 << 20) + 3_200_000
-    assert compaction_peak_bytes(DEFAULT_ARENA_CAPACITY, m, 128, DEFAULT_CHUNK_SIZE, m) == \
+    assert compaction_peak_bytes(MAX_ARENA_CAPACITY, m, 128, DEFAULT_CHUNK_SIZE, m) == \
         (1 << 30) + 263 * (2 << 20) + 16 * 3_830_069
 
     # The closed forms against the record-level model on small arenas, over
@@ -547,7 +547,7 @@ def self_test() -> int:
     # Invalid inputs fail loudly.
     for bad in (lambda: records_per_chunk(5000, 4096), lambda: record_needed(-1),
                 lambda: max_chunks(0, 10), lambda: sustains_overwrite(1, 8, 4096, 65536, k=0),
-                lambda: copy_per_append(512 * 14_563, 128, DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY),
+                lambda: copy_per_append(512 * 14_563, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY),
                 lambda: reader_wait_ratio_bound({"phase2_ns": 1, "publish_ns": 0, "inside_ns": 0}),
                 lambda: reader_wait_bound_ns({"phase2_ns": -1, "publish_ns": 0})):
         try:
@@ -561,7 +561,7 @@ def self_test() -> int:
 
 
 def report() -> None:
-    chunk, cap = DEFAULT_CHUNK_SIZE, DEFAULT_ARENA_CAPACITY
+    chunk, cap = DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY
     print(f"rule: compact on refused growth iff live_bytes <= {RECLAIM_COPY_PER_GROWTH} x (chunk growth + live drop) "
           "since the previous compaction, and 2 x live_bytes < allocated chunk bytes")
     print(f"{'payload B':>10} {'rec/chunk':>10} {'max live recs':>14} {'share of cap':>13} "

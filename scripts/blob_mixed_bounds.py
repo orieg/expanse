@@ -55,7 +55,7 @@ CONCURRENCY_RS = REPO_ROOT / "crates" / "expanse" / "benches" / "concurrency.rs"
 RECORD_HEADER_BYTES = 8
 ARENA_ALIGN = 16
 DEFAULT_CHUNK_SIZE = 2 * 1024 * 1024
-DEFAULT_ARENA_CAPACITY = 1 << 30
+MAX_ARENA_CAPACITY = 1 << 30
 MAX_WRITER_SLOTS = 64
 BLOB_POP = 200_000
 BLOB_LEN = 128
@@ -211,7 +211,7 @@ def self_test() -> int:
 
     # The mirrored constants still match the code.
     assert _read_const(BLOBMAP_RS, r"^pub const DEFAULT_CHUNK_SIZE: usize = ([0-9_ *]+);") == DEFAULT_CHUNK_SIZE
-    assert _read_const(BLOBMAP_RS, r"^pub const DEFAULT_ARENA_CAPACITY: usize = ([0-9_ <]+);") == DEFAULT_ARENA_CAPACITY
+    assert _read_const(BLOBMAP_RS, r"^pub const DEFAULT_ARENA_CAPACITY: usize = ([0-9_ <]+);") == MAX_ARENA_CAPACITY
     assert _read_const(BLOBMAP_RS, r"^pub const ARENA_ALIGN: usize = ([0-9_]+);") == ARENA_ALIGN
     assert MAX_WRITER_SLOTS in [
         _int_expr(v) for v in re.findall(r"const MAX_WRITER_SLOTS: usize = ([0-9_]+);", OCC_RS.read_text())
@@ -220,7 +220,7 @@ def self_test() -> int:
     assert _read_const(CONCURRENCY_RS, r"^const BLOB_LEN: usize = ([0-9_]+);") == BLOB_LEN
     assert re.search(r"^const BLOB_COMPACT_APPENDS: u64 = BLOB_POP;", CONCURRENCY_RS.read_text(), re.M)
     assert "(off + needed + 15) & !15" in SYNC_RS.read_text()
-    assert _int_expr("2 * 1024 * 1024") == DEFAULT_CHUNK_SIZE and _int_expr("1 << 30") == DEFAULT_ARENA_CAPACITY
+    assert _int_expr("2 * 1024 * 1024") == DEFAULT_CHUNK_SIZE and _int_expr("1 << 30") == MAX_ARENA_CAPACITY
 
     # Record size: 8 + 128 = 136, rounded to 144.
     assert record_bytes(128) == 144
@@ -230,13 +230,13 @@ def self_test() -> int:
     # The pre-#1280 harness: 200k live records under the 1 GiB cap and no
     # compaction. (2^30 - 200000 * 144) / 144 = 7,256,540.4 inserts, about
     # 14.5 M writes at 50/50 insert/remove.
-    assert appends_to_cap(DEFAULT_ARENA_CAPACITY, BLOB_POP, BLOB_LEN) == 7_256_540
+    assert appends_to_cap(MAX_ARENA_CAPACITY, BLOB_POP, BLOB_LEN) == 7_256_540
     raises(appends_to_cap, 1000, 100, BLOB_LEN)
 
     # The repaired harness: (200k + 200k) * 144 + 64 * 2 MiB = 57,600,000 + 134,217,728.
     hw = arena_high_water_bytes(BLOB_POP, BLOB_COMPACT_APPENDS, BLOB_LEN, MAX_WRITER_SLOTS, DEFAULT_CHUNK_SIZE)
     assert hw == 191_817_728
-    margin = cap_margin(DEFAULT_ARENA_CAPACITY, hw)
+    margin = cap_margin(MAX_ARENA_CAPACITY, hw)
     assert abs(margin - 5.5977) < 1e-3, margin
     assert margin >= REQUIRED_CAP_MARGIN
 
@@ -244,8 +244,8 @@ def self_test() -> int:
     # 3.86x under the cap, and one compaction for every four at the same rate.
     hw4 = arena_high_water_bytes(BLOB_POP, ABLATION_COMPACT_APPENDS, BLOB_LEN, MAX_WRITER_SLOTS, DEFAULT_CHUNK_SIZE)
     assert hw4 == 278_217_728
-    assert abs(cap_margin(DEFAULT_ARENA_CAPACITY, hw4) - 3.8593) < 1e-3
-    assert cap_margin(DEFAULT_ARENA_CAPACITY, hw4) >= REQUIRED_CAP_MARGIN
+    assert abs(cap_margin(MAX_ARENA_CAPACITY, hw4) - 3.8593) < 1e-3
+    assert cap_margin(MAX_ARENA_CAPACITY, hw4) >= REQUIRED_CAP_MARGIN
     assert compactions_per_s(20e6, 0.5, INSERT_PROBABILITY, ABLATION_COMPACT_APPENDS) == 6.25
 
     # The write bit holds half the keyspace, and a quarter of writes remove a present key.
@@ -281,9 +281,9 @@ def main() -> int:
         hw = arena_high_water_bytes(BLOB_POP, BLOB_COMPACT_APPENDS, BLOB_LEN, MAX_WRITER_SLOTS, DEFAULT_CHUNK_SIZE)
         occ = equilibrium_occupancy(INSERT_PROBABILITY)
         print(f"record bytes ({BLOB_LEN} B payload): {record_bytes(BLOB_LEN)}")
-        print(f"inserts to the cap without compaction: {appends_to_cap(DEFAULT_ARENA_CAPACITY, BLOB_POP, BLOB_LEN):,}")
+        print(f"inserts to the cap without compaction: {appends_to_cap(MAX_ARENA_CAPACITY, BLOB_POP, BLOB_LEN):,}")
         print(f"arena high-water ceiling under the trigger: {hw:,} B, cap margin "
-              f"{cap_margin(DEFAULT_ARENA_CAPACITY, hw):.2f}x")
+              f"{cap_margin(MAX_ARENA_CAPACITY, hw):.2f}x")
         print(f"equilibrium occupancy {occ}, remove-hit share of writes {remove_hit_share(INSERT_PROBABILITY, occ)}")
         for build in ("parent", "miss_shortcut", "optimistic"):
             print(f"serialised share of ops at 50% read, {build}: "
