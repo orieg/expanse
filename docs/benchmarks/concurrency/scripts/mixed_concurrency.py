@@ -147,6 +147,11 @@ SAMPLE_KEYS = (
 STEP2_SAMPLE_KEYS = SAMPLE_KEYS[:SAMPLE_KEYS.index("remove_hits")]
 RAW_KEYS = ("round", "position", "elapsed_s", "read_ops", "write_ops", "busy", "ok", "refused",
             "remove_hits", "compactions", "arena_bytes", "compact_ns")
+# The `sync32` arm's thread placement per window (#1292): each reader's and
+# the writer's `[cpu, core, cpu, core]`, before the window's barrier and after
+# its timed loop, where `core` is the lowest-numbered CPU sharing that
+# physical core. Carried into that arm's `rounds_raw` only.
+PLACEMENT_KEYS = ("reader_placement", "writer_placement")
 # The share of writes that removed a present key once the independent write
 # bit holds occupancy at half the keyspace (#1280): half the writes are
 # removals and half of those find their key. A mixed window far from it
@@ -401,6 +406,9 @@ def summarize_cell(rows: list[dict[str, Any]], base: dict[int, float] | None,
         attempts = busy + sum(r["ok"] for r in rows)
         cell["busy_pct"] = 100.0 * busy / attempts if attempts else 0.0
         cell["refused_writes"] = sum(r["refused"] for r in rows)
+        shared = writer_core_shared(rows)
+        if shared is not None:
+            cell["writer_core_shared_share"] = shared
     if base is not None and first["threads"] != 1:
         ratios = [t / base[r["round"]] for t, r in zip(total, rows)]
         scale_mean, scale_lo, scale_hi, scale_method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
@@ -428,8 +436,26 @@ def summarize_cell(rows: list[dict[str, Any]], base: dict[int, float] | None,
             by_round = [t for _, t in sorted(zip((r["round"] for r in rows), total))]
             cell["later_over_earlier_median"] = _median(by_round[half:]) / _median(by_round[:half])
     cell["load"] = dict(load, scope=LOAD_SCOPE)
-    cell["rounds_raw"] = [{k: r[k] for k in RAW_KEYS} for r in rows]
+    raw_keys = RAW_KEYS + (PLACEMENT_KEYS if first["engine_key"] == SYNC32
+                           and all(k in first for k in PLACEMENT_KEYS) else ())
+    cell["rounds_raw"] = [{k: r[k] for k in raw_keys} for r in rows]
     return cell
+
+
+def writer_core_shared(rows: list[dict[str, Any]]) -> float | None:
+    """The share of a `sync32` cell's windows in which at least one reader
+    ended its timed loop on the writer's physical core (#1292), or None when
+    the windows carry no placement or the platform reported no core."""
+    if not rows or any(k not in rows[0] for k in PLACEMENT_KEYS):
+        return None
+    shared = 0
+    for r in rows:
+        writer_core = r["writer_placement"][3]
+        reader_cores = [p[3] for p in r["reader_placement"]]
+        if writer_core < 0 or any(c < 0 for c in reader_cores):
+            return None
+        shared += writer_core in reader_cores
+    return shared / len(rows)
 
 
 def workload_problems(rows: list[dict[str, Any]]) -> list[str]:
@@ -1326,6 +1352,13 @@ def _synthetic_rows(key: str, workload: str, read_pct: int | None, threads: list
                 "arena_bytes": 0,
                 "compact_ns": 0,
             })
+            if key == SYNC32:
+                # Readers on cores 1.., the writer on core 0, except that in
+                # round 0 the first reader ends on the writer's core.
+                rows[-1]["reader_placement"] = [
+                    [2 * (i + 1), i + 1, 2 * (i + 1) + 1, 0 if round_idx == 0 and i == 0 else i + 1]
+                    for i in range(t)]
+                rows[-1]["writer_placement"] = [0, 0, 0, 0]
     return rows
 
 
@@ -1382,6 +1415,18 @@ def self_test() -> int:
            + _synthetic_rows(SYNC32, "writer 10k/s / N readers try_get", None, threads, rounds))
     s32_cells = summarize_group(s32, threads, rounds, load)
     assert len(s32_cells) == 2 * len(threads) and all("busy_pct" in c for c in s32_cells)
+    # Placement (#1292): carried into sync32 rounds_raw, summarised per cell
+    # (one synthetic round in 18 puts a reader on the writer's core), absent
+    # from every other arm, and no summary from windows that lack it.
+    for c in s32_cells:
+        assert set(c["rounds_raw"][0]) == set(RAW_KEYS + PLACEMENT_KEYS), c["rounds_raw"][0]
+        assert len(c["rounds_raw"][0]["reader_placement"]) == c["threads"]
+        assert abs(c["writer_core_shared_share"] - 1 / rounds) < 1e-12, c["writer_core_shared_share"]
+    assert all("writer_core_shared_share" not in c and set(c["rounds_raw"][0]) == set(RAW_KEYS)
+               for c in cells)
+    bare = [{k: v for k, v in r.items() if k not in PLACEMENT_KEYS} for r in s32]
+    assert all("writer_core_shared_share" not in c and set(c["rounds_raw"][0]) == set(RAW_KEYS)
+               for c in summarize_group(bare, threads, rounds, load))
 
     # Negative controls: a dropped thread count, a swapped order, a zero window.
     expect_error(summarize_group, [r for r in rows if r["threads"] != 4], threads, rounds, load,

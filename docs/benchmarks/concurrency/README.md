@@ -2469,7 +2469,13 @@ the thread count reach 200k), and the compaction's cost is in their rates, as
 `SkipMap`'s deferred epoch reclamation and `BTreeMap`'s inline frees are in
 theirs. The `sync32` rows fix the roles instead — one writer at the named duty,
 N readers on `try_get` — and report the share of read attempts abandoned to an
-open write bracket (Busy rate) and the writer's refused mutations.
+open write bracket (Busy rate) and the writer's refused mutations. Each `sync32`
+window also records where its threads ran (#1292): `rounds_raw` carries every
+reader's and the writer's `[cpu, core, cpu, core]`, read before the window's
+barrier and after its timed loop (`core` is the lowest-numbered CPU sharing that
+physical core), and each `sync32` cell reports `writer_core_shared_share`, the
+share of its windows in which a reader ended on the writer's physical core.
+Artifacts produced before this field existed carry neither.
 
 Arms compare only within a key type: u64 → u64 with 1M of 2M keys present (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload with 200k of 400k present (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 with 100k of 200k present (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`).
 

@@ -57,7 +57,7 @@
 //! | `hit_rate` | 50% at 100% read (half the keyspace is present). Under a mix a write inserts or removes a uniform key on an independent coin, so occupancy stays at half and 0.25 of writes remove a present key; `mixed_concurrency.py` refuses a window more than 0.05 from that share (#1280). Until #1280 writes inserted even keys and removed odd ones, which left every removal a miss and every insert an overwrite after the first window |
 //! | `miss_gen_method` | Bounded keyspace random stream |
 //! | `value_dereference` | `black_box(sink)` |
-//! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time |
+//! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time; the `sync32` arm reads each thread's CPU and core before the barrier and after the timed loop (#1292) |
 //! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type. Reclamation differs by arm and is inside every rate: `BTreeMap` frees a replaced or removed `Vec` inline under its write lock, `SkipMap` defers node reclamation to crossbeam-epoch collection on the worker threads, and the two Expanse blob arms compact their arena on the shared trigger `BLOB_COMPACT_APPENDS` (count and arena bytes published per window). `DashMap` clones its key on every insert; the `Mutex` string arms draw their op choice inside the lock. |
 //! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`) |
 //! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36658309874 and 36661955960, commit f9853201)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload |
@@ -339,6 +339,12 @@ struct Sample {
     compactions: u64,
     compact_ns: u64,
     arena_bytes: u64,
+    /// `sync32` only (#1292): where each reader thread ran, as
+    /// [`placement`] before the window's barrier and after its timed loop,
+    /// `[cpu, core, cpu, core]`; the first `threads` entries are filled.
+    reader_placement: [[i32; 4]; S32_MAX_READERS],
+    /// `sync32` only: the writer thread's placement, as `reader_placement`.
+    writer_placement: [i32; 4],
     #[cfg(feature = "occ-stats")]
     stats: [u64; expanse_trie::occ_stats::NUM_STATS],
 }
@@ -359,6 +365,8 @@ impl Default for Sample {
             compactions: 0,
             compact_ns: 0,
             arena_bytes: 0,
+            reader_placement: [[-1; 4]; S32_MAX_READERS],
+            writer_placement: [-1; 4],
             #[cfg(feature = "occ-stats")]
             stats: [0; expanse_trie::occ_stats::NUM_STATS],
         }
@@ -941,6 +949,40 @@ const S32_CHURN: u32 = 4_096;
 const S32_NODE_CAP: usize = 16_384;
 const S32_MAX_READERS: usize = 16;
 
+/// The CPU the calling thread is running on, and its physical core named by
+/// the lowest-numbered CPU that shares it (the first entry of
+/// `/sys/devices/system/cpu/cpuN/topology/thread_siblings_list`), which,
+/// unlike `core_id`, is unique across packages. Either is -1 where the
+/// platform cannot say. The `sync32` arm reads it before a window's barrier
+/// and after its timed loop, never inside it (#1292).
+fn placement() -> [i32; 2] {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: `sched_getcpu` takes no arguments and has no preconditions.
+        let cpu = unsafe { libc::sched_getcpu() };
+        let core = if cpu < 0 {
+            -1
+        } else {
+            std::fs::read_to_string(format!(
+                "/sys/devices/system/cpu/cpu{cpu}/topology/thread_siblings_list"
+            ))
+            .ok()
+            .and_then(|t| {
+                t.trim()
+                    .split([',', '-'])
+                    .next()
+                    .and_then(|first| first.parse().ok())
+            })
+            .unwrap_or(-1)
+        };
+        [cpu, core]
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        [-1, -1]
+    }
+}
+
 /// One writer on the churn range — at full duty when `write_rate` is
 /// `None`, otherwise paced to that many mutations per second by spinning
 /// on a deadline — and `threads` readers over the whole keyspace, over the rounds
@@ -981,14 +1023,18 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                 AtomicU64::new(0),
             );
             let mut elapsed_s = 0.0;
+            let mut reader_placement = [[-1; 4]; S32_MAX_READERS];
+            let mut writer_placement = [-1; 4];
             std::thread::scope(|s| {
+                let mut reader_handles = Vec::with_capacity(threads);
                 for (i, r) in readers[..threads].iter_mut().enumerate() {
                     let window = &window;
                     let (busy_total, ok_total) = (&busy_total, &ok_total);
-                    s.spawn(move || {
+                    reader_handles.push(s.spawn(move || {
                         let mut rng = XorShift(0x1000 + i as u64);
                         let (mut ok, mut busy) = (0u64, 0u64);
                         let mut sink = 0u32;
+                        let before = placement();
                         window.begin();
                         while window.running() {
                             let k = (rng.next() % (2 * u64::from(S32_STABLE))) as u32;
@@ -1000,12 +1046,14 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                                 Err(Busy) => busy += 1,
                             }
                         }
+                        let after = placement();
                         std::hint::black_box(sink);
                         ok_total.fetch_add(ok, Ordering::Relaxed);
                         busy_total.fetch_add(busy, Ordering::Relaxed);
-                    });
+                        [before[0], before[1], after[0], after[1]]
+                    }));
                 }
-                {
+                let writer_handle = {
                     let window = &window;
                     let w = &mut w;
                     let (refused_total, write_total) = (&refused_total, &write_total);
@@ -1013,6 +1061,7 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                         let mut rng = XorShift(0x5EED_5EED);
                         let (mut writes, mut refused) = (0u64, 0u64);
                         let period = write_rate.map(|r| Duration::from_secs_f64(1.0 / r as f64));
+                        let before = placement();
                         window.begin();
                         let start = Instant::now();
                         while window.running() {
@@ -1046,15 +1095,21 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                                 }
                             }
                         }
+                        let after = placement();
                         write_total.fetch_add(writes, Ordering::Relaxed);
                         refused_total.fetch_add(refused, Ordering::Relaxed);
-                    });
-                }
+                        [before[0], before[1], after[0], after[1]]
+                    })
+                };
                 window.begin();
                 let t0 = Instant::now();
                 std::thread::sleep(WINDOW);
                 window.stop.store(true, Ordering::Relaxed);
                 elapsed_s = t0.elapsed().as_secs_f64();
+                for (slot, h) in reader_placement.iter_mut().zip(reader_handles) {
+                    *slot = h.join().expect("reader thread");
+                }
+                writer_placement = writer_handle.join().expect("writer thread");
             });
             let ok = ok_total.load(Ordering::Relaxed);
             samples.push(Sample {
@@ -1067,6 +1122,8 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                 busy: busy_total.load(Ordering::Relaxed),
                 ok,
                 refused: refused_total.load(Ordering::Relaxed),
+                reader_placement,
+                writer_placement,
                 #[cfg(feature = "occ-stats")]
                 stats: expanse_trie::occ_stats::snapshot(),
                 ..Sample::default()
@@ -1210,6 +1267,11 @@ fn write_samples(
             "compact_ns": s.compact_ns,
             "arena_bytes": s.arena_bytes,
         });
+        let mut row = row;
+        if cell.engine_key == SYNC32_KEY {
+            row["reader_placement"] = json!(&s.reader_placement[..s.threads]);
+            row["writer_placement"] = json!(s.writer_placement);
+        }
         writeln!(out, "{row}").expect("write EXPANSE_BENCH_SAMPLES");
     }
     out.flush().expect("flush EXPANSE_BENCH_SAMPLES");
