@@ -676,6 +676,8 @@ Two DOIs are minted. Cite the **concept DOI** for the project as a whole — it 
 | Scope | DOI |
 |---|---|
 | Concept (all versions) | [`10.5281/zenodo.22152112`](https://doi.org/10.5281/zenodo.22152112) |
+| v0.10.0 | [`10.5281/zenodo.23091733`](https://doi.org/10.5281/zenodo.23091733) |
+| v0.9.2 | [`10.5281/zenodo.23043802`](https://doi.org/10.5281/zenodo.23043802) |
 | v0.9.1 | [`10.5281/zenodo.23033289`](https://doi.org/10.5281/zenodo.23033289) |
 | v0.9.0 | [`10.5281/zenodo.23005353`](https://doi.org/10.5281/zenodo.23005353) |
 | v0.8.2 | [`10.5281/zenodo.22946275`](https://doi.org/10.5281/zenodo.22946275) |
