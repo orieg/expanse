@@ -4353,3 +4353,69 @@ As §28.4: every arm of `instruction-counts` and `callgrind-smoke` within 0.1 % 
   - a distinct error, or error context, separating "full" from "fragmented";
   - exposing the cap and the switch in `expanse.h` and the bindings, after splitting the cap's image-validation role from its runtime budget;
   - incremental compaction. It needs per-chunk live counters and a key in the record header, which is a format change under AGENTS.md §2.3.
+
+## 29. Pre-registration for #1300 item 1 — the stall and the memory peak of reclamation at the cap (appended and locked 2026-10-01, before any code or run of the harness below)
+
+### 29.1 Context
+
+#1296 made an insert that the arena's capacity cap refuses a chunk compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1). The rule bounds the copy by construction: it stays under half the cap. The copy's duration has not been measured, and neither has the memory a compaction holds. §28 and §28a measured cells that never reach the cap.
+
+The §27 runs give a per-record cost: 53.07–58.80 ns per live record across 12 cells (`s27_ns_per_record` in `scripts/blob_reclaim_bounds.py`). Linear in the live records, that predicts a stall of 10.61–11.76 ms at 200,000 records and 191.1–211.7 ms at 3,600,000 (`predicted_stall_ns`). A review of #1296 expected large live sets to cost more per record, because the copy and the index re-descent leave the last-level cache. This section measures both.
+
+### 29.2 The harness
+
+`crates/expanse/benches/reclaim_stall.rs`, run by `docs/benchmarks/concurrency/scripts/reclaim_stall.py` as the `reclaim_stall` suite of `bench_baremetal.yml`.
+
+- **One process per (cell, round).** Cells run in an order rotated per round. Each process prints one JSON row.
+- **Payloads:** 128 B with `hot_meta = 1`, so every payload is an arena record. The arena uses the default 2 MiB chunks and 1 GiB cap.
+- **Keys:** the live set's keys are `0..L`.
+- **Timing:** per operation, with `Instant::now()` around the call, recorded in an HdrHistogram (3 significant figures).
+- **Memory:** a counting global allocator records the process's live heap and its peak.
+
+**Overwrite cells.** The map is prefilled with `L` live records. Then `W` writers overwrite uniformly drawn live keys until the arena has completed 2.2 append cycles. A cycle is `max_chunks × records_per_chunk − L` appends: 7,256,256 at `L = 200,000` and 3,856,256 at 3,600,000. That is enough for two automatic compactions. The compactions are counted once, at the end of the window, from the arena generation, so no observer runs inside it. On `SyncExpanseBlobMap`, `R = 2` reader threads read uniformly drawn live keys through their own reader handles for the whole window.
+
+| map | W | R | L |
+|---|---|---|---|
+| `ExpanseBlobMap` | 1 | 0 | 200,000 and 3,600,000 |
+| `SyncExpanseBlobMap` | 1, 4, 12 | 2 | 200,000 and 3,600,000 |
+
+**Full-map cells.** A `SyncExpanseBlobMap` is filled with distinct keys until an insert is refused. The arena is then more than half live, so the waste guard declines every compaction. `W ∈ {4, 12}` writers then insert fresh keys for 3 s while `R = 2` readers read. Every insert is expected to be refused.
+
+**Recorded per row:**
+- the insert-latency and read-latency percentiles (p50, p99, p99.9, max);
+- the 8 largest insert latencies;
+- the compactions in the window;
+- the index's `mem_used`, the arena's `total_allocated`, and the peak and final live heap;
+- in full-map cells, the refused-insert count and rate.
+
+**Rounds and host.** 5 rounds per cell, on the reference host, with the bare-metal suite's pin (`0-15`), host guard and load windows. An artifact carries the §8.17 provenance that `check_bench_provenance.py` requires.
+
+### 29.3 Predictions
+
+The stall of a window is its largest insert latency. A window holds two automatic compactions, each paid by the insert that triggered it, and no other source of a stall that size is expected.
+
+| id | quantity | prediction | read |
+|---|---|---|---|
+| P1 | the stall, per overwrite cell, median over rounds | within the linear range of 29.1: 10.61–11.76 ms at 200,000, 191.1–211.7 ms at 3,600,000 | reported against the range, with the BCa interval over rounds |
+| P2 | the per-record stall ratio, (stall ÷ L at 3,600,000) ÷ (stall ÷ L at 200,000), per map and W | linear: 1.0; the review's cache-bound alternative: above 1.25 | `LINEAR` when the BCa interval lies in [0.8, 1.25], `SUPERLINEAR` when its lower bound exceeds 1.25, `INCONCLUSIVE` otherwise |
+| P3 | on `SyncExpanseBlobMap` overwrite cells, the largest read latency ÷ the stall | readers wait for the whole compaction (the tree bracket is open): at least 0.5 | `HOLDS` when it is at least 0.5 in every round, `FAILS` when it is below 0.5 in every round |
+| P4 | on `ExpanseBlobMap` overwrite cells, the peak live heap ÷ (index `mem_used` + `compaction_peak_bytes`) | within [0.9, 1.1] | per round; `SyncExpanseBlobMap` cells reported, since retired chunks wait for the epoch collector |
+| P5 | on full-map cells, the refused-insert p99 latency | at most 100 µs at W = 4 and 12 (the fast refusal, §28a C2) | `HOLDS` when it holds in every round |
+
+### 29.4 What each outcome licenses
+
+- **P1 at 3,600,000 — a median stall of at least 100 ms in any cell:** the stall is material at sizes the rule sustains. #1300's reader-bracket split and incremental compaction move ahead of its other items. Below 100 ms in every cell, they stay behind them.
+- **P2 `SUPERLINEAR`:** the linear prediction understates large live sets. The docs' stall statement gains the measured per-record cost.
+- **P3 `FAILS`:** the docs' statement that new reads wait for the compaction is wrong and is corrected.
+- **P4 outside [0.9, 1.1]:** `compaction_peak_bytes` misstates the peak and is corrected, with the measured term.
+- **P5 not `HOLDS`:** the fast refusal does not hold under load, and #1300 records it.
+
+No prediction is a merge gate: the harness changes no engine code.
+
+### 29.5 Not predicted, and out of scope
+
+- **Not predicted:**
+  - the latency of reads that started before the compaction (they keep reading retired chunks);
+  - the frequency droop a long copy may cause;
+  - payload sizes other than 128 B.
+- **Out of scope:** any engine change. A measurement that motivates one gets its own pre-registration.

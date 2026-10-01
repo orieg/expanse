@@ -5568,3 +5568,79 @@ Controls, R′ ÷ B:
 - **The read-only 16-thread blob cell is a loss in run 1 only.** It reads 0.994 in run 1 and 1.002 [0.999, 1.005] in run 2, so rule 18's two-run condition does not hold here. §28's reading of R (0.989 in both runs) stands as published for R.
 - **The `map` control moved outside the band in run 1 only**, so by §27.5's rule the comparison is not voided. It is reported beside the gate rather than read as drift.
 
+
+## 29. The stall and the memory peak of reclamation at the cap — METHODOLOGY §29's evaluation (Refs #1300)
+
+One run of the `reclaim_stall` suite at `d71e65bd`, 5 rounds per cell, one
+process per (cell, round). The host guard read quiet, and no round's foreign
+load exceeded 0.08 busy CPUs *(measured: reference host — Intel Core
+i9-12900F, pin `0-15`; run
+[36807961044](https://github.com/orieg/expanse/actions/runs/36807961044);
+artifact `results/baseline_reclaim_stall.json`, predictions evaluated by
+`scripts/reclaim_stall.py`; workload: `reclaim_stall`)*. Every overwrite round
+completed exactly two compactions with no refused insert. Every full-map round
+refused every insert.
+
+| id | prediction | outcome | verdict |
+|---|---|---|---|
+| P1 | stall 10.61–11.76 ms at 200,000; 191.1–211.7 ms at 3,600,000 | above the range in every cell (table below) | outside the range |
+| P2 | per-record ratio in [0.8, 1.25] (`LINEAR`) or above 1.25 (`SUPERLINEAR`) | 0.38–0.54, below both bands | `INCONCLUSIVE` in all four (map, W) |
+| P3 | largest read ÷ stall ≥ 0.5 | 0.91–1.0 at 3,600,000; 0.35–1.0 at 200,000 | `HOLDS` in 4 cells, `MIXED` in 2 |
+| P4 | `ExpanseBlobMap` peak heap ÷ (index + `compaction_peak_bytes`) in [0.9, 1.1] | 1.0002 and 1.0003 | `HOLDS` |
+| P5 | refused-insert p99 ≤ 100 µs | 0.65–0.69 µs at W = 4; 7.4–7.8 µs at W = 12 | `HOLDS` |
+
+The stall, median over rounds with the BCa interval (workload: `reclaim_stall`):
+
+| cell | 200,000 live | 3,600,000 live |
+|---|--:|--:|
+| `ExpanseBlobMap` W = 1 | 46.3 ms [45.6, 46.7] | 315.4 ms [314.7, 317.0] |
+| `SyncExpanseBlobMap` W = 1 | 31.9 ms [31.0, 32.8] | 309.9 ms [306.3, 312.0] |
+| `SyncExpanseBlobMap` W = 4 | 32.4 ms [32.2, 44.6] | 309.1 ms [304.1, 311.0] |
+| `SyncExpanseBlobMap` W = 12 | 33.5 ms [31.4, 34.1] | 311.7 ms [310.6, 312.6] |
+
+**§29.4's decision rule fires.** Every 3,600,000 cell's median stall is
+above 100 ms. The reader-bracket split and incremental compaction move ahead
+of #1300's other items.
+
+- **The two compactions in a window do not cost the same.** §29.3 took the
+  window's largest insert as the stall and expected no other source of a
+  stall that size. The single-writer cells separate the two compactions:
+  - On `ExpanseBlobMap` the first takes 45.3–47.1 ms at 200,000 live and the
+    second 16.3–16.5 ms. At 3,600,000 they are 314.1–318.0 ms and
+    299.8–303.8 ms.
+  - The second compaction costs 81.3–84.4 ns per live record at both sizes,
+    against §27's 53.07–58.80.
+  - The first compaction's excess over the second, paired per round, is
+    29.0–30.6 ms at 200,000 and 11.5–17.5 ms at 3,600,000. It is not
+    proportional to the live records, and its cause is unmeasured.
+- **P2 is `INCONCLUSIVE`, not linear.** The registered ratio divides two
+  first compactions, and the fixed excess dominates the 200,000 cell, which
+  puts every ratio below the linear band. Read off the second compaction
+  instead, the `ExpanseBlobMap` ratio is about 1.02 (83.3–84.4 over
+  81.3–82.5 ns per record). That is a post-hoc reading with no interval, and
+  it is not a verdict.
+- **Readers wait for a compaction, but not for all of the first one at
+  200,000.** On `SyncExpanseBlobMap` W = 1 at 200,000, the largest read is
+  16.0–16.3 ms, about the length of the second compaction. The stall there
+  is 30.3–33.7 ms. At 3,600,000 the largest read equals the stall in every
+  round. That part of the first compaction's excess runs outside the tree
+  bracket is a hypothesis, not a measurement.
+- **At W ≥ 4 several writers pay each compaction.**
+  - At W = 12, a round's eight largest inserts lie within 1.13× of one
+    another.
+  - At W = 4, its three largest lie within 1.09× in 9 of 10 rounds.
+  - That the other writers queue behind the one compacting is inferred from
+    this shape, not traced.
+- **Not predicted.**
+  - W = 12 overwrite cells carry an insert p99 of 22.9–24.8 µs, against
+    1.15–1.29 µs at W = 4 (workload: `reclaim_stall`).
+  - The full-map W = 12 cells' largest refused insert is 3.0–3.2 ms against
+    a p99 of 7.4–7.8 µs.
+  - The cause of either is unmeasured.
+- **P4's `SyncExpanseBlobMap` cells**, reported per §29.3, read
+  1.0006–1.0229 of the same prediction. Retired chunks wait for the epoch
+  collector.
+- **P1 is outside its range, and the range came from §27.** §27 measured
+  smaller arenas than the cap. Whether the per-record difference is the
+  arena's size, the cap's waste guard, or the live set leaving the cache is
+  not separated by this run.

@@ -154,6 +154,7 @@ CI_METHOD_PRODUCERS = {
     "docs/benchmarks/art_comparison/scripts/recompute_and_patch_json.py",
     "docs/benchmarks/concurrency/scripts/ablations.py",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py",
+    "docs/benchmarks/concurrency/scripts/reclaim_stall.py",
     # METHODOLOGY.md §25 (#1270): the injected/control ratio per cell and level.
     "docs/benchmarks/concurrency/scripts/host_guard_sensitivity.py",
     # The #1191 AArch64 default-vs-+rcpc A/B: per-cell paired ratios.

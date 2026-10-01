@@ -64,12 +64,24 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BLOBMAP_RS = REPO_ROOT / "crates" / "expanse" / "src" / "blobmap.rs"
+# METHODOLOGY §27's build D runs: each blob arm's in-window compactions of the
+# harness's 200,000 live records, timed (`compact_ns`) and counted per window.
+S27_D_ARTIFACTS = tuple(
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / f"gate_1280_compaction_d_run{r}.json"
+    for r in (1, 2)
+)
+S27_LIVE_RECORDS = 200_000
+# METHODOLOGY §29's live sets: the #1280 harness's, and one near the rule's
+# sustained maximum (3,830,069 at the default geometry) that the waste guard
+# admits (2 * 3,600,000 * 136 < 2^30).
+STALL_LIVE_SETS = (200_000, 3_600_000)
 
 RECORD_HEADER_BYTES = 8
 ARENA_ALIGN = 16
@@ -192,6 +204,36 @@ def max_stall_bytes(cap: int) -> int:
     requires 2 * live_bytes < total_allocated <= cap, so live_bytes < cap / 2."""
     _pos_int("cap", cap)
     return (cap - 1) // 2
+
+
+def s27_ns_per_record(paths: tuple = S27_D_ARTIFACTS, live_records: int = S27_LIVE_RECORDS) -> list[float]:
+    """Nanoseconds per live record of one compaction, per §27 blob cell at 50 % read.
+
+    Each cell's summed `compact_ns` over its compaction count, divided by the
+    live records each compaction copied. Measured on the reference host by the
+    committed §27 runs; a cell without compactions is skipped.
+    """
+    _pos_int("live_records", live_records)
+    out = []
+    for path in paths:
+        art = json.loads(Path(path).read_text())
+        for cell in art["throughput"]:
+            if cell["engine_key"] in ("blob", "blob_mutex") and cell["read_pct"] == 50:
+                rows = cell["rounds_raw"]
+                n = sum(w.get("compactions", 0) for w in rows)
+                if n:
+                    out.append(sum(w.get("compact_ns", 0) for w in rows) / n / live_records)
+    if not out:
+        raise ValueError("no §27 cell carries compactions")
+    return out
+
+
+def predicted_stall_ns(live_records: int, ns_per_record: float) -> float:
+    """The stall a compaction of `live_records` predicts if its cost is linear in them."""
+    _nonneg_int("live_records", live_records)
+    if not ns_per_record > 0:
+        raise ValueError("ns_per_record must be positive")
+    return live_records * ns_per_record
 
 
 def compaction_peak_bytes(total_allocated: int, live_records: int, payload_len: int,
@@ -428,6 +470,22 @@ def self_test() -> int:
             r = simulate_fill_then_remove(plen, 4096, 64 * 1024, keep_share=keep)
             assert r["compactions_at_fill"] == 0, (plen, keep, r)
             assert r["compactions"] <= r["insert_after_removals"], (plen, keep, r)
+
+    # §29's predictions: the per-record compaction cost the §27 runs measured,
+    # carried linearly to §29's live sets. 12 cells (two arms, three thread
+    # counts, two runs) between 53.07 and 58.80 ns per live record.
+    c = s27_ns_per_record()
+    assert len(c) == 12, len(c)
+    assert 53.07 <= min(c) < 53.08 and 58.79 < max(c) <= 58.80, (min(c), max(c))
+    lo, hi = min(c), max(c)
+    assert 10.61e6 < predicted_stall_ns(200_000, lo) < 10.62e6
+    assert 11.75e6 < predicted_stall_ns(200_000, hi) < 11.76e6
+    assert 191.0e6 < predicted_stall_ns(3_600_000, lo) < 191.1e6
+    assert 211.6e6 < predicted_stall_ns(3_600_000, hi) < 211.7e6
+    # Both live sets are sustained and pass the waste guard at the default geometry.
+    for live in STALL_LIVE_SETS:
+        assert sustains_overwrite(live, HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY), live
+        assert 2 * live * record_needed(HARNESS_LEN) < MAX_ARENA_CAPACITY, live
 
     # Invalid inputs fail loudly.
     for bad in (lambda: records_per_chunk(5000, 4096), lambda: record_needed(-1),

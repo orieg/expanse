@@ -294,6 +294,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "reclaim_stall",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "The stall and the memory peak of blob-arena reclamation at the 1 GiB cap: per-operation insert and read latencies across triggered compactions on ExpanseBlobMap and SyncExpanseBlobMap, and refusals at a full arena (METHODOLOGY.md \u00a729, Refs #1300); outputs baseline_reclaim_stall.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",
