@@ -15,9 +15,9 @@
 //! metadata rides in the same word as the locator, **every** arena blob carries
 //! filterable 24-bit hot metadata; there is no metadata-less spill.
 //!
-//! A shipped safety cap ([`MAX_ARENA_CAPACITY`], 1 GiB) bounds actual arena
-//! growth and the aggregate capacity a loaded image may declare — far below the
-//! 64 GiB locator envelope. [`BlobArena::alloc_blob`] returns
+//! A capacity cap on allocated chunk bytes bounds actual arena growth: the
+//! caller's, or [`DEFAULT_ARENA_CAPACITY`] (1 GiB), clamped to the 64 GiB
+//! locator envelope. [`BlobArena::alloc_blob`] returns
 //! [`ArenaError::OffsetOverflow`] once growth would cross that cap (or the
 //! [`MAX_ARENA_CHUNKS`] chunk-count sanity limit), and [`ArenaError::MetaOverflow`]
 //! if `hot_meta` exceeds the 24-bit field. A single payload must still fit in one
@@ -226,10 +226,11 @@ impl<'a> PartialEq<BlobView<'a>> for [u8] {
 pub enum ArenaError {
     /// Arena memory allocation failed.
     AllocationFailed,
-    /// Arena growth would exceed the addressable/allowed ceiling: the shipped
-    /// safety cap ([`MAX_ARENA_CAPACITY`]), the [`MAX_ARENA_CHUNKS`] chunk-count
-    /// limit, or the 64 GiB `ArenaMeta` locator envelope (`global_offset / 16`
-    /// no longer fits a `u32`).
+    /// Arena growth would exceed the addressable/allowed ceiling: the arena's
+    /// capacity cap (see [`DEFAULT_ARENA_CAPACITY`]), the [`MAX_ARENA_CHUNKS`]
+    /// chunk-count limit, or the 64 GiB `ArenaMeta` locator envelope
+    /// (`global_offset / 16` no longer fits a `u32`); or a loaded image declares
+    /// more chunk bytes than the loader's cap.
     OffsetOverflow,
     /// `hot_meta` exceeds the 24-bit `ArenaMeta` field
     /// ([`ValueSlot::ARENA_META_MAX`]). Rejected rather than silently truncated.
@@ -495,26 +496,42 @@ pub const ARENA_META_CEILING: u64 = (1u64 << 32) * (ARENA_ALIGN as u64);
 /// Chunk-count sanity cap (`2^16`). The `ArenaMeta` locator no longer carries a
 /// chunk id — chunk/offset are recovered arithmetically from the global offset —
 /// but the arena still limits the number of chunks it will allocate or accept
-/// from a loaded image, as a corruption guard. Effective growth is bounded far
-/// lower by [`MAX_ARENA_CAPACITY`].
+/// from a loaded image, as a corruption guard. Beside it, a loaded image may
+/// declare at most [`ARENA_META_CEILING`] of chunk bytes, the locator envelope.
+/// Effective growth is bounded far lower by the arena's capacity cap
+/// ([`DEFAULT_ARENA_CAPACITY`] unless the caller sets one).
 pub const MAX_ARENA_CHUNKS: usize = 1 << 16;
 
-/// Shipped safety cap on total arena capacity (**1 GiB**).
+/// Default capacity cap on an arena's allocated chunk bytes (**1 GiB**): the
+/// runtime growth budget of an arena built without an explicit cap
+/// ([`BlobArena::new`], [`ExpanseBlobMap::new`], [`ExpanseBlobMap::from_bytes_slice`]).
+/// A caller picks another with
+/// [`ExpanseBlobMap::with_chunk_size_and_max_capacity`], clamped to
+/// `[chunk_size, ARENA_META_CEILING]`.
 ///
-/// It bounds allocated chunk bytes, dead and live, not the process's memory:
-/// a compaction holds the old and the new chunk sets at once, plus a
+/// The cap counts allocated chunk bytes, dead and live, not the process's
+/// memory: a compaction holds the old and the new chunk sets at once, plus a
 /// relocation list of 16 bytes per index entry, and on
 /// `SyncExpanseBlobMap` the old set stays allocated until the
 /// epoch collector frees it (#1290).
 ///
-/// Growth is bounded to this cap so a runaway workload — or a crafted image
-/// declaring a huge `chunk_count * chunk_size` — cannot drive an unbounded
-/// `alloc_zeroed`. 1 GiB comfortably exceeds any single-socket last-level cache
-/// (what the RFC §10.3 cold-DRAM predicate-scan regime requires) while staying
-/// well under the 64 GiB `ArenaMeta` locator envelope ([`ARENA_META_CEILING`]),
-/// so a locator overflow cannot occur under the shipped cap. Raise this constant
-/// to lift the shipped cap toward that envelope.
-pub const MAX_ARENA_CAPACITY: usize = 1 << 30;
+/// A budget, not a structural limit: the structural limits are
+/// [`MAX_ARENA_CHUNKS`] and the 64 GiB `ArenaMeta` locator envelope
+/// ([`ARENA_META_CEILING`]), which also bound what a loaded image may declare.
+/// 1 GiB comfortably exceeds any single-socket last-level cache (what the RFC
+/// §10.3 cold-DRAM predicate-scan regime requires) while bounding a runaway
+/// workload's growth.
+pub const DEFAULT_ARENA_CAPACITY: usize = 1 << 30;
+
+/// The former name of [`DEFAULT_ARENA_CAPACITY`], which was both the default
+/// growth budget and the image loader's bound on declared capacity (#1300).
+/// The loader's bound is now the caller's cap
+/// ([`ExpanseBlobMap::from_bytes_slice_with_max_capacity`]) within the
+/// structural limits; this constant is only the default budget.
+#[deprecated(
+    note = "use DEFAULT_ARENA_CAPACITY (the default growth budget); the image loader's bound is the caller's cap"
+)]
+pub const MAX_ARENA_CAPACITY: usize = DEFAULT_ARENA_CAPACITY;
 
 /// The reclaim rule's copy budget (#1290, `docs/design/large-values.md`
 /// §6.3.1). An insert that the cap refuses a new chunk compacts the arena once
@@ -724,7 +741,7 @@ pub struct BlobArena {
     generation: u32,
     /// Total-capacity ceiling in bytes. Allocating a new chunk fails with
     /// [`ArenaError::OffsetOverflow`] once `total_allocated + chunk_size` would
-    /// cross it. Defaults to [`MAX_ARENA_CAPACITY`]; a compaction inherits the
+    /// cross it. Defaults to [`DEFAULT_ARENA_CAPACITY`]; a compaction inherits the
     /// source arena's cap. Not serialized (it is a growth policy, not data).
     max_capacity: usize,
     /// Phase 7 (issue #219): when set, dead chunks and superseded chunk
@@ -785,7 +802,7 @@ impl BlobArena {
             compacted_total: 0,
             compacted_live: 0,
             generation: 1,
-            max_capacity: MAX_ARENA_CAPACITY,
+            max_capacity: DEFAULT_ARENA_CAPACITY,
             #[cfg(feature = "std")]
             deferred: OnceLock::new(),
         }
@@ -961,8 +978,8 @@ impl BlobArena {
     /// [`slot_from_global`]).
     ///
     /// Fails with [`ArenaError::OffsetOverflow`] once growing the arena would
-    /// cross the [`MAX_ARENA_CHUNKS`] chunk-count cap or the shipped
-    /// [`MAX_ARENA_CAPACITY`] safety cap, and with [`ArenaError::AllocationFailed`]
+    /// cross the [`MAX_ARENA_CHUNKS`] chunk-count cap or the arena's capacity
+    /// cap ([`Self::max_capacity`]), and with [`ArenaError::AllocationFailed`]
     /// if a single record cannot fit one chunk (`8 + data.len() > chunk_size`).
     /// The arena cannot compact without the index, so this never reclaims;
     /// [`ExpanseBlobMap::insert`] does, under the reclaim rule.
@@ -1215,14 +1232,27 @@ impl BlobArena {
         })
     }
 
-    /// Total allocated heap bytes in arena chunks.
+    /// Total allocated heap bytes in arena chunks: what the capacity cap
+    /// ([`Self::max_capacity`]) counts.
     #[inline(always)]
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.total_allocated
     }
 
-    /// Active live payload bytes.
+    /// The capacity cap on allocated chunk bytes ([`Self::mem_used`]):
+    /// [`DEFAULT_ARENA_CAPACITY`] unless the arena was built with
+    /// [`Self::with_chunk_size_and_max_capacity`], as clamped there. Growth
+    /// that would cross it fails with [`ArenaError::OffsetOverflow`].
+    #[inline]
+    #[must_use]
+    pub fn max_capacity(&self) -> usize {
+        self.max_capacity
+    }
+
+    /// Active live bytes: each live record's payload plus its 8-byte header.
+    /// [`Self::mem_used`] minus this is what a compaction could free, less the
+    /// unused tails of the chunks it packs the records into.
     #[inline(always)]
     #[must_use]
     pub fn live_bytes(&self) -> usize {
@@ -2041,8 +2071,33 @@ impl ExpanseBlobMap {
         self.save_to_writer(&mut file)
     }
 
-    /// Deserializes a relocatable binary image from a byte slice.
+    /// Deserializes a relocatable binary image from a byte slice, into a map
+    /// whose arena capacity cap is [`DEFAULT_ARENA_CAPACITY`]. An image that
+    /// declares more chunk bytes than that fails with
+    /// [`ArenaError::OffsetOverflow`]; load it with
+    /// [`Self::from_bytes_slice_with_max_capacity`] and a cap that holds it.
     pub fn from_bytes_slice(bytes: &[u8]) -> Result<Self, ArenaError> {
+        Self::from_bytes_slice_with_max_capacity(bytes, DEFAULT_ARENA_CAPACITY)
+    }
+
+    /// Deserializes a relocatable binary image from a byte slice, into a map
+    /// whose arena capacity cap is `max_capacity`, clamped as by
+    /// [`Self::with_chunk_size_and_max_capacity`] with the image's chunk size.
+    /// The cap is a growth policy and is not stored in the image, so the
+    /// loader takes it from the caller.
+    ///
+    /// The image's declared chunk bytes (`chunk_count * chunk_size`) are
+    /// bounded twice before anything is allocated: by the structural limits a
+    /// valid image never crosses ([`MAX_ARENA_CHUNKS`] and the 64 GiB locator
+    /// envelope, [`ARENA_META_CEILING`]), which fail with
+    /// [`ArenaError::CorruptedHeader`], and by the clamped cap, which fails
+    /// with [`ArenaError::OffsetOverflow`]. The second bound is what limits the
+    /// allocation a small crafted image can drive, so a caller loading
+    /// untrusted bytes keeps `max_capacity` at what it is prepared to allocate.
+    pub fn from_bytes_slice_with_max_capacity(
+        bytes: &[u8],
+        max_capacity: usize,
+    ) -> Result<Self, ArenaError> {
         if bytes.len() < 64 {
             return Err(ArenaError::CorruptedHeader);
         }
@@ -2097,15 +2152,17 @@ impl ExpanseBlobMap {
             return Err(ArenaError::CorruptedHeader);
         }
 
-        // Bound the aggregate declared arena capacity to the shipped safety cap
-        // (`MAX_ARENA_CAPACITY`). A small crafted header could otherwise declare
-        // a huge `chunk_count * chunk_size` and drive `alloc_zeroed` into an
-        // OOM/DoS; a legitimately saved arena never crosses this ceiling.
+        // Bound the aggregate declared arena capacity twice. Structurally here:
+        // no arena addresses more than the 64 GiB locator envelope, so a larger
+        // declaration is corruption. Then, below, by the caller's cap, the
+        // growth budget the loaded map keeps: a small crafted header could
+        // otherwise declare a huge `chunk_count * chunk_size` and drive
+        // `alloc_zeroed` into an OOM/DoS.
         let declared_capacity = header
             .chunk_count
             .checked_mul(header.chunk_size)
             .ok_or(ArenaError::CorruptedHeader)?;
-        if declared_capacity > MAX_ARENA_CAPACITY as u64 {
+        if declared_capacity > ARENA_META_CEILING {
             return Err(ArenaError::CorruptedHeader);
         }
 
@@ -2123,7 +2180,14 @@ impl ExpanseBlobMap {
             return Err(ArenaError::CorruptedHeader);
         }
 
-        let mut map = Self::with_chunk_size(header.chunk_size as usize);
+        // Every structural check has passed: an image over the caller's cap
+        // is valid but too large for this map, not corrupt.
+        let mut map =
+            Self::with_chunk_size_and_max_capacity(header.chunk_size as usize, max_capacity);
+        if declared_capacity > map.arena.max_capacity as u64 {
+            return Err(ArenaError::OffsetOverflow);
+        }
+
         // Track the generation stamped on loaded chunks so future allocs and
         // compactions continue from a consistent value.
         let mut loaded_generation: Option<u32> = None;
@@ -2218,10 +2282,24 @@ impl ExpanseBlobMap {
     /// This reads the whole file into memory (`std::fs::read`) and rebuilds the
     /// index entry-by-entry — it is not a memory map, hence `load_from_file`
     /// rather than the former `mmap_file` name.
+    ///
+    /// The loaded map's capacity cap is [`DEFAULT_ARENA_CAPACITY`], as for
+    /// [`Self::from_bytes_slice`]; [`Self::load_from_file_with_max_capacity`]
+    /// takes another.
     #[cfg(feature = "std")]
     pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ArenaError> {
+        Self::load_from_file_with_max_capacity(path, DEFAULT_ARENA_CAPACITY)
+    }
+
+    /// [`Self::load_from_file`] into a map whose capacity cap is
+    /// `max_capacity`, as [`Self::from_bytes_slice_with_max_capacity`] loads.
+    #[cfg(feature = "std")]
+    pub fn load_from_file_with_max_capacity<P: AsRef<std::path::Path>>(
+        path: P,
+        max_capacity: usize,
+    ) -> Result<Self, ArenaError> {
         let bytes = std::fs::read(path).map_err(|_| ArenaError::CorruptedHeader)?;
-        Self::from_bytes_slice(&bytes)
+        Self::from_bytes_slice_with_max_capacity(&bytes, max_capacity)
     }
 
     /// Removes all entries from the map and frees all arena slabs.
@@ -2790,27 +2868,71 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn corrupted_image_huge_aggregate_capacity_rejected() {
-        // A ~512-byte file that declares chunk_count * chunk_size = 2 GiB, above
-        // the shipped MAX_ARENA_CAPACITY (1 GiB) safety cap. chunk_count (2)
-        // passes both the MAX_ARENA_CHUNKS and bytes.len()/24 bounds, and
-        // chunk_size (1 GiB) is exactly MAX_CHUNK_CAPACITY, so the
-        // aggregate-capacity check is the one that fires — proving it guards the
-        // multi-GiB alloc_zeroed DoS at the new ceiling.
-        let mut buf = vec![0u8; 512];
+    /// A header declaring `chunk_count` chunks of 1 GiB, with no chunk data.
+    fn huge_capacity_header(chunk_count: u64) -> Vec<u8> {
+        let mut buf = vec![0u8; 2048];
         buf[0..8].copy_from_slice(&EXPANSE_MAGIC);
         buf[8..12].copy_from_slice(&EXPANSE_FORMAT_VERSION.to_le_bytes());
         // flags[12..16] = 0, entry_count[16..24] = 0
         buf[24..32].copy_from_slice(&64u64.to_le_bytes()); // index_offset
         buf[32..40].copy_from_slice(&64u64.to_le_bytes()); // arena_offset
-        buf[40..48].copy_from_slice(&512u64.to_le_bytes()); // total_size
+        buf[40..48].copy_from_slice(&2048u64.to_le_bytes()); // total_size
         buf[48..56].copy_from_slice(&(1024u64 * 1024 * 1024).to_le_bytes()); // chunk_size = 1 GiB
-        buf[56..64].copy_from_slice(&2u64.to_le_bytes()); // chunk_count = 2 -> 2 GiB
+        buf[56..64].copy_from_slice(&chunk_count.to_le_bytes());
+        buf
+    }
+
+    #[test]
+    fn corrupted_image_huge_aggregate_capacity_rejected() {
+        // A small file that declares chunk_count * chunk_size = 2 GiB, above
+        // the default cap (DEFAULT_ARENA_CAPACITY, 1 GiB). chunk_count (2)
+        // passes both the MAX_ARENA_CHUNKS and bytes.len()/24 bounds, and
+        // chunk_size (1 GiB) is exactly MAX_CHUNK_CAPACITY, so the
+        // aggregate-capacity check against the loader's cap is the one that
+        // fires, before any chunk is allocated: it guards the multi-GiB
+        // alloc_zeroed DoS. The image is not corrupt, only over the cap.
+        let buf = huge_capacity_header(2);
         assert!(matches!(
             ExpanseBlobMap::from_bytes_slice(&buf),
+            Err(ArenaError::OffsetOverflow)
+        ));
+        // Under a cap that holds it, the declaration passes and the missing
+        // chunk headers are what is rejected (a zero `cap`), still before any
+        // chunk is allocated.
+        assert!(matches!(
+            ExpanseBlobMap::from_bytes_slice_with_max_capacity(&buf, 2 << 30),
             Err(ArenaError::CorruptedHeader)
         ));
+        // Past the 64 GiB locator envelope no cap admits it: that is corrupt.
+        let buf = huge_capacity_header(65);
+        assert!(matches!(
+            ExpanseBlobMap::from_bytes_slice_with_max_capacity(&buf, usize::MAX),
+            Err(ArenaError::CorruptedHeader)
+        ));
+    }
+
+    /// #1300 item 4's prerequisite: the loader's bound on declared capacity is
+    /// the caller's cap, which the loaded map keeps, not a shipped constant.
+    #[test]
+    #[cfg(feature = "std")]
+    fn image_loads_under_the_callers_cap_and_keeps_it() {
+        let mut map = ExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 4 * 4096);
+        for k in 0..12u64 {
+            map.insert(k, &[k as u8; 1000], 1).unwrap(); // 4 records per chunk
+        }
+        assert_eq!(map.arena().mem_used(), 3 * 4096);
+        let mut buf = Vec::new();
+        map.save_to_writer(&mut buf).unwrap();
+
+        assert!(matches!(
+            ExpanseBlobMap::from_bytes_slice_with_max_capacity(&buf, 2 * 4096),
+            Err(ArenaError::OffsetOverflow)
+        ));
+        let loaded = ExpanseBlobMap::from_bytes_slice_with_max_capacity(&buf, 4 * 4096).unwrap();
+        assert_eq!(loaded.arena().max_capacity(), 4 * 4096);
+        assert_eq!(loaded.len(), 12);
+        let default = ExpanseBlobMap::from_bytes_slice(&buf).unwrap();
+        assert_eq!(default.arena().max_capacity(), DEFAULT_ARENA_CAPACITY);
     }
 
     #[test]

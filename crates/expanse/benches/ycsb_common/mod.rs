@@ -886,7 +886,7 @@ pub fn required_arena_capacity(total_records: usize, payload_len: usize) -> usiz
     let records_per_chunk = (chunk_size - needed) / stride + 1;
     let chunks_needed = total_records.div_ceil(records_per_chunk);
     let cap = chunks_needed.saturating_mul(chunk_size);
-    usize::max(expanse_trie::blobmap::MAX_ARENA_CAPACITY, cap)
+    usize::max(expanse_trie::blobmap::DEFAULT_ARENA_CAPACITY, cap)
 }
 
 /// Builds the `ExpanseBlobMap` arm from `keys` in the order given, sized to also hold `writes` subsequent op records.
