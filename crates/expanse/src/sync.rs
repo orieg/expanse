@@ -20078,6 +20078,8 @@ mod diag_entry_tests {
 mod loom_tests {
     use super::*;
     use core::sync::atomic::Ordering;
+    #[cfg(feature = "diag-entry")]
+    use loom::sync::atomic::AtomicUsize;
 
     /// S9 and S10 through the production entry points rather than the gate
     /// primitives: writer threads take slots from a real tree's
