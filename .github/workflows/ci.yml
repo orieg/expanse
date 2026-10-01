@@ -1531,6 +1531,7 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: gcc-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm
+          install-recommends: 'false'
 
       - name: Build smoke (soft-float ABI assertion)
         run: sh integrations/qemu-cortex-m3/build.sh
