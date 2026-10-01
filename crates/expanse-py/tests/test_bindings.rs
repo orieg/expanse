@@ -415,7 +415,7 @@ fn test_expanse_bytes_map_arbitrary_binary_keys_and_nul() {
 fn test_expanse_blob_map_pyo3_bindings() {
     Python::initialize();
     Python::attach(|py| {
-        let mut map = ExpanseBlobMap::new(Some(64 * 1024));
+        let mut map = ExpanseBlobMap::new(Some(64 * 1024), None);
         assert_eq!(map.__len__(), 0);
         assert!(map.is_empty());
         assert!(!map.__bool__());

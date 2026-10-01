@@ -81,6 +81,17 @@ class FFIDriver
     } ExpanseBlobView;
 
     ExpanseBlobMap *expanse_blob_map_new(size_t chunk_size);
+    ExpanseBlobMap *expanse_blob_map_new_with_capacity(size_t chunk_size, size_t max_capacity);
+    void            expanse_blob_map_set_reclaim_at_cap(ExpanseBlobMap *map, bool on);
+    int             expanse_blob_map_insert_ex(ExpanseBlobMap *map, uint64_t key, const char *data, size_t len, uint32_t hot_meta);
+    typedef struct {
+        uint64_t live_bytes;
+        uint64_t allocated_bytes;
+        uint64_t max_capacity;
+        uint64_t chunk_size;
+        uint64_t reclaim_at_cap;
+    } expanse_blob_arena_stats_t;
+    int             expanse_blob_map_arena_stats(const ExpanseBlobMap *map, expanse_blob_arena_stats_t *stats, size_t stats_size);
     void            expanse_blob_map_free(ExpanseBlobMap *map);
     bool expanse_blob_map_insert(ExpanseBlobMap *map, uint64_t key, const char *data, size_t len, uint32_t hot_meta);
     bool expanse_blob_map_get(const ExpanseBlobMap *map, uint64_t key, ExpanseBlobView *out_view);

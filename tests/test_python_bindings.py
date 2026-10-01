@@ -683,6 +683,33 @@ def test_blobmap_is_exported_and_usable():
     assert len(bm) == 1
 
 
+def test_blobmap_cap_switch_and_refusal_status():
+    """#1300: the capacity cap, the reclaim switch, the arena stats, and a
+    refusal with no compaction ("cap_refused") told from one after the
+    insert's own compaction ("arena_full"). One 4 KiB chunk fits a 6000-byte cap."""
+    default = ExpanseBlobMap().arena_stats()
+    assert default["max_capacity"] == 1 << 30
+    assert default["reclaim_at_cap"] is True
+
+    bm = ExpanseBlobMap(4096, 6000)
+    assert bm.arena_stats()["max_capacity"] == 6000
+    for k in range(4):
+        assert bm.insert_status(k, bytes([k]) * 1000, 1) == "ok"
+    assert bm.insert_status(9, b"\x09" * 3100, 1) == "cap_refused"
+    st = bm.arena_stats()
+    assert (st["live_bytes"], st["allocated_bytes"]) == (4 * 1008, 4096)
+    for k in range(1, 4):
+        assert bm.remove(k)
+    assert bm.insert_status(9, b"\x09" * 3100, 1) == "arena_full"
+    assert len(bm) == 1
+    assert bm.insert_status(1, b"x" * 100, 1 << 24) == "meta_overflow"
+
+    off = ExpanseBlobMap(4096, 6000)
+    off.set_reclaim_at_cap(False)
+    assert off.reclaim_at_cap() is False
+    assert off.arena_stats()["reclaim_at_cap"] is False
+
+
 def test_blobmap_scan_filtered_reraises_callback_error():
     """A predicate/callback exception aborts the scan and is re-raised (not swallowed)."""
     bm = ExpanseBlobMap()

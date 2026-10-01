@@ -214,6 +214,45 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
      * longer than 7 bytes is refused by the engine (MetaOverflow) before the
      * index is touched; every driver throws \Exception for it.
      */
+    public function testBlobMapCapSwitchAndRefusalStatus()
+    {
+        // #1300. One 4 KiB chunk fits a 6000-byte cap, so after removals the
+        // insert compacts and the 3100-byte record still does not fit.
+        $probe = new BlobMap();
+        $driver = (new \ReflectionProperty($probe, 'native'))->getValue($probe) !== null
+            || (new \ReflectionProperty($probe, 'handle'))->getValue($probe) !== null;
+        if (!$driver) {
+            $threw = false;
+            try {
+                new BlobMap(4096, 6000);
+            } catch (\Exception $e) {
+                $threw = true;
+            }
+            $this->assertTrue($threw, 'the fallback must refuse a capacity it cannot honour');
+            return;
+        }
+        $this->assertEquals(1 << 30, $probe->arenaStats()['max_capacity']);
+
+        $map = new BlobMap(4096, 6000);
+        $this->assertEquals(6000, $map->arenaStats()['max_capacity']);
+        for ($k = 0; $k < 4; $k++) {
+            $this->assertEquals('ok', $map->setStatus($k, str_repeat(chr(65 + $k), 1000), 1));
+        }
+        $big = str_repeat('z', 3100);
+        $this->assertEquals('cap_refused', $map->setStatus(9, $big, 1));
+        $st = $map->arenaStats();
+        $this->assertEquals(4 * 1008, $st['live_bytes']);
+        $this->assertEquals(4096, $st['allocated_bytes']);
+        for ($k = 1; $k < 4; $k++) {
+            $this->assertTrue($map->delete($k));
+        }
+        $this->assertEquals('arena_full', $map->setStatus(9, $big, 1));
+        $this->assertEquals(1, count($map));
+        $this->assertEquals('meta_overflow', $map->setStatus(1, str_repeat('m', 100), 1 << 24));
+        $map->setReclaimAtCap(false);
+        $this->assertEquals(0, $map->arenaStats()['reclaim_at_cap']);
+    }
+
     public function testBlobMapRefusedInsertThrows()
     {
         $map = new BlobMap();

@@ -1,9 +1,10 @@
 //! Node.js / Bun / Deno N-API binding for ExpanseBlobMap (large-value map with inline packing and arena backing).
 
 use crate::common::{
-    BlobMetaResult, BytesInput, CompactionStatsResult, KeyInput, bytes_input_to_slice, key_to_u64,
+    BlobArenaStatsResult, BlobMetaResult, BytesInput, CompactionStatsResult, KeyInput,
+    bytes_input_to_slice, key_to_u64,
 };
-use expanse_trie::blobmap::ExpanseBlobMap as InnerBlobMap;
+use expanse_trie::blobmap::{ArenaError, ExpanseBlobMap as InnerBlobMap};
 use expanse_trie::slot::ValueSlot;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -18,15 +19,80 @@ pub struct ExpanseBlobMap {
 
 #[napi]
 impl ExpanseBlobMap {
-    // abi-parity: expanse_blob_map_new
-    /// Creates an empty blob map, optionally with custom arena chunk size in bytes.
+    // abi-parity: expanse_blob_map_new, expanse_blob_map_new_with_capacity
+    /// Creates an empty blob map, optionally with custom arena chunk size in bytes
+    /// and an arena capacity cap `maxCapacity` in bytes of allocated chunks
+    /// (default 1 GiB; clamped to `[chunkSize, 64 GiB]`).
     #[napi(constructor)]
-    pub fn new(chunk_size: Option<u32>) -> Self {
-        let inner = match chunk_size {
-            Some(sz) => InnerBlobMap::with_chunk_size(sz as usize),
-            None => InnerBlobMap::new(),
+    pub fn new(chunk_size: Option<u32>, max_capacity: Option<i64>) -> Result<Self> {
+        let inner = match (chunk_size, max_capacity) {
+            (Some(sz), None) => InnerBlobMap::with_chunk_size(sz as usize),
+            (None, None) => InnerBlobMap::new(),
+            (sz, Some(cap)) => {
+                let cap = usize::try_from(cap).map_err(|_| {
+                    Error::new(Status::InvalidArg, format!("maxCapacity {cap} is negative"))
+                })?;
+                InnerBlobMap::with_chunk_size_and_max_capacity(
+                    sz.map_or(expanse_trie::blobmap::DEFAULT_CHUNK_SIZE, |s| s as usize),
+                    cap,
+                )
+            }
         };
-        Self { inner }
+        Ok(Self { inner })
+    }
+
+    // abi-parity: expanse_blob_map_set_reclaim_at_cap
+    /// Turns the reclaim at the capacity cap on (the default) or off. Off, an
+    /// insert the cap refuses compacts nothing.
+    #[napi(js_name = "setReclaimAtCap")]
+    pub fn set_reclaim_at_cap(&mut self, on: bool) {
+        self.inner.set_reclaim_at_cap(on);
+    }
+
+    /// Whether an insert the capacity cap refuses may compact the arena.
+    #[napi(js_name = "reclaimAtCap")]
+    pub fn reclaim_at_cap(&self) -> bool {
+        self.inner.reclaim_at_cap()
+    }
+
+    // abi-parity: expanse_blob_map_arena_stats
+    /// Arena accounting: live bytes (payloads plus 8-byte headers), allocated
+    /// chunk bytes (what the cap counts), the cap, the chunk size and the switch.
+    #[napi(js_name = "arenaStats")]
+    pub fn arena_stats(&self) -> BlobArenaStatsResult {
+        let arena = self.inner.arena();
+        BlobArenaStatsResult {
+            live_bytes: BigInt::from(arena.live_bytes() as u64),
+            allocated_bytes: BigInt::from(arena.mem_used() as u64),
+            max_capacity: BigInt::from(arena.max_capacity() as u64),
+            chunk_size: BigInt::from(arena.chunk_size() as u64),
+            reclaim_at_cap: self.inner.reclaim_at_cap(),
+        }
+    }
+
+    // abi-parity: expanse_blob_map_insert_ex
+    /// Inserts like `set`, but returns a status instead of throwing on a
+    /// refusal: `"ok"`, `"meta_overflow"`, `"allocation_failed"`,
+    /// `"cap_refused"` (the capacity cap refused a chunk and nothing was
+    /// compacted) or `"arena_full"` (this insert compacted and the record still
+    /// does not fit).
+    #[napi(js_name = "setStatus")]
+    pub fn set_status(
+        &mut self,
+        key: KeyInput,
+        payload: BytesInput,
+        hot_meta: Option<u32>,
+    ) -> Result<&'static str> {
+        let k = key_to_u64(key)?;
+        let bytes = bytes_input_to_slice(&payload);
+        Ok(match self.inner.insert(k, bytes, hot_meta.unwrap_or(0)) {
+            Ok(()) => "ok",
+            Err(ArenaError::MetaOverflow) => "meta_overflow",
+            Err(ArenaError::AllocationFailed) => "allocation_failed",
+            Err(ArenaError::OffsetOverflow) => "cap_refused",
+            Err(ArenaError::ArenaFull) => "arena_full",
+            Err(_) => "error",
+        })
     }
 
     // abi-parity: expanse_blob_map_len
@@ -174,6 +240,8 @@ impl ExpanseBlobMap {
 
 impl Default for ExpanseBlobMap {
     fn default() -> Self {
-        Self::new(None)
+        Self {
+            inner: InnerBlobMap::new(),
+        }
     }
 }

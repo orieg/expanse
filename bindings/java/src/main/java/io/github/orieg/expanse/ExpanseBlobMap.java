@@ -22,6 +22,50 @@ public final class ExpanseBlobMap implements AutoCloseable {
      */
     public record BlobRecord(byte[] data, int hotMeta, boolean isInline) {}
 
+    /**
+     * Outcome of {@link #insertStatus}, one per {@code expanse_blob_status_t} value.
+     */
+    public enum InsertStatus {
+        /** The value is stored. */
+        OK,
+        /** Refused: hot metadata wider than 24 bits. */
+        META_OVERFLOW,
+        /** Refused: payload larger than a chunk, or allocation failure. */
+        ALLOCATION_FAILED,
+        /** Refused: the capacity cap refused a chunk and nothing was compacted. */
+        CAP_REFUSED,
+        /** Refused: this insert compacted the arena and the record still does not fit. */
+        ARENA_FULL,
+        /** Usage error reported by the native call. */
+        INVALID_ARGUMENT,
+        /** Any other native status. */
+        ERROR;
+
+        static InsertStatus of(int code) {
+            return switch (code) {
+                case 0 -> OK;
+                case 16 -> META_OVERFLOW;
+                case 17 -> ALLOCATION_FAILED;
+                case 18 -> CAP_REFUSED;
+                case 19 -> ARENA_FULL;
+                case 32 -> INVALID_ARGUMENT;
+                default -> ERROR;
+            };
+        }
+    }
+
+    /**
+     * Arena accounting returned by {@link #arenaStats()}.
+     *
+     * @param liveBytes live payload bytes plus an 8-byte header per record
+     * @param allocatedBytes allocated chunk bytes, dead and live: what the cap counts
+     * @param maxCapacity the capacity cap, as clamped
+     * @param chunkSize the arena's chunk size
+     * @param reclaimAtCap whether an insert the cap refuses may compact the arena
+     */
+    public record ArenaStats(long liveBytes, long allocatedBytes, long maxCapacity, long chunkSize,
+            boolean reclaimAtCap) {}
+
     private MemorySegment handle;
     private boolean closed = false;
 
@@ -45,6 +89,97 @@ public final class ExpanseBlobMap implements AutoCloseable {
             }
         } catch (Throwable t) {
             throw new RuntimeException("Failed creating ExpanseBlobMap", t);
+        }
+    }
+
+    /**
+     * Creates a new empty {@link ExpanseBlobMap} whose arena capacity cap is
+     * {@code maxCapacity} bytes of allocated chunks (0: the default 1 GiB), clamped to
+     * {@code [chunkSize, 64 GiB]}.
+     *
+     * @param chunkSize slab chunk size in bytes (0: the default 2 MiB)
+     * @param maxCapacity capacity cap in bytes (0: the default 1 GiB)
+     */
+    public ExpanseBlobMap(long chunkSize, long maxCapacity) {
+        try {
+            this.handle = (MemorySegment) ExpanseNative.MH_expanse_blob_map_new_with_capacity.invokeExact(
+                    chunkSize, maxCapacity);
+            if (handle.equals(MemorySegment.NULL)) {
+                throw new OutOfMemoryError("Failed to allocate native ExpanseBlobMap");
+            }
+        } catch (Throwable t) {
+            throw new RuntimeException("Failed creating ExpanseBlobMap", t);
+        }
+    }
+
+    /**
+     * Turns the reclaim at the capacity cap on (the default) or off. Off, an insert the
+     * cap refuses compacts nothing.
+     *
+     * @param on whether the reclaim is on
+     */
+    public void setReclaimAtCap(boolean on) {
+        checkOpen();
+        try {
+            ExpanseNative.MH_expanse_blob_map_set_reclaim_at_cap.invokeExact(handle, on);
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Returns the arena's accounting.
+     *
+     * @return live bytes, allocated chunk bytes, the cap, the chunk size and the switch
+     */
+    public ArenaStats arenaStats() {
+        checkOpen();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = arena.allocate(ValueLayout.JAVA_LONG, 5);
+            int rc = (int) ExpanseNative.MH_expanse_blob_map_arena_stats.invokeExact(handle, seg, 40L);
+            if (rc != 0) {
+                throw new IllegalStateException("expanse_blob_map_arena_stats returned " + rc);
+            }
+            return new ArenaStats(
+                    seg.getAtIndex(ValueLayout.JAVA_LONG, 0),
+                    seg.getAtIndex(ValueLayout.JAVA_LONG, 1),
+                    seg.getAtIndex(ValueLayout.JAVA_LONG, 2),
+                    seg.getAtIndex(ValueLayout.JAVA_LONG, 3),
+                    seg.getAtIndex(ValueLayout.JAVA_LONG, 4) != 0);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Inserts like {@link #insert(long, byte[], int)}, returning why a refused insert was
+     * refused: {@link InsertStatus#CAP_REFUSED} when nothing was compacted (dead bytes may
+     * remain; see {@link #arenaStats()}), {@link InsertStatus#ARENA_FULL} when this insert
+     * compacted and the record still does not fit.
+     *
+     * @param key 64-bit unsigned key
+     * @param data payload byte array
+     * @param hotMeta 32-bit hot metadata
+     * @return the insert's status
+     */
+    public InsertStatus insertStatus(long key, byte[] data, int hotMeta) {
+        Objects.requireNonNull(data, "data must not be null");
+        checkOpen();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = MemorySegment.NULL;
+            if (data.length > 0) {
+                seg = arena.allocate(ValueLayout.JAVA_BYTE, data.length);
+                MemorySegment.copy(data, 0, seg, ValueLayout.JAVA_BYTE, 0, data.length);
+            }
+            int rc = (int) ExpanseNative.MH_expanse_blob_map_insert_ex.invokeExact(
+                    handle, key, seg, (long) data.length, hotMeta);
+            return InsertStatus.of(rc);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
         }
     }
 

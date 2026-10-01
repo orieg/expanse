@@ -324,6 +324,34 @@ test('ExpanseBlobMap inline and arena payloads, metadata, prune, compact, and se
   } catch (_) {}
 });
 
+// #1300: one 4 KiB chunk fits a 6000-byte cap, so after removals the insert
+// compacts and the 3100-byte record still does not fit the chunk's tail.
+test('ExpanseBlobMap capacity cap, reclaim switch, arena stats and refusal status', () => {
+  const dflt = new ExpanseBlobMap().arenaStats();
+  assert.strictEqual(dflt.maxCapacity, 1n << 30n);
+  assert.strictEqual(dflt.reclaimAtCap, true);
+
+  const bm = new ExpanseBlobMap(4096, 6000);
+  assert.strictEqual(bm.arenaStats().maxCapacity, 6000n);
+  for (let k = 0; k < 4; k++) {
+    assert.strictEqual(bm.setStatus(BigInt(k), Buffer.alloc(1000, k), 1), 'ok');
+  }
+  const big = Buffer.alloc(3100, 9);
+  assert.strictEqual(bm.setStatus(9n, big, 1), 'cap_refused');
+  const st = bm.arenaStats();
+  assert.strictEqual(st.liveBytes, 4n * 1008n);
+  assert.strictEqual(st.allocatedBytes, 4096n);
+  for (let k = 1; k < 4; k++) assert.strictEqual(bm.delete(BigInt(k)), true);
+  assert.strictEqual(bm.setStatus(9n, big, 1), 'arena_full');
+  assert.strictEqual(bm.size(), 1n);
+  assert.strictEqual(bm.setStatus(1n, Buffer.alloc(100, 1), 1 << 24), 'meta_overflow');
+
+  const off = new ExpanseBlobMap(4096, 6000);
+  off.setReclaimAtCap(false);
+  assert.strictEqual(off.reclaimAtCap(), false);
+  assert.throws(() => new ExpanseBlobMap(4096, -1));
+});
+
 // 6. SyncExpanseMap & SyncExpanseSet Tests
 console.log('\n--- SyncExpanseMap & SyncExpanseSet Tests ---');
 

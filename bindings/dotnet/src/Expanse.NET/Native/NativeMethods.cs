@@ -382,6 +382,18 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_free")]
     public static extern void expanse_blob_map_free(IntPtr map);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_new_with_capacity")]
+    public static extern SafeExpanseBlobMapHandle expanse_blob_map_new_with_capacity(nuint chunkSize, nuint maxCapacity);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_set_reclaim_at_cap")]
+    public static extern void expanse_blob_map_set_reclaim_at_cap(SafeExpanseBlobMapHandle map, [MarshalAs(UnmanagedType.I1)] bool on);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_insert_ex")]
+    public static extern unsafe int expanse_blob_map_insert_ex(SafeExpanseBlobMapHandle map, ulong key, byte* data, nuint len, uint hotMeta);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_arena_stats")]
+    public static extern int expanse_blob_map_arena_stats(SafeExpanseBlobMapHandle map, out ExpanseBlobArenaStats stats, nuint statsSize);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_insert")]
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern unsafe bool expanse_blob_map_insert(SafeExpanseBlobMapHandle map, ulong key, byte* data, nuint len, uint hotMeta);
