@@ -17990,6 +17990,115 @@ mod tests {
         }
         q.join().unwrap();
     }
+
+    /// What one collector's reclamation looked like at the end of a run.
+    #[cfg(not(feature = "advance-never"))]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Reclaim {
+        /// Successful epoch advances (no reader is registered, so every
+        /// attempt succeeds and this counts the attempts exactly).
+        epochs: usize,
+        /// Bytes still in grace when the run ended.
+        retained: usize,
+        /// The most bytes in grace after any one operation.
+        max_retained: usize,
+    }
+
+    /// Runs `rounds` rounds on one fresh thread, each `map_burst` inserts to
+    /// a `SyncExpanseMap` followed by `str_burst` inserts to a
+    /// `SyncExpanseStrMap`. A burst of 0 leaves that wrapper unwritten, which
+    /// makes the run the other wrapper's solo twin. Each wrapper sees the
+    /// same key sequence under every schedule with the same rounds and its
+    /// own burst, so the only thing a schedule changes is the interleaving.
+    #[cfg(not(feature = "advance-never"))]
+    fn interleave_map_and_str(map_burst: u64, str_burst: u64, rounds: u64) -> (Reclaim, Reclaim) {
+        // Multiplicative keys: after the root-state transitions of the first
+        // inserts, neither wrapper takes a serialised fallback on this
+        // sequence, so every later insert reaches the optimistic tick.
+        fn key(i: u64) -> u64 {
+            i.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        }
+        fn observe(c: &crate::occ::Collector, max: &mut usize) {
+            *max = (*max).max(c.retained_bytes());
+        }
+        fn finish(c: &crate::occ::Collector, max_retained: usize) -> Reclaim {
+            Reclaim {
+                epochs: c.epoch_now(),
+                retained: c.retained_bytes(),
+                max_retained,
+            }
+        }
+        // A fresh thread: nothing a previous test wrote on this one can
+        // shift where this run's ticks fall.
+        std::thread::spawn(move || {
+            let map = SyncExpanseMap::new();
+            let strs = SyncExpanseStrMap::new();
+            let (mut m, mut s) = (0u64, 0u64);
+            let (mut map_max, mut str_max) = (0usize, 0usize);
+            for _ in 0..rounds {
+                for _ in 0..map_burst {
+                    map.insert(key(m), m);
+                    observe(&map.shared.collector, &mut map_max);
+                    m += 1;
+                }
+                for _ in 0..str_burst {
+                    let k = key(s).to_string();
+                    strs.insert(tk(&k), s);
+                    observe(&strs.shared.collector, &mut str_max);
+                    s += 1;
+                }
+            }
+            (
+                finish(&map.shared.collector, map_max),
+                finish(&strs.shared.collector, str_max),
+            )
+        })
+        .join()
+        .expect("interleaving thread panicked")
+    }
+
+    /// One thread writing two wrappers must leave each wrapper's collector
+    /// advancing on its own writes, exactly as if that wrapper were written
+    /// alone (Refs #1314).
+    ///
+    /// A tick count shared by every collector a thread writes to breaks
+    /// this: the advance goes to whichever collector makes the crossing
+    /// call. Under strict alternation with an even `ADVANCE_EVERY` that is
+    /// always the same wrapper, so the other never advances from optimistic
+    /// writes and its retired blocks stay in grace for the rest of the run.
+    /// Under bursts of 31 map inserts per string insert the crossing lands
+    /// on the map, which advances on the string map's ticks while the string
+    /// map is starved. The uneven schedule also fails a cadence that drops a
+    /// wrapper's partial count whenever the thread switches wrappers.
+    ///
+    /// The twin is each wrapper written alone with the same key sequence:
+    /// the per-collector advance count, the bytes still in grace, and the
+    /// peak bytes in grace must all match it. The last of these is the bound
+    /// on grace bytes that a starved collector breaks.
+    #[cfg(not(feature = "advance-never"))]
+    #[test]
+    fn interleaved_wrappers_keep_their_own_advance_cadence() {
+        for (map_burst, str_burst, rounds) in [(1, 1, 4096), (31, 1, 4096 / 31)] {
+            let (map_solo, _) = interleave_map_and_str(map_burst, 0, rounds);
+            let (_, str_solo) = interleave_map_and_str(0, str_burst, rounds);
+            let (map_mixed, str_mixed) = interleave_map_and_str(map_burst, str_burst, rounds);
+            assert!(
+                map_solo.epochs > 0 && str_solo.epochs > 0,
+                "the solo twins must advance, or the comparison is vacuous: \
+                 map {map_solo:?}, str {str_solo:?}"
+            );
+            assert_eq!(
+                map_mixed, map_solo,
+                "map collector, bursts {map_burst}:{str_burst}: interleaved \
+                 writes changed its reclamation (solo {map_solo:?})"
+            );
+            assert_eq!(
+                str_mixed, str_solo,
+                "string collector, bursts {map_burst}:{str_burst}: interleaved \
+                 writes changed its reclamation (solo {str_solo:?})"
+            );
+        }
+    }
 }
 
 /// Byte offsets of every `Shared` field, for a benchmark that wants to know
