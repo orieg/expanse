@@ -97,6 +97,10 @@ if [ "$QUICK" -eq 0 ]; then
   # features, and the occ-stats script builds with one.
   echo "  + diag-entry tests (feature is off in the default build)"
   bash scripts/test_diag_entry.sh
+  # Same as the CI `test` job's collector-census step: the counters are
+  # compiled out by default.
+  echo "  + collector-census tests (feature is off in the default build)"
+  bash scripts/test_collector_census.sh
   # Same as the CI `test` job's ablation step. The Hypothesis D mechanisms are
   # the default now, so these are the inverse features (AGENTS.md §2.7): they
   # restore the state each mechanism replaced, and their tests are absent from

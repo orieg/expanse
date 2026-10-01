@@ -74,7 +74,9 @@ use crate::mutate::{branch_form_level, pow256};
 use crate::node::{
     BranchB, BranchHeader, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL,
 };
-use crate::occ::{Collector, Pin, Reader, SeqVersion};
+#[cfg(feature = "collector-census")]
+use crate::occ::CollectorCounters;
+use crate::occ::{Collector, CollectorCensus, Pin, Reader, SeqVersion};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
 use crate::strmap::{ExpanseStrMap, NulFreeStr};
@@ -2258,6 +2260,19 @@ impl<T: SharedTree> Shared<T> {
     #[inline(never)]
     fn release_collector(&self) -> usize {
         self.collector.release_free_lists()
+    }
+
+    /// The collector's census (`Collector::census`). Out of line: cold.
+    #[inline(never)]
+    fn collector_census(&self) -> CollectorCensus {
+        self.collector.census()
+    }
+
+    /// The collector's cumulative counters (`Collector::counters`).
+    #[cfg(feature = "collector-census")]
+    #[inline(never)]
+    fn collector_counters(&self) -> CollectorCounters {
+        self.collector.counters()
     }
 
     /// The tree-level version word.
@@ -5996,6 +6011,43 @@ impl SyncExpanseSet {
         self.shared.release_collector()
     }
 
+    /// Where the bytes the set's epoch collector holds sit: per size
+    /// class, the blocks on its freelists (reusable now, and what
+    /// [`Self::shrink_to_fit`] releases) and the retired blocks still in
+    /// their grace period; the grace-period blocks no size class serves,
+    /// which are freed at the end of their grace period and never reach a
+    /// freelist; and the freelist blocks per writer stripe, so blocks
+    /// stranded on one writer's stripe show. See [`CollectorCensus`].
+    ///
+    /// **Totals.** On a quiesced set (no writer running),
+    /// `census.total_bytes()` equals [`Self::mem_held`] minus the tree's own
+    /// share, [`ExpanseSet::mem_held`] read through [`Self::with_locked`]. That
+    /// equals `mem_held() - mem_used()` only when the tree's share equals its
+    /// used bytes, which does not hold while the tree's allocator keeps slab
+    /// slack or freed blocks of its own (a tree that carved slab pages before
+    /// it was shared).
+    ///
+    /// Walks every freelist and epoch bin under its own lock, one at a time,
+    /// in O(free + retired blocks), and adds nothing to any read or write
+    /// path; a writer that needs the list being walked waits for it, so it
+    /// does not belong in a hot loop.
+    #[must_use]
+    pub fn collector_census(&self) -> CollectorCensus {
+        self.shared.collector_census()
+    }
+
+    /// The cumulative block counters of the set's epoch collector, per
+    /// size class (feature `collector-census`): blocks retired, reclaimed to
+    /// a freelist, reused by an allocation, released by
+    /// [`Self::shrink_to_fit`], and the unclassed blocks released at the end
+    /// of their grace period. See [`CollectorCounters`]. Exact on a quiesced
+    /// set; a diagnostic, not a stability surface.
+    #[cfg(feature = "collector-census")]
+    #[must_use]
+    pub fn collector_counters(&self) -> CollectorCounters {
+        self.shared.collector_counters()
+    }
+
     /// Runs `f` over the tree with all writers excluded — the escape
     /// hatch to the full single-threaded read API (iteration, ranges,
     /// `count_range`, …).
@@ -6565,6 +6617,43 @@ impl SyncExpanseMap {
     /// released by a later call, once reclaimed.
     pub fn shrink_to_fit(&self) -> usize {
         self.shared.release_collector()
+    }
+
+    /// Where the bytes the map's epoch collector holds sit: per size
+    /// class, the blocks on its freelists (reusable now, and what
+    /// [`Self::shrink_to_fit`] releases) and the retired blocks still in
+    /// their grace period; the grace-period blocks no size class serves,
+    /// which are freed at the end of their grace period and never reach a
+    /// freelist; and the freelist blocks per writer stripe, so blocks
+    /// stranded on one writer's stripe show. See [`CollectorCensus`].
+    ///
+    /// **Totals.** On a quiesced map (no writer running),
+    /// `census.total_bytes()` equals [`Self::mem_held`] minus the tree's own
+    /// share, [`ExpanseMap::mem_held`] read through [`Self::with_locked`]. That
+    /// equals `mem_held() - mem_used()` only when the tree's share equals its
+    /// used bytes, which does not hold while the tree's allocator keeps slab
+    /// slack or freed blocks of its own (a tree that carved slab pages before
+    /// it was shared).
+    ///
+    /// Walks every freelist and epoch bin under its own lock, one at a time,
+    /// in O(free + retired blocks), and adds nothing to any read or write
+    /// path; a writer that needs the list being walked waits for it, so it
+    /// does not belong in a hot loop.
+    #[must_use]
+    pub fn collector_census(&self) -> CollectorCensus {
+        self.shared.collector_census()
+    }
+
+    /// The cumulative block counters of the map's epoch collector, per
+    /// size class (feature `collector-census`): blocks retired, reclaimed to
+    /// a freelist, reused by an allocation, released by
+    /// [`Self::shrink_to_fit`], and the unclassed blocks released at the end
+    /// of their grace period. See [`CollectorCounters`]. Exact on a quiesced
+    /// map; a diagnostic, not a stability surface.
+    #[cfg(feature = "collector-census")]
+    #[must_use]
+    pub fn collector_counters(&self) -> CollectorCounters {
+        self.shared.collector_counters()
     }
 
     /// Runs `f` over the tree with all writers excluded — the escape
@@ -10746,6 +10835,39 @@ impl SyncExpanseBlobMap {
         self.shared.release_collector()
     }
 
+    /// Where the bytes the map's epoch collector holds sit: per size
+    /// class, the blocks on its freelists (reusable now, and what
+    /// [`Self::shrink_to_fit`] releases) and the retired blocks still in
+    /// their grace period; the grace-period blocks no size class serves,
+    /// which are freed at the end of their grace period and never reach a
+    /// freelist; and the freelist blocks per writer stripe, so blocks
+    /// stranded on one writer's stripe show. See [`CollectorCensus`].
+    ///
+    /// **Totals.** The tree's own share of [`Self::mem_held`] is
+    /// [`ExpanseBlobMap::mem_used`], so on a quiesced map (no writer running)
+    /// `census.total_bytes()` equals `mem_held() - mem_used()` exactly.
+    ///
+    /// Walks every freelist and epoch bin under its own lock, one at a time,
+    /// in O(free + retired blocks), and adds nothing to any read or write
+    /// path; a writer that needs the list being walked waits for it, so it
+    /// does not belong in a hot loop.
+    #[must_use]
+    pub fn collector_census(&self) -> CollectorCensus {
+        self.shared.collector_census()
+    }
+
+    /// The cumulative block counters of the map's epoch collector, per
+    /// size class (feature `collector-census`): blocks retired, reclaimed to
+    /// a freelist, reused by an allocation, released by
+    /// [`Self::shrink_to_fit`], and the unclassed blocks released at the end
+    /// of their grace period. See [`CollectorCounters`]. Exact on a quiesced
+    /// map; a diagnostic, not a stability surface.
+    #[cfg(feature = "collector-census")]
+    #[must_use]
+    pub fn collector_counters(&self) -> CollectorCounters {
+        self.shared.collector_counters()
+    }
+
     /// Runs `f` over the map with all writers excluded — the escape hatch to
     /// the full single-threaded read API (`scan_filtered`, iteration over
     /// [`ExpanseBlobMap::index`], persistence, …).
@@ -11388,6 +11510,43 @@ impl SyncExpanseStrMap {
     /// released by a later call, once reclaimed.
     pub fn shrink_to_fit(&self) -> usize {
         self.shared.release_collector()
+    }
+
+    /// Where the bytes the map's epoch collector holds sit: per size
+    /// class, the blocks on its freelists (reusable now, and what
+    /// [`Self::shrink_to_fit`] releases) and the retired blocks still in
+    /// their grace period; the grace-period blocks no size class serves,
+    /// which are freed at the end of their grace period and never reach a
+    /// freelist; and the freelist blocks per writer stripe, so blocks
+    /// stranded on one writer's stripe show. See [`CollectorCensus`].
+    ///
+    /// **Totals.** On a quiesced map (no writer running),
+    /// `census.total_bytes()` equals [`Self::mem_held`] minus the tree's own
+    /// share, [`ExpanseStrMap::mem_held`] read through [`Self::with_locked`]. That
+    /// equals `mem_held() - mem_used()` only when the tree's share equals its
+    /// used bytes, which does not hold while the tree's allocator keeps slab
+    /// slack or freed blocks of its own (a tree that carved slab pages before
+    /// it was shared).
+    ///
+    /// Walks every freelist and epoch bin under its own lock, one at a time,
+    /// in O(free + retired blocks), and adds nothing to any read or write
+    /// path; a writer that needs the list being walked waits for it, so it
+    /// does not belong in a hot loop.
+    #[must_use]
+    pub fn collector_census(&self) -> CollectorCensus {
+        self.shared.collector_census()
+    }
+
+    /// The cumulative block counters of the map's epoch collector, per
+    /// size class (feature `collector-census`): blocks retired, reclaimed to
+    /// a freelist, reused by an allocation, released by
+    /// [`Self::shrink_to_fit`], and the unclassed blocks released at the end
+    /// of their grace period. See [`CollectorCounters`]. Exact on a quiesced
+    /// map; a diagnostic, not a stability surface.
+    #[cfg(feature = "collector-census")]
+    #[must_use]
+    pub fn collector_counters(&self) -> CollectorCounters {
+        self.shared.collector_counters()
     }
 
     /// Runs `f` over the map with all writers excluded — the escape hatch
@@ -12285,6 +12444,39 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         self.shared.release_collector()
     }
 
+    /// Where the bytes the map's epoch collector holds sit: per size
+    /// class, the blocks on its freelists (reusable now, and what
+    /// [`Self::shrink_to_fit`] releases) and the retired blocks still in
+    /// their grace period; the grace-period blocks no size class serves,
+    /// which are freed at the end of their grace period and never reach a
+    /// freelist; and the freelist blocks per writer stripe, so blocks
+    /// stranded on one writer's stripe show. See [`CollectorCensus`].
+    ///
+    /// **Totals.** The tree's own share of [`Self::mem_held`] is
+    /// [`ExpanseBytesMap::mem_used`], so on a quiesced map (no writer running)
+    /// `census.total_bytes()` equals `mem_held() - mem_used()` exactly.
+    ///
+    /// Walks every freelist and epoch bin under its own lock, one at a time,
+    /// in O(free + retired blocks), and adds nothing to any read or write
+    /// path; a writer that needs the list being walked waits for it, so it
+    /// does not belong in a hot loop.
+    #[must_use]
+    pub fn collector_census(&self) -> CollectorCensus {
+        self.shared.collector_census()
+    }
+
+    /// The cumulative block counters of the map's epoch collector, per
+    /// size class (feature `collector-census`): blocks retired, reclaimed to
+    /// a freelist, reused by an allocation, released by
+    /// [`Self::shrink_to_fit`], and the unclassed blocks released at the end
+    /// of their grace period. See [`CollectorCounters`]. Exact on a quiesced
+    /// map; a diagnostic, not a stability surface.
+    #[cfg(feature = "collector-census")]
+    #[must_use]
+    pub fn collector_counters(&self) -> CollectorCounters {
+        self.shared.collector_counters()
+    }
+
     /// Runs `f` over the map with all writers excluded — the escape
     /// hatch to the single-threaded `&self` read API ([`ExpanseBytesMap::for_each`], …).
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBytesMap<S>) -> R) -> R {
@@ -12524,6 +12716,36 @@ mod miri_tests {
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
+    }
+
+    /// #1310, the collector census through a wrapper under Miri in the
+    /// Tier-1 filter: the census walks every freelist and bin of a string
+    /// map whose writes retire classed nodes and unclassed suffix leaves,
+    /// and on the quiesced map its total is what `mem_held` adds to the
+    /// tree's share. A small workload, sized for the lane.
+    #[test]
+    fn collector_census_walk_under_miri() {
+        let m = SyncExpanseStrMap::new();
+        let key = |i: u64| format!("k{:08x}", splitmix64(i));
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..96 {
+                    m.insert(NulFreeStr::new(key(i).as_bytes()).unwrap(), i);
+                }
+                for i in (0..96).step_by(2) {
+                    m.remove(NulFreeStr::new(key(i).as_bytes()).unwrap());
+                }
+            });
+        });
+        let census = m.collector_census();
+        assert!(census.total_bytes() > 0);
+        assert_eq!(
+            census.total_bytes(),
+            m.mem_held() - m.with_locked(|t| t.mem_held())
+        );
+        let released = m.shrink_to_fit();
+        assert_eq!(released, census.free_bytes());
+        assert_eq!(m.collector_census().free_bytes(), 0);
     }
 
     /// #1290, the reclaim path under Miri in the Tier-1 filter: a smaller

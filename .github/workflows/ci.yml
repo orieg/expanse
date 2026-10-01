@@ -667,6 +667,15 @@ jobs:
       - name: Clippy under every ablation configuration
         run: python3 scripts/check_ablation_clippy.py
 
+      # `collector-census` (Refs #1310) is a diagnostic feature outside the
+      # `ablation-*` plan above, and its counters sit beside the freelist
+      # striping that `ablation-unstriped-freelist` reverts, so it is checked
+      # alone and with that inverse.
+      - name: Clippy with the collector-census counters
+        run: |
+          cargo clippy -p expanse-trie --all-targets --features collector-census -- -D warnings
+          cargo clippy -p expanse-trie --all-targets --features collector-census,ablation-unstriped-freelist -- -D warnings
+
   man-examples:
     name: Docs / Man Page Examples Compile and Match
     needs: [detect-changes, fast-lane]
@@ -937,6 +946,14 @@ jobs:
       - name: Test with the diag-entry entry points armed
         shell: bash
         run: bash scripts/test_diag_entry.sh
+
+      # The collector's cumulative counters (`collector-census`, Refs #1310)
+      # are compiled out by default too. The script discovers the gated
+      # integration targets, runs the `collector_census` unit tests with the
+      # counters compiled in, and fails if any binary runs zero tests.
+      - name: Test with the collector-census counters armed
+        shell: bash
+        run: bash scripts/test_collector_census.sh
 
       # The Hypothesis D inverse features (METHODOLOGY.md §11, AGENTS.md §2.7):
       # every arm is a production default now, so these features restore the
