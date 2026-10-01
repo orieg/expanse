@@ -1,0 +1,78 @@
+--- a/crates/expanse/src/blobmap.rs
++++ b/crates/expanse/src/blobmap.rs
+@@ -1112,6 +1112,7 @@
+         &mut self,
+         index: &mut ExpanseMap,
+     ) -> Result<CompactionStats, ArenaError> {
++        let __t0 = std::time::Instant::now();
+         let live_bytes_before = self.live_bytes;
+         let total_allocated_before = self.total_allocated;
+         let chunks_before = self.chunks.len();
+@@ -1139,9 +1140,11 @@
+             .map_err(|_| ArenaError::AllocationFailed)?;
+         #[cfg(all(test, feature = "std"))]
+         LAST_RELOCATION_RESERVE.with(|c| c.set(rewrites.capacity()));
++        let __t_res = __t0.elapsed();
+         rewrites.extend(index.iter().filter_map(|(key, raw_slot)| {
+             (ValueSlot::from_raw(raw_slot).tag() == SlotTag::ArenaMeta).then_some((key, raw_slot))
+         }));
++        let __t_collect = __t0.elapsed();
+ 
+         // Phase 1: relocate every live payload into the new arena, rewriting
+         // each entry in place to its new raw slot and keeping only the ones
+@@ -1160,6 +1163,7 @@
+             }
+         }
+         rewrites.truncate(kept);
++        let __t_p1 = __t0.elapsed();
+ 
+         let live_records_moved = rewrites.len();
+ 
+@@ -1183,6 +1187,7 @@
+             }
+         }
+ 
++        let __t_p2 = __t0.elapsed();
+         let live_bytes_after = new_arena.live_bytes;
+         let total_allocated_after = new_arena.total_allocated;
+         let chunks_after = new_arena.chunks.len();
+@@ -1202,7 +1207,14 @@
+         self.reset_reclaim_baseline();
+         self.generation = new_arena.generation;
+         self.republish_table();
++        let __t_pub = __t0.elapsed();
++        let __n_old = old_chunks.len();
+         self.dispose_chunks(old_chunks);
++        let __t_disp = __t0.elapsed();
++        drop(new_arena);
++        let __t_end = __t0.elapsed();
++        std::eprintln!("PHASE {{\"reserve_ns\":{},\"collect_ns\":{},\"phase1_ns\":{},\"phase2_ns\":{},\"publish_ns\":{},\"dispose_ns\":{},\"drop_new_ns\":{},\"old_chunks\":{},\"new_chunks\":{},\"moved\":{}}}",
++            __t_res.as_nanos(), (__t_collect-__t_res).as_nanos(), (__t_p1-__t_collect).as_nanos(), (__t_p2-__t_p1).as_nanos(), (__t_pub-__t_p2).as_nanos(), (__t_disp-__t_pub).as_nanos(), (__t_end-__t_disp).as_nanos(), __n_old, chunks_after, live_records_moved);
+ 
+         Ok(CompactionStats {
+             live_bytes_before,
+--- a/crates/expanse/src/sync.rs
++++ b/crates/expanse/src/sync.rs
+@@ -10196,9 +10196,19 @@
+             not(feature = "ablation-blob-shared-arena"),
+             feature = "std"
+         ))]
+-        let res = self.shared.write_quiesced(|m| {
+-            self.with_folded_writers(m, |m| m.insert_shared_reclaiming(key, data, hot_meta))
+-        });
++        let res = {
++            let __t0 = std::time::Instant::now();
++            let mut __tin = None; let mut __tout = None; let mut __did = false;
++            let res = self.shared.write_quiesced(|m| {
++                __tin = Some(__t0.elapsed());
++                let r = self.with_folded_writers(m, |m| { let (r, c) = m.insert_shared_reclaiming(key, data, hot_meta); __did = c; (r, c) });
++                __tout = Some(__t0.elapsed());
++                r
++            });
++            let __tend = __t0.elapsed();
++            if __did { std::eprintln!("SYNC {{\"enter_ns\":{},\"inside_ns\":{},\"after_ns\":{}}}", __tin.unwrap().as_nanos(), (__tout.unwrap()-__tin.unwrap()).as_nanos(), (__tend-__tout.unwrap()).as_nanos()); }
++            res
++        };
+         #[cfg(all(
+             not(feature = "ablation-blob-serial-writers"),
+             any(feature = "ablation-blob-shared-arena", not(feature = "std"))

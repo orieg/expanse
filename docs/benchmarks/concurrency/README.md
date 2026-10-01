@@ -5644,3 +5644,55 @@ of #1300's other items.
   smaller arenas than the cap. Whether the per-record difference is the
   arena's size, the cap's waste guard, or the live set leaving the cache is
   not separated by this run.
+
+### 29.1 Where the stall goes — Step 0 for #1300's items 2 and 5
+
+A diagnostic build times each phase of `BlobArena::compact_with_index`, and on
+`SyncExpanseBlobMap` the whole exclusive section of `insert_after_reclaim`. The
+build is `d71e65bd` plus `results/step0_1300_phases/probe.patch`, which is not
+in the engine. It ran 3 rounds per cell with one writer, against the same
+harness and seeds *(measured: reference host — Intel Core i9-12900F, pin
+`0-15`; raw output `results/step0_1300_phases/probe.log`; workload:
+`reclaim_stall`)*. The capture did not hold the host's bench lock; the
+one-minute load average read 0.77 before it and 1.35 after, its own three
+threads included. Ranges are per compaction across rounds:
+
+| phase | what it does | 200,000 live | 3,600,000 live |
+|---|---|--:|--:|
+| collect | `index.iter()` into the rewrite list | 1.9–2.0 ms | 34.2–36.4 ms |
+| phase 1 | copy every live payload into the fresh arena | 11.5–11.9 ms | 217.0–231.3 ms |
+| phase 2 | rewrite each key's index slot | 1.4–1.7 ms | 24.8–26.5 ms |
+| publish | `republish_table` | < 0.01 ms | < 0.01 ms |
+| dispose, `ExpanseBlobMap`, 1st compaction | free the 512 old chunks | 28.7–30.5 ms | 28.7–29.7 ms |
+| dispose, `ExpanseBlobMap`, 2nd compaction | the same | 0.6 ms | 9.8–9.9 ms |
+| dispose, `SyncExpanseBlobMap` | retire to the epoch collector | < 0.02 ms | < 0.02 ms |
+| `SyncExpanseBlobMap` exclusive section | gate closed, tree bracket open | 14.9–15.3 ms | 284.3–294.1 ms |
+
+- **Phase 1 dominates the exclusive section.** On `SyncExpanseBlobMap` it is
+  76.2–76.8 % of the section at 200,000 live and 78.4–78.6 % at 3,600,000;
+  collect and phase 1 together are 89.4–91.0 %.
+- **Phase 1 is linear in the live records.** It costs 57.3–59.5 ns per record
+  at 200,000 and 60.3–64.2 ns at 3,600,000, close to §27's 53.07–58.80 ns.
+  §29's prediction scaled that per-record cost and so described the copy. It
+  had no collect, phase-2 or dispose terms.
+- **The first compaction's excess is the free of the first chunk set.** 526
+  of the run's 530 `munmap` calls unmap a 2,101,248 B mapping, one per 2 MiB
+  chunk (census in `probe.log`). That is 512 chunks from the first compaction
+  plus 14 from the second. The second compaction's 512 old chunks are freed
+  without an `munmap`. glibc's dynamic mmap threshold would produce this
+  pattern by serving later chunks from its heap, but that mechanism is a
+  hypothesis, not a measurement.
+- **On `SyncExpanseBlobMap` the free lands on a later insert, outside the
+  compaction.** A round's largest inserts are the free of the first chunk set
+  (29.2–32.7 ms), then the two compactions (14.9–15.3 ms) at 200,000 live; at
+  3,600,000 they are the two compactions (284.3–294.1 ms), then the first free
+  (30.4–32.6 ms). §29's P1 therefore measured the collector's free, not a
+  compaction, in its 200,000-record sync cells. That is also why P3 read
+  `MIXED` there: readers wait for the compaction, about 16 ms, and not for
+  the free. Which code path runs the free is not separated by this probe.
+- **What item 2 can remove from readers.** Collect and phase 1 do not write
+  the index. Running them with writers excluded and the reader bracket closed
+  leaves phase 2 and the publish inside the bracket: 1.4–1.7 ms at 200,000 and
+  24.8–26.5 ms at 3,600,000, against 14.9–15.3 ms and 284.3–294.1 ms today.
+  That is a bound from this attribution, not a measurement of a split.
+  Writers still wait for the whole section, which is item 5's work.
