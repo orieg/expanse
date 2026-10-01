@@ -29,6 +29,15 @@ inputs:
       before the attempts after it.
     required: false
     default: 'true'
+  install-recommends:
+    description: >-
+      'false' passes --no-install-recommends, so apt installs the listed
+      packages and their dependencies but not what they only recommend.
+      gcc-arm-none-eabi recommends the 463 MB C++ library
+      libstdc++-arm-none-eabi-newlib, which a C-only job never links and which
+      alone can outlast install-timeout on a slow mirror.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -41,6 +50,7 @@ runs:
         UPDATE_TIMEOUT: ${{ inputs.update-timeout }}
         INSTALL_TIMEOUT: ${{ inputs.install-timeout }}
         UPDATE_FIRST: ${{ inputs.update-first }}
+        INSTALL_RECOMMENDS: ${{ inputs.install-recommends }}
       run: |
         set -u
         opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
@@ -49,13 +59,19 @@ runs:
           true | false) ;;
           *) echo "::error::update-first must be 'true' or 'false', got '$UPDATE_FIRST'"; exit 1 ;;
         esac
+        install_opts=()
+        case "$INSTALL_RECOMMENDS" in
+          true) ;;
+          false) install_opts=(--no-install-recommends) ;;
+          *) echo "::error::install-recommends must be 'true' or 'false', got '$INSTALL_RECOMMENDS'"; exit 1 ;;
+        esac
         for i in $(seq 1 "$ATTEMPTS"); do
           refresh=true
           if [ "$i" -eq 1 ] && [ "$UPDATE_FIRST" = false ]; then
             refresh=false
           fi
           if { [ "$refresh" = false ] || timeout "$UPDATE_TIMEOUT" sudo apt-get "${opts[@]}" update -q; } \
-            && timeout "$INSTALL_TIMEOUT" sudo apt-get "${opts[@]}" install -y -q "${pkgs[@]}"; then
+            && timeout "$INSTALL_TIMEOUT" sudo apt-get "${opts[@]}" install -y -q ${install_opts[@]+"${install_opts[@]}"} "${pkgs[@]}"; then
             echo "installed ${pkgs[*]} on attempt $i"
             exit 0
           fi
