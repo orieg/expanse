@@ -1451,8 +1451,8 @@ jobs:
     # (integrations/stm32h747), so harness-only PRs must exercise it (#601).
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request' || needs.detect-changes.outputs.ci-workflow-all == 'true' || contains(needs.detect-changes.outputs.changed-jobs, '|test-cortex-m|')
     runs-on: ubuntu-latest
-    # Room for apt-install's three bounded attempts (at most about 12.5
-    # minutes) beside the build; a normal install takes about a minute.
+    # Room for apt-install's three bounded attempts, at most
+    # 3 x (90 + 150) s plus two 15 s pauses, beside the build.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
