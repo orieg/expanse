@@ -30,8 +30,10 @@ exits non-zero with that hint if it is missing. Never falls back to a mock.
 
 Fuel is deterministic for a given module and runtime, so the runtime version
 and the compilers are part of a number's provenance and are recorded in the
-result. CI pins both (`wasmtime==<version>` and a dated nightly, see
-`WASM_FUEL_NIGHTLY`); a baseline check reports when either differs from what
+result. CI pins all three: `wasmtime==<version>`, an exact stable release for
+wasm32 and a dated nightly for wasm64 (see `WASM_FUEL_NIGHTLY`). `--self-test`
+fails when the job's wasm32 compiler or wasmtime pin disagrees with the
+committed baseline, and a baseline check reports when either differs from what
 the baseline was measured with, so a drift is read as drift, not as an engine
 regression.
 """
@@ -41,6 +43,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -365,6 +368,47 @@ def save_baseline(path: Path, result: Dict[str, Any]) -> None:
     path.write_text(json.dumps(entries, indent=1) + "\n", encoding="utf-8")
 
 
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+CI_JOB = "wasm-fuel"
+
+
+def pin_problems(ci_yml: str, baseline: List[Dict[str, Any]]) -> List[str]:
+    """The `wasm-fuel` job's pinned wasm32 compiler and wasmtime against the
+    versions the committed baseline was measured with.
+
+    Fuel follows the compiler's codegen, so a floating `@stable` turns every
+    Rust release into a gate failure on code nobody changed. The wasm64
+    nightly is pinned by date in the same job, but a channel date does not
+    map one-to-one onto the commit date `rustc --version` prints, so it is
+    not compared here; the drift notice in `compare` still reports it.
+    """
+    m = re.search(rf"^  {re.escape(CI_JOB)}:\n(.*?)(?=^  [\w-]+:\n|\Z)", ci_yml, re.S | re.M)
+    if not m:
+        return [f"no `{CI_JOB}` job in ci.yml"]
+    job = m.group(1)
+    problems: List[str] = []
+    by_target = {e.get("target"): e for e in baseline}
+    toolchains = re.findall(r"uses:\s*dtolnay/rust-toolchain@(\S+)", job)
+    if len(toolchains) != 1:
+        problems.append(f"expected one dtolnay/rust-toolchain step in `{CI_JOB}`, found {toolchains}")
+    else:
+        pin = toolchains[0]
+        if not re.fullmatch(r"\d+\.\d+\.\d+", pin):
+            problems.append(f"`{CI_JOB}` builds wasm32 with rust-toolchain@{pin}, not an exact release: fuel follows the compiler")
+        else:
+            rustc = by_target.get(TARGETS["wasm32"], {}).get("rustc", "")
+            if not rustc.startswith(f"rustc {pin} "):
+                problems.append(f"`{CI_JOB}` pins rustc {pin} but the wasm32 baseline was measured with {rustc!r}: move the pin and the baseline together")
+    wt = re.findall(r"wasmtime==(\S+)", job)
+    if len(wt) != 1:
+        problems.append(f"expected one wasmtime==<version> pin in `{CI_JOB}`, found {wt}")
+    else:
+        for target, e in sorted(by_target.items()):
+            if e.get("wasmtime") != wt[0]:
+                problems.append(f"`{CI_JOB}` pins wasmtime {wt[0]} but the {target} baseline was measured with {e.get('wasmtime')!r}")
+    return problems
+
+
 def self_test() -> None:
     """Fail-then-pass pins of the gate policy on synthetic data."""
     base = {"target": "wasm32-unknown-unknown", "arms": [{"name": n, "fuel": 1000} for n in ("a/x", "b/x", "c/x")]}
@@ -502,6 +546,32 @@ def self_test() -> None:
             assert "names no known target" in refused.getvalue(), refused.getvalue()
         else:
             raise AssertionError("a result for an unknown target must not be gated")
+
+    # The job's compiler and runtime pins match the committed baseline's
+    # provenance; a floating `@stable` failed main on a Rust release alone.
+    pin_base = [
+        {"target": "wasm32-unknown-unknown", "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)", "wasmtime": "48.0.0"},
+        {"target": "wasm64-unknown-unknown", "rustc": "rustc 1.100.0-nightly", "wasmtime": "48.0.0"},
+    ]
+
+    def job_yml(toolchain: str, wasmtime: str) -> str:
+        return (
+            "jobs:\n  wasm-fuel:\n    steps:\n"
+            f"      - uses: dtolnay/rust-toolchain@{toolchain}\n"
+            f"      - run: python3 -m pip install wasmtime=={wasmtime}\n"
+            "  test-go:\n    steps:\n      - uses: dtolnay/rust-toolchain@stable\n"
+        )
+
+    assert pin_problems(job_yml("1.98.1", "48.0.0"), pin_base) == []
+    assert any("not an exact release" in p for p in pin_problems(job_yml("stable", "48.0.0"), pin_base))
+    assert any("move the pin and the baseline" in p for p in pin_problems(job_yml("1.99.0", "48.0.0"), pin_base))
+    assert any("pins wasmtime 49.0.0" in p for p in pin_problems(job_yml("1.98.1", "49.0.0"), pin_base))
+    assert any("no `wasm-fuel` job" in p for p in pin_problems("jobs:\n  other:\n", pin_base))
+    real = pin_problems(
+        CI_WORKFLOW.read_text(encoding="utf-8"),
+        json.loads((REPO_ROOT / "results" / "baseline_wasm_fuel.json").read_text(encoding="utf-8")),
+    )
+    assert not real, "ci.yml pins disagree with results/baseline_wasm_fuel.json: " + "; ".join(real)
     print("wasm_fuel.py --self-test: all checks passed")
 
 

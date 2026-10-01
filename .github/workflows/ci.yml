@@ -3254,7 +3254,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned to the exact release results/baseline_wasm_fuel.json records for
+      # wasm32: fuel counts follow the compiler's codegen, so a floating
+      # `@stable` fails the guard on a Rust release with no engine change.
+      # Move the pin and the baseline together; `wasm_fuel.py --self-test`
+      # fails when they disagree.
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           targets: wasm32-unknown-unknown
 
