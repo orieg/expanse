@@ -1866,15 +1866,14 @@ jobs:
 
       - name: Install stock libjudy
         timeout-minutes: 8
-        run: |
-          if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
-          for i in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
-            echo "apt attempt $i failed; retrying in 15s"
-            sleep 15
-          done
-          exit 1
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libjudy-dev
+          # First attempt against the image's own index, as before; three
+          # bounded attempts (100 + 15 + 160 + 15 + 160 s) fit the step's 8.
+          update-first: 'false'
+          update-timeout: '60'
+          install-timeout: '100'
 
       # Pinned source build, not Ubuntu's valgrind 3.22.0: releases before
       # 3.24.0 carry upstream bug 492663 and can count 0 instructions on every
@@ -2172,15 +2171,14 @@ jobs:
 
       - name: Install stock libjudy
         timeout-minutes: 8
-        run: |
-          if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
-          for _ in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
-            echo "apt attempt failed; retrying in 15s"
-            sleep 15
-          done
-          exit 1
+        uses: ./.github/actions/apt-install
+        with:
+          packages: libjudy-dev
+          # First attempt against the image's own index, as before; three
+          # bounded attempts (100 + 15 + 160 + 15 + 160 s) fit the step's 8.
+          update-first: 'false'
+          update-timeout: '60'
+          install-timeout: '100'
 
       - name: Differential oracle vs stock libjudy
         run: cargo test -p expanse-capi --features oracle

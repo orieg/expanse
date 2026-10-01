@@ -21,6 +21,14 @@ inputs:
     description: Seconds allowed for `apt-get install` in one attempt
     required: false
     default: '150'
+  update-first:
+    description: >-
+      'true' refreshes the package index before every attempt. 'false' tries
+      the first attempt against the runner image's existing index, which is
+      enough for most packages and skips the refresh, and refreshes only
+      before the attempts after it.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -32,12 +40,21 @@ runs:
         ATTEMPTS: ${{ inputs.attempts }}
         UPDATE_TIMEOUT: ${{ inputs.update-timeout }}
         INSTALL_TIMEOUT: ${{ inputs.install-timeout }}
+        UPDATE_FIRST: ${{ inputs.update-first }}
       run: |
         set -u
         opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
         read -r -a pkgs <<< "$PACKAGES"
+        case "$UPDATE_FIRST" in
+          true | false) ;;
+          *) echo "::error::update-first must be 'true' or 'false', got '$UPDATE_FIRST'"; exit 1 ;;
+        esac
         for i in $(seq 1 "$ATTEMPTS"); do
-          if timeout "$UPDATE_TIMEOUT" sudo apt-get "${opts[@]}" update -q \
+          refresh=true
+          if [ "$i" -eq 1 ] && [ "$UPDATE_FIRST" = false ]; then
+            refresh=false
+          fi
+          if { [ "$refresh" = false ] || timeout "$UPDATE_TIMEOUT" sudo apt-get "${opts[@]}" update -q; } \
             && timeout "$INSTALL_TIMEOUT" sudo apt-get "${opts[@]}" install -y -q "${pkgs[@]}"; then
             echo "installed ${pkgs[*]} on attempt $i"
             exit 0
