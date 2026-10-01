@@ -28,7 +28,7 @@
 //! | `group` | 2 |
 //! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes, the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
 //! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), and `sync32_map_get` (50%) |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -2044,6 +2044,28 @@ fn blobmap_overwrite(built: (ExpanseBlobMap, Vec<u64>)) -> u64 {
     black_box(n)
 }
 
+/// `built_blobmap(dist)` with every key overwritten once by a same-size
+/// payload, so half the arena's records are dead.
+fn built_blobmap_garbage(dist: &str) -> ExpanseBlobMap {
+    let (mut map, probes) = built_blobmap(dist);
+    for &k in &probes {
+        map.insert(k, &blob_payload(!k), blob_meta(!k))
+            .expect("blob replace");
+    }
+    map
+}
+
+// One compaction of the arena (#1300): every live payload copied into a fresh
+// arena, every index slot rewritten, the old chunk set freed. Counted per live
+// record (50,000). The compacted map is leaked.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_blobmap_garbage)]
+fn blobmap_compact(mut map: ExpanseBlobMap) -> u64 {
+    let stats = black_box(&mut map).compact().expect("blob compact");
+    core::mem::forget(map);
+    black_box(stats.live_records_moved as u64)
+}
+
 // Same-key replace, remove, reinsert: `sync_blobmap_churn`'s ladder on the
 // plain map.
 #[library_benchmark]
@@ -2728,6 +2750,17 @@ fn built_sync_blobmap(dist: &str) -> (SyncExpanseBlobMap, Vec<u64>) {
     (map, shuffled(ks))
 }
 
+/// `built_sync_blobmap(dist)` with every key overwritten once, as
+/// `built_blobmap_garbage`.
+fn built_sync_blobmap_garbage(dist: &str) -> SyncExpanseBlobMap {
+    let (map, probes) = built_sync_blobmap(dist);
+    for &k in &probes {
+        map.insert(k, &blob_payload(!k), blob_meta(!k))
+            .expect("blob replace");
+    }
+    map
+}
+
 /// The map `built_sync_blobmap(dist)` builds, probed with `fresh_keys(dist)`:
 /// absent keys drawn from the population's distribution and rejected on
 /// membership (§8.6 miss shape), so every probe is a removal miss.
@@ -3010,6 +3043,16 @@ fn sync_blobmap_overwrite(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     black_box(n)
 }
 
+// `blobmap_compact` through the wrapper: the exclusive section, the writers'
+// arena fold, and the old chunk set retired to the epoch collector.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap_garbage)]
+fn sync_blobmap_compact(map: SyncExpanseBlobMap) -> u64 {
+    let stats = black_box(&map).compact().expect("blob compact");
+    core::mem::forget(map);
+    black_box(stats.live_records_moved as u64)
+}
+
 /// Callgrind simulator settings for this harness.
 ///
 /// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
@@ -3167,10 +3210,12 @@ library_benchmark_group!(
         blobmap_remove,
         blobmap_overwrite,
         blobmap_churn,
+        blobmap_compact,
         sync_bytesmap_get,
         sync_bytesmap_overwrite,
         sync_blobmap_get,
-        sync_blobmap_overwrite
+        sync_blobmap_overwrite,
+        sync_blobmap_compact
 );
 
 library_benchmark_group!(

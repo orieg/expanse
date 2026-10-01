@@ -231,6 +231,9 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_bytesmap_overwrite": 50_000,
     "sync_blobmap_get": 50_000,
     "sync_blobmap_overwrite": 50_000,
+    # One compaction each, counted per live record it moves (POP = 50,000).
+    "blobmap_compact": 50_000,
+    "sync_blobmap_compact": 50_000,
     # Search suite (`search_instructions.rs`): one arm is one whole set-algebra
     # call over a prepared pair, so N = 1 is the ops count and `Ins / Op` reads
     # as instructions per operation. Declared, not left to the fallback in
@@ -448,8 +451,10 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "blobmap_remove",
             "blobmap_overwrite",
             "blobmap_churn",
+            "blobmap_compact",
             "sync_bytesmap_overwrite",
             "sync_blobmap_overwrite",
+            "sync_blobmap_compact",
         },
     ),
 ]

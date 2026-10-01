@@ -4419,3 +4419,74 @@ No prediction is a merge gate: the harness changes no engine code.
   - the frequency droop a long copy may cause;
   - payload sizes other than 128 B.
 - **Out of scope:** any engine change. A measurement that motivates one gets its own pre-registration.
+
+## 30. Pre-registration for #1300 item 2 — new reads proceed during a concurrent compaction (appended and locked 2026-10-01, before any engine code of the change below)
+
+### 30.1 Context
+
+README §29.1 timed each phase of a compaction on `SyncExpanseBlobMap`. The tree bracket is open for the whole exclusive section of `write_quiesced`, so every read that starts in it waits. The collect (`index.iter()` into the rewrite list) and the copy (phase 1) are 89.4–91.0 % of that section. Neither writes anything a reader loads: phase 1 copies into a new arena no reader can reach. Only the index rewrite (phase 2) and `republish_table` change what readers validate against.
+
+`reader_wait_ratio_bound` (`scripts/blob_reclaim_bounds.py`) computes the wait left if the bracket covers only those two steps:
+- 9.93–10.45 % of the section at 200,000 live records (1.48–1.59 ms);
+- 9.00–9.14 % at 3,600,000 (25.6–26.5 ms).
+
+### 30.2 The change
+
+- **Split `BlobArena::compact_with_index` (`crates/expanse/src/blobmap.rs`) in two.**
+  - A prepare step takes `&self` and `&ExpanseMap`. It runs the collect and phase 1 into a private arena.
+  - An apply step takes `&mut self` and `&mut ExpanseMap`. It runs phase 2, installs the chunk set, republishes the table and disposes of the old chunks.
+  - `compact_with_index` calls the two in sequence, so `ExpanseBlobMap` does the same work in the same order.
+- **Add a serialised section to `Shared` (`crates/expanse/src/sync.rs`) that runs a prepare closure before opening the tree bracket.** It takes the same exclusion as `write_root_covered_with`: the fallback mutex, the writer gate drained and the writer mutex. It runs the prepare closure on a shared reference to the engine, then opens the bracket for the apply closure.
+- **Route both compaction paths of the default build through it:**
+  - `SyncExpanseBlobMap::compact`;
+  - the reclaim in `insert_after_reclaim`. There, the reclaim decision and the prepare run before the bracket; the apply and the retried insert run inside it.
+- **Unchanged:**
+  - the writers' arena fold before the compaction and the private-chunk reset after it (`with_folded_writers`);
+  - the `ablation-blob-*` paths;
+  - the record format;
+  - every non-compaction path.
+
+**Hazards, each with its check:**
+
+| id | hazard | check |
+|---|---|---|
+| H1 | the prepare writes a word a reader loads | the prepare's signature is `&self` / `&ExpanseMap` (compile time), and a Tier-1 Miri test runs a reader through a compaction |
+| H2 | a read that starts during the prepare returns a wrong payload or reports a present key absent | a test reads every live key concurrently with repeated compactions and asserts each payload |
+| H3 | a failed prepare leaves the map changed, or the bracket open | the existing all-or-nothing tests, run against the split, and a failure-injection test through the concurrent path |
+| H4 | the single-threaded map pays for the split | the Callgrind arms `blobmap_compact` and `sync_blobmap_compact`, landed before the change |
+
+No tree mutation entry point is added. Phase 2 stores slots through the existing atomic store, so §2.1 invariant 5's `by_mode!` twin does not apply.
+
+### 30.3 Instrument and protocol
+
+- **Suite:** `reclaim_stall` (§29) on the reference host, unchanged.
+- **Builds:** B, the change's merge base, and H, its head.
+- **Runs:** dispatched in the order B, H, H, B, 5 rounds per cell each.
+- **Admissibility:** each run's host guard reads quiet, and every round completes two compactions with no refused insert.
+- **Callgrind:** the PR's `instruction-counts` job.
+
+### 30.4 Predictions and gate
+
+| id | quantity | prediction | verdict |
+|---|---|---|---|
+| G1 | at 3,600,000 live, per `SyncExpanseBlobMap` overwrite cell (W = 1, 4, 12), the largest read latency | H's BCa 95 % upper bound ≤ 0.15 × B's BCa 95 % lower bound | `PASS` when it holds in all three cells in both run pairs; `FAIL` when it fails in any cell in both; `INCONCLUSIVE` otherwise |
+| P2 | at 200,000 live, the same quantity | H ≤ 0.25 × B, by the same interval rule | reported |
+| P3 | the stall (largest insert latency) at 3,600,000 | H ÷ B medians within [0.9, 1.1]: the writers' wait is not the target | reported |
+| P4 | `blobmap_compact` instructions | at most +0.1 % against B | review bound (§6) |
+| P5 | every other Callgrind arm | within the §6 review bound | review bound |
+
+**Why the thresholds sit above the bound.** G1's 0.15 is the bound's 0.0914 plus slack for a read already in flight when the bracket opens, and for scheduler noise. P2's 0.25 is wider because at 200,000 live the bound is 1.5 ms, near the size of other read tails the base run has not attributed.
+
+**Gate.**
+- G1 `PASS`, with the test suite, Tier-1 Miri and the H2–H3 tests green: the change merges.
+- G1 `FAIL`: it is reverted, and the measured outcome is recorded on #1300.
+- G1 `INCONCLUSIVE`: one more run pair, under the same rule; no threshold moves (§8.19).
+
+### 30.5 Not predicted, and out of scope
+
+- **Not predicted:**
+  - the read latency of pinned views opened before the compaction;
+  - the collector's free of the old chunk set, which lands on a later writer (README §29.1).
+- **Out of scope:**
+  - the writers' wait, which is item 5;
+  - the free's placement, which gets its own record on #1300.

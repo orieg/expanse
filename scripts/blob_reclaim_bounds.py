@@ -82,6 +82,11 @@ S27_LIVE_RECORDS = 200_000
 # sustained maximum (3,830,069 at the default geometry) that the waste guard
 # admits (2 * 3,600,000 * 136 < 2^30).
 STALL_LIVE_SETS = (200_000, 3_600_000)
+# README §29.1's Step 0: per-phase compaction timings from a diagnostic build
+# (`probe.patch` beside it), one `PHASE` line per compaction and, on the
+# concurrent map, one `SYNC` line per exclusive section.
+STEP0_PROBE_LOG = (REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
+                   / "step0_1300_phases" / "probe.log")
 
 RECORD_HEADER_BYTES = 8
 ARENA_ALIGN = 16
@@ -234,6 +239,47 @@ def predicted_stall_ns(live_records: int, ns_per_record: float) -> float:
     if not ns_per_record > 0:
         raise ValueError("ns_per_record must be positive")
     return live_records * ns_per_record
+
+
+def step0_sync_sections(path: Path = STEP0_PROBE_LOG) -> dict[int, list[dict]]:
+    """README §29.1's concurrent exclusive sections, keyed by live records.
+
+    Each entry pairs one compaction's `PHASE` timings with the `SYNC` line of
+    the exclusive section that ran it: `inside_ns` is the time the tree
+    bracket was open, so every read that started in it waited.
+    """
+    out: dict[int, list[dict]] = {}
+    live = phase = None
+    is_sync = False
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("== "):
+            fields = dict(kv.split("=", 1) for kv in line[3:].split())
+            live, is_sync, phase = int(fields["live"]), fields["map"] == "sync", None
+        elif line.startswith("PHASE "):
+            phase = json.loads(line[6:])
+        elif line.startswith("SYNC ") and is_sync:
+            if phase is None:
+                raise ValueError("a SYNC line with no PHASE line before it")
+            out.setdefault(live, []).append({**phase, **json.loads(line[5:])})
+            phase = None
+    if not out:
+        raise ValueError(f"no concurrent exclusive section in {path}")
+    return out
+
+
+def reader_wait_bound_ns(section: dict) -> int:
+    """The reader wait left if only the index rewrite and the table publish hold
+    the tree bracket (#1300 item 2): phase 2 plus `republish_table`. The
+    collect and the copy write nothing a reader validates against."""
+    for k in ("phase2_ns", "publish_ns"):
+        _nonneg_int(k, section[k])
+    return section["phase2_ns"] + section["publish_ns"]
+
+
+def reader_wait_ratio_bound(section: dict) -> float:
+    """`reader_wait_bound_ns` over the section's measured bracket time."""
+    _pos_int("inside_ns", section["inside_ns"])
+    return reader_wait_bound_ns(section) / section["inside_ns"]
 
 
 def compaction_peak_bytes(total_allocated: int, live_records: int, payload_len: int,
@@ -487,10 +533,23 @@ def self_test() -> int:
         assert sustains_overwrite(live, HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY), live
         assert 2 * live * record_needed(HARNESS_LEN) < MAX_ARENA_CAPACITY, live
 
+    # §30's bound (README §29.1): with the bracket held only for the index
+    # rewrite and the publish, a reader's wait is 9.93-10.45 % of today's at
+    # 200,000 live and 9.00-9.14 % at 3,600,000, six sections each.
+    secs = step0_sync_sections()
+    assert sorted(secs) == [200_000, 3_600_000] and all(len(v) == 6 for v in secs.values())
+    q = {live: [reader_wait_ratio_bound(x) for x in v] for live, v in secs.items()}
+    assert 0.0993 < min(q[200_000]) and max(q[200_000]) < 0.1046, q[200_000]
+    assert 0.0899 < min(q[3_600_000]) and max(q[3_600_000]) < 0.0914, q[3_600_000]
+    assert 1_481_000 < min(map(reader_wait_bound_ns, secs[200_000])) < 1_482_000
+    assert 26_464_000 < max(map(reader_wait_bound_ns, secs[3_600_000])) < 26_465_000
+
     # Invalid inputs fail loudly.
     for bad in (lambda: records_per_chunk(5000, 4096), lambda: record_needed(-1),
                 lambda: max_chunks(0, 10), lambda: sustains_overwrite(1, 8, 4096, 65536, k=0),
-                lambda: copy_per_append(512 * 14_563, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)):
+                lambda: copy_per_append(512 * 14_563, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY),
+                lambda: reader_wait_ratio_bound({"phase2_ns": 1, "publish_ns": 0, "inside_ns": 0}),
+                lambda: reader_wait_bound_ns({"phase2_ns": -1, "publish_ns": 0})):
         try:
             bad()
         except ValueError:
