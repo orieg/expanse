@@ -175,7 +175,9 @@ fn timed_insert<F: FnOnce() -> Result<(), ArenaError>>(ops: &mut Ops, f: F) {
     ops.record(ns);
     match r {
         Ok(()) => ops.ok += 1,
-        Err(ArenaError::OffsetOverflow) => ops.refused += 1,
+        // A refusal either way: the cap refused with no compaction
+        // (`OffsetOverflow`) or after this insert compacted (`ArenaFull`).
+        Err(ArenaError::OffsetOverflow | ArenaError::ArenaFull) => ops.refused += 1,
         Err(e) => panic!("insert failed with {e:?}"),
     }
 }
@@ -300,7 +302,7 @@ fn main() {
                 loop {
                     match m.insert(n, &payload(n, 0), HOT_META) {
                         Ok(()) => n += 1,
-                        Err(ArenaError::OffsetOverflow) => break,
+                        Err(ArenaError::OffsetOverflow | ArenaError::ArenaFull) => break,
                         Err(e) => panic!("fill failed with {e:?}"),
                     }
                 }
