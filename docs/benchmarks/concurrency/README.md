@@ -5696,3 +5696,62 @@ threads included. Ranges are per compaction across rounds:
   24.8–26.5 ms at 3,600,000, against 14.9–15.3 ms and 284.3–294.1 ms today.
   That is a bound from this attribution, not a measurement of a split.
   Writers still wait for the whole section, which is item 5's work.
+
+## 30. The copy outside the tree bracket — METHODOLOGY §30's evaluation (Refs #1300)
+
+METHODOLOGY §30 registered two builds and four runs, dispatched in the order
+B, H, H, B. B is the change's merge base, `67e11dda`; H is `cdfbb0bc`. Every
+run is admissible: each measured its own commit, its host guard read quiet,
+foreign load stayed at or under 0.10 busy CPUs, and every overwrite round
+completed two compactions with no refused insert *(measured: reference host —
+Intel Core i9-12900F, pin `0-15`, 5 rounds per cell; B runs
+[36887193794](https://github.com/orieg/expanse/actions/runs/36887193794) and
+[36887309588](https://github.com/orieg/expanse/actions/runs/36887309588), H
+[36887232532](https://github.com/orieg/expanse/actions/runs/36887232532) and
+[36887271939](https://github.com/orieg/expanse/actions/runs/36887271939);
+artifacts `results/gate_1300_split_{b,h}_run{1,2}.json`; workload:
+`reclaim_stall`)*.
+
+A first campaign measured an earlier head, `a4b4ba26`. It is superseded,
+because the head changed on the measured path (§8.7): the staged section got
+its own body, so the shared serialised write is restored to the merge base's
+code. Its artifacts are not committed. It also read G1 `PASS`.
+
+**G1 — the largest read latency at 3,600,000 live, `SyncExpanseBlobMap`
+overwrite cells.** Medians over rounds, with BCa 95 % intervals:
+
+| W | pair | B | H | H ÷ B medians | H upper ≤ 0.15 × B lower |
+|---|---|--:|--:|--:|---|
+| 1 | B run 1, H run 1 | 296.22 ms [294.60, 296.90] | 23.07 ms [23.02, 23.09] | 0.078 | holds |
+| 1 | B run 2, H run 2 | 294.91 ms [293.97, 295.59] | 22.97 ms [22.93, 23.04] | 0.078 | holds |
+| 4 | B run 1, H run 1 | 276.56 ms [276.09, 278.03] | 23.41 ms [23.36, 30.76] | 0.085 | holds |
+| 4 | B run 2, H run 2 | 276.56 ms [276.19, 276.77] | 23.40 ms [23.29, 23.40] | 0.085 | holds |
+| 12 | B run 1, H run 1 | 273.94 ms [271.48, 274.15] | 23.45 ms [23.38, 23.58] | 0.086 | holds |
+| 12 | B run 2, H run 2 | 274.46 ms [273.26, 274.94] | 23.41 ms [23.28, 23.43] | 0.085 | holds |
+
+**G1 reads `PASS`.** It holds in all three cells in both run pairs. The ratios
+(0.078–0.086) are below `reader_wait_ratio_bound`'s 0.0900–0.0914 for a single
+writer. The bound divides by the exclusive section alone, while B's largest
+read is not limited to the section; which of the two explains the gap is not
+separated.
+
+| id | outcome | verdict |
+|---|---|---|
+| P2 | at 200,000 live: W = 1 holds in both pairs (H ÷ B medians 0.090, 0.091); W = 12 holds (0.092, 0.092); at W = 4, H's interval reaches 30.67 and 16.87 ms because of one round in each H run (38.0 ms and 20.7 ms) | reported: fails at W = 4 |
+| P3 | the stall at 3,600,000, H ÷ B medians: 1.022 and 1.028 at W = 1, 0.996 and 0.998 at W = 4, 1.020 and 1.005 at W = 12; `ExpanseBlobMap` 1.007 and 1.024 at 200,000, 1.020 and 1.013 at 3,600,000 | within [0.9, 1.1] |
+| P4 | `blobmap_compact` and `sync_blobmap_compact` −0.26 % instructions against the merge base, every other arm unchanged *(measured: CI run [36887889806](https://github.com/orieg/expanse/actions/runs/36887889806), the `instruction-counts` job at `0d414380`, whose engine code is `cdfbb0bc`'s)* | holds |
+| P5 | the refused-insert p99 in H's full-map cells, at most 0.667 µs (W = 4) and 7.879 µs (W = 12) | holds |
+
+- **P2's W = 4 rounds are fallback reads.** The two rounds above 20 ms are
+  what B shows too: B's intervals in that cell reach 29.06 and 31.64 ms.
+  - A diagnostic build with the `occ-stats` counters, at the first campaign's
+    head and at the merge base, split each reader's slow reads by path. In both
+    builds every read over 2 ms was one that exhausted `MAX_RETRIES` (64) and
+    took `read_locked`. That path waits for the whole exclusive section, the
+    copy included, in either build.
+  - The diagnostic is not committed, so its figures are not published here.
+    Treat the attribution as unmeasured by the committed artifacts.
+  - The change shortens optimistic reads only. A fallback read that lands in a
+    compaction still waits for all of it; changing that is outside §30's
+    scope.
+- **Writers' wait is unchanged.** P3's ratios are 0.996–1.028.

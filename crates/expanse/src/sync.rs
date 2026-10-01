@@ -2828,6 +2828,105 @@ impl<T: SharedTree> Shared<T> {
         r
     }
 
+    /// [`Self::write_quiesced`] in two stages (#1300 item 2): `stage` runs with
+    /// every writer excluded but the tree bracket still closed, so readers
+    /// keep validating; `f` then runs inside the bracket with what `stage`
+    /// returned. `stage` must write nothing a reader loads — on a wrapper that
+    /// publishes its root, readers load the published root, the nodes and the
+    /// arena's reader table, never the engine struct `stage` may update.
+    ///
+    /// Its own body rather than a stage parameter on
+    /// [`Self::write_root_covered_with`]: that function is every wrapper's
+    /// serialised write, and a parameter there changed its code on paths that
+    /// never compact (AGENTS.md §2.1 invariant 5).
+    #[cfg(feature = "std")]
+    #[allow(dead_code)]
+    fn write_quiesced_staged<P, R>(
+        &self,
+        stage: impl FnOnce(&mut T) -> P,
+        f: impl FnOnce(&mut T, P) -> R,
+    ) -> R
+    where
+        T: RootState,
+    {
+        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        #[cfg(feature = "std")]
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        #[cfg(feature = "std")]
+        let _gate = self.quiesce_writers();
+        let _g = self.write.lock().expect("writer lock poisoned");
+        #[cfg(feature = "occ-stats")]
+        {
+            // SAFETY: the writer mutex serializes this word.
+            let holder = unsafe { &mut *self.last_holder.get() };
+            let me = thread_token();
+            if *holder != me {
+                if *holder != 0 {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::Handoffs);
+                }
+                *holder = me;
+            }
+        }
+        crate::occ_stats::op_begin();
+        // SAFETY: the writer mutex makes this the only mutable borrow.
+        let inner = unsafe { &mut *self.tree_ptr() };
+        inner.clear_path();
+        {
+            #[cfg(feature = "std")]
+            let pop = self.tree_pop.load_slots(
+                self.writers
+                    .allocated
+                    .load(core::sync::atomic::Ordering::Acquire),
+            );
+            #[cfg(not(feature = "std"))]
+            let pop = self.tree_pop.load();
+            inner.set_tree_pop(pop);
+        }
+        let staged = stage(inner);
+        let pop_before = inner.tree_pop();
+        // Read under the lock: the root state is the writer's to change.
+        let r = {
+            self.version().begin();
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::enter(self.tree_cover_addr());
+            if T::PUBLISHES_ROOT {
+                inner.hold_tree_word(true);
+            }
+            let r = f(inner, staged);
+            if T::PUBLISHES_ROOT {
+                inner.hold_tree_word(false);
+                self.published().store(inner.publish_snapshot());
+            }
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::leave(self.tree_cover_addr());
+            self.version().end();
+            r
+        };
+        #[cfg(debug_assertions)]
+        self.assert_published(inner);
+        inner.clear_path();
+        let pop_after = inner.tree_pop();
+        let delta = pop_after as i64 - pop_before as i64;
+        if pop_after == 0 && pop_before > 0 {
+            self.tree_pop.flush_and_set(0);
+        } else if delta != 0 {
+            self.tree_pop.add_base(delta);
+        }
+        crate::occ_stats::op_end();
+        #[cfg(not(feature = "advance-never"))]
+        {
+            // SAFETY: as in `write` — the writer mutex serializes this counter.
+            let tick = unsafe { &mut *self.advance_tick.get() };
+            *tick += 1;
+            if *tick >= ADVANCE_EVERY {
+                *tick = 0;
+                self.collector.try_advance();
+            }
+        }
+        drop(_g);
+        r
+    }
+
     /// The tree cover's sentinel on the debug bracket stack.
     #[cfg(debug_assertions)]
     fn tree_cover_addr(&self) -> *const u32 {
@@ -10246,8 +10345,8 @@ impl SyncExpanseBlobMap {
     /// with every writer excluded, first compacting once if the reclaim rule of
     /// [`ExpanseBlobMap::insert`] allows (#1290; [`Self::set_reclaim_at_cap`]
     /// turns it off). That compaction runs as [`Self::compact`] does: every
-    /// other writer waits for it, and so does every read that starts during it;
-    /// only views pinned before it keep reading. A refusal the rule declined
+    /// other writer waits for all of it, and a read that starts during it
+    /// waits only for the index rewrite and the table republish. A refusal the rule declined
     /// returns without excluding anyone until a removal, a compaction or a
     /// periodic re-check could change the decision.
     ///
@@ -10288,9 +10387,14 @@ impl SyncExpanseBlobMap {
             not(feature = "ablation-blob-shared-arena"),
             feature = "std"
         ))]
-        let res = self.shared.write_quiesced(|m| {
-            self.with_folded_writers(m, |m| m.insert_shared_reclaiming(key, data, hot_meta))
-        });
+        // The copy, if the cap will refuse this insert and the rule allows a
+        // compaction, runs before the tree bracket opens, so reads continue
+        // through it; the insert, and the rewrites that make the copy live,
+        // run inside the bracket (#1300 item 2).
+        let res = self.compacting_section(
+            |m| m.prepare_reclaim_for_insert(data, hot_meta),
+            |m, prepared| m.insert_shared_after_prepare(key, data, hot_meta, prepared),
+        );
         #[cfg(all(
             not(feature = "ablation-blob-serial-writers"),
             any(feature = "ablation-blob-shared-arena", not(feature = "std"))
@@ -10311,25 +10415,35 @@ impl SyncExpanseBlobMap {
     }
 
     /// The one home of what a compaction of the shared arena needs from the
-    /// writers (§28a C3): their live-byte deltas are folded in before it, and
-    /// their private chunks, which it retires, are reset after it. `op` returns
-    /// its result and whether it compacted. The caller holds `write_quiesced`.
+    /// writers (§28a C3), and of where its halves run (#1300 item 2). With
+    /// every writer excluded, the writers' live-byte deltas are folded in and
+    /// `prepare` runs with the tree bracket still closed, so readers keep
+    /// going through the copy. `op` then runs inside the bracket and returns
+    /// its result and whether it compacted; the writers' private chunks, which
+    /// a compaction retires, are reset after one.
     #[cfg(all(
         not(feature = "ablation-blob-serial-writers"),
         not(feature = "ablation-blob-shared-arena"),
         feature = "std"
     ))]
-    fn with_folded_writers<R>(
+    fn compacting_section<P, R>(
         &self,
-        m: &mut ExpanseBlobMap,
-        op: impl FnOnce(&mut ExpanseBlobMap) -> (R, bool),
+        prepare: impl FnOnce(&mut ExpanseBlobMap) -> P,
+        op: impl FnOnce(&mut ExpanseBlobMap, P) -> (R, bool),
     ) -> R {
-        self.fold_writer_arenas(m);
-        let (res, compacted) = op(m);
-        if compacted {
-            self.reset_writer_chunks();
-        }
-        res
+        self.shared.write_quiesced_staged(
+            |m| {
+                self.fold_writer_arenas(m);
+                prepare(m)
+            },
+            |m, prepared| {
+                let (res, compacted) = op(m, prepared);
+                if compacted {
+                    self.reset_writer_chunks();
+                }
+                res
+            },
+        )
     }
 
     /// One attempt at [`Self::insert`]. A refused chunk returns
@@ -10679,9 +10793,12 @@ impl SyncExpanseBlobMap {
     /// through the epoch collector, so concurrent pinned readers keep reading
     /// their (relocated-from) payload bytes safely.
     ///
-    /// Every other writer waits for it, and so does every read that starts
-    /// during it: the tree bracket is open for the whole copy. Views pinned
-    /// before it keep reading the retired chunks.
+    /// Every other writer waits for all of it. The payload copy runs with the
+    /// tree bracket closed, so a read that starts during the copy goes on;
+    /// only the index rewrite and the table republish hold the bracket, and a
+    /// read that starts in them waits for them (#1300 item 2). Views pinned
+    /// before the compaction keep reading the retired chunks. The
+    /// `ablation-blob-*` builds hold the bracket for the whole compaction.
     pub fn compact(&self) -> Result<CompactionStats, ArenaError> {
         #[cfg(feature = "ablation-blob-serial-writers")]
         let stats = self.shared.write(ExpanseBlobMap::compact);
@@ -10690,13 +10807,17 @@ impl SyncExpanseBlobMap {
             not(feature = "ablation-blob-shared-arena"),
             feature = "std"
         ))]
-        let stats = self.shared.write_quiesced(|m| {
-            self.with_folded_writers(m, |m| {
-                let stats = m.compact();
+        // The copy runs before the tree bracket opens, so reads continue
+        // through it; only the index rewrites and the table republish run
+        // inside it (#1300 item 2).
+        let stats = self.compacting_section(
+            |m| m.prepare_compaction(),
+            |m, prepared| {
+                let stats = prepared.map(|p| m.apply_compaction(p));
                 let compacted = stats.is_ok();
                 (stats, compacted)
-            })
-        });
+            },
+        );
         #[cfg(all(
             not(feature = "ablation-blob-serial-writers"),
             any(feature = "ablation-blob-shared-arena", not(feature = "std"))
@@ -12751,6 +12872,97 @@ mod miri_tests {
         let released = m.shrink_to_fit();
         assert_eq!(released, census.free_bytes());
         assert_eq!(m.collector_census().free_bytes(), 0);
+    }
+
+    /// Runs `op` with a hook at the start of its compaction copy that reads
+    /// `key` from another thread and waits for that read to finish. With the
+    /// copy inside the tree bracket the read would wait for the bracket the
+    /// waiting thread holds open, so it would never finish: the deadline turns
+    /// that into a failure. Returns whether `op` reached a copy at all.
+    fn read_completes_during_the_copy(
+        m: &Arc<SyncExpanseBlobMap>,
+        key: u64,
+        expect: Vec<u8>,
+        op: impl FnOnce(),
+    ) -> bool {
+        let ran = Arc::new(core::sync::atomic::AtomicBool::new(false));
+        let (m2, ran2) = (Arc::clone(m), Arc::clone(&ran));
+        crate::blobmap::PREPARE_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                let reader = std::thread::spawn(move || m2.get(key).map(|(v, _)| v));
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while !reader.is_finished() {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "a read that started during the copy did not finish"
+                    );
+                    std::thread::yield_now();
+                }
+                assert_eq!(reader.join().expect("reader panicked"), Some(expect));
+                ran2.store(true, core::sync::atomic::Ordering::Release);
+            }));
+        });
+        op();
+        crate::blobmap::PREPARE_HOOK.with(|h| h.borrow_mut().take());
+        ran.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    /// #1300 item 2 (METHODOLOGY §30, H1): the compaction copy runs with the
+    /// tree bracket closed, so a read that starts during it finishes, through
+    /// both routes to a compaction: `compact` and an insert the cap refuses.
+    /// In the Tier-1 Miri filter, sized for the lane as the test below is.
+    #[test]
+    fn blob_reads_proceed_during_the_compaction_copy_under_miri() {
+        const LIVE: u64 = 48;
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size_and_max_capacity(
+            4096,
+            20 * 1024,
+        ));
+        let payload =
+            |k: u64, round: u64| -> Vec<u8> { (0..128).map(|i| (k ^ round ^ i) as u8).collect() };
+        for k in 0..LIVE {
+            m.insert(k, &payload(k, 0), 1).unwrap();
+        }
+        assert!(
+            m.shared.published().is_tree(),
+            "the overwrites must take the optimistic path"
+        );
+        // `compact`: key 40 is never overwritten.
+        for k in 0..8 {
+            m.insert(k, &payload(k, 1), 1).unwrap();
+        }
+        assert!(
+            read_completes_during_the_copy(&m, 40, payload(40, 0), || {
+                m.compact().expect("compaction");
+            }),
+            "compact must reach the copy"
+        );
+        // An insert the cap refuses: overwrite keys 0..32 until one compacts.
+        let g0 = m.with_locked(|t| t.arena().generation());
+        let mut round = 2;
+        assert!(
+            read_completes_during_the_copy(&m, 40, payload(40, 0), || {
+                while m.with_locked(|t| t.arena().generation()) == g0 {
+                    for k in 0..32 {
+                        m.insert(k, &payload(k, round), 1)
+                            .unwrap_or_else(|e| panic!("key {k} round {round}: {e:?}"));
+                    }
+                    round += 1;
+                }
+            }),
+            "the overwrites must reach a reclaiming copy"
+        );
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        for k in 0..32 {
+            assert_eq!(
+                guard.get(k).unwrap().0.as_bytes(),
+                &payload(k, round - 1)[..]
+            );
+        }
+        for k in 32..LIVE {
+            assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, 0)[..]);
+        }
     }
 
     /// #1290, the reclaim path under Miri in the Tier-1 filter: a smaller
@@ -16400,6 +16612,90 @@ mod tests {
             stats.live_bytes_before, stats.live_bytes_after,
             "the charged live bytes disagree with the index's"
         );
+    }
+
+    /// #1300 item 2 (METHODOLOGY §30, H2): readers run through compactions
+    /// whose copy no longer holds the tree bracket. Two writers overwrite
+    /// their keys past the cap, a third thread compacts on demand, and two
+    /// readers check every key throughout: each is present and its payload
+    /// is one whole write (every byte `b[i] ^ i` equal), never a torn or
+    /// relocated-over record.
+    #[test]
+    fn concurrent_blob_reads_through_split_compactions() {
+        const W: u64 = 2;
+        const PER: u64 = 100;
+        const ROUNDS: u64 = 30;
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size_and_max_capacity(
+            4096,
+            256 * 1024,
+        ));
+        let payload = |k: u64, round: u64| -> Vec<u8> {
+            let base = (k ^ round.wrapping_mul(31)) as u8;
+            (0..128u64).map(|i| base ^ i as u8).collect()
+        };
+        for k in 0..W * PER {
+            m.insert(k, &payload(k, 0), 1).unwrap();
+        }
+        let g0 = m.with_locked(|t| t.arena().generation());
+        let stop = Arc::new(core::sync::atomic::AtomicBool::new(false));
+        let readers: Vec<_> = (0..2)
+            .map(|_| {
+                let (m, stop) = (Arc::clone(&m), Arc::clone(&stop));
+                std::thread::spawn(move || {
+                    let mut checked = 0u64;
+                    while !stop.load(core::sync::atomic::Ordering::Acquire) {
+                        for k in 0..W * PER {
+                            let (v, meta) = m.get(k).unwrap_or_else(|| panic!("key {k} absent"));
+                            assert_eq!((v.len(), meta), (128, 1), "key {k}");
+                            assert!(
+                                v.iter().enumerate().all(|(i, b)| b ^ i as u8 == v[0]),
+                                "key {k}: a torn payload"
+                            );
+                            checked += 1;
+                        }
+                    }
+                    checked
+                })
+            })
+            .collect();
+        let compactor = {
+            let (m, stop) = (Arc::clone(&m), Arc::clone(&stop));
+            std::thread::spawn(move || {
+                let mut n = 0u64;
+                while !stop.load(core::sync::atomic::Ordering::Acquire) {
+                    m.compact().expect("compaction");
+                    n += 1;
+                    std::thread::yield_now();
+                }
+                n
+            })
+        };
+        let writers: Vec<_> = (0..W)
+            .map(|w| {
+                let m = Arc::clone(&m);
+                std::thread::spawn(move || {
+                    for round in 1..=ROUNDS {
+                        for k in w * PER..(w + 1) * PER {
+                            m.insert(k, &payload(k, round), 1)
+                                .unwrap_or_else(|e| panic!("key {k} round {round}: {e:?}"));
+                        }
+                    }
+                })
+            })
+            .collect();
+        for h in writers {
+            h.join().expect("writer panicked");
+        }
+        stop.store(true, core::sync::atomic::Ordering::Release);
+        let compactions = compactor.join().expect("compactor panicked");
+        for h in readers {
+            assert!(h.join().expect("reader panicked") > 0);
+        }
+        assert!(compactions > 0);
+        assert!(m.with_locked(|t| t.arena().generation()) - g0 >= 2);
+        for k in 0..W * PER {
+            assert_eq!(m.get(k).unwrap().0, payload(k, ROUNDS));
+        }
     }
 
     #[test]
