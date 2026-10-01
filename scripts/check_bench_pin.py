@@ -67,6 +67,8 @@ DIRECT_HARNESSES = {
     "docs/benchmarks/concurrency/scripts/rcpc_ab.py":
         "the #1191 AArch64 default-vs-+rcpc A/B, dispatched on a hosted arm runner; "
         "a by-hand run on a hybrid host would otherwise take no pin",
+    "docs/benchmarks/concurrency/scripts/reclaim_stall.py":
+        "the #1300 reclaim stall measurement (METHODOLOGY §29); applies the pin itself and records it",
     "docs/benchmarks/concurrency/scripts/ycsb_concurrent.py":
         "the concurrent YCSB scaling instrument across physical P-cores (#1006)",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py":
