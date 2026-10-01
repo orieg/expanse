@@ -1221,8 +1221,6 @@ struct FreeListCounts {
     reused: u64,
     /// Blocks released to the allocator by `release_free_lists`.
     released: u64,
-    /// Blocks released to the allocator by `drain`.
-    drained: u64,
 }
 
 #[cfg(feature = "collector-census")]
@@ -1233,7 +1231,6 @@ impl FreeListCounts {
         recycled: 0,
         reused: 0,
         released: 0,
-        drained: 0,
     };
 }
 
@@ -1244,8 +1241,6 @@ impl FreeListCounts {
 struct BinCounts {
     /// Blocks retired into this stripe, per size class.
     retired: [u64; NUM_CLASSES],
-    /// Classed blocks this stripe held when `drain` freed them.
-    drained: [u64; NUM_CLASSES],
     /// Retired blocks no size class serves.
     unclassed: UnclassedCounters,
 }
@@ -1255,7 +1250,6 @@ impl Default for BinCounts {
     fn default() -> Self {
         Self {
             retired: [0; NUM_CLASSES],
-            drained: [0; NUM_CLASSES],
             unclassed: UnclassedCounters::default(),
         }
     }
@@ -1374,9 +1368,6 @@ pub struct ClassCounters {
     pub reused: u64,
     /// Freelist blocks returned to the allocator by `shrink_to_fit`.
     pub released: u64,
-    /// Blocks returned to the allocator when the collector drained, from the
-    /// bins and the freelists.
-    pub drained: u64,
 }
 
 /// Cumulative counters for retired blocks no size class serves (feature
@@ -1399,10 +1390,6 @@ pub struct UnclassedCounters {
     pub released_blocks: u64,
     /// Their bytes.
     pub released_bytes: u64,
-    /// Blocks returned to the allocator when the collector drained.
-    pub drained_blocks: u64,
-    /// Their bytes.
-    pub drained_bytes: u64,
 }
 
 /// An epoch collector's cumulative block counters (feature
@@ -1545,30 +1532,24 @@ impl PaddedBin {
     }
 
     /// Takes everything queued in this stripe. `DRAIN` says which path takes
-    /// it, for the `collector-census` counters only: `drain`, which frees
-    /// every block, or an epoch advance, which frees only the blocks no size
-    /// class serves. Without the feature the parameter is unused.
+    /// it, for the `collector-census` counters only: an epoch advance, which
+    /// frees the blocks no size class serves and counts them as released, or
+    /// `drain`, which frees every block and counts nothing (no caller can read
+    /// a drained collector's counters). Without the feature the parameter is
+    /// unused.
     fn take<const DRAIN: bool>(&self) -> Vec<Garbage> {
         let mut guard = self.garbage.lock().expect("garbage bin poisoned");
         self.nonempty.store(false, Ordering::Relaxed);
         let taken = core::mem::take(&mut guard.list);
         #[cfg(feature = "collector-census")]
-        {
-            let counts = &mut guard.counts;
+        if !DRAIN {
+            let counts = &mut guard.counts.unclassed;
             for g in &taken {
-                match class_for(g.bytes, g.align) {
-                    Some(class) if DRAIN => counts.drained[class] += 1,
-                    // An advance reclaims a classed block to a freelist; the
-                    // freelist counts it under its own lock.
-                    Some(_) => {}
-                    None if DRAIN => {
-                        counts.unclassed.drained_blocks += 1;
-                        counts.unclassed.drained_bytes += g.bytes as u64;
-                    }
-                    None => {
-                        counts.unclassed.released_blocks += 1;
-                        counts.unclassed.released_bytes += g.bytes as u64;
-                    }
+                // An advance reclaims a classed block to a freelist, which
+                // counts it under its own lock.
+                if class_for(g.bytes, g.align).is_none() {
+                    counts.released_blocks += 1;
+                    counts.released_bytes += g.bytes as u64;
                 }
             }
         }
@@ -2294,7 +2275,8 @@ impl Collector {
     }
 
     /// [`Self::release_free_lists`]; `DRAIN` says whether `drain` is the
-    /// caller, for the `collector-census` counters only.
+    /// caller, for the `collector-census` counters only: a drain is not
+    /// counted as a release.
     fn release_free_lists_as<const DRAIN: bool>(&self) -> usize {
         let mut released = 0;
         for row in self.free_list_rows() {
@@ -2305,9 +2287,7 @@ impl Collector {
                 #[cfg(feature = "collector-census")]
                 {
                     let counts = &mut head.1;
-                    if DRAIN {
-                        counts.drained += counts.len;
-                    } else {
+                    if !DRAIN {
                         counts.released += counts.len;
                     }
                     counts.len = 0;
@@ -2401,8 +2381,10 @@ impl Collector {
     /// This collector's cumulative block counters, per size class (feature
     /// `collector-census`): blocks retired, reclaimed to a freelist after
     /// their grace period, recycled unpublished, reused by an allocation,
-    /// released by `shrink_to_fit`, and drained; and for the blocks no class
-    /// serves, retired, released after their grace period, and drained.
+    /// and released by `shrink_to_fit`; and for the blocks no class serves,
+    /// retired and released after their grace period. `drain` counts
+    /// nothing: the wrappers drain on drop, after which nothing can read the
+    /// counters.
     ///
     /// Summed over every bin and freelist, each read under its own lock, one
     /// at a time: exact on a quiesced collector. A counter never decreases.
@@ -2426,7 +2408,6 @@ impl Collector {
                 out.recycled += c.recycled;
                 out.reused += c.reused;
                 out.released += c.released;
-                out.drained += c.drained;
             }
         }
         let mut unclassed = UnclassedCounters::default();
@@ -2436,14 +2417,11 @@ impl Collector {
                 let c = &garbage.counts;
                 for (class, out) in classes.iter_mut().enumerate() {
                     out.retired += c.retired[class];
-                    out.drained += c.drained[class];
                 }
                 unclassed.retired_blocks += c.unclassed.retired_blocks;
                 unclassed.retired_bytes += c.unclassed.retired_bytes;
                 unclassed.released_blocks += c.unclassed.released_blocks;
                 unclassed.released_bytes += c.unclassed.released_bytes;
-                unclassed.drained_blocks += c.unclassed.drained_blocks;
-                unclassed.drained_bytes += c.unclassed.drained_bytes;
             }
         }
         CollectorCounters { classes, unclassed }
@@ -3619,8 +3597,8 @@ mod tests {
     }
 
     /// #1310, feature `collector-census`: an unpublished block put straight
-    /// on a freelist counts as recycled; `drain` counts what it frees from
-    /// the bins and from the freelists, classed and unclassed.
+    /// on a freelist counts as recycled, and `drain` frees the bins and the
+    /// freelists without counting either as a release.
     #[cfg(feature = "collector-census")]
     #[test]
     fn collector_census_counters_recycle_and_drain() {
@@ -3639,13 +3617,8 @@ mod tests {
         assert_counters_match_census(&c);
         c.drain();
         let k = c.counters();
-        assert_eq!(
-            k.classes[class].drained, 2,
-            "one from a freelist, one from a bin"
-        );
-        assert_eq!(k.unclassed.drained_blocks, 1);
-        assert_eq!(k.unclassed.drained_bytes, 256);
         assert_eq!(k.classes[class].released, 0, "a drain is not a release");
+        assert_eq!(k.unclassed.released_blocks, 0, "a drain is not a release");
         assert_eq!(c.census().total_bytes(), 0);
     }
 }

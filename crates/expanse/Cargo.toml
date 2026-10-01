@@ -150,8 +150,8 @@ packed-suffix = []
 # entirely; no default path changes.
 layout-census = []
 # Diagnostic (Refs #1310): cumulative per-size-class block counters on the
-# 64-bit epoch collector — retired, reclaimed, recycled, reused, released and
-# drained — read through `collector_counters()` on the `Sync*` wrappers and
+# 64-bit epoch collector — retired, reclaimed, recycled, reused and released —
+# read through `collector_counters()` on the `Sync*` wrappers and
 # `occ::Collector::counters()`. Plain integers updated inside the bin and
 # freelist critical sections the paths already hold: no new atomic and no
 # thread-local read, but more work under those locks and a larger collector.

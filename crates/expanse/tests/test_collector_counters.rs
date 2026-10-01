@@ -53,7 +53,6 @@ fn assert_counters_match_census(label: &str, s: &CollectorCensus, k: &CollectorC
             sc.block_bytes,
             sc.align
         );
-        assert_eq!(kc.drained, 0, "{label}: a live wrapper has not drained");
     }
     assert_eq!(
         s.unclassed_grace.blocks as u64,
@@ -74,7 +73,8 @@ fn counters_match_the_census_on_quiesced_wrappers() {
     on_fresh_thread(|| {
         // One wrapper after the other: the advance tick counts a thread's
         // writes across every collector it writes to, so writes alternating
-        // between two wrappers can land nearly every advance on one of them.
+        // between two wrappers can land nearly every advance on one of them
+        // (Refs #1314).
         for k in (0..N).map(splitmix64) {
             m.insert(k, !k);
         }
