@@ -2749,38 +2749,6 @@ impl<T: SharedTree> Shared<T> {
     where
         T: RootState,
     {
-        self.write_root_covered_staged::<EXACT_POP, COVER_ALWAYS, (), R>(|_| (), |t, ()| f(t))
-    }
-
-    /// [`Self::write_quiesced`] in two stages (#1300 item 2): `stage` runs with
-    /// every writer excluded but the tree bracket still closed, so readers
-    /// keep validating; `f` then runs inside the bracket with what `stage`
-    /// returned. `stage` must write nothing a reader loads — on a wrapper that
-    /// publishes its root, readers load the published root, the nodes and the
-    /// arena's reader table, never the engine struct `stage` may update.
-    #[cfg(feature = "std")]
-    #[inline(always)]
-    #[allow(dead_code)]
-    fn write_quiesced_staged<P, R>(
-        &self,
-        stage: impl FnOnce(&mut T) -> P,
-        f: impl FnOnce(&mut T, P) -> R,
-    ) -> R
-    where
-        T: RootState,
-    {
-        self.write_root_covered_staged::<true, true, P, R>(stage, f)
-    }
-
-    #[inline(always)]
-    fn write_root_covered_staged<const EXACT_POP: bool, const COVER_ALWAYS: bool, P, R>(
-        &self,
-        stage: impl FnOnce(&mut T) -> P,
-        f: impl FnOnce(&mut T, P) -> R,
-    ) -> R
-    where
-        T: RootState,
-    {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
         #[cfg(feature = "std")]
         let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
@@ -2814,12 +2782,110 @@ impl<T: SharedTree> Shared<T> {
             let pop = self.tree_pop.load();
             inner.set_tree_pop(pop);
         }
-        let staged = stage(inner);
         let pop_before = inner.tree_pop();
         // Read under the lock: the root state is the writer's to change.
         let r = if !COVER_ALWAYS && !T::PUBLISHES_ROOT && inner.root_is_tree() {
-            f(inner, staged)
+            f(inner)
         } else {
+            self.version().begin();
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::enter(self.tree_cover_addr());
+            if T::PUBLISHES_ROOT {
+                inner.hold_tree_word(true);
+            }
+            let r = f(inner);
+            if T::PUBLISHES_ROOT {
+                inner.hold_tree_word(false);
+                self.published().store(inner.publish_snapshot());
+            }
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::leave(self.tree_cover_addr());
+            self.version().end();
+            r
+        };
+        #[cfg(debug_assertions)]
+        self.assert_published(inner);
+        inner.clear_path();
+        let pop_after = inner.tree_pop();
+        let delta = pop_after as i64 - pop_before as i64;
+        if pop_after == 0 && pop_before > 0 {
+            self.tree_pop.flush_and_set(0);
+        } else if delta != 0 {
+            self.tree_pop.add_base(delta);
+        }
+        crate::occ_stats::op_end();
+        #[cfg(not(feature = "advance-never"))]
+        {
+            // SAFETY: as in `write` — the writer mutex serializes this counter.
+            let tick = unsafe { &mut *self.advance_tick.get() };
+            *tick += 1;
+            if *tick >= ADVANCE_EVERY {
+                *tick = 0;
+                self.collector.try_advance();
+            }
+        }
+        drop(_g);
+        r
+    }
+
+    /// [`Self::write_quiesced`] in two stages (#1300 item 2): `stage` runs with
+    /// every writer excluded but the tree bracket still closed, so readers
+    /// keep validating; `f` then runs inside the bracket with what `stage`
+    /// returned. `stage` must write nothing a reader loads — on a wrapper that
+    /// publishes its root, readers load the published root, the nodes and the
+    /// arena's reader table, never the engine struct `stage` may update.
+    ///
+    /// Its own body rather than a stage parameter on
+    /// [`Self::write_root_covered_with`]: that function is every wrapper's
+    /// serialised write, and a parameter there changed its code on paths that
+    /// never compact (AGENTS.md §2.1 invariant 5).
+    #[cfg(feature = "std")]
+    #[allow(dead_code)]
+    fn write_quiesced_staged<P, R>(
+        &self,
+        stage: impl FnOnce(&mut T) -> P,
+        f: impl FnOnce(&mut T, P) -> R,
+    ) -> R
+    where
+        T: RootState,
+    {
+        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+        #[cfg(feature = "std")]
+        let _fallback = self.fallback_mutex.lock().expect("fallback mutex poisoned");
+        #[cfg(feature = "std")]
+        let _gate = self.quiesce_writers();
+        let _g = self.write.lock().expect("writer lock poisoned");
+        #[cfg(feature = "occ-stats")]
+        {
+            // SAFETY: the writer mutex serializes this word.
+            let holder = unsafe { &mut *self.last_holder.get() };
+            let me = thread_token();
+            if *holder != me {
+                if *holder != 0 {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::Handoffs);
+                }
+                *holder = me;
+            }
+        }
+        crate::occ_stats::op_begin();
+        // SAFETY: the writer mutex makes this the only mutable borrow.
+        let inner = unsafe { &mut *self.tree_ptr() };
+        inner.clear_path();
+        {
+            #[cfg(feature = "std")]
+            let pop = self.tree_pop.load_slots(
+                self.writers
+                    .allocated
+                    .load(core::sync::atomic::Ordering::Acquire),
+            );
+            #[cfg(not(feature = "std"))]
+            let pop = self.tree_pop.load();
+            inner.set_tree_pop(pop);
+        }
+        let staged = stage(inner);
+        let pop_before = inner.tree_pop();
+        // Read under the lock: the root state is the writer's to change.
+        let r = {
             self.version().begin();
             #[cfg(debug_assertions)]
             crate::alloc::bracket_stack::enter(self.tree_cover_addr());
