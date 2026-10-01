@@ -18,6 +18,7 @@
 use crate::map::ExpanseMap;
 #[cfg(feature = "std")]
 use crate::occ::Collector;
+pub use crate::validate::{BytesMapNodeBytes, BytesMapStats};
 use core::hash::BuildHasher;
 use core::ptr::NonNull;
 use core_alloc::boxed::Box;
@@ -805,6 +806,48 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.map.mem_used() + self.extra_bytes
+    }
+
+    /// Gathers structural statistics of the bytes map.
+    ///
+    /// Returns hash-trie node counts, depth and leaf-population histograms, bucket
+    /// counts, entry counts, and a [`BytesMapNodeBytes`] breakdown whose fields
+    /// sum exactly to [`Self::mem_used`].
+    #[must_use]
+    pub fn stats(&self) -> BytesMapStats {
+        let mut stats = BytesMapStats::default();
+        let sub_stats = self.map.stats();
+        stats.node_bytes.sub_maps = sub_stats.node_bytes;
+        stats.node_counts = sub_stats.node_counts;
+        stats.depth_histogram = sub_stats.depth_histogram;
+        stats.leaf_pop_histogram = sub_stats.leaf_pop_histogram;
+        stats.branch_depth_histogram = sub_stats.branch_depth_histogram;
+        stats.leaf_depth_histogram = sub_stats.leaf_depth_histogram;
+
+        stats.buckets = self.map.len() as usize;
+        stats.entries = self.len;
+
+        let bucket_shells = stats.buckets * BUCKET_OVERHEAD;
+        stats.node_bytes.node_shells = bucket_shells;
+        stats.node_bytes.terminal_bytes = self.extra_bytes.saturating_sub(bucket_shells);
+
+        #[cfg(debug_assertions)]
+        {
+            let mut counted_entries = 0u64;
+            let mut counted_terminals = 0usize;
+            for (_, word) in self.map.iter() {
+                // SAFETY: every trie value is a live bucket owned by this map.
+                let bucket = unsafe { &*(word as *const Bucket) };
+                for (k, _) in bucket {
+                    counted_entries += 1;
+                    counted_terminals += ENTRY_OVERHEAD + k.len();
+                }
+            }
+            debug_assert_eq!(stats.entries, counted_entries);
+            debug_assert_eq!(stats.node_bytes.terminal_bytes, counted_terminals);
+        }
+
+        stats
     }
 
     #[inline(always)]
@@ -1608,6 +1651,63 @@ mod tests {
                 "under the one-digit band no level-7 branch sits as a BranchB, so the \
                  ablation did not restore the band #1221 widened ({counts:?})"
             );
+        }
+    }
+
+    #[test]
+    fn stats_breakdown_sums_to_mem_used() {
+        let mut m = ExpanseBytesMap::new();
+        assert_eq!(m.stats().node_bytes.total(), m.mem_used());
+        assert_eq!(m.stats().node_bytes.total(), 0);
+
+        m.insert(b"one", 1);
+        m.insert(b"two", 2);
+        m.insert(b"three", 3);
+        let s = m.stats();
+        assert_eq!(s.node_bytes.total(), m.mem_used());
+        assert_eq!(s.entries, 3);
+        assert_eq!(s.buckets, 3);
+        assert_eq!(s.node_bytes.node_shells, 3 * BUCKET_OVERHEAD);
+        assert_eq!(
+            s.node_bytes.terminal_bytes,
+            (3 + ENTRY_OVERHEAD) * 2 + (5 + ENTRY_OVERHEAD)
+        );
+        assert_eq!(
+            s.node_bytes.sub_maps.total() + s.node_bytes.node_shells + s.node_bytes.terminal_bytes,
+            m.mem_used()
+        );
+
+        #[derive(Default, Clone, Copy)]
+        struct ZeroHasher;
+        impl core::hash::Hasher for ZeroHasher {
+            fn finish(&self) -> u64 {
+                42
+            }
+            fn write(&mut self, _bytes: &[u8]) {}
+        }
+        let mut col_map =
+            ExpanseBytesMap::with_hasher(core::hash::BuildHasherDefault::<ZeroHasher>::default());
+        col_map.insert(b"first", 10);
+        col_map.insert(b"second", 20);
+        col_map.insert(b"third", 30);
+        let s_col = col_map.stats();
+        assert_eq!(s_col.buckets, 1);
+        assert_eq!(s_col.entries, 3);
+        assert_eq!(s_col.node_bytes.total(), col_map.mem_used());
+        assert_eq!(s_col.node_bytes.node_shells, BUCKET_OVERHEAD);
+        assert_eq!(
+            s_col.node_bytes.terminal_bytes,
+            (5 + ENTRY_OVERHEAD) + (6 + ENTRY_OVERHEAD) + (5 + ENTRY_OVERHEAD)
+        );
+
+        #[cfg(feature = "std")]
+        {
+            let sync = crate::sync::SyncExpanseBytesMap::new();
+            sync.insert(b"alpha", 1);
+            sync.insert(b"beta", 2);
+            let s_sync = sync.stats();
+            assert_eq!(s_sync.node_bytes.total(), sync.mem_used());
+            assert_eq!(s_sync, sync.with_locked(|inner| inner.stats()));
         }
     }
 }

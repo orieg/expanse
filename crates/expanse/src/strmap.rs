@@ -30,6 +30,7 @@ use crate::cursor::RawCursor;
 use crate::map::MapCore;
 #[cfg(feature = "std")]
 use crate::occ::Collector;
+pub use crate::validate::{StrMapNodeBytes, StrMapStats};
 use core::alloc::Layout;
 use core::ptr::NonNull;
 #[cfg(feature = "std")]
@@ -1785,6 +1786,80 @@ impl ExpanseStrMap {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
+    }
+
+    /// Gathers structural statistics of the string map.
+    ///
+    /// Returns node counts, depth and leaf-population histograms, and a
+    /// [`StrMapNodeBytes`] breakdown whose fields sum exactly to [`Self::mem_used`].
+    #[must_use]
+    pub fn stats(&self) -> StrMapStats {
+        let mut stats = StrMapStats::default();
+        let Some(root) = self.root.as_deref() else {
+            return stats;
+        };
+        let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(root)];
+        while let Some(p) = stack.pop() {
+            // SAFETY: `root` plus continuation values, all live nodes.
+            let node = unsafe { &*p };
+            stats.str_nodes += 1;
+            stats.node_bytes.node_shells += size_of::<StrNode>();
+
+            let sub_stats = node.map.stats();
+            stats.node_bytes.sub_maps += &sub_stats.node_bytes;
+            stats.node_counts += &sub_stats.node_counts;
+
+            for (slot, count) in stats
+                .depth_histogram
+                .iter_mut()
+                .zip(&sub_stats.depth_histogram)
+            {
+                *slot += count;
+            }
+            for (slot, count) in stats
+                .leaf_pop_histogram
+                .iter_mut()
+                .zip(&sub_stats.leaf_pop_histogram)
+            {
+                *slot += count;
+            }
+            for (slot, count) in stats
+                .branch_depth_histogram
+                .iter_mut()
+                .zip(&sub_stats.branch_depth_histogram)
+            {
+                *slot += count;
+            }
+            for (slot, count) in stats
+                .leaf_depth_histogram
+                .iter_mut()
+                .zip(&sub_stats.leaf_depth_histogram)
+            {
+                *slot += count;
+            }
+
+            for (k, v) in node.map.iter() {
+                if !is_terminal(k) {
+                    if is_suffix_ptr(v) {
+                        stats.suffix_leaves += 1;
+                        // SAFETY: tagged pointer encodes a live suffix leaf.
+                        let len = unsafe { (*unpack_suffix(v)).len };
+                        #[cfg(feature = "packed-suffix")]
+                        let b = crate::alloc::accounted_size(
+                            packed_suffix_bytes(suffix_layout(len)),
+                            crate::types::RAW_ALIGN,
+                        );
+                        #[cfg(not(feature = "packed-suffix"))]
+                        let b = suffix_layout(len).size();
+                        stats.node_bytes.suffixes += b;
+                    } else {
+                        debug_assert_ne!(v, 0);
+                        stack.push(unpack_child(v));
+                    }
+                }
+            }
+        }
+        stats
     }
 
     /// Decomposes [`Self::mem_used`] into node shells, suffix leaves and the
@@ -5413,5 +5488,49 @@ mod tests {
             assert!(inner.root.is_none(), "the emptied root was taken");
             assert_eq!(inner.mem_used(), 0);
         });
+    }
+
+    #[test]
+    fn stats_breakdown_sums_to_mem_used() {
+        let mut m = ExpanseStrMap::new();
+        assert_eq!(m.stats().node_bytes.total(), m.mem_used());
+        assert_eq!(m.stats().node_bytes.total(), 0);
+
+        m.insert(tk(b"alpha"), 1);
+        m.insert(tk(b"beta"), 2);
+        m.insert(tk(b"gamma"), 3);
+        let s = m.stats();
+        assert_eq!(s.node_bytes.total(), m.mem_used());
+        assert_eq!(s.str_nodes, 1);
+        assert_eq!(s.suffix_leaves, 0);
+        assert_eq!(s.node_bytes.suffixes, 0);
+        assert_eq!(s.node_bytes.node_shells, size_of::<StrNode>());
+
+        m.insert(tk(b"alpha_suffix_leaf"), 4);
+        m.insert(tk(b"beta_another_suffix"), 5);
+        let s = m.stats();
+        assert_eq!(s.node_bytes.total(), m.mem_used());
+        assert_eq!(s.suffix_leaves, 2);
+        assert!(s.node_bytes.suffixes > 0);
+        assert_eq!(
+            s.node_bytes.sub_maps.total() + s.node_bytes.node_shells + s.node_bytes.suffixes,
+            m.mem_used()
+        );
+
+        m.insert(tk(b"alpha_branch_1"), 6);
+        m.insert(tk(b"alpha_branch_2"), 7);
+        let s = m.stats();
+        assert_eq!(s.node_bytes.total(), m.mem_used());
+        assert!(s.str_nodes > 1);
+
+        #[cfg(feature = "std")]
+        {
+            let sync = crate::sync::SyncExpanseStrMap::new();
+            sync.insert(tk(b"one"), 1);
+            sync.insert(tk(b"two_with_suffix"), 2);
+            let s_sync = sync.stats();
+            assert_eq!(s_sync.node_bytes.total(), sync.mem_used());
+            assert_eq!(s_sync, sync.with_locked(|inner| inner.stats()));
+        }
     }
 }

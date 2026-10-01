@@ -392,6 +392,60 @@ impl core::marker::UnsafeUnpin for expanse_trie::blobmap32::ExpanseBlobMap32
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::blobmap32::ExpanseBlobMap32
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::blobmap32::ExpanseBlobMap32
 pub mod expanse_trie::bytesmap
+pub struct expanse_trie::bytesmap::BytesMapNodeBytes
+pub expanse_trie::bytesmap::BytesMapNodeBytes::node_shells: usize
+pub expanse_trie::bytesmap::BytesMapNodeBytes::sub_maps: expanse_trie::validate::NodeBytes
+pub expanse_trie::bytesmap::BytesMapNodeBytes::terminal_bytes: usize
+impl expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::bucket_shells(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::map(&self) -> &expanse_trie::validate::NodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::node_shell_bytes(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::terminals(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::total(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::trie(&self) -> &expanse_trie::validate::NodeBytes
+impl core::clone::Clone for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::clone(&self) -> expanse_trie::validate::BytesMapNodeBytes
+impl core::cmp::Eq for expanse_trie::validate::BytesMapNodeBytes
+impl core::cmp::PartialEq for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::eq(&self, &expanse_trie::validate::BytesMapNodeBytes) -> bool
+impl core::default::Default for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::default() -> expanse_trie::validate::BytesMapNodeBytes
+impl core::fmt::Debug for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Freeze for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Send for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Sync for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Unpin for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::UnsafeUnpin for expanse_trie::validate::BytesMapNodeBytes
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::BytesMapNodeBytes
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::BytesMapNodeBytes
+pub struct expanse_trie::bytesmap::BytesMapStats
+pub expanse_trie::bytesmap::BytesMapStats::branch_depth_histogram: [usize; 9]
+pub expanse_trie::bytesmap::BytesMapStats::buckets: usize
+pub expanse_trie::bytesmap::BytesMapStats::depth_histogram: [usize; 9]
+pub expanse_trie::bytesmap::BytesMapStats::entries: u64
+pub expanse_trie::bytesmap::BytesMapStats::leaf_depth_histogram: [usize; 9]
+pub expanse_trie::bytesmap::BytesMapStats::leaf_pop_histogram: [usize; 257]
+pub expanse_trie::bytesmap::BytesMapStats::node_bytes: expanse_trie::validate::BytesMapNodeBytes
+pub expanse_trie::bytesmap::BytesMapStats::node_counts: expanse_trie::validate::NodeCounts
+impl core::clone::Clone for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::clone(&self) -> expanse_trie::validate::BytesMapStats
+impl core::cmp::Eq for expanse_trie::validate::BytesMapStats
+impl core::cmp::PartialEq for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::eq(&self, &expanse_trie::validate::BytesMapStats) -> bool
+impl core::default::Default for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::default() -> Self
+impl core::fmt::Debug for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::BytesMapStats
+impl core::marker::Freeze for expanse_trie::validate::BytesMapStats
+impl core::marker::Send for expanse_trie::validate::BytesMapStats
+impl core::marker::Sync for expanse_trie::validate::BytesMapStats
+impl core::marker::Unpin for expanse_trie::validate::BytesMapStats
+impl core::marker::UnsafeUnpin for expanse_trie::validate::BytesMapStats
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::BytesMapStats
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::BytesMapStats
 pub struct expanse_trie::bytesmap::ExpanseBytesMap<S: core::hash::BuildHasher>
 impl expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>::new() -> Self
@@ -408,6 +462,7 @@ pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::is_empty(&self) -> bool
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::len(&self) -> u64
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::mem_used(&self) -> usize
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::remove(&mut self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::stats(&self) -> expanse_trie::validate::BytesMapStats
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::try_for_each(&self, impl core::ops::function::FnMut(&[u8], u64) -> bool) -> usize
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::with_hasher(S) -> Self
 impl core::default::Default for expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>
@@ -1790,6 +1845,7 @@ pub fn expanse_trie::strmap::ExpanseStrMap::prev_at_or_before(&self, &expanse_tr
 pub fn expanse_trie::strmap::ExpanseStrMap::prev_before(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
 pub fn expanse_trie::strmap::ExpanseStrMap::remove(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::strmap::ExpanseStrMap::shrink_to_fit(&mut self) -> usize
+pub fn expanse_trie::strmap::ExpanseStrMap::stats(&self) -> expanse_trie::validate::StrMapStats
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::from(expanse_trie::strmap::ExpanseStrMap) -> Self
 impl core::default::Default for expanse_trie::strmap::ExpanseStrMap
@@ -1863,6 +1919,57 @@ impl<'a> core::marker::Unpin for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::strmap::StrCursor<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::StrCursor<'a>
+pub struct expanse_trie::strmap::StrMapNodeBytes
+pub expanse_trie::strmap::StrMapNodeBytes::node_shells: usize
+pub expanse_trie::strmap::StrMapNodeBytes::sub_maps: expanse_trie::validate::NodeBytes
+pub expanse_trie::strmap::StrMapNodeBytes::suffixes: usize
+impl expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::node_shell_bytes(&self) -> usize
+pub fn expanse_trie::validate::StrMapNodeBytes::suffix_bytes(&self) -> usize
+pub fn expanse_trie::validate::StrMapNodeBytes::total(&self) -> usize
+impl core::clone::Clone for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::clone(&self) -> expanse_trie::validate::StrMapNodeBytes
+impl core::cmp::Eq for expanse_trie::validate::StrMapNodeBytes
+impl core::cmp::PartialEq for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::eq(&self, &expanse_trie::validate::StrMapNodeBytes) -> bool
+impl core::default::Default for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::default() -> expanse_trie::validate::StrMapNodeBytes
+impl core::fmt::Debug for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Freeze for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Send for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Sync for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Unpin for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::UnsafeUnpin for expanse_trie::validate::StrMapNodeBytes
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::StrMapNodeBytes
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::StrMapNodeBytes
+pub struct expanse_trie::strmap::StrMapStats
+pub expanse_trie::strmap::StrMapStats::branch_depth_histogram: [usize; 9]
+pub expanse_trie::strmap::StrMapStats::depth_histogram: [usize; 9]
+pub expanse_trie::strmap::StrMapStats::leaf_depth_histogram: [usize; 9]
+pub expanse_trie::strmap::StrMapStats::leaf_pop_histogram: [usize; 257]
+pub expanse_trie::strmap::StrMapStats::node_bytes: expanse_trie::validate::StrMapNodeBytes
+pub expanse_trie::strmap::StrMapStats::node_counts: expanse_trie::validate::NodeCounts
+pub expanse_trie::strmap::StrMapStats::str_nodes: usize
+pub expanse_trie::strmap::StrMapStats::suffix_leaves: usize
+impl core::clone::Clone for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::clone(&self) -> expanse_trie::validate::StrMapStats
+impl core::cmp::Eq for expanse_trie::validate::StrMapStats
+impl core::cmp::PartialEq for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::eq(&self, &expanse_trie::validate::StrMapStats) -> bool
+impl core::default::Default for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::default() -> Self
+impl core::fmt::Debug for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::StrMapStats
+impl core::marker::Freeze for expanse_trie::validate::StrMapStats
+impl core::marker::Send for expanse_trie::validate::StrMapStats
+impl core::marker::Sync for expanse_trie::validate::StrMapStats
+impl core::marker::Unpin for expanse_trie::validate::StrMapStats
+impl core::marker::UnsafeUnpin for expanse_trie::validate::StrMapStats
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::StrMapStats
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::StrMapStats
 pub struct expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> expanse_trie::strmap::StrPrefixCursor<'a>
 pub fn expanse_trie::strmap::StrPrefixCursor<'a>::next(&mut self) -> core::option::Option<(&[u8], core::ptr::non_null::NonNull<u64>)>
@@ -2095,6 +2202,7 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::reader(&self) -> expanse_trie::sync::BytesReader<'_, S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::remove(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::shrink_to_fit(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::stats(&self) -> expanse_trie::validate::BytesMapStats
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::BytesExclusive<'_, S>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>
@@ -2168,10 +2276,12 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::insert(&self, &expanse_trie::strma
 pub fn expanse_trie::sync::SyncExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseStrMap::mem_held(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseStrMap::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseStrMap::reader(&self) -> expanse_trie::sync::StrReader<'_>
 pub fn expanse_trie::sync::SyncExpanseStrMap::remove(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::shrink_to_fit(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseStrMap::stats(&self) -> expanse_trie::validate::StrMapStats
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::StrExclusive<'_>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::strmap::ExpanseStrMap) -> R) -> R
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
@@ -2488,6 +2598,60 @@ pub const fn expanse_trie::types32::mask_below32(expanse_trie::types32::Key32, u
 pub type expanse_trie::types32::Key32 = u32
 pub type expanse_trie::types32::Value32 = u32
 pub mod expanse_trie::validate
+pub struct expanse_trie::validate::BytesMapNodeBytes
+pub expanse_trie::validate::BytesMapNodeBytes::node_shells: usize
+pub expanse_trie::validate::BytesMapNodeBytes::sub_maps: expanse_trie::validate::NodeBytes
+pub expanse_trie::validate::BytesMapNodeBytes::terminal_bytes: usize
+impl expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::bucket_shells(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::map(&self) -> &expanse_trie::validate::NodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::node_shell_bytes(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::terminals(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::total(&self) -> usize
+pub fn expanse_trie::validate::BytesMapNodeBytes::trie(&self) -> &expanse_trie::validate::NodeBytes
+impl core::clone::Clone for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::clone(&self) -> expanse_trie::validate::BytesMapNodeBytes
+impl core::cmp::Eq for expanse_trie::validate::BytesMapNodeBytes
+impl core::cmp::PartialEq for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::eq(&self, &expanse_trie::validate::BytesMapNodeBytes) -> bool
+impl core::default::Default for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::default() -> expanse_trie::validate::BytesMapNodeBytes
+impl core::fmt::Debug for expanse_trie::validate::BytesMapNodeBytes
+pub fn expanse_trie::validate::BytesMapNodeBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Freeze for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Send for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Sync for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::Unpin for expanse_trie::validate::BytesMapNodeBytes
+impl core::marker::UnsafeUnpin for expanse_trie::validate::BytesMapNodeBytes
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::BytesMapNodeBytes
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::BytesMapNodeBytes
+pub struct expanse_trie::validate::BytesMapStats
+pub expanse_trie::validate::BytesMapStats::branch_depth_histogram: [usize; 9]
+pub expanse_trie::validate::BytesMapStats::buckets: usize
+pub expanse_trie::validate::BytesMapStats::depth_histogram: [usize; 9]
+pub expanse_trie::validate::BytesMapStats::entries: u64
+pub expanse_trie::validate::BytesMapStats::leaf_depth_histogram: [usize; 9]
+pub expanse_trie::validate::BytesMapStats::leaf_pop_histogram: [usize; 257]
+pub expanse_trie::validate::BytesMapStats::node_bytes: expanse_trie::validate::BytesMapNodeBytes
+pub expanse_trie::validate::BytesMapStats::node_counts: expanse_trie::validate::NodeCounts
+impl core::clone::Clone for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::clone(&self) -> expanse_trie::validate::BytesMapStats
+impl core::cmp::Eq for expanse_trie::validate::BytesMapStats
+impl core::cmp::PartialEq for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::eq(&self, &expanse_trie::validate::BytesMapStats) -> bool
+impl core::default::Default for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::default() -> Self
+impl core::fmt::Debug for expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::validate::BytesMapStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::BytesMapStats
+impl core::marker::Freeze for expanse_trie::validate::BytesMapStats
+impl core::marker::Send for expanse_trie::validate::BytesMapStats
+impl core::marker::Sync for expanse_trie::validate::BytesMapStats
+impl core::marker::Unpin for expanse_trie::validate::BytesMapStats
+impl core::marker::UnsafeUnpin for expanse_trie::validate::BytesMapStats
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::BytesMapStats
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::BytesMapStats
 pub struct expanse_trie::validate::ExpanseStats
 pub expanse_trie::validate::ExpanseStats::branch_depth_histogram: [usize; 9]
 pub expanse_trie::validate::ExpanseStats::depth_histogram: [usize; 9]
@@ -2532,6 +2696,10 @@ pub fn expanse_trie::validate::NodeBytes::default() -> expanse_trie::validate::N
 impl core::fmt::Debug for expanse_trie::validate::NodeBytes
 pub fn expanse_trie::validate::NodeBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for expanse_trie::validate::NodeBytes
+impl core::ops::arith::AddAssign for expanse_trie::validate::NodeBytes
+pub fn expanse_trie::validate::NodeBytes::add_assign(&mut self, expanse_trie::validate::NodeBytes)
+impl core::ops::arith::AddAssign<&expanse_trie::validate::NodeBytes> for expanse_trie::validate::NodeBytes
+pub fn expanse_trie::validate::NodeBytes::add_assign(&mut self, &expanse_trie::validate::NodeBytes)
 impl core::marker::Freeze for expanse_trie::validate::NodeBytes
 impl core::marker::Send for expanse_trie::validate::NodeBytes
 impl core::marker::Sync for expanse_trie::validate::NodeBytes
@@ -2559,6 +2727,10 @@ pub fn expanse_trie::validate::NodeCounts::default() -> expanse_trie::validate::
 impl core::fmt::Debug for expanse_trie::validate::NodeCounts
 pub fn expanse_trie::validate::NodeCounts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for expanse_trie::validate::NodeCounts
+impl core::ops::arith::AddAssign for expanse_trie::validate::NodeCounts
+pub fn expanse_trie::validate::NodeCounts::add_assign(&mut self, expanse_trie::validate::NodeCounts)
+impl core::ops::arith::AddAssign<&expanse_trie::validate::NodeCounts> for expanse_trie::validate::NodeCounts
+pub fn expanse_trie::validate::NodeCounts::add_assign(&mut self, &expanse_trie::validate::NodeCounts)
 impl core::marker::Freeze for expanse_trie::validate::NodeCounts
 impl core::marker::Send for expanse_trie::validate::NodeCounts
 impl core::marker::Sync for expanse_trie::validate::NodeCounts
@@ -2566,6 +2738,57 @@ impl core::marker::Unpin for expanse_trie::validate::NodeCounts
 impl core::marker::UnsafeUnpin for expanse_trie::validate::NodeCounts
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::NodeCounts
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::NodeCounts
+pub struct expanse_trie::validate::StrMapNodeBytes
+pub expanse_trie::validate::StrMapNodeBytes::node_shells: usize
+pub expanse_trie::validate::StrMapNodeBytes::sub_maps: expanse_trie::validate::NodeBytes
+pub expanse_trie::validate::StrMapNodeBytes::suffixes: usize
+impl expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::node_shell_bytes(&self) -> usize
+pub fn expanse_trie::validate::StrMapNodeBytes::suffix_bytes(&self) -> usize
+pub fn expanse_trie::validate::StrMapNodeBytes::total(&self) -> usize
+impl core::clone::Clone for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::clone(&self) -> expanse_trie::validate::StrMapNodeBytes
+impl core::cmp::Eq for expanse_trie::validate::StrMapNodeBytes
+impl core::cmp::PartialEq for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::eq(&self, &expanse_trie::validate::StrMapNodeBytes) -> bool
+impl core::default::Default for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::default() -> expanse_trie::validate::StrMapNodeBytes
+impl core::fmt::Debug for expanse_trie::validate::StrMapNodeBytes
+pub fn expanse_trie::validate::StrMapNodeBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Freeze for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Send for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Sync for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::Unpin for expanse_trie::validate::StrMapNodeBytes
+impl core::marker::UnsafeUnpin for expanse_trie::validate::StrMapNodeBytes
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::StrMapNodeBytes
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::StrMapNodeBytes
+pub struct expanse_trie::validate::StrMapStats
+pub expanse_trie::validate::StrMapStats::branch_depth_histogram: [usize; 9]
+pub expanse_trie::validate::StrMapStats::depth_histogram: [usize; 9]
+pub expanse_trie::validate::StrMapStats::leaf_depth_histogram: [usize; 9]
+pub expanse_trie::validate::StrMapStats::leaf_pop_histogram: [usize; 257]
+pub expanse_trie::validate::StrMapStats::node_bytes: expanse_trie::validate::StrMapNodeBytes
+pub expanse_trie::validate::StrMapStats::node_counts: expanse_trie::validate::NodeCounts
+pub expanse_trie::validate::StrMapStats::str_nodes: usize
+pub expanse_trie::validate::StrMapStats::suffix_leaves: usize
+impl core::clone::Clone for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::clone(&self) -> expanse_trie::validate::StrMapStats
+impl core::cmp::Eq for expanse_trie::validate::StrMapStats
+impl core::cmp::PartialEq for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::eq(&self, &expanse_trie::validate::StrMapStats) -> bool
+impl core::default::Default for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::default() -> Self
+impl core::fmt::Debug for expanse_trie::validate::StrMapStats
+pub fn expanse_trie::validate::StrMapStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for expanse_trie::validate::StrMapStats
+impl core::marker::Freeze for expanse_trie::validate::StrMapStats
+impl core::marker::Send for expanse_trie::validate::StrMapStats
+impl core::marker::Sync for expanse_trie::validate::StrMapStats
+impl core::marker::Unpin for expanse_trie::validate::StrMapStats
+impl core::marker::UnsafeUnpin for expanse_trie::validate::StrMapStats
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::validate::StrMapStats
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::StrMapStats
 pub fn expanse_trie::validate::expanse_validate_and_stats<const MAP: bool>(&expanse_trie::node::Edge, u8, &mut expanse_trie::validate::ExpanseStats, usize) -> core::result::Result<u64, alloc::string::String>
 #[non_exhaustive] pub enum expanse_trie::BlobMap32Error
 pub expanse_trie::BlobMap32Error::MetaOverflow
