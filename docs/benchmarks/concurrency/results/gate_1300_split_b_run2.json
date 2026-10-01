@@ -1,0 +1,3969 @@
+{
+  "provenance": {
+    "suite": "concurrency",
+    "issue": 1300,
+    "commit": "67e11dda",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "performance",
+      "scaling_governor_by_cpu": {
+        "0": "performance",
+        "1": "performance",
+        "2": "performance",
+        "3": "performance",
+        "4": "performance",
+        "5": "performance",
+        "6": "performance",
+        "7": "performance",
+        "8": "performance",
+        "9": "performance",
+        "10": "performance",
+        "11": "performance",
+        "12": "performance",
+        "13": "performance",
+        "14": "performance",
+        "15": "performance"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "\u00a729 reclaim stall (no ratio gate)",
+      "columns": "per-arm columns are medians of the same rounds; the ratio column is not the quotient of the two median columns beside it",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0-15",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 2.25,
+        "load5": 2.87,
+        "load15": 2.06,
+        "at": "2026-10-01T16:02:10Z",
+        "stat_busy_jiffies": 178695943,
+        "stat_total_jiffies": 11144697399,
+        "child_cpu_s": 0.001,
+        "monotonic_s": 4646126.536,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "cell:plain:overwrite:L200000:W1:R0:r0",
+        "since": "start",
+        "load1": 3.17,
+        "load5": 3.06,
+        "load15": 2.15,
+        "at": "2026-10-01T16:02:28Z",
+        "stat_busy_jiffies": 178705065,
+        "stat_total_jiffies": 11144740026,
+        "child_cpu_s": 90.453,
+        "monotonic_s": 4646144.323,
+        "busy_cpus_since_prev": 5.14,
+        "own_busy_cpus_since_prev": 5.09,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "cell:plain:overwrite:L3600000:W1:R0:r0",
+        "since": "cell:plain:overwrite:L200000:W1:R0:r0",
+        "load1": 3.17,
+        "load5": 3.06,
+        "load15": 2.15,
+        "at": "2026-10-01T16:02:31Z",
+        "stat_busy_jiffies": 178705406,
+        "stat_total_jiffies": 11144748136,
+        "child_cpu_s": 93.832,
+        "monotonic_s": 4646147.703,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W1:R2:r0",
+        "since": "cell:plain:overwrite:L3600000:W1:R0:r0",
+        "load1": 3.0,
+        "load5": 3.03,
+        "load15": 2.14,
+        "at": "2026-10-01T16:02:35Z",
+        "stat_busy_jiffies": 178705774,
+        "stat_total_jiffies": 11144756771,
+        "child_cpu_s": 97.43,
+        "monotonic_s": 4646151.302,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W1:R2:r0",
+        "since": "cell:sync:overwrite:L200000:W1:R2:r0",
+        "load1": 3.0,
+        "load5": 3.03,
+        "load15": 2.15,
+        "at": "2026-10-01T16:02:39Z",
+        "stat_busy_jiffies": 178706944,
+        "stat_total_jiffies": 11144766121,
+        "child_cpu_s": 108.991,
+        "monotonic_s": 4646155.2,
+        "busy_cpus_since_prev": 3.0,
+        "own_busy_cpus_since_prev": 2.97,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W4:R2:r0",
+        "since": "cell:sync:overwrite:L3600000:W1:R2:r0",
+        "load1": 3.0,
+        "load5": 3.03,
+        "load15": 2.15,
+        "at": "2026-10-01T16:02:43Z",
+        "stat_busy_jiffies": 178708036,
+        "stat_total_jiffies": 11144775736,
+        "child_cpu_s": 119.877,
+        "monotonic_s": 4646159.209,
+        "busy_cpus_since_prev": 2.73,
+        "own_busy_cpus_since_prev": 2.72,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W4:R2:r0",
+        "since": "cell:sync:overwrite:L200000:W4:R2:r0",
+        "load1": 2.84,
+        "load5": 3.0,
+        "load15": 2.14,
+        "at": "2026-10-01T16:02:44Z",
+        "stat_busy_jiffies": 178708929,
+        "stat_total_jiffies": 11144779468,
+        "child_cpu_s": 128.771,
+        "monotonic_s": 4646160.765,
+        "busy_cpus_since_prev": 5.74,
+        "own_busy_cpus_since_prev": 5.72,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W12:R2:r0",
+        "since": "cell:sync:overwrite:L3600000:W4:R2:r0",
+        "load1": 2.84,
+        "load5": 3.0,
+        "load15": 2.14,
+        "at": "2026-10-01T16:02:46Z",
+        "stat_busy_jiffies": 178709756,
+        "stat_total_jiffies": 11144784345,
+        "child_cpu_s": 137.016,
+        "monotonic_s": 4646162.798,
+        "busy_cpus_since_prev": 4.07,
+        "own_busy_cpus_since_prev": 4.06,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W12:R2:r0",
+        "since": "cell:sync:overwrite:L200000:W12:R2:r0",
+        "load1": 3.01,
+        "load5": 3.03,
+        "load15": 2.16,
+        "at": "2026-10-01T16:02:49Z",
+        "stat_busy_jiffies": 178711447,
+        "stat_total_jiffies": 11144791181,
+        "child_cpu_s": 154.254,
+        "monotonic_s": 4646165.691,
+        "busy_cpus_since_prev": 5.94,
+        "own_busy_cpus_since_prev": 5.96,
+        "foreign_busy_cpus_since_prev": -0.02
+      },
+      {
+        "label": "cell:sync:full:Lfill:W4:R2:r0",
+        "since": "cell:sync:overwrite:L3600000:W12:R2:r0",
+        "load1": 3.01,
+        "load5": 3.03,
+        "load15": 2.16,
+        "at": "2026-10-01T16:02:52Z",
+        "stat_busy_jiffies": 178712682,
+        "stat_total_jiffies": 11144797296,
+        "child_cpu_s": 166.721,
+        "monotonic_s": 4646168.26,
+        "busy_cpus_since_prev": 4.85,
+        "own_busy_cpus_since_prev": 4.85,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:sync:full:Lfill:W12:R2:r0",
+        "since": "cell:sync:full:Lfill:W4:R2:r0",
+        "load1": 2.85,
+        "load5": 3.0,
+        "load15": 2.15,
+        "at": "2026-10-01T16:02:56Z",
+        "stat_busy_jiffies": 178714604,
+        "stat_total_jiffies": 11144807224,
+        "child_cpu_s": 185.86,
+        "monotonic_s": 4646172.398,
+        "busy_cpus_since_prev": 4.65,
+        "own_busy_cpus_since_prev": 4.63,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:plain:overwrite:L3600000:W1:R0:r1",
+        "since": "cell:sync:full:Lfill:W12:R2:r0",
+        "load1": 3.66,
+        "load5": 3.16,
+        "load15": 2.21,
+        "at": "2026-10-01T16:03:00Z",
+        "stat_busy_jiffies": 178718782,
+        "stat_total_jiffies": 11144817072,
+        "child_cpu_s": 227.736,
+        "monotonic_s": 4646176.539,
+        "busy_cpus_since_prev": 10.18,
+        "own_busy_cpus_since_prev": 10.11,
+        "foreign_busy_cpus_since_prev": 0.07
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W1:R2:r1",
+        "since": "cell:plain:overwrite:L3600000:W1:R0:r1",
+        "load1": 3.45,
+        "load5": 3.13,
+        "load15": 2.2,
+        "at": "2026-10-01T16:03:04Z",
+        "stat_busy_jiffies": 178719147,
+        "stat_total_jiffies": 11144825687,
+        "child_cpu_s": 231.326,
+        "monotonic_s": 4646180.129,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W1:R2:r1",
+        "since": "cell:sync:overwrite:L200000:W1:R2:r1",
+        "load1": 3.45,
+        "load5": 3.13,
+        "load15": 2.2,
+        "at": "2026-10-01T16:03:07Z",
+        "stat_busy_jiffies": 178720249,
+        "stat_total_jiffies": 11144834553,
+        "child_cpu_s": 242.283,
+        "monotonic_s": 4646183.825,
+        "busy_cpus_since_prev": 2.98,
+        "own_busy_cpus_since_prev": 2.96,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W4:R2:r1",
+        "since": "cell:sync:overwrite:L3600000:W1:R2:r1",
+        "load1": 3.25,
+        "load5": 3.09,
+        "load15": 2.19,
+        "at": "2026-10-01T16:03:11Z",
+        "stat_busy_jiffies": 178721343,
+        "stat_total_jiffies": 11144844172,
+        "child_cpu_s": 253.181,
+        "monotonic_s": 4646187.835,
+        "busy_cpus_since_prev": 2.73,
+        "own_busy_cpus_since_prev": 2.72,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W4:R2:r1",
+        "since": "cell:sync:overwrite:L200000:W4:R2:r1",
+        "load1": 3.47,
+        "load5": 3.14,
+        "load15": 2.21,
+        "at": "2026-10-01T16:03:13Z",
+        "stat_busy_jiffies": 178722206,
+        "stat_total_jiffies": 11144847811,
+        "child_cpu_s": 261.775,
+        "monotonic_s": 4646189.352,
+        "busy_cpus_since_prev": 5.69,
+        "own_busy_cpus_since_prev": 5.67,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W12:R2:r1",
+        "since": "cell:sync:overwrite:L3600000:W4:R2:r1",
+        "load1": 3.47,
+        "load5": 3.14,
+        "load15": 2.21,
+        "at": "2026-10-01T16:03:15Z",
+        "stat_busy_jiffies": 178723023,
+        "stat_total_jiffies": 11144852663,
+        "child_cpu_s": 269.908,
+        "monotonic_s": 4646191.375,
+        "busy_cpus_since_prev": 4.04,
+        "own_busy_cpus_since_prev": 4.02,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W12:R2:r1",
+        "since": "cell:sync:overwrite:L200000:W12:R2:r1",
+        "load1": 3.36,
+        "load5": 3.12,
+        "load15": 2.21,
+        "at": "2026-10-01T16:03:18Z",
+        "stat_busy_jiffies": 178724717,
+        "stat_total_jiffies": 11144859417,
+        "child_cpu_s": 287.078,
+        "monotonic_s": 4646194.229,
+        "busy_cpus_since_prev": 6.02,
+        "own_busy_cpus_since_prev": 6.02,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:sync:full:Lfill:W4:R2:r1",
+        "since": "cell:sync:overwrite:L3600000:W12:R2:r1",
+        "load1": 3.36,
+        "load5": 3.12,
+        "load15": 2.21,
+        "at": "2026-10-01T16:03:20Z",
+        "stat_busy_jiffies": 178725844,
+        "stat_total_jiffies": 11144864658,
+        "child_cpu_s": 298.392,
+        "monotonic_s": 4646196.426,
+        "busy_cpus_since_prev": 5.16,
+        "own_busy_cpus_since_prev": 5.15,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:full:Lfill:W12:R2:r1",
+        "since": "cell:sync:full:Lfill:W4:R2:r1",
+        "load1": 3.57,
+        "load5": 3.17,
+        "load15": 2.23,
+        "at": "2026-10-01T16:03:24Z",
+        "stat_busy_jiffies": 178727762,
+        "stat_total_jiffies": 11144874569,
+        "child_cpu_s": 317.524,
+        "monotonic_s": 4646200.557,
+        "busy_cpus_since_prev": 4.64,
+        "own_busy_cpus_since_prev": 4.63,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:plain:overwrite:L200000:W1:R0:r1",
+        "since": "cell:sync:full:Lfill:W12:R2:r1",
+        "load1": 4.32,
+        "load5": 3.33,
+        "load15": 2.29,
+        "at": "2026-10-01T16:03:28Z",
+        "stat_busy_jiffies": 178731924,
+        "stat_total_jiffies": 11144884397,
+        "child_cpu_s": 359.343,
+        "monotonic_s": 4646204.696,
+        "busy_cpus_since_prev": 10.16,
+        "own_busy_cpus_since_prev": 10.1,
+        "foreign_busy_cpus_since_prev": 0.06
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W1:R2:r2",
+        "since": "cell:plain:overwrite:L200000:W1:R0:r1",
+        "load1": 4.32,
+        "load5": 3.33,
+        "load15": 2.29,
+        "at": "2026-10-01T16:03:32Z",
+        "stat_busy_jiffies": 178732265,
+        "stat_total_jiffies": 11144892491,
+        "child_cpu_s": 362.717,
+        "monotonic_s": 4646208.07,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W1:R2:r2",
+        "since": "cell:sync:overwrite:L200000:W1:R2:r2",
+        "load1": 4.22,
+        "load5": 3.33,
+        "load15": 2.3,
+        "at": "2026-10-01T16:03:36Z",
+        "stat_busy_jiffies": 178733448,
+        "stat_total_jiffies": 11144901946,
+        "child_cpu_s": 374.415,
+        "monotonic_s": 4646212.012,
+        "busy_cpus_since_prev": 3.0,
+        "own_busy_cpus_since_prev": 2.97,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W4:R2:r2",
+        "since": "cell:sync:overwrite:L3600000:W1:R2:r2",
+        "load1": 4.12,
+        "load5": 3.32,
+        "load15": 2.3,
+        "at": "2026-10-01T16:03:40Z",
+        "stat_busy_jiffies": 178734544,
+        "stat_total_jiffies": 11144911562,
+        "child_cpu_s": 385.308,
+        "monotonic_s": 4646216.021,
+        "busy_cpus_since_prev": 2.74,
+        "own_busy_cpus_since_prev": 2.72,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W4:R2:r2",
+        "since": "cell:sync:overwrite:L200000:W4:R2:r2",
+        "load1": 4.12,
+        "load5": 3.32,
+        "load15": 2.3,
+        "at": "2026-10-01T16:03:41Z",
+        "stat_busy_jiffies": 178735451,
+        "stat_total_jiffies": 11144915339,
+        "child_cpu_s": 394.351,
+        "monotonic_s": 4646217.595,
+        "busy_cpus_since_prev": 5.76,
+        "own_busy_cpus_since_prev": 5.74,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W12:R2:r2",
+        "since": "cell:sync:overwrite:L3600000:W4:R2:r2",
+        "load1": 4.27,
+        "load5": 3.36,
+        "load15": 2.32,
+        "at": "2026-10-01T16:03:43Z",
+        "stat_busy_jiffies": 178736279,
+        "stat_total_jiffies": 11144920254,
+        "child_cpu_s": 402.603,
+        "monotonic_s": 4646219.645,
+        "busy_cpus_since_prev": 4.04,
+        "own_busy_cpus_since_prev": 4.03,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W12:R2:r2",
+        "since": "cell:sync:overwrite:L200000:W12:R2:r2",
+        "load1": 4.27,
+        "load5": 3.36,
+        "load15": 2.32,
+        "at": "2026-10-01T16:03:46Z",
+        "stat_busy_jiffies": 178737968,
+        "stat_total_jiffies": 11144926959,
+        "child_cpu_s": 419.747,
+        "monotonic_s": 4646222.479,
+        "busy_cpus_since_prev": 6.05,
+        "own_busy_cpus_since_prev": 6.05,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:sync:full:Lfill:W4:R2:r2",
+        "since": "cell:sync:overwrite:L3600000:W12:R2:r2",
+        "load1": 4.41,
+        "load5": 3.41,
+        "load15": 2.34,
+        "at": "2026-10-01T16:03:49Z",
+        "stat_busy_jiffies": 178739170,
+        "stat_total_jiffies": 11144932997,
+        "child_cpu_s": 431.871,
+        "monotonic_s": 4646225.015,
+        "busy_cpus_since_prev": 4.78,
+        "own_busy_cpus_since_prev": 4.78,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:sync:full:Lfill:W12:R2:r2",
+        "since": "cell:sync:full:Lfill:W4:R2:r2",
+        "load1": 4.41,
+        "load5": 3.41,
+        "load15": 2.34,
+        "at": "2026-10-01T16:03:53Z",
+        "stat_busy_jiffies": 178741090,
+        "stat_total_jiffies": 11144942922,
+        "child_cpu_s": 451.009,
+        "monotonic_s": 4646229.152,
+        "busy_cpus_since_prev": 4.64,
+        "own_busy_cpus_since_prev": 4.63,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:plain:overwrite:L200000:W1:R0:r2",
+        "since": "cell:sync:full:Lfill:W12:R2:r2",
+        "load1": 4.14,
+        "load5": 3.37,
+        "load15": 2.33,
+        "at": "2026-10-01T16:03:57Z",
+        "stat_busy_jiffies": 178745256,
+        "stat_total_jiffies": 11144952758,
+        "child_cpu_s": 492.806,
+        "monotonic_s": 4646233.292,
+        "busy_cpus_since_prev": 10.17,
+        "own_busy_cpus_since_prev": 10.09,
+        "foreign_busy_cpus_since_prev": 0.08
+      },
+      {
+        "label": "cell:plain:overwrite:L3600000:W1:R0:r2",
+        "since": "cell:plain:overwrite:L200000:W1:R0:r2",
+        "load1": 3.88,
+        "load5": 3.33,
+        "load15": 2.33,
+        "at": "2026-10-01T16:04:00Z",
+        "stat_busy_jiffies": 178745597,
+        "stat_total_jiffies": 11144960827,
+        "child_cpu_s": 496.168,
+        "monotonic_s": 4646236.655,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W1:R2:r3",
+        "since": "cell:plain:overwrite:L3600000:W1:R0:r2",
+        "load1": 3.65,
+        "load5": 3.29,
+        "load15": 2.32,
+        "at": "2026-10-01T16:04:04Z",
+        "stat_busy_jiffies": 178745961,
+        "stat_total_jiffies": 11144969428,
+        "child_cpu_s": 499.752,
+        "monotonic_s": 4646240.24,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W4:R2:r3",
+        "since": "cell:sync:overwrite:L3600000:W1:R2:r3",
+        "load1": 3.44,
+        "load5": 3.25,
+        "load15": 2.31,
+        "at": "2026-10-01T16:04:08Z",
+        "stat_busy_jiffies": 178747052,
+        "stat_total_jiffies": 11144979015,
+        "child_cpu_s": 510.615,
+        "monotonic_s": 4646244.236,
+        "busy_cpus_since_prev": 2.73,
+        "own_busy_cpus_since_prev": 2.72,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W4:R2:r3",
+        "since": "cell:sync:overwrite:L200000:W4:R2:r3",
+        "load1": 3.44,
+        "load5": 3.25,
+        "load15": 2.31,
+        "at": "2026-10-01T16:04:09Z",
+        "stat_busy_jiffies": 178747954,
+        "stat_total_jiffies": 11144982796,
+        "child_cpu_s": 519.609,
+        "monotonic_s": 4646245.813,
+        "busy_cpus_since_prev": 5.73,
+        "own_busy_cpus_since_prev": 5.71,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W12:R2:r3",
+        "since": "cell:sync:overwrite:L3600000:W4:R2:r3",
+        "load1": 3.44,
+        "load5": 3.25,
+        "load15": 2.31,
+        "at": "2026-10-01T16:04:11Z",
+        "stat_busy_jiffies": 178748785,
+        "stat_total_jiffies": 11144987714,
+        "child_cpu_s": 527.893,
+        "monotonic_s": 4646247.863,
+        "busy_cpus_since_prev": 4.06,
+        "own_busy_cpus_since_prev": 4.04,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W12:R2:r3",
+        "since": "cell:sync:overwrite:L200000:W12:R2:r3",
+        "load1": 3.73,
+        "load5": 3.31,
+        "load15": 2.34,
+        "at": "2026-10-01T16:04:14Z",
+        "stat_busy_jiffies": 178750481,
+        "stat_total_jiffies": 11144994587,
+        "child_cpu_s": 545.189,
+        "monotonic_s": 4646250.771,
+        "busy_cpus_since_prev": 5.92,
+        "own_busy_cpus_since_prev": 5.95,
+        "foreign_busy_cpus_since_prev": -0.03
+      },
+      {
+        "label": "cell:sync:full:Lfill:W4:R2:r3",
+        "since": "cell:sync:overwrite:L3600000:W12:R2:r3",
+        "load1": 3.73,
+        "load5": 3.31,
+        "load15": 2.34,
+        "at": "2026-10-01T16:04:16Z",
+        "stat_busy_jiffies": 178751610,
+        "stat_total_jiffies": 11144999700,
+        "child_cpu_s": 556.541,
+        "monotonic_s": 4646252.913,
+        "busy_cpus_since_prev": 5.3,
+        "own_busy_cpus_since_prev": 5.3,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "cell:sync:full:Lfill:W12:R2:r3",
+        "since": "cell:sync:full:Lfill:W4:R2:r3",
+        "load1": 3.91,
+        "load5": 3.36,
+        "load15": 2.36,
+        "at": "2026-10-01T16:04:21Z",
+        "stat_busy_jiffies": 178753530,
+        "stat_total_jiffies": 11145009626,
+        "child_cpu_s": 575.676,
+        "monotonic_s": 4646257.05,
+        "busy_cpus_since_prev": 4.64,
+        "own_busy_cpus_since_prev": 4.63,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:plain:overwrite:L200000:W1:R0:r3",
+        "since": "cell:sync:full:Lfill:W12:R2:r3",
+        "load1": 4.72,
+        "load5": 3.54,
+        "load15": 2.42,
+        "at": "2026-10-01T16:04:25Z",
+        "stat_busy_jiffies": 178757678,
+        "stat_total_jiffies": 11145019441,
+        "child_cpu_s": 617.433,
+        "monotonic_s": 4646261.189,
+        "busy_cpus_since_prev": 10.14,
+        "own_busy_cpus_since_prev": 10.09,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "cell:plain:overwrite:L3600000:W1:R0:r3",
+        "since": "cell:plain:overwrite:L200000:W1:R0:r3",
+        "load1": 4.42,
+        "load5": 3.49,
+        "load15": 2.41,
+        "at": "2026-10-01T16:04:28Z",
+        "stat_busy_jiffies": 178758019,
+        "stat_total_jiffies": 11145027497,
+        "child_cpu_s": 620.79,
+        "monotonic_s": 4646264.546,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W1:R2:r3",
+        "since": "cell:plain:overwrite:L3600000:W1:R0:r3",
+        "load1": 4.42,
+        "load5": 3.49,
+        "load15": 2.41,
+        "at": "2026-10-01T16:04:32Z",
+        "stat_busy_jiffies": 178758383,
+        "stat_total_jiffies": 11145036093,
+        "child_cpu_s": 624.371,
+        "monotonic_s": 4646268.128,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W4:R2:r4",
+        "since": "cell:sync:overwrite:L200000:W1:R2:r3",
+        "load1": 4.3,
+        "load5": 3.48,
+        "load15": 2.41,
+        "at": "2026-10-01T16:04:36Z",
+        "stat_busy_jiffies": 178759546,
+        "stat_total_jiffies": 11145045417,
+        "child_cpu_s": 635.901,
+        "monotonic_s": 4646272.016,
+        "busy_cpus_since_prev": 2.99,
+        "own_busy_cpus_since_prev": 2.97,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W4:R2:r4",
+        "since": "cell:sync:overwrite:L200000:W4:R2:r4",
+        "load1": 4.3,
+        "load5": 3.48,
+        "load15": 2.41,
+        "at": "2026-10-01T16:04:37Z",
+        "stat_busy_jiffies": 178760470,
+        "stat_total_jiffies": 11145049251,
+        "child_cpu_s": 645.063,
+        "monotonic_s": 4646273.614,
+        "busy_cpus_since_prev": 5.78,
+        "own_busy_cpus_since_prev": 5.73,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W12:R2:r4",
+        "since": "cell:sync:overwrite:L3600000:W4:R2:r4",
+        "load1": 4.44,
+        "load5": 3.53,
+        "load15": 2.43,
+        "at": "2026-10-01T16:04:39Z",
+        "stat_busy_jiffies": 178761295,
+        "stat_total_jiffies": 11145054151,
+        "child_cpu_s": 653.288,
+        "monotonic_s": 4646275.658,
+        "busy_cpus_since_prev": 4.04,
+        "own_busy_cpus_since_prev": 4.03,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W12:R2:r4",
+        "since": "cell:sync:overwrite:L200000:W12:R2:r4",
+        "load1": 4.44,
+        "load5": 3.53,
+        "load15": 2.43,
+        "at": "2026-10-01T16:04:42Z",
+        "stat_busy_jiffies": 178762988,
+        "stat_total_jiffies": 11145060992,
+        "child_cpu_s": 670.564,
+        "monotonic_s": 4646278.555,
+        "busy_cpus_since_prev": 5.94,
+        "own_busy_cpus_since_prev": 5.96,
+        "foreign_busy_cpus_since_prev": -0.02
+      },
+      {
+        "label": "cell:sync:full:Lfill:W4:R2:r4",
+        "since": "cell:sync:overwrite:L3600000:W12:R2:r4",
+        "load1": 4.65,
+        "load5": 3.58,
+        "load15": 2.46,
+        "at": "2026-10-01T16:04:45Z",
+        "stat_busy_jiffies": 178764200,
+        "stat_total_jiffies": 11145067019,
+        "child_cpu_s": 682.882,
+        "monotonic_s": 4646281.09,
+        "busy_cpus_since_prev": 4.83,
+        "own_busy_cpus_since_prev": 4.86,
+        "foreign_busy_cpus_since_prev": -0.03
+      },
+      {
+        "label": "cell:sync:full:Lfill:W12:R2:r4",
+        "since": "cell:sync:full:Lfill:W4:R2:r4",
+        "load1": 4.75,
+        "load5": 3.63,
+        "load15": 2.48,
+        "at": "2026-10-01T16:04:49Z",
+        "stat_busy_jiffies": 178766120,
+        "stat_total_jiffies": 11145076964,
+        "child_cpu_s": 702.027,
+        "monotonic_s": 4646285.235,
+        "busy_cpus_since_prev": 4.63,
+        "own_busy_cpus_since_prev": 4.62,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "cell:plain:overwrite:L200000:W1:R0:r4",
+        "since": "cell:sync:full:Lfill:W12:R2:r4",
+        "load1": 5.5,
+        "load5": 3.8,
+        "load15": 2.54,
+        "at": "2026-10-01T16:04:53Z",
+        "stat_busy_jiffies": 178770278,
+        "stat_total_jiffies": 11145086785,
+        "child_cpu_s": 743.862,
+        "monotonic_s": 4646289.373,
+        "busy_cpus_since_prev": 10.16,
+        "own_busy_cpus_since_prev": 10.11,
+        "foreign_busy_cpus_since_prev": 0.05
+      },
+      {
+        "label": "cell:plain:overwrite:L3600000:W1:R0:r4",
+        "since": "cell:plain:overwrite:L200000:W1:R0:r4",
+        "load1": 5.5,
+        "load5": 3.8,
+        "load15": 2.54,
+        "at": "2026-10-01T16:04:56Z",
+        "stat_busy_jiffies": 178770620,
+        "stat_total_jiffies": 11145094836,
+        "child_cpu_s": 747.218,
+        "monotonic_s": 4646292.729,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L200000:W1:R2:r4",
+        "since": "cell:plain:overwrite:L3600000:W1:R0:r4",
+        "load1": 5.22,
+        "load5": 3.77,
+        "load15": 2.54,
+        "at": "2026-10-01T16:05:00Z",
+        "stat_busy_jiffies": 178770983,
+        "stat_total_jiffies": 11145103410,
+        "child_cpu_s": 750.79,
+        "monotonic_s": 4646296.302,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "cell:sync:overwrite:L3600000:W1:R2:r4",
+        "since": "cell:sync:overwrite:L200000:W1:R2:r4",
+        "load1": 5.04,
+        "load5": 3.75,
+        "load15": 2.54,
+        "at": "2026-10-01T16:05:04Z",
+        "stat_busy_jiffies": 178772092,
+        "stat_total_jiffies": 11145112347,
+        "child_cpu_s": 761.839,
+        "monotonic_s": 4646300.028,
+        "busy_cpus_since_prev": 2.98,
+        "own_busy_cpus_since_prev": 2.97,
+        "foreign_busy_cpus_since_prev": 0.01
+      }
+    ],
+    "cell_isolation": "process",
+    "rounds": 5,
+    "core_pin_applied": "0-15"
+  },
+  "throughput": [
+    {
+      "cell": "plain:overwrite:L200000:W1:R0",
+      "map": "plain",
+      "mode": "overwrite",
+      "live": 200000,
+      "writers": 1,
+      "readers": 0,
+      "rounds_raw": [
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.325783064,
+          "heap_before_window": 31151251,
+          "heap_end": 241094338,
+          "heap_peak": 1108330715,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 49709055,
+            "p50_ns": 114,
+            "p999_ns": 1462,
+            "p99_ns": 853
+          },
+          "insert_top_ns": [
+            49704202,
+            16296710,
+            186338,
+            184042,
+            183332,
+            183001,
+            159315,
+            158206
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 0,
+          "seed": 318767104,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L200000:W1:R0:r0",
+            "wall_s": 3.38,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.320771828,
+          "heap_before_window": 31151251,
+          "heap_end": 241094338,
+          "heap_peak": 1108330715,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 47841279,
+            "p50_ns": 113,
+            "p999_ns": 1468,
+            "p99_ns": 857
+          },
+          "insert_top_ns": [
+            47832033,
+            15984754,
+            181708,
+            178307,
+            174415,
+            160279,
+            157063,
+            157053
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 1,
+          "seed": 318767201,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L200000:W1:R0:r1",
+            "wall_s": 3.374,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.310852078,
+          "heap_before_window": 31151251,
+          "heap_end": 241094338,
+          "heap_peak": 1108330715,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 48529407,
+            "p50_ns": 113,
+            "p999_ns": 1475,
+            "p99_ns": 858
+          },
+          "insert_top_ns": [
+            48524425,
+            16202989,
+            185370,
+            183222,
+            180223,
+            161239,
+            159999,
+            159117
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 2,
+          "seed": 318767298,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L200000:W1:R0:r2",
+            "wall_s": 3.363,
+            "busy_cpus_since_prev": 1.01,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.305256546,
+          "heap_before_window": 31151251,
+          "heap_end": 241094338,
+          "heap_peak": 1108330715,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 48398335,
+            "p50_ns": 113,
+            "p999_ns": 1477,
+            "p99_ns": 859
+          },
+          "insert_top_ns": [
+            48382403,
+            16076595,
+            184344,
+            182707,
+            181748,
+            180761,
+            179157,
+            175799
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 3,
+          "seed": 318767395,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L200000:W1:R0:r3",
+            "wall_s": 3.358,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.30464598,
+          "heap_before_window": 31151251,
+          "heap_end": 241094338,
+          "heap_peak": 1108330715,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 47939583,
+            "p50_ns": 113,
+            "p999_ns": 1467,
+            "p99_ns": 855
+          },
+          "insert_top_ns": [
+            47924590,
+            15952409,
+            209511,
+            182959,
+            158915,
+            154878,
+            154127,
+            153850
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 4,
+          "seed": 318767492,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L200000:W1:R0:r4",
+            "wall_s": 3.356,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:plain:overwrite:L200000:W1:R0:r3",
+        "wall_s": 3.358,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus": 1.0,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "plain:overwrite:L3600000:W1:R0",
+      "map": "plain",
+      "mode": "overwrite",
+      "live": 3600000,
+      "writers": 1,
+      "readers": 0,
+      "rounds_raw": [
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 631242752,
+          "compactions": 2,
+          "elapsed_s": 3.218093499,
+          "heap_before_window": 551062548,
+          "heap_end": 662444099,
+          "heap_peak": 1682642012,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 317456383,
+            "p50_ns": 204,
+            "p999_ns": 1584,
+            "p99_ns": 951
+          },
+          "insert_top_ns": [
+            317300990,
+            300796995,
+            181787,
+            167861,
+            155017,
+            154973,
+            154253,
+            154074
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 0,
+          "seed": 318767105,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L3600000:W1:R0:r0",
+            "wall_s": 3.599,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 631242752,
+          "compactions": 2,
+          "elapsed_s": 3.208642232,
+          "heap_before_window": 551062548,
+          "heap_end": 662444099,
+          "heap_peak": 1682642012,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 315621375,
+            "p50_ns": 203,
+            "p999_ns": 1573,
+            "p99_ns": 949
+          },
+          "insert_top_ns": [
+            315513447,
+            301714540,
+            183924,
+            181584,
+            154869,
+            154255,
+            154040,
+            154007
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 1,
+          "seed": 318767202,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L3600000:W1:R0:r1",
+            "wall_s": 3.591,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 631242752,
+          "compactions": 2,
+          "elapsed_s": 3.204849599,
+          "heap_before_window": 551062548,
+          "heap_end": 662444099,
+          "heap_peak": 1682642012,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 311164927,
+            "p50_ns": 204,
+            "p999_ns": 1584,
+            "p99_ns": 953
+          },
+          "insert_top_ns": [
+            311102708,
+            299530489,
+            186724,
+            185328,
+            183091,
+            182628,
+            156526,
+            156165
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 2,
+          "seed": 318767299,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L3600000:W1:R0:r2",
+            "wall_s": 3.584,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 631242752,
+          "compactions": 2,
+          "elapsed_s": 3.201715967,
+          "heap_before_window": 551062548,
+          "heap_end": 662444099,
+          "heap_peak": 1682642012,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 315359231,
+            "p50_ns": 203,
+            "p999_ns": 1592,
+            "p99_ns": 950
+          },
+          "insert_top_ns": [
+            315225387,
+            300049752,
+            182530,
+            156644,
+            154672,
+            153488,
+            153483,
+            153041
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 3,
+          "seed": 318767396,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L3600000:W1:R0:r3",
+            "wall_s": 3.582,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 631242752,
+          "compactions": 2,
+          "elapsed_s": 3.193385878,
+          "heap_before_window": 551062548,
+          "heap_end": 662444099,
+          "heap_peak": 1682642012,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 311689215,
+            "p50_ns": 202,
+            "p999_ns": 1595,
+            "p99_ns": 951
+          },
+          "insert_top_ns": [
+            311576098,
+            298221621,
+            253808,
+            177690,
+            156258,
+            154733,
+            154729,
+            153670
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "plain",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "readers": 0,
+          "round": 4,
+          "seed": 318767493,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:plain:overwrite:L3600000:W1:R0:r4",
+            "wall_s": 3.573,
+            "busy_cpus_since_prev": 1.02,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.02
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:plain:overwrite:L3600000:W1:R0:r0",
+        "wall_s": 3.599,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus": 1.0,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:overwrite:L200000:W1:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 200000,
+      "writers": 1,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.832522494,
+          "heap_before_window": 33215778,
+          "heap_end": 241285834,
+          "heap_peak": 1108974514,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 36044799,
+            "p50_ns": 125,
+            "p999_ns": 1527,
+            "p99_ns": 910
+          },
+          "insert_top_ns": [
+            36025496,
+            16090123,
+            15451420,
+            801137,
+            655478,
+            591753,
+            587027,
+            547033
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 69787268,
+            "max_ns": 16097279,
+            "p50_ns": 78,
+            "p999_ns": 468,
+            "p99_ns": 214
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 318767106,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W1:R2:r0",
+            "wall_s": 3.897,
+            "busy_cpus_since_prev": 3.0,
+            "own_busy_cpus": 2.97,
+            "foreign_busy_cpus": 0.03
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.631295585,
+          "heap_before_window": 33215778,
+          "heap_end": 241285834,
+          "heap_peak": 1108974514,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 36175871,
+            "p50_ns": 112,
+            "p999_ns": 1510,
+            "p99_ns": 893
+          },
+          "insert_top_ns": [
+            36174122,
+            15730463,
+            15505081,
+            817049,
+            642115,
+            637339,
+            528553,
+            513750
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 67353366,
+            "max_ns": 15736831,
+            "p50_ns": 78,
+            "p999_ns": 468,
+            "p99_ns": 191
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 318767203,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W1:R2:r1",
+            "wall_s": 3.695,
+            "busy_cpus_since_prev": 2.98,
+            "own_busy_cpus": 2.97,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.878628142,
+          "heap_before_window": 33215778,
+          "heap_end": 241285834,
+          "heap_peak": 1108974514,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 36798463,
+            "p50_ns": 126,
+            "p999_ns": 1555,
+            "p99_ns": 909
+          },
+          "insert_top_ns": [
+            36767642,
+            15661677,
+            15395498,
+            680528,
+            679010,
+            676690,
+            619194,
+            571027
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 70965635,
+            "max_ns": 15663103,
+            "p50_ns": 78,
+            "p999_ns": 468,
+            "p99_ns": 208
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 318767300,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W1:R2:r2",
+            "wall_s": 3.943,
+            "busy_cpus_since_prev": 3.0,
+            "own_busy_cpus": 2.97,
+            "foreign_busy_cpus": 0.03
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.821730381,
+          "heap_before_window": 33215778,
+          "heap_end": 241285834,
+          "heap_peak": 1108974514,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 35684351,
+            "p50_ns": 123,
+            "p999_ns": 1537,
+            "p99_ns": 905
+          },
+          "insert_top_ns": [
+            35652861,
+            16420724,
+            15429774,
+            809426,
+            661854,
+            608452,
+            520939,
+            518767
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 70171429,
+            "max_ns": 16424959,
+            "p50_ns": 77,
+            "p999_ns": 465,
+            "p99_ns": 207
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 318767397,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W1:R2:r3",
+            "wall_s": 3.887,
+            "busy_cpus_since_prev": 2.99,
+            "own_busy_cpus": 2.97,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 239075328,
+          "compactions": 2,
+          "elapsed_s": 3.661823981,
+          "heap_before_window": 33215778,
+          "heap_end": 241285834,
+          "heap_peak": 1108974514,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 34734079,
+            "p50_ns": 115,
+            "p999_ns": 1514,
+            "p99_ns": 894
+          },
+          "insert_top_ns": [
+            34709050,
+            15422531,
+            15395608,
+            700782,
+            572334,
+            567710,
+            524950,
+            523814
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 67679799,
+            "max_ns": 15425535,
+            "p50_ns": 78,
+            "p999_ns": 468,
+            "p99_ns": 197
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 318767494,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W1:R2:r4",
+            "wall_s": 3.726,
+            "busy_cpus_since_prev": 2.98,
+            "own_busy_cpus": 2.97,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:overwrite:L200000:W1:R2:r0",
+        "wall_s": 3.897,
+        "busy_cpus_since_prev": 3.0,
+        "own_busy_cpus": 2.97,
+        "foreign_busy_cpus": 0.03
+      }
+    },
+    {
+      "cell": "sync:overwrite:L3600000:W1:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 3600000,
+      "writers": 1,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "elapsed_s": 3.438774322,
+          "heap_before_window": 553079731,
+          "heap_end": 664684203,
+          "heap_peak": 1683232755,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 295960575,
+            "p50_ns": 222,
+            "p999_ns": 1652,
+            "p99_ns": 1024
+          },
+          "insert_top_ns": [
+            295835573,
+            288798496,
+            36243272,
+            12669332,
+            521080,
+            511701,
+            508985,
+            501738
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 25865373,
+            "max_ns": 295960575,
+            "p50_ns": 196,
+            "p999_ns": 692,
+            "p99_ns": 537
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 318767107,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W1:R2:r0",
+            "wall_s": 4.009,
+            "busy_cpus_since_prev": 2.73,
+            "own_busy_cpus": 2.72,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "elapsed_s": 3.444576596,
+          "heap_before_window": 553079731,
+          "heap_end": 664684203,
+          "heap_peak": 1683232755,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 294911999,
+            "p50_ns": 222,
+            "p999_ns": 1654,
+            "p99_ns": 1025
+          },
+          "insert_top_ns": [
+            294834543,
+            288999525,
+            35894120,
+            13086620,
+            671022,
+            661314,
+            533474,
+            517725
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 25965698,
+            "max_ns": 294911999,
+            "p50_ns": 196,
+            "p999_ns": 690,
+            "p99_ns": 537
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 318767204,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W1:R2:r1",
+            "wall_s": 4.01,
+            "busy_cpus_since_prev": 2.73,
+            "own_busy_cpus": 2.72,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "elapsed_s": 3.443142254,
+          "heap_before_window": 553079731,
+          "heap_end": 664684203,
+          "heap_peak": 1683232755,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 295960575,
+            "p50_ns": 222,
+            "p999_ns": 1651,
+            "p99_ns": 1023
+          },
+          "insert_top_ns": [
+            295885066,
+            288409488,
+            36282474,
+            12789409,
+            650837,
+            642562,
+            567157,
+            532945
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 25941579,
+            "max_ns": 295960575,
+            "p50_ns": 196,
+            "p999_ns": 663,
+            "p99_ns": 536
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 318767301,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W1:R2:r2",
+            "wall_s": 4.008,
+            "busy_cpus_since_prev": 2.74,
+            "own_busy_cpus": 2.72,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "elapsed_s": 3.433749118,
+          "heap_before_window": 553079731,
+          "heap_end": 664684203,
+          "heap_peak": 1683232755,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 293601279,
+            "p50_ns": 221,
+            "p999_ns": 1647,
+            "p99_ns": 1024
+          },
+          "insert_top_ns": [
+            293412111,
+            287931721,
+            34893256,
+            14232762,
+            528988,
+            524324,
+            523176,
+            522657
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 25873343,
+            "max_ns": 293601279,
+            "p50_ns": 196,
+            "p999_ns": 685,
+            "p99_ns": 537
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 318767398,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W1:R2:r3",
+            "wall_s": 3.997,
+            "busy_cpus_since_prev": 2.73,
+            "own_busy_cpus": 2.72,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 633339904,
+          "compactions": 2,
+          "elapsed_s": 3.431635251,
+          "heap_before_window": 553079731,
+          "heap_end": 664684203,
+          "heap_peak": 1683232755,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 294125567,
+            "p50_ns": 221,
+            "p999_ns": 1638,
+            "p99_ns": 1023
+          },
+          "insert_top_ns": [
+            294046417,
+            288254421,
+            35494800,
+            13133110,
+            527363,
+            522878,
+            521757,
+            491828
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 25881227,
+            "max_ns": 294125567,
+            "p50_ns": 196,
+            "p999_ns": 689,
+            "p99_ns": 537
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 318767495,
+          "workload_id": "reclaim_stall",
+          "writers": 1,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W1:R2:r4",
+            "wall_s": 3.998,
+            "busy_cpus_since_prev": 2.73,
+            "own_busy_cpus": 2.72,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:overwrite:L3600000:W1:R2:r2",
+        "wall_s": 4.008,
+        "busy_cpus_since_prev": 2.74,
+        "own_busy_cpus": 2.72,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:overwrite:L200000:W4:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 200000,
+      "writers": 4,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 243269632,
+          "compactions": 2,
+          "elapsed_s": 1.494069036,
+          "heap_before_window": 33215778,
+          "heap_end": 245480290,
+          "heap_peak": 1114839458,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 35880959,
+            "p50_ns": 218,
+            "p999_ns": 2425,
+            "p99_ns": 1147
+          },
+          "insert_top_ns": [
+            35858594,
+            35854562,
+            35854396,
+            35853196,
+            16135173,
+            16125037,
+            16029982,
+            16026025
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 19782100,
+            "max_ns": 16023551,
+            "p50_ns": 115,
+            "p999_ns": 704,
+            "p99_ns": 428
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 318767108,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W4:R2:r0",
+            "wall_s": 1.556,
+            "busy_cpus_since_prev": 5.74,
+            "own_busy_cpus": 5.72,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 243269632,
+          "compactions": 2,
+          "elapsed_s": 1.452756988,
+          "heap_before_window": 33215778,
+          "heap_end": 245480290,
+          "heap_peak": 1114839330,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 36208639,
+            "p50_ns": 212,
+            "p999_ns": 1989,
+            "p99_ns": 1126
+          },
+          "insert_top_ns": [
+            36194085,
+            36175012,
+            36086508,
+            36080040,
+            17722559,
+            16999777,
+            16451911,
+            16235265
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 19316534,
+            "max_ns": 16121855,
+            "p50_ns": 117,
+            "p999_ns": 659,
+            "p99_ns": 422
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 318767205,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W4:R2:r1",
+            "wall_s": 1.517,
+            "busy_cpus_since_prev": 5.69,
+            "own_busy_cpus": 5.67,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 247463936,
+          "compactions": 2,
+          "elapsed_s": 1.523127254,
+          "heap_before_window": 33215778,
+          "heap_end": 249674642,
+          "heap_peak": 1114839330,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 33980415,
+            "p50_ns": 220,
+            "p999_ns": 2387,
+            "p99_ns": 1187
+          },
+          "insert_top_ns": [
+            33979850,
+            33971884,
+            33971143,
+            33970923,
+            32012226,
+            31894766,
+            16185566,
+            16169840
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 20032061,
+            "max_ns": 16097279,
+            "p50_ns": 117,
+            "p999_ns": 689,
+            "p99_ns": 439
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 318767302,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W4:R2:r2",
+            "wall_s": 1.575,
+            "busy_cpus_since_prev": 5.76,
+            "own_busy_cpus": 5.74,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 243269632,
+          "compactions": 2,
+          "elapsed_s": 1.510899757,
+          "heap_before_window": 33215778,
+          "heap_end": 245480290,
+          "heap_peak": 1114839330,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 35356671,
+            "p50_ns": 224,
+            "p999_ns": 2095,
+            "p99_ns": 1159
+          },
+          "insert_top_ns": [
+            35338212,
+            35253867,
+            35232093,
+            35183893,
+            16908376,
+            16451257,
+            16398657,
+            16387700
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 20046335,
+            "max_ns": 16285695,
+            "p50_ns": 116,
+            "p999_ns": 688,
+            "p99_ns": 433
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 318767399,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W4:R2:r3",
+            "wall_s": 1.576,
+            "busy_cpus_since_prev": 5.73,
+            "own_busy_cpus": 5.71,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 247463936,
+          "compactions": 2,
+          "elapsed_s": 1.533048642,
+          "heap_before_window": 33215778,
+          "heap_end": 249674642,
+          "heap_peak": 1114839330,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 35618815,
+            "p50_ns": 224,
+            "p999_ns": 2233,
+            "p99_ns": 1193
+          },
+          "insert_top_ns": [
+            35588383,
+            35503952,
+            35503944,
+            35503923,
+            16908572,
+            16406104,
+            16367492,
+            16286913
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 19321657,
+            "max_ns": 35520511,
+            "p50_ns": 120,
+            "p999_ns": 695,
+            "p99_ns": 441
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 318767496,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W4:R2:r4",
+            "wall_s": 1.599,
+            "busy_cpus_since_prev": 5.78,
+            "own_busy_cpus": 5.73,
+            "foreign_busy_cpus": 0.05
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:overwrite:L200000:W4:R2:r4",
+        "wall_s": 1.599,
+        "busy_cpus_since_prev": 5.78,
+        "own_busy_cpus": 5.73,
+        "foreign_busy_cpus": 0.05
+      }
+    },
+    {
+      "cell": "sync:overwrite:L3600000:W4:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 3600000,
+      "writers": 4,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 637534208,
+          "compactions": 2,
+          "elapsed_s": 1.471873745,
+          "heap_before_window": 553079731,
+          "heap_end": 668878659,
+          "heap_peak": 1683897971,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 292552703,
+            "p50_ns": 278,
+            "p999_ns": 4791,
+            "p99_ns": 1267
+          },
+          "insert_top_ns": [
+            292501918,
+            276194478,
+            276176667,
+            276172904,
+            270978314,
+            270958315,
+            270940338,
+            270934009
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 7576617,
+            "max_ns": 276299775,
+            "p50_ns": 207,
+            "p999_ns": 1079,
+            "p99_ns": 601
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 318767109,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W4:R2:r0",
+            "wall_s": 2.033,
+            "busy_cpus_since_prev": 4.07,
+            "own_busy_cpus": 4.06,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 637534208,
+          "compactions": 2,
+          "elapsed_s": 1.456120329,
+          "heap_before_window": 553079731,
+          "heap_end": 668878659,
+          "heap_peak": 1683897971,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 299368447,
+            "p50_ns": 269,
+            "p999_ns": 5115,
+            "p99_ns": 1230
+          },
+          "insert_top_ns": [
+            299276163,
+            299172034,
+            277077419,
+            277074464,
+            269777791,
+            269774203,
+            269759903,
+            269744989
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 7258621,
+            "max_ns": 277086207,
+            "p50_ns": 210,
+            "p999_ns": 1028,
+            "p99_ns": 594
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 318767206,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W4:R2:r1",
+            "wall_s": 2.023,
+            "busy_cpus_since_prev": 4.04,
+            "own_busy_cpus": 4.02,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 637534208,
+          "compactions": 2,
+          "elapsed_s": 1.48822241,
+          "heap_before_window": 553079731,
+          "heap_end": 668878659,
+          "heap_peak": 1683897971,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 310640639,
+            "p50_ns": 281,
+            "p999_ns": 5971,
+            "p99_ns": 1254
+          },
+          "insert_top_ns": [
+            310396526,
+            310337453,
+            296698984,
+            296598576,
+            276568103,
+            276559258,
+            271693073,
+            271676120
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 7635192,
+            "max_ns": 276561919,
+            "p50_ns": 208,
+            "p999_ns": 1069,
+            "p99_ns": 602
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 318767303,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W4:R2:r2",
+            "wall_s": 2.049,
+            "busy_cpus_since_prev": 4.04,
+            "own_busy_cpus": 4.03,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 637534208,
+          "compactions": 2,
+          "elapsed_s": 1.481612272,
+          "heap_before_window": 553079731,
+          "heap_end": 668878659,
+          "heap_peak": 1683897971,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 309329919,
+            "p50_ns": 282,
+            "p999_ns": 4347,
+            "p99_ns": 1251
+          },
+          "insert_top_ns": [
+            309304086,
+            309246221,
+            276056752,
+            276053388,
+            276039770,
+            276018897,
+            272526343,
+            272526055
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 7620107,
+            "max_ns": 276037631,
+            "p50_ns": 209,
+            "p999_ns": 1009,
+            "p99_ns": 590
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 318767400,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W4:R2:r3",
+            "wall_s": 2.05,
+            "busy_cpus_since_prev": 4.06,
+            "own_busy_cpus": 4.04,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 637534208,
+          "compactions": 2,
+          "elapsed_s": 1.4759900479999999,
+          "heap_before_window": 553079731,
+          "heap_end": 668878659,
+          "heap_peak": 1683897971,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 309854207,
+            "p50_ns": 281,
+            "p999_ns": 5531,
+            "p99_ns": 1261
+          },
+          "insert_top_ns": [
+            309718759,
+            309642533,
+            276336604,
+            276329268,
+            276319563,
+            276302251,
+            271821734,
+            271813481
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 7506134,
+            "max_ns": 276561919,
+            "p50_ns": 210,
+            "p999_ns": 1093,
+            "p99_ns": 601
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 318767497,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W4:R2:r4",
+            "wall_s": 2.043,
+            "busy_cpus_since_prev": 4.04,
+            "own_busy_cpus": 4.03,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:overwrite:L3600000:W4:R2:r1",
+        "wall_s": 2.023,
+        "busy_cpus_since_prev": 4.04,
+        "own_busy_cpus": 4.02,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:overwrite:L200000:W12:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 200000,
+      "writers": 12,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 257949696,
+          "compactions": 2,
+          "elapsed_s": 2.834266866,
+          "heap_before_window": 33215779,
+          "heap_end": 260160587,
+          "heap_peak": 1133396835,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 34832383,
+            "p50_ns": 263,
+            "p999_ns": 33599,
+            "p99_ns": 24719
+          },
+          "insert_top_ns": [
+            34820154,
+            34802730,
+            34784513,
+            34773177,
+            34750897,
+            34742126,
+            34710861,
+            34684756
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 32087854,
+            "max_ns": 16416767,
+            "p50_ns": 111,
+            "p999_ns": 933,
+            "p99_ns": 735
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 318767110,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W12:R2:r0",
+            "wall_s": 2.893,
+            "busy_cpus_since_prev": 5.94,
+            "own_busy_cpus": 5.96,
+            "foreign_busy_cpus": -0.02
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 264241152,
+          "compactions": 2,
+          "elapsed_s": 2.801385218,
+          "heap_before_window": 33215779,
+          "heap_end": 266452115,
+          "heap_peak": 1133396835,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 35160063,
+            "p50_ns": 263,
+            "p999_ns": 33439,
+            "p99_ns": 24655
+          },
+          "insert_top_ns": [
+            35136776,
+            34983625,
+            34959289,
+            34949600,
+            34888381,
+            34884090,
+            34854990,
+            34821100
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 31345879,
+            "max_ns": 16498687,
+            "p50_ns": 112,
+            "p999_ns": 934,
+            "p99_ns": 731
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 318767207,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W12:R2:r1",
+            "wall_s": 2.854,
+            "busy_cpus_since_prev": 6.02,
+            "own_busy_cpus": 6.02,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 264241152,
+          "compactions": 2,
+          "elapsed_s": 2.781630223,
+          "heap_before_window": 33215779,
+          "heap_end": 266452115,
+          "heap_peak": 1133396835,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 33210367,
+            "p50_ns": 270,
+            "p999_ns": 32575,
+            "p99_ns": 24767
+          },
+          "insert_top_ns": [
+            33206145,
+            33169520,
+            33159692,
+            33133939,
+            33105296,
+            33051759,
+            33023665,
+            32993802
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 30388202,
+            "max_ns": 16154623,
+            "p50_ns": 116,
+            "p999_ns": 952,
+            "p99_ns": 740
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 318767304,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W12:R2:r2",
+            "wall_s": 2.834,
+            "busy_cpus_since_prev": 6.05,
+            "own_busy_cpus": 6.05,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 262144000,
+          "compactions": 2,
+          "elapsed_s": 2.855497159,
+          "heap_before_window": 33215779,
+          "heap_end": 264354939,
+          "heap_peak": 1133396963,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 36077567,
+            "p50_ns": 265,
+            "p999_ns": 33631,
+            "p99_ns": 24623
+          },
+          "insert_top_ns": [
+            36071875,
+            36024182,
+            36023871,
+            36017754,
+            36010220,
+            35993216,
+            35982579,
+            35973284
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 32360754,
+            "max_ns": 16293887,
+            "p50_ns": 111,
+            "p999_ns": 927,
+            "p99_ns": 726
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 318767401,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W12:R2:r3",
+            "wall_s": 2.908,
+            "busy_cpus_since_prev": 5.92,
+            "own_busy_cpus": 5.95,
+            "foreign_busy_cpus": -0.03
+          }
+        },
+        {
+          "appends": 15963763,
+          "arena_total_allocated": 262144000,
+          "compactions": 2,
+          "elapsed_s": 2.846616502,
+          "heap_before_window": 33215779,
+          "heap_end": 264354939,
+          "heap_peak": 1133396835,
+          "index_mem_used": 1713152,
+          "insert": {
+            "count": 15963763,
+            "max_ns": 35028991,
+            "p50_ns": 265,
+            "p999_ns": 33919,
+            "p99_ns": 24719
+          },
+          "insert_top_ns": [
+            35021075,
+            34927843,
+            34801915,
+            34701975,
+            34561045,
+            34427844,
+            34326440,
+            34288411
+          ],
+          "inserts_ok": 15963763,
+          "inserts_refused": 0,
+          "live": 200000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 31986016,
+            "max_ns": 15966207,
+            "p50_ns": 112,
+            "p999_ns": 939,
+            "p99_ns": 734
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 318767498,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L200000:W12:R2:r4",
+            "wall_s": 2.897,
+            "busy_cpus_since_prev": 5.94,
+            "own_busy_cpus": 5.96,
+            "foreign_busy_cpus": -0.02
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:overwrite:L200000:W12:R2:r1",
+        "wall_s": 2.854,
+        "busy_cpus_since_prev": 6.02,
+        "own_busy_cpus": 6.02,
+        "foreign_busy_cpus": 0.0
+      }
+    },
+    {
+      "cell": "sync:overwrite:L3600000:W12:R2",
+      "map": "sync",
+      "mode": "overwrite",
+      "live": 3600000,
+      "writers": 12,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 652214272,
+          "compactions": 2,
+          "elapsed_s": 2.004184319,
+          "heap_before_window": 553079732,
+          "heap_end": 683558956,
+          "heap_peak": 1685673044,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 306446335,
+            "p50_ns": 326,
+            "p999_ns": 34047,
+            "p99_ns": 24511
+          },
+          "insert_top_ns": [
+            306226133,
+            306145357,
+            306138386,
+            306070565,
+            306005948,
+            305942984,
+            305893216,
+            305755353
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 9652340,
+            "max_ns": 274202623,
+            "p50_ns": 215,
+            "p999_ns": 1247,
+            "p99_ns": 935
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 0,
+          "seed": 318767111,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W12:R2:r0",
+            "wall_s": 2.57,
+            "busy_cpus_since_prev": 4.85,
+            "own_busy_cpus": 4.85,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 654311424,
+          "compactions": 2,
+          "elapsed_s": 1.647257059,
+          "heap_before_window": 553079732,
+          "heap_end": 685656132,
+          "heap_peak": 1685673044,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 312475647,
+            "p50_ns": 428,
+            "p999_ns": 29391,
+            "p99_ns": 22991
+          },
+          "insert_top_ns": [
+            312413414,
+            312324651,
+            312209308,
+            312183086,
+            312111503,
+            312055549,
+            312007363,
+            311966482
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 7504489,
+            "max_ns": 275513343,
+            "p50_ns": 216,
+            "p999_ns": 1220,
+            "p99_ns": 896
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 0,
+          "seed": 318767208,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W12:R2:r1",
+            "wall_s": 2.197,
+            "busy_cpus_since_prev": 5.16,
+            "own_busy_cpus": 5.15,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 660602880,
+          "compactions": 2,
+          "elapsed_s": 1.984060973,
+          "heap_before_window": 553079732,
+          "heap_end": 691947660,
+          "heap_peak": 1685673044,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 305397759,
+            "p50_ns": 326,
+            "p999_ns": 32799,
+            "p99_ns": 24335
+          },
+          "insert_top_ns": [
+            305233509,
+            305154284,
+            305042997,
+            304997787,
+            304905833,
+            304905233,
+            304789945,
+            304746597
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 9681093,
+            "max_ns": 272629759,
+            "p50_ns": 212,
+            "p999_ns": 1229,
+            "p99_ns": 924
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 0,
+          "seed": 318767305,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W12:R2:r2",
+            "wall_s": 2.537,
+            "busy_cpus_since_prev": 4.78,
+            "own_busy_cpus": 4.78,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 656408576,
+          "compactions": 2,
+          "elapsed_s": 1.5840164410000002,
+          "heap_before_window": 553079732,
+          "heap_end": 687753308,
+          "heap_peak": 1685673044,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 309067775,
+            "p50_ns": 435,
+            "p999_ns": 28831,
+            "p99_ns": 22527
+          },
+          "insert_top_ns": [
+            308867376,
+            308773105,
+            308710786,
+            308674220,
+            308538574,
+            308485617,
+            308430525,
+            308377764
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 7167070,
+            "max_ns": 274726911,
+            "p50_ns": 215,
+            "p999_ns": 1214,
+            "p99_ns": 883
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 0,
+          "seed": 318767402,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W12:R2:r3",
+            "wall_s": 2.142,
+            "busy_cpus_since_prev": 5.3,
+            "own_busy_cpus": 5.3,
+            "foreign_busy_cpus": 0.0
+          }
+        },
+        {
+          "appends": 8483763,
+          "arena_total_allocated": 654311424,
+          "compactions": 2,
+          "elapsed_s": 1.9839997999999999,
+          "heap_before_window": 553079732,
+          "heap_end": 685656132,
+          "heap_peak": 1685673044,
+          "index_mem_used": 30829952,
+          "insert": {
+            "count": 8483763,
+            "max_ns": 309592063,
+            "p50_ns": 325,
+            "p999_ns": 31615,
+            "p99_ns": 24335
+          },
+          "insert_top_ns": [
+            309454835,
+            309412401,
+            309385224,
+            309272218,
+            309175377,
+            309128961,
+            309110782,
+            309038480
+          ],
+          "inserts_ok": 8483763,
+          "inserts_refused": 0,
+          "live": 3600000,
+          "map": "sync",
+          "mode": "overwrite",
+          "payload_len": 128,
+          "read": {
+            "count": 9608732,
+            "max_ns": 274464767,
+            "p50_ns": 213,
+            "p999_ns": 1228,
+            "p99_ns": 927
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 0,
+          "seed": 318767499,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:overwrite:L3600000:W12:R2:r4",
+            "wall_s": 2.536,
+            "busy_cpus_since_prev": 4.83,
+            "own_busy_cpus": 4.86,
+            "foreign_busy_cpus": -0.03
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:overwrite:L3600000:W12:R2:r1",
+        "wall_s": 2.197,
+        "busy_cpus_since_prev": 5.16,
+        "own_busy_cpus": 5.15,
+        "foreign_busy_cpus": 0.01
+      }
+    },
+    {
+      "cell": "sync:full:Lfill:W4:R2",
+      "map": "sync",
+      "mode": "full",
+      "live": null,
+      "writers": 4,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000276639,
+          "heap_before_window": 1137669769,
+          "heap_end": 1138115793,
+          "heap_peak": 1139219233,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 34953266,
+            "max_ns": 91967,
+            "p50_ns": 243,
+            "p999_ns": 904,
+            "p99_ns": 681
+          },
+          "insert_top_ns": [
+            91925,
+            81410,
+            75252,
+            74913,
+            73780,
+            72449,
+            71765,
+            64425
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 34953266,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 24780895,
+            "max_ns": 49023,
+            "p50_ns": 211,
+            "p999_ns": 651,
+            "p99_ns": 555
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 3,
+          "seed": 318767112,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:full:Lfill:W4:R2:r0",
+            "wall_s": 4.138,
+            "busy_cpus_since_prev": 4.65,
+            "own_busy_cpus": 4.63,
+            "foreign_busy_cpus": 0.02
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000374849,
+          "heap_before_window": 1137669769,
+          "heap_end": 1138115793,
+          "heap_peak": 1139219233,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 38016764,
+            "max_ns": 94719,
+            "p50_ns": 218,
+            "p999_ns": 810,
+            "p99_ns": 621
+          },
+          "insert_top_ns": [
+            94684,
+            74049,
+            72968,
+            72640,
+            72589,
+            23242,
+            22600,
+            21407
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 38016764,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 24865077,
+            "max_ns": 100671,
+            "p50_ns": 211,
+            "p999_ns": 644,
+            "p99_ns": 554
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 3,
+          "seed": 318767209,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:full:Lfill:W4:R2:r1",
+            "wall_s": 4.131,
+            "busy_cpus_since_prev": 4.64,
+            "own_busy_cpus": 4.63,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000299101,
+          "heap_before_window": 1137669769,
+          "heap_end": 1138115793,
+          "heap_peak": 1139219233,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 38058471,
+            "max_ns": 131071,
+            "p50_ns": 221,
+            "p999_ns": 813,
+            "p99_ns": 618
+          },
+          "insert_top_ns": [
+            131059,
+            112357,
+            106123,
+            95562,
+            93548,
+            80527,
+            69098,
+            43329
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 38058471,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 24670722,
+            "max_ns": 28095,
+            "p50_ns": 213,
+            "p999_ns": 649,
+            "p99_ns": 556
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 3,
+          "seed": 318767306,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:full:Lfill:W4:R2:r2",
+            "wall_s": 4.136,
+            "busy_cpus_since_prev": 4.64,
+            "own_busy_cpus": 4.63,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000361185,
+          "heap_before_window": 1137669769,
+          "heap_end": 1138115793,
+          "heap_peak": 1139219233,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 37730936,
+            "max_ns": 378623,
+            "p50_ns": 220,
+            "p999_ns": 827,
+            "p99_ns": 628
+          },
+          "insert_top_ns": [
+            378449,
+            301987,
+            301028,
+            260255,
+            249438,
+            120479,
+            78929,
+            76788
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 37730936,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 24859271,
+            "max_ns": 254847,
+            "p50_ns": 211,
+            "p999_ns": 643,
+            "p99_ns": 554
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 3,
+          "seed": 318767403,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:full:Lfill:W4:R2:r3",
+            "wall_s": 4.136,
+            "busy_cpus_since_prev": 4.64,
+            "own_busy_cpus": 4.63,
+            "foreign_busy_cpus": 0.01
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000309674,
+          "heap_before_window": 1137669769,
+          "heap_end": 1138115793,
+          "heap_peak": 1139219233,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 36486597,
+            "max_ns": 349695,
+            "p50_ns": 230,
+            "p999_ns": 869,
+            "p99_ns": 652
+          },
+          "insert_top_ns": [
+            349555,
+            345555,
+            345437,
+            341441,
+            164716,
+            162724,
+            160144,
+            160007
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 36486597,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 24780285,
+            "max_ns": 37503,
+            "p50_ns": 212,
+            "p999_ns": 647,
+            "p99_ns": 554
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 3,
+          "seed": 318767500,
+          "workload_id": "reclaim_stall",
+          "writers": 4,
+          "load": {
+            "since": "cell:sync:full:Lfill:W4:R2:r4",
+            "wall_s": 4.145,
+            "busy_cpus_since_prev": 4.63,
+            "own_busy_cpus": 4.62,
+            "foreign_busy_cpus": 0.01
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:full:Lfill:W4:R2:r0",
+        "wall_s": 4.138,
+        "busy_cpus_since_prev": 4.65,
+        "own_busy_cpus": 4.63,
+        "foreign_busy_cpus": 0.02
+      }
+    },
+    {
+      "cell": "sync:full:Lfill:W12:R2",
+      "map": "sync",
+      "mode": "full",
+      "live": null,
+      "writers": 12,
+      "readers": 2,
+      "rounds_raw": [
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000584477,
+          "heap_before_window": 1137669770,
+          "heap_end": 1138115794,
+          "heap_peak": 1140990938,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 20256836,
+            "max_ns": 4014079,
+            "p50_ns": 744,
+            "p999_ns": 10311,
+            "p99_ns": 7351
+          },
+          "insert_top_ns": [
+            4012539,
+            4008984,
+            4006096,
+            4005005,
+            4004270,
+            4003439,
+            4002852,
+            4001893
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 20256836,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 22860466,
+            "max_ns": 219647,
+            "p50_ns": 225,
+            "p999_ns": 700,
+            "p99_ns": 573
+          },
+          "readers": 2,
+          "round": 0,
+          "seconds": 3,
+          "seed": 318767113,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:full:Lfill:W12:R2:r0",
+            "wall_s": 4.14,
+            "busy_cpus_since_prev": 10.18,
+            "own_busy_cpus": 10.11,
+            "foreign_busy_cpus": 0.07
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000487208,
+          "heap_before_window": 1137669770,
+          "heap_end": 1138115794,
+          "heap_peak": 1140991130,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 19304449,
+            "max_ns": 3006463,
+            "p50_ns": 838,
+            "p999_ns": 10687,
+            "p99_ns": 7635
+          },
+          "insert_top_ns": [
+            3005793,
+            3005765,
+            3001998,
+            3000870,
+            3000705,
+            3000311,
+            3000281,
+            2999985
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 19304449,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 22865726,
+            "max_ns": 99455,
+            "p50_ns": 225,
+            "p999_ns": 718,
+            "p99_ns": 575
+          },
+          "readers": 2,
+          "round": 1,
+          "seconds": 3,
+          "seed": 318767210,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:full:Lfill:W12:R2:r1",
+            "wall_s": 4.139,
+            "busy_cpus_since_prev": 10.16,
+            "own_busy_cpus": 10.1,
+            "foreign_busy_cpus": 0.06
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000490413,
+          "heap_before_window": 1137669770,
+          "heap_end": 1138115794,
+          "heap_peak": 1140991130,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 19275675,
+            "max_ns": 3071999,
+            "p50_ns": 918,
+            "p999_ns": 10727,
+            "p99_ns": 7655
+          },
+          "insert_top_ns": [
+            3071847,
+            2997506,
+            2993272,
+            2992999,
+            2992792,
+            2992744,
+            2992508,
+            2990471
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 19275675,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 22940833,
+            "max_ns": 31935,
+            "p50_ns": 225,
+            "p999_ns": 681,
+            "p99_ns": 571
+          },
+          "readers": 2,
+          "round": 2,
+          "seconds": 3,
+          "seed": 318767307,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:full:Lfill:W12:R2:r2",
+            "wall_s": 4.14,
+            "busy_cpus_since_prev": 10.17,
+            "own_busy_cpus": 10.09,
+            "foreign_busy_cpus": 0.08
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000581249,
+          "heap_before_window": 1137669770,
+          "heap_end": 1138115794,
+          "heap_peak": 1140990754,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 19138497,
+            "max_ns": 2914303,
+            "p50_ns": 955,
+            "p999_ns": 10751,
+            "p99_ns": 7655
+          },
+          "insert_top_ns": [
+            2912768,
+            2911480,
+            2909598,
+            2908874,
+            2908564,
+            2908025,
+            2907004,
+            2906808
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 19138497,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 23539470,
+            "max_ns": 100415,
+            "p50_ns": 221,
+            "p999_ns": 659,
+            "p99_ns": 564
+          },
+          "readers": 2,
+          "round": 3,
+          "seconds": 3,
+          "seed": 318767404,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:full:Lfill:W12:R2:r3",
+            "wall_s": 4.139,
+            "busy_cpus_since_prev": 10.14,
+            "own_busy_cpus": 10.09,
+            "foreign_busy_cpus": 0.05
+          }
+        },
+        {
+          "appends": 0,
+          "arena_total_allocated": 1073741824,
+          "compactions": 0,
+          "elapsed_s": 3.000527741,
+          "heap_before_window": 1137669770,
+          "heap_end": 1138115794,
+          "heap_peak": 1140990810,
+          "index_mem_used": 63854528,
+          "insert": {
+            "count": 19902188,
+            "max_ns": 3004415,
+            "p50_ns": 833,
+            "p999_ns": 10375,
+            "p99_ns": 7399
+          },
+          "insert_top_ns": [
+            3004380,
+            3002821,
+            2999448,
+            2998944,
+            2997803,
+            2997403,
+            2997352,
+            2996698
+          ],
+          "inserts_ok": 0,
+          "inserts_refused": 19902188,
+          "live": 7456256,
+          "map": "sync",
+          "mode": "full",
+          "payload_len": 128,
+          "read": {
+            "count": 23174377,
+            "max_ns": 101887,
+            "p50_ns": 223,
+            "p999_ns": 672,
+            "p99_ns": 568
+          },
+          "readers": 2,
+          "round": 4,
+          "seconds": 3,
+          "seed": 318767501,
+          "workload_id": "reclaim_stall",
+          "writers": 12,
+          "load": {
+            "since": "cell:sync:full:Lfill:W12:R2:r4",
+            "wall_s": 4.137,
+            "busy_cpus_since_prev": 10.16,
+            "own_busy_cpus": 10.11,
+            "foreign_busy_cpus": 0.05
+          }
+        }
+      ],
+      "load": {
+        "since": "cell:sync:full:Lfill:W12:R2:r2",
+        "wall_s": 4.14,
+        "busy_cpus_since_prev": 10.17,
+        "own_busy_cpus": 10.09,
+        "foreign_busy_cpus": 0.08
+      }
+    }
+  ],
+  "predictions": {
+    "P1": [
+      {
+        "cell": "plain:overwrite:L200000:W1:R0",
+        "stall_ns": {
+          "mean": 48483531.8,
+          "ci_lower": 48018226.2,
+          "ci_upper": 49210981.4,
+          "ci_method": "bca",
+          "median": 48398335.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          10614507.515384614,
+          11759173.515151516
+        ],
+        "material": null
+      },
+      {
+        "cell": "plain:overwrite:L3600000:W1:R0",
+        "stall_ns": {
+          "mean": 314258226.2,
+          "ci_lower": 312108645.4,
+          "ci_upper": 316250520.6,
+          "ci_method": "bca",
+          "median": 315359231.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          191061135.27692306,
+          211665123.27272728
+        ],
+        "material": true
+      },
+      {
+        "cell": "sync:overwrite:L200000:W1:R2",
+        "stall_ns": {
+          "mean": 35887512.6,
+          "ci_lower": 35146955.8,
+          "ci_upper": 36385586.2,
+          "ci_method": "bca",
+          "median": 36044799.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          10614507.515384614,
+          11759173.515151516
+        ],
+        "material": null
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W1:R2",
+        "stall_ns": {
+          "mean": 294911999.0,
+          "ci_lower": 293968280.6,
+          "ci_upper": 295593573.4,
+          "ci_method": "bca",
+          "median": 294911999.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          191061135.27692306,
+          211665123.27272728
+        ],
+        "material": true
+      },
+      {
+        "cell": "sync:overwrite:L200000:W4:R2",
+        "stall_ns": {
+          "mean": 35409099.8,
+          "ci_lower": 34426059.8,
+          "ci_upper": 35854744.6,
+          "ci_method": "bca",
+          "median": 35618815.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          10614507.515384614,
+          11759173.515151516
+        ],
+        "material": null
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W4:R2",
+        "stall_ns": {
+          "mean": 304349183.0,
+          "ci_lower": 296642149.4,
+          "ci_upper": 309801778.2,
+          "ci_method": "bca",
+          "median": 309329919.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          191061135.27692306,
+          211665123.27272728
+        ],
+        "material": true
+      },
+      {
+        "cell": "sync:overwrite:L200000:W12:R2",
+        "stall_ns": {
+          "mean": 34861874.2,
+          "ci_lower": 33859173.4,
+          "ci_upper": 35461528.6,
+          "ci_method": "bca",
+          "median": 35028991.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          10614507.515384614,
+          11759173.515151516
+        ],
+        "material": null
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W12:R2",
+        "stall_ns": {
+          "mean": 308595915.8,
+          "ci_lower": 306551192.6,
+          "ci_upper": 310693067.8,
+          "ci_method": "bca",
+          "median": 309067775.0,
+          "n": 5
+        },
+        "predicted_linear_ns": [
+          191061135.27692306,
+          211665123.27272728
+        ],
+        "material": true
+      }
+    ],
+    "P2": [
+      {
+        "map": "plain",
+        "writers": 1,
+        "per_record_ratio": {
+          "mean": 0.3601450319637305,
+          "ci_lower": 0.35664505057804713,
+          "ci_upper": 0.36364501334941385,
+          "ci_method": "bca",
+          "median": 0.36120605179231535,
+          "n": 5
+        },
+        "verdict": "INCONCLUSIVE"
+      },
+      {
+        "map": "sync",
+        "writers": 1,
+        "per_record_ratio": {
+          "mean": 0.4566831450739114,
+          "ci_lower": 0.4509299185362597,
+          "ci_upper": 0.46491572875021125,
+          "ci_method": "bca",
+          "median": 0.4561616272757317,
+          "n": 5
+        },
+        "verdict": "INCONCLUSIVE"
+      },
+      {
+        "map": "sync",
+        "writers": 4,
+        "per_record_ratio": {
+          "mean": 0.4779007516825854,
+          "ci_lower": 0.4608554423741847,
+          "ci_upper": 0.49422629257792894,
+          "ci_method": "bca",
+          "median": 0.4832873471818507,
+          "n": 5
+        },
+        "verdict": "INCONCLUSIVE"
+      },
+      {
+        "map": "sync",
+        "writers": 12,
+        "per_record_ratio": {
+          "mean": 0.4920639486195152,
+          "ci_lower": 0.48363047549201077,
+          "ci_upper": 0.5030282591264064,
+          "ci_method": "bca",
+          "median": 0.49100926302888814,
+          "n": 5
+        },
+        "verdict": "INCONCLUSIVE"
+      }
+    ],
+    "P3": [
+      {
+        "cell": "sync:overwrite:L200000:W1:R2",
+        "read_max_over_stall": [
+          0.44659089373754035,
+          0.4350090423531198,
+          0.4256455765557382,
+          0.4602846497054129,
+          0.4441037575805594
+        ],
+        "verdict": "FAILS"
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W1:R2",
+        "read_max_over_stall": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "verdict": "HOLDS"
+      },
+      {
+        "cell": "sync:overwrite:L200000:W4:R2",
+        "read_max_over_stall": [
+          0.4465753270418441,
+          0.44524885345731996,
+          0.47372226030788617,
+          0.46061166222351646,
+          0.9972401103181001
+        ],
+        "verdict": "MIXED"
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W4:R2",
+        "read_max_over_stall": [
+          0.9444444442545451,
+          0.9255691766340358,
+          0.8902953582966329,
+          0.8923728810079958,
+          0.8925549911930032
+        ],
+        "verdict": "HOLDS"
+      },
+      {
+        "cell": "sync:overwrite:L200000:W12:R2",
+        "read_max_over_stall": [
+          0.4713076047653702,
+          0.4692450920807508,
+          0.4864331369779804,
+          0.4516348621845814,
+          0.45579979737355264
+        ],
+        "verdict": "FAILS"
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W12:R2",
+        "read_max_over_stall": [
+          0.8947818644983958,
+          0.8817114090174202,
+          0.8927038623096117,
+          0.8888888885293849,
+          0.8865368328257175
+        ],
+        "verdict": "HOLDS"
+      }
+    ],
+    "P4": [
+      {
+        "cell": "plain:overwrite:L200000:W1:R0",
+        "peak_over_prediction": [
+          1.0002848435900022,
+          1.0002848435900022,
+          1.0002848435900022,
+          1.0002848435900022,
+          1.0002848435900022
+        ],
+        "verdict": "HOLDS"
+      },
+      {
+        "cell": "plain:overwrite:L3600000:W1:R0",
+        "peak_over_prediction": [
+          1.0002238291198786,
+          1.0002238291198786,
+          1.0002238291198786,
+          1.0002238291198786,
+          1.0002238291198786
+        ],
+        "verdict": "HOLDS"
+      },
+      {
+        "cell": "sync:overwrite:L200000:W1:R2",
+        "peak_over_prediction": [
+          1.0008658816983058,
+          1.0008658816983058,
+          1.0008658816983058,
+          1.0008658816983058,
+          1.0008658816983058
+        ]
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W1:R2",
+        "peak_over_prediction": [
+          1.0005749883214627,
+          1.0005749883214627,
+          1.0005749883214627,
+          1.0005749883214627,
+          1.0005749883214627
+        ]
+      },
+      {
+        "cell": "sync:overwrite:L200000:W4:R2",
+        "peak_over_prediction": [
+          1.0061590803007683,
+          1.0061589647788773,
+          1.0061589647788773,
+          1.0061589647788773,
+          1.0061589647788773
+        ]
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W4:R2",
+        "peak_over_prediction": [
+          1.0009704169925446,
+          1.0009704169925446,
+          1.0009704169925446,
+          1.0009704169925446,
+          1.0009704169925446
+        ]
+      },
+      {
+        "cell": "sync:overwrite:L200000:W12:R2",
+        "peak_over_prediction": [
+          1.0229073871902743,
+          1.0229073871902743,
+          1.0229073871902743,
+          1.0229075027121652,
+          1.0229073871902743
+        ]
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W12:R2",
+        "peak_over_prediction": [
+          1.0020255851747042,
+          1.0020255851747042,
+          1.0020255851747042,
+          1.0020255851747042,
+          1.0020255851747042
+        ]
+      }
+    ],
+    "P5": [
+      {
+        "cell": "sync:full:Lfill:W4:R2",
+        "refused_p99_ns": [
+          681,
+          621,
+          618,
+          628,
+          652
+        ],
+        "refused_max_ns": [
+          91967,
+          94719,
+          131071,
+          378623,
+          349695
+        ],
+        "every_insert_refused": true,
+        "verdict": "HOLDS"
+      },
+      {
+        "cell": "sync:full:Lfill:W12:R2",
+        "refused_p99_ns": [
+          7351,
+          7635,
+          7655,
+          7655,
+          7399
+        ],
+        "refused_max_ns": [
+          4014079,
+          3006463,
+          3071999,
+          2914303,
+          3004415
+        ],
+        "every_insert_refused": true,
+        "verdict": "HOLDS"
+      }
+    ],
+    "checks": [
+      {
+        "cell": "plain:overwrite:L200000:W1:R0",
+        "rounds_without_two_compactions_or_with_refusals": []
+      },
+      {
+        "cell": "plain:overwrite:L3600000:W1:R0",
+        "rounds_without_two_compactions_or_with_refusals": []
+      },
+      {
+        "cell": "sync:overwrite:L200000:W1:R2",
+        "rounds_without_two_compactions_or_with_refusals": []
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W1:R2",
+        "rounds_without_two_compactions_or_with_refusals": []
+      },
+      {
+        "cell": "sync:overwrite:L200000:W4:R2",
+        "rounds_without_two_compactions_or_with_refusals": []
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W4:R2",
+        "rounds_without_two_compactions_or_with_refusals": []
+      },
+      {
+        "cell": "sync:overwrite:L200000:W12:R2",
+        "rounds_without_two_compactions_or_with_refusals": []
+      },
+      {
+        "cell": "sync:overwrite:L3600000:W12:R2",
+        "rounds_without_two_compactions_or_with_refusals": []
+      }
+    ],
+    "stall_material": true
+  }
+}
