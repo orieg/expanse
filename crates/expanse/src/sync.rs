@@ -87,11 +87,6 @@ use core::cell::UnsafeCell;
 use std::hash::{BuildHasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-#[cfg(not(loom))]
-type AtomicUsize = core::sync::atomic::AtomicUsize;
-#[cfg(loom)]
-type AtomicUsize = loom::sync::atomic::AtomicUsize;
-
 /// The word holding a tree's writer-slot allocation mask. Under `--cfg loom`
 /// it is loom's atomic, so a model orders a writer's `allocate_slot` against
 /// the drain that reads the mask to decide which slots to wait on.
@@ -1024,15 +1019,18 @@ impl ShardedTreePop {
 /// via `(thread_token() as usize) % MAX_WRITER_SLOTS` and two live writers can
 /// share one. Each slot's word therefore counts its in-flight writers
 /// (`WriterGate::enter_writer`), and the drain waits for the count to reach zero.
+/// A slot also carries its writer's epoch-advance countdown for this tree's
+/// collector (`WriterGuard::tick_advance`), on the line the writer already
+/// stores to.
 pub(crate) struct WriterTable {
-    pub(crate) slots: [Line<AtomicUsize>; MAX_WRITER_SLOTS],
+    pub(crate) slots: [Line<crate::occ::WriterSlot>; MAX_WRITER_SLOTS],
     pub(crate) allocated: AllocMask,
 }
 
 impl WriterTable {
     pub(crate) fn new() -> Self {
         Self {
-            slots: core::array::from_fn(|_| line(AtomicUsize::new(0))),
+            slots: core::array::from_fn(|_| line(crate::occ::WriterSlot::new())),
             allocated: AllocMask::new(0),
         }
     }
@@ -2407,7 +2405,7 @@ impl<T: SharedTree> Shared<T> {
         while mask != 0 {
             let slot_id = mask.trailing_zeros() as usize;
             mask &= mask - 1;
-            crate::occ::WriterGate::wait_drained(&self.writers.slots[slot_id]);
+            crate::occ::WriterGate::wait_drained(&self.writers.slots[slot_id].in_flight);
         }
         #[cfg(feature = "occ-stats")]
         crate::occ_stats::bump_by(
@@ -4029,7 +4027,7 @@ impl SyncExpanseSet {
                             if ins {
                                 self.shared.tree_pop.add(_guard.slot_id(), 1);
                             }
-                            self.shared.collector.tick_advance();
+                            _guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(ins);
                         }
@@ -4102,7 +4100,7 @@ impl SyncExpanseSet {
                             if rem {
                                 self.shared.tree_pop.add(_guard.slot_id(), -1);
                             }
-                            self.shared.collector.tick_advance();
+                            _guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(rem);
                         }
@@ -6173,7 +6171,7 @@ impl SyncExpanseMap {
                             if prev.is_none() {
                                 self.shared.tree_pop.add(_guard.slot_id(), 1);
                             }
-                            self.shared.collector.tick_advance();
+                            _guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(prev);
                         }
@@ -6251,7 +6249,7 @@ impl SyncExpanseMap {
                             if prev.is_some() {
                                 self.shared.tree_pop.add(_guard.slot_id(), -1);
                             }
-                            self.shared.collector.tick_advance();
+                            _guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(prev);
                         }
@@ -6392,7 +6390,7 @@ impl SyncExpanseMap {
                                     self.shared.tree_pop.add(_guard.slot_id(), delta);
                                 }
                             }
-                            self.shared.collector.tick_advance();
+                            _guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(seen);
                         }
@@ -10458,7 +10456,7 @@ impl SyncExpanseBlobMap {
                                         }
                                     }
                                 }
-                                self.shared.collector.tick_advance();
+                                guard.tick_advance(&self.shared.collector);
                                 crate::occ_stats::op_end();
                                 return Ok(());
                             }
@@ -10584,7 +10582,7 @@ impl SyncExpanseBlobMap {
                                     self.charge_removed(&guard, old_slot);
                                 }
                             }
-                            self.shared.collector.tick_advance();
+                            guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(prev.is_some());
                         }
@@ -11360,7 +11358,7 @@ impl SyncExpanseStrMap {
             let guard = self.shared.enter_writer_blocking();
             let slot = guard.slot_id();
             let res = self.shared.with_writer_pin(|| {
-                self.shared.str_optimistic(|| {
+                self.shared.str_optimistic(&guard, || {
                     // SAFETY: the gate is entered and the epoch pinned for
                     // this closure, on a map `from_map` deferred.
                     match unsafe { (*self.shared.tree_ptr()).olc_insert(key, val) } {
@@ -11396,7 +11394,7 @@ impl SyncExpanseStrMap {
             let guard = self.shared.enter_writer_blocking();
             let slot = guard.slot_id();
             let res = self.shared.with_writer_pin(|| {
-                self.shared.str_optimistic(|| {
+                self.shared.str_optimistic(&guard, || {
                     // SAFETY: as in `insert`.
                     let (outcome, prune) = unsafe { (*self.shared.tree_ptr()).olc_remove(key) };
                     match outcome {
@@ -11673,9 +11671,11 @@ impl Shared<ExpanseStrMap> {
     /// counters, gate check, retry budget and backoff of
     /// `SyncExpanseMap::insert`, written once for both mutations
     /// (Refs #929). `attempt` runs the optimistic path once; `Err` is the
-    /// cause the caller's serialised fallback is taken for.
+    /// cause the caller's serialised fallback is taken for. `guard` is the
+    /// caller's entry through this tree's writer gate.
     fn str_optimistic<R>(
         &self,
+        guard: &crate::occ::WriterGuard<'_>,
         mut attempt: impl FnMut() -> OlcOutcome<R>,
     ) -> Result<R, FallbackCause> {
         crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
@@ -11694,7 +11694,7 @@ impl Shared<ExpanseStrMap> {
             }
             match attempt() {
                 OlcOutcome::Done(r) => {
-                    self.collector.tick_advance();
+                    guard.tick_advance(&self.collector);
                     crate::occ_stats::op_end();
                     return Ok(r);
                 }
@@ -11897,7 +11897,6 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             }
 
             let guard = self.shared.enter_writer_blocking();
-            let slot_id = guard.slot_id();
             let h = self.hasher.hash_one(key);
 
             let res = self.shared.with_writer_pin(|| {
@@ -12025,13 +12024,13 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                         OlcOutcome::Done(actual) => {
                             if actual == expected {
                                 if expected.is_none() {
-                                    self.shared.tree_pop.add(slot_id, 1);
+                                    self.shared.tree_pop.add(guard.slot_id(), 1);
                                 }
-                                self.entry_pop.add(slot_id, 1);
+                                self.entry_pop.add(guard.slot_id(), 1);
                                 if let Some(old) = old_ptr {
                                     dispose_bucket(old, true, Some(&self.shared.collector));
                                 }
-                                self.shared.collector.tick_advance();
+                                guard.tick_advance(&self.shared.collector);
                                 crate::occ_stats::op_end();
                                 return Ok(None);
                             }
@@ -12147,7 +12146,6 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             }
 
             let guard = self.shared.enter_writer_blocking();
-            let slot_id = guard.slot_id();
             let h = self.hasher.hash_one(key);
 
             let res = self.shared.with_writer_pin(|| {
@@ -12226,14 +12224,14 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                 // under the terminal's parent version lock, and
                                 // this thread's pin keeps it mapped.
                                 let prev = unsafe { crate::bytesmap::read_entry_value(word, 0) };
-                                self.shared.tree_pop.add(slot_id, -1);
-                                self.entry_pop.add(slot_id, -1);
+                                self.shared.tree_pop.add(guard.slot_id(), -1);
+                                self.entry_pop.add(guard.slot_id(), -1);
                                 dispose_bucket(
                                     word as *mut Bucket,
                                     true,
                                     Some(&self.shared.collector),
                                 );
-                                self.shared.collector.tick_advance();
+                                guard.tick_advance(&self.shared.collector);
                                 crate::occ_stats::op_end();
                                 return Ok(Some(prev));
                             }
@@ -12268,9 +12266,9 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                         OlcOutcome::Done(Some(seen)) if seen == word => {
                             // SAFETY: the publish above unlinked `word`.
                             let prev = unsafe { crate::bytesmap::read_entry_value(word, at) };
-                            self.entry_pop.add(slot_id, -1);
+                            self.entry_pop.add(guard.slot_id(), -1);
                             dispose_bucket(word as *mut Bucket, true, Some(&self.shared.collector));
-                            self.shared.collector.tick_advance();
+                            guard.tick_advance(&self.shared.collector);
                             crate::occ_stats::op_end();
                             return Ok(Some(prev));
                         }
@@ -17964,7 +17962,9 @@ mod tests {
         flags.release_x.store(true, Ordering::Release);
         x.join().unwrap();
         assert_ne!(
-            set.shared.writers.slots[k].load(Ordering::Relaxed),
+            set.shared.writers.slots[k]
+                .in_flight
+                .load(Ordering::Relaxed),
             0,
             "slot {k} reads drained while a writer sharing it is in flight"
         );
@@ -17989,6 +17989,115 @@ mod tests {
             std::thread::yield_now();
         }
         q.join().unwrap();
+    }
+
+    /// What one collector's reclamation looked like at the end of a run.
+    #[cfg(not(feature = "advance-never"))]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct Reclaim {
+        /// Successful epoch advances (no reader is registered, so every
+        /// attempt succeeds and this counts the attempts exactly).
+        epochs: usize,
+        /// Bytes still in grace when the run ended.
+        retained: usize,
+        /// The most bytes in grace after any one operation.
+        max_retained: usize,
+    }
+
+    /// Runs `rounds` rounds on one fresh thread, each `map_burst` inserts to
+    /// a `SyncExpanseMap` followed by `str_burst` inserts to a
+    /// `SyncExpanseStrMap`. A burst of 0 leaves that wrapper unwritten, which
+    /// makes the run the other wrapper's solo twin. Each wrapper sees the
+    /// same key sequence under every schedule with the same rounds and its
+    /// own burst, so the only thing a schedule changes is the interleaving.
+    #[cfg(not(feature = "advance-never"))]
+    fn interleave_map_and_str(map_burst: u64, str_burst: u64, rounds: u64) -> (Reclaim, Reclaim) {
+        // Multiplicative keys: after the root-state transitions of the first
+        // inserts, neither wrapper takes a serialised fallback on this
+        // sequence, so every later insert reaches the optimistic tick.
+        fn key(i: u64) -> u64 {
+            i.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        }
+        fn observe(c: &crate::occ::Collector, max: &mut usize) {
+            *max = (*max).max(c.retained_bytes());
+        }
+        fn finish(c: &crate::occ::Collector, max_retained: usize) -> Reclaim {
+            Reclaim {
+                epochs: c.epoch_now(),
+                retained: c.retained_bytes(),
+                max_retained,
+            }
+        }
+        // A fresh thread: nothing a previous test wrote on this one can
+        // shift where this run's ticks fall.
+        std::thread::spawn(move || {
+            let map = SyncExpanseMap::new();
+            let strs = SyncExpanseStrMap::new();
+            let (mut m, mut s) = (0u64, 0u64);
+            let (mut map_max, mut str_max) = (0usize, 0usize);
+            for _ in 0..rounds {
+                for _ in 0..map_burst {
+                    map.insert(key(m), m);
+                    observe(&map.shared.collector, &mut map_max);
+                    m += 1;
+                }
+                for _ in 0..str_burst {
+                    let k = key(s).to_string();
+                    strs.insert(tk(&k), s);
+                    observe(&strs.shared.collector, &mut str_max);
+                    s += 1;
+                }
+            }
+            (
+                finish(&map.shared.collector, map_max),
+                finish(&strs.shared.collector, str_max),
+            )
+        })
+        .join()
+        .expect("interleaving thread panicked")
+    }
+
+    /// One thread writing two wrappers must leave each wrapper's collector
+    /// advancing on its own writes, exactly as if that wrapper were written
+    /// alone (Refs #1314).
+    ///
+    /// A tick count shared by every collector a thread writes to breaks
+    /// this: the advance goes to whichever collector makes the crossing
+    /// call. Under strict alternation with an even `ADVANCE_EVERY` that is
+    /// always the same wrapper, so the other never advances from optimistic
+    /// writes and its retired blocks stay in grace for the rest of the run.
+    /// Under bursts of 31 map inserts per string insert the crossing lands
+    /// on the map, which advances on the string map's ticks while the string
+    /// map is starved. The uneven schedule also fails a cadence that drops a
+    /// wrapper's partial count whenever the thread switches wrappers.
+    ///
+    /// The twin is each wrapper written alone with the same key sequence:
+    /// the per-collector advance count, the bytes still in grace, and the
+    /// peak bytes in grace must all match it. The last of these is the bound
+    /// on grace bytes that a starved collector breaks.
+    #[cfg(not(feature = "advance-never"))]
+    #[test]
+    fn interleaved_wrappers_keep_their_own_advance_cadence() {
+        for (map_burst, str_burst, rounds) in [(1, 1, 4096), (31, 1, 4096 / 31)] {
+            let (map_solo, _) = interleave_map_and_str(map_burst, 0, rounds);
+            let (_, str_solo) = interleave_map_and_str(0, str_burst, rounds);
+            let (map_mixed, str_mixed) = interleave_map_and_str(map_burst, str_burst, rounds);
+            assert!(
+                map_solo.epochs > 0 && str_solo.epochs > 0,
+                "the solo twins must advance, or the comparison is vacuous: \
+                 map {map_solo:?}, str {str_solo:?}"
+            );
+            assert_eq!(
+                map_mixed, map_solo,
+                "map collector, bursts {map_burst}:{str_burst}: interleaved \
+                 writes changed its reclamation (solo {map_solo:?})"
+            );
+            assert_eq!(
+                str_mixed, str_solo,
+                "string collector, bursts {map_burst}:{str_burst}: interleaved \
+                 writes changed its reclamation (solo {str_solo:?})"
+            );
+        }
     }
 }
 
@@ -19969,6 +20078,8 @@ mod diag_entry_tests {
 mod loom_tests {
     use super::*;
     use core::sync::atomic::Ordering;
+    #[cfg(feature = "diag-entry")]
+    use loom::sync::atomic::AtomicUsize;
 
     /// S9 and S10 through the production entry points rather than the gate
     /// primitives: writer threads take slots from a real tree's

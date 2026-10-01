@@ -902,6 +902,53 @@ impl Drop for LockSet<'_> {
     }
 }
 
+/// One slot of a tree's writer table: the words a writer on that slot
+/// stores to on every optimistic operation, so they share its line.
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub(crate) struct WriterSlot {
+    /// Optimistic mutations this slot's writer has left before its next
+    /// epoch-advance attempt on the tree's collector
+    /// ([`WriterGuard::tick_advance`]), in `0..ADVANCE_EVERY`.
+    ///
+    /// It is per tree because a slot is: a thread's ticks on one tree never
+    /// count towards another's advance, which a thread-local count shared
+    /// by every collector the thread wrote to did (Refs #1314). The slot's
+    /// writer loads and stores it without a read-modify-write, and every
+    /// value stored is in range, so two writers hashed onto one slot can
+    /// lose a tick to each other, which only delays an advance, but can
+    /// never leave the count outside the interval.
+    // Kept under `advance-never`, where nothing ticks, so the slot's layout
+    // is the same across variants (as `Shared::advance_tick` is).
+    #[cfg_attr(feature = "advance-never", allow(dead_code))]
+    advance_countdown: AtomicUsize,
+    /// Writers inside the gate on this slot ([`WriterGate::enter_writer`]).
+    pub(crate) in_flight: AtomicUsize,
+}
+
+/// The countdown a fresh writer slot starts from: a full interval, so a
+/// writer's first advance attempt comes on its `ADVANCE_EVERY`th optimistic
+/// mutation, as the serialised path's does.
+#[cfg(all(feature = "std", not(loom), not(feature = "advance-never")))]
+const FRESH_COUNTDOWN: usize = crate::sync::ADVANCE_EVERY as usize - 1;
+/// Under loom a model runs far fewer mutations than an interval, so a fresh
+/// slot starts at zero: each writer's first optimistic mutation attempts an
+/// advance, and every model reaches `try_advance` from the write path.
+#[cfg(all(feature = "std", any(loom, feature = "advance-never")))]
+const FRESH_COUNTDOWN: usize = 0;
+
+#[cfg(feature = "std")]
+impl WriterSlot {
+    /// An empty slot: no writer in flight, and a full advance interval
+    /// ahead of it (`FRESH_COUNTDOWN`).
+    pub(crate) fn new() -> Self {
+        Self {
+            advance_countdown: AtomicUsize::new(FRESH_COUNTDOWN),
+            in_flight: AtomicUsize::new(0),
+        }
+    }
+}
+
 /// An RAII guard representing an active writer operation within [`WriterGate`].
 ///
 /// On drop or panic unwinding, automatically clears the in-flight writer status,
@@ -910,7 +957,7 @@ impl Drop for LockSet<'_> {
 #[allow(dead_code)]
 pub(crate) struct WriterGuard<'a> {
     gate: &'a WriterGate,
-    in_flight: &'a AtomicUsize,
+    slot: &'a WriterSlot,
     slot_id: usize,
 }
 
@@ -921,6 +968,40 @@ impl<'a> WriterGuard<'a> {
     pub(crate) fn slot_id(&self) -> usize {
         self.slot_id
     }
+
+    /// Records one optimistic mutation by this writer, and attempts an
+    /// epoch advance on `collector` once every `ADVANCE_EVERY` such
+    /// mutations by this writer.
+    ///
+    /// `collector` must be the collector of the tree whose gate this guard
+    /// entered. The count lives in the guard's writer-table slot, so each
+    /// collector advances on its own writers' mutations and never on a
+    /// mutation of another tree the same thread wrote. A count per thread
+    /// shared across collectors gave every advance to whichever collector
+    /// made the crossing call, which starved one of two wrappers written
+    /// alternately (Refs #1314). The slot is a line the writer already
+    /// stores to on entering the gate, so the count adds no thread-local
+    /// read and no shared read-modify-write; loom models run this same code.
+    ///
+    /// The collector is taken behind its `Arc` and dereferenced only on the
+    /// advancing tick: taken as `&Collector`, the caller's dereference was
+    /// hoisted above the branch and paid on every tick (x86-64 disassembly
+    /// of `SyncExpanseMap::insert`).
+    #[inline(always)]
+    #[cfg_attr(feature = "advance-never", allow(unused_variables))]
+    pub(crate) fn tick_advance(&self, collector: &Arc<Collector>) {
+        #[cfg(not(feature = "advance-never"))]
+        {
+            let countdown = &self.slot.advance_countdown;
+            let left = countdown.load(Ordering::Relaxed);
+            if left == 0 {
+                countdown.store(crate::sync::ADVANCE_EVERY as usize - 1, Ordering::Relaxed);
+                collector.try_advance();
+            } else {
+                countdown.store(left - 1, Ordering::Relaxed);
+            }
+        }
+    }
 }
 
 #[cfg(feature = "std")]
@@ -928,7 +1009,7 @@ impl<'a> WriterGuard<'a> {
 impl<'a> Drop for WriterGuard<'a> {
     #[inline]
     fn drop(&mut self) {
-        self.gate.exit_writer(self.in_flight);
+        self.gate.exit_writer(&self.slot.in_flight);
     }
 }
 
@@ -1001,11 +1082,11 @@ impl WriterGate {
     /// Writer op entry: verifies the gate is open, publishes in-flight status,
     /// executes `fence(Ordering::SeqCst)`, and re-verifies that the gate is not closed.
     ///
-    /// `in_flight` counts the writers inside the slot rather than flagging
-    /// one: a tree's writer table hashes threads onto taken slots once all
-    /// `MAX_WRITER_SLOTS` are allocated, so two live writers can share a
-    /// word, and a store of 0 by either would drain it under the other.
-    /// The Dekker pairing with [`Self::close`] stays fence-to-fence, the
+    /// The slot's `in_flight` counts the writers inside the slot rather than
+    /// flagging one: a tree's writer table hashes threads onto taken slots
+    /// once all `MAX_WRITER_SLOTS` are allocated, so two live writers can
+    /// share a word, and a store of 0 by either would drain it under the
+    /// other. The Dekker pairing with [`Self::close`] stays fence-to-fence, the
     /// form loom models: it treats `SeqCst` accesses as `AcqRel` and
     /// supports only `fence(SeqCst)`. The re-check itself acquires the
     /// [`Self::open`] that let this writer in, which orders a locked
@@ -1016,12 +1097,13 @@ impl WriterGate {
     #[inline]
     pub(crate) fn enter_writer<'a>(
         &'a self,
-        in_flight: &'a AtomicUsize,
+        slot: &'a WriterSlot,
         slot_id: usize,
     ) -> Option<WriterGuard<'a>> {
         if self.is_closed() {
             return None;
         }
+        let in_flight = &slot.in_flight;
         in_flight.fetch_add(1, Ordering::Relaxed);
         fence(Ordering::SeqCst);
         // Acquire, pairing with the `Release` in [`Self::open`] (#1295): when
@@ -1035,7 +1117,7 @@ impl WriterGate {
         } else {
             Some(WriterGuard {
                 gate: self,
-                in_flight,
+                slot,
                 slot_id,
             })
         }
@@ -1792,7 +1874,6 @@ pub struct Collector {
     epoch: Line<AtomicUsize>,
     advancing: AtomicBool,
     pub(crate) alive: AtomicBool,
-    op_count: Line<AtomicUsize>,
     readers: Mutex<Vec<Arc<Slot>>>,
     pub(crate) retained_bytes: [PaddedRetained; NUM_EPOCH_STRIPES],
     #[cfg(feature = "ablation-unstriped-freelist")]
@@ -1820,7 +1901,6 @@ impl Collector {
             epoch: line(AtomicUsize::new(0)),
             advancing: AtomicBool::new(false),
             alive: AtomicBool::new(true),
-            op_count: line(AtomicUsize::new(0)),
             readers: Mutex::new(Vec::new()),
             retained_bytes: core::array::from_fn(|_| PaddedRetained(AtomicUsize::new(0))),
             #[cfg(feature = "ablation-unstriped-freelist")]
@@ -2131,38 +2211,6 @@ impl Collector {
                 .0
                 .fetch_sub(freed_bytes, Ordering::Relaxed);
             crate::occ_stats::record_reclaim(freed_bytes);
-        }
-    }
-
-    /// Records one mutation operation and triggers `try_advance()` if `ADVANCE_EVERY` operations have elapsed.
-    #[inline]
-    pub(crate) fn tick_advance(&self) {
-        #[cfg(not(feature = "advance-never"))]
-        {
-            #[cfg(not(loom))]
-            {
-                std::thread_local! {
-                    static LOCAL_TICKS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
-                }
-                let count = LOCAL_TICKS.get() + 1;
-                if count >= crate::sync::ADVANCE_EVERY as u32 {
-                    LOCAL_TICKS.set(0);
-                    self.op_count.fetch_add(count as usize, Ordering::Relaxed);
-                    self.try_advance();
-                } else {
-                    LOCAL_TICKS.set(count);
-                }
-            }
-            #[cfg(loom)]
-            {
-                if self
-                    .op_count
-                    .fetch_add(1, Ordering::Relaxed)
-                    .is_multiple_of(crate::sync::ADVANCE_EVERY as usize)
-                {
-                    self.try_advance();
-                }
-            }
         }
     }
 
@@ -2848,32 +2896,32 @@ mod tests {
     #[test]
     fn writer_gate_protocol() {
         let gate = WriterGate::new();
-        let in_flight = AtomicUsize::new(0);
+        let slot = WriterSlot::new();
         assert!(!gate.is_closed());
 
         // Normal entry when open
         {
-            let guard = gate.enter_writer(&in_flight, 0);
+            let guard = gate.enter_writer(&slot, 0);
             assert!(guard.is_some());
-            assert_eq!(in_flight.load(Ordering::Relaxed), 1);
+            assert_eq!(slot.in_flight.load(Ordering::Relaxed), 1);
         }
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(slot.in_flight.load(Ordering::Relaxed), 0);
 
         // Quiescence closure
         gate.close();
         assert!(gate.is_closed());
         // Entry fails when closed
-        assert!(gate.enter_writer(&in_flight, 0).is_none());
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+        assert!(gate.enter_writer(&slot, 0).is_none());
+        assert_eq!(slot.in_flight.load(Ordering::Relaxed), 0);
 
         gate.open();
         assert!(!gate.is_closed());
         {
-            let guard = gate.enter_writer(&in_flight, 0);
+            let guard = gate.enter_writer(&slot, 0);
             assert!(guard.is_some());
-            assert_eq!(in_flight.load(Ordering::Relaxed), 1);
+            assert_eq!(slot.in_flight.load(Ordering::Relaxed), 1);
         }
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(slot.in_flight.load(Ordering::Relaxed), 0);
     }
 
     /// Two writers publishing through one in-flight word, as they do once a
@@ -2884,29 +2932,29 @@ mod tests {
     #[test]
     fn writer_gate_shared_slot_stays_in_flight_until_last_exit() {
         let gate = WriterGate::new();
-        let in_flight = AtomicUsize::new(0);
+        let slot = WriterSlot::new();
 
-        let a = gate.enter_writer(&in_flight, 7).expect("gate is open");
-        let b = gate.enter_writer(&in_flight, 7).expect("gate is open");
+        let a = gate.enter_writer(&slot, 7).expect("gate is open");
+        let b = gate.enter_writer(&slot, 7).expect("gate is open");
         drop(a);
         assert_ne!(
-            in_flight.load(Ordering::Relaxed),
+            slot.in_flight.load(Ordering::Relaxed),
             0,
             "the first exit drained a slot another writer still holds"
         );
         drop(b);
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(slot.in_flight.load(Ordering::Relaxed), 0);
 
-        let c = gate.enter_writer(&in_flight, 7).expect("gate is open");
+        let c = gate.enter_writer(&slot, 7).expect("gate is open");
         gate.close();
-        assert!(gate.enter_writer(&in_flight, 7).is_none());
+        assert!(gate.enter_writer(&slot, 7).is_none());
         assert_ne!(
-            in_flight.load(Ordering::Relaxed),
+            slot.in_flight.load(Ordering::Relaxed),
             0,
             "a back-out from the closed gate drained a slot another writer still holds"
         );
         drop(c);
-        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(slot.in_flight.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -4134,14 +4182,14 @@ mod loom_tests {
     fn loom_with_locked_quiescence() {
         loom::model(|| {
             let gate = Arc::new(WriterGate::new());
-            let w1_inflight = Arc::new(AtomicUsize::new(0));
-            let w2_inflight = Arc::new(AtomicUsize::new(0));
+            let w1_slot = Arc::new(WriterSlot::new());
+            let w2_slot = Arc::new(WriterSlot::new());
             let in_quiescence = Arc::new(AtomicBool::new(false));
             let stores_during_quiescence = Arc::new(AtomicUsize::new(0));
 
             let (g1, if1, q1, sq1) = (
                 Arc::clone(&gate),
-                Arc::clone(&w1_inflight),
+                Arc::clone(&w1_slot),
                 Arc::clone(&in_quiescence),
                 Arc::clone(&stores_during_quiescence),
             );
@@ -4159,7 +4207,7 @@ mod loom_tests {
 
             let (g2, if2, q2, sq2) = (
                 Arc::clone(&gate),
-                Arc::clone(&w2_inflight),
+                Arc::clone(&w2_slot),
                 Arc::clone(&in_quiescence),
                 Arc::clone(&stores_during_quiescence),
             );
@@ -4177,8 +4225,8 @@ mod loom_tests {
 
             // Coordinator (with_locked / fallback reader)
             gate.close();
-            while w1_inflight.load(Ordering::Relaxed) != 0
-                || w2_inflight.load(Ordering::Relaxed) != 0
+            while w1_slot.in_flight.load(Ordering::Relaxed) != 0
+                || w2_slot.in_flight.load(Ordering::Relaxed) != 0
             {
                 loom::thread::yield_now();
             }
@@ -4213,10 +4261,10 @@ mod loom_tests {
     fn loom_writer_entry_acquires_gate_reopen() {
         loom::model(|| {
             let gate = Arc::new(WriterGate::new());
-            let in_flight = Arc::new(AtomicUsize::new(0));
+            let slot = Arc::new(WriterSlot::new());
             let data = Arc::new(loom::cell::UnsafeCell::new(0usize));
 
-            let (g, f, d) = (Arc::clone(&gate), Arc::clone(&in_flight), Arc::clone(&data));
+            let (g, f, d) = (Arc::clone(&gate), Arc::clone(&slot), Arc::clone(&data));
             let w = loom::thread::spawn(move || {
                 loop {
                     if let Some(_guard) = g.enter_writer(&f, 0) {
@@ -4230,7 +4278,7 @@ mod loom_tests {
             });
 
             gate.close();
-            WriterGate::wait_drained(&in_flight);
+            WriterGate::wait_drained(&slot.in_flight);
             // SAFETY: as above. The writer may have entered and left before
             // the close; the drain orders that store before this read.
             let seen = data.with(|p| unsafe { *p });
@@ -4251,10 +4299,10 @@ mod loom_tests {
     fn loom_quiesce_drain_acquires_writer_exit() {
         loom::model(|| {
             let gate = Arc::new(WriterGate::new());
-            let in_flight = Arc::new(AtomicUsize::new(0));
+            let slot = Arc::new(WriterSlot::new());
             let data = Arc::new(loom::cell::UnsafeCell::new(0usize));
 
-            let (g, f, d) = (Arc::clone(&gate), Arc::clone(&in_flight), Arc::clone(&data));
+            let (g, f, d) = (Arc::clone(&gate), Arc::clone(&slot), Arc::clone(&data));
             let w = loom::thread::spawn(move || {
                 if let Some(_guard) = g.enter_writer(&f, 0) {
                     // SAFETY: loom's cell checks this access; the gate
@@ -4264,7 +4312,7 @@ mod loom_tests {
             });
 
             gate.close();
-            WriterGate::wait_drained(&in_flight);
+            WriterGate::wait_drained(&slot.in_flight);
             // SAFETY: as above.
             let seen = data.with(|p| unsafe { *p });
             assert!(seen <= 1);
@@ -4285,7 +4333,7 @@ mod loom_tests {
     fn loom_shared_slot_quiescence() {
         loom::model(|| {
             let gate = Arc::new(WriterGate::new());
-            let in_flight = Arc::new(AtomicUsize::new(0));
+            let slot = Arc::new(WriterSlot::new());
             let cells = Arc::new([
                 loom::cell::UnsafeCell::new(0usize),
                 loom::cell::UnsafeCell::new(0usize),
@@ -4293,11 +4341,7 @@ mod loom_tests {
 
             let writers: Vec<_> = (0..2)
                 .map(|i| {
-                    let (g, f, c) = (
-                        Arc::clone(&gate),
-                        Arc::clone(&in_flight),
-                        Arc::clone(&cells),
-                    );
+                    let (g, f, c) = (Arc::clone(&gate), Arc::clone(&slot), Arc::clone(&cells));
                     loom::thread::spawn(move || {
                         if let Some(_guard) = g.enter_writer(&f, 0) {
                             // SAFETY: loom's cell checks this access; the
@@ -4309,7 +4353,7 @@ mod loom_tests {
                 .collect();
 
             gate.close();
-            WriterGate::wait_drained(&in_flight);
+            WriterGate::wait_drained(&slot.in_flight);
             for c in cells.iter() {
                 // SAFETY: as above.
                 let seen = c.with(|p| unsafe { *p });
@@ -4318,7 +4362,7 @@ mod loom_tests {
             for w in writers {
                 w.join().unwrap();
             }
-            assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+            assert_eq!(slot.in_flight.load(Ordering::Relaxed), 0);
             gate.open();
         });
     }
