@@ -44,6 +44,28 @@ export interface BlobMetaResult {
 /**
  * Compaction statistics returned by BlobMap in-place garbage collection.
  */
+export interface BlobArenaStatsResult {
+  /** Live payload bytes plus an 8-byte header per record. */
+  liveBytes: bigint;
+  /** Allocated chunk bytes, dead and live: what the capacity cap counts. */
+  allocatedBytes: bigint;
+  /** The capacity cap, as clamped. */
+  maxCapacity: bigint;
+  /** The arena's chunk size. */
+  chunkSize: bigint;
+  /** Whether an insert the cap refuses may compact the arena. */
+  reclaimAtCap: boolean;
+}
+
+/** Status returned by `ExpanseBlobMap.setStatus`. */
+export type BlobInsertStatus =
+  | 'ok'
+  | 'meta_overflow'
+  | 'allocation_failed'
+  | 'cap_refused'
+  | 'arena_full'
+  | 'error';
+
 export interface CompactionStatsResult {
   /** Live payload bytes before compaction. */
   liveBytesBefore: bigint;
@@ -438,9 +460,34 @@ export class ExpanseBytesMap {
  */
 export class ExpanseBlobMap {
   /**
-   * Creates an empty blob map, optionally with custom arena chunk size in bytes.
+   * Creates an empty blob map, optionally with custom arena chunk size in bytes
+   * and an arena capacity cap `maxCapacity` in bytes of allocated chunks
+   * (default 1 GiB; clamped to `[chunkSize, 64 GiB]`).
    */
-  constructor(chunkSize?: number);
+  constructor(chunkSize?: number, maxCapacity?: number);
+
+  /**
+   * Turns the reclaim at the capacity cap on (the default) or off. Off, an
+   * insert the cap refuses compacts nothing.
+   */
+  setReclaimAtCap(on: boolean): void;
+
+  /**
+   * Whether an insert the capacity cap refuses may compact the arena.
+   */
+  reclaimAtCap(): boolean;
+
+  /**
+   * Arena accounting: live bytes, allocated chunk bytes, the cap, the chunk size and the switch.
+   */
+  arenaStats(): BlobArenaStatsResult;
+
+  /**
+   * Inserts like `set`, but returns a status instead of throwing on a refusal.
+   * `'cap_refused'`: the capacity cap refused a chunk and nothing was compacted.
+   * `'arena_full'`: this insert compacted and the record still does not fit.
+   */
+  setStatus(key: KeyInput, payload: BytesInput, hotMeta?: number): BlobInsertStatus;
 
   /**
    * Number of entries in the blob map.

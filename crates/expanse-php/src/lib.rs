@@ -4,6 +4,7 @@
 //!
 //! Provides zero-overhead opcode execution and direct Judy compatibility in PHP 8.1+.
 
+use expanse_trie::blobmap::ArenaError;
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::strmap::ExpanseStrMap;
 use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
@@ -364,9 +365,76 @@ pub struct PhpExpanseBlobMap {
 
 #[php_impl]
 impl PhpExpanseBlobMap {
-    /// Creates a new empty ExpanseBlobMap.
-    pub fn __construct() -> Self {
-        Self::default()
+    /// Creates a new empty ExpanseBlobMap. `chunk_size` 0 or absent selects
+    /// the default 2 MiB chunk; `max_capacity` 0 or absent the default 1 GiB
+    /// capacity cap on allocated chunk bytes, otherwise clamped to
+    /// `[chunk_size, 64 GiB]`.
+    pub fn __construct(chunk_size: Option<i64>, max_capacity: Option<i64>) -> Result<Self, String> {
+        let non_negative = |name: &str, v: Option<i64>| -> Result<usize, String> {
+            let v = v.unwrap_or(0);
+            usize::try_from(v).map_err(|_| format!("{name} {v} is negative"))
+        };
+        let chunk = match non_negative("chunk_size", chunk_size)? {
+            0 => expanse_trie::blobmap::DEFAULT_CHUNK_SIZE,
+            c => c,
+        };
+        let cap = match non_negative("max_capacity", max_capacity)? {
+            0 => expanse_trie::blobmap::DEFAULT_ARENA_CAPACITY,
+            c => c,
+        };
+        Ok(Self {
+            inner: ExpanseBlobMap::with_chunk_size_and_max_capacity(chunk, cap),
+        })
+    }
+
+    /// Sets key -> payload like `set`, returning a status instead of throwing
+    /// on an engine refusal: "ok", "meta_overflow", "allocation_failed",
+    /// "cap_refused" (the capacity cap refused a chunk and nothing was
+    /// compacted) or "arena_full" (this insert compacted and the record still
+    /// does not fit). An out-of-range `hot_meta` still throws, as in `set`.
+    #[php(name = "setStatus")]
+    pub fn set_status(
+        &mut self,
+        key: u64,
+        payload: String,
+        hot_meta: Option<i64>,
+    ) -> Result<String, String> {
+        let hot_meta = hot_meta.unwrap_or(0);
+        let meta = u32::try_from(hot_meta)
+            .map_err(|_| format!("hot_meta {hot_meta} is outside the 32-bit unsigned range"))?;
+        Ok(match self.inner.insert(key, payload.as_bytes(), meta) {
+            Ok(()) => "ok",
+            Err(ArenaError::MetaOverflow) => "meta_overflow",
+            Err(ArenaError::AllocationFailed) => "allocation_failed",
+            Err(ArenaError::OffsetOverflow) => "cap_refused",
+            Err(ArenaError::ArenaFull) => "arena_full",
+            Err(_) => "error",
+        }
+        .to_owned())
+    }
+
+    /// Turns the reclaim at the capacity cap on (the default) or off.
+    #[php(name = "setReclaimAtCap")]
+    pub fn set_reclaim_at_cap(&mut self, on: bool) {
+        self.inner.set_reclaim_at_cap(on);
+    }
+
+    /// Arena accounting: `live_bytes` (payloads plus 8-byte headers),
+    /// `allocated_bytes` (what the cap counts), `max_capacity`, `chunk_size`
+    /// and `reclaim_at_cap` (1 or 0).
+    #[php(name = "arenaStats")]
+    pub fn arena_stats(&self) -> std::collections::HashMap<String, u64> {
+        let arena = self.inner.arena();
+        [
+            ("live_bytes", arena.live_bytes() as u64),
+            ("allocated_bytes", arena.mem_used() as u64),
+            ("max_capacity", arena.max_capacity() as u64),
+            ("chunk_size", arena.chunk_size() as u64),
+            ("reclaim_at_cap", u64::from(self.inner.reclaim_at_cap())),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v))
+        .collect()
     }
 
     /// Sets key -> payload blob with optional 32-bit hot metadata.

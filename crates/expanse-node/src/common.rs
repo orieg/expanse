@@ -124,6 +124,21 @@ pub struct BlobMetaResult {
 }
 
 #[napi(object)]
+/// Arena accounting returned by `ExpanseBlobMap.arenaStats()`.
+pub struct BlobArenaStatsResult {
+    /// Live payload bytes plus an 8-byte header per record.
+    pub live_bytes: BigInt,
+    /// Allocated chunk bytes, dead and live: what the capacity cap counts.
+    pub allocated_bytes: BigInt,
+    /// The capacity cap, as clamped.
+    pub max_capacity: BigInt,
+    /// The arena's chunk size.
+    pub chunk_size: BigInt,
+    /// Whether an insert the cap refuses may compact the arena.
+    pub reclaim_at_cap: bool,
+}
+
+#[napi(object)]
 /// Compaction statistics returned by BlobMap garbage collection.
 pub struct CompactionStatsResult {
     /// Live payload bytes before compaction.

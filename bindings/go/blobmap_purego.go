@@ -12,8 +12,9 @@ import (
 // expanse_blob_map_insert call reports failure: hotMeta needs more than the
 // 24 bits the arena slot holds, the arena has reached its capacity cap, or an
 // allocation failed. The index is not modified, so the key keeps whatever
-// value it held before the call. The C API returns only a bool, so the error
-// does not say which of these occurred.
+// value it held before the call. Set returns one of the ErrBlob* errors
+// below, each of which wraps it, so errors.Is(err, ErrBlobInsertRefused)
+// holds for every refusal and errors.Is(err, ErrBlobArenaFull) etc. names it.
 var ErrBlobInsertRefused = errors.New("expanse: blob map insert refused (hot_meta above 24 bits, arena capacity cap reached, or allocation failure)")
 
 type BlobMap struct {
@@ -30,8 +31,10 @@ func NewBlobMap(chunkSize uint64) *BlobMap {
 }
 
 // Set stores data under key with the given hot metadata, replacing any
-// previous value. It returns ErrBlobInsertRefused when the native insert is
-// refused; a nil error means the value is stored.
+// previous value. A refused insert returns an error wrapping
+// ErrBlobInsertRefused that names the refusal (ErrBlobCapRefused,
+// ErrBlobArenaFull, ErrBlobMetaOverflow, ...); a nil error means the value is
+// stored.
 func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) error {
 	defer runtime.KeepAlive(b)
 	defer runtime.KeepAlive(data)
@@ -39,10 +42,34 @@ func (b *BlobMap) Set(key uint64, data []byte, hotMeta uint32) error {
 	if len(data) > 0 {
 		cData = unsafe.Pointer(&data[0])
 	}
-	if !expanse_blob_map_insert(b.ptr, key, cData, uintptr(len(data)), hotMeta) {
-		return ErrBlobInsertRefused
+	return blobStatusErr(expanse_blob_map_insert_ex(b.ptr, key, cData, uintptr(len(data)), hotMeta))
+}
+
+// NewBlobMapWithCapacity is NewBlobMap with an arena capacity cap of
+// maxCapacity bytes of allocated chunks (0: the default 1 GiB), clamped to
+// [chunkSize, 64 GiB]. chunkSize 0 selects the default 2 MiB chunk.
+func NewBlobMapWithCapacity(chunkSize, maxCapacity uint64) *BlobMap {
+	ensureLoaded()
+	m := &BlobMap{
+		ptr: expanse_blob_map_new_with_capacity(uintptr(chunkSize), uintptr(maxCapacity)),
 	}
-	return nil
+	runtime.SetFinalizer(m, (*BlobMap).Free)
+	return m
+}
+
+// SetReclaimAtCap turns the reclaim at the capacity cap on (the default) or
+// off. Off, an insert the cap refuses compacts nothing.
+func (b *BlobMap) SetReclaimAtCap(on bool) {
+	defer runtime.KeepAlive(b)
+	expanse_blob_map_set_reclaim_at_cap(b.ptr, on)
+}
+
+// ArenaStats returns the arena's accounting.
+func (b *BlobMap) ArenaStats() BlobArenaStats {
+	defer runtime.KeepAlive(b)
+	var st BlobArenaStats
+	expanse_blob_map_arena_stats(b.ptr, &st, unsafe.Sizeof(st))
+	return st
 }
 
 func (b *BlobMap) Get(key uint64) ([]byte, uint32, bool) {

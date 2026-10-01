@@ -279,7 +279,18 @@ Modern features (optimistic concurrent reads, iterators, arena controls) are exp
 
 ### Blob map reclamation at the capacity cap (`expanse_blob_map_insert`)
 
-An `expanse_blob_map_insert` that the arena's 1 GiB capacity cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1) and retry once, instead of returning `false` straight away. The call's contract is unchanged: it returns `false` on refusal and leaves the map's contents unchanged, and any insert already invalidated every `ExpanseBlobView`. What changes in practice is that such an insert can copy every live payload and free the chunks earlier views pointed into, so a view held across an insert reads freed memory rather than stale bytes. The C API has no switch for it; the Rust API's `set_reclaim_at_cap(false)` restores the refusal without compaction.
+An `expanse_blob_map_insert` that the arena's capacity cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1) and retry once, instead of returning `false` straight away. The call's contract is unchanged: it returns `false` on refusal and leaves the map's contents unchanged, and any insert already invalidated every `ExpanseBlobView`. What changes in practice is that such an insert can copy every live payload and free the chunks earlier views pointed into, so a view held across an insert reads freed memory rather than stale bytes.
+
+Four additive entry points control and report it (#1300):
+
+| Entry point | Contract |
+|---|---|
+| `expanse_blob_map_new_with_capacity(chunk_size, max_capacity)` | The cap on allocated chunk bytes, dead and live. `0` selects the default 1 GiB (and a `chunk_size` of `0` the default 2 MiB); otherwise clamped to `[chunk_size, 64 GiB]`, fixed for the map's life. The reclaim rule applies at any value. |
+| `expanse_blob_map_set_reclaim_at_cap(map, on)` | Off, an insert the cap refuses compacts nothing, as before the rule. On by default. |
+| `expanse_blob_map_insert_ex(...)` | `expanse_blob_map_insert` returning `expanse_blob_status_t`: `EXPANSE_BLOB_CAP_REFUSED` when no compaction ran (dead bytes may remain), `EXPANSE_BLOB_ARENA_FULL` when the insert compacted and the record still did not fit, plus `META_OVERFLOW`, `ALLOCATION_FAILED` and `INVALID_ARGUMENT`. |
+| `expanse_blob_map_arena_stats(map, stats, sizeof *stats)` | Writes the prefix of `expanse_blob_arena_stats_t` the caller knows: live bytes, allocated chunk bytes, the cap, the chunk size and the switch. Append-only. |
+
+None is declared in `Judy.h`, which has no blob map.
 
 ### Reader-handle ownership (64-bit `expanse_sync_*`)
 

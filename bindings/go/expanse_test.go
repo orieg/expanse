@@ -651,6 +651,45 @@ func TestConcurrentSyncMapStress(t *testing.T) {
 	wg.Wait()
 }
 
+// #1300: the capacity cap, the reclaim switch and the arena stats, and a
+// refusal with nothing compacted (ErrBlobCapRefused) told from one after the
+// insert's own compaction (ErrBlobArenaFull). One 4 KiB chunk fits a
+// 6000-byte cap, so the 3100-byte record does not fit the compacted tail.
+func TestBlobMapCapAndRefusalKinds(t *testing.T) {
+	d := NewBlobMapWithCapacity(0, 0)
+	defer d.Free()
+	if st := d.ArenaStats(); st.MaxCapacity != 1<<30 || st.ChunkSize != 2<<20 || st.ReclaimAtCap != 1 {
+		t.Fatalf("defaults: %+v", st)
+	}
+	b := NewBlobMapWithCapacity(4096, 6000)
+	defer b.Free()
+	for k := uint64(0); k < 4; k++ {
+		if err := b.Set(k, bytes.Repeat([]byte{byte(k)}, 1000), 1); err != nil {
+			t.Fatalf("set %d: %v", k, err)
+		}
+	}
+	big := bytes.Repeat([]byte{9}, 3100)
+	if err := b.Set(9, big, 1); !errors.Is(err, ErrBlobCapRefused) || !errors.Is(err, ErrBlobInsertRefused) {
+		t.Fatalf("full chunk: want ErrBlobCapRefused, got %v", err)
+	}
+	if st := b.ArenaStats(); st.LiveBytes != 4*1008 || st.AllocatedBytes != 4096 || st.MaxCapacity != 6000 {
+		t.Fatalf("stats: %+v", st)
+	}
+	for k := uint64(1); k < 4; k++ {
+		b.Delete(k)
+	}
+	if err := b.Set(9, big, 1); !errors.Is(err, ErrBlobArenaFull) {
+		t.Fatalf("after compacting: want ErrBlobArenaFull, got %v", err)
+	}
+	if err := b.Set(1, []byte("sixteen byte val"), 1<<24); !errors.Is(err, ErrBlobMetaOverflow) {
+		t.Fatalf("hot_meta 1<<24: want ErrBlobMetaOverflow, got %v", err)
+	}
+	b.SetReclaimAtCap(false)
+	if b.ArenaStats().ReclaimAtCap != 0 {
+		t.Fatal("the reclaim switch did not turn off")
+	}
+}
+
 // A refused native insert must surface as an error, not read as success.
 // hot_meta above 24 bits on a payload longer than the 7-byte inline form is
 // rejected by the arena (MetaOverflow) before the index is touched.

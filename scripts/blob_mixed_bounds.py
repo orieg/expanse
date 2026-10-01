@@ -26,7 +26,7 @@ Denning, Buzen, "The Operational Analysis of Queueing Network Models", ACM
   to a section serialised across all threads and visited by a share f of
   operations: U = X * f * s <= 1.
 Engine and harness constants, read by the self-test from the files below so a
-  change there fails it: `DEFAULT_CHUNK_SIZE`, `MAX_ARENA_CAPACITY`,
+  change there fails it: `DEFAULT_CHUNK_SIZE`, `DEFAULT_ARENA_CAPACITY`,
   `ARENA_ALIGN` (crates/expanse/src/blobmap.rs), `MAX_WRITER_SLOTS`
   (crates/expanse/src/occ.rs, the 64-bit value), `BLOB_POP`, `BLOB_LEN`,
   `BLOB_COMPACT_APPENDS` (crates/expanse/benches/concurrency.rs). The record
@@ -211,7 +211,7 @@ def self_test() -> int:
 
     # The mirrored constants still match the code.
     assert _read_const(BLOBMAP_RS, r"^pub const DEFAULT_CHUNK_SIZE: usize = ([0-9_ *]+);") == DEFAULT_CHUNK_SIZE
-    assert _read_const(BLOBMAP_RS, r"^pub const MAX_ARENA_CAPACITY: usize = ([0-9_ <]+);") == MAX_ARENA_CAPACITY
+    assert _read_const(BLOBMAP_RS, r"^pub const DEFAULT_ARENA_CAPACITY: usize = ([0-9_ <]+);") == MAX_ARENA_CAPACITY
     assert _read_const(BLOBMAP_RS, r"^pub const ARENA_ALIGN: usize = ([0-9_]+);") == ARENA_ALIGN
     assert MAX_WRITER_SLOTS in [
         _int_expr(v) for v in re.findall(r"const MAX_WRITER_SLOTS: usize = ([0-9_]+);", OCC_RS.read_text())

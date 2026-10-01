@@ -9988,9 +9988,9 @@ impl SyncExpanseBlobMap {
     /// When total chunk allocations across all shared and per-writer private arenas reach `max_capacity`,
     /// an [`insert`](Self::insert) that needs another chunk may compact the arena under the reclaim
     /// rule and retry once (#1290; see [`ExpanseBlobMap::insert`]). If it still cannot be satisfied it
-    /// fails with [`ArenaError::OffsetOverflow`] (or [`ArenaError::AllocationFailed`] if the compaction
-    /// cannot allocate): the map's contents are then unchanged, but after a compaction every arena
-    /// payload has moved.
+    /// fails with [`ArenaError::OffsetOverflow`] when no compaction ran, [`ArenaError::ArenaFull`]
+    /// when one did (or [`ArenaError::AllocationFailed`] if the compaction cannot allocate): the map's
+    /// contents are then unchanged, but after a compaction every arena payload has moved.
     #[must_use]
     pub fn with_chunk_size_and_max_capacity(chunk_size: usize, max_capacity: usize) -> Self {
         Self::from_map(ExpanseBlobMap::with_chunk_size_and_max_capacity(
@@ -10250,6 +10250,11 @@ impl SyncExpanseBlobMap {
     /// only views pinned before it keep reading. A refusal the rule declined
     /// returns without excluding anyone until a removal, a compaction or a
     /// periodic re-check could change the decision.
+    ///
+    /// The errors are [`ExpanseBlobMap::insert`]'s: a refusal with no
+    /// compaction in this call (the rule declined, is switched off, or declined
+    /// earlier at this population) is [`ArenaError::OffsetOverflow`], and one
+    /// after this call compacted is [`ArenaError::ArenaFull`].
     pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         match self.insert_once(key, data, hot_meta) {
@@ -10296,7 +10301,9 @@ impl SyncExpanseBlobMap {
         // The population is read after the exclusive section: inside it the
         // tree bracket is open and a validated read would wait on itself.
         match res {
-            Err(ArenaError::OffsetOverflow) => self.reclaim_latch.set(self.len()),
+            Err(ArenaError::OffsetOverflow | ArenaError::ArenaFull) => {
+                self.reclaim_latch.set(self.len());
+            }
             Ok(()) => self.reclaim_latch.clear(),
             Err(_) => {}
         }
@@ -16216,6 +16223,30 @@ mod tests {
             g0,
             "the reclaim is off"
         );
+    }
+
+    /// #1300 item 3 on the concurrent map: a refusal with no compaction is
+    /// `OffsetOverflow`, one after the insert's own compaction is `ArenaFull`,
+    /// as on [`ExpanseBlobMap`]. One 4 KiB chunk fits under the 6000-byte cap,
+    /// so after compacting the live record the 3100-byte record still does not
+    /// fit the chunk's tail.
+    #[test]
+    fn blob_arena_full_after_compaction_is_distinct() {
+        let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 6000);
+        for k in 0..4u64 {
+            m.insert(k, &[k as u8; 1000], 1).unwrap();
+        }
+        let g0 = m.with_locked(|t| t.arena().generation());
+        assert_eq!(m.insert(9, &[9; 3100], 1), Err(ArenaError::OffsetOverflow));
+        assert_eq!(m.with_locked(|t| t.arena().generation()), g0);
+        for k in 1..4u64 {
+            assert!(m.remove(k));
+        }
+        assert_eq!(m.insert(9, &[9; 3100], 1), Err(ArenaError::ArenaFull));
+        assert_ne!(m.with_locked(|t| t.arena().generation()), g0);
+        assert_eq!(m.len(), 1);
+        assert_eq!(m.get(0).map(|(v, _)| v), Some(vec![0u8; 1000]));
+        assert_eq!(m.insert(9, &[9; 3000], 1), Ok(()));
     }
 
     /// #1290 G1.9 (METHODOLOGY §28a C2): four writers insert fresh keys into a

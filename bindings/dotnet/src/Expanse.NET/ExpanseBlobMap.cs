@@ -14,6 +14,47 @@ namespace Expanse;
 public delegate void ExpanseBlobScanAction(ulong key, ReadOnlySpan<byte> payload, uint hotMeta);
 
 /// <summary>
+/// Outcome of <see cref="ExpanseBlobMap.TrySet(ulong, ReadOnlySpan{byte}, uint)"/>, one per
+/// <c>expanse_blob_status_t</c> value in <c>expanse.h</c>.
+/// </summary>
+public enum ExpanseBlobStatus
+{
+    /// <summary>The value is stored.</summary>
+    Ok = 0,
+    /// <summary>Refused: hot metadata wider than 24 bits.</summary>
+    MetaOverflow = 16,
+    /// <summary>Refused: payload larger than a chunk, or allocation failure.</summary>
+    AllocationFailed = 17,
+    /// <summary>Refused: the capacity cap refused a chunk and nothing was compacted.</summary>
+    CapRefused = 18,
+    /// <summary>Refused: this insert compacted the arena and the record still does not fit.</summary>
+    ArenaFull = 19,
+    /// <summary>Usage error reported by the native call.</summary>
+    InvalidArgument = 32,
+    /// <summary>Any other native error.</summary>
+    Error = 48,
+}
+
+/// <summary>
+/// Arena accounting returned by <see cref="ExpanseBlobMap.ArenaStats"/>; its layout is
+/// <c>expanse_blob_arena_stats_t</c>'s.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct ExpanseBlobArenaStats
+{
+    /// <summary>Live payload bytes plus an 8-byte header per record.</summary>
+    public ulong LiveBytes;
+    /// <summary>Allocated chunk bytes, dead and live: what the capacity cap counts.</summary>
+    public ulong AllocatedBytes;
+    /// <summary>The capacity cap, as clamped.</summary>
+    public ulong MaxCapacity;
+    /// <summary>The arena's chunk size.</summary>
+    public ulong ChunkSize;
+    /// <summary>1 if an insert the cap refuses may compact the arena, else 0.</summary>
+    public ulong ReclaimAtCap;
+}
+
+/// <summary>
 /// High-performance polymorphic large-value map with inline payload packing (0..=7 bytes),
 /// off-heap arena slab allocation, hot metadata filtering, and in-place garbage collection.
 /// </summary>
@@ -39,6 +80,71 @@ public sealed class ExpanseBlobMap : IDisposable
         if (_handle.IsInvalid)
         {
             throw new OutOfMemoryException("Failed to allocate expanse_blob_map_t.");
+        }
+    }
+
+    /// <summary>
+    /// Creates a new empty blob map whose arena capacity cap is <paramref name="maxCapacity"/>
+    /// bytes of allocated chunks, clamped to [chunkSize, 64 GiB].
+    /// </summary>
+    /// <param name="chunkSize">Chunk size in bytes, or 0 for default 2 MiB.</param>
+    /// <param name="maxCapacity">Capacity cap in bytes, or 0 for the default 1 GiB.</param>
+    public ExpanseBlobMap(nuint chunkSize, nuint maxCapacity)
+    {
+        _handle = NativeMethods.expanse_blob_map_new_with_capacity(chunkSize, maxCapacity);
+        if (_handle.IsInvalid)
+        {
+            throw new OutOfMemoryException("Failed to allocate expanse_blob_map_t.");
+        }
+    }
+
+    /// <summary>
+    /// Turns the reclaim at the capacity cap on (the default) or off. Off, an insert the cap
+    /// refuses compacts nothing.
+    /// </summary>
+    /// <param name="on">Whether the reclaim is on.</param>
+    public void SetReclaimAtCap(bool on)
+    {
+        ThrowIfDisposed();
+        NativeMethods.expanse_blob_map_set_reclaim_at_cap(_handle, on);
+    }
+
+    /// <summary>
+    /// The arena's accounting: live bytes, allocated chunk bytes, the cap, the chunk size and
+    /// the reclaim switch.
+    /// </summary>
+    public unsafe ExpanseBlobArenaStats ArenaStats
+    {
+        get
+        {
+            ThrowIfDisposed();
+            int rc = NativeMethods.expanse_blob_map_arena_stats(
+                _handle, out ExpanseBlobArenaStats stats, (nuint)sizeof(ExpanseBlobArenaStats));
+            if (rc != 0)
+            {
+                throw new InvalidOperationException($"expanse_blob_map_arena_stats returned {rc}.");
+            }
+            return stats;
+        }
+    }
+
+    /// <summary>
+    /// Inserts like <see cref="Set(ulong, ReadOnlySpan{byte}, uint)"/>, returning why a
+    /// refused insert was refused instead of throwing: <see cref="ExpanseBlobStatus.CapRefused"/>
+    /// when nothing was compacted, <see cref="ExpanseBlobStatus.ArenaFull"/> when this insert
+    /// compacted and the record still does not fit.
+    /// </summary>
+    /// <param name="key">The 64-bit key.</param>
+    /// <param name="data">The byte span payload to store.</param>
+    /// <param name="hotMeta">32-bit hot metadata word.</param>
+    /// <returns>The insert's status.</returns>
+    public unsafe ExpanseBlobStatus TrySet(ulong key, ReadOnlySpan<byte> data, uint hotMeta = 0)
+    {
+        ThrowIfDisposed();
+        fixed (byte* ptr = data)
+        {
+            int rc = NativeMethods.expanse_blob_map_insert_ex(_handle, key, ptr, (nuint)data.Length, hotMeta);
+            return Enum.IsDefined(typeof(ExpanseBlobStatus), rc) ? (ExpanseBlobStatus)rc : ExpanseBlobStatus.Error;
         }
     }
 

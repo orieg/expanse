@@ -204,6 +204,8 @@ blobmap.size       # => 1
 
 `set` returns `true` when the value is stored and `false` when the engine refuses the insert: a payload longer than 7 bytes with `hot_meta` above 24 bits, the arena capacity cap reached, or an allocation failure. A refused insert leaves the key's previous value in place.
 
+The capacity cap counts allocated chunk bytes and defaults to 1 GiB; `Expanse::BlobMap.new(chunk_size: 4096, max_capacity: 1 << 28)` sets another, clamped to `[chunk_size, 64 GiB]`. An insert the cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1); `blobmap.reclaim_at_cap = false` turns that off. `set_status` returns the reason for a refusal as a symbol: `:cap_refused` when nothing was compacted (dead bytes may remain, `arena_stats` shows how many), `:arena_full` when the insert compacted and the record still does not fit.
+
 ---
 
 ## 4. Packaging Layout

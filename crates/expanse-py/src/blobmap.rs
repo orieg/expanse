@@ -1,10 +1,22 @@
 //! PyO3 wrapper for ExpanseBlobMap (large-value map with inline packing and arena backing).
 
 use crate::buffer::extract_bytes_key;
-use expanse_trie::blobmap::ExpanseBlobMap as InnerBlobMap;
+use expanse_trie::blobmap::{ArenaError, ExpanseBlobMap as InnerBlobMap};
 use pyo3::exceptions::{PyIOError, PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict};
+
+/// The status name `insert_status` returns for an engine refusal, matching
+/// `expanse_blob_status_t` in `include/expanse.h`.
+fn status_name(e: ArenaError) -> &'static str {
+    match e {
+        ArenaError::MetaOverflow => "meta_overflow",
+        ArenaError::AllocationFailed => "allocation_failed",
+        ArenaError::OffsetOverflow => "cap_refused",
+        ArenaError::ArenaFull => "arena_full",
+        _ => "error",
+    }
+}
 
 // abi-parity: expanse_blob_map_free
 /// A high-performance map from 64-bit integer keys to arbitrary-length byte payloads
@@ -16,16 +28,69 @@ pub struct ExpanseBlobMap {
 
 #[pymethods]
 impl ExpanseBlobMap {
-    // abi-parity: expanse_blob_map_new
-    /// Creates an empty blob map, optionally with custom arena chunk size in bytes.
+    // abi-parity: expanse_blob_map_new, expanse_blob_map_new_with_capacity
+    /// Creates an empty blob map, optionally with custom arena chunk size in bytes
+    /// and an arena capacity cap `max_capacity` in bytes of allocated chunks
+    /// (default 1 GiB; clamped to `[chunk_size, 64 GiB]`).
     #[new]
-    #[pyo3(signature = (chunk_size=None))]
-    pub fn new(chunk_size: Option<usize>) -> Self {
-        let inner = match chunk_size {
-            Some(sz) => InnerBlobMap::with_chunk_size(sz),
-            None => InnerBlobMap::new(),
+    #[pyo3(signature = (chunk_size=None, max_capacity=None))]
+    pub fn new(chunk_size: Option<usize>, max_capacity: Option<usize>) -> Self {
+        let inner = match (chunk_size, max_capacity) {
+            (Some(sz), None) => InnerBlobMap::with_chunk_size(sz),
+            (None, None) => InnerBlobMap::new(),
+            (sz, Some(cap)) => InnerBlobMap::with_chunk_size_and_max_capacity(
+                sz.unwrap_or(expanse_trie::blobmap::DEFAULT_CHUNK_SIZE),
+                cap,
+            ),
         };
         Self { inner }
+    }
+
+    // abi-parity: expanse_blob_map_set_reclaim_at_cap
+    /// Turns the reclaim at the capacity cap on (the default) or off. Off, an
+    /// insert the cap refuses compacts nothing.
+    pub fn set_reclaim_at_cap(&mut self, on: bool) {
+        self.inner.set_reclaim_at_cap(on);
+    }
+
+    /// True if an insert the capacity cap refuses may compact the arena.
+    pub fn reclaim_at_cap(&self) -> bool {
+        self.inner.reclaim_at_cap()
+    }
+
+    // abi-parity: expanse_blob_map_arena_stats
+    /// Arena accounting as a dict: `live_bytes` (payloads plus 8-byte headers),
+    /// `allocated_bytes` (chunk bytes, what the cap counts), `max_capacity`,
+    /// `chunk_size` and `reclaim_at_cap`.
+    pub fn arena_stats<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let arena = self.inner.arena();
+        let d = PyDict::new(py);
+        d.set_item("live_bytes", arena.live_bytes())?;
+        d.set_item("allocated_bytes", arena.mem_used())?;
+        d.set_item("max_capacity", arena.max_capacity())?;
+        d.set_item("chunk_size", arena.chunk_size())?;
+        d.set_item("reclaim_at_cap", self.inner.reclaim_at_cap())?;
+        Ok(d)
+    }
+
+    // abi-parity: expanse_blob_map_insert_ex
+    /// Inserts like `insert`, but returns a status instead of raising on a
+    /// refusal: `"ok"`, `"meta_overflow"`, `"allocation_failed"`,
+    /// `"cap_refused"` (the capacity cap refused a chunk and nothing was
+    /// compacted, so `compact()` may free dead bytes) or `"arena_full"` (this
+    /// insert compacted and the record still does not fit).
+    #[pyo3(signature = (key, data, hot_meta=0))]
+    pub fn insert_status(
+        &mut self,
+        key: u64,
+        data: &Bound<'_, PyAny>,
+        hot_meta: u32,
+    ) -> PyResult<&'static str> {
+        let bytes = extract_bytes_key(data)?;
+        Ok(match self.inner.insert(key, &bytes, hot_meta) {
+            Ok(()) => "ok",
+            Err(e) => status_name(e),
+        })
     }
 
     // abi-parity: expanse_blob_map_len

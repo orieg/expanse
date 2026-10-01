@@ -42,7 +42,7 @@ self-test checks the two against each other on small arenas.
 Sources
 -------
 Engine constants, read by the self-test from `crates/expanse/src/blobmap.rs`
-  so a change there fails it: `DEFAULT_CHUNK_SIZE`, `MAX_ARENA_CAPACITY`,
+  so a change there fails it: `DEFAULT_CHUNK_SIZE`, `DEFAULT_ARENA_CAPACITY`,
   `MAX_ARENA_CHUNKS`, `ARENA_ALIGN`, `RECLAIM_COPY_PER_GROWTH`, and the rule's
   lines in `BlobArena::reclaim_allowed`. The record layout — an 8-byte header, the
   payload, the chunk cursor rounded up to 16 bytes after each record, a record
@@ -407,7 +407,7 @@ def _read_const(pattern: str) -> int:
 def self_test() -> int:
     # Engine constants this module mirrors.
     assert _read_const(r"^pub const DEFAULT_CHUNK_SIZE: usize = (.+);") == DEFAULT_CHUNK_SIZE
-    assert _read_const(r"^pub const MAX_ARENA_CAPACITY: usize = (.+);") == MAX_ARENA_CAPACITY
+    assert _read_const(r"^pub const DEFAULT_ARENA_CAPACITY: usize = (.+);") == MAX_ARENA_CAPACITY
     assert _read_const(r"^pub const MAX_ARENA_CHUNKS: usize = (.+);") == MAX_ARENA_CHUNKS
     assert _read_const(r"^pub const ARENA_ALIGN: usize = (.+);") == ARENA_ALIGN
     src = BLOBMAP_RS.read_text()

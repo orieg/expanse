@@ -189,6 +189,28 @@ class TestExpanse < Minitest::Test
   # A refused native insert must return false, not read as success. hot_meta
   # above 24 bits on a payload longer than 7 bytes is refused by the engine
   # (MetaOverflow) before the index is touched.
+  # #1300: one 4 KiB chunk fits a 6000-byte cap, so after removals the insert
+  # compacts and the 3100-byte record still does not fit the chunk's tail.
+  def test_blobmap_cap_switch_and_refusal_status
+    assert_equal 1 << 30, Expanse::BlobMap.new.arena_stats[:max_capacity]
+
+    bm = Expanse::BlobMap.new(chunk_size: 4096, max_capacity: 6000)
+    assert_equal 6000, bm.arena_stats[:max_capacity]
+    4.times { |k| assert_equal :ok, bm.set_status(k, k.chr * 1000, hot_meta: 1) }
+    big = "\x09" * 3100
+    assert_equal :cap_refused, bm.set_status(9, big, hot_meta: 1)
+    st = bm.arena_stats
+    assert_equal [4 * 1008, 4096], [st[:live_bytes], st[:allocated_bytes]]
+    (1..3).each { |k| assert bm.delete(k) }
+    assert_equal :arena_full, bm.set_status(9, big, hot_meta: 1)
+    assert_equal 1, bm.size
+    assert_equal :meta_overflow, bm.set_status(1, "x" * 100, hot_meta: 1 << 24)
+
+    off = Expanse::BlobMap.new(chunk_size: 4096, max_capacity: 6000)
+    off.reclaim_at_cap = false
+    assert_equal false, off.arena_stats[:reclaim_at_cap]
+  end
+
   def test_blobmap_refused_insert_returns_false
     blobmap = Expanse::BlobMap.new
     payload = "sixteen byte val"

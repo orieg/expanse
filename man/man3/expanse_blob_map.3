@@ -4,7 +4,9 @@ expanse_blob_map_new, expanse_blob_map_free, expanse_blob_map_clear, \
 expanse_blob_map_insert, expanse_blob_map_remove, expanse_blob_map_get, \
 expanse_blob_map_get_into, expanse_blob_map_scan_filtered, \
 expanse_blob_map_compact, expanse_blob_map_len, expanse_blob_map_mem_used, \
-expanse_blob_map_contains_key, expanse_blob_map_contains \
+expanse_blob_map_contains_key, expanse_blob_map_contains, \
+expanse_blob_map_new_with_capacity, expanse_blob_map_set_reclaim_at_cap, \
+expanse_blob_map_insert_ex, expanse_blob_map_arena_stats \
 \- polymorphic large-value map with inline packing and slab arena
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -27,6 +29,12 @@ typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view,
 .PP
 .BI "ExpanseBlobMap *expanse_blob_map_new(size_t " chunk_size ");"
 .br
+.BI "ExpanseBlobMap *expanse_blob_map_new_with_capacity("
+.BI "    size_t " chunk_size ", size_t " max_capacity ");"
+.br
+.BI "void expanse_blob_map_set_reclaim_at_cap(ExpanseBlobMap *" map ","
+.BI "                                         bool " on ");"
+.br
 .BI "void            expanse_blob_map_free(ExpanseBlobMap *" map ");"
 .br
 .BI "void            expanse_blob_map_clear(ExpanseBlobMap *" map ");"
@@ -34,6 +42,14 @@ typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view,
 .BI "bool expanse_blob_map_insert(ExpanseBlobMap *" map ", uint64_t " key ","
 .BI "                             const uint8_t *" data ", size_t " len ","
 .BI "                             uint32_t " hot_meta ");"
+.br
+.BI "expanse_blob_status_t expanse_blob_map_insert_ex(ExpanseBlobMap *" map ","
+.BI "    uint64_t " key ", const uint8_t *" data ", size_t " len ","
+.BI "    uint32_t " hot_meta ");"
+.br
+.BI "expanse_blob_status_t expanse_blob_map_arena_stats("
+.BI "    const ExpanseBlobMap *" map ", expanse_blob_arena_stats_t *" stats ","
+.BI "    size_t " stats_size ");"
 .br
 .BI "bool expanse_blob_map_remove(ExpanseBlobMap *" map ", uint64_t " key ");"
 .br
@@ -78,13 +94,34 @@ safely decoding inline or arena bytes without borrowing from map memory.
 \fBhot_meta\fR is a 32-bit user-defined metadata word stored directly inside
 the trie index nodes, enabling high-speed predicate filtering during range
 scans without touching off-trie payload memory.
+.SH CAPACITY CAP AND RECLAIM
+The arena's capacity cap counts allocated chunk bytes, dead and live. It is
+1 GiB for \fBexpanse_blob_map_new\fR; \fBexpanse_blob_map_new_with_capacity\fR
+sets another (0 selects the default), clamped to [\fIchunk_size\fR, 64 GiB]
+and fixed for the map's life. An insert the cap refuses may compact the arena
+under the reclaim rule and retry once;
+\fBexpanse_blob_map_set_reclaim_at_cap\fR(\fImap\fR, false) turns that off.
+.PP
+\fBexpanse_blob_map_insert_ex\fR inserts as \fBexpanse_blob_map_insert\fR
+does and returns an \fBexpanse_blob_status_t\fR:
+\fBEXPANSE_BLOB_OK\fR, \fBEXPANSE_BLOB_META_OVERFLOW\fR,
+\fBEXPANSE_BLOB_ALLOCATION_FAILED\fR, \fBEXPANSE_BLOB_CAP_REFUSED\fR (the
+cap refused a chunk and nothing was compacted; dead bytes may remain),
+\fBEXPANSE_BLOB_ARENA_FULL\fR (the insert compacted the arena and the record
+still does not fit) or \fBEXPANSE_BLOB_INVALID_ARGUMENT\fR.
+.PP
+\fBexpanse_blob_map_arena_stats\fR writes the first \fIstats_size\fR bytes of
+an \fBexpanse_blob_arena_stats_t\fR (\fIlive_bytes\fR, \fIallocated_bytes\fR,
+\fImax_capacity\fR, \fIchunk_size\fR, \fIreclaim_at_cap\fR, each
+\fBuint64_t\fR); pass sizeof the struct. \fIallocated_bytes\fR minus
+\fIlive_bytes\fR bounds what \fBexpanse_blob_map_compact\fR can free.
 .SH VIEW INVALIDATION CONTRACT
 \fBExpanseBlobView.ptr\fR borrows directly into the map's inline slot memory
 or arena slab. It remains valid \fBONLY until the next mutation\fR of the map
 (\fIinsert\fR, \fIremove\fR, \fIclear\fR, \fIcompact\fR, or \fIfree\fR).
 Views delivered to a scan callback are valid only during that invocation.
 .PP
-An insert that the arena's 1 GiB capacity cap refuses may compact the arena
+An insert that the arena's capacity cap refuses may compact the arena
 before it returns, whether it then succeeds or fails: every arena payload
 moves and the chunks earlier views pointed into are freed, so a view held
 across any insert can read freed memory.

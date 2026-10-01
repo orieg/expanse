@@ -98,4 +98,36 @@ class ExpanseBlobMapTest {
             assertTrue(map.isEmpty());
         }
     }
+
+    @Test
+    @DisplayName("Capacity cap, reclaim switch, arena stats and refusal status (#1300)")
+    void capSwitchAndRefusalStatus() {
+        // One 4 KiB chunk fits a 6000-byte cap, so after removals the insert compacts
+        // and the 3100-byte record still does not fit the chunk's tail.
+        try (ExpanseBlobMap dflt = new ExpanseBlobMap(0, 0)) {
+            assertEquals(1L << 30, dflt.arenaStats().maxCapacity());
+            assertTrue(dflt.arenaStats().reclaimAtCap());
+        }
+        try (ExpanseBlobMap map = new ExpanseBlobMap(4096, 6000)) {
+            assertEquals(6000, map.arenaStats().maxCapacity());
+            for (int k = 0; k < 4; k++) {
+                byte[] p = new byte[1000];
+                java.util.Arrays.fill(p, (byte) k);
+                assertEquals(ExpanseBlobMap.InsertStatus.OK, map.insertStatus(k, p, 1));
+            }
+            byte[] big = new byte[3100];
+            assertEquals(ExpanseBlobMap.InsertStatus.CAP_REFUSED, map.insertStatus(9, big, 1));
+            assertEquals(4 * 1008, map.arenaStats().liveBytes());
+            assertEquals(4096, map.arenaStats().allocatedBytes());
+            for (int k = 1; k < 4; k++) {
+                assertTrue(map.remove(k));
+            }
+            assertEquals(ExpanseBlobMap.InsertStatus.ARENA_FULL, map.insertStatus(9, big, 1));
+            assertEquals(1, map.len());
+            assertEquals(ExpanseBlobMap.InsertStatus.META_OVERFLOW,
+                    map.insertStatus(1, new byte[100], 1 << 24));
+            map.setReclaimAtCap(false);
+            assertFalse(map.arenaStats().reclaimAtCap());
+        }
+    }
 }

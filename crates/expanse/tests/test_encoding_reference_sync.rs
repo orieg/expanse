@@ -40,7 +40,7 @@ use std::path::{Path, PathBuf};
 
 use expanse_trie::bits::Bitmap256;
 use expanse_trie::blobmap::{
-    ARENA_ALIGN, ARENA_META_CEILING, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY, MAX_ARENA_CHUNKS,
+    ARENA_ALIGN, ARENA_META_CEILING, DEFAULT_ARENA_CAPACITY, DEFAULT_CHUNK_SIZE, MAX_ARENA_CHUNKS,
 };
 use expanse_trie::node::{
     BranchB, BranchHeader, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL,
@@ -326,7 +326,7 @@ fn pinned_constants() -> BTreeMap<&'static str, u64> {
     m.insert("ARENA_ALIGN", ARENA_ALIGN as u64);
     m.insert("ARENA_META_CEILING", ARENA_META_CEILING);
     m.insert("MAX_ARENA_CHUNKS", MAX_ARENA_CHUNKS as u64);
-    m.insert("MAX_ARENA_CAPACITY", MAX_ARENA_CAPACITY as u64);
+    m.insert("DEFAULT_ARENA_CAPACITY", DEFAULT_ARENA_CAPACITY as u64);
     m.insert("DEFAULT_CHUNK_SIZE", DEFAULT_CHUNK_SIZE as u64);
 
     // -- 32-bit ------------------------------------------------------------
@@ -1178,11 +1178,17 @@ fn test_arena_locator_arithmetic() {
         "the 32-bit locator addresses 2^32 units of ARENA_ALIGN bytes"
     );
     assert!(
-        (MAX_ARENA_CAPACITY as u64) < ARENA_META_CEILING,
-        "the shipped growth cap must stay inside the locator envelope, so a locator overflow \
-         cannot occur under it"
+        (DEFAULT_ARENA_CAPACITY as u64) < ARENA_META_CEILING,
+        "the default growth cap must stay inside the locator envelope, which also bounds \
+         every caller's cap, so a locator overflow cannot occur under it"
     );
-    for global in [0u64, 16, 4096, 1 << 20, (MAX_ARENA_CAPACITY as u64) - 16] {
+    for global in [
+        0u64,
+        16,
+        4096,
+        1 << 20,
+        (DEFAULT_ARENA_CAPACITY as u64) - 16,
+    ] {
         let locator = u32::try_from(global / ARENA_ALIGN as u64).expect("within envelope");
         assert_eq!(
             u64::from(locator) * ARENA_ALIGN as u64,

@@ -145,4 +145,38 @@ public class ExpanseBlobMapTests
         // Test explicit compact
         Assert.True(map.Compact());
     }
+
+    // #1300: one 4 KiB chunk fits a 6000-byte cap, so after removals the insert compacts and
+    // the 3100-byte record still does not fit the chunk's tail.
+    [Fact]
+    public void CapSwitchAndRefusalStatus()
+    {
+        using (var dflt = new ExpanseBlobMap(0, 0))
+        {
+            Assert.Equal(1UL << 30, dflt.ArenaStats.MaxCapacity);
+            Assert.Equal(1UL, dflt.ArenaStats.ReclaimAtCap);
+        }
+
+        using var map = new ExpanseBlobMap(4096, 6000);
+        Assert.Equal(6000UL, map.ArenaStats.MaxCapacity);
+        for (ulong k = 0; k < 4; k++)
+        {
+            var p = new byte[1000];
+            Array.Fill(p, (byte)k);
+            Assert.Equal(ExpanseBlobStatus.Ok, map.TrySet(k, p, 1));
+        }
+        var big = new byte[3100];
+        Assert.Equal(ExpanseBlobStatus.CapRefused, map.TrySet(9, big, 1));
+        Assert.Equal(4UL * 1008, map.ArenaStats.LiveBytes);
+        Assert.Equal(4096UL, map.ArenaStats.AllocatedBytes);
+        for (ulong k = 1; k < 4; k++)
+        {
+            Assert.True(map.Remove(k));
+        }
+        Assert.Equal(ExpanseBlobStatus.ArenaFull, map.TrySet(9, big, 1));
+        Assert.Equal(1UL, map.LongCount);
+        Assert.Equal(ExpanseBlobStatus.MetaOverflow, map.TrySet(1, new byte[100], 1u << 24));
+        map.SetReclaimAtCap(false);
+        Assert.Equal(0UL, map.ArenaStats.ReclaimAtCap);
+    }
 }

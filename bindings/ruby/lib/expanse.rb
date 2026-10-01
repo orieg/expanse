@@ -103,6 +103,10 @@ module Expanse
 
     # BlobMap
     extern "void* expanse_blob_map_new(size_t)"
+    extern "void* expanse_blob_map_new_with_capacity(size_t, size_t)"
+    extern "void expanse_blob_map_set_reclaim_at_cap(void*, unsigned char)"
+    extern "int expanse_blob_map_insert_ex(void*, unsigned long long, const void*, size_t, unsigned int)"
+    extern "int expanse_blob_map_arena_stats(void*, void*, size_t)"
     extern "void expanse_blob_map_free(void*)"
     extern "unsigned char expanse_blob_map_insert(void*, unsigned long long, const void*, size_t, unsigned int)"
     extern "unsigned char expanse_blob_map_get(void*, unsigned long long, void*)"
@@ -445,8 +449,16 @@ module Expanse
   end
 
   class BlobMap
-    def initialize(chunk_size: 0)
-      @ptr = Native.expanse_blob_map_new(chunk_size)
+    # expanse_blob_status_t values, as set_status returns them.
+    STATUS = {
+      0 => :ok, 16 => :meta_overflow, 17 => :allocation_failed,
+      18 => :cap_refused, 19 => :arena_full, 32 => :invalid_argument
+    }.freeze
+
+    # max_capacity caps the arena's allocated chunk bytes (0: the default
+    # 1 GiB), clamped to [chunk_size, 64 GiB]; chunk_size 0 is the 2 MiB default.
+    def initialize(chunk_size: 0, max_capacity: 0)
+      @ptr = Native.expanse_blob_map_new_with_capacity(chunk_size, max_capacity)
       ObjectSpace.define_finalizer(self, self.class.finalize(@ptr))
     end
 
@@ -457,6 +469,29 @@ module Expanse
     def set(key, payload, hot_meta: 0)
       b = payload.b
       Native.expanse_blob_map_insert(@ptr, key, b, b.bytesize, hot_meta) != 0
+    end
+
+    # Like set, but returns why a refused insert was refused: :cap_refused (the
+    # capacity cap refused a chunk and nothing was compacted) or :arena_full
+    # (this insert compacted and the record still does not fit), among others.
+    def set_status(key, payload, hot_meta: 0)
+      b = payload.b
+      STATUS.fetch(Native.expanse_blob_map_insert_ex(@ptr, key, b, b.bytesize, hot_meta), :error)
+    end
+
+    # Turns the reclaim at the capacity cap on (the default) or off.
+    def reclaim_at_cap=(on)
+      Native.expanse_blob_map_set_reclaim_at_cap(@ptr, on ? 1 : 0)
+    end
+
+    # Arena accounting: live bytes (payloads plus 8-byte headers), allocated
+    # chunk bytes (what the cap counts), the cap, the chunk size, the switch.
+    def arena_stats
+      buf = Fiddle::Pointer.malloc(40)
+      Native.expanse_blob_map_arena_stats(@ptr, buf, 40)
+      live, allocated, cap, chunk, reclaim = buf[0, 40].unpack("Q<5")
+      { live_bytes: live, allocated_bytes: allocated, max_capacity: cap,
+        chunk_size: chunk, reclaim_at_cap: reclaim == 1 }
     end
 
     def get(key)

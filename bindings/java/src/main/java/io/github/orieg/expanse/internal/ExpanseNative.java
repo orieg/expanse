@@ -146,6 +146,10 @@ public final class ExpanseNative {
 
     // BlobMap
     public static final MethodHandle MH_expanse_blob_map_new;
+    public static final MethodHandle MH_expanse_blob_map_new_with_capacity;
+    public static final MethodHandle MH_expanse_blob_map_set_reclaim_at_cap;
+    public static final MethodHandle MH_expanse_blob_map_insert_ex;
+    public static final MethodHandle MH_expanse_blob_map_arena_stats;
     public static final MethodHandle MH_expanse_blob_map_free;
     public static final MethodHandle MH_expanse_blob_map_insert;
     public static final MethodHandle MH_expanse_blob_map_remove;
@@ -290,6 +294,10 @@ public final class ExpanseNative {
         // BlobMap
         MH_expanse_blob_map_new = downcall("expanse_blob_map_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
         MH_expanse_blob_map_free = downcall("expanse_blob_map_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+        MH_expanse_blob_map_new_with_capacity = downcall("expanse_blob_map_new_with_capacity", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
+        MH_expanse_blob_map_set_reclaim_at_cap = downcall("expanse_blob_map_set_reclaim_at_cap", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_BOOLEAN));
+        MH_expanse_blob_map_insert_ex = downcall("expanse_blob_map_insert_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
+        MH_expanse_blob_map_arena_stats = downcall("expanse_blob_map_arena_stats", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
         MH_expanse_blob_map_insert = downcall("expanse_blob_map_insert", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
         MH_expanse_blob_map_remove = downcall("expanse_blob_map_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
         MH_expanse_blob_map_get = downcall("expanse_blob_map_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));

@@ -158,19 +158,23 @@ type blobView struct {
 
 // BlobMap
 var (
-	expanse_blob_map_new           func(chunkSize uintptr) uintptr
-	expanse_blob_map_free          func(mapPtr uintptr)
-	expanse_blob_map_insert        func(mapPtr uintptr, key uint64, data unsafe.Pointer, len uintptr, hotMeta uint32) bool
-	expanse_blob_map_remove        func(mapPtr uintptr, key uint64) bool
-	expanse_blob_map_get           func(mapPtr uintptr, key uint64, outView *blobView) bool
-	expanse_blob_map_get_into      func(mapPtr uintptr, key uint64, buf unsafe.Pointer, bufLen uintptr, outLen *uintptr, outMeta *uint32) bool
-	expanse_blob_map_scan_filtered func(mapPtr uintptr, startKey, endKey uint64, predicate uintptr, callback uintptr, userCtx unsafe.Pointer) uintptr
-	expanse_blob_map_compact       func(mapPtr uintptr) bool
-	expanse_blob_map_len           func(mapPtr uintptr) uint64
-	expanse_blob_map_mem_used      func(mapPtr uintptr) uintptr
-	expanse_blob_map_clear         func(mapPtr uintptr)
-	expanse_blob_map_contains_key  func(mapPtr uintptr, key uint64) bool
-	expanse_blob_map_contains      func(mapPtr uintptr, key uint64) bool
+	expanse_blob_map_new                func(chunkSize uintptr) uintptr
+	expanse_blob_map_new_with_capacity  func(chunkSize, maxCapacity uintptr) uintptr
+	expanse_blob_map_set_reclaim_at_cap func(mapPtr uintptr, on bool)
+	expanse_blob_map_insert_ex          func(mapPtr uintptr, key uint64, data unsafe.Pointer, len uintptr, hotMeta uint32) int32
+	expanse_blob_map_arena_stats        func(mapPtr uintptr, stats *BlobArenaStats, statsSize uintptr) int32
+	expanse_blob_map_free               func(mapPtr uintptr)
+	expanse_blob_map_insert             func(mapPtr uintptr, key uint64, data unsafe.Pointer, len uintptr, hotMeta uint32) bool
+	expanse_blob_map_remove             func(mapPtr uintptr, key uint64) bool
+	expanse_blob_map_get                func(mapPtr uintptr, key uint64, outView *blobView) bool
+	expanse_blob_map_get_into           func(mapPtr uintptr, key uint64, buf unsafe.Pointer, bufLen uintptr, outLen *uintptr, outMeta *uint32) bool
+	expanse_blob_map_scan_filtered      func(mapPtr uintptr, startKey, endKey uint64, predicate uintptr, callback uintptr, userCtx unsafe.Pointer) uintptr
+	expanse_blob_map_compact            func(mapPtr uintptr) bool
+	expanse_blob_map_len                func(mapPtr uintptr) uint64
+	expanse_blob_map_mem_used           func(mapPtr uintptr) uintptr
+	expanse_blob_map_clear              func(mapPtr uintptr)
+	expanse_blob_map_contains_key       func(mapPtr uintptr, key uint64) bool
+	expanse_blob_map_contains           func(mapPtr uintptr, key uint64) bool
 )
 
 var prunePredicateCallbackPtr uintptr
@@ -329,6 +333,10 @@ func bindSymbols(h *LibraryHandle) error {
 
 		// BlobMap
 		{&expanse_blob_map_new, "expanse_blob_map_new"},
+		{&expanse_blob_map_new_with_capacity, "expanse_blob_map_new_with_capacity"},
+		{&expanse_blob_map_set_reclaim_at_cap, "expanse_blob_map_set_reclaim_at_cap"},
+		{&expanse_blob_map_insert_ex, "expanse_blob_map_insert_ex"},
+		{&expanse_blob_map_arena_stats, "expanse_blob_map_arena_stats"},
 		{&expanse_blob_map_free, "expanse_blob_map_free"},
 		{&expanse_blob_map_insert, "expanse_blob_map_insert"},
 		{&expanse_blob_map_remove, "expanse_blob_map_remove"},
