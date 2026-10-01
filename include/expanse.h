@@ -729,15 +729,31 @@ typedef ExpanseBlobView expanse_blob_view_t;
 typedef bool (*expanse_predicate_fn)(uint64_t key, uint32_t hot_meta, void *user_ctx);
 typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view, void *user_ctx);
 
+/* chunk_size 0 selects the default 2 MiB chunk; the capacity cap is 1 GiB. */
 ExpanseBlobMap *expanse_blob_map_new(size_t chunk_size);
+/*
+ * As expanse_blob_map_new, with a capacity cap of max_capacity bytes of
+ * allocated chunks, dead and live (0 selects the default 1 GiB). The cap is
+ * clamped to [chunk_size, 64 GiB] and fixed for the map's life. It bounds the
+ * arena, not the process: a compaction holds the old and the new chunks at
+ * once, plus 16 bytes per entry. The reclaim rule applies at any cap.
+ */
+ExpanseBlobMap *expanse_blob_map_new_with_capacity(size_t chunk_size, size_t max_capacity);
 void            expanse_blob_map_free(ExpanseBlobMap *map);
+/*
+ * On (the default), an insert the capacity cap refuses may compact the arena
+ * under the reclaim rule and retry once; off, it is refused with nothing
+ * compacted, and only expanse_blob_map_compact copies payloads. NULL is a no-op.
+ */
+void expanse_blob_map_set_reclaim_at_cap(ExpanseBlobMap *map, bool on);
 
 /*
  * Returns false when the insert is refused: hot_meta wider than 24 bits, a
- * payload larger than a chunk, an allocation failure, or an arena at its 1 GiB
+ * payload larger than a chunk, an allocation failure, or an arena at its
  * capacity cap that the reclaim rule cannot free enough of. At the cap the
  * insert may first compact the arena (see the view contract above), which
  * copies every live payload; the map's contents are unchanged on refusal.
+ * expanse_blob_map_insert_ex returns which of these it was.
  */
 bool expanse_blob_map_insert(
     ExpanseBlobMap *map,
@@ -746,6 +762,53 @@ bool expanse_blob_map_insert(
     size_t len,
     uint32_t hot_meta
 );
+
+/*
+ * STATUS CODES of expanse_blob_map_insert_ex and expanse_blob_map_arena_stats,
+ * in three bands. New values may be added within a band.
+ */
+typedef enum {
+    EXPANSE_BLOB_OK                = 0,
+    /* refusals: the map's contents are unchanged */
+    EXPANSE_BLOB_META_OVERFLOW     = 16, /* hot_meta wider than 24 bits */
+    EXPANSE_BLOB_ALLOCATION_FAILED = 17, /* payload larger than a chunk, or out of memory */
+    EXPANSE_BLOB_CAP_REFUSED       = 18, /* the cap refused a chunk; nothing was compacted */
+    EXPANSE_BLOB_ARENA_FULL        = 19, /* the cap refused a chunk after this insert compacted */
+    /* usage errors: nothing was done */
+    EXPANSE_BLOB_INVALID_ARGUMENT  = 32, /* NULL map or stats, NULL data with len > 0 */
+    /* any other engine error; insert returns none today */
+    EXPANSE_BLOB_ERROR             = 48
+} expanse_blob_status_t;
+
+/*
+ * expanse_blob_map_insert with the reason for a refusal. CAP_REFUSED: no
+ * compaction ran (the reclaim rule declined, or it is off), so dead bytes may
+ * remain; allocated_bytes - live_bytes from expanse_blob_map_arena_stats bounds
+ * what expanse_blob_map_compact can free. ARENA_FULL: this insert compacted
+ * the arena (every view is invalidated) and the record still does not fit, so
+ * only a removal makes room. Any refusal leaves the contents unchanged.
+ */
+expanse_blob_status_t expanse_blob_map_insert_ex(
+    ExpanseBlobMap *map,
+    uint64_t key,
+    const uint8_t *data,
+    size_t len,
+    uint32_t hot_meta
+);
+
+/* Append-only; pass sizeof(*stats) and receive the prefix you know. */
+typedef struct {
+    uint64_t live_bytes;      /* live payload bytes plus an 8-byte header each */
+    uint64_t allocated_bytes; /* chunk bytes allocated, dead and live: what the cap counts */
+    uint64_t max_capacity;    /* the capacity cap, as clamped */
+    uint64_t chunk_size;
+    uint64_t reclaim_at_cap;  /* 1 if the reclaim at the cap is on, else 0 */
+} expanse_blob_arena_stats_t;
+
+/* OK | INVALID_ARGUMENT (map or stats NULL). */
+expanse_blob_status_t expanse_blob_map_arena_stats(const ExpanseBlobMap *map,
+                                                   expanse_blob_arena_stats_t *stats,
+                                                   size_t stats_size);
 
 bool expanse_blob_map_remove(ExpanseBlobMap *map, uint64_t key);
 

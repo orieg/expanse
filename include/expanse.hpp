@@ -1156,6 +1156,10 @@ class blob_map {
 public:
     explicit blob_map(size_t chunk_size = 0) noexcept
         : ptr_(expanse_blob_map_new(chunk_size)) {}
+    // A capacity cap of max_capacity bytes of allocated chunks (0: the default
+    // 1 GiB), clamped to [chunk_size, 64 GiB]; see expanse_blob_map_new_with_capacity.
+    blob_map(size_t chunk_size, size_t max_capacity) noexcept
+        : ptr_(expanse_blob_map_new_with_capacity(chunk_size, max_capacity)) {}
     explicit blob_map(ExpanseBlobMap* ptr) noexcept : ptr_(ptr) {}
 
     ~blob_map() noexcept {
@@ -1193,6 +1197,31 @@ public:
             span.size(),
             hot_meta
         );
+    }
+
+    // insert() with the reason for a refusal: EXPANSE_BLOB_CAP_REFUSED (nothing
+    // was compacted) versus EXPANSE_BLOB_ARENA_FULL (this insert compacted and
+    // the record still does not fit); see expanse_blob_map_insert_ex.
+    template <typename DataLike>
+    expanse_blob_status_t insert_ex(uint64_t key, const DataLike& data, uint32_t hot_meta = 0) noexcept {
+        auto span = detail::to_byte_span(data);
+        return expanse_blob_map_insert_ex(
+            ptr_,
+            key,
+            reinterpret_cast<const uint8_t*>(span.data()),
+            span.size(),
+            hot_meta
+        );
+    }
+
+    void set_reclaim_at_cap(bool on) noexcept {
+        expanse_blob_map_set_reclaim_at_cap(ptr_, on);
+    }
+
+    [[nodiscard]] expanse_blob_arena_stats_t arena_stats() const noexcept {
+        expanse_blob_arena_stats_t stats{};
+        expanse_blob_map_arena_stats(ptr_, &stats, sizeof stats);
+        return stats;
     }
 
     bool erase(uint64_t key) noexcept {

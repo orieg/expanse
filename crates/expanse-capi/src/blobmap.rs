@@ -7,7 +7,7 @@
 #[cfg(not(feature = "std"))]
 use crate::core_alloc::boxed::Box;
 use core::ffi::c_void;
-use expanse_trie::blobmap::{BlobView, ExpanseBlobMap};
+use expanse_trie::blobmap::{ArenaError, BlobView, ExpanseBlobMap};
 
 /// C representation of a retrieved blob payload view.
 ///
@@ -48,6 +48,184 @@ pub extern "C" fn expanse_blob_map_new(chunk_size: usize) -> *mut ExpanseBlobMap
         ExpanseBlobMap::with_chunk_size(chunk_size)
     };
     Box::into_raw(Box::new(map))
+}
+
+/// Creates a new empty `ExpanseBlobMap` whose arena capacity cap is
+/// `max_capacity` bytes of allocated chunks (#1300). `chunk_size == 0` selects
+/// the default 2 MiB chunk and `max_capacity == 0` the default 1 GiB cap;
+/// otherwise the cap is clamped to `[chunk_size, 64 GiB]`, as
+/// `ExpanseBlobMap::with_chunk_size_and_max_capacity` clamps it.
+#[unsafe(no_mangle)]
+pub extern "C" fn expanse_blob_map_new_with_capacity(
+    chunk_size: usize,
+    max_capacity: usize,
+) -> *mut ExpanseBlobMap {
+    let chunk = if chunk_size == 0 {
+        expanse_trie::blobmap::DEFAULT_CHUNK_SIZE
+    } else {
+        chunk_size
+    };
+    let cap = if max_capacity == 0 {
+        expanse_trie::blobmap::DEFAULT_ARENA_CAPACITY
+    } else {
+        max_capacity
+    };
+    Box::into_raw(Box::new(ExpanseBlobMap::with_chunk_size_and_max_capacity(
+        chunk, cap,
+    )))
+}
+
+/// Turns the reclaim at the capacity cap on (the default) or off: off, an
+/// insert that the cap refuses compacts nothing (#1290, #1300).
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_blob_map_set_reclaim_at_cap(map: *mut ExpanseBlobMap, on: bool) {
+    // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
+    if let Some(map_ref) = unsafe { map.as_mut() } {
+        map_ref.set_reclaim_at_cap(on);
+    }
+}
+
+/// Status of [`expanse_blob_map_insert_ex`] and
+/// [`expanse_blob_map_arena_stats`], in three bands like
+/// `expanse_sync32_status_t`.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExpanseBlobStatus {
+    /// The insert succeeded, or the stats were written.
+    Ok = 0,
+    /// Refused: `hot_meta` is wider than 24 bits. The map is unchanged.
+    MetaOverflow = 16,
+    /// Refused: the payload is larger than a chunk, or memory allocation
+    /// failed. The map's contents are unchanged.
+    AllocationFailed = 17,
+    /// Refused: the capacity cap refused the record's chunk and no compaction
+    /// ran (the reclaim rule declined or is off). Dead bytes may remain.
+    CapRefused = 18,
+    /// Refused: the cap refused the record's chunk after this insert
+    /// compacted the arena. Every arena payload has moved.
+    ArenaFull = 19,
+    /// Usage error: a NULL handle or output, NULL `data` with `len > 0`, or
+    /// `len` above `PTRDIFF_MAX`. Nothing was done.
+    InvalidArgument = 32,
+    /// Any other engine error; `expanse_blob_map_insert_ex` returns none today.
+    Error = 48,
+}
+
+impl From<ArenaError> for ExpanseBlobStatus {
+    fn from(e: ArenaError) -> Self {
+        match e {
+            ArenaError::MetaOverflow => Self::MetaOverflow,
+            ArenaError::AllocationFailed => Self::AllocationFailed,
+            ArenaError::OffsetOverflow => Self::CapRefused,
+            ArenaError::ArenaFull => Self::ArenaFull,
+            _ => Self::Error,
+        }
+    }
+}
+
+/// Arena accounting written by [`expanse_blob_map_arena_stats`]. Append-only:
+/// a caller passes `sizeof` the struct it was compiled against and receives
+/// that prefix.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExpanseBlobArenaStats {
+    /// Live records' payload bytes plus their 8-byte headers.
+    pub live_bytes: u64,
+    /// Allocated chunk bytes, dead and live: what the capacity cap counts.
+    pub allocated_bytes: u64,
+    /// The capacity cap on `allocated_bytes`.
+    pub max_capacity: u64,
+    /// The arena's chunk size.
+    pub chunk_size: u64,
+    /// 1 if an insert the cap refuses may compact the arena, else 0.
+    pub reclaim_at_cap: u64,
+}
+
+/// Inserts a key-blob pair as [`expanse_blob_map_insert`] does, returning why
+/// a refused insert was refused (#1300). `CapRefused` means no compaction ran,
+/// so [`expanse_blob_map_arena_stats`]' `allocated_bytes - live_bytes` shows
+/// what an [`expanse_blob_map_compact`] could free; `ArenaFull` means this
+/// insert compacted and the record still did not fit.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle. `data` must point to at least `len`
+/// readable bytes (or be null if `len == 0`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_blob_map_insert_ex(
+    map: *mut ExpanseBlobMap,
+    key: u64,
+    data: *const u8,
+    len: usize,
+    hot_meta: u32,
+) -> ExpanseBlobStatus {
+    // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
+    let Some(map_ref) = (unsafe { map.as_mut() }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    let slice = if data.is_null() {
+        if len == 0 {
+            &[]
+        } else {
+            return ExpanseBlobStatus::InvalidArgument;
+        }
+    } else {
+        if len > (isize::MAX as usize) {
+            return ExpanseBlobStatus::InvalidArgument;
+        }
+        // SAFETY: data is non-null and valid for len bytes per caller contract; len <= isize::MAX.
+        unsafe { core::slice::from_raw_parts(data, len) }
+    };
+    match map_ref.insert(key, slice, hot_meta) {
+        Ok(()) => ExpanseBlobStatus::Ok,
+        Err(e) => e.into(),
+    }
+}
+
+/// Writes the arena's accounting into the caller's `stats` buffer of
+/// `stats_size` bytes: the prefix of [`ExpanseBlobArenaStats`] both sides know.
+/// Returns `InvalidArgument` if `map` or `stats` is null, else `Ok`.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `stats` null or valid for
+/// `stats_size` bytes of writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_blob_map_arena_stats(
+    map: *const ExpanseBlobMap,
+    stats: *mut ExpanseBlobArenaStats,
+    stats_size: usize,
+) -> ExpanseBlobStatus {
+    // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
+    let Some(map_ref) = (unsafe { map.as_ref() }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    if stats.is_null() {
+        return ExpanseBlobStatus::InvalidArgument;
+    }
+    let arena = map_ref.arena();
+    let src = ExpanseBlobArenaStats {
+        live_bytes: arena.live_bytes() as u64,
+        allocated_bytes: arena.mem_used() as u64,
+        max_capacity: arena.max_capacity() as u64,
+        chunk_size: arena.chunk_size() as u64,
+        reclaim_at_cap: u64::from(map_ref.reclaim_at_cap()),
+    };
+    let n = stats_size.min(core::mem::size_of::<ExpanseBlobArenaStats>());
+    // SAFETY: `stats` is non-null and valid for `stats_size` bytes per
+    // contract, and `n` never exceeds either side's size.
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            core::ptr::from_ref(&src).cast::<u8>(),
+            stats.cast::<u8>(),
+            n,
+        );
+    }
+    ExpanseBlobStatus::Ok
 }
 
 /// Frees an `ExpanseBlobMap` and all associated arena memory.

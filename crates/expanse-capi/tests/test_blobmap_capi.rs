@@ -335,3 +335,112 @@ fn test_capi_blob_map_compressed_inline_and_get_into() {
         expanse_blob_map_free(map);
     }
 }
+
+/// #1300: the cap and the reclaim switch reach C, and `insert_ex` tells a
+/// refusal with no compaction (`CapRefused`) from one after the insert's own
+/// compaction (`ArenaFull`). One 4 KiB chunk fits under a 6000-byte cap.
+#[test]
+fn test_capi_blob_map_cap_switch_and_refusal_status() {
+    use expanse::blobmap::{
+        ExpanseBlobArenaStats, ExpanseBlobStatus, expanse_blob_map_arena_stats,
+        expanse_blob_map_insert_ex, expanse_blob_map_new_with_capacity,
+        expanse_blob_map_set_reclaim_at_cap,
+    };
+    let stats_of = |map| {
+        let mut st = ExpanseBlobArenaStats::default();
+        // SAFETY: `map` is live and `st` is a writable stats struct of the size passed.
+        let rc =
+            unsafe { expanse_blob_map_arena_stats(map, &raw mut st, core::mem::size_of_val(&st)) };
+        assert_eq!(rc, ExpanseBlobStatus::Ok);
+        st
+    };
+    // SAFETY: Exercising C ABI functions with valid allocations and lifecycles.
+    unsafe {
+        // Zero selects the defaults.
+        let d = expanse_blob_map_new_with_capacity(0, 0);
+        let st = stats_of(d);
+        assert_eq!((st.chunk_size, st.max_capacity), (2 << 20, 1 << 30));
+        assert_eq!(st.reclaim_at_cap, 1);
+        expanse_blob_map_free(d);
+
+        // The cap is clamped up to one chunk.
+        let c = expanse_blob_map_new_with_capacity(4096, 1);
+        assert_eq!(stats_of(c).max_capacity, 4096);
+        expanse_blob_map_free(c);
+
+        let map = expanse_blob_map_new_with_capacity(4096, 6000);
+        assert_eq!(stats_of(map).max_capacity, 6000);
+        let rec = |k: u64, n: usize| vec![k as u8; n];
+        for k in 0..4u64 {
+            let p = rec(k, 1000);
+            assert_eq!(
+                expanse_blob_map_insert_ex(map, k, p.as_ptr(), p.len(), 1),
+                ExpanseBlobStatus::Ok
+            );
+        }
+        let big = rec(9, 3100);
+        assert_eq!(
+            expanse_blob_map_insert_ex(map, 9, big.as_ptr(), big.len(), 1),
+            ExpanseBlobStatus::CapRefused
+        );
+        let st = stats_of(map);
+        assert_eq!((st.live_bytes, st.allocated_bytes), (4 * 1008, 4096));
+        for k in 1..4u64 {
+            assert!(expanse_blob_map_remove(map, k));
+        }
+        assert_eq!(
+            expanse_blob_map_insert_ex(map, 9, big.as_ptr(), big.len(), 1),
+            ExpanseBlobStatus::ArenaFull
+        );
+        assert_eq!(expanse_blob_map_len(map), 1);
+
+        // Usage errors and the other refusals.
+        assert_eq!(
+            expanse_blob_map_insert_ex(core::ptr::null_mut(), 1, big.as_ptr(), 1, 0),
+            ExpanseBlobStatus::InvalidArgument
+        );
+        assert_eq!(
+            expanse_blob_map_insert_ex(map, 1, core::ptr::null(), 8, 0),
+            ExpanseBlobStatus::InvalidArgument
+        );
+        assert_eq!(
+            expanse_blob_map_insert_ex(map, 1, big.as_ptr(), 100, 1 << 24),
+            ExpanseBlobStatus::MetaOverflow
+        );
+        let huge = rec(1, 5000);
+        assert_eq!(
+            expanse_blob_map_insert_ex(map, 1, huge.as_ptr(), huge.len(), 1),
+            ExpanseBlobStatus::AllocationFailed
+        );
+        assert_eq!(
+            expanse_blob_map_arena_stats(map, core::ptr::null_mut(), 40),
+            ExpanseBlobStatus::InvalidArgument
+        );
+        expanse_blob_map_free(map);
+
+        // Switched off, the same sequence is refused with nothing compacted.
+        let off = expanse_blob_map_new_with_capacity(4096, 6000);
+        expanse_blob_map_set_reclaim_at_cap(off, false);
+        assert_eq!(stats_of(off).reclaim_at_cap, 0);
+        for k in 0..4u64 {
+            let p = rec(k, 1000);
+            assert!(expanse_blob_map_insert(off, k, p.as_ptr(), p.len(), 1));
+        }
+        for k in 1..4u64 {
+            assert!(expanse_blob_map_remove(off, k));
+        }
+        assert_eq!(
+            expanse_blob_map_insert_ex(off, 9, big.as_ptr(), big.len(), 1),
+            ExpanseBlobStatus::CapRefused
+        );
+        // A prefix of the stats struct receives only the fields it names.
+        let mut prefix = [u64::MAX; 2];
+        assert_eq!(
+            expanse_blob_map_arena_stats(off, prefix.as_mut_ptr().cast(), 8),
+            ExpanseBlobStatus::Ok
+        );
+        assert_eq!(prefix, [1008, u64::MAX]);
+        expanse_blob_map_set_reclaim_at_cap(core::ptr::null_mut(), false);
+        expanse_blob_map_free(off);
+    }
+}

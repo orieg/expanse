@@ -229,6 +229,10 @@ PYTHON_FEATURE_MAPPING: Dict[str, str] = {
 
     # BlobMap (12 functions)
     "expanse_blob_map_new": "blobmap.rs",
+    "expanse_blob_map_new_with_capacity": "blobmap.rs",
+    "expanse_blob_map_set_reclaim_at_cap": "blobmap.rs",
+    "expanse_blob_map_insert_ex": "blobmap.rs",
+    "expanse_blob_map_arena_stats": "blobmap.rs",
     "expanse_blob_map_free": "blobmap.rs",
     "expanse_blob_map_insert": "blobmap.rs",
     "expanse_blob_map_remove": "blobmap.rs",
@@ -376,6 +380,10 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 
     # BlobMap (12 functions)
     "expanse_blob_map_new": "blobmap.rs",
+    "expanse_blob_map_new_with_capacity": "blobmap.rs",
+    "expanse_blob_map_set_reclaim_at_cap": "blobmap.rs",
+    "expanse_blob_map_insert_ex": "blobmap.rs",
+    "expanse_blob_map_arena_stats": "blobmap.rs",
     "expanse_blob_map_free": "blobmap.rs",
     "expanse_blob_map_insert": "blobmap.rs",
     "expanse_blob_map_remove": "blobmap.rs",
