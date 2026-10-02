@@ -37,6 +37,10 @@ function_macros = ["TEST_CASE"]
 enabled = true
 severity = "error"
 
+# v0.16.0 adds `Expected Value Changed In Existing Test`: the same assertion
+# now expects a different literal. Replayed over the last 100 merged pull
+# requests it reports one (#1268, a re-pinned census in sync32.rs), lifted by
+# `allow-assertion-drop:`.
 [gates.assertion-reduction]
 enabled = true
 severity = "error"
@@ -89,7 +93,11 @@ severity = "error"
 # `let _ = self.shards.get_or_init(…)` in crates/expanse/src/alloc.rs stop being
 # reported. Replayed over the last 100 merged pull requests at v0.10.2, this
 # gate reports nothing, and moving it to `error` leaves the blocking set
-# unchanged at 14.
+# unchanged at 14. v0.16.0 also reports a Python handler that returns a
+# default literal (`except OSError: return ""`); over the last 100 it reports
+# two pull requests (#1226, #1273, best-effort /proc reads in
+# scripts/bench_host_guard.py and scripts/bench_lock.py), lifted by
+# `allow-swallow: <path> <reason>` or `# discipline:allow(error-swallowing)`.
 [gates.error-swallowing]
 enabled = true
 severity = "error"
@@ -129,6 +137,13 @@ diff_only = true
 enabled = true
 severity = "error"
 
+# CITATION.cff and .zenodo.json agree and cite the concept DOI. On by default
+# since v0.15; the replay at v0.16.0 reports nothing, including #1322, which
+# edited both files.
+[gates.citation-metadata]
+enabled = true
+severity = "error"
+
 # The §7 checklist-truthfulness rule, which had no mechanical check before this
 # gate: a ticked box must match the diff.
 [gates.pr-checklist]
@@ -144,6 +159,15 @@ severity = "error"
 # A change cannot loosen the lint and compiler configuration it is judged by
 # (Cargo `[lints]`, rustflags, ruff, ...).
 [gates.toolchain-config]
+enabled = true
+severity = "error"
+
+# A change cannot widen a coding agent's permissions or sandbox
+# (.claude/settings.json and the other agents' settings, MCP server lists) or a
+# CI job or service container's isolation without
+# `allow-sandbox-widening: <subject> <reason>`. On by default since v0.16.0;
+# the replay at v0.16.0 reports nothing.
+[gates.sandbox-config]
 enabled = true
 severity = "error"
 
