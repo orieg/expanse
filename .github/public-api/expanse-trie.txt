@@ -814,10 +814,16 @@ pub fn expanse_trie::map32::ExpanseMap32::try_for_each_range<F>(&self, expanse_t
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::cursor(&self) -> expanse_trie::cursor32::MapCursor32<'_>
 pub fn expanse_trie::map32::ExpanseMap32::cursor_from(&self, expanse_trie::types32::Key32) -> expanse_trie::cursor32::MapCursor32<'_>
+impl core::clone::Clone for expanse_trie::map32::ExpanseMap32
+pub fn expanse_trie::map32::ExpanseMap32::clone(&self) -> Self
 impl core::default::Default for expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::default() -> Self
 impl core::fmt::Debug for expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<(u32, u32)> for expanse_trie::map32::ExpanseMap32
+pub fn expanse_trie::map32::ExpanseMap32::extend<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types32::Key32, expanse_trie::types32::Value32)>>(&mut self, I)
+impl core::iter::traits::collect::FromIterator<(u32, u32)> for expanse_trie::map32::ExpanseMap32
+pub fn expanse_trie::map32::ExpanseMap32::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types32::Key32, expanse_trie::types32::Value32)>>(I) -> Self
 impl expanse_trie::sync32::Container32 for expanse_trie::map32::ExpanseMap32
 impl<'a> core::iter::traits::collect::IntoIterator for &'a expanse_trie::map32::ExpanseMap32
 pub type &'a expanse_trie::map32::ExpanseMap32::IntoIter = expanse_trie::map32::MapIter32<'a>
@@ -1560,10 +1566,16 @@ pub fn expanse_trie::set32::ExpanseSet32::union(&self, &expanse_trie::set32::Exp
 pub fn expanse_trie::set32::ExpanseSet32::union_len(&self, &expanse_trie::set32::ExpanseSet32) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::union_len_many(&[&expanse_trie::set32::ExpanseSet32]) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::union_many(&[&expanse_trie::set32::ExpanseSet32]) -> expanse_trie::set32::ExpanseSet32
+impl core::clone::Clone for expanse_trie::set32::ExpanseSet32
+pub fn expanse_trie::set32::ExpanseSet32::clone(&self) -> Self
 impl core::default::Default for expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::default() -> Self
 impl core::fmt::Debug for expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<u32> for expanse_trie::set32::ExpanseSet32
+pub fn expanse_trie::set32::ExpanseSet32::extend<I: core::iter::traits::collect::IntoIterator<Item = expanse_trie::types32::Key32>>(&mut self, I)
+impl core::iter::traits::collect::FromIterator<u32> for expanse_trie::set32::ExpanseSet32
+pub fn expanse_trie::set32::ExpanseSet32::from_iter<I: core::iter::traits::collect::IntoIterator<Item = expanse_trie::types32::Key32>>(I) -> Self
 impl core::ops::arith::Sub for &expanse_trie::set32::ExpanseSet32
 pub type &expanse_trie::set32::ExpanseSet32::Output = expanse_trie::set32::ExpanseSet32
 pub fn &expanse_trie::set32::ExpanseSet32::sub(self, &expanse_trie::set32::ExpanseSet32) -> expanse_trie::set32::ExpanseSet32
@@ -3109,10 +3121,16 @@ pub fn expanse_trie::map32::ExpanseMap32::try_for_each_range<F>(&self, expanse_t
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::cursor(&self) -> expanse_trie::cursor32::MapCursor32<'_>
 pub fn expanse_trie::map32::ExpanseMap32::cursor_from(&self, expanse_trie::types32::Key32) -> expanse_trie::cursor32::MapCursor32<'_>
+impl core::clone::Clone for expanse_trie::map32::ExpanseMap32
+pub fn expanse_trie::map32::ExpanseMap32::clone(&self) -> Self
 impl core::default::Default for expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::default() -> Self
 impl core::fmt::Debug for expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<(u32, u32)> for expanse_trie::map32::ExpanseMap32
+pub fn expanse_trie::map32::ExpanseMap32::extend<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types32::Key32, expanse_trie::types32::Value32)>>(&mut self, I)
+impl core::iter::traits::collect::FromIterator<(u32, u32)> for expanse_trie::map32::ExpanseMap32
+pub fn expanse_trie::map32::ExpanseMap32::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (expanse_trie::types32::Key32, expanse_trie::types32::Value32)>>(I) -> Self
 impl expanse_trie::sync32::Container32 for expanse_trie::map32::ExpanseMap32
 impl<'a> core::iter::traits::collect::IntoIterator for &'a expanse_trie::map32::ExpanseMap32
 pub type &'a expanse_trie::map32::ExpanseMap32::IntoIter = expanse_trie::map32::MapIter32<'a>
@@ -3253,10 +3271,16 @@ pub fn expanse_trie::set32::ExpanseSet32::union(&self, &expanse_trie::set32::Exp
 pub fn expanse_trie::set32::ExpanseSet32::union_len(&self, &expanse_trie::set32::ExpanseSet32) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::union_len_many(&[&expanse_trie::set32::ExpanseSet32]) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::union_many(&[&expanse_trie::set32::ExpanseSet32]) -> expanse_trie::set32::ExpanseSet32
+impl core::clone::Clone for expanse_trie::set32::ExpanseSet32
+pub fn expanse_trie::set32::ExpanseSet32::clone(&self) -> Self
 impl core::default::Default for expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::default() -> Self
 impl core::fmt::Debug for expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<u32> for expanse_trie::set32::ExpanseSet32
+pub fn expanse_trie::set32::ExpanseSet32::extend<I: core::iter::traits::collect::IntoIterator<Item = expanse_trie::types32::Key32>>(&mut self, I)
+impl core::iter::traits::collect::FromIterator<u32> for expanse_trie::set32::ExpanseSet32
+pub fn expanse_trie::set32::ExpanseSet32::from_iter<I: core::iter::traits::collect::IntoIterator<Item = expanse_trie::types32::Key32>>(I) -> Self
 impl core::ops::arith::Sub for &expanse_trie::set32::ExpanseSet32
 pub type &expanse_trie::set32::ExpanseSet32::Output = expanse_trie::set32::ExpanseSet32
 pub fn &expanse_trie::set32::ExpanseSet32::sub(self, &expanse_trie::set32::ExpanseSet32) -> expanse_trie::set32::ExpanseSet32

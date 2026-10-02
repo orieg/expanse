@@ -121,3 +121,84 @@ fn a_set_snapshot_keeps_its_keys_after_writes() {
     snapshot.validate();
     set.validate();
 }
+
+fn keys32(n: u32, seed: u64) -> Vec<u32> {
+    let mut rng = XorShift(seed);
+    let mut out: Vec<u32> = (0..n / 2).collect();
+    out.extend((0..n / 4).map(|i| 0x0100_0000 + (i % 200) + ((i / 200) << 16)));
+    out.extend((0..n / 4).map(|_| rng.next() as u32));
+    out
+}
+
+#[test]
+fn a_map32_snapshot_keeps_its_values_after_writes() {
+    let ks = keys32(n() as u32, 1);
+    let mut map = expanse_trie::map32::ExpanseMap32::new();
+    let mut model = BTreeMap::new();
+    for (i, &k) in ks.iter().enumerate() {
+        map.insert(k, i as u32);
+        model.insert(k, i as u32);
+    }
+    let snapshot = map.clone();
+    let frozen = model.clone();
+    assert_eq!(snapshot.len(), frozen.len());
+
+    // Overwrite, insert next to existing keys, and remove.
+    for (i, &k) in ks.iter().enumerate() {
+        match i % 3 {
+            0 => {
+                map.insert(k, !k);
+            }
+            1 => {
+                map.insert(k ^ 1, 1);
+            }
+            _ => {
+                map.remove(k);
+            }
+        }
+    }
+
+    for (&k, &v) in &frozen {
+        assert_eq!(snapshot.get(k), Some(v), "snapshot lost or changed {k:#x}");
+    }
+    assert_eq!(snapshot.len(), frozen.len());
+    assert!(
+        snapshot.iter().eq(frozen.iter().map(|(&k, &v)| (k, v))),
+        "snapshot iteration differs from the frozen model"
+    );
+}
+
+#[test]
+fn a_map32_clone_costs_one_insert_built_tree() {
+    let ks = keys32(n() as u32, 2);
+    let mut map = expanse_trie::map32::ExpanseMap32::new();
+    for &k in &ks {
+        map.insert(k, k);
+    }
+    let copy = map.clone();
+    assert_eq!(copy.len(), map.len());
+    // Dropping original leaves copy intact.
+    drop(map);
+    for &k in &ks {
+        assert_eq!(copy.get(k), Some(k));
+    }
+}
+
+#[test]
+fn a_set32_snapshot_keeps_its_keys_after_writes() {
+    let ks = keys32(n() as u32, 3);
+    let mut set: expanse_trie::set32::ExpanseSet32 = ks.iter().copied().collect();
+    let frozen: BTreeSet<u32> = ks.iter().copied().collect();
+    let snapshot = set.clone();
+
+    for (i, &k) in ks.iter().enumerate() {
+        if i % 2 == 0 {
+            set.remove(k);
+        } else {
+            set.insert(k ^ 1);
+        }
+    }
+
+    assert_eq!(snapshot.len(), frozen.len());
+    assert!(snapshot.iter().eq(frozen.iter().copied()));
+}
