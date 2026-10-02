@@ -812,7 +812,7 @@ jobs:
       # option discipline's own guide prefers.
       - name: Diff Gates (orieg/discipline)
         if: github.event_name == 'pull_request'
-        uses: orieg/discipline@410daf24d6bedc10b5ef8137de6ccb2dace767b4 # v0.14.4
+        uses: orieg/discipline@388c1a2f8b707217a49b35bdc6c90fe8bec91dcb # v0.16.0
 
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
         # These ship `--self-test` suites and were invoked by no workflow and
@@ -3612,7 +3612,7 @@ jobs:
       # the advisory input goes and the script is retired.
       # discipline:advisory shadow of check_gate_floor.py until the two agree on live skip runs
       - name: Gate Floor Shadow (orieg/discipline ci-skip-set, advisory)
-        uses: orieg/discipline@410daf24d6bedc10b5ef8137de6ccb2dace767b4 # v0.14.4
+        uses: orieg/discipline@388c1a2f8b707217a49b35bdc6c90fe8bec91dcb # v0.16.0
         with:
           suite: integrity
           advisory: true
