@@ -490,6 +490,89 @@ What each option is, and when a node enters and leaves it:
 - **What the SOSD census already settles.** The merge options (adaptive cap, grouped and product leaves) do not apply to real numeric keys. Their case rests on string and text-encoded keys alone, which is what #1257 reported. The ladder options are the only candidates with a general memory effect.
 - **What would reverse this.** A ladder regression on untargeted arms. A λ or fill-fraction sweep where the savings vanish. Real string-key datasets where low-cardinality ranges turn out to be rare.
 
+### 3.7 String and byte maps: key domains, tail collapse, and ordered arbitrary-byte keys (#808)
+
+Expanse provides dedicated digital trie containers for string and byte-sequence keys beyond the integer-keyed `ExpanseSet` and `ExpanseMap`. Their structural designs balance Judy drop-in C ABI compatibility, key expanse compression, and lexicographical ordering:
+
+- **`ExpanseStrMap` (compat: `JudySL`)**: An ordered string map representing keys as a meta-trie of word-map nodes (`MapCore`, the engine behind `ExpanseMap`) over 8-byte big-endian chunks (`CHUNK_BYTES = 8`, `crates/expanse/src/strmap.rs:68`). Big-endian chunk packing ensures that the underlying word map's numeric order is byte-lexicographical order. Sub-tries allocate through a single shared `NodeAlloc` (`crates/expanse/src/strmap.rs:12`), keeping internal trie nodes cache-dense. A NUL (`0x00`) byte functions as the terminal sentinel ending a key. Non-terminal chunks (8 non-NUL bytes) branch via pointer tagging: tag `0` points to a child `StrNode` branch, while tag `1` points to a `StrSuffix` leaf (`crates/expanse/src/strmap.rs:104`). The `StrSuffix` leaf achieves tail collapse by packing remaining key bytes and the user `u64` value into a single heap allocation (`#[repr(C)] struct StrSuffix { value: u64, len: usize }` followed by inline suffix bytes). Its key domain is strictly NUL-free byte strings (`NulFreeStr`, `crates/expanse/src/strmap.rs:689`), directly mirroring C string semantics.
+- **`ExpanseBytesMap` (compat: `JudyHS`)**: An unordered byte-string map (`crates/expanse/src/bytesmap.rs`) implemented as a 64-bit-hash-keyed `ExpanseMap` over byte-exact collision buckets. In `std` builds, `DefaultBuildHasher` uses process-randomized `RandomState` for DoS resistance; in `no_std` builds, it defaults to deterministic FNV-1a. Its key domain is arbitrary byte slices (`&[u8]`, including embedded NULs), but it provides no ordered navigation (`first`, `next_after`, cursors).
+
+#### 3.7.1 The ordered arbitrary-byte key gap
+
+Real-world database and indexing workloads frequently require *ordered* navigation over keys containing arbitrary binary sequences with embedded NUL (`0x00`) bytes:
+1. **Binary UUIDs**: 16-byte raw UUIDs where the probability of at least one NUL byte in a single key is `1 - (255/256)^16 ≈ 6.07%` (derived from independent byte probabilities). Across a collection of $N \ge 100$ random keys, the probability that at least one key carries a NUL byte is `P(≥ 1 key carries NUL) ≈ 1.000` (virtual certainty).
+2. **Composite Binary Keys**: Packed composite keys combining fixed-width numeric fields (e.g. `[tenant_id: u32, timestamp: u64, sequence: u32]`) or variable-length byte components separated by delimiter bytes, where zero-valued fields introduce interior NUL bytes.
+3. **Serialized Binary Encodings**: Protobuf, FlatBuffers, CBOR, or MsgPack payloads stored as index keys.
+
+Under `ExpanseStrMap`, storing arbitrary byte sequences directly is invalid:
+- When using the safe constructor `NulFreeStr::new(bytes)`, any key containing `0x00` is rejected with `None` / `NulInKey`.
+- If an unescaped key containing NUL were inserted via unsafe unchecked paths, `ExpanseStrMap`'s chunk scanner would treat the first NUL as the string terminator sentinel. Two distinct keys sharing a prefix up to the first NUL would alias to the same prefix and overwrite or corrupt each other (the defect addressed by `NulFreeStr` in #794).
+
+#### 3.7.2 Order-preserving escape encoding
+
+To store arbitrary byte slices in an ordered trie without changing the underlying engine, Expanse uses an order-preserving, prefix-free byte-stuffing transformation (first implemented for the domain dictionary in `crates/expanse/src/domain.rs:183`, refs #611):
+- `0x00 -> [0x01, 0x01]`
+- `0x01 -> [0x01, 0x02]`
+- `b    -> [b]` for `b in 0x02..=0xFF`
+
+**Mathematical and structural properties**:
+1. **Order-Preserving**: Lexicographical order is strictly invariant under the transformation:
+   - `0x00` maps to `[0x01, 0x01]`, and `0x01` maps to `[0x01, 0x02]`. Since `0x01 < 0x02`, `0x00` sorts before `0x01`.
+   - Both escaped sequences begin with `0x01`, which sorts strictly before every unescaped byte (`0x02..=0xFF`).
+   - For all byte sequences $A$ and $B$, $A <_{\text{lex}} B \iff \text{escape}(A) <_{\text{lex}} \text{escape}(B)$.
+2. **Prefix-Free**: No valid encoded byte or multi-byte escape sequence is a prefix of another single-byte encoding.
+3. **NUL-Free by Construction**: The byte `0x00` never appears in the output. The encoded key safely resides within `NulFreeStr`'s domain, never prematurely triggering the `ExpanseStrMap` terminal sentinel.
+4. **Zero Engine Modifications**: Unlike proposals requiring terminal indicator bits in node headers or length-prefixed chunk headers, this encoding operates entirely above the digital tree engine. It requires no §2.3 five-subsystem audit, no `Edge` or `ValueSlot` modifications, and preserves cache-dense 64-byte node alignments.
+
+#### 3.7.3 Architectural design decision: wrapper map vs key type
+
+The critical design decision for issue #808 governs where escaping takes place:
+
+> **Design Decision (Binding)**: Escaping must be an internal property of a dedicated wrapper map type (`ExpanseByteMap` / `OrderedBytesMap`), and MUST NEVER be a property of the key type.
+
+**Rationale**:
+- **Cross-Surface Protocol Invariance (§2.2)**: If escaping were attached to a key type (e.g. `struct OrderedByteKey(&[u8])` that automatically escaped during conversion or hashing), a Rust caller inserting `OrderedByteKey([0x01])` would write `[0x01, 0x02]` into the trie. If a C ABI caller inserted `[0x01]` via `JudySLIns`, or another Rust caller inserted `NulFreeStr::new(&[0x01])`, raw bytes would be written directly. The two callers would observe divergent contents in the same map, and a raw `[0x01, 0x02]` key would collide with an escaped `0x01` key.
+- **Contract Segregation**: `ExpanseStrMap` remains the frozen, unescaped, NUL-free C ABI `JudySL` drop-in type. Its key domain remains `NulFreeStr`. The escaped byte-keyed map is a distinct, dedicated wrapper type built on top of `ExpanseStrMap`. Two types, two distinct contracts.
+- **Compile-Time Guidance**: A caller holding arbitrary byte slices who attempts to insert into `ExpanseStrMap` encounters `NulInKey` from `NulFreeStr::new`. The type signature and doc comments direct the caller directly to `ExpanseByteMap` (for ordered keys) or `ExpanseBytesMap` (for unordered hash keys).
+
+#### 3.7.4 Wrapper architecture & transcoding lifecycle
+
+The dedicated wrapper type (`ExpanseByteMap` / `OrderedBytesMap`, along with its concurrent twin `SyncExpanseByteMap`) manages transcoding transparently across all operations:
+
+1. **Write Path (`insert`, `remove`)**:
+   - Accepts arbitrary `key: &[u8]`.
+   - Encodes via `escape_encode(key)`.
+   - Inserts the escaped bytes into the underlying `ExpanseStrMap` using `unsafe { NulFreeStr::new_unchecked(&encoded) }`.
+2. **Point Read Path (`get`, `contains_key`)**:
+   - Fast-path check: `!key.iter().any(|&b| b <= 1)`. When the key contains neither `0x00` nor `0x01`, no escaping is required, and the key is borrowed directly as `NulFreeStr` with zero heap allocation.
+   - Slow-path: When `0x00` or `0x01` is present, encodes into a small stack buffer (for keys $\le 64$ B) or temporary `Vec<u8>` to query `ExpanseStrMap`.
+3. **Ordered Navigation & Iteration (`first`, `last`, `next_after`, `next_at_or_after`, `prev_before`, `prev_at_or_before`, cursors, iterators)**:
+   - Traversal over the underlying `ExpanseStrMap` yields escaped byte slices.
+   - The wrapper intercepts yielded keys and decodes them via `escape_decode` back into the caller's raw arbitrary byte representation.
+   - In accordance with AGENTS.md §2.4 (anti-pattern: no sized ring buffers for invariant contracts), iteration provides:
+     - Owned iterators yielding `(Vec<u8>, u64)`.
+     - Caller-allocated buffer APIs (`*_decode_into(..., &mut [u8]) -> usize`) for zero-allocation streaming traversals without latent pointer-invalidation hazards.
+
+#### 3.7.5 Decoding mechanics (`escape_decode`)
+
+The decoding function inverts the transformation deterministically:
+- Scans the encoded byte stream:
+  - If byte is `0x01`: inspect the subsequent byte:
+    - `0x01` -> emits `0x00`
+    - `0x02` -> emits `0x01`
+    - Any other byte (or end-of-slice): represents a malformed/corrupted sequence. Handled safely by either returning an explicit error or emitting the literal byte without unsafe indexing; never causes undefined behavior or out-of-bounds reads.
+  - If byte $b \ge \text{0x02}$: emits $b$ directly.
+- **Length Invariant**: For all inputs, `len(escape_decode(s)) <= len(s)`. Decoding never expands, allowing in-place decoding into caller-provided buffers of the input length.
+
+#### 3.7.6 Performance profile & benchmark prerequisites
+
+- **Fast-Path Efficiency**: Keys lacking `0x00` and `0x01` pay only a single SIMD or SWAR scan `any(|b| b <= 1)` on lookup, with zero memory allocations and identical tree traversal instructions to `ExpanseStrMap`.
+- **Expansion Overhead**: Keys containing $k$ bytes $\le 1$ expand by exactly $k$ bytes (at most $2\times$ length in the theoretical worst case of all-NUL keys).
+- **Measurement Prerequisite (AGENTS.md §6)**: Because transcoding introduces byte inspection and potential buffer allocation, landing a public `ExpanseByteMap` requires:
+  1. Registering dedicated Callgrind benchmark arms in `crates/expanse/benches/instructions.rs` (covering insert, get, and cursor walks for both clean and escaped workloads).
+  2. Registering ops counts in `scripts/perf_report.py`.
+  3. Establishing zero regression on scalar paths before publishing performance claims.
+
 ## 4. Algorithms
 
 - **Lookup** (`get::test_set` / `get::get_map`): iterative tag-dispatched descent. Zero allocation, zero locks. The branch step is a direct digit compare (`BranchL3`) or a presence-filter test and an 8-byte digit find (`BranchL7`), a bitmap test plus subexpanse popcount rank (bitmap), or a direct index (uncompressed). The terminal step is a linear-leaf scan, a bitmap-leaf test/rank, or an immediate key scan, with narrow-pointer decode validation on leaf children. Leaves skip via decode bytes, branches via header-stored levels (see §6 step 3). Immediates never skip — their key size *is* their level. Full-expanse edges cover their whole current expanse, and `BranchU`/level-8 slots never skip.
@@ -719,7 +802,7 @@ What is not persisted: the index trie's node layout (it is rebuilt, and `mem_use
 | `set` | `ExpanseSet`, root-leaf → level-8 trie organization |
 | `mutate_map` + `map` | Map-flavor engine sharing the branch machinery; `ExpanseMap` |
 | `nav` | Flavor-generic ordered navigation — next/prev/first/last, O(depth) rank via pop0, 0-based select; public iterators and count_range/by_count on both types |
-| `strmap` | `ExpanseStrMap`, a meta-trie of word-map nodes over big-endian 8-byte chunks (numeric order = byte-lexicographic order); backs the exported `JudySL*` |
+| `strmap` | `ExpanseStrMap`, a meta-trie of word-map nodes over big-endian 8-byte chunks (numeric order = byte-lexicographic order); backs the exported `JudySL*`. See §3.7 for the ordered arbitrary-byte wrapper design (#808) |
 | `bytesmap` | `ExpanseBytesMap`, the unordered byte-string map — a 64-bit-hash-keyed `ExpanseMap` over byte-exact collision buckets; backs the exported `JudyHS*`. In `std` builds, `DefaultBuildHasher` uses process-randomized `RandomState` (DoS-resistant); in `no_std` builds, it defaults to deterministic FNV-1a (supply your own `S: BuildHasher` via `with_hasher` if keys are untrusted). |
 | `slot` | Polymorphic 64-bit `ValueSlot`: inline payloads up to 7 B, or 24-bit hot metadata plus a 32-bit arena locator in one word; columnar predicate filter kernels |
 | `blobmap` | `ExpanseBlobMap` — variable-length payloads: ≤ 7 B inline in the slot, larger ones bump-allocated in 16-byte-aligned `BlobArena` slabs ([design/large-values.md](design/large-values.md)) |
@@ -772,7 +855,7 @@ Expanse is architecturally suited as a high-density, low-latency primitive acros
 
 - **Inverted Indexes & Posting Lists (`ExpanseSet`, `ExpanseSet32`)**: Tracks document IDs at **0.07–0.36 bytes/docID** (set: presence only, no value) on dense and clustered keys at 1M *(measured: deterministic `mem_used()` accounting; workload: `example_bytes_per_key`; `docs/visualizer_data.json` → `memory_budget`)*. Against `roaring::RoaringTreemap` that is mostly a loss: at N = 10⁶ the set measures 1.10 / 4.06 / 7.21 / 1.22 bits/docID on dense / clustered / sparse / shard against Roaring's 1.06 / 2.59 / 2.60 / 1.07 *(measured: reference host — Intel i9-12900F, commit `29f86ddc`; workload: `domain_search_memory`; [`benchmarks/search_inverted_index/results/baseline_memory.json`](benchmarks/search_inverted_index/results/baseline_memory.json); table and small-N cells in [DATABASE.md §2.1](DATABASE.md#21-memory-packing-expanseset-vs-roaring-bitmap))*. It offers native pairwise and $k$-way aggregate set algebra (`intersection_len_many`, `union_len_many`, `intersection_many`, `union_many`, #610) executed directly over compressed trie edges and $O(\text{depth})$ skip-scans (`next_at_or_after`).
 - **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Provides optimistic reader validation over active transaction IDs (`xid`) with no reader-side lock on the common path, and epoch-based safe reclamation under continuous OLTP commit/vacuum churn.
-- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: Maps high-cardinality strings to 32/64-bit symbol IDs using 8-byte big-endian chunk decomposition and tail collapse, preserving lexicographical sort order while sharing common prefix nodes.
+- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: Maps high-cardinality strings to 32/64-bit symbol IDs using 8-byte big-endian chunk decomposition and tail collapse, preserving lexicographical sort order while sharing common prefix nodes. For arbitrary byte keys with embedded NULs (e.g. binary UUIDs), the dedicated ordered byte map wrapper (§3.7) provides order-preserving escaping without engine changes.
 - **Secondary Indexes & MemTables (`ExpanseMap`)**: Serves as a rebalance-free LSM MemTable and secondary index engine with contiguous linear-leaf scans. Full ordered `iter()` is **faster than `BTreeMap::iter()` for dense key distributions** at 1M keys — sequential 0.7×, clustered 0.8×, random 0.5× (2× faster) the time of `BTreeMap::iter()` *(measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19, `benches/compare.rs`)*. **Sparse-key iteration is 2.4× slower** than `BTreeMap::iter()`, a structural residual ([#270](https://github.com/orieg/expanse/issues/270)) *(measured: same host, commit 1feefadf, `benches/compare.rs`; table in [BENCHMARKING.md](BENCHMARKING.md))*.
 - **Zero-Copy Shared-Memory Analytics** — *design target, not implemented*: nothing maps a structure into shared memory. Nodes and arena chunks are addressed by absolute in-process pointers, and `ExpanseBlobMap::load_from_file` reads the whole image and rebuilds the index ([design/large-values.md §7](design/large-values.md#7-zero-copy-mmap--shared-memory-ipc--design-target-not-implemented)).
 
