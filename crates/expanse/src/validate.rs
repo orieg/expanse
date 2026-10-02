@@ -101,6 +101,24 @@ impl NodeBytes {
     }
 }
 
+impl core::ops::AddAssign<&NodeBytes> for NodeBytes {
+    fn add_assign(&mut self, rhs: &NodeBytes) {
+        self.immed_values += rhs.immed_values;
+        self.leaf_linear += rhs.leaf_linear;
+        self.leaf_bitmap += rhs.leaf_bitmap;
+        self.branch_l3 += rhs.branch_l3;
+        self.branch_l7 += rhs.branch_l7;
+        self.branch_b += rhs.branch_b;
+        self.branch_u += rhs.branch_u;
+    }
+}
+
+impl core::ops::AddAssign<NodeBytes> for NodeBytes {
+    fn add_assign(&mut self, rhs: NodeBytes) {
+        *self += &rhs;
+    }
+}
+
 /// Counts of nodes by their structural or immediate form.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct NodeCounts {
@@ -122,6 +140,182 @@ pub struct NodeCounts {
     pub branch_u: usize,
     /// Full expanse edges (set-flavor only).
     pub full_expanse: usize,
+}
+
+impl core::ops::AddAssign<&NodeCounts> for NodeCounts {
+    fn add_assign(&mut self, rhs: &NodeCounts) {
+        self.null += rhs.null;
+        self.immed += rhs.immed;
+        self.leaf_linear += rhs.leaf_linear;
+        self.leaf_bitmap += rhs.leaf_bitmap;
+        self.branch_l3 += rhs.branch_l3;
+        self.branch_l7 += rhs.branch_l7;
+        self.branch_b += rhs.branch_b;
+        self.branch_u += rhs.branch_u;
+        self.full_expanse += rhs.full_expanse;
+    }
+}
+
+impl core::ops::AddAssign<NodeCounts> for NodeCounts {
+    fn add_assign(&mut self, rhs: NodeCounts) {
+        *self += &rhs;
+    }
+}
+
+/// Diagnostic statistics for an [`crate::strmap::ExpanseStrMap`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StrMapStats {
+    /// Counts of nodes by their specific form across all sub-maps.
+    pub node_counts: NodeCounts,
+    /// Total count of `StrNode` shells.
+    pub str_nodes: usize,
+    /// Total count of suffix leaves.
+    pub suffix_leaves: usize,
+    /// Histogram of sub-map node depths (0 to 8).
+    pub depth_histogram: [usize; 9],
+    /// Histogram of sub-map leaf populations (0 to 256).
+    pub leaf_pop_histogram: [usize; 257],
+    /// Heap bytes attributed to each component; sums to `mem_used()`.
+    pub node_bytes: StrMapNodeBytes,
+    /// Branch nodes by the level of the slot holding them across all sub-maps.
+    pub branch_depth_histogram: [usize; 9],
+    /// Linear and bitmap leaves by slot level across all sub-maps.
+    pub leaf_depth_histogram: [usize; 9],
+}
+
+impl Default for StrMapStats {
+    fn default() -> Self {
+        Self {
+            node_counts: NodeCounts::default(),
+            str_nodes: 0,
+            suffix_leaves: 0,
+            depth_histogram: [0; 9],
+            leaf_pop_histogram: [0; 257],
+            node_bytes: StrMapNodeBytes::default(),
+            branch_depth_histogram: [0; 9],
+            leaf_depth_histogram: [0; 9],
+        }
+    }
+}
+
+/// Heap bytes attributed to each component of an [`crate::strmap::ExpanseStrMap`].
+///
+/// Sums exactly to `mem_used()`.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct StrMapNodeBytes {
+    /// Heap bytes attributed to each node form across all sub-maps.
+    pub sub_maps: NodeBytes,
+    /// Heap bytes of the `StrNode` shells (`size_of::<StrNode>()` each).
+    pub node_shells: usize,
+    /// Heap bytes of suffix leaves.
+    pub suffixes: usize,
+}
+
+impl StrMapNodeBytes {
+    /// Total bytes across every component; equals `mem_used()`.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.sub_maps.total() + self.node_shells + self.suffixes
+    }
+
+    /// Suffix leaf bytes (alias for [`Self::suffixes`]).
+    #[must_use]
+    pub fn suffix_bytes(&self) -> usize {
+        self.suffixes
+    }
+
+    /// Node shell bytes (alias for [`Self::node_shells`]).
+    #[must_use]
+    pub fn node_shell_bytes(&self) -> usize {
+        self.node_shells
+    }
+}
+
+/// Diagnostic statistics for an [`crate::bytesmap::ExpanseBytesMap`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BytesMapStats {
+    /// Counts of nodes by their specific form in the hash trie.
+    pub node_counts: NodeCounts,
+    /// Total count of collision buckets (hash trie entries).
+    pub buckets: usize,
+    /// Total count of key-value entries across all buckets.
+    pub entries: u64,
+    /// Histogram of hash trie node depths (0 to 8).
+    pub depth_histogram: [usize; 9],
+    /// Histogram of hash trie leaf populations (0 to 256).
+    pub leaf_pop_histogram: [usize; 257],
+    /// Heap bytes attributed to each component; sums to `mem_used()`.
+    pub node_bytes: BytesMapNodeBytes,
+    /// Branch nodes by the level of the slot holding them in the hash trie.
+    pub branch_depth_histogram: [usize; 9],
+    /// Linear and bitmap leaves by slot level in the hash trie.
+    pub leaf_depth_histogram: [usize; 9],
+}
+
+impl Default for BytesMapStats {
+    fn default() -> Self {
+        Self {
+            node_counts: NodeCounts::default(),
+            buckets: 0,
+            entries: 0,
+            depth_histogram: [0; 9],
+            leaf_pop_histogram: [0; 257],
+            node_bytes: BytesMapNodeBytes::default(),
+            branch_depth_histogram: [0; 9],
+            leaf_depth_histogram: [0; 9],
+        }
+    }
+}
+
+/// Heap bytes attributed to each component of an [`crate::bytesmap::ExpanseBytesMap`].
+///
+/// Sums exactly to `mem_used()`.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct BytesMapNodeBytes {
+    /// Heap bytes attributed to each node form of the hash trie.
+    pub sub_maps: NodeBytes,
+    /// Heap bytes of the collision bucket shells.
+    pub node_shells: usize,
+    /// Heap bytes of entry structures and key buffers in collision buckets.
+    pub terminal_bytes: usize,
+}
+
+impl BytesMapNodeBytes {
+    /// Total bytes across every component; equals `mem_used()`.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.sub_maps.total() + self.node_shells + self.terminal_bytes
+    }
+
+    /// Bucket shell bytes (alias for [`Self::node_shells`]).
+    #[must_use]
+    pub fn bucket_shells(&self) -> usize {
+        self.node_shells
+    }
+
+    /// Terminal bytes (alias for [`Self::terminal_bytes`]).
+    #[must_use]
+    pub fn terminals(&self) -> usize {
+        self.terminal_bytes
+    }
+
+    /// Node shell bytes (alias for [`Self::node_shells`]).
+    #[must_use]
+    pub fn node_shell_bytes(&self) -> usize {
+        self.node_shells
+    }
+
+    /// Hash trie node bytes (alias for [`Self::sub_maps`]).
+    #[must_use]
+    pub fn map(&self) -> &NodeBytes {
+        &self.sub_maps
+    }
+
+    /// Hash trie node bytes (alias for [`Self::sub_maps`]).
+    #[must_use]
+    pub fn trie(&self) -> &NodeBytes {
+        &self.sub_maps
+    }
 }
 
 /// Recursively validates the subtree under `edge` at `level`, gathering statistics defensively.
@@ -527,8 +721,10 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
 
 #[cfg(test)]
 mod tests {
+    use crate::bytesmap::ExpanseBytesMap;
     use crate::map::ExpanseMap;
     use crate::set::ExpanseSet;
+    use crate::strmap::{ExpanseStrMap, NulFreeStr};
 
     /// The demotion predicates read the derived `*_DOWN` constants
     /// (`digits <= BRANCHB_TO_L7_DOWN`, `digits <= BRANCHU_TO_B_DOWN`) where
@@ -653,5 +849,135 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn strmap_node_bytes_sum_to_mem_used() {
+        let mut m = ExpanseStrMap::new();
+        let s0 = m.stats();
+        assert_eq!(s0.node_bytes.total(), m.mem_used());
+        assert_eq!(s0.node_bytes.total(), 0);
+
+        let mut rng = 0x1234_5678_9ABC_DEF0u64;
+        let mut next = move || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+
+        for i in 0..5_000 {
+            let key = match i % 5 {
+                0 => format!("k{i}"),
+                1 => format!("chunk8_{:02}", i % 100),
+                2 => format!("suffix_branch_{:04}_longer_key_tail", i),
+                3 => format!("t{:03}:orders:{:010}", i % 100, i),
+                _ => {
+                    let r = next();
+                    format!("rnd_{:016x}_{:08x}", r, i)
+                }
+            };
+            let k = NulFreeStr::new(key.as_bytes()).unwrap();
+            m.insert(k, i as u64);
+
+            if i < 30 || i % 500 == 0 {
+                let s = m.stats();
+                assert_eq!(
+                    s.node_bytes.total(),
+                    m.mem_used(),
+                    "strmap insert i={i}: {:?}",
+                    s.node_bytes
+                );
+                assert_eq!(
+                    s.node_bytes.sub_maps.total()
+                        + s.node_bytes.node_shells
+                        + s.node_bytes.suffixes,
+                    m.mem_used(),
+                    "strmap parts insert i={i}"
+                );
+                assert_eq!(s.node_bytes.suffixes, s.node_bytes.suffix_bytes());
+                assert_eq!(s.node_bytes.node_shells, s.node_bytes.node_shell_bytes());
+            }
+        }
+
+        let s_full = m.stats();
+        assert_eq!(s_full.node_bytes.total(), m.mem_used());
+
+        for i in (0..5_000).step_by(3) {
+            let key = match i % 5 {
+                0 => format!("k{i}"),
+                1 => format!("chunk8_{:02}", i % 100),
+                2 => format!("suffix_branch_{:04}_longer_key_tail", i),
+                3 => format!("t{:03}:orders:{:010}", i % 100, i),
+                _ => continue,
+            };
+            if let Some(k) = NulFreeStr::new(key.as_bytes()) {
+                m.remove(k);
+            }
+        }
+        let s_after_del = m.stats();
+        assert_eq!(s_after_del.node_bytes.total(), m.mem_used());
+
+        m.clear();
+        let s_empty = m.stats();
+        assert_eq!(s_empty.node_bytes.total(), m.mem_used());
+        assert_eq!(s_empty.node_bytes.total(), 0);
+    }
+
+    #[test]
+    fn bytesmap_node_bytes_sum_to_mem_used() {
+        let mut m = ExpanseBytesMap::new();
+        let s0 = m.stats();
+        assert_eq!(s0.node_bytes.total(), m.mem_used());
+        assert_eq!(s0.node_bytes.total(), 0);
+
+        for i in 0..5_000 {
+            let key = match i % 4 {
+                0 => format!("b_{i}").into_bytes(),
+                1 => format!("bytes_key_{:010}", i).into_bytes(),
+                2 => format!("deeply/nested/path/to/resource/{:06}", i).into_bytes(),
+                _ => (0..32).map(|b| ((i + b) % 256) as u8).collect(),
+            };
+            m.insert(&key, i as u64);
+
+            if i < 30 || i % 500 == 0 {
+                let s = m.stats();
+                assert_eq!(
+                    s.node_bytes.total(),
+                    m.mem_used(),
+                    "bytesmap insert i={i}: {:?}",
+                    s.node_bytes
+                );
+                assert_eq!(
+                    s.node_bytes.sub_maps.total()
+                        + s.node_bytes.node_shells
+                        + s.node_bytes.terminal_bytes,
+                    m.mem_used(),
+                    "bytesmap parts insert i={i}"
+                );
+                assert_eq!(s.node_bytes.node_shells, s.node_bytes.bucket_shells());
+                assert_eq!(s.node_bytes.terminal_bytes, s.node_bytes.terminals());
+            }
+        }
+
+        let s_full = m.stats();
+        assert_eq!(s_full.node_bytes.total(), m.mem_used());
+
+        for i in (0..5_000).step_by(2) {
+            let key = match i % 4 {
+                0 => format!("b_{i}").into_bytes(),
+                1 => format!("bytes_key_{:010}", i).into_bytes(),
+                2 => format!("deeply/nested/path/to/resource/{:06}", i).into_bytes(),
+                _ => (0..32).map(|b| ((i + b) % 256) as u8).collect(),
+            };
+            m.remove(&key);
+        }
+        let s_after_del = m.stats();
+        assert_eq!(s_after_del.node_bytes.total(), m.mem_used());
+
+        m.clear();
+        let s_empty = m.stats();
+        assert_eq!(s_empty.node_bytes.total(), m.mem_used());
+        assert_eq!(s_empty.node_bytes.total(), 0);
     }
 }

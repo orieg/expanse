@@ -65,9 +65,9 @@
 use crate::alloc::NodeAlloc;
 use crate::bits::shared_word;
 use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
-use crate::bytesmap::ExpanseBytesMap;
 #[cfg(all(feature = "std", not(feature = "ablation-bytes-serial-writers")))]
 use crate::bytesmap::{Bucket, dispose_bucket};
+use crate::bytesmap::{BytesMapStats, ExpanseBytesMap};
 use crate::leaf;
 use crate::map::ExpanseMap;
 use crate::mutate::{branch_form_level, pow256};
@@ -79,7 +79,7 @@ use crate::occ::CollectorCounters;
 use crate::occ::{Collector, CollectorCensus, Pin, Reader, SeqVersion};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
-use crate::strmap::{ExpanseStrMap, NulFreeStr};
+use crate::strmap::{ExpanseStrMap, NulFreeStr, StrMapStats};
 use crate::types::{
     BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit,
 };
@@ -11695,6 +11695,18 @@ impl SyncExpanseStrMap {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Heap bytes used (consistent read under the writer lock).
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.shared.read_locked(ExpanseStrMap::mem_used)
+    }
+
+    /// Gathers structural statistics of the string map (runs under the writer lock).
+    #[must_use]
+    pub fn stats(&self) -> StrMapStats {
+        self.with_locked(ExpanseStrMap::stats)
+    }
     /// Heap bytes the string map holds from the global allocator: the tree's own
     /// [`ExpanseStrMap::mem_held`] (read under the writer lock, as
     /// `with_locked` reads) plus what its epoch collector holds for it —
@@ -12638,6 +12650,12 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     #[must_use]
     pub fn mem_used(&self) -> usize {
         self.shared.read_locked(ExpanseBytesMap::mem_used)
+    }
+
+    /// Gathers structural statistics of the bytes map (runs under the writer lock).
+    #[must_use]
+    pub fn stats(&self) -> BytesMapStats {
+        self.with_locked(ExpanseBytesMap::stats)
     }
 
     /// Heap bytes the map holds from the global allocator: the map's own
