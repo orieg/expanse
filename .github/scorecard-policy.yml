@@ -1,0 +1,63 @@
+# OpenSSF Scorecard policy for `.github/workflows/scorecard.yml`: a check that scores
+# below its `score` becomes a code-scanning alert. The thresholds are those of the
+# default policy `ossf/scorecard-action` ships (`policies/template.yml`, Apache-2.0).
+# `Signed-Releases` remains disabled because Expanse releases do not yet attach signed
+# provenance bundles; enabling it is deferred to the release owner.
+# The CLI needs this file to write SARIF; the action supplies its own copy.
+version: 1
+policies:
+  Token-Permissions:
+    score: 10
+    mode: enforced
+  Branch-Protection:
+    score: 10
+    mode: enforced
+  Code-Review:
+    score: 10
+    mode: enforced
+  Dangerous-Workflow:
+    score: 10
+    mode: enforced
+  License:
+    score: 9
+    mode: enforced
+  Pinned-Dependencies:
+    score: 10
+    mode: enforced
+  Security-Policy:
+    score: 10
+    mode: enforced
+  SAST:
+    score: 10
+    mode: enforced
+  Contributors:
+    score: 10
+    mode: disabled
+  Packaging:
+    score: 10
+    mode: enforced
+  Binary-Artifacts:
+    score: 10
+    mode: enforced
+  Signed-Releases:
+    score: 10
+    mode: disabled
+  Dependency-Update-Tool:
+    score: 10
+    mode: enforced
+  Fuzzing:
+    score: 10
+    mode: enforced
+  CII-Best-Practices:
+    # passing score
+    score: 5
+    mode: enforced
+  Vulnerabilities:
+    score: 10
+    mode: enforced
+  CI-Tests:
+    score: 10
+    mode: enforced
+  Maintained:
+    score: 1
+    mode: enforced

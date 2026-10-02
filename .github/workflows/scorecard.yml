@@ -1,0 +1,76 @@
+name: "OpenSSF Scorecard"
+
+# An outside measurement of this repository's supply-chain practices, uploaded to
+# code scanning. Advisory: not in the `ci-gate` rollup (docs/CI.md §Workflows outside ci.yml).
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '30 1 * * 1'
+  # Only a change to how Scorecard runs re-runs it on a pull request: it scores the
+  # default branch through the API, not the pull request's tree, so a pull request's
+  # run checks that Scorecard installs, runs and writes SARIF, and uploads nothing.
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/scorecard.yml
+      - .github/scorecard-policy.yml
+      - scripts/install_scorecard.sh
+
+concurrency:
+  group: scorecard-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+      security-events: write
+      statuses: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The CLI, pinned by version and checksum, rather than `ossf/scorecard-action`:
+      # that action runs an image pinned by tag, which nested-action-pins reports.
+      # The CLI cannot publish to the Scorecard API, so there is no badge.
+      - name: Install scorecard (pinned, checksum-verified)
+        run: scripts/install_scorecard.sh
+      - name: Run Scorecard
+        env:
+          GITHUB_AUTH_TOKEN: ${{ github.token }}
+          # SARIF output is behind this flag in the CLI.
+          ENABLE_SARIF: "1"
+        run: |
+          set -euo pipefail
+          scorecard --repo "github.com/${GITHUB_REPOSITORY}" --show-details \
+            --format sarif --policy .github/scorecard-policy.yml > scorecard.sarif
+          # One SARIF run per Scorecard category (branch-protection, local, online-scm).
+          jq -e '.version == "2.1.0" and (.runs | length) >= 1' scorecard.sarif > /dev/null \
+            || { echo "::error::scorecard did not write a SARIF 2.1.0 report"; exit 1; }
+          # The aggregate and per-check scores, for the run log and summary.
+          scorecard --repo "github.com/${GITHUB_REPOSITORY}" --format json > scorecard.json
+          {
+            echo "### OpenSSF Scorecard: $(jq -r .score scorecard.json)"
+            echo
+            echo "| Check | Score | Reason |"
+            echo "|---|---|---|"
+            jq -r '.checks[] | "| \(.name) | \(.score) | \(.reason) |"' scorecard.json
+          } >> "${GITHUB_STEP_SUMMARY}"
+      # Not on a pull request: the alerts describe the default branch, and code scanning
+      # would attach them to the pull request's lines as review threads.
+      - if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          # No `category`: each run's automationDetails id (`supply-chain/<group>/`)
+          # keeps the three runs apart; one category would merge them.
+          sarif_file: scorecard.sarif
