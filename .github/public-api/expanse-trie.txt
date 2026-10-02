@@ -1924,6 +1924,7 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::strmap::NulInKey
 pub struct expanse_trie::strmap::StrCursor<'a>
 impl<'a> expanse_trie::strmap::StrCursor<'a>
 pub fn expanse_trie::strmap::StrCursor<'a>::next(&mut self) -> core::option::Option<(&[u8], core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::strmap::StrCursor<'a>::next_entry(&mut self) -> core::option::Option<(&[u8], u64)>
 impl<'a> core::marker::Freeze for expanse_trie::strmap::StrCursor<'a>
 impl<'a> !core::marker::Send for expanse_trie::strmap::StrCursor<'a>
 impl<'a> !core::marker::Sync for expanse_trie::strmap::StrCursor<'a>
@@ -1985,6 +1986,7 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::validate::StrMapStat
 pub struct expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> expanse_trie::strmap::StrPrefixCursor<'a>
 pub fn expanse_trie::strmap::StrPrefixCursor<'a>::next(&mut self) -> core::option::Option<(&[u8], core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::strmap::StrPrefixCursor<'a>::next_entry(&mut self) -> core::option::Option<(&[u8], u64)>
 impl<'a> core::marker::Freeze for expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> !core::marker::Send for expanse_trie::strmap::StrPrefixCursor<'a>
 impl<'a> !core::marker::Sync for expanse_trie::strmap::StrPrefixCursor<'a>

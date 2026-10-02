@@ -1631,7 +1631,7 @@ fn strmap_prefix_sum(map: &mut ExpanseStrMap, prefix: &[u8]) -> (u64, u64) {
             break;
         }
         // SAFETY: `slot` is the map's live value word, valid until the next
-        // structural mutation; the cursor's `&mut` borrow of `map` rules that
+        // structural mutation; the cursor's shared borrow of `map` rules that
         // out for as long as the slot is read.
         sum ^= unsafe { slot.as_ptr().read() };
         n += 1;

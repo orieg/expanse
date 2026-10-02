@@ -1232,7 +1232,7 @@ struct StrFrame {
 /// byte. Nothing here re-derives that; it falls out of taking each level's
 /// entries in `first` / `next_after` order.
 ///
-/// The cursor borrows the map mutably for its lifetime, which is also how the
+/// The cursor borrows the map for its lifetime, which is also how the
 /// "valid until the next structural mutation" contract of the surrounding
 /// surface is enforced here — by the borrow checker rather than by a comment.
 ///
@@ -1265,6 +1265,21 @@ impl<'a> StrCursor<'a> {
     pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
         self.walk.next()
     }
+
+    /// Advances to the next entry in byte-lexicographic order, returning the
+    /// key and its value.
+    ///
+    /// The returned key borrows the cursor's own buffer and is valid until the
+    /// next call; copy it if it must outlive that. The value is copied from the
+    /// slot.
+    #[inline]
+    pub fn next_entry(&mut self) -> Option<(&[u8], u64)> {
+        let (key, slot) = self.next()?;
+        // SAFETY:
+        // - The cursor holds a shared &'a ExpanseStrMap borrow, so no mutation can happen while the slot is read.
+        // - The slot is an initialised u64 with 8-byte alignment: either StrSuffix::value (laid out with align_of::<StrSuffix>()) or a word-map value slot.
+        Some((key, unsafe { slot.as_ptr().read() }))
+    }
 }
 
 /// An ordered cursor over the keys of an [`ExpanseStrMap`] that start with a
@@ -1284,6 +1299,21 @@ impl<'a> StrPrefixCursor<'a> {
     #[allow(clippy::should_implement_trait)] // lending: the key borrows `self`
     pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
         self.walk.next()
+    }
+
+    /// Advances to the next entry under the prefix, in byte-lexicographic
+    /// order, returning the key and its value; `None` once past it.
+    ///
+    /// The returned key borrows the cursor's own buffer and is valid until the
+    /// next call; copy it if it must outlive that. The value is copied from the
+    /// slot.
+    #[inline]
+    pub fn next_entry(&mut self) -> Option<(&[u8], u64)> {
+        let (key, slot) = self.next()?;
+        // SAFETY:
+        // - The cursor holds a shared &'a ExpanseStrMap borrow, so no mutation can happen while the slot is read.
+        // - The slot is an initialised u64 with 8-byte alignment: either StrSuffix::value (laid out with align_of::<StrSuffix>()) or a word-map value slot.
+        Some((key, unsafe { slot.as_ptr().read() }))
     }
 }
 
@@ -4022,6 +4052,45 @@ mod tests {
         assert_eq!(seen[0], (b"apple".to_vec(), 5));
         assert_eq!(seen[1], (b"apricot".to_vec(), 7));
         assert_eq!(seen[2], (b"banana".to_vec(), 6));
+    }
+
+    /// `StrCursor::next_entry` walks without unsafe slot reads.
+    #[test]
+    fn cursor_walks_next_entry() {
+        let mut map = ExpanseStrMap::new();
+        for k in [b"apple".as_slice(), b"apricot", b"banana"] {
+            map.insert(tk(k), k.len() as u64);
+        }
+
+        // Full walk with next_entry
+        let mut c = map.cursor();
+        let mut seen = Vec::new();
+        while let Some((key, val)) = c.next_entry() {
+            seen.push((key.to_vec(), val));
+        }
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[0], (b"apple".to_vec(), 5));
+        assert_eq!(seen[1], (b"apricot".to_vec(), 7));
+        assert_eq!(seen[2], (b"banana".to_vec(), 6));
+
+        // Seek with next_entry: seeking to "b" yields only keys at or after "b"
+        let mut c_seek = map.cursor_at_or_after(tk(b"b"));
+        let mut seen_seek = Vec::new();
+        while let Some((key, val)) = c_seek.next_entry() {
+            seen_seek.push((key.to_vec(), val));
+        }
+        assert_eq!(seen_seek.len(), 1);
+        assert_eq!(seen_seek[0], (b"banana".to_vec(), 6));
+
+        // Prefix cursor with next_entry
+        let mut cp = map.cursor_prefix(tk(b"ap"));
+        let mut seen_prefix = Vec::new();
+        while let Some((key, val)) = cp.next_entry() {
+            seen_prefix.push((key.to_vec(), val));
+        }
+        assert_eq!(seen_prefix.len(), 2);
+        assert_eq!(seen_prefix[0], (b"apple".to_vec(), 5));
+        assert_eq!(seen_prefix[1], (b"apricot".to_vec(), 7));
     }
 
     /// The cursor's raw path stack over every entry form it can meet, in a
