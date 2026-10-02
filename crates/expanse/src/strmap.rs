@@ -1265,6 +1265,29 @@ impl<'a> StrCursor<'a> {
     pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
         self.walk.next()
     }
+
+    /// Advances to the next entry in byte-lexicographic order, returning the
+    /// key and its value.
+    ///
+    /// The returned key borrows the cursor's own buffer and is valid until the
+    /// next call; copy it if it must outlive that. The value is copied from the
+    /// slot.
+    #[inline]
+    pub fn next_value(&mut self) -> Option<(&[u8], u64)> {
+        // SAFETY: `slot` is a live value word valid for the cursor's borrow of
+        // the map; reading it avoids unsafe code at consumer call sites.
+        self.next()
+            .map(|(key, slot)| (key, unsafe { *slot.as_ptr() }))
+    }
+
+    /// Advances to the next entry in byte-lexicographic order, returning the
+    /// key and its value.
+    ///
+    /// Equivalent to [`next_value`](Self::next_value).
+    #[inline]
+    pub fn next_entry(&mut self) -> Option<(&[u8], u64)> {
+        self.next_value()
+    }
 }
 
 /// An ordered cursor over the keys of an [`ExpanseStrMap`] that start with a
@@ -1284,6 +1307,29 @@ impl<'a> StrPrefixCursor<'a> {
     #[allow(clippy::should_implement_trait)] // lending: the key borrows `self`
     pub fn next(&mut self) -> Option<(&[u8], NonNull<u64>)> {
         self.walk.next()
+    }
+
+    /// Advances to the next entry under the prefix, in byte-lexicographic
+    /// order, returning the key and its value; `None` once past it.
+    ///
+    /// The returned key borrows the cursor's own buffer and is valid until the
+    /// next call; copy it if it must outlive that. The value is copied from the
+    /// slot.
+    #[inline]
+    pub fn next_value(&mut self) -> Option<(&[u8], u64)> {
+        // SAFETY: `slot` is a live value word valid for the cursor's borrow of
+        // the map; reading it avoids unsafe code at consumer call sites.
+        self.next()
+            .map(|(key, slot)| (key, unsafe { *slot.as_ptr() }))
+    }
+
+    /// Advances to the next entry under the prefix, in byte-lexicographic
+    /// order, returning the key and its value; `None` once past it.
+    ///
+    /// Equivalent to [`next_value`](Self::next_value).
+    #[inline]
+    pub fn next_entry(&mut self) -> Option<(&[u8], u64)> {
+        self.next_value()
     }
 }
 
@@ -4022,6 +4068,60 @@ mod tests {
         assert_eq!(seen[0], (b"apple".to_vec(), 5));
         assert_eq!(seen[1], (b"apricot".to_vec(), 7));
         assert_eq!(seen[2], (b"banana".to_vec(), 6));
+    }
+
+    /// `StrCursor::next_value` and `next_entry` walk without unsafe slot reads.
+    #[test]
+    fn cursor_next_value_matches_documented_example_and_prefix() {
+        let mut map = ExpanseStrMap::new();
+        for k in [b"apple".as_slice(), b"apricot", b"banana"] {
+            map.insert(tk(k), k.len() as u64);
+        }
+
+        // Full walk with next_value
+        let mut c = map.cursor();
+        let mut seen = Vec::new();
+        while let Some((key, val)) = c.next_value() {
+            seen.push((key.to_vec(), val));
+        }
+        assert_eq!(seen.len(), 3);
+        assert_eq!(seen[0], (b"apple".to_vec(), 5));
+        assert_eq!(seen[1], (b"apricot".to_vec(), 7));
+        assert_eq!(seen[2], (b"banana".to_vec(), 6));
+
+        // next_entry matches next_value
+        let mut c_entry = map.cursor();
+        let mut seen_entry = Vec::new();
+        while let Some((key, val)) = c_entry.next_entry() {
+            seen_entry.push((key.to_vec(), val));
+        }
+        assert_eq!(seen_entry, seen);
+
+        // Seek with next_value
+        let mut c_seek = map.cursor_at_or_after(tk(b"ap"));
+        let mut seen_seek = Vec::new();
+        while let Some((key, val)) = c_seek.next_value() {
+            seen_seek.push((key.to_vec(), val));
+        }
+        assert_eq!(seen_seek, seen);
+
+        // Prefix cursor with next_value
+        let mut cp = map.cursor_prefix(tk(b"ap"));
+        let mut seen_prefix = Vec::new();
+        while let Some((key, val)) = cp.next_value() {
+            seen_prefix.push((key.to_vec(), val));
+        }
+        assert_eq!(seen_prefix.len(), 2);
+        assert_eq!(seen_prefix[0], (b"apple".to_vec(), 5));
+        assert_eq!(seen_prefix[1], (b"apricot".to_vec(), 7));
+
+        // Prefix cursor with next_entry
+        let mut cp_entry = map.cursor_prefix(tk(b"ap"));
+        let mut seen_prefix_entry = Vec::new();
+        while let Some((key, val)) = cp_entry.next_entry() {
+            seen_prefix_entry.push((key.to_vec(), val));
+        }
+        assert_eq!(seen_prefix_entry, seen_prefix);
     }
 
     /// The cursor's raw path stack over every entry form it can meet, in a
