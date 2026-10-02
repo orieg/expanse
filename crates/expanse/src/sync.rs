@@ -6085,6 +6085,25 @@ impl SyncExpanseSet {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Heap bytes used by the set's nodes and leaves, as
+    /// [`ExpanseSet::mem_used`] counts them (consistent read under the writer
+    /// lock).
+    ///
+    /// Taken under the same writer-excluding read as
+    /// [`SyncExpanseMap::mem_used`], [`SyncExpanseBlobMap::mem_used`] and
+    /// [`SyncExpanseBytesMap::mem_used`]: writers are quiesced and the writer
+    /// mutex is held, so the figure is the tree's between two mutations,
+    /// never one caught mid-way with a replacement node counted and its
+    /// predecessor not yet retired. Writers wait for it, so it does not
+    /// belong in a hot loop. Nodes already retired to the epoch collector
+    /// but not yet reclaimed are no longer counted, although their
+    /// allocations are still resident.
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.shared.read_locked(ExpanseSet::mem_used)
+    }
+
     /// Heap bytes the set holds from the global allocator: the tree's own
     /// [`ExpanseSet::mem_held`] (read under the writer lock, as
     /// `with_locked` reads) plus what its epoch collector holds for it —
@@ -21547,5 +21566,52 @@ mod validated_answer_tests {
                 "an answer the writer overtook must retry ({forward})"
             );
         }
+    }
+
+    #[test]
+    fn sync_set_mem_used_matches_inner_and_reflects_mutations() {
+        let set = SyncExpanseSet::new();
+        // Empty set: 0 heap bytes used.
+        assert_eq!(set.mem_used(), 0);
+        assert_eq!(set.mem_used(), set.with_locked(ExpanseSet::mem_used));
+
+        // Insert single key: root leaf is allocated for concurrent access.
+        assert!(set.insert(42));
+        assert_eq!(set.mem_used(), set.with_locked(ExpanseSet::mem_used));
+        assert!(set.mem_used() > 0);
+
+        // Insert enough keys to exceed immediate capacity and allocate heap nodes.
+        for i in 0..100u64 {
+            set.insert(i * 1000);
+        }
+        let used = set.mem_used();
+        assert!(used > 0, "populated set must allocate heap nodes");
+        assert_eq!(used, set.with_locked(ExpanseSet::mem_used));
+
+        // Insert additional keys across distinct expanses to expand tree depth/branches.
+        for i in 100..300u64 {
+            set.insert((i << 32) | (i * 17));
+        }
+        let used_expanded = set.mem_used();
+        assert!(
+            used_expanded > used,
+            "expanding the set must increase mem_used (was {used}, now {used_expanded})"
+        );
+        assert_eq!(used_expanded, set.with_locked(ExpanseSet::mem_used));
+
+        // Remove keys: mutations must reflect in mem_used and match inner set.
+        for i in 100..300u64 {
+            assert!(set.remove((i << 32) | (i * 17)));
+        }
+        assert_eq!(set.mem_used(), set.with_locked(ExpanseSet::mem_used));
+
+        // Drain remaining keys back to empty.
+        for i in 0..100u64 {
+            assert!(set.remove(i * 1000));
+        }
+        assert!(set.remove(42));
+        assert_eq!(set.len(), 0);
+        assert_eq!(set.mem_used(), set.with_locked(ExpanseSet::mem_used));
+        assert_eq!(set.mem_used(), 0);
     }
 }

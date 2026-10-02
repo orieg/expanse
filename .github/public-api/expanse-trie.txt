@@ -2264,6 +2264,7 @@ pub fn expanse_trie::sync::SyncExpanseSet::insert(&self, expanse_trie::types::Ke
 pub fn expanse_trie::sync::SyncExpanseSet::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseSet::mem_held(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseSet::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseSet::reader(&self) -> expanse_trie::sync::SetReader<'_>
 pub fn expanse_trie::sync::SyncExpanseSet::remove(&self, expanse_trie::types::Key) -> bool
