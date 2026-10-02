@@ -937,7 +937,7 @@
         <li><a href="./apt/">APT</a></li>
         <li><a href="./rpm/">RPM</a></li>
         <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.10.0</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.10.1</a></li>
       </ul>
       <button class="theme-toggle theme-toggle-desktop" type="button" onclick="toggleTheme()" aria-label="Toggle color theme" title="Toggle color theme">
         <span class="theme-icon-system" aria-hidden="true">&#9681;</span>
@@ -2253,7 +2253,7 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
 &lt;dependency&gt;
     &lt;groupId&gt;io.github.orieg&lt;/groupId&gt;
     &lt;artifactId&gt;expanse&lt;/artifactId&gt;
-    &lt;version&gt;0.10.0&lt;/version&gt;
+    &lt;version&gt;0.10.1&lt;/version&gt;
 &lt;/dependency&gt;</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Java:</p>
           <pre><code>import io.github.orieg.expanse.ExpanseMap;
@@ -2515,8 +2515,8 @@ func main() {
 
         <div id="tab-ruby" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the gem from RubyGems. It is pure Ruby over the C ABI through <code>Fiddle</code>, so there is no extension to compile; it loads <code>libexpanse</code> (<code>.so</code> / <code>.dylib</code> / <code>.dll</code>) from the library path, or from <code>target/release</code> after <code>cargo build --release -p expanse-capi</code>:</p>
-          <pre><code>gem install expanse -v 0.10.0
-# Or in Gemfile: gem 'expanse', '~&gt; 0.10.0'</code></pre>
+          <pre><code>gem install expanse -v 0.10.1
+# Or in Gemfile: gem 'expanse', '~&gt; 0.10.1'</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Ruby:</p>
           <pre><code>require "expanse"
 
@@ -2638,7 +2638,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.10.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/b361e21"><code>b361e21</code></a> &bull; Built on 2026-10-02
+        <span class="badge" style="font-size: 0.78rem;">Release v0.10.1</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/ad616ea"><code>ad616ea</code></a> &bull; Built on 2026-10-02
       </p>
       <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
         Judy &amp; Systems Ecosystem:
