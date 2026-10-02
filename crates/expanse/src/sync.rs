@@ -6236,6 +6236,16 @@ impl SyncExpanseMap {
     /// Inserts `key → val`; returns the replaced value, if any. Uses
     /// multi-writer optimistic lock coupling (Stage B) when the root is a
     /// tree, falling back to the serialized writer lock for root-state transitions.
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When storing locators or addresses into an external epoch-reclaimed store,
+    /// the writer must **not retire the old record until after `insert` returns**.
+    /// Expanse's internal collector protects only trie nodes; `insert` validates
+    /// and publishes the new value under version bracketing before returning. Retiring
+    /// the replaced record only after `insert` returns guarantees that any reader
+    /// that observed the old locator was pinned in the caller's store at or before
+    /// the retirement epoch. See [`MapReader::get`].
     pub fn insert(&self, key: Key, val: u64) -> Option<u64> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "std")]
@@ -6318,6 +6328,16 @@ impl SyncExpanseMap {
     /// Removes `key`; returns its value, if present. Uses multi-writer
     /// optimistic lock coupling (Stage B) when the root is a tree, falling
     /// back to the serialized writer lock for root-state transitions.
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When storing locators or addresses into an external epoch-reclaimed store,
+    /// the writer must **not retire the removed record until after `remove` returns**.
+    /// Expanse's internal collector protects only trie nodes; `remove` unlinks the
+    /// entry under version bracketing before returning. Retiring the removed record
+    /// only after `remove` returns guarantees that any reader that observed the locator
+    /// was pinned in the caller's store at or before the retirement epoch.
+    /// See [`MapReader::get`].
     pub fn remove(&self, key: Key) -> Option<u64> {
         #[cfg(feature = "std")]
         {
@@ -6658,6 +6678,9 @@ impl SyncExpanseMap {
 
     /// One-shot lookup (registers a throwaway reader; use
     /// [`Self::reader`] in hot loops).
+    ///
+    /// See [`MapReader::get`] for the reclamation contract when `u64` values are
+    /// locators into an external epoch-reclaimed store.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         self.reader().get(key)
@@ -9607,6 +9630,9 @@ pub struct OwnedMapReader {
 
 impl OwnedMapReader {
     /// Optimistic lookup, without the per-call registry lock `get` pays.
+    ///
+    /// See [`MapReader::get`] for the reclamation contract when `u64` values are
+    /// locators into an external epoch-reclaimed store.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(&self.map, &self.reader, key)
@@ -9677,6 +9703,9 @@ impl DetachedMapReader {
     ///
     /// `map` must be the map this reader was registered against; reading a
     /// different map through it would validate against the wrong collector.
+    ///
+    /// See [`MapReader::get`] for the reclamation contract when `u64` values are
+    /// locators into an external epoch-reclaimed store.
     #[must_use]
     pub fn get(&self, map: &SyncExpanseMap, key: Key) -> Option<u64> {
         map_get_with(map, &self.reader, key)
@@ -9725,6 +9754,34 @@ impl DetachedMapReader {
 
 impl MapReader<'_> {
     /// Optimistic lookup.
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When `u64` values stored in this map are addresses or locators into a caller's
+    /// external epoch-reclaimed store, note that expanse's epoch pin protects
+    /// **expanse's internal memory only** (trie nodes). The lookup returns the value
+    /// *after* the reader has unpinned from expanse's private collector, and expanse's
+    /// collector cannot defer reclamation of caller-owned memory.
+    ///
+    /// To keep the caller record behind a locator alive across lookup and dereference,
+    /// compose epochs using standard epoch composition:
+    ///
+    /// 1. **Pin the caller's store before `get`**: The reading thread must pin its
+    ///    own epoch reclaimer before calling `get`. The locator returned by `get` is
+    ///    read after that pin in program order and validated against the node or tree
+    ///    version word.
+    /// 2. **Dereference under the caller pin**: Access the record payload while the
+    ///    caller store pin remains active.
+    /// 3. **Writer retirement order**: When a writer overwrites or removes a key via
+    ///    [`SyncExpanseMap::insert`] or [`SyncExpanseMap::remove`], the writer must retire
+    ///    the old record in the caller's store **only after** `insert` / `remove`
+    ///    returns. Because `insert` / `remove` bumps and closes the version bracket before
+    ///    returning, any reader that validated the old locator was pinned in the caller's
+    ///    store at or before the retirement epoch.
+    ///
+    /// This protocol requires the caller's reclaimer to enforce `SeqCst` ordering between
+    /// its pin store and subsequent loads, and between the index update and its retire-side
+    /// epoch load (e.g. `crossbeam-epoch` and expanse's own [`Collector`] both do).
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(self.map, &self.reader, key)
@@ -11475,6 +11532,16 @@ impl SyncExpanseStrMap {
     /// mutation serialises on the writer mutex under the whole-operation
     /// tree bracket instead — the protocol this replaced, kept so it can
     /// be measured against (AGENTS.md §2.7).
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When storing locators or addresses into an external epoch-reclaimed store,
+    /// the writer must **not retire the old record until after `insert` returns**.
+    /// Expanse's internal collector protects only trie nodes and suffix leaves;
+    /// `insert` validates and publishes the new value under version bracketing before
+    /// returning. Retiring the replaced record only after `insert` returns guarantees
+    /// that any reader that observed the old locator was pinned in the caller's store
+    /// at or before the retirement epoch. See [`StrReader::get`].
     pub fn insert(&self, key: &NulFreeStr, val: u64) -> Option<u64> {
         crate::occ_stats::bump(crate::occ_stats::Stat::Inserts);
         #[cfg(feature = "ablation-str-serial-writers")]
@@ -11512,6 +11579,16 @@ impl SyncExpanseStrMap {
     /// [`Self::insert`]: an emptied node is pruned under its own and its
     /// parent's cover when both can be taken, and by the serialised path
     /// otherwise — the removal itself is never redone.
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When storing locators or addresses into an external epoch-reclaimed store,
+    /// the writer must **not retire the removed record until after `remove` returns**.
+    /// Expanse's internal collector protects only trie nodes and suffix leaves;
+    /// `remove` unlinks the entry under version bracketing before returning. Retiring
+    /// the removed record only after `remove` returns guarantees that any reader that
+    /// observed the locator was pinned in the caller's store at or before the retirement
+    /// epoch. See [`StrReader::get`].
     pub fn remove(&self, key: &NulFreeStr) -> Option<u64> {
         #[cfg(feature = "ablation-str-serial-writers")]
         {
@@ -11590,6 +11667,9 @@ impl SyncExpanseStrMap {
 
     /// One-shot lookup (registers a throwaway reader; use [`Self::reader`]
     /// in hot loops).
+    ///
+    /// See [`StrReader::get`] for the reclamation contract when `u64` values are
+    /// locators into an external epoch-reclaimed store.
     #[must_use]
     pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
         self.reader().get(key)
@@ -11881,6 +11961,29 @@ impl StrReader<'_> {
     /// Optimistic lookup: a bounded, validated cascade across the sub-tries
     /// (one hop per 8 key bytes), falling back to the writer lock after
     /// bounded retries.
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When `u64` values stored in this map are addresses or locators into a caller's
+    /// external epoch-reclaimed store, note that expanse's epoch pin protects
+    /// **expanse's internal memory only** (trie nodes and suffix leaves). The lookup
+    /// returns the value *after* the reader has unpinned from expanse's private collector,
+    /// and expanse's collector cannot defer reclamation of caller-owned memory.
+    ///
+    /// To keep the caller record behind a locator alive across lookup and dereference,
+    /// compose epochs using standard epoch composition:
+    ///
+    /// 1. **Pin the caller's store before `get`**: The reading thread must pin its
+    ///    own epoch reclaimer before calling `get`. The locator returned by `get` is
+    ///    read after that pin in program order and validated against node/tree version words.
+    /// 2. **Dereference under the caller pin**: Access the record payload while the
+    ///    caller store pin remains active.
+    /// 3. **Writer retirement order**: When a writer overwrites or removes a key via
+    ///    [`SyncExpanseStrMap::insert`] or [`SyncExpanseStrMap::remove`], the writer must
+    ///    retire the old record in the caller's store **only after** `insert` / `remove`
+    ///    returns.
+    ///
+    /// See [`MapReader::get`] for the full protocol details and memory ordering constraints.
     #[must_use]
     pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
         let shared = &self.map.shared;
@@ -13086,6 +13189,106 @@ mod miri_tests {
             let want = if i < SHRINK_KEYS / 2 { !i } else { i };
             assert_eq!(map.get(splitmix64(i)), Some(want));
         }
+    }
+
+    /// #1141: reclamation contract for u64 values used as locators into a caller's
+    /// epoch-reclaimed store.
+    ///
+    /// When `unpin_before_use == false`, the caller pins its own store before reading
+    /// the map and holds the pin across the use of the record. When the key is
+    /// overwritten and the old record is retired, the store cannot advance past
+    /// the reader's epoch, so the sentinel record remains untouched and intact.
+    ///
+    /// When `unpin_before_use == true` (the seeded loser), the caller drops the
+    /// store pin before using the record. The store advances past the retirement,
+    /// reclaiming the block onto the collector's freelist, which writes the freelist
+    /// link into the first word and clobbers the sentinel without UB.
+    fn locator_reclamation_contract_under_miri(unpin_before_use: bool) {
+        let store = Arc::new(Collector::new());
+        let store_reader = store.register();
+
+        const SENTINEL: u64 = 0xCAFE_BABE_DEAD_BEEF;
+        let layout = core::alloc::Layout::from_size_align(64, 16).unwrap();
+        // RAII guard to prevent memory leaks if an assertion panics before retirement.
+        struct AllocGuard {
+            ptr: core::ptr::NonNull<u8>,
+            layout: core::alloc::Layout,
+            disarmed: bool,
+        }
+        impl Drop for AllocGuard {
+            fn drop(&mut self) {
+                if !self.disarmed {
+                    // SAFETY: `self.ptr` was allocated with `self.layout` and has not been retired or deallocated.
+                    unsafe { std::alloc::dealloc(self.ptr.as_ptr(), self.layout) };
+                }
+            }
+        }
+        // SAFETY: `layout` has non-zero size (64 bytes).
+        let raw = core::ptr::NonNull::new(unsafe { std::alloc::alloc(layout) }).expect("alloc");
+        let mut guard = AllocGuard {
+            ptr: raw,
+            layout,
+            disarmed: false,
+        };
+        // SAFETY: `raw` points to freshly allocated, properly aligned 64-byte memory.
+        unsafe {
+            raw.as_ptr().cast::<u64>().write(SENTINEL);
+        }
+        let record_addr = raw.as_ptr() as usize as u64;
+
+        let map = SyncExpanseMap::new();
+        let key = 0x1234_5678;
+        assert_eq!(map.insert(key, record_addr), None);
+        let reader = map.reader();
+
+        // Caller pins its own store before lookup
+        let mut maybe_pin = Some(store_reader.pin());
+        let val = reader.get(key).expect("key present");
+        assert_eq!(val, record_addr);
+        let rec_ptr = val as usize as *const u64;
+
+        if unpin_before_use {
+            // Loser: drops the caller store pin before using the record
+            maybe_pin = None;
+        }
+
+        // Overwrite key and retire old record to store collector
+        let old = map.insert(key, 0x9999).expect("key present");
+        assert_eq!(old, record_addr);
+        guard.disarmed = true;
+        // SAFETY: `raw` has layout `(64, 16)`, was unlinked from map, and ownership transferred to store.
+        unsafe { store.retire(raw, 64, 16) };
+
+        // Attempt to advance store epoch BINS + 1 times
+        for _ in 0..=crate::occ::BINS {
+            store.try_advance();
+        }
+
+        // SAFETY: When `unpin_before_use` is false, `store` was pinned before lookup and is still pinned,
+        // so the retired block remains valid memory. When `unpin_before_use` is true, the block was
+        // recycled into `store`'s freelist, so the address remains valid allocated memory within the collector.
+        let read_sentinel = unsafe { *rec_ptr };
+        assert_eq!(
+            read_sentinel, SENTINEL,
+            "sentinel record clobbered by premature reclamation"
+        );
+
+        drop(maybe_pin);
+        for _ in 0..=crate::occ::BINS {
+            store.try_advance();
+        }
+        store.drain();
+    }
+
+    #[test]
+    fn sync_locator_reclamation_caller_pin_preserves_sentinel_under_miri() {
+        locator_reclamation_contract_under_miri(false);
+    }
+
+    #[test]
+    #[should_panic(expected = "sentinel record clobbered by premature reclamation")]
+    fn sync_locator_reclamation_unpin_before_use_clobbers_sentinel_under_miri() {
+        locator_reclamation_contract_under_miri(true);
     }
 }
 

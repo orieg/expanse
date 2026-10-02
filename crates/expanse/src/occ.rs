@@ -1205,7 +1205,7 @@ pub(crate) fn node_validate(v: &VersionCell, snap: u32) -> bool {
 /// the global epoch has advanced twice past its retirement epoch: every
 /// reader pinned at retirement time has since unpinned.
 #[cfg(feature = "std")]
-const BINS: usize = 3;
+pub(crate) const BINS: usize = 3;
 
 /// A reader-registration slot: the epoch the reader is pinned at, or
 /// [`INACTIVE`].
@@ -3779,6 +3779,110 @@ mod loom_tests {
             writer.join().unwrap();
             drop(reader);
         });
+    }
+
+    /// Interleaving of reader-pin / validate / writer-swap / retire / advance
+    /// for values used as locators into a caller's epoch-reclaimed store (issue #1141).
+    ///
+    /// When `unpin_before_use == false` (the winning contract), the reader pins the
+    /// caller store before sampling the index and holds the pin across its use of
+    /// the record. The writer updates the index under version bracketing, retires
+    /// the old record, and advances the store's epoch. Because the reader holds
+    /// its pin, the store can advance at most once, and the retired record cannot
+    /// be reclaimed while the reader uses it.
+    ///
+    /// When `unpin_before_use == true` (the loser), the reader unpins immediately
+    /// after index validation. The writer's advances both succeed, reclaiming the
+    /// record and clobbering its first word via the freelist link, causing the
+    /// use-time assertion to fail.
+    fn locator_reclamation_interleaving(unpin_before_use: bool) {
+        loom::model(move || {
+            let store = Arc::new(Collector::new());
+            let store_reader = store.register();
+            let tree_v = Arc::new(SeqVersion::new());
+            let slot = Arc::new(AtomicU64::new(1)); // 1 = initial locator
+            let retired = Arc::new(AtomicBool::new(false));
+
+            let layout = Layout::from_size_align(64, 16).unwrap();
+            // SAFETY: fresh test allocation.
+            let ptr = NonNull::new(unsafe { std::alloc::alloc_zeroed(layout) }).unwrap();
+            const SENTINEL: u64 = 0xCAFE_BABE_DEAD_BEEF;
+            // SAFETY: `ptr` was just allocated above with sufficient size and alignment.
+            unsafe {
+                ptr.as_ptr().cast::<u64>().write(SENTINEL);
+            }
+
+            let (store_w, tree_vw, slot_w, retired_w) = (
+                Arc::clone(&store),
+                Arc::clone(&tree_v),
+                Arc::clone(&slot),
+                Arc::clone(&retired),
+            );
+            let writer = loom::thread::spawn(move || {
+                // Writer swap: update index under version bracket
+                tree_vw.begin();
+                slot_w.store(2, Ordering::Relaxed); // 2 = replacement locator
+                tree_vw.end();
+
+                // Writer retires old locator only after index update returns
+                // SAFETY: `ptr` is unlinked from the index and retired to store.
+                unsafe { store_w.retire(ptr, 64, 16) };
+                retired_w.store(true, Ordering::Release);
+
+                // Advancer advances store epoch twice
+                store_w.try_advance();
+                store_w.try_advance();
+            });
+
+            // Reader: pins caller store, then performs optimistic index lookup
+            let mut maybe_pin = Some(store_reader.pin());
+            let snap = tree_v.sample();
+            let val = slot.load(Ordering::Relaxed);
+            let valid = tree_v.validate(snap);
+
+            if unpin_before_use {
+                // Loser: drops store pin before use
+                maybe_pin = None;
+            }
+
+            let mut violation = false;
+            if valid && val == 1 {
+                // Valid read returned the old locator: check that the record is intact
+                // SAFETY: `ptr` is valid and remains accessible while `maybe_pin` is held.
+                let rec_val = unsafe { ptr.as_ptr().cast::<u64>().read() };
+                let was_retired = retired.load(Ordering::Acquire);
+                if rec_val != SENTINEL || (was_retired && store.retained_bytes() != 64) {
+                    violation = true;
+                }
+            }
+
+            drop(maybe_pin);
+
+            writer.join().unwrap();
+            drop(store_reader);
+            store.try_advance();
+            store.try_advance();
+            store.try_advance();
+            store.drain();
+
+            assert!(
+                !violation,
+                "record in caller store was reclaimed while reader still using locator"
+            );
+        });
+    }
+
+    #[test]
+    fn loom_sync_locator_reclamation_reader_pin_protects_use() {
+        locator_reclamation_interleaving(false);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "record in caller store was reclaimed while reader still using locator"
+    )]
+    fn loom_sync_locator_reclamation_unpin_before_use_fails() {
+        locator_reclamation_interleaving(true);
     }
 
     /// One thread pins through a handle while a sibling thread pins and
