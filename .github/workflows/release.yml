@@ -592,6 +592,8 @@ jobs:
     permissions:
       contents: write # create the release and upload assets
       actions: write # dispatch python.yml for the PyPI publish
+      id-token: write # Sigstore OIDC token for build provenance
+      attestations: write # create GitHub artifact attestations
     steps:
       - uses: actions/checkout@v7
       - name: Download artifacts
@@ -600,16 +602,71 @@ jobs:
           pattern: release-artifacts-*
           merge-multiple: true
           path: artifacts
+      - name: Install cargo-cyclonedx
+        run: scripts/install_cyclonedx.sh
+      - name: Generate CycloneDX SBOM
+        run: |
+          set -euo pipefail
+          CARGO_LOCKED=true cargo cyclonedx --format json --spec-version 1.5 --override-filename expanse.cdx
+          cp crates/expanse-capi/expanse.cdx.json artifacts/expanse.cdx.json
+          cp crates/expanse/expanse.cdx.json artifacts/expanse-trie.cdx.json
+          rm -f crates/*/*.cdx.json
       - name: Generate SHA256SUMS
         run: |
           cd artifacts
           sha256sum ./* > SHA256SUMS
+      - id: provenance
+        name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/expanse-*.tar.gz
+            artifacts/expanse-*.zip
+            artifacts/*.deb
+            artifacts/*.rpm
+      - id: sbom-attestation
+        name: Attest CycloneDX SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/expanse-*.tar.gz
+            artifacts/expanse-*.zip
+            artifacts/*.deb
+            artifacts/*.rpm
+          sbom-path: artifacts/expanse.cdx.json
+      # The same attestation, attached to the release so it can be verified offline
+      # (`gh attestation verify <archive> --bundle expanse.intoto.jsonl`) and found
+      # by tools that read release assets (OpenSSF Scorecard Signed-Releases).
+      - name: Attach the provenance bundle
+        shell: bash
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          [ -s "${BUNDLE}" ] || { echo "::error::no attestation bundle at '${BUNDLE}'"; exit 1; }
+          cp "${BUNDLE}" artifacts/expanse.intoto.jsonl
       - name: Create Release
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: artifacts/*
           generate_release_notes: true
+      - name: Verify provenance attestations
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Verifying build provenance on released archives..."
+          for f in artifacts/expanse-*.tar.gz artifacts/expanse-*.zip; do
+            [ -f "${f}" ] || continue
+            echo "Verifying ${f}..."
+            gh attestation verify "${f}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
+          done
+          echo "All release archive attestations verified successfully."
       # Nested Go module versioning (#322): `go get .../bindings/go@vX.Y.Z`
       # only resolves a pinned release if a `bindings/go/vX.Y.Z` tag exists.
       - name: Push Go nested-module tag

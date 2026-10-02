@@ -142,8 +142,8 @@ Templates in `extra/pkgconfig/`:
 
 ---
 
-### 2.6 Multi-Platform GitHub Release Archives
-Every GitHub release bundles precompiled native archives:
+### 2.6 Multi-Platform GitHub Release Archives, SBOM & Signed Provenance
+Every GitHub release bundles precompiled native archives and supply-chain attestations:
 - `expanse-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` (glibc + hwcaps)
 - `expanse-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz` (static Alpine Linux)
 - `expanse-vX.Y.Z-aarch64-apple-darwin.tar.gz` (Apple Silicon macOS)
@@ -151,7 +151,26 @@ Every GitHub release bundles precompiled native archives:
 - `expanse-vX.Y.Z-x86_64-pc-windows-msvc.zip` (Windows MSVC)
 - `.deb` packages for Debian/Ubuntu
 - `expanse.rb` and `Portfile` — the rendered Homebrew formula and MacPorts Portfile for that release (§2.15)
-- `SHA256SUMS` cryptographic manifest
+- `SHA256SUMS` cryptographic checksum manifest
+- `expanse.cdx.json` & `expanse-trie.cdx.json` — CycloneDX v1.5 JSON Software Bill of Materials (SBOM) for the C ABI and core engine
+- `expanse.intoto.jsonl` — Sigstore in-toto SLSA build provenance attestation bundle
+
+#### Verifying Release Integrity and Build Provenance
+Releases are signed with cryptographic build provenance and SBOM attestations using GitHub Actions and Sigstore:
+
+```bash
+# 1. Verify SHA-256 checksums
+sha256sum --check --ignore-missing SHA256SUMS
+
+# 2. Cryptographically verify build provenance online via GitHub CLI and Sigstore
+gh attestation verify expanse-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz \
+  --repo orieg/expanse \
+  --signer-workflow orieg/expanse/.github/workflows/release.yml
+
+# 3. Cryptographically verify build provenance offline using the attached bundle
+gh attestation verify expanse-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz \
+  --bundle expanse.intoto.jsonl
+```
 
 ### 2.7 Python Wheels (`pip install expanse-trie`) & PyPI Distribution
 Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels across Linux (`x86_64`, `aarch64`), macOS (`arm64`, `x86_64`), and Windows (`x86_64`).
