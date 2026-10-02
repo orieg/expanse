@@ -2258,7 +2258,8 @@ impl Collector {
     /// Frees everything still queued in garbage bins and size-class freelists.
     /// Only sound once no reader can be pinned (the owning wrapper calls this
     /// on drop, when exclusive ownership proves that).
-    pub(crate) fn drain(&self) {
+    #[doc(hidden)]
+    pub fn drain(&self) {
         for b in 0..BINS {
             for stripe in 0..NUM_EPOCH_STRIPES {
                 // Every stripe, whatever its flag says: nothing may
@@ -2481,6 +2482,73 @@ impl Drop for Collector {
     fn drop(&mut self) {
         // Frees queued garbage bins and size-class freelists.
         self.drain();
+    }
+}
+
+/// Test harness: holds a deferred tree and its associated [`Collector`] and
+/// tree-level [`SeqVersion`] word for OCC differential parity tests.
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+#[doc(hidden)]
+pub struct DeferredTestTree<T> {
+    pub tree: T,
+    pub collector: Arc<Collector>,
+    _word: core_alloc::boxed::Box<SeqVersion>,
+    engine_covers_root: bool,
+}
+
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+impl<T> DeferredTestTree<T> {
+    #[must_use]
+    pub fn new(
+        tree: T,
+        collector: Arc<Collector>,
+        word: core_alloc::boxed::Box<SeqVersion>,
+        engine_covers_root: bool,
+    ) -> Self {
+        Self {
+            tree,
+            collector,
+            _word: word,
+            engine_covers_root,
+        }
+    }
+
+    #[inline(always)]
+    pub fn drain(&self) {
+        self.collector.drain();
+    }
+
+    #[must_use]
+    #[inline(always)]
+    pub fn collector(&self) -> &Arc<Collector> {
+        &self.collector
+    }
+}
+
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+impl<T> core::ops::Deref for DeferredTestTree<T> {
+    type Target = T;
+    #[inline(always)]
+    fn deref(&self) -> &T {
+        &self.tree
+    }
+}
+
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+impl<T> core::ops::DerefMut for DeferredTestTree<T> {
+    #[inline(always)]
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.tree
+    }
+}
+
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+impl<T> Drop for DeferredTestTree<T> {
+    fn drop(&mut self) {
+        if !self.engine_covers_root {
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::leave(core::ptr::without_provenance(usize::MAX));
+        }
     }
 }
 

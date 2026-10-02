@@ -338,6 +338,14 @@ impl ExpanseSet {
         self.alloc.bytes_in_use()
     }
 
+    /// Number of live allocations in this set's allocator (diagnostics / testing).
+    #[doc(hidden)]
+    #[must_use]
+    #[inline(always)]
+    pub fn live_allocs(&self) -> usize {
+        self.alloc.live_allocs()
+    }
+
     /// Heap bytes the set holds from the system allocator: [`Self::mem_used`]
     /// plus the freed blocks its allocator keeps on per-tree freelists for
     /// reuse and the unused part of the slab pages small nodes are carved
@@ -1239,6 +1247,26 @@ impl ExpanseSet {
             Root::Tree { top } => RootSnapshot::Tree { top: *top },
         };
         (snap, &self.alloc)
+    }
+
+    /// Test helper: creates an `ExpanseSet` deferred to a fresh `Collector`,
+    /// configured for OCC testing in either covering mode (`engine_covers_root`).
+    #[cfg(all(feature = "std", target_pointer_width = "64"))]
+    #[doc(hidden)]
+    pub fn deferred_for_test(engine_covers_root: bool) -> crate::occ::DeferredTestTree<Self> {
+        let word = core_alloc::boxed::Box::new(crate::occ::SeqVersion::new());
+        let s = Self::new();
+        let collector = std::sync::Arc::new(crate::occ::Collector::new());
+        s.alloc.defer_to(std::sync::Arc::clone(&collector));
+        // SAFETY: `word` is heap-pinned by Box inside DeferredTestTree, which outlives `s`.
+        unsafe { s.alloc.bind_tree_word(core::ptr::from_ref(&*word)) };
+        if engine_covers_root {
+            s.alloc.cover_root();
+        } else {
+            #[cfg(debug_assertions)]
+            crate::alloc::bracket_stack::enter(core::ptr::without_provenance(usize::MAX));
+        }
+        crate::occ::DeferredTestTree::new(s, collector, word, engine_covers_root)
     }
 
     #[cfg(test)]
