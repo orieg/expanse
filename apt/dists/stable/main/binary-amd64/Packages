@@ -1,31 +1,31 @@
-Package: libexpanse-dev
-Version: 0.10.0
-Architecture: amd64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine development files (headers, static library, man pages).
-Filename: pool/main/libexpanse-dev_0.10.0_amd64.deb
-Size: 8103360
-SHA256: 46ba4ac53a30522bbe9a183fe27e02383b53f2053d777da34a66a44017af6ec1
-Depends: libexpanse1 (= 0.10.0)
-
 Package: libexpanse1
-Version: 0.10.0
+Version: 0.10.1
 Architecture: amd64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
-Filename: pool/main/libexpanse1_0.10.0_amd64.deb
-Size: 1289032
-SHA256: 41fa221fcd1a77b1cd963a718bb4bcdbb6aee541edaebdf7890515adbcbe61cf
+Filename: pool/main/libexpanse1_0.10.1_amd64.deb
+Size: 1287666
+SHA256: 361915d84468e380bde18c00b876db11ed578ecce5a16ac7cfc96151bc1678b9
+
+Package: libexpanse-dev
+Version: 0.10.1
+Architecture: amd64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine development files (headers, static library, man pages).
+Filename: pool/main/libexpanse-dev_0.10.1_amd64.deb
+Size: 8134978
+SHA256: 5d701dbaad5563e65b82d0980e9967aa2f43189031fb34b190df77ce9a1daf69
+Depends: libexpanse1 (= 0.10.1)
 
 Package: libjudy-compat
-Version: 0.10.0
+Version: 0.10.1
 Architecture: amd64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
-Filename: pool/main/libjudy-compat_0.10.0_amd64.deb
-Size: 7880
-SHA256: 23708e9daf4ff0f75ea475ecc3dcc6fcfe44afdccc93937055fa248ec7d1822e
-Depends: libexpanse1 (= 0.10.0)
+Filename: pool/main/libjudy-compat_0.10.1_amd64.deb
+Size: 7876
+SHA256: f19d316c7426de2a4b153a939d398f65dd680c3ae3ad0dfda73414ebe6c3a8b8
+Depends: libexpanse1 (= 0.10.1)
 Provides: libjudy
 Conflicts: libjudy
 
