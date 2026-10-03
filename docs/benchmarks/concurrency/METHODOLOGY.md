@@ -4490,3 +4490,121 @@ No tree mutation entry point is added. Phase 2 stores slots through the existing
 - **Out of scope:**
   - the writers' wait, which is item 5;
   - the free's placement, which gets its own record on #1300.
+
+## 31. Pre-registration for #1320 — incremental blob arena compaction and bounded per-insert evacuation (appended 2026-10-03, locked before any engine code of the change below; next free section, may be renumbered at merge)
+
+### 31.1 Context
+
+Compaction at the arena cap is currently $O(\text{live records})$ executed synchronously inside a single triggering insert. On `SyncExpanseBlobMap` (W = 1, 4, 12) and `ExpanseBlobMap`, the largest insert latency measured at 3,600,000 live 128 B records is 302.5–320.1 ms (README §29–§30, `results/gate_1300_split_h_run{1,2}.json`).
+
+Where the time goes (README §29.1, `results/step0_1300_phases/probe.log`):
+- payload copy (phase 1): 217.0–231.3 ms (57.3–64.2 ns per live record);
+- index collect: 34.2–36.4 ms;
+- slot rewrite: 24.8–26.5 ms.
+
+While #1318 split the reader bracket so readers no longer wait for phase 1, writers still wait for all of it. To eliminate this stall, compaction transitions from a whole-arena bulk copy to bounded incremental evacuation (log-structured segment cleaning; Rosenblum & Ousterhout 1992 §4; Baker 1978; Cormen et al. §17.4):
+1. Per-chunk live counters, to select candidate victim chunks by highest dead share.
+2. An 8-byte key stored directly in each record header (`BlobRecordHeader { key: u64, len: u32, generation: u32 }`). When records in a victim chunk are relocated, the key enables compactor reverse lookup from evacuated record to index slot and direct rewrite without scanning the entire index ($O(1)$ per evacuated record vs $O(\text{index})$ whole-index traversal).
+3. A partial evacuation reclaim rule budgeting bounded copies per insert.
+
+### 31.2 Mathematical derivations and bounds (`scripts/blob_reclaim_bounds.py`)
+
+All quantities and thresholds below are computed by pure functions in `scripts/blob_reclaim_bounds.py` (Rule 12 / §8.8 commit 1; no hand arithmetic):
+
+1. **Header layout and record needed:**
+   - Baseline: 8-byte header (`len: u32`, `generation: u32`). `record_needed(128)` = 136 B.
+   - Keyed header: 16-byte header (`key: u64`, `len: u32`, `generation: u32`; `KEYED_RECORD_HEADER_BYTES = 16`). `keyed_record_needed(128)` = 144 B.
+   - Stride: records are aligned to 16 bytes (`ARENA_ALIGN = 16`). `keyed_record_stride(128)` = 144 B (identical to baseline stride of 144 B).
+
+2. **Chunk density and records per chunk:**
+   - At default chunk size (2 MiB, 2,097,152 B):
+     - `records_per_chunk(128, 2 MiB)` = 14,563.
+     - `keyed_records_per_chunk(128, 2 MiB)` = 14,563.
+     - Because 128 B payloads with 8 B headers required 136 B and padded to 144 B, the additional 8-byte key fits within the existing 8-byte alignment tail. Records per chunk is strictly preserved for 128 B payloads.
+
+3. **Sustained-live bound:**
+   - With 8 B headers: `max_sustained_live_records(128, 2 MiB, 1 GiB)` = 3,830,069 records (fills 263 chunks).
+   - With 16 B headers: `keyed_max_sustained_live_records(128, 2 MiB, 1 GiB)` = 3,728,128 records (fills exactly 256 chunks: $3,728,128 \times 144 = 536,850,432 \le 256 \times 2\text{ MiB} = 536,870,912$).
+   - Condition (B) waste guard requires $2 \times L \times 144 < 2^{30} \implies L \le 3,728,270$, so condition (A) binds at 3,728,128.
+
+4. **Density cost:**
+   - At 128 B payload, 2 MiB chunks and 1 GiB cap:
+     - `density_cost_records(128, 2 MiB, 1 GiB)` = 101,941 records.
+     - `density_cost_ratio(128, 2 MiB, 1 GiB)` = 2.66% ($101,941 / 3,830,069 \approx 0.026616$).
+   - For small unpadded payloads (e.g. 8 B), where records packed without padding (16 B vs 32 B stride), density loss is 42.97% (`density_cost_ratio(8, 2 MiB, 1 GiB)` = 0.4297).
+
+5. **Per-insert copy bound:**
+   - Continuous incremental evacuation:
+     - Steady-state copy per append at 3,600,000 live records: `incremental_per_insert_copy_records(3_600_000, 128, 2 MiB, 1 GiB)` = 1 record per insert.
+     - `incremental_per_insert_copy_bytes(3_600_000, 128, 2 MiB, 1 GiB)` = 144 B per insert (`per_insert_copy_bound(128, 2 MiB, 1 GiB, 3_600_000)` = 144 B).
+   - Chunk-wise victim evacuation:
+     - Under the waste guard ($u < 0.5$), the victim chunk selected by lowest live utilization holds at most:
+       `victim_chunk_max_live_records(128, 2 MiB)` = $\lfloor 14,563 / 2 \rfloor = 7,281$ records.
+       `victim_chunk_max_live_bytes(128, 2 MiB)` = $7,281 \times 144 = 1,048,464$ B ($\le 1\text{ MiB}$; `per_insert_copy_bound(128, 2 MiB, 1 GiB)` = 1,048,464 B).
+
+6. **Writer-stall projection and target gate ceiling:**
+   - Evacuating at most 7,281 live records:
+     `predicted_incremental_stall_ns(128, 2 MiB)` = 467,757 ns $\approx 0.468\text{ ms}$ `(projected)` (derived via `step0_max_phase1_ns_per_record()` = 64.244 ns/record from committed artifact `STEP0_PROBE_LOG`, `docs/benchmarks/concurrency/results/step0_1300_phases/probe.log`; cf. README §29.1, `docs/benchmarks/concurrency/README.md:5674–5675`: phase 1 copy costs 60.3–64.2 ns per record at 3,600,000 live records).
+   - Direct index-slot rewrite cost under partial evacuation is an unmeasured empirical residual, bounded above by single-probe write cost ($O(1)$ per evacuated record via header key).
+   - Gate ceiling: largest insert latency $\le 5.0\text{ ms}$ `(target)` — maintainer policy providing a $>60\times$ reduction from the 302.5–320.1 ms whole-arena baseline and a $\sim 10\times$ operational margin over the 0.468 ms projected copy stall to absorb index slot rewrites and tail dispersion across writer counts.
+
+### 31.3 The change
+
+- **Format change (`crates/expanse/src/blobmap.rs`):**
+  - Extend `BlobRecordHeader` from 8 bytes to 16 bytes:
+    ```rust
+    #[repr(C, packed)]
+    pub struct BlobRecordHeader {
+        pub key: u64,
+        pub len: u32,
+        pub generation: u32,
+    }
+    ```
+  - Update `read_record` to validate 16-byte header bounds and offset payload pointers by 16 bytes.
+- **Binary image format version bump:**
+  - `EXPANSE_FORMAT_VERSION` will bump from `2` to `3`. Older version 2 images will be rejected explicitly with a format version error on load.
+- **Per-chunk live accounting:**
+  - Add per-chunk live byte/record counters to `BlobArena` to identify candidate victim chunks by highest dead share.
+- **Partial evacuation path:**
+  - On refused allocation at the cap, select the victim chunk with highest dead share, copy its live records into the active chunk, update each relocated record's index slot directly via its header key, and reclaim the victim chunk.
+
+**Hazards, each with its check:**
+
+| id | hazard | check |
+|---|---|---|
+| H1 | Header format change corrupts OCC readers | `BlobReadGuard::get` validates seqlock bracket via `shared.version().validate(snap)` (`sync.rs:11327`); `read_record` validates 16-byte header bounds and `header.generation != generation` (`blobmap.rs:95`); old chunks remain EBR-live and immutable; Miri test runs concurrent reads through partial evacuation |
+| H2 | Older binary image format loaded without validation | `load_from_file` / `from_bytes_slice` explicitly rejects images with `version != 3` |
+| H3 | Stale index slot points to reclaimed chunk | Atomic slot store updates locator to new chunk before victim chunk is retired |
+| H4 | Non-compaction blob operations pay for header or counters | CI Callgrind arms `blobmap_get`, `blobmap_insert`, `sync_blobmap_get` checked within 0.1% |
+| H5 | Corrupted metadata during partial evacuation | `hot_meta` is preserved in slot writeback; `scan_filtered` differential test passes |
+
+### 31.4 Instrument and protocol
+
+- **Suite:** `reclaim_stall` (§29) on the reference host, 5 rounds per cell, W ∈ {1, 4, 12}, 3,600,000 live 128 B records.
+- **Builds:** B (merge base `7ca19dc7`) and H (head with incremental compaction).
+- **Runs:** dispatched in order B, H, H, B, 5 rounds per cell each.
+- **Callgrind:** CI `instruction-counts` job on PR.
+
+### 31.5 Predictions and gate
+
+| id | quantity | prediction | verdict |
+|---|---|---|---|
+| G1 | at 3,600,000 live, per `SyncExpanseBlobMap` (W = 1, 4, 12) and `ExpanseBlobMap` overwrite cell, largest insert latency | H's BCa 95 % upper bound $\le 5.0\text{ ms}$ `(target)` (predicted copy stall 0.468 ms `(projected)`; vs B's 302.5–320.1 ms) | `PASS` when it holds in all cells in both run pairs; `FAIL` if $> 5.0\text{ ms}$; `INCONCLUSIVE` otherwise |
+| G2 | non-compaction Callgrind arms (`blobmap_get`, `blobmap_insert`, `sync_blobmap_get`, `sync_blobmap_insert`) | within 0.1 % of B | review bound (§6) |
+| G3 | sustained live records under overwrite workload at 128 B, 2 MiB chunks, 1 GiB cap | sustains at least 3,728,128 live records without error | `PASS` / `FAIL` |
+| P4 | density loss at 128 B payload | matches `density_cost_ratio` (2.66 %, 101,941 records) | reported |
+
+**Gate.**
+- G1 `PASS`, G2 review bound met, G3 `PASS`, with all tests and §2.3 five-subsystem audit satisfied: the change merges.
+- G1 `FAIL`: reverted, and measured outcome recorded on #1320.
+- G1 `INCONCLUSIVE`: one more run pair under the same rule.
+
+### 31.6 Not predicted, and out of scope
+
+- **Not predicted:**
+  - read latency of pinned views opened before compaction;
+  - epoch reclamation scheduling of retired chunks.
+- **Out of scope:**
+  - engine implementation code (deferred per plan until pre-registration lands);
+  - 32-bit embedded `ExpanseBlobMap32` (fixed 4,096-slot arena);
+  - variable-length or non-integer key headers.
