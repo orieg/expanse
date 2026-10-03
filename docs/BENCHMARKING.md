@@ -1761,6 +1761,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map_prev` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `map_rebuild_drained` | `random60` | 62,500 |
 | `cost` | `map_refill` | `random` | 100,000 |
+| `cost` | `map_regrow_after_shrink` | `random60` | 137,500 |
 | `cost` | `map_remove` | `random` | 50,000 |
 | `cost` | `map_remove_partial` | `random60` | 137,500 |
 | `cost` | `map_shrink_drained` | `random60` | 62,500 |

@@ -7,10 +7,15 @@ with reference-pinned unit tests) and AGENTS.md §8.8 (Commit 1 Step 0).
 
 Primary sources:
   - Linux Programmer's Manual, madvise(2): MADV_DONTNEED behaviour on private anonymous memory.
+  - Linux Programmer's Manual, mallopt(3):
+      "Nowadays, glibc uses a dynamic mmap threshold by default. The initial value of the
+       threshold is 128*1024, but when blocks larger than the current threshold and less
+       than or equal to DEFAULT_MMAP_THRESHOLD_MAX are freed, the threshold is adjusted
+       upward to the size of the freed block."
   - The GNU C Library Reference Manual:
-      * §3.2.2.4 "Aligned Memory Blocks" (posix_memalign, memalign chunk splitting and free chunk returns)
-      * §3.2.2.8 "Malloc Tunable Parameters" (M_MMAP_THRESHOLD dynamic mmap boundary)
-  - Linux Programmer's Manual, mallopt(3) & posix_memalign(3).
+      * §3.2.2.4 "Aligned Memory Blocks" (posix_memalign chunk splitting and free chunk returns)
+      * §3.2.2.8 "Malloc Tunable Parameters" (dynamic M_MMAP_THRESHOLD)
+  - Linux Programmer's Manual, mmap(2) & posix_memalign(3).
   - Wilson, P. R., Johnstone, M. S., Neely, M., & Boles, D. (1995). "Dynamic storage allocation:
     A survey and critical review." International Workshop on Memory Management, Springer, LNCS 986.
 """
@@ -64,9 +69,10 @@ def glibc_mmap_threshold_padding(
       mmap(2) maps anonymous memory page-aligned (4096-aligned) by the OS kernel,
       resulting in EXACTLY 0 bytes of alignment padding.
 
-      For allocations < M_MMAP_THRESHOLD, posix_memalign allocates from the brk heap
-      and splits off leading padding (up to page_size - malloc_alignment = 4080 B),
-      returning it to glibc free bins (fordblks).
+      However, mallopt(3) notes that glibc dynamically adjusts M_MMAP_THRESHOLD upward
+      when large blocks are freed. To completely eliminate dynamic thresholding and
+      guarantee zero alignment padding across all shrink/grow cycles, Linux directly
+      invokes mmap(MAP_PRIVATE | MAP_ANONYMOUS).
     """
     if region_size <= 0 or mmap_threshold <= 0 or page_size <= 0 or malloc_alignment <= 0:
         raise ValueError("parameters must be strictly positive")
@@ -99,8 +105,8 @@ def region_header_overhead_ratio(
 ) -> float:
     """Calculates memory overhead ratio of the intrusive per-region metadata header.
 
-    The Region header (next, region_base, pages_carved, released_mask, classes[32])
-    occupies header_size (<= 64 B) at offset 0 of Page 0.
+    The Region header (next, next_released, first_released, region_base, pages_carved,
+    released_mask, classes[32]) occupies header_size (<= 64 B) at offset 0 of Page 0.
     """
     if region_pages <= 0 or page_size <= 0 or header_size <= 0:
         raise ValueError("invalid region parameters")
@@ -156,14 +162,15 @@ def pre_shrink_rss_inflation_ratio(
 
 def min_slab_release_ratio_for_g1(
     target_fraction: float = 0.75,
-    unaligned_coalesce_ratio: float = 0.343387,
+    unaligned_coalesce_ratio: float = 0.343387,  # modelling assumption from census baseline
     slab_return_ratio: float = 1.0,
 ) -> float:
     """Calculates minimum fraction of released mem_held that must come from slab pages
     in order for the overall RSS drop to clear Gate G1 (>= target_fraction, 75%).
 
-    F = S_slab * slab_return_ratio + (1 - S_slab) * unaligned_coalesce_ratio >= target_fraction
-    S_slab >= (target_fraction - unaligned_coalesce_ratio) / (slab_return_ratio - unaligned_coalesce_ratio)
+    Falsifiable condition:
+      F = S_slab * slab_return_ratio + (1 - S_slab) * unaligned_coalesce_ratio >= target_fraction
+      S_slab >= (target_fraction - unaligned_coalesce_ratio) / (slab_return_ratio - unaligned_coalesce_ratio)
     """
     if not (0.0 <= target_fraction <= 1.0) or not (0.0 <= unaligned_coalesce_ratio < slab_return_ratio <= 1.0):
         raise ValueError("invalid ratio parameters")
@@ -173,14 +180,14 @@ def min_slab_release_ratio_for_g1(
 def expected_rss_drop(
     released_held: float,
     slab_released_ratio: float = 0.90,
-    unaligned_coalesce_ratio: float = 0.343387,
+    unaligned_coalesce_ratio: float = 0.343387,  # modelling assumption from baseline
     is_region_aligned: bool = True,
 ) -> float:
     """Computes expected RSS drop following shrink_to_fit().
 
     If is_region_aligned=True, fully free slab pages are 4096-aligned and returned
     via madvise(MADV_DONTNEED), guaranteeing 1.0 (100%) physical RSS return for slab pages.
-    Any non-slab released memory recovers RSS at the unaligned coalescence ratio.
+    Any non-slab released memory recovers RSS at the unaligned coalescence ratio (modelling assumption).
     """
     if released_held < 0.0 or not (0.0 <= slab_released_ratio <= 1.0):
         raise ValueError("invalid released memory parameters")
@@ -263,13 +270,13 @@ class TestShrinkRssBounds(unittest.TestCase):
         self.assertEqual(inflation, 0.0)
 
     def test_min_slab_release_ratio_for_gate_g1(self) -> None:
-        # Using empirical baseline coalesce ratio from results/allocator_overhead_a4b03ad5.txt:
-        # unaligned_coalesce_ratio = 1.48 / 4.31 = 0.343387...
-        # Target return fraction = 0.75 (Gate G1)
-        # Required slab fraction: (0.75 - 0.343387) / (1.0 - 0.343387) = 0.61927... (61.93%).
+        # Falsifiable condition: using baseline coalesce ratio from results/allocator_overhead_a4b03ad5.txt:
+        # unaligned_coalesce_ratio = 1.48 / 4.31 = 0.343387... (modelling assumption)
+        # Target return fraction = 0.75 (Gate G1 floor)
+        # S_slab >= (0.75 - 0.343387) / (1.0 - 0.343387) = 0.61927... (61.93%).
         min_slab = min_slab_release_ratio_for_g1(0.75, 0.343387, 1.0)
         self.assertAlmostEqual(min_slab, 0.6193, places=3)
-        self.assertLess(min_slab, 0.65)  # Well below expected slab share of 85-95%
+        self.assertLess(min_slab, 0.65)
 
     def test_commit_a4b03ad5_random_1e7_empirical_pins(self) -> None:
         # Ground truth measured values from results/allocator_overhead_a4b03ad5.txt:
@@ -293,45 +300,29 @@ class TestShrinkRssBounds(unittest.TestCase):
         # Old implementation failed G1: 32.24 > 30.4875
         self.assertGreater(32.24, g1_ceiling)
 
-        # Derived prediction from census artifact (results/allocator_overhead_a4b03ad5.txt):
-        # Total request = 32.70 B/key:
-        #   Slab pages (4096 B, align 64): 51,444 live = 21.07 B/key (64.4% of total requested memory)
-        #   System allocations: 11.62 B/key (35.6% of total requested memory)
-        # When tree retention is released (freelist surplus + empty pages during mutations):
-        # Case A (Conservative: S_slab = 75%):
-        drop_conservative = expected_rss_drop(
+        # Falsifiable condition check (S_slab >= S_min = 61.93%):
+        # Case A: Boundary condition S_slab = 61.93%:
+        drop_bound = expected_rss_drop(
             released_held=4.31,
-            slab_released_ratio=0.75,
+            slab_released_ratio=0.6193,
             unaligned_coalesce_ratio=0.343387,
             is_region_aligned=True,
         )
-        self.assertAlmostEqual(drop_conservative, 3.6028, places=3)  # 3.60 B/key drop
-        self.assertGreater(drop_conservative / 4.31, 0.75)  # 83.6% >= 75%
+        self.assertAlmostEqual(drop_bound / 4.31, 0.75, places=3)  # exactly 75%
 
-        # Case B (Realistic: S_slab = 90%):
-        drop_realistic = expected_rss_drop(
+        # Case B: Projected / assumed condition S_slab = 90% (projected, assumed):
+        drop_projected_90 = expected_rss_drop(
             released_held=4.31,
             slab_released_ratio=0.90,
             unaligned_coalesce_ratio=0.343387,
             is_region_aligned=True,
         )
-        self.assertAlmostEqual(drop_realistic, 4.0270, places=3)  # 4.03 B/key drop
-        self.assertGreater(drop_realistic / 4.31, 0.93)  # 93.4% return fraction
+        self.assertAlmostEqual(drop_projected_90, 4.0270, places=3)  # 4.03 B/key drop
+        self.assertGreater(drop_projected_90 / 4.31, 0.93)  # 93.4% return fraction
 
-        # Case C (Upper bound: S_slab = 95%):
-        drop_upper = expected_rss_drop(
-            released_held=4.31,
-            slab_released_ratio=0.95,
-            unaligned_coalesce_ratio=0.343387,
-            is_region_aligned=True,
-        )
-        self.assertAlmostEqual(drop_upper, 4.1684, places=3)  # 4.17 B/key drop
-        self.assertGreater(drop_upper / 4.31, 0.96)  # 96.7% return fraction
-
-        # All cases clear Gate G1 ceiling (30.4875 B/key):
-        self.assertLess(33.72 - drop_conservative, g1_ceiling)
-        self.assertLess(33.72 - drop_realistic, g1_ceiling)
-        self.assertLess(33.72 - drop_upper, g1_ceiling)
+        # Both clear Gate G1 ceiling:
+        self.assertLess(33.72 - drop_bound, g1_ceiling + 1e-4)
+        self.assertLess(33.72 - drop_projected_90, g1_ceiling)
 
     def test_invalid_parameter_rejections(self) -> None:
         with self.assertRaises(ValueError):

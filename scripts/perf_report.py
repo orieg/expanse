@@ -112,6 +112,7 @@ BENCH_N_MAP: Dict[str, int] = {
     # drained tree.
     "set_shrink_drained": 62_500,
     "map_shrink_drained": 62_500,
+    "map_regrow_after_shrink": 137_500,
     # Bulk construction: `ExpanseMap::from_sorted_iter` and `collect()` over
     # the same 50,000 entries.
     "map_from_sorted_iter": 50_000,
@@ -402,6 +403,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_compact_drained",
             "set_shrink_drained",
             "map_shrink_drained",
+            "map_regrow_after_shrink",
             "map_from_sorted_iter",
             "map_collect",
             "set_subtree_boundary_oscillate",
