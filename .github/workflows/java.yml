@@ -33,6 +33,7 @@ jobs:
   publish-java:
     name: Package & Publish Java (${{ inputs.release_tag }})
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write # attach the jar to the GitHub Release
       actions: read # read the source run's artifacts

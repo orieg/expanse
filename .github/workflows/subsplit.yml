@@ -25,6 +25,7 @@ jobs:
   subsplit-php-library:
     name: Mirror / bindings/php -> orieg/expanse-php-library
     runs-on: ubuntu-latest
+    environment: subsplit
     steps:
       # A tag push is a publish path: a missing key must fail, never report
       # success having mirrored nothing (AGENTS.md 8.1). On main a missing key
@@ -82,6 +83,7 @@ jobs:
   subsplit-php-extension:
     name: Mirror / crates/expanse-php -> orieg/php-expanse
     runs-on: ubuntu-latest
+    environment: subsplit
     steps:
       # A tag push is a publish path: a missing key must fail, never report
       # success having mirrored nothing (AGENTS.md 8.1). On main a missing key

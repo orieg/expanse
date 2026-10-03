@@ -393,11 +393,12 @@ def build_apt_repo(
 
     <div class="card">
       <h2>Quick Setup</h2>
-      <p style="color: var(--text-muted); margin-top: 0.5rem;">Add the repository source to your system:</p>
-      <pre><code># 1. Add repository source
-echo "deb [trusted=yes] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
+      <p style="color: var(--text-muted); margin-top: 0.5rem;">Add the official repository source to your system:</p>
+      <pre><code># 1. Install the repository signing key and add the source
+curl -fsSL https://orieg.github.io/expanse/apt/expanse-archive-keyring.gpg | sudo tee /usr/share/keyrings/expanse-archive-keyring.gpg &gt;/dev/null
+echo "deb [signed-by=/usr/share/keyrings/expanse-archive-keyring.gpg] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
 
-# 2. Update and install runtime, dev headers, and libjudy compat
+# 2. Update apt cache and install runtime, dev headers, and libjudy compat
 sudo apt-get update
 sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
     </div>

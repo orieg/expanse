@@ -186,8 +186,10 @@ def build_rpm_repo(
 name=Expanse Enterprise Linux Repository
 baseurl=https://orieg.github.io/expanse/rpm/
 enabled=1
+# The repository metadata is signed; it pins every package's SHA-256.
+repo_gpgcheck=1
 gpgcheck=0
-repo_gpgcheck=0
+gpgkey=https://orieg.github.io/expanse/rpm/RPM-GPG-KEY-expanse
 """
     with open(os.path.join(output_dir, "expanse.repo"), "w", encoding="utf-8") as f:
         f.write(repo_file_content)
@@ -310,7 +312,7 @@ repo_gpgcheck=0
 
     <div class="card">
       <h2>Quick Setup</h2>
-      <p style="color: var(--text-muted); margin-top: 0.5rem;">Configure the repository using DNF / YUM:</p>
+      <p style="color: var(--text-muted); margin-top: 0.5rem;">Configure the official repository using DNF / YUM:</p>
       <pre><code># 1. Add repository configuration
 sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.repo
 
