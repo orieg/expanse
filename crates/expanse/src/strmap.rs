@@ -24,6 +24,12 @@
 //! - Tag `0`: Pointer to child `StrNode` branch.
 //! - Tag `1`: Pointer to `StrSuffix` leaf, which stores the remaining
 //!   NUL-free key bytes and the user value in a single allocation.
+//!
+//! Callers holding arbitrary byte sequences (including embedded NULs or
+//! binary UUIDs) should use [`crate::ordered_bytesmap::ExpanseOrderedBytesMap`]
+//! for ordered navigation (which escapes transparently above the engine,
+//! preserving lexicographical order) or [`crate::bytesmap::ExpanseBytesMap`]
+//! for hashed, unordered lookups (Refs #808, `docs/ARCHITECTURE.md` §3.7).
 
 use crate::alloc::NodeAlloc;
 use crate::cursor::RawCursor;
@@ -680,10 +686,12 @@ fn is_terminal_scan(chunk: u64) -> bool {
 ///   `strlen` or `CStr::from_ptr`, and [`escape_encode`](crate::domain) output,
 ///   which maps `0x00` away by construction.
 ///
-/// Callers holding arbitrary bytes want either [`ExpanseBytesMap`] (hashed, no
-/// ordered iteration) or the order-preserving escape the domain dictionary
-/// uses; see #808.
+/// Callers holding arbitrary byte sequences (including embedded NULs or
+/// binary UUIDs) want either [`ExpanseOrderedBytesMap`] for ordered navigation
+/// (preserving lexicographical order without premature NUL termination; see #808)
+/// or [`ExpanseBytesMap`] (hashed, no ordered iteration).
 ///
+/// [`ExpanseOrderedBytesMap`]: crate::ordered_bytesmap::ExpanseOrderedBytesMap
 /// [`ExpanseBytesMap`]: crate::bytesmap::ExpanseBytesMap
 #[repr(transparent)]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
