@@ -1249,6 +1249,18 @@ impl ExpanseSet {
         (snap, &self.alloc)
     }
 
+    /// Test helper: whether the inner allocator is deferred to a concurrent epoch collector.
+    #[doc(hidden)]
+    pub fn is_occ_enabled(&self) -> bool {
+        self.alloc.occ_enabled()
+    }
+
+    /// Test helper: whether the inner allocator's engine covers the root.
+    #[doc(hidden)]
+    pub fn is_engine_covers_root(&self) -> bool {
+        self.alloc.engine_covers_root()
+    }
+
     /// Test helper: creates an `ExpanseSet` deferred to a fresh `Collector`,
     /// configured for OCC testing in either covering mode (`engine_covers_root`).
     #[cfg(all(feature = "std", target_pointer_width = "64"))]
@@ -2202,10 +2214,7 @@ impl ExpanseSet {
         Self::from_sorted_keys(keys)
     }
 
-    /// Builds a set from ascending distinct keys into a provided empty set,
-    /// preserving any pre-configured allocator state (e.g. deferred collector
-    /// binding and root cover).
-    pub(crate) fn from_sorted_keys_into(mut out: Self, keys: &[u64]) -> Self {
+    fn from_sorted_keys_dispatch<const OCC: bool>(mut out: Self, keys: &[u64]) -> Self {
         debug_assert!(
             keys.windows(2).all(|w| w[0] < w[1]),
             "keys must be ascending"
@@ -2215,11 +2224,7 @@ impl ExpanseSet {
             return out;
         }
         if n <= ROOT_LEAF_CAP {
-            let leaf = if out.alloc.occ_enabled() {
-                out.alloc.alloc_bytes_dispatch::<true>(root_leaf_size(n))
-            } else {
-                out.alloc.alloc_bytes_dispatch::<false>(root_leaf_size(n))
-            };
+            let leaf = out.alloc.alloc_bytes_dispatch::<OCC>(root_leaf_size(n));
             // SAFETY: `leaf` holds `n` u64 slots (class-sized); write each key.
             unsafe {
                 let dst = leaf.as_ptr().cast::<u64>();
@@ -2230,23 +2235,29 @@ impl ExpanseSet {
             out.root = Root::Leaf { keys: leaf, pop: n };
             return out;
         }
-        let top = if out.alloc.occ_enabled() {
-            // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
-            unsafe { crate::algebra_build::build_subtree::<true>(&out.alloc, keys, 8) }
-        } else {
-            // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
-            unsafe { crate::algebra_build::build_subtree::<false>(&out.alloc, keys, 8) }
-        };
+        // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
+        let top = unsafe { crate::algebra_build::build_subtree::<OCC>(&out.alloc, keys, 8) };
         out.root = Root::Tree { top };
         out.tree_pop = n as u64;
         out
     }
 
+    /// Builds a set from ascending distinct keys into a provided empty set,
+    /// preserving any pre-configured allocator state (e.g. deferred collector
+    /// binding and root cover).
+    pub(crate) fn from_sorted_keys_into(out: Self, keys: &[u64]) -> Self {
+        if out.alloc.occ_enabled() {
+            Self::from_sorted_keys_dispatch::<true>(out, keys)
+        } else {
+            Self::from_sorted_keys_dispatch::<false>(out, keys)
+        }
+    }
+
     /// Builds a set from a `Vec` of strictly ascending, distinct keys, choosing
     /// the root-leaf or trie representation by population exactly as the insert
-    /// ladder would. Consumes the vector.
+    /// ladder would. Consumes the vector. Pure `<false>` instantiation with no runtime OCC branch.
     pub(crate) fn from_sorted_keys(keys: Vec<u64>) -> Self {
-        Self::from_sorted_keys_into(Self::new(), &keys)
+        Self::from_sorted_keys_dispatch::<false>(Self::new(), &keys)
     }
 }
 

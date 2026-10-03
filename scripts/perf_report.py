@@ -110,6 +110,8 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_compact_drained": 62_500,
     "sync_set_compact_drained": 62_500,
     "sync_map_compact_drained": 62_500,
+    "sync_set_compact_baseline": 62_500,
+    "sync_map_compact_baseline": 62_500,
     # Bulk construction: `ExpanseMap::from_sorted_iter` and `collect()` over
     # the same 50,000 entries.
     "map_from_sorted_iter": 50_000,
@@ -400,6 +402,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_compact_drained",
             "sync_set_compact_drained",
             "sync_map_compact_drained",
+            "sync_set_compact_baseline",
+            "sync_map_compact_baseline",
             "map_from_sorted_iter",
             "map_collect",
             "set_subtree_boundary_oscillate",

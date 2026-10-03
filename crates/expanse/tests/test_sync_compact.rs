@@ -12,8 +12,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+static SUITE_LOCK: Mutex<()> = Mutex::new(());
+
 #[test]
 fn test_sync_map_compact_empty() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     let map = SyncExpanseMap::new();
     assert_eq!(map.len(), 0);
     assert!(map.is_empty());
@@ -100,21 +103,34 @@ fn test_sync_set_compact_identity_large() {
 
 #[test]
 fn test_sync_map_post_compact_optimistic_insert_takes_olc_path() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     let map = SyncExpanseMap::new();
     // Insert past ROOT_LEAF_CAP so the root is a Tree
     for i in 0..128 {
-        map.insert(i, !i);
+        map.insert(i * 2, !(i * 2));
     }
     assert_eq!(map.len(), 128);
     map.compact();
     assert_eq!(map.len(), 128);
 
+    // Compacted tree must remain prepared for concurrent OCC operation
+    map.with_locked(|inner| {
+        assert!(
+            inner.is_occ_enabled(),
+            "compacted tree allocator must be deferred to collector"
+        );
+        assert!(
+            inner.is_engine_covers_root(),
+            "compacted tree must have engine root cover active"
+        );
+    });
+
     #[cfg(feature = "occ-stats")]
     let before = expanse_trie::occ_stats::snapshot();
 
-    // Ordinary insert into a compacted tree must take the optimistic path
-    assert_eq!(map.insert(500, !500), None);
-    assert_eq!(map.get(500), Some(!500));
+    // Insert new key into existing leaf must take the optimistic path without falling back
+    assert_eq!(map.insert(1, !1), None);
+    assert_eq!(map.get(1), Some(!1));
 
     #[cfg(feature = "occ-stats")]
     {
@@ -131,19 +147,31 @@ fn test_sync_map_post_compact_optimistic_insert_takes_olc_path() {
 
 #[test]
 fn test_sync_set_post_compact_optimistic_insert_takes_olc_path() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     let set = SyncExpanseSet::new();
     for i in 0..128 {
-        set.insert(i);
+        set.insert(i * 2);
     }
     assert_eq!(set.len(), 128);
     set.compact();
     assert_eq!(set.len(), 128);
 
+    set.with_locked(|inner| {
+        assert!(
+            inner.is_occ_enabled(),
+            "compacted set allocator must be deferred to collector"
+        );
+        assert!(
+            inner.is_engine_covers_root(),
+            "compacted set must have engine root cover active"
+        );
+    });
+
     #[cfg(feature = "occ-stats")]
     let before = expanse_trie::occ_stats::snapshot();
 
-    assert!(set.insert(500));
-    assert!(set.contains(500));
+    assert!(set.insert(1));
+    assert!(set.contains(1));
 
     #[cfg(feature = "occ-stats")]
     {
@@ -233,6 +261,7 @@ fn test_sync_set_compact_reclaims_memory() {
 
 #[test]
 fn test_sync_map_concurrent_readers_during_compact() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     let map = Arc::new(SyncExpanseMap::new());
     const COUNT: u64 = 5_000;
     for i in 0..COUNT {
@@ -292,6 +321,7 @@ fn test_sync_map_concurrent_readers_during_compact() {
 
 #[test]
 fn test_sync_set_concurrent_readers_during_compact() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     let set = Arc::new(SyncExpanseSet::new());
     const COUNT: u64 = 5_000;
     for i in 0..COUNT {
@@ -347,6 +377,7 @@ fn test_sync_set_concurrent_readers_during_compact() {
 
 #[test]
 fn test_sync_map_concurrent_writers_during_compact() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     // Model test falsifying point 3: writers executing during compact must be serialized,
     // and no writes must be dropped.
     let map = Arc::new(SyncExpanseMap::new());
@@ -407,4 +438,102 @@ fn test_sync_map_concurrent_writers_during_compact() {
         assert_eq!(map.get(k), Some(v), "key {k} mismatch");
     }
     map.with_locked(|inner| inner.validate());
+}
+
+#[test]
+fn test_sync_map_writers_running_during_old_tree_drop() {
+    let _lock = SUITE_LOCK.lock().unwrap();
+    let map = Arc::new(SyncExpanseMap::new());
+    const PREFILL: u64 = 15_000;
+    for i in 0..PREFILL {
+        map.insert(i * 17, !i);
+    }
+
+    let started = Arc::new(AtomicBool::new(false));
+    let done = Arc::new(AtomicBool::new(false));
+    let mut writer_handles = Vec::new();
+
+    for t in 0..4 {
+        let m = Arc::clone(&map);
+        let st = Arc::clone(&started);
+        let dn = Arc::clone(&done);
+        writer_handles.push(thread::spawn(move || {
+            while !st.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            let mut writes = 0usize;
+            while !dn.load(Ordering::Relaxed) {
+                let k = 1_000_000 + t * 10_000 + (writes as u64 % 500);
+                if writes.is_multiple_of(2) {
+                    m.insert(k, writes as u64);
+                } else {
+                    m.remove(k);
+                }
+                writes += 1;
+            }
+            writes
+        }));
+    }
+
+    started.store(true, Ordering::Release);
+    for _ in 0..5 {
+        map.compact();
+        thread::yield_now();
+    }
+    done.store(true, Ordering::Release);
+
+    for h in writer_handles {
+        let w = h.join().expect("writer thread failed");
+        assert!(w > 0);
+    }
+    map.with_locked(|inner| inner.validate());
+}
+
+#[test]
+fn test_sync_set_writers_running_during_old_tree_drop() {
+    let _lock = SUITE_LOCK.lock().unwrap();
+    let set = Arc::new(SyncExpanseSet::new());
+    const PREFILL: u64 = 15_000;
+    for i in 0..PREFILL {
+        set.insert(i * 17);
+    }
+
+    let started = Arc::new(AtomicBool::new(false));
+    let done = Arc::new(AtomicBool::new(false));
+    let mut writer_handles = Vec::new();
+
+    for t in 0..4 {
+        let s = Arc::clone(&set);
+        let st = Arc::clone(&started);
+        let dn = Arc::clone(&done);
+        writer_handles.push(thread::spawn(move || {
+            while !st.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            let mut writes = 0usize;
+            while !dn.load(Ordering::Relaxed) {
+                let k = 1_000_000 + t * 10_000 + (writes as u64 % 500);
+                if writes.is_multiple_of(2) {
+                    s.insert(k);
+                } else {
+                    s.remove(k);
+                }
+                writes += 1;
+            }
+            writes
+        }));
+    }
+
+    started.store(true, Ordering::Release);
+    for _ in 0..5 {
+        set.compact();
+        thread::yield_now();
+    }
+    done.store(true, Ordering::Release);
+
+    for h in writer_handles {
+        let w = h.join().expect("writer thread failed");
+        assert!(w > 0);
+    }
+    set.with_locked(|inner| inner.validate());
 }
