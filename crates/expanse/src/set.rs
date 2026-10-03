@@ -1258,7 +1258,9 @@ impl ExpanseSet {
         let s = Self::new();
         let collector = std::sync::Arc::new(crate::occ::Collector::new());
         s.alloc.defer_to(std::sync::Arc::clone(&collector));
-        // SAFETY: `word` is heap-pinned by Box inside DeferredTestTree, which outlives `s`.
+        // SAFETY: `word` is heap-pinned by the Box moved into DeferredTestTree with
+        // `s`. The holder's fields are private and it has no `DerefMut`, so `s`
+        // cannot leave it, and its field order drops `s` before `word`.
         unsafe { s.alloc.bind_tree_word(core::ptr::from_ref(&*word)) };
         if engine_covers_root {
             s.alloc.cover_root();
@@ -2121,6 +2123,24 @@ impl<'a> IntoIterator for &'a ExpanseSet {
 
     fn into_iter(self) -> SetIter<'a> {
         self.iter()
+    }
+}
+/// Mutation of the OCC parity holder. Forwarded rather than reached through
+/// `DerefMut`, which would let safe code move the tree away from the version
+/// word its allocator points at (see [`crate::occ::DeferredTestTree`]).
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+#[doc(hidden)]
+impl crate::occ::DeferredTestTree<ExpanseSet> {
+    /// [`ExpanseSet::insert`] on the held tree.
+    #[inline(always)]
+    pub fn insert(&mut self, key: Key) -> bool {
+        self.tree.insert(key)
+    }
+
+    /// [`ExpanseSet::remove`] on the held tree.
+    #[inline(always)]
+    pub fn remove(&mut self, key: Key) -> bool {
+        self.tree.remove(key)
     }
 }
 

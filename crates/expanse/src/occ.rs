@@ -2257,9 +2257,10 @@ impl Collector {
 
     /// Frees everything still queued in garbage bins and size-class freelists.
     /// Only sound once no reader can be pinned (the owning wrapper calls this
-    /// on drop, when exclusive ownership proves that).
-    #[doc(hidden)]
-    pub fn drain(&self) {
+    /// on drop, when exclusive ownership proves that). Crate-private for that
+    /// reason: [`Self::register`] is public, so a public `drain` would let safe
+    /// code free memory a pinned reader is still reading.
+    pub(crate) fn drain(&self) {
         for b in 0..BINS {
             for stripe in 0..NUM_EPOCH_STRIPES {
                 // Every stripe, whatever its flag says: nothing may
@@ -2487,19 +2488,65 @@ impl Drop for Collector {
 
 /// Test harness: holds a deferred tree and its associated [`Collector`] and
 /// tree-level [`SeqVersion`] word for OCC differential parity tests.
+///
+/// The tree's allocator holds a raw pointer to the boxed version word, so the
+/// tree must never leave this holder: every field is private, and the holder
+/// implements [`Deref`](core::ops::Deref) but not `DerefMut`, since a
+/// `&mut ExpanseMap` is enough to move the tree out with `mem::take` or
+/// `mem::swap`. Mutation goes through the forwarding methods defined beside
+/// each tree type (`insert`, `remove`, and `ins_slot` on the map). The
+/// collector is never handed out, so no [`Reader`] can be registered on it and
+/// [`Self::drain`] cannot free memory a pinned reader holds.
+///
+/// Reading and mutating through the holder:
+///
+/// ```
+/// use expanse_trie::map::ExpanseMap;
+/// let mut dt = ExpanseMap::deferred_for_test(true);
+/// for k in 0..2000u64 { dt.insert(k * 7919, k); }
+/// assert_eq!(dt.len(), 2000);
+/// dt.drain();
+/// ```
+///
+/// The tree cannot be moved out through a field (the use-after-free shipped
+/// in v0.10.1, where `tree` was a public field):
+///
+/// ```compile_fail,E0616
+/// use expanse_trie::map::ExpanseMap;
+/// let mut dt = ExpanseMap::deferred_for_test(true);
+/// let t = std::mem::take(&mut dt.tree);
+/// ```
+///
+/// nor through a mutable dereference:
+///
+/// ```compile_fail,E0596
+/// use expanse_trie::map::ExpanseMap;
+/// let mut dt = ExpanseMap::deferred_for_test(true);
+/// let t = std::mem::take(&mut *dt);
+/// ```
+///
+/// and the collector does not escape, so no reader can pin it:
+///
+/// ```compile_fail,E0616
+/// use expanse_trie::map::ExpanseMap;
+/// let dt = ExpanseMap::deferred_for_test(true);
+/// let _reader = dt.collector.register();
+/// ```
 #[cfg(all(feature = "std", target_pointer_width = "64"))]
 #[doc(hidden)]
 pub struct DeferredTestTree<T> {
-    pub tree: T,
-    pub collector: Arc<Collector>,
+    pub(crate) tree: T,
+    collector: Arc<Collector>,
     _word: core_alloc::boxed::Box<SeqVersion>,
     engine_covers_root: bool,
 }
 
 #[cfg(all(feature = "std", target_pointer_width = "64"))]
 impl<T> DeferredTestTree<T> {
+    /// `tree`'s allocator must be deferred to `collector` and bound to `word`,
+    /// and `collector` must not be shared with any reader.
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         tree: T,
         collector: Arc<Collector>,
         word: core_alloc::boxed::Box<SeqVersion>,
@@ -2513,15 +2560,11 @@ impl<T> DeferredTestTree<T> {
         }
     }
 
+    /// Frees the collector's queued garbage and freelists. Sound because the
+    /// collector never leaves this holder, so no reader is registered on it.
     #[inline(always)]
     pub fn drain(&self) {
         self.collector.drain();
-    }
-
-    #[must_use]
-    #[inline(always)]
-    pub fn collector(&self) -> &Arc<Collector> {
-        &self.collector
     }
 }
 
@@ -2531,14 +2574,6 @@ impl<T> core::ops::Deref for DeferredTestTree<T> {
     #[inline(always)]
     fn deref(&self) -> &T {
         &self.tree
-    }
-}
-
-#[cfg(all(feature = "std", target_pointer_width = "64"))]
-impl<T> core::ops::DerefMut for DeferredTestTree<T> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.tree
     }
 }
 
