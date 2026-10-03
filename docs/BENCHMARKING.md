@@ -1817,6 +1817,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `strmap_refill` | `routes` | 100,000 |
 | `cost` | `strmap_refill_small` | `routes` | 100,000 |
 | `cost` | `strmap_transcode_cursor` | `clean`, `escaped` | 50,000 |
+| `cost` | `strmap_transcode_cursor_into` | `clean`, `escaped` | 50,000 |
 | `cost` | `strmap_transcode_get` | `clean`, `escaped` | 50,000 |
 | `cost` | `strmap_transcode_insert` | `clean`, `escaped` | 50,000 |
 | `cost` | `sync32_map_get` | `bitmap`, `linear`, `linear_wide` | 4,000 |

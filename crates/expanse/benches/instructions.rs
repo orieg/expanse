@@ -2234,6 +2234,25 @@ fn strmap_transcode_cursor(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64
     black_box(sink)
 }
 
+// Transcoding cursor-walk arm decoding into a reusable caller buffer (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_transcode_strmap)]
+#[bench::escaped(args = ("escaped",), setup = built_transcode_strmap)]
+fn strmap_transcode_cursor_into(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    let mut cur = map.cursor();
+    let mut buf = [0u8; 64];
+    while let Ok(Some((len, val))) = cur.next_entry_decode_into(&mut buf) {
+        sink ^= len as u64 ^ val;
+        n += 1;
+    }
+    drop(cur);
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 /// Prebuilt raw string map for twin baseline lookups and cursor walks (#808).
 fn built_raw_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
     let ks = transcode_keys(dist);
@@ -3939,6 +3958,7 @@ library_benchmark_group!(
         strmap_transcode_insert,
         strmap_transcode_get,
         strmap_transcode_cursor,
+        strmap_transcode_cursor_into,
         strmap_raw_insert,
         strmap_raw_get,
         strmap_raw_cursor,
