@@ -1761,8 +1761,10 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map_prev` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `map_rebuild_drained` | `random60` | 62,500 |
 | `cost` | `map_refill` | `random` | 100,000 |
+| `cost` | `map_regrow_after_shrink` | `random60` | 137,500 |
 | `cost` | `map_remove` | `random` | 50,000 |
 | `cost` | `map_remove_partial` | `random60` | 137,500 |
+| `cost` | `map_shrink_drained` | `random60` | 62,500 |
 | `cost` | `set32_insert` | `sensor_timestamps` | 10,000 |
 | `cost` | `set32_iterate` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `set32_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
@@ -1779,6 +1781,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `set_refill` | `random` | 100,000 |
 | `cost` | `set_remove` | `random` | 50,000 |
 | `cost` | `set_remove_partial` | `random60` | 137,500 |
+| `cost` | `set_shrink_drained` | `random60` | 62,500 |
 | `cost` | `set_subtree_boundary_oscillate` | `band2`, `band9` | `band2` 32,768, `band9` 147,456 |
 | `cost` | `set_subtree_condense` | `h1`, `wide` | 1,024 |
 | `cost` | `set_subtree_condense_control` | `h1`, `wide` | 1,024 |
