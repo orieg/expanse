@@ -180,8 +180,7 @@ impl DomainOrdinal {
 /// - `0x01 -> [0x01, 0x02]`
 /// - `b -> [b]` (for `b in 0x02..=0xFF`)
 #[inline]
-#[doc(hidden)]
-pub fn escape_encode(data: &[u8]) -> Vec<u8> {
+pub(crate) fn escape_encode(data: &[u8]) -> Vec<u8> {
     if !data.iter().any(|&b| b <= 1) {
         return data.to_vec();
     }
@@ -204,7 +203,6 @@ pub fn escape_encode(data: &[u8]) -> Vec<u8> {
 
 /// Error returned when decoding an invalid or malformed escaped byte sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[doc(hidden)]
 pub enum EscapeDecodeError {
     /// Escape byte `0x01` at end of slice with no subsequent byte.
     TrailingEscape,
@@ -275,8 +273,7 @@ impl std::error::Error for EscapeDecodeError {}
 /// - **Malformed inputs**: Returns [`EscapeDecodeError`] on trailing `0x01`, invalid escape byte,
 ///   or embedded `0x00`.
 #[inline]
-#[doc(hidden)]
-pub fn escape_decode(data: &[u8]) -> Result<Vec<u8>, EscapeDecodeError> {
+pub(crate) fn escape_decode(data: &[u8]) -> Result<Vec<u8>, EscapeDecodeError> {
     if !data.iter().any(|&b| b <= 1) {
         return Ok(data.to_vec());
     }
@@ -315,8 +312,7 @@ pub fn escape_decode(data: &[u8]) -> Result<Vec<u8>, EscapeDecodeError> {
 /// Returns the number of decoded bytes written to `buf`.
 /// Returns [`EscapeDecodeError::BufferTooSmall`] if `buf` is too small to hold the decoded bytes.
 #[inline]
-#[doc(hidden)]
-pub fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDecodeError> {
+pub(crate) fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDecodeError> {
     if !data.iter().any(|&b| b <= 1) {
         if buf.len() < data.len() {
             return Err(EscapeDecodeError::BufferTooSmall {
@@ -329,6 +325,7 @@ pub fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDe
     }
     let mut w = 0;
     let mut i = 0;
+    let mut too_small = false;
     while i < data.len() {
         let b = data[i];
         let decoded = match b {
@@ -352,15 +349,19 @@ pub fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDe
             }
             _ => b,
         };
-        if w >= buf.len() {
-            return Err(EscapeDecodeError::BufferTooSmall {
-                required: w + 1,
-                provided: buf.len(),
-            });
+        if w < buf.len() {
+            buf[w] = decoded;
+        } else {
+            too_small = true;
         }
-        buf[w] = decoded;
         w += 1;
         i += 1;
+    }
+    if too_small {
+        return Err(EscapeDecodeError::BufferTooSmall {
+            required: w,
+            provided: buf.len(),
+        });
     }
     Ok(w)
 }
@@ -372,8 +373,7 @@ pub fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDe
 ///
 /// Returns the number of decoded bytes; the decoded bytes reside in `buf[..len]`.
 #[inline]
-#[doc(hidden)]
-pub fn escape_decode_in_place(buf: &mut [u8]) -> Result<usize, EscapeDecodeError> {
+pub(crate) fn escape_decode_in_place(buf: &mut [u8]) -> Result<usize, EscapeDecodeError> {
     if !buf.iter().any(|&b| b <= 1) {
         return Ok(buf.len());
     }

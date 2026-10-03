@@ -564,6 +564,35 @@ impl core::marker::Unpin for expanse_trie::domain::DomainError
 impl core::marker::UnsafeUnpin for expanse_trie::domain::DomainError
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::domain::DomainError
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::domain::DomainError
+pub enum expanse_trie::domain::EscapeDecodeError
+pub expanse_trie::domain::EscapeDecodeError::BufferTooSmall
+pub expanse_trie::domain::EscapeDecodeError::BufferTooSmall::provided: usize
+pub expanse_trie::domain::EscapeDecodeError::BufferTooSmall::required: usize
+pub expanse_trie::domain::EscapeDecodeError::InvalidEscapeByte
+pub expanse_trie::domain::EscapeDecodeError::InvalidEscapeByte::byte: u8
+pub expanse_trie::domain::EscapeDecodeError::InvalidEscapeByte::offset: usize
+pub expanse_trie::domain::EscapeDecodeError::NulInEncoded
+pub expanse_trie::domain::EscapeDecodeError::NulInEncoded::offset: usize
+pub expanse_trie::domain::EscapeDecodeError::TrailingEscape
+impl core::clone::Clone for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::clone(&self) -> expanse_trie::domain::EscapeDecodeError
+impl core::cmp::Eq for expanse_trie::domain::EscapeDecodeError
+impl core::cmp::PartialEq for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::eq(&self, &expanse_trie::domain::EscapeDecodeError) -> bool
+impl core::error::Error for expanse_trie::domain::EscapeDecodeError
+impl core::fmt::Debug for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for expanse_trie::domain::EscapeDecodeError
+impl core::marker::StructuralPartialEq for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Freeze for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Send for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Sync for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Unpin for expanse_trie::domain::EscapeDecodeError
+impl core::marker::UnsafeUnpin for expanse_trie::domain::EscapeDecodeError
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::domain::EscapeDecodeError
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::domain::EscapeDecodeError
 pub struct expanse_trie::domain::DomainMismatch
 pub expanse_trie::domain::DomainMismatch::expected: u64
 pub expanse_trie::domain::DomainMismatch::got: u64
@@ -1442,6 +1471,149 @@ pub fn expanse_trie::occ_stats::reset()
 pub fn expanse_trie::occ_stats::retained_bytes() -> u64
 pub fn expanse_trie::occ_stats::retained_hwm() -> u64
 pub fn expanse_trie::occ_stats::snapshot() -> [u64; 49]
+pub mod expanse_trie::ordered_bytesmap
+pub enum expanse_trie::ordered_bytesmap::EscapeDecodeError
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::BufferTooSmall
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::BufferTooSmall::provided: usize
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::BufferTooSmall::required: usize
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::InvalidEscapeByte
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::InvalidEscapeByte::byte: u8
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::InvalidEscapeByte::offset: usize
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::NulInEncoded
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::NulInEncoded::offset: usize
+pub expanse_trie::ordered_bytesmap::EscapeDecodeError::TrailingEscape
+impl core::clone::Clone for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::clone(&self) -> expanse_trie::domain::EscapeDecodeError
+impl core::cmp::Eq for expanse_trie::domain::EscapeDecodeError
+impl core::cmp::PartialEq for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::eq(&self, &expanse_trie::domain::EscapeDecodeError) -> bool
+impl core::error::Error for expanse_trie::domain::EscapeDecodeError
+impl core::fmt::Debug for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for expanse_trie::domain::EscapeDecodeError
+pub fn expanse_trie::domain::EscapeDecodeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for expanse_trie::domain::EscapeDecodeError
+impl core::marker::StructuralPartialEq for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Freeze for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Send for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Sync for expanse_trie::domain::EscapeDecodeError
+impl core::marker::Unpin for expanse_trie::domain::EscapeDecodeError
+impl core::marker::UnsafeUnpin for expanse_trie::domain::EscapeDecodeError
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::domain::EscapeDecodeError
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::domain::EscapeDecodeError
+pub struct expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::clear(&mut self) -> u64
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::contains(&self, &[u8]) -> bool
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::contains_key(&self, &[u8]) -> bool
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::cursor(&self) -> expanse_trie::ordered_bytesmap::OrderedBytesCursor<'_>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::cursor_at_or_after(&self, &[u8]) -> expanse_trie::ordered_bytesmap::OrderedBytesCursor<'_>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first(&self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first_entry(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first_entry_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::get(&self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::get_slot_ptr(&self, &[u8]) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::get_value_slot(&mut self, &[u8]) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::ins_slot(&mut self, &[u8]) -> core::ptr::non_null::NonNull<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::insert(&mut self, &[u8], u64) -> core::option::Option<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::is_empty(&self) -> bool
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::iter(&self) -> expanse_trie::ordered_bytesmap::Iter<'_>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last(&self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last_entry(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last_entry_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::len(&self) -> u64
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::mem_held(&self) -> usize
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::mem_used(&self) -> usize
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::new() -> Self
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::remove(&mut self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::shrink_to_fit(&mut self) -> usize
+impl core::clone::Clone for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::clone(&self) -> Self
+impl core::default::Default for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::default() -> expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::fmt::Debug for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<(alloc::vec::Vec<u8>, u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::extend<I: core::iter::traits::collect::IntoIterator<Item = (alloc::vec::Vec<u8>, u64)>>(&mut self, I)
+impl core::iter::traits::collect::FromIterator<(alloc::vec::Vec<u8>, u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (alloc::vec::Vec<u8>, u64)>>(I) -> Self
+impl core::iter::traits::collect::IntoIterator for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = expanse_trie::ordered_bytesmap::IntoIter
+pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
+impl core::marker::Send for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl<'a> core::iter::traits::collect::Extend<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::extend<I: core::iter::traits::collect::IntoIterator<Item = (&'a [u8], u64)>>(&mut self, I)
+impl<'a> core::iter::traits::collect::FromIterator<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (&'a [u8], u64)>>(I) -> Self
+impl<'a> core::iter::traits::collect::IntoIterator for &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = expanse_trie::ordered_bytesmap::Iter<'a>
+pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
+pub fn &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
+impl !core::marker::Freeze for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl !core::marker::Sync for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::marker::Unpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub struct expanse_trie::ordered_bytesmap::IntoIter
+impl core::iter::traits::double_ended::DoubleEndedIterator for expanse_trie::ordered_bytesmap::IntoIter
+pub fn expanse_trie::ordered_bytesmap::IntoIter::next_back(&mut self) -> core::option::Option<Self::Item>
+impl core::iter::traits::exact_size::ExactSizeIterator for expanse_trie::ordered_bytesmap::IntoIter
+impl core::iter::traits::iterator::Iterator for expanse_trie::ordered_bytesmap::IntoIter
+pub type expanse_trie::ordered_bytesmap::IntoIter::Item = (alloc::vec::Vec<u8>, u64)
+pub fn expanse_trie::ordered_bytesmap::IntoIter::next(&mut self) -> core::option::Option<Self::Item>
+pub fn expanse_trie::ordered_bytesmap::IntoIter::size_hint(&self) -> (usize, core::option::Option<usize>)
+impl core::marker::Freeze for expanse_trie::ordered_bytesmap::IntoIter
+impl core::marker::Send for expanse_trie::ordered_bytesmap::IntoIter
+impl core::marker::Sync for expanse_trie::ordered_bytesmap::IntoIter
+impl core::marker::Unpin for expanse_trie::ordered_bytesmap::IntoIter
+impl core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::IntoIter
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::ordered_bytesmap::IntoIter
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::ordered_bytesmap::IntoIter
+pub struct expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> core::iter::traits::exact_size::ExactSizeIterator for expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::ordered_bytesmap::Iter<'a>
+pub type expanse_trie::ordered_bytesmap::Iter<'a>::Item = (alloc::vec::Vec<u8>, u64)
+pub fn expanse_trie::ordered_bytesmap::Iter<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub fn expanse_trie::ordered_bytesmap::Iter<'a>::size_hint(&self) -> (usize, core::option::Option<usize>)
+impl<'a> core::marker::Freeze for expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> !core::marker::Send for expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> !core::marker::Sync for expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> core::marker::Unpin for expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::ordered_bytesmap::Iter<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::ordered_bytesmap::Iter<'a>
+pub struct expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+impl<'a> expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+pub fn expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>::next_decode_into(&mut self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>::next_entry_decode_into(&mut self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>::next_owned(&mut self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+impl<'a> core::marker::Freeze for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+impl<'a> !core::marker::Send for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+impl<'a> !core::marker::Sync for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+impl<'a> core::marker::Unpin for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
 pub mod expanse_trie::set
 pub struct expanse_trie::set::ExpanseSet
 impl expanse_trie::set::ExpanseSet
@@ -3369,6 +3541,79 @@ impl core::marker::Unpin for expanse_trie::map32::ExpanseMap32
 impl core::marker::UnsafeUnpin for expanse_trie::map32::ExpanseMap32
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::map32::ExpanseMap32
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::map32::ExpanseMap32
+pub struct expanse_trie::ExpanseOrderedBytesMap
+impl expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::clear(&mut self) -> u64
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::contains(&self, &[u8]) -> bool
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::contains_key(&self, &[u8]) -> bool
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::cursor(&self) -> expanse_trie::ordered_bytesmap::OrderedBytesCursor<'_>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::cursor_at_or_after(&self, &[u8]) -> expanse_trie::ordered_bytesmap::OrderedBytesCursor<'_>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first(&self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first_entry(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::first_entry_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::get(&self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::get_slot_ptr(&self, &[u8]) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::get_value_slot(&mut self, &[u8]) -> core::option::Option<core::ptr::non_null::NonNull<u64>>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::ins_slot(&mut self, &[u8]) -> core::ptr::non_null::NonNull<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::insert(&mut self, &[u8], u64) -> core::option::Option<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::is_empty(&self) -> bool
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::iter(&self) -> expanse_trie::ordered_bytesmap::Iter<'_>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last(&self) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last_entry(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::last_entry_decode_into(&self, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::len(&self) -> u64
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::mem_held(&self) -> usize
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::mem_used(&self) -> usize
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::new() -> Self
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_after_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::next_at_or_after_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_at_or_before_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, core::ptr::non_null::NonNull<u64>)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, core::ptr::non_null::NonNull<u64>)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before_entry(&self, &[u8]) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::prev_before_entry_decode_into(&self, &[u8], &mut [u8]) -> core::result::Result<core::option::Option<(usize, u64)>, expanse_trie::domain::EscapeDecodeError>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::remove(&mut self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::shrink_to_fit(&mut self) -> usize
+impl core::clone::Clone for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::clone(&self) -> Self
+impl core::default::Default for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::default() -> expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::fmt::Debug for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::iter::traits::collect::Extend<(alloc::vec::Vec<u8>, u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::extend<I: core::iter::traits::collect::IntoIterator<Item = (alloc::vec::Vec<u8>, u64)>>(&mut self, I)
+impl core::iter::traits::collect::FromIterator<(alloc::vec::Vec<u8>, u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (alloc::vec::Vec<u8>, u64)>>(I) -> Self
+impl core::iter::traits::collect::IntoIterator for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = expanse_trie::ordered_bytesmap::IntoIter
+pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
+impl core::marker::Send for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl<'a> core::iter::traits::collect::Extend<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::extend<I: core::iter::traits::collect::IntoIterator<Item = (&'a [u8], u64)>>(&mut self, I)
+impl<'a> core::iter::traits::collect::FromIterator<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (&'a [u8], u64)>>(I) -> Self
+impl<'a> core::iter::traits::collect::IntoIterator for &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = expanse_trie::ordered_bytesmap::Iter<'a>
+pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
+pub fn &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
+impl !core::marker::Freeze for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl !core::marker::Sync for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::marker::Unpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 pub struct expanse_trie::ExpanseSet
 impl expanse_trie::set::ExpanseSet
 pub fn expanse_trie::set::ExpanseSet::by_count(&self, u64) -> core::option::Option<u64>

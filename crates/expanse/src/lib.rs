@@ -28,7 +28,7 @@
 //! The classic C `Judy.h` API (`Judy1*`, `JudyL*`, `JudySL*`) is provided as
 //! a drop-in binary-compatible layer by the sibling `expanse-capi` crate
 //! (`libexpanse`); this crate holds the core implementation and the native
-//! Rust API (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`
+//! Rust API (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseOrderedBytesMap`).
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc as core_alloc;
@@ -120,6 +120,8 @@ pub mod occ;
 #[cfg(target_pointer_width = "64")]
 pub mod occ_stats;
 #[cfg(target_pointer_width = "64")]
+pub mod ordered_bytesmap;
+#[cfg(target_pointer_width = "64")]
 pub mod set;
 #[cfg(target_pointer_width = "64")]
 pub mod slot;
@@ -155,6 +157,8 @@ pub use domain::{
 };
 #[cfg(target_pointer_width = "64")]
 pub use map::ExpanseMap;
+#[cfg(target_pointer_width = "64")]
+pub use ordered_bytesmap::ExpanseOrderedBytesMap;
 #[cfg(target_pointer_width = "64")]
 pub use set::ExpanseSet;
 #[cfg(target_pointer_width = "64")]
