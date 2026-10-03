@@ -5359,7 +5359,13 @@ mod loom_tests {
         blob_dead_charge_model(false);
     }
 
-    /// Batch cursor traversal under retained parent branch version (issue #1142).
+    /// Abstract concurrency protocol model of batch cursor traversal under retained
+    /// parent branch version (issue #1142).
+    ///
+    /// Note: This is an abstract concurrency protocol model simulating hand-over-hand
+    /// version validation across sibling edges under concurrent writer mutations
+    /// (abstracting `SyncMapCursor::try_fill_buf` and `ReadSet::validate_all`), rather than
+    /// executing the full 64-bit trie engine under Loom (which would lead to state explosion).
     ///
     /// Draining terminal leaves under the parent branch relies on the parent's
     /// version word to bracket updates to children and sibling slot allocations.
@@ -5406,8 +5412,9 @@ mod loom_tests {
         });
     }
 
-    /// Verifies that retaining and validating the covering parent branch version
-    /// prevents torn or inconsistent sibling reads across the batch.
+    /// Verifies the abstract concurrency protocol model: retaining and validating the
+    /// covering parent branch version prevents torn or inconsistent sibling reads across
+    /// the batch cursor traversal.
     #[test]
     fn loom_cursor_retained_path_resume() {
         cursor_retained_path_resume_model(true);

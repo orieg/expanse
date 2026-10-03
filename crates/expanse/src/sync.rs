@@ -9678,6 +9678,9 @@ impl OwnedMapReader {
     }
 
     /// Returns a forward batch cursor scanning keys in `start..=end` (#1142).
+    ///
+    /// The range is inclusive of both bounds (`start..=end`), matching future
+    /// single-threaded `MapCursor RangeBounds` conventions.
     #[must_use]
     pub fn range_cursor(&self, start: u64, end: u64) -> crate::sync_cursor::SyncMapCursor<'_, '_> {
         crate::sync_cursor::SyncMapCursor::range(&self.map, &self.reader, start, end)
@@ -9803,6 +9806,9 @@ impl DetachedMapReader {
     }
 
     /// Returns a forward batch cursor scanning keys in `start..=end` on `map` (#1142).
+    ///
+    /// The range is inclusive of both bounds (`start..=end`), matching future
+    /// single-threaded `MapCursor RangeBounds` conventions.
     #[must_use]
     pub fn range_cursor<'m>(
         &self,
@@ -9856,6 +9862,9 @@ impl<'a> MapReader<'a> {
     }
 
     /// Returns a forward batch cursor scanning keys in `start..=end` (#1142).
+    ///
+    /// The range is inclusive of both bounds (`start..=end`), matching future
+    /// single-threaded `MapCursor RangeBounds` conventions.
     #[must_use]
     pub fn range_cursor(&self, start: u64, end: u64) -> crate::sync_cursor::SyncMapCursor<'a, '_> {
         crate::sync_cursor::SyncMapCursor::range(self.map, &self.reader, start, end)

@@ -2080,6 +2080,7 @@ impl<'a, S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::Byt
 impl<'a, S> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BytesReader<'a, S>
 pub struct expanse_trie::sync::DetachedMapReader
 impl expanse_trie::sync::DetachedMapReader
+pub fn expanse_trie::sync::DetachedMapReader::cursor<'m>(&self, &'m expanse_trie::sync::SyncExpanseMap) -> expanse_trie::sync_cursor::SyncMapCursor<'m, '_>
 pub fn expanse_trie::sync::DetachedMapReader::first(&self, &expanse_trie::sync::SyncExpanseMap) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::DetachedMapReader::get(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::sync::DetachedMapReader::last(&self, &expanse_trie::sync::SyncExpanseMap) -> core::option::Option<(u64, u64)>
@@ -2087,6 +2088,7 @@ pub fn expanse_trie::sync::DetachedMapReader::next_after(&self, &expanse_trie::s
 pub fn expanse_trie::sync::DetachedMapReader::next_at_or_after(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::DetachedMapReader::prev_at_or_before(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::DetachedMapReader::prev_before(&self, &expanse_trie::sync::SyncExpanseMap, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync::DetachedMapReader::range_cursor<'m>(&self, &'m expanse_trie::sync::SyncExpanseMap, u64, u64) -> expanse_trie::sync_cursor::SyncMapCursor<'m, '_>
 impl core::marker::Freeze for expanse_trie::sync::DetachedMapReader
 impl core::marker::Send for expanse_trie::sync::DetachedMapReader
 impl !core::marker::Sync for expanse_trie::sync::DetachedMapReader
@@ -2102,8 +2104,10 @@ pub fn expanse_trie::sync::MapReader<'_>::next_after(&self, expanse_trie::types:
 pub fn expanse_trie::sync::MapReader<'_>::next_at_or_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::MapReader<'_>::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::MapReader<'_>::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
-impl expanse_trie::sync::MapReader<'_>
-pub fn expanse_trie::sync::MapReader<'_>::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+impl<'a> expanse_trie::sync::MapReader<'a>
+pub fn expanse_trie::sync::MapReader<'a>::cursor(&self) -> expanse_trie::sync_cursor::SyncMapCursor<'a, '_>
+pub fn expanse_trie::sync::MapReader<'a>::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::MapReader<'a>::range_cursor(&self, u64, u64) -> expanse_trie::sync_cursor::SyncMapCursor<'a, '_>
 impl<'a> core::marker::Freeze for expanse_trie::sync::MapReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::MapReader<'a>
 impl<'a> !core::marker::Sync for expanse_trie::sync::MapReader<'a>
@@ -2113,14 +2117,16 @@ impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::MapRea
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::MapReader<'a>
 pub struct expanse_trie::sync::OwnedMapReader
 impl expanse_trie::sync::OwnedMapReader
+pub fn expanse_trie::sync::OwnedMapReader::cursor(&self) -> expanse_trie::sync_cursor::SyncMapCursor<'_, '_>
+pub fn expanse_trie::sync::OwnedMapReader::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::OwnedMapReader::range_cursor(&self, u64, u64) -> expanse_trie::sync_cursor::SyncMapCursor<'_, '_>
+impl expanse_trie::sync::OwnedMapReader
 pub fn expanse_trie::sync::OwnedMapReader::first(&self) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::OwnedMapReader::last(&self) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::OwnedMapReader::next_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::OwnedMapReader::next_at_or_after(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::OwnedMapReader::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::OwnedMapReader::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
-impl expanse_trie::sync::OwnedMapReader
-pub fn expanse_trie::sync::OwnedMapReader::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 impl core::marker::Freeze for expanse_trie::sync::OwnedMapReader
 impl core::marker::Send for expanse_trie::sync::OwnedMapReader
 impl !core::marker::Sync for expanse_trie::sync::OwnedMapReader
@@ -2310,6 +2316,23 @@ impl core::marker::Unpin for expanse_trie::sync::SyncExpanseStrMap
 impl core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseStrMap
 impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SyncExpanseStrMap
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseStrMap
+pub struct expanse_trie::sync::SyncMapCursor<'m, 'r>
+impl<'m, 'r> expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::advance_to(&mut self, u64) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::current(&mut self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::new(&'m expanse_trie::sync::SyncExpanseMap, &'r expanse_trie::occ::Reader) -> Self
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::range(&'m expanse_trie::sync::SyncExpanseMap, &'r expanse_trie::occ::Reader, u64, u64) -> Self
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::range_bounds<R: core::ops::range::RangeBounds<u64>>(&'m expanse_trie::sync::SyncExpanseMap, &'r expanse_trie::occ::Reader, R) -> Self
+impl<'m, 'r> core::iter::traits::iterator::Iterator for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+pub type expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::Item = (u64, u64)
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::next(&mut self) -> core::option::Option<Self::Item>
+impl<'m, 'r> core::marker::Freeze for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Send for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Sync for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::Unpin for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::UnsafeUnpin for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
 pub mod expanse_trie::sync32
 pub enum expanse_trie::sync32::WriteError
 pub expanse_trie::sync32::WriteError::ArenaFull
@@ -2416,6 +2439,25 @@ impl expanse_trie::sync32::Container32 for expanse_trie::map32::ExpanseMap32
 impl expanse_trie::sync32::Container32 for expanse_trie::set32::ExpanseSet32
 pub type expanse_trie::sync32::SyncExpanseMap32 = expanse_trie::sync32::Sync32<expanse_trie::map32::ExpanseMap32>
 pub type expanse_trie::sync32::SyncExpanseSet32 = expanse_trie::sync32::Sync32<expanse_trie::set32::ExpanseSet32>
+pub mod expanse_trie::sync_cursor
+pub struct expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::advance_to(&mut self, u64) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::current(&mut self) -> core::option::Option<(u64, u64)>
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::new(&'m expanse_trie::sync::SyncExpanseMap, &'r expanse_trie::occ::Reader) -> Self
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::range(&'m expanse_trie::sync::SyncExpanseMap, &'r expanse_trie::occ::Reader, u64, u64) -> Self
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::range_bounds<R: core::ops::range::RangeBounds<u64>>(&'m expanse_trie::sync::SyncExpanseMap, &'r expanse_trie::occ::Reader, R) -> Self
+impl<'m, 'r> core::iter::traits::iterator::Iterator for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+pub type expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::Item = (u64, u64)
+pub fn expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>::next(&mut self) -> core::option::Option<Self::Item>
+impl<'m, 'r> core::marker::Freeze for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Send for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::marker::Sync for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::Unpin for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> core::marker::UnsafeUnpin for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+impl<'m, 'r> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync_cursor::SyncMapCursor<'m, 'r>
+pub const expanse_trie::sync_cursor::BATCH_CAP: usize
 pub mod expanse_trie::types
 pub enum expanse_trie::types::EdgeTag
 pub expanse_trie::types::EdgeTag::Immed(expanse_trie::types::ImmedType)

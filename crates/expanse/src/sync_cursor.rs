@@ -283,6 +283,9 @@ impl<'m, 'r> SyncMapCursor<'m, 'r> {
     }
 
     /// Creates a forward batch cursor scanning entries with keys in `start..=end`.
+    ///
+    /// The range is inclusive of both bounds (`start..=end`), matching future
+    /// single-threaded `MapCursor RangeBounds` conventions.
     #[must_use]
     pub fn range(map: &'m SyncExpanseMap, reader: &'r Reader, start: u64, end: u64) -> Self {
         let exhausted = start > end;
@@ -748,7 +751,9 @@ impl SyncMapCursor<'_, '_> {
                 // SAFETY: `vp` is the live branch's version field.
                 let nsnap = unsafe { rs.sample(vp)? };
                 #[cfg(test)]
-                test_hooks::at(test_hooks::Site::ParentSampled);
+                if is_l3 && num == 3 {
+                    test_hooks::at(test_hooks::Site::ParentSampled);
+                }
                 if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                     return Err(Retry);
                 }
@@ -1363,6 +1368,34 @@ mod tests {
             !collected.iter().any(|&(k, _)| k == removed_key),
             "removal from leaf during traversal is not observed"
         );
+
+        // Negative control: skipping parent validation accepts stale leaf containing removed key
+        let map2 = Arc::new(SyncExpanseMap::new());
+        for d in [0x10u64, 0x20] {
+            for i in 0..17u64 {
+                let k = (d << 8) | (1 + 2 * i);
+                map2.insert(k, k * 10);
+            }
+        }
+        let rd2 = map2.reader();
+        let m2 = Arc::clone(&map2);
+        test_hooks::arm_site(test_hooks::Site::BeforeNextLeaf, move || {
+            m2.remove(removed_key);
+        });
+        test_hooks::set_skip_parent_validation(true);
+        test_hooks::set_skip_final_validation(true);
+
+        let mut cur2 = rd2.cursor();
+        let mut collected2 = Vec::new();
+        while let Some(e) = cur2.next() {
+            collected2.push(e);
+        }
+        test_hooks::set_skip_parent_validation(false);
+        test_hooks::set_skip_final_validation(false);
+        assert!(
+            collected2.iter().any(|&(k, _)| k == removed_key),
+            "negative control: without parent validation, cursor observes removed key from stale leaf"
+        );
     }
 
     #[test]
@@ -1377,12 +1410,15 @@ mod tests {
         }
         let rd = map.reader();
 
-        let inserted_key = (0x40 << 8) | 1;
+        let inserted_key = (0x25 << 8) | 1;
         let m = Arc::clone(&map);
         test_hooks::arm_site(test_hooks::Site::ParentSampled, move || {
             // Expanding BranchL3 to BranchL7 marks BranchL3 obsolete
             m.insert(inserted_key, 9999);
         });
+        test_hooks::set_skip_parent_validation(false);
+        test_hooks::set_skip_branch_validation(false);
+        test_hooks::set_skip_final_validation(false);
 
         let mut cur = rd.cursor();
         let mut collected = Vec::new();
@@ -1397,6 +1433,41 @@ mod tests {
         assert!(
             collected.iter().any(|&(k, _)| k == inserted_key),
             "cursor sees entry inserted during parent split"
+        );
+
+        // Negative control: skipping validation traverses obsolete parent and misses inserted key
+        let map2 = Arc::new(SyncExpanseMap::new());
+        for d in [0x10u64, 0x20, 0x30] {
+            for i in 0..17u64 {
+                let k = (d << 8) | (1 + 2 * i);
+                map2.insert(k, k * 10);
+            }
+        }
+        let rd2 = map2.reader();
+        let m2 = Arc::clone(&map2);
+        test_hooks::arm_site(test_hooks::Site::ParentSampled, move || {
+            m2.insert(inserted_key, 9999);
+        });
+        test_hooks::set_skip_parent_validation(true);
+        test_hooks::set_skip_branch_validation(true);
+        test_hooks::set_skip_final_validation(true);
+
+        let mut cur2 = rd2.cursor();
+        let mut collected2 = Vec::new();
+        while let Some(e) = cur2.next() {
+            collected2.push(e);
+        }
+        test_hooks::set_skip_parent_validation(false);
+        test_hooks::set_skip_branch_validation(false);
+        test_hooks::set_skip_final_validation(false);
+        assert_eq!(
+            collected2.len(),
+            51,
+            "negative control: without validation, cursor traverses obsolete parent"
+        );
+        assert!(
+            !collected2.iter().any(|&(k, _)| k == inserted_key),
+            "negative control: without validation, cursor misses entry inserted during parent split"
         );
     }
 
@@ -1419,6 +1490,7 @@ mod tests {
                 m.remove(k);
             }
         });
+        test_hooks::set_skip_final_validation(false);
 
         let mut cur = rd.cursor();
         let mut collected = Vec::new();
@@ -1429,6 +1501,36 @@ mod tests {
             collected.len(),
             17,
             "cursor handles leaf demotion under retry"
+        );
+
+        // Negative control: skipping final validation accepts stale pre-demotion leaf buffer
+        let map2 = Arc::new(SyncExpanseMap::new());
+        for d in [0x10u64, 0x20] {
+            for i in 0..17u64 {
+                let k = (d << 8) | (1 + 2 * i);
+                map2.insert(k, k * 10);
+            }
+        }
+        let rd2 = map2.reader();
+        let m2 = Arc::clone(&map2);
+        test_hooks::arm_site(test_hooks::Site::CursorFinal, move || {
+            for i in 0..17u64 {
+                let k = (0x20 << 8) | (1 + 2 * i);
+                m2.remove(k);
+            }
+        });
+        test_hooks::set_skip_final_validation(true);
+
+        let mut cur2 = rd2.cursor();
+        let mut collected2 = Vec::new();
+        while let Some(e) = cur2.next() {
+            collected2.push(e);
+        }
+        test_hooks::set_skip_final_validation(false);
+        assert_eq!(
+            collected2.len(),
+            34,
+            "negative control: without final validation, cursor emits stale pre-demotion keys"
         );
     }
 }
