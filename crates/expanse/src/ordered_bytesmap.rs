@@ -70,18 +70,32 @@ fn encode_into_slice(data: &[u8], buf: &mut [u8]) -> usize {
 #[inline]
 fn with_encoded_key<R>(key: &[u8], f: impl FnOnce(&NulFreeStr) -> R) -> R {
     if !key.iter().any(|&b| b <= 1) {
-        // SAFETY: key contains no byte <= 1, so in particular no NUL byte.
+        debug_assert!(!key.contains(&0));
+        // SAFETY:
+        // - Invariant: clean path checks `!key.iter().any(|&b| b <= 1)`.
+        // - Since no byte is <= 1, no byte in `key` is 0x00 (NUL).
+        // - Therefore `key` is strictly NUL-free and valid for `NulFreeStr`.
         let nul_free = unsafe { NulFreeStr::new_unchecked(key) };
         f(nul_free)
     } else if key.len() <= 32 {
         let mut buf = [0u8; 64];
         let len = encode_into_slice(key, &mut buf);
-        // SAFETY: encode_into_slice emits only bytes >= 1 (0x01, 0x02, or b in 0x02..=0xFF).
-        let nul_free = unsafe { NulFreeStr::new_unchecked(&buf[..len]) };
+        let slice = &buf[..len];
+        debug_assert!(!slice.contains(&0));
+        // SAFETY:
+        // - Invariant: `encode_into_slice` (lines 44-63) maps 0x00 -> [0x01, 0x01],
+        //   0x01 -> [0x01, 0x02], and preserves bytes in 0x02..=0xFF.
+        // - Every byte written to `buf` is >= 1, so `slice` contains no 0x00 (NUL).
+        // - Capacity is sufficient: len <= 2 * key.len() <= 64 for key.len() <= 32.
+        let nul_free = unsafe { NulFreeStr::new_unchecked(slice) };
         f(nul_free)
     } else {
         let enc = escape_encode(key);
-        // SAFETY: escape_encode emits no NUL bytes.
+        debug_assert!(!enc.contains(&0));
+        // SAFETY:
+        // - Invariant: `escape_encode` (crates/expanse/src/domain.rs:188-202) maps
+        //   0x00 -> [0x01, 0x01], 0x01 -> [0x01, 0x02], and preserves bytes in 0x02..=0xFF.
+        // - The resulting encoded `Vec<u8>` is strictly NUL-free by construction.
         let nul_free = unsafe { NulFreeStr::new_unchecked(&enc) };
         f(nul_free)
     }
@@ -92,9 +106,6 @@ fn with_encoded_key<R>(key: &[u8], f: impl FnOnce(&NulFreeStr) -> R) -> R {
 pub struct ExpanseOrderedBytesMap {
     inner: ExpanseStrMap,
 }
-
-// SAFETY: the map exclusively owns its inner string map and allocations.
-unsafe impl Send for ExpanseOrderedBytesMap {}
 
 impl ExpanseOrderedBytesMap {
     /// Creates an empty map.
