@@ -1345,7 +1345,7 @@ The release workflow implements an anchor-first DAG across three phases:
    - Generates CycloneDX v1.5 SBOMs (`expanse.cdx.json`, `expanse-trie.cdx.json`) and Sigstore in-toto build provenance attestations (`expanse.intoto.jsonl`).
    - Publishes the GitHub Release as the immutable release anchor before any registry jobs proceed.
 3. **Phase 3 — Ecosystem Registries & Distribution**:
-   - Publishes crates to crates.io (`expanse-trie`, `expanse-capi`) using OIDC / scoped token under `environment: release`.
+   - Publishes crates to crates.io (`expanse-trie`, `expanse-capi`) with OIDC trusted publishing (a short-lived token from `rust-lang/crates-io-auth-action`, no stored registry token) under `environment: release`.
    - Publishes Java artifacts to Maven Central (`io.github.orieg:expanse-java`) with GPG signing under `environment: release`.
    - Publishes npm packages (`@orieg/expanse`, `@orieg/expanse-wasm`) with OIDC trusted publishing.
    - Publishes .NET package (`Orieg.Expanse`) to NuGet.org with OIDC trusted publishing.
@@ -1388,7 +1388,7 @@ Privileged operations are partitioned into GitHub Environments with explicit dep
 
 | Environment | Deployment Policy | Permitted Secrets | Purpose |
 |---|---|---|---|
-| `release` | Branches: `main`, Tags: `v*.*.*` | `CARGO_REGISTRY_TOKEN`, `MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_TOKEN`, `HOMEBREW_TAP_DEPLOY_KEY` | Publishing to crates.io, Maven Central, Homebrew tap (`release.yml`); Maven Central recovery (`java.yml`) |
+| `release` | Branches: `main`, Tags: `v*.*.*` | `MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_TOKEN`, `HOMEBREW_TAP_DEPLOY_KEY` | Publishing to crates.io, Maven Central, Homebrew tap (`release.yml`); Maven Central recovery (`java.yml`) |
 | `package-signing` | Branches: `main` | `REPO_SIGNING_KEY`, `REPO_SIGNING_PASSPHRASE` | Signing APT and RPM package repositories during Pages builds |
 | `subsplit` | Branches: `main`, Tags: `v*.*.*` | `PHP_LIBRARY_SUBSPLIT_SSH_KEY`, `PHP_SUBSPLIT_SSH_KEY` | Pushing subsplit git mirrors (`expanse-php-library`, `php-expanse`) |
 | `github-pages` | Standard Pages policy | None | Publishing deployment artifact via GitHub Pages Actions runner |

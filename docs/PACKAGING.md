@@ -63,7 +63,8 @@ graph TD
   - [`expanse-trie`](https://crates.io/crates/expanse-trie): Core `#![no_std]` trie engine (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `SyncExpanseSet`, `SyncExpanseMap`).
   - [`expanse-capi`](https://crates.io/crates/expanse-capi): C ABI export (`libexpanse.so`, `expanse.dll`, `libexpanse.dylib`, `libexpanse.a`).
 - **Trusted Publishing (OIDC)**:
-  - Uses secret-less OpenID Connect authentication between GitHub Actions and crates.io (`id-token: write`). No API tokens or long-lived credentials stored in repository secrets.
+  - `publish-crates` exchanges its GitHub OIDC token (`id-token: write`) for a short-lived crates.io token through `rust-lang/crates-io-auth-action`, and the action revokes that token when the job ends. No crates.io API token is stored in repository or environment secrets.
+  - Requires each crate's **Settings** -> **Trusted Publishing** on crates.io to list repository `orieg/expanse` and workflow `release.yml`; an environment, if one is set there, must be `release`, the environment `publish-crates` runs in.
 
 ---
 
