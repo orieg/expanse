@@ -1653,7 +1653,7 @@ impl<'a> core::marker::Unpin for expanse_trie::ordered_bytesmap::OrderedBytesCur
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::ordered_bytesmap::OrderedBytesCursor<'a>
-#[repr(transparent)] pub struct expanse_trie::ordered_bytesmap::SyncExpanseOrderedBytesMap
+pub struct expanse_trie::ordered_bytesmap::SyncExpanseOrderedBytesMap
 impl expanse_trie::sync::SyncExpanseOrderedBytesMap
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::clear(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
@@ -2549,7 +2549,7 @@ impl core::marker::Unpin for expanse_trie::sync::SyncExpanseMap
 impl core::marker::UnsafeUnpin for expanse_trie::sync::SyncExpanseMap
 impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SyncExpanseMap
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncExpanseMap
-#[repr(transparent)] pub struct expanse_trie::sync::SyncExpanseOrderedBytesMap
+pub struct expanse_trie::sync::SyncExpanseOrderedBytesMap
 impl expanse_trie::sync::SyncExpanseOrderedBytesMap
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::clear(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus

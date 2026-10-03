@@ -29,10 +29,10 @@
 //!    `*_decode_into` methods.
 
 pub use crate::domain::EscapeDecodeError;
-#[cfg(all(target_pointer_width = "64", feature = "std"))]
-pub use crate::sync::SyncExpanseOrderedBytesMap;
 use crate::domain::{escape_decode, escape_decode_in_place, escape_decode_into, escape_encode};
 use crate::strmap::{ExpanseStrMap, NulFreeStr, StrCursor};
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+pub use crate::sync::SyncExpanseOrderedBytesMap;
 use core::ptr::NonNull;
 use core_alloc::vec::Vec;
 
@@ -104,6 +104,10 @@ pub(crate) fn with_encoded_key<R>(key: &[u8], f: impl FnOnce(&NulFreeStr) -> R) 
 }
 
 /// An ordered map from arbitrary byte sequences (`&[u8]`) to `u64` values.
+///
+/// Marked `#[repr(transparent)]` over [`ExpanseStrMap`] so [`SyncExpanseOrderedBytesMap::with_locked`]
+/// can soundly cast `&ExpanseStrMap` to `&ExpanseOrderedBytesMap` inside its exclusive lock closure
+/// without allocation.
 #[derive(Default)]
 #[repr(transparent)]
 pub struct ExpanseOrderedBytesMap {

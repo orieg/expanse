@@ -68,6 +68,7 @@ use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
 #[cfg(all(feature = "std", not(feature = "ablation-bytes-serial-writers")))]
 use crate::bytesmap::{Bucket, dispose_bucket};
 use crate::bytesmap::{BytesMapStats, ExpanseBytesMap};
+use crate::domain::EscapeDecodeError;
 use crate::leaf;
 use crate::map::ExpanseMap;
 use crate::mutate::{branch_form_level, pow256};
@@ -77,7 +78,6 @@ use crate::node::{
 #[cfg(feature = "collector-census")]
 use crate::occ::CollectorCounters;
 use crate::occ::{Collector, CollectorCensus, Pin, Reader, SeqVersion};
-use crate::domain::EscapeDecodeError;
 use crate::ordered_bytesmap::{ExpanseOrderedBytesMap, with_encoded_key};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
@@ -13187,16 +13187,18 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
 ///
 /// # Ordered Navigation & Caller Buffers (AGENTS §2.4)
 ///
-/// Navigation methods (`first`, `last`, `next_after`, `prev_before`, etc.) and their
-/// caller-buffer zero-allocation twins (`first_decode_into`, `next_after_decode_into`,
-/// etc.) run under the reader-writer lock via [`SyncExpanseStrMap::with_locked`],
-/// ensuring a consistent snapshot without ever using unsafe rotating ring buffers.
+/// Navigation methods (`first`, `last`, `next_after`, `prev_before`, `next_at_or_after`,
+/// `prev_at_or_before`) and their caller-buffer zero-allocation twins (`first_decode_into`,
+/// `next_after_decode_into`, etc.) run under the writer lock via [`Self::with_locked`],
+/// ensuring a consistent multi-byte expanse snapshot without ever using unsafe rotating
+/// ring buffers. These methods serialise against concurrent writers.
+/// In contrast, point lookups ([`Self::get`], [`Self::contains_key`], and [`OrderedBytesReader::get`])
+/// run via optimistic lock coupling (OLC) and do not take the writer lock on the common path.
 ///
 /// # Memory-model soundness
 ///
 /// Concurrent use forms no data race and no aliasing violation; lookups and mutations
 /// validate version words and pin epochs identically to [`SyncExpanseStrMap`].
-#[repr(transparent)]
 pub struct SyncExpanseOrderedBytesMap {
     inner: SyncExpanseStrMap,
 }
@@ -13297,12 +13299,8 @@ impl SyncExpanseOrderedBytesMap {
 
     /// Runs `f` over the map with all writers excluded.
     pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseOrderedBytesMap) -> R) -> R {
-        self.inner.with_locked(|str_map| {
-            // SAFETY: ExpanseOrderedBytesMap is #[repr(transparent)] over ExpanseStrMap.
-            let obm: &ExpanseOrderedBytesMap =
-                unsafe { &*(str_map as *const ExpanseStrMap as *const ExpanseOrderedBytesMap) };
-            f(obm)
-        })
+        self.inner
+            .with_locked(|str_map| f(ExpanseOrderedBytesMap::from_ref(str_map)))
     }
 
     /// Runs `f` with every other writer excluded, through an exclusive handle.
@@ -13353,31 +13351,43 @@ impl SyncExpanseOrderedBytesMap {
     // --- Navigation (Consistent read under lock, returning owned Vec<u8>) ---
 
     /// Smallest entry in byte-lexicographical order: `(key, value)`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn first(&self) -> Option<(Vec<u8>, u64)> {
         self.with_locked(|m| m.first_entry())
     }
 
     /// Largest entry in byte-lexicographical order: `(key, value)`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn last(&self) -> Option<(Vec<u8>, u64)> {
         self.with_locked(|m| m.last_entry())
     }
 
     /// Smallest entry with key `> key`: `(key, value)`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn next_after(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
         self.with_locked(|m| m.next_after_entry(key))
     }
 
     /// Largest entry with key `< key`: `(key, value)`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn prev_before(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
         self.with_locked(|m| m.prev_before_entry(key))
     }
 
     /// Smallest entry with key `>= key`: `(key, value)`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn next_at_or_after(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
         self.with_locked(|m| m.next_at_or_after_entry(key))
     }
 
     /// Largest entry with key `<= key`: `(key, value)`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn prev_at_or_before(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
         self.with_locked(|m| m.prev_at_or_before_entry(key))
     }
@@ -13385,6 +13395,8 @@ impl SyncExpanseOrderedBytesMap {
     // --- Caller-Buffer decode APIs (`*_decode_into`, AGENTS §2.4) ---
 
     /// Decodes the smallest entry's key into `buf`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn first_decode_into(
         &self,
         buf: &mut [u8],
@@ -13401,6 +13413,8 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     /// Decodes the largest entry's key into `buf`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn last_decode_into(
         &self,
         buf: &mut [u8],
@@ -13417,6 +13431,8 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     /// Decodes the key of the smallest entry `> key` into `buf`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn next_after_decode_into(
         &self,
         key: &[u8],
@@ -13434,6 +13450,8 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     /// Decodes the key of the largest entry `< key` into `buf`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn prev_before_decode_into(
         &self,
         key: &[u8],
@@ -13451,6 +13469,8 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     /// Decodes the key of the smallest entry `>= key` into `buf`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn next_at_or_after_decode_into(
         &self,
         key: &[u8],
@@ -13468,6 +13488,8 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     /// Decodes the key of the largest entry `<= key` into `buf`.
+    ///
+    /// Runs under the writer lock via [`Self::with_locked`], serialising against concurrent writers.
     pub fn prev_at_or_before_decode_into(
         &self,
         key: &[u8],

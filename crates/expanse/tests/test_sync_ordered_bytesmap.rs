@@ -18,6 +18,7 @@ use expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap;
 use expanse_trie::sync::{OrderedBytesReader, SyncExpanseOrderedBytesMap};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 fn assert_send<T: Send>() {}
@@ -28,6 +29,17 @@ fn test_send_sync_traits() {
     assert_send::<SyncExpanseOrderedBytesMap>();
     assert_sync::<SyncExpanseOrderedBytesMap>();
     assert_send::<OrderedBytesReader<'static>>();
+
+    let map = Arc::new(SyncExpanseOrderedBytesMap::new());
+    map.insert(b"init", 42);
+    let map_clone = Arc::clone(&map);
+    let handle = thread::spawn(move || {
+        let reader = map_clone.reader();
+        assert_eq!(reader.get(b"init"), Some(42));
+        assert!(reader.contains(b"init"));
+    });
+    assert!(handle.join().is_ok());
+    assert_eq!(map.len(), 1);
 }
 
 #[test]
@@ -175,6 +187,177 @@ fn test_multi_threaded_concurrent_writers_and_readers() {
             key.extend_from_slice(&(i as u32).to_be_bytes());
             assert_eq!(map.get(&key), Some(val));
         }
+    }
+}
+
+#[test]
+fn test_concurrent_readers_and_writers_with_escape_integrity() {
+    let map = Arc::new(SyncExpanseOrderedBytesMap::new());
+
+    // 1. Pre-populate permanent model keys across all representations (clean, escaped, edge cases).
+    // These keys remain present throughout the entire concurrent execution.
+    let permanent_model: Vec<(Vec<u8>, u64)> = vec![
+        (vec![], 1_000_001),
+        (vec![0x00], 1_000_002),
+        (vec![0x00, 0x00], 1_000_003),
+        (vec![0x00, 0x01], 1_000_004),
+        (vec![0x01], 1_000_005),
+        (vec![0x01, 0x01], 1_000_006), // Disambiguation: distinct from unescaped 0x00
+        (vec![0x01, 0x02], 1_000_007), // Disambiguation: distinct from unescaped 0x01
+        (b"clean_permanent_alpha".to_vec(), 1_000_008),
+        (b"clean_permanent_beta".to_vec(), 1_000_009),
+        (vec![0x00, 0x42, 0x01, 0x99, 0x00], 1_000_010),
+        (vec![0xFF, 0xFE, 0x00, 0x01, 0xFD], 1_000_011),
+    ];
+
+    for (k, v) in &permanent_model {
+        assert_eq!(map.insert(k, *v), None);
+    }
+
+    let n_writers = 4;
+    let n_readers = 4;
+    let n_iterations_per_writer = 200;
+    let running = Arc::new(AtomicBool::new(true));
+
+    // Spawn writers mutating dynamic keys concurrently
+    let mut writer_handles = Vec::new();
+    for w_idx in 0..n_writers {
+        let map = Arc::clone(&map);
+        writer_handles.push(thread::spawn(move || {
+            for i in 0..n_iterations_per_writer {
+                let val_base = (w_idx * 100_000 + i * 10) as u64;
+
+                // (a) Clean key (exercises zero-allocation fast path)
+                let clean_key = format!("writer_{w_idx}_iter_{i}_clean").into_bytes();
+                map.insert(&clean_key, val_base + 1);
+
+                // (b) Short escaped key (<= 32 bytes) with embedded 0x00 and 0x01 (exercises stack buffer)
+                let mut short_esc = vec![0x00, w_idx as u8, 0x01];
+                short_esc.extend_from_slice(&(i as u16).to_be_bytes());
+                map.insert(&short_esc, val_base + 2);
+
+                // (c) Long escaped key (> 32 bytes) (exercises heap fallback)
+                let mut long_esc = vec![0x42; 40];
+                long_esc[0] = 0x00;
+                long_esc[1] = w_idx as u8;
+                long_esc[35] = 0x01;
+                long_esc[38] = (i & 0xFF) as u8;
+                map.insert(&long_esc, val_base + 3);
+
+                // Verification under writer
+                assert_eq!(map.get(&clean_key), Some(val_base + 1));
+                assert_eq!(map.get(&short_esc), Some(val_base + 2));
+                assert_eq!(map.get(&long_esc), Some(val_base + 3));
+
+                // Evict half to induce deletions and structural re-balancing concurrently
+                if i % 2 == 0 {
+                    assert_eq!(map.remove(&clean_key), Some(val_base + 1));
+                    assert_eq!(map.remove(&long_esc), Some(val_base + 3));
+                }
+            }
+        }));
+    }
+
+    // Spawn readers on OrderedBytesReader concurrently with writers
+    let mut reader_handles = Vec::new();
+    for _ in 0..n_readers {
+        let map = Arc::clone(&map);
+        let running = Arc::clone(&running);
+        let permanent_model = permanent_model.clone();
+        reader_handles.push(thread::spawn(move || {
+            let reader = map.reader();
+            let mut read_cycles = 0;
+            let mut buf = [0u8; 64];
+
+            while running.load(Ordering::Acquire) {
+                // 1. Assert EVERY permanent key is found with its exact decoded value
+                for (k, expected_val) in &permanent_model {
+                    let val = reader.get(k);
+                    assert_eq!(
+                        val,
+                        Some(*expected_val),
+                        "Permanent key {k:?} must be present and match model value"
+                    );
+                    assert!(
+                        reader.contains(k),
+                        "Permanent key {k:?} must be reported as present by contains"
+                    );
+                }
+
+                // 2. Caller-buffer decode integrity on permanent keys:
+                // Verify that decoded keys are returned intact without raw escape leakage.
+                // For key [0x00]: decoded length MUST be 1, slice &[0x00], NEVER [0x01, 0x01] (len 2).
+                if let Ok(Some((len, val))) = map.next_at_or_after_decode_into(&[0x00], &mut buf) {
+                    assert_eq!(
+                        len, 1,
+                        "Decoded length for [0x00] must be 1 byte, not 2 escape bytes"
+                    );
+                    assert_eq!(
+                        &buf[..len],
+                        &[0x00],
+                        "Key [0x00] must decode with 0x00 byte intact"
+                    );
+                    assert_eq!(val, 1_000_002);
+                }
+
+                // For key [0x00, 0x00]: decoded length MUST be 2, slice &[0x00, 0x00].
+                if let Ok(Some((len, val))) =
+                    map.next_at_or_after_decode_into(&[0x00, 0x00], &mut buf)
+                {
+                    assert_eq!(len, 2, "Decoded length for [0x00, 0x00] must be 2 bytes");
+                    assert_eq!(
+                        &buf[..len],
+                        &[0x00, 0x00],
+                        "Key [0x00, 0x00] must decode intact"
+                    );
+                    assert_eq!(val, 1_000_003);
+                }
+
+                // For key [0x01, 0x01]: distinct from [0x00]
+                if let Ok(Some((len, val))) =
+                    map.next_at_or_after_decode_into(&[0x01, 0x01], &mut buf)
+                {
+                    assert_eq!(len, 2, "Decoded length for [0x01, 0x01] must be 2 bytes");
+                    assert_eq!(&buf[..len], &[0x01, 0x01]);
+                    assert_eq!(val, 1_000_006);
+                }
+
+                // 3. Navigation via first(): empty key has length 0, not [0x01, 0x01] or any escape
+                if let Some((first_k, first_v)) = map.first() {
+                    assert_eq!(
+                        first_k,
+                        Vec::<u8>::new(),
+                        "Smallest key in map must be empty key []"
+                    );
+                    assert_eq!(first_v, 1_000_001);
+                }
+
+                read_cycles += 1;
+            }
+
+            assert!(
+                read_cycles > 0,
+                "Reader thread must have completed at least 1 read cycle"
+            );
+        }));
+    }
+
+    // Wait for writers to complete
+    for h in writer_handles {
+        h.join().unwrap();
+    }
+
+    // Stop readers
+    running.store(false, Ordering::Release);
+    for h in reader_handles {
+        h.join().unwrap();
+    }
+
+    // Final integrity verification of permanent keys
+    let reader = map.reader();
+    for (k, expected_val) in &permanent_model {
+        assert_eq!(reader.get(k), Some(*expected_val));
+        assert!(reader.contains(k));
     }
 }
 
