@@ -2303,14 +2303,13 @@ fn sync_map_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     let rd = map.reader();
     let mut sink = 0u64;
     let mut n = 0usize;
-    let mut at = rd.first();
-    while let Some((k, v)) = at {
+    let mut cur = rd.cursor();
+    while let Some((k, v)) = cur.next() {
         sink ^= k ^ v;
         n += 1;
-        at = rd.next_after(black_box(k));
     }
     assert_eq!(n, POP, "the scan visits every entry once");
-    // Both leaked — see `sync_map_get`.
+    // Leaked — see `sync_map_get`.
     core::mem::forget(rd);
     core::mem::forget(map);
     black_box(sink)

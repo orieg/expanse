@@ -128,6 +128,8 @@ pub mod strmap;
 #[cfg(all(target_pointer_width = "64", feature = "std"))]
 pub mod sync;
 #[cfg(all(target_pointer_width = "64", feature = "std"))]
+pub mod sync_cursor;
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
 mod sync_nav;
 #[cfg(target_pointer_width = "64")]
 pub mod types;

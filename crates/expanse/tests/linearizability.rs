@@ -1903,3 +1903,192 @@ fn test_sync_set_linearizability_branch_u_floor_crossings() {
         }
     }
 }
+
+// --- Batch cursor scan linearizability verification (#1142) --------------
+
+#[derive(Clone, Debug)]
+struct ScanEvent {
+    start: Instant,
+    end: Instant,
+    results: Vec<(u64, u64)>,
+}
+
+#[derive(Clone, Debug)]
+enum MapWriteOp {
+    Insert(u64, u64),
+    Remove(u64),
+}
+
+#[derive(Clone, Debug)]
+struct MapWriteEvent {
+    op: MapWriteOp,
+    start: Instant,
+    end: Instant,
+}
+
+fn check_scan_linearizability(
+    scan: &ScanEvent,
+    writes: &[MapWriteEvent],
+    initial: &BTreeMap<u64, u64>,
+) -> bool {
+    // 1. Strictly ascending order:
+    for window in scan.results.windows(2) {
+        if window[0].0 >= window[1].0 {
+            return false;
+        }
+    }
+
+    let scan_map: HashMap<u64, u64> = scan.results.iter().copied().collect();
+    if scan_map.len() != scan.results.len() {
+        return false;
+    }
+
+    // 2. Any key present in `initial` that had NO remove before `scan.end` must be seen:
+    for &k in initial.keys() {
+        let removed = writes.iter().any(|w| {
+            if let MapWriteOp::Remove(rk) = w.op {
+                rk == k && w.start <= scan.end
+            } else {
+                false
+            }
+        });
+        if !removed && !scan_map.contains_key(&k) {
+            return false;
+        }
+    }
+
+    // 3. Any key observed by scan must have existed (in initial or inserted before scan.end):
+    for (&k, &v) in &scan_map {
+        let in_initial = initial.get(&k) == Some(&v);
+        let inserted = writes.iter().any(|w| {
+            if let MapWriteOp::Insert(ik, iv) = w.op {
+                ik == k && iv == v && w.start <= scan.end
+            } else {
+                false
+            }
+        });
+        if !in_initial && !inserted {
+            return false;
+        }
+    }
+
+    // 4. Any insert that completed before scan started, and was not removed before scan.end, MUST be seen:
+    for w in writes {
+        if let MapWriteOp::Insert(ik, iv) = w.op {
+            if w.end <= scan.start {
+                let removed = writes.iter().any(|other| {
+                    if let MapWriteOp::Remove(rk) = other.op {
+                        rk == ik && other.start >= w.end && other.start <= scan.end
+                    } else {
+                        false
+                    }
+                });
+                if !removed && scan_map.get(&ik) != Some(&iv) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_batch_cursor_scan_linearizability() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const INITIAL_KEYS: u64 = 64;
+    const WRITER_OPS: usize = 100;
+    const SCAN_ROUNDS: usize = 20;
+
+    let map = Arc::new(SyncExpanseMap::new());
+    let mut initial = BTreeMap::new();
+    for i in 0..INITIAL_KEYS {
+        let k = i * 100;
+        let v = i * 1000;
+        map.insert(k, v);
+        initial.insert(k, v);
+    }
+
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let scans = Arc::new(Mutex::new(Vec::new()));
+    let done = Arc::new(AtomicBool::new(false));
+
+    let mut handles = vec![];
+
+    // Writer: inserts/removes in range 0..1000
+    {
+        let map = Arc::clone(&map);
+        let writes = Arc::clone(&writes);
+        let done = Arc::clone(&done);
+        handles.push(thread::spawn(move || {
+            let mut local = Vec::with_capacity(WRITER_OPS);
+            let mut prng = 0x1234_5678u64;
+            for i in 0..WRITER_OPS {
+                prng = prng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                let key = 50 + (prng % 50) * 100;
+                let is_ins = (i % 2) == 0;
+                let start = Instant::now();
+                let op = if is_ins {
+                    map.insert(key, key * 10);
+                    MapWriteOp::Insert(key, key * 10)
+                } else {
+                    map.remove(key);
+                    MapWriteOp::Remove(key)
+                };
+                let end = Instant::now();
+                local.push(MapWriteEvent { op, start, end });
+            }
+            writes.lock().unwrap().extend(local);
+            done.store(true, Ordering::Release);
+        }));
+    }
+
+    // Reader: performs batch scans with cursor
+    {
+        let map = Arc::clone(&map);
+        let scans = Arc::clone(&scans);
+        let done = Arc::clone(&done);
+        handles.push(thread::spawn(move || {
+            let rd = map.reader();
+            let mut local = Vec::with_capacity(SCAN_ROUNDS);
+            for _ in 0..SCAN_ROUNDS {
+                let start = Instant::now();
+                let mut cur = rd.cursor();
+                let mut results = Vec::new();
+                while let Some(e) = cur.next() {
+                    results.push(e);
+                }
+                let end = Instant::now();
+                local.push(ScanEvent {
+                    start,
+                    end,
+                    results,
+                });
+                if done.load(Ordering::Acquire) {
+                    break;
+                }
+            }
+            scans.lock().unwrap().extend(local);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let all_writes = writes.lock().unwrap().clone();
+    let all_scans = scans.lock().unwrap().clone();
+
+    assert!(!all_scans.is_empty(), "recorded at least one scan");
+    for (i, scan) in all_scans.iter().enumerate() {
+        assert!(
+            check_scan_linearizability(scan, &all_writes, &initial),
+            "scan {i} must satisfy linearizability invariants"
+        );
+    }
+}
