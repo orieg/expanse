@@ -1735,6 +1735,8 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `bytesmap_insert` | `routes` | 50,000 |
 | `cost` | `bytesmap_overwrite` | `routes` | 50,000 |
 | `cost` | `bytesmap_remove` | `routes` | 50,000 |
+| `cost` | `domain_dict_get` | `routes` | 50,000 |
+| `cost` | `domain_dict_insert` | `routes` | 50,000 |
 | `cost` | `map32_for_each_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
 | `cost` | `map32_get` | `can_dispatch` | 500 |
 | `cost` | `map32_insert` | `sensor_timestamps` | 10,000 |
@@ -1796,6 +1798,9 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `strmap_prefix_seek` | `paths`, `paths_dense` | 64 |
 | `cost` | `strmap_refill` | `routes` | 100,000 |
 | `cost` | `strmap_refill_small` | `routes` | 100,000 |
+| `cost` | `strmap_transcode_cursor` | `clean`, `escaped` | 50,000 |
+| `cost` | `strmap_transcode_get` | `clean`, `escaped` | 50,000 |
+| `cost` | `strmap_transcode_insert` | `clean`, `escaped` | 50,000 |
 | `cost` | `sync32_map_get` | `bitmap`, `linear`, `linear_wide` | 4,000 |
 | `cost` | `sync32_map_write` | `overwrite`, `overwrite_same`, `churn` | 2,000 |
 | `cost` | `sync_blobmap_churn` | `random` | 50,000 |
