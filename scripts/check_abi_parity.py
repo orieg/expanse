@@ -410,8 +410,103 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 #   - reason: A non-empty rationale explaining why the symbol is deferred.
 #   - ecosystems: Set of ecosystem identifiers where deferral applies
 #                 ('java', 'dotnet', 'python', 'node', 'go').
-STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {}
-
+STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
+    "expanse_ordered_bytesmap_new": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_free": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_insert": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_get": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_contains": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_remove": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_slot": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_ins_slot": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_len": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_mem_used": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_mem_held": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_shrink_to_fit": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_clear": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_first": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_last": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_next_at_or_after": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_next_after": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_prev_at_or_before": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+    "expanse_ordered_bytesmap_prev_before": {
+        "issue": "#808",
+        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    },
+}
 
 def validate_stated_deferrals(
     deferrals: Dict[str, Dict[str, Any]], wide_symbols: List[CSymbol]

@@ -1,0 +1,184 @@
+.TH EXPANSE_ORDERED_BYTESMAP 3 "2026-10-03" "libexpanse" "Expanse Manual"
+.SH NAME
+expanse_ordered_bytesmap_new, \
+expanse_ordered_bytesmap_free, \
+expanse_ordered_bytesmap_clear, \
+expanse_ordered_bytesmap_insert, \
+expanse_ordered_bytesmap_get, \
+expanse_ordered_bytesmap_contains, \
+expanse_ordered_bytesmap_remove, \
+expanse_ordered_bytesmap_slot, \
+expanse_ordered_bytesmap_ins_slot, \
+expanse_ordered_bytesmap_len, \
+expanse_ordered_bytesmap_mem_used, \
+expanse_ordered_bytesmap_mem_held, \
+expanse_ordered_bytesmap_shrink_to_fit, \
+expanse_ordered_bytesmap_first, \
+expanse_ordered_bytesmap_last, \
+expanse_ordered_bytesmap_next_at_or_after, \
+expanse_ordered_bytesmap_next_after, \
+expanse_ordered_bytesmap_prev_at_or_before, \
+expanse_ordered_bytesmap_prev_before \
+\- dynamic ordered arbitrary byte string-to-uint64 map
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "expanse_ordered_bytesmap_t *expanse_ordered_bytesmap_new(void);"
+.br
+.BI "void expanse_ordered_bytesmap_free(expanse_ordered_bytesmap_t *" map ");"
+.br
+.BI "void expanse_ordered_bytesmap_clear(expanse_ordered_bytesmap_t *" map ");"
+.PP
+.BI "bool expanse_ordered_bytesmap_insert("
+.BI "    expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ", uint64_t " value ", uint64_t *" old_out ");"
+.br
+.BI "bool expanse_ordered_bytesmap_get("
+.BI "    const expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_ordered_bytesmap_contains("
+.BI "    const expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ");"
+.br
+.BI "bool expanse_ordered_bytesmap_remove("
+.BI "    expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ", uint64_t *" old_out ");"
+.br
+.BI "uint64_t *expanse_ordered_bytesmap_slot("
+.BI "    const expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ");"
+.br
+.BI "uint64_t *expanse_ordered_bytesmap_ins_slot("
+.BI "    expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ");"
+.br
+.BI "uint64_t expanse_ordered_bytesmap_len("
+.BI "    const expanse_ordered_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_ordered_bytesmap_mem_used("
+.BI "    const expanse_ordered_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_ordered_bytesmap_mem_held("
+.BI "    const expanse_ordered_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_ordered_bytesmap_shrink_to_fit("
+.BI "    expanse_ordered_bytesmap_t *" map ");"
+.PP
+.BI "expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_first("
+.BI "    const expanse_ordered_bytesmap_t *" map ", void *" key_out ","
+.BI "    size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_last("
+.BI "    const expanse_ordered_bytesmap_t *" map ", void *" key_out ","
+.BI "    size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status"
+.BI "expanse_ordered_bytesmap_next_at_or_after("
+.BI "    const expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ", void *" key_out ", size_t " buf_len ","
+.BI "    size_t *" required_len ", uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_next_after("
+.BI "    const expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ", void *" key_out ", size_t " buf_len ","
+.BI "    size_t *" required_len ", uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status"
+.BI "expanse_ordered_bytesmap_prev_at_or_before("
+.BI "    const expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ", void *" key_out ", size_t " buf_len ","
+.BI "    size_t *" required_len ", uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_prev_before("
+.BI "    const expanse_ordered_bytesmap_t *" map ", const void *" key ","
+.BI "    size_t " len ", void *" key_out ", size_t " buf_len ","
+.BI "    size_t *" required_len ", uint64_t *" value_out ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBexpanse_ordered_bytesmap_t\fR is an ordered dynamic radix trie mapping
+arbitrary byte strings (\fBconst void *\fR, with explicit \fBsize_t len\fR)
+to 64-bit integer values (\fBuint64_t\fR). Unlike \fBexpanse_strmap_t\fR,
+keys may contain embedded NUL bytes (\fB0x00\fR) and arbitrary binary data.
+Keys are ordered lexicographically.
+.PP
+Navigation functions accept caller-allocated destination buffers
+(\fBkey_out\fR and \fBbuf_len\fR) and return an
+\fBexpanse_ordered_bytes_nav_status\fR enum:
+.TP
+.B EXPANSE_ORDERED_BYTES_NAV_OK (0)
+A matching entry was found and its decoded key was written to
+\fBkey_out\fR. If non-null, \fB*required_len\fR receives the key length
+and \fB*value_out\fR receives the value.
+.TP
+.B EXPANSE_ORDERED_BYTES_NAV_NOT_FOUND (1)
+No matching key exists in the map.
+.TP
+.B EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL (2)
+A matching entry exists, but \fBbuf_len\fR is insufficient (or \fBkey_out\fR
+is NULL). No bytes are written to \fBkey_out\fR and \fBvalue_out\fR is
+untouched. If non-null, \fB*required_len\fR is populated with the exact
+buffer size needed to hold the key. Passing \fBkey_out == NULL\fR and
+\fBbuf_len == 0\fR allows probing the required length.
+.SS Held Memory
+.TP
+.BI "size_t expanse_ordered_bytesmap_mem_held("
+.BI "    const expanse_ordered_bytesmap_t *" map ");"
+Returns the heap bytes the map holds from the system allocator:
+\fBexpanse_ordered_bytesmap_mem_used\fR() plus freed blocks retained.
+.TP
+.BI "size_t expanse_ordered_bytesmap_shrink_to_fit("
+.BI "    expanse_ordered_bytesmap_t *" map ");"
+Releases retained memory after deletions to the system allocator and
+returns the bytes released.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+int main(void) {
+    expanse_ordered_bytesmap_t *map = expanse_ordered_bytesmap_new();
+
+    const char key1[] = "hello\\0world";
+    expanse_ordered_bytesmap_insert(map, key1, sizeof(key1) - 1, 42, NULL);
+
+    /* Point query */
+    uint64_t val;
+    if (expanse_ordered_bytesmap_get(map, key1, sizeof(key1) - 1, &val)) {
+        printf("found: %" PRIu64 "\\n", val);
+    }
+
+    /* Probe required length, then fetch */
+    size_t req = 0;
+    expanse_ordered_bytes_nav_status st;
+    st = expanse_ordered_bytesmap_first(map, NULL, 0, &req, NULL);
+    if (st == EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL) {
+        char buf[256];
+        if (req <= sizeof(buf)) {
+            st = expanse_ordered_bytesmap_first(
+                map, buf, sizeof(buf), &req, &val
+            );
+            if (st == EXPANSE_ORDERED_BYTES_NAV_OK) {
+                printf("first key len: %zu, val: %" PRIu64 "\\n", req, val);
+            }
+        }
+    }
+
+    expanse_ordered_bytesmap_free(map);
+    return 0;
+}
+.fi
+.SS Example Output
+.nf
+found: 42
+first key len: 11, val: 42
+.fi
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_strmap (3),
+.BR expanse_bytesmap (3)
+

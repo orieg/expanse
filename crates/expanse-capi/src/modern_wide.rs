@@ -13,6 +13,7 @@ use crate::core_alloc::boxed::Box;
 use crate::core_alloc::vec::Vec;
 use core::ffi::{c_char, c_void};
 use expanse_trie::bytesmap::ExpanseBytesMap;
+use expanse_trie::ordered_bytesmap::{EscapeDecodeError, ExpanseOrderedBytesMap};
 use expanse_trie::strmap::ExpanseStrMap;
 
 // ---------------------------------------------------------------------
@@ -630,6 +631,354 @@ pub unsafe extern "C" fn expanse_strmap_last_ex(
     // SAFETY: out-pointers forwarded per contract.
     unsafe { strmap_nav_ex(m.last(), key_out, buf_len, required_len, value_out) }
 }
+
+// ---------------------------------------------------------------------
+// expanse_ordered_bytesmap_t — ordered arbitrary bytes -> u64 map
+// ---------------------------------------------------------------------
+
+container!(
+    ExpanseOrderedBytesMap,
+    expanse_ordered_bytesmap_new,
+    expanse_ordered_bytesmap_free,
+    expanse_ordered_bytesmap_len,
+    expanse_ordered_bytesmap_mem_used,
+    expanse_ordered_bytesmap_clear,
+    "ordered byte-string map"
+);
+
+reclaim!(
+    ExpanseOrderedBytesMap,
+    expanse_ordered_bytesmap_mem_held,
+    expanse_ordered_bytesmap_shrink_to_fit,
+    "ordered byte-string map"
+);
+
+/// Stores `key -> value` (see [`expanse_map_insert`] for the return
+/// convention). Embedded NULs and arbitrary bytes are handled transparently.
+///
+/// # Safety
+///
+/// `map` null or live; `key` readable for `len` bytes (null only when
+/// `len == 0`); `old_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_ordered_bytesmap_insert(
+    map: *mut ExpanseOrderedBytesMap,
+    key: *const c_void,
+    len: usize,
+    value: u64,
+    old_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
+            return false;
+        };
+        match m.insert(k, value) {
+            Some(old) => {
+                put(old_out, old);
+                false
+            }
+            None => true,
+        }
+    }
+}
+
+/// Reads the byte string's value into `value_out`; false if absent.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_ordered_bytesmap_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_ordered_bytesmap_get(
+    map: *const ExpanseOrderedBytesMap,
+    key: *const c_void,
+    len: usize,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
+            return false;
+        };
+        let Some(v) = m.get(k) else {
+            return false;
+        };
+        put(value_out, v);
+        true
+    }
+}
+
+/// Membership test for arbitrary byte strings.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_ordered_bytesmap_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_ordered_bytesmap_contains(
+    map: *const ExpanseOrderedBytesMap,
+    key: *const c_void,
+    len: usize,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
+            return false;
+        };
+        m.contains(k)
+    }
+}
+
+/// Removes the byte string, reporting its value; false if absent.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_ordered_bytesmap_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_ordered_bytesmap_remove(
+    map: *mut ExpanseOrderedBytesMap,
+    key: *const c_void,
+    len: usize,
+    old_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
+            return false;
+        };
+        let Some(v) = m.remove(k) else {
+            return false;
+        };
+        put(old_out, v);
+        true
+    }
+}
+
+/// Writable value slot of the byte string, or null if absent.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_ordered_bytesmap_insert`]. The returned slot pointer
+/// is valid until the next structural mutation of `map`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_ordered_bytesmap_slot(
+    map: *const ExpanseOrderedBytesMap,
+    key: *const c_void,
+    len: usize,
+) -> *mut u64 {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
+            return core::ptr::null_mut();
+        };
+        m.get_slot_ptr(k)
+            .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
+    }
+}
+
+/// Inserts the byte string with value 0 if absent and returns its slot.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_ordered_bytesmap_insert`]. The returned slot pointer
+/// is valid until the next structural mutation of `map`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_ordered_bytesmap_ins_slot(
+    map: *mut ExpanseOrderedBytesMap,
+    key: *const c_void,
+    len: usize,
+) -> *mut u64 {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
+            return core::ptr::null_mut();
+        };
+        m.ins_slot(k).as_ptr()
+    }
+}
+
+/// Status returned by `expanse_ordered_bytesmap_*` navigation functions.
+/// ABI: a C `enum` (int).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExpanseOrderedBytesNavStatus {
+    /// A key was found and written to `key_out` (`*value_out` and `*required_len` set if non-null).
+    Ok = 0,
+    /// No key matched; nothing was written.
+    NotFound = 1,
+    /// A key was found but `key_out`/`buf_len` was too small; `*required_len`
+    /// (if non-null) holds the byte length needed.
+    BufferTooSmall = 2,
+}
+
+macro_rules! ordered_bytesmap_nav_extreme {
+    ($name:ident, $method:ident, $doc:literal) => {
+        #[doc = $doc]
+        ///
+        /// On success writes the decoded key to `key_out`, value to `*value_out`,
+        /// and length to `*required_len`. On buffer-too-small sets `*required_len`
+        /// without writing to `key_out`.
+        ///
+        /// # Safety
+        ///
+        /// `map` null or live; `key_out` null or writable for `buf_len` bytes;
+        /// `required_len`/`value_out` null or writable.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            map: *const ExpanseOrderedBytesMap,
+            key_out: *mut c_void,
+            buf_len: usize,
+            required_len: *mut usize,
+            value_out: *mut u64,
+        ) -> ExpanseOrderedBytesNavStatus {
+            // SAFETY: null or live handle per contract.
+            let Some(m) = (unsafe { map.as_ref() }) else {
+                return ExpanseOrderedBytesNavStatus::NotFound;
+            };
+            // Probe with an empty slice first to get exact required length
+            // without modifying key_out.
+            let probe_res = m.$method(&mut []);
+            let (needed, slot) = match probe_res {
+                Ok(Some((0, slot))) => (0, slot),
+                Err(EscapeDecodeError::BufferTooSmall { required, .. }) => {
+                    (required, core::ptr::NonNull::dangling())
+                }
+                Ok(None) => return ExpanseOrderedBytesNavStatus::NotFound,
+                _ => return ExpanseOrderedBytesNavStatus::NotFound,
+            };
+            // SAFETY: writable required_len out-pointer forwarded per contract.
+            unsafe {
+                put(required_len, needed);
+            }
+            if key_out.is_null() || buf_len < needed {
+                return ExpanseOrderedBytesNavStatus::BufferTooSmall;
+            }
+            if needed == 0 {
+                // Key is empty (0 bytes): nothing to write to key_out.
+                // SAFETY: writable value_out out-pointer forwarded per contract; slot pointer is valid.
+                unsafe {
+                    put(value_out, *slot.as_ptr());
+                }
+                return ExpanseOrderedBytesNavStatus::Ok;
+            }
+            // buf_len >= needed > 0: decode into caller's buffer.
+            // SAFETY: key_out is non-null and valid for writes up to buf_len bytes.
+            let dest = unsafe { core::slice::from_raw_parts_mut(key_out.cast::<u8>(), buf_len) };
+            match m.$method(dest) {
+                Ok(Some((decoded_len, slot))) => {
+                    debug_assert_eq!(decoded_len, needed);
+                    // SAFETY: writable value_out out-pointer forwarded per contract; slot pointer is valid.
+                    unsafe {
+                        put(value_out, *slot.as_ptr());
+                    }
+                    ExpanseOrderedBytesNavStatus::Ok
+                }
+                _ => ExpanseOrderedBytesNavStatus::NotFound,
+            }
+        }
+    };
+}
+
+ordered_bytesmap_nav_extreme!(
+    expanse_ordered_bytesmap_first,
+    first_decode_into,
+    "Smallest entry in the ordered bytes map (caller-allocated buffer)."
+);
+ordered_bytesmap_nav_extreme!(
+    expanse_ordered_bytesmap_last,
+    last_decode_into,
+    "Largest entry in the ordered bytes map (caller-allocated buffer)."
+);
+
+macro_rules! ordered_bytesmap_nav_by_key {
+    ($name:ident, $method:ident, $doc:literal) => {
+        #[doc = $doc]
+        ///
+        /// On success writes the decoded key to `key_out`, value to `*value_out`,
+        /// and length to `*required_len`. On buffer-too-small sets `*required_len`
+        /// without writing to `key_out`.
+        ///
+        /// # Safety
+        ///
+        /// `map` null or live; `key` readable for `len` bytes (null only when `len == 0`);
+        /// `key_out` null or writable for `buf_len` bytes; `required_len`/`value_out` null or writable.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            map: *const ExpanseOrderedBytesMap,
+            key: *const c_void,
+            len: usize,
+            key_out: *mut c_void,
+            buf_len: usize,
+            required_len: *mut usize,
+            value_out: *mut u64,
+        ) -> ExpanseOrderedBytesNavStatus {
+            // SAFETY: null or live handle per contract.
+            let Some(m) = (unsafe { map.as_ref() }) else {
+                return ExpanseOrderedBytesNavStatus::NotFound;
+            };
+            // SAFETY: key readable for len bytes per contract.
+            let Some(k) = (unsafe { bytes(key, len) }) else {
+                return ExpanseOrderedBytesNavStatus::NotFound;
+            };
+            let probe_res = m.$method(k, &mut []);
+            let (needed, slot) = match probe_res {
+                Ok(Some((0, slot))) => (0, slot),
+                Err(EscapeDecodeError::BufferTooSmall { required, .. }) => {
+                    (required, core::ptr::NonNull::dangling())
+                }
+                Ok(None) => return ExpanseOrderedBytesNavStatus::NotFound,
+                _ => return ExpanseOrderedBytesNavStatus::NotFound,
+            };
+            // SAFETY: writable required_len out-pointer forwarded per contract.
+            unsafe {
+                put(required_len, needed);
+            }
+            if key_out.is_null() || buf_len < needed {
+                return ExpanseOrderedBytesNavStatus::BufferTooSmall;
+            }
+            if needed == 0 {
+                // SAFETY: writable value_out out-pointer forwarded per contract; slot pointer is valid.
+                unsafe {
+                    put(value_out, *slot.as_ptr());
+                }
+                return ExpanseOrderedBytesNavStatus::Ok;
+            }
+            // SAFETY: key_out is non-null and valid for writes up to buf_len bytes.
+            let dest = unsafe { core::slice::from_raw_parts_mut(key_out.cast::<u8>(), buf_len) };
+            match m.$method(k, dest) {
+                Ok(Some((decoded_len, slot))) => {
+                    debug_assert_eq!(decoded_len, needed);
+                    // SAFETY: writable value_out out-pointer forwarded per contract; slot pointer is valid.
+                    unsafe {
+                        put(value_out, *slot.as_ptr());
+                    }
+                    ExpanseOrderedBytesNavStatus::Ok
+                }
+                _ => ExpanseOrderedBytesNavStatus::NotFound,
+            }
+        }
+    };
+}
+
+ordered_bytesmap_nav_by_key!(
+    expanse_ordered_bytesmap_next_at_or_after,
+    next_at_or_after_decode_into,
+    "Smallest entry with key >= `key` (caller-allocated buffer)."
+);
+ordered_bytesmap_nav_by_key!(
+    expanse_ordered_bytesmap_next_after,
+    next_after_decode_into,
+    "Smallest entry with key > `key` (caller-allocated buffer)."
+);
+ordered_bytesmap_nav_by_key!(
+    expanse_ordered_bytesmap_prev_at_or_before,
+    prev_at_or_before_decode_into,
+    "Largest entry with key <= `key` (caller-allocated buffer)."
+);
+ordered_bytesmap_nav_by_key!(
+    expanse_ordered_bytesmap_prev_before,
+    prev_before_decode_into,
+    "Largest entry with key < `key` (caller-allocated buffer)."
+);
 
 // The concurrent containers additionally need `std` (see the child
 // module's own note), so they are gated one level deeper (#558).

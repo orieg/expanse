@@ -10,7 +10,7 @@
 |---|---|
 | Rust crate (core) | `expanse-trie` |
 | C library | `libexpanse.so` / `expanse.dll` / `libexpanse.a` |
-| Modern header | `expanse.h` — **shipped**: `expanse_set_t`, `expanse_map_t`, `expanse_bytesmap_t`, `expanse_strmap_t` (ordered NUL-terminated string keys, with truncation-aware `_ex` navigation), `ExpanseBlobMap` (`expanse_blob_map_*`), plus the concurrent `expanse_sync_set_t`/`expanse_sync_map_t` and their per-thread reader handles. Adds what classic Judy lacks: rank/select on ordered types (`count_below`/`count_range`/`by_count`), byte-exact `mem_used`, plain value returns instead of `JError_t` out-params, and optimistic concurrent readers. |
+| Modern header | `expanse.h` — **shipped**: `expanse_set_t`, `expanse_map_t`, `expanse_bytesmap_t`, `expanse_strmap_t` (ordered NUL-terminated string keys, with truncation-aware `_ex` navigation), `expanse_ordered_bytesmap_t` (ordered arbitrary byte keys with caller-allocated buffer navigation returning required length), `ExpanseBlobMap` (`expanse_blob_map_*`), plus the concurrent `expanse_sync_set_t`/`expanse_sync_map_t` and their per-thread reader handles. Adds what classic Judy lacks: rank/select on ordered types (`count_below`/`count_range`/`by_count`), byte-exact `mem_used`, plain value returns instead of `JError_t` out-params, and optimistic concurrent readers. |
 | Compat header | `Judy.h` (source-compatible with classic libjudy) |
 | Distro packages  | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
 
@@ -121,8 +121,8 @@ one that does not link, and a link error names the gap at build time.
 
 | Configuration | Cargo invocation | Exported C symbols |
 |---|---|---|
-| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 170 |
-| 64-bit, `no_std` | `--no-default-features` | 141 |
+| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 193 |
+| 64-bit, `no_std` | `--no-default-features` | 164 |
 | 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 67 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
@@ -146,7 +146,12 @@ macOS release dylib; 158 on their parent, `94bbe22d`, by the same method); the
 API methods in #1159 took the 64-bit `std` row from 162 to 170 (`nm -gU` on an arm64
 macOS dylib; 162 on parent 81f9eda2) and the 64-bit `no_std` row from 133 to 141
 (`llvm-nm --defined-only --extern-only` on the `x86_64-unknown-none` staticlib
-built with `--features embedded-panic-handler`).
+built with `--features embedded-panic-handler`). The four blob map methods in
+#1315 took the 64-bit `std` row from 170 to 174 and the 64-bit `no_std` row from
+141 to 145. The nineteen `expanse_ordered_bytesmap_*` entry points in #808 took
+the 64-bit `std` row from 174 to 193 (`nm -gU` on an arm64 macOS dylib) and the
+64-bit `no_std` row from 145 to 164; the 32-bit row is unchanged by construction,
+because `modern_wide` compiles only on 64-bit targets.
 Reproduce with the invocations above; the 32-bit row needs
 `--features embedded-panic-handler`, as the CI job does.)
 
@@ -341,7 +346,7 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 
 ## Cross-Language Feature & Container Parity
 
-`scripts/check_abi_parity.py` checks C ABI symbol coverage in CI for the Java, .NET, Python, Node.js and Go bindings (the 64-bit surface; the `!EXPANSE_WIDE_SURFACE` block is excluded). Java, .NET and Go are checked by symbol name; Python and Node, which bind the Rust API, by a per-symbol `// abi-parity:` marker at the implementing site. The per-family function counts below are the declarations in `include/expanse.h`, and the parity row is `check_abi_parity.py --check` output: 126 symbols on the 64-bit surface, 126/126 for each of Java, .NET, Python, Node.js and Go; the 32 declarations of the `!EXPANSE_WIDE_SURFACE` block are listed separately. The PHP and Ruby bindings are not checked by it, and the Rust column is the implementation, not a binding:
+`scripts/check_abi_parity.py` checks C ABI symbol coverage in CI for the Java, .NET, Python, Node.js and Go bindings (the 64-bit surface; the `!EXPANSE_WIDE_SURFACE` block is excluded). Java, .NET and Go are checked by symbol name; Python and Node, which bind the Rust API, by a per-symbol `// abi-parity:` marker at the implementing site. The per-family function counts below are the declarations in `include/expanse.h`, and the parity row is `check_abi_parity.py --check` output: 149 symbols on the 64-bit surface, 130/130 active (19 stated deferrals for #808) for each of Java, .NET, Python, Node.js and Go; the 32 declarations of the `!EXPANSE_WIDE_SURFACE` block are listed separately. The PHP and Ruby bindings are not checked by it, and the Rust column is the implementation, not a binding:
 
 | Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) | PHP (`orieg/expanse`) | Ruby (`expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -349,14 +354,14 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 | **`ExpanseMap` (JudyL)** | `expanse_map_*` (25 fns + 2 32-bit-only; `expanse_sync32_*` 30 fns 32-bit-only, provisional) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
 | **`ExpanseBytesMap` (JudyHS)** | `expanse_bytesmap_*` (12 fns) | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `BytesMap` / `ExpanseBytesMap` | `Expanse::BytesMap` |
 | **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (19 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` / `ExpanseStrMap` | `Expanse::StrMap` |
-| **`ExpanseOrderedBytesMap` (#808)** | Follow-up (`expanse_ordered_bytesmap_*`, D1) | `ExpanseOrderedBytesMap` | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up |
+| **`ExpanseOrderedBytesMap` (#808)** | `expanse_ordered_bytesmap_*` (19 fns) | `ExpanseOrderedBytesMap` | Deferred (Stage 5(c) / #808) | Deferred (Stage 5(c) / #808) | Deferred (Stage 5(c) / #808) | Deferred (Stage 5(c) / #808) | Follow-up | Follow-up |
 | **StrMap truncation-aware nav** | `expanse_strmap_*_ex` (6 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` | `Expanse::StrMap` |
 | **`SyncExpanseSet` (OCC Set)**| `expanse_sync_set_*` (11 fns) | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncSet` | Via C ABI |
 | **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (18 fns, 6 of them reader-handle ordered reads) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
 | **`SyncExpanseOrderedBytesMap` (#808)**| Follow-up (`expanse_sync_ordered_bytesmap_*`) | `SyncExpanseOrderedBytesMap` | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up |
-| **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (13 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
+| **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (17 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
 | **Metadata Filtering** | ✅ Predicate callbacks | ✅ Scalar per-entry predicate closure (`scan_filtered`) | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
 | **Optimistic Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe | ✅ Optimistic OCC | ✅ GVL-safe FFI |
-| **C ABI Symbol Parity** | **126 declared** | implementation (not checked) | **126 / 126 (100%)** | **126 / 126 (100%)** | **126 / 126 (100%)** | **126 / 126 (100%)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
+| **C ABI Symbol Parity** | **149 declared** | implementation (not checked) | **130 / 149 (100% active, 19 deferred)** | **130 / 149 (100% active, 19 deferred)** | **130 / 149 (100% active, 19 deferred)** | **130 / 149 (100% active, 19 deferred)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
 
