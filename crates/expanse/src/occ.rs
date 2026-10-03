@@ -4951,6 +4951,20 @@ mod loom_tests {
     }
 
     /// One conditional removal; unlinks (stores 0) only if word matches expected.
+    ///
+    /// This is a standalone toy protocol (model-level abstraction) modeling the
+    /// OLC seqlock version-bracketed conditional removal vs replacement publish protocol.
+    /// It abstracts the real concurrent code paths in:
+    /// - `crates/expanse/src/bytesmap.rs:777` (`olc_cas_remove_bucket_map` racing against
+    ///   `olc_cas_publish_bucket_map` or `olc_bucket_value_inplace_map`)
+    /// - `crates/expanse/src/strmap.rs:885` (`olc_compare_exchange` remove branch racing
+    ///   against store/split)
+    /// - `crates/expanse/src/blobmap.rs:980` (`olc_compare_exchange` remove/zero branch racing
+    ///   against payload or metadata CAS publish)
+    ///
+    /// End-to-end linearizability of the actual production tree wrappers is tested by
+    /// `tests/linearizability.rs`; this Loom model verifies the core version-bracketed
+    /// race-avoidance invariants under full permutation of thread interleavings.
     fn cas_remove(v: &VersionCell, word: &AtomicU64, expected: u64) -> Result<u64, u64> {
         loop {
             let Some(snap) = node_sample(v) else {

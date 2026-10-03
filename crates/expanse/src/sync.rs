@@ -11373,6 +11373,16 @@ impl SyncExpanseBlobMap {
     ///
     /// - Returns `Ok(expected)` if the current value matched and the update succeeded.
     /// - Returns `Err(current_value)` if the current value did not match.
+    ///
+    /// # Allocation Note on Failure
+    /// On mismatch, returning `Err(Some((Vec<u8>, u32)))` allocates a fresh `Vec<u8>`
+    /// to return the observed payload bytes. In high-contention loops where CAS operations
+    /// retry frequently, allocating on failure introduces heap overhead.
+    ///
+    /// For workloads where synchronization is governed by metadata (e.g. sequence numbers,
+    /// version counters, or status tags in the 24-bit metadata field), callers should prefer
+    /// [`Self::compare_exchange_meta`], which executes directly on the in-slot `hot_meta`
+    /// word with zero heap allocation and zero arena access on both success and failure.
     #[allow(clippy::type_complexity)]
     pub fn compare_exchange(
         &self,
