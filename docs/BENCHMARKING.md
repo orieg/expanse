@@ -1807,16 +1807,19 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync32_map_write` | `overwrite`, `overwrite_same`, `churn` | 2,000 |
 | `cost` | `sync_blobmap_churn` | `random` | 50,000 |
 | `cost` | `sync_blobmap_compact` | `random` | 50,000 |
+| `cost` | `sync_blobmap_compare_exchange` | `random` | 50,000 |
 | `cost` | `sync_blobmap_get` | `random` | 50,000 |
 | `cost` | `sync_blobmap_insert` | `random` | 50,000 |
 | `cost` | `sync_blobmap_overwrite` | `random` | 50,000 |
 | `cost` | `sync_blobmap_remove` | `random` | 50,000 |
 | `cost` | `sync_blobmap_remove_miss` | `random` | 50,000 |
 | `cost` | `sync_bytesmap_churn` | `routes` | 50,000 |
+| `cost` | `sync_bytesmap_compare_exchange` | `routes` | 50,000 |
 | `cost` | `sync_bytesmap_get` | `routes` | 50,000 |
 | `cost` | `sync_bytesmap_insert` | `routes` | 50,000 |
 | `cost` | `sync_bytesmap_overwrite` | `routes` | 50,000 |
 | `cost` | `sync_bytesmap_remove` | `routes` | 50,000 |
+| `cost` | `sync_bytesmap_update` | `routes` | 50,000 |
 | `cost` | `sync_map_branchu_band` | `top` | 200 |
 | `cost` | `sync_map_churn` | `random`, `leaf` | 50,000 |
 | `cost` | `sync_map_compare_exchange` | `random` | 50,000 |
@@ -1830,6 +1833,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_map_prev_locked` | `random` | 50,000 |
 | `cost` | `sync_map_remove` | `random` | 50,000 |
 | `cost` | `sync_map_scan` | `random`, `sequential`, `clustered` | 50,000 |
+| `cost` | `sync_map_update` | `random` | 50,000 |
 | `cost` | `sync_map_write_twin` | `random`, `sequential`, `one_top_byte` | 1,000 |
 | `cost` | `sync_set_churn` | `random`, `leaf` | 50,000 |
 | `cost` | `sync_set_contains` | `random`, `leaf` | 50,000 |
@@ -1838,11 +1842,13 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_set_remove` | `random` | 50,000 |
 | `cost` | `sync_strmap_churn` | `routes` | 50,000 |
 | `cost` | `sync_strmap_churn_short` | `short` | 50,000 |
+| `cost` | `sync_strmap_compare_exchange` | `routes` | 50,000 |
 | `cost` | `sync_strmap_get_short` | `short` | 50,000 |
 | `cost` | `sync_strmap_insert` | `routes` | 50,000 |
 | `cost` | `sync_strmap_insert_short` | `short` | 50,000 |
 | `cost` | `sync_strmap_insert_sorted` | `uuid` | 20,000 |
 | `cost` | `sync_strmap_remove` | `routes` | 50,000 |
+| `cost` | `sync_strmap_update` | `routes` | 50,000 |
 | `range_cost` | `map_range` | `random`, `sequential`, `clustered` | 10,000 |
 | `range_cost` | `set_range` | `random`, `sequential`, `clustered` | 10,000 |
 
