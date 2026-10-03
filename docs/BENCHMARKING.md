@@ -1746,8 +1746,10 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `domain_dict_insert` | `routes` | 50,000 |
 | `cost` | `map32_compact_drained` | `random28` | 62,500 |
 | `cost` | `map32_for_each_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
+| `cost` | `map32_from_sorted_iter` | `sequential`, `random`, `random_sorted` | 10,000 |
 | `cost` | `map32_get` | `can_dispatch` | 500 |
 | `cost` | `map32_insert` | `sensor_timestamps` | 10,000 |
+| `cost` | `map32_insert_sorted` | `sequential`, `random`, `random_sorted` | 10,000 |
 | `cost` | `map32_iterate` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `map32_nav` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `map32_prev` | `sequential`, `clustered`, `random` | 2,000 |
@@ -1782,7 +1784,9 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `ordered_bytesmap_get` | `clean`, `escaped` | 50,000 |
 | `cost` | `ordered_bytesmap_insert` | `clean`, `escaped` | 50,000 |
 | `cost` | `set32_compact_drained` | `random28` | 62,500 |
+| `cost` | `set32_from_sorted_iter` | `sequential`, `random`, `random_sorted` | 10,000 |
 | `cost` | `set32_insert` | `sensor_timestamps` | 10,000 |
+| `cost` | `set32_insert_sorted` | `sequential`, `random`, `random_sorted` | 10,000 |
 | `cost` | `set32_iterate` | `sequential`, `clustered`, `random` | 2,000 |
 | `cost` | `set32_range` | `sequential`, `clustered`, `random` | `sequential` 2,000, `clustered` 2,000, `random` 1,007 |
 | `cost` | `set32_rebuild_drained` | `random28` | 62,500 |
