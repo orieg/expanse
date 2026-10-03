@@ -941,6 +941,100 @@ impl MapCore {
         }
     }
 
+    /// Returns the deterministic dependent-node-visits count for probing `key` in this map.
+    #[must_use]
+    pub(crate) fn probe_visits(&self, key: Key) -> crate::validate::ProbeVisits {
+        match &self.root {
+            Root::Empty => crate::validate::ProbeVisits {
+                edges_followed: 0,
+                branch_b_subarrays: 0,
+                leaf_loads: 0,
+                found: false,
+                value: None,
+            },
+            Root::Leaf { ptr, pop } => {
+                let pop = *pop;
+                let kptr = ptr.as_ptr().cast::<u64>();
+                let at = if pop <= 4 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if pop >= 1 && *kptr == key {
+                            Some(0)
+                        } else if pop >= 2 && *kptr.add(1) == key {
+                            Some(1)
+                        } else if pop >= 3 && *kptr.add(2) == key {
+                            Some(2)
+                        } else if pop >= 4 && *kptr.add(3) == key {
+                            Some(3)
+                        } else {
+                            None
+                        }
+                    }
+                } else if pop <= 8 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if *kptr == key {
+                            Some(0)
+                        } else if *kptr.add(1) == key {
+                            Some(1)
+                        } else if *kptr.add(2) == key {
+                            Some(2)
+                        } else if *kptr.add(3) == key {
+                            Some(3)
+                        } else if pop >= 5 && *kptr.add(4) == key {
+                            Some(4)
+                        } else if pop >= 6 && *kptr.add(5) == key {
+                            Some(5)
+                        } else if pop >= 7 && *kptr.add(6) == key {
+                            Some(6)
+                        } else if pop >= 8 && *kptr.add(7) == key {
+                            Some(7)
+                        } else {
+                            None
+                        }
+                    }
+                } else {
+                    // SAFETY: root leaf holds `pop` keys.
+                    let keys = unsafe { core::slice::from_raw_parts(kptr, pop) };
+                    keys.binary_search(&key).ok()
+                };
+                let val = at.map(|slot| {
+                    // SAFETY: `ptr` is a live root leaf allocation with `pop` value slots.
+                    let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
+                    // SAFETY: `slot < pop` is the verified position of the key.
+                    unsafe { *vptr.add(slot) }
+                });
+                crate::validate::ProbeVisits {
+                    edges_followed: 0,
+                    branch_b_subarrays: 0,
+                    leaf_loads: 1,
+                    found: val.is_some(),
+                    value: val,
+                }
+            }
+            // SAFETY: `top` is a valid root edge of a live trie.
+            Root::Tree { top, .. } => unsafe {
+                crate::validate::walk_map_probe_visits(top, key, 8)
+            },
+        }
+    }
+
+    /// Test-only negative control for `BranchB` subarray loads.
+    #[must_use]
+    pub(crate) fn probe_visits_skipping_branchb_subarray(
+        &self,
+        key: Key,
+    ) -> crate::validate::ProbeVisits {
+        match &self.root {
+            Root::Empty => crate::validate::ProbeVisits::default(),
+            Root::Leaf { .. } => self.probe_visits(key),
+            // SAFETY: `top` is a valid root edge of a live trie.
+            Root::Tree { top, .. } => unsafe {
+                crate::validate::walk_map_probe_visits_impl::<true>(top, key, 8)
+            },
+        }
+    }
+
     /// Look up a batch of `keys` simultaneously, writing values into `out`.
     #[inline]
     pub(crate) fn get_batch(&self, keys: &[Key], out: &mut [Option<u64>]) {
@@ -4517,6 +4611,28 @@ impl ExpanseMap {
     #[must_use]
     pub fn total_node_allocs(&self) -> usize {
         self.alloc.total_allocs()
+    }
+
+    /// Returns the deterministic dependent-node-visits count for probing `key`
+    /// in this map, mirroring the descent of [`Self::get`].
+    ///
+    /// Diagnostic instrument (issue #1249); outside the hot path. Not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn probe_visits(&self, key: Key) -> crate::validate::ProbeVisits {
+        self.flush_path();
+        self.core.probe_visits(key)
+    }
+
+    /// Same as [`Self::probe_visits`], but skips counting BranchB subarray loads.
+    ///
+    /// Test-only negative control demonstrating that the walker detects skipped
+    /// BranchB subarray loads (§5 scanner-mutation rule).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn probe_visits_skipping_branchb_subarray(&self, key: Key) -> crate::validate::ProbeVisits {
+        self.flush_path();
+        self.core.probe_visits_skipping_branchb_subarray(key)
     }
 
     /// Returns the value stored for `key`.

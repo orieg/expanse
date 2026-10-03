@@ -506,6 +506,81 @@ impl ExpanseSet {
         }
     }
 
+    /// Returns the deterministic dependent-node-visits count for probing `key`
+    /// in this set, mirroring the descent of [`Self::contains`].
+    ///
+    /// Diagnostic instrument (issue #1249); outside the hot path. Not a stable API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn probe_visits(&self, key: Key) -> crate::validate::ProbeVisits {
+        self.flush_path();
+        match &self.root {
+            Root::Empty => crate::validate::ProbeVisits {
+                edges_followed: 0,
+                branch_b_subarrays: 0,
+                leaf_loads: 0,
+                found: false,
+                value: None,
+            },
+            Root::Leaf { keys, pop } => {
+                let pop = *pop;
+                let kptr = keys.as_ptr().cast::<u64>();
+                let found = if pop <= 4 {
+                    // SAFETY: root leaf holds `pop` valid u64 keys.
+                    unsafe {
+                        (pop >= 1 && *kptr == key)
+                            || (pop >= 2 && *kptr.add(1) == key)
+                            || (pop >= 3 && *kptr.add(2) == key)
+                            || (pop >= 4 && *kptr.add(3) == key)
+                    }
+                } else if pop <= 8 {
+                    // SAFETY: root leaf holds `pop` valid u64 keys.
+                    unsafe {
+                        *kptr == key
+                            || *kptr.add(1) == key
+                            || *kptr.add(2) == key
+                            || *kptr.add(3) == key
+                            || (pop >= 5 && *kptr.add(4) == key)
+                            || (pop >= 6 && *kptr.add(5) == key)
+                            || (pop >= 7 && *kptr.add(6) == key)
+                            || (pop >= 8 && *kptr.add(7) == key)
+                    }
+                } else {
+                    self.root_leaf_keys().binary_search(&key).is_ok()
+                };
+                crate::validate::ProbeVisits {
+                    edges_followed: 0,
+                    branch_b_subarrays: 0,
+                    leaf_loads: 1,
+                    found,
+                    value: None,
+                }
+            }
+            // SAFETY: `top` is a valid root edge of a live trie.
+            Root::Tree { top, .. } => unsafe {
+                crate::validate::walk_set_probe_visits(top, key, 8)
+            },
+        }
+    }
+
+    /// Same as [`Self::probe_visits`], but skips counting BranchB subarray loads.
+    ///
+    /// Test-only negative control demonstrating that the walker detects skipped
+    /// BranchB subarray loads (§5 scanner-mutation rule).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn probe_visits_skipping_branchb_subarray(&self, key: Key) -> crate::validate::ProbeVisits {
+        self.flush_path();
+        match &self.root {
+            Root::Empty => crate::validate::ProbeVisits::default(),
+            Root::Leaf { .. } => self.probe_visits(key),
+            // SAFETY: `top` is a valid root edge of a live trie.
+            Root::Tree { top, .. } => unsafe {
+                crate::validate::walk_set_probe_visits_impl::<true>(top, key, 8)
+            },
+        }
+    }
+
     /// Performs batched membership queries for a slice of `keys`, writing boolean presence
     /// flags into `out`. Returns the number of found keys.
     ///

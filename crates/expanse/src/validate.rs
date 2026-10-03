@@ -719,6 +719,616 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
     Ok(pop)
 }
 
+// ---------------------------------------------------------------------------
+// Dependent node visits per probe (Refs #1249)
+// ---------------------------------------------------------------------------
+
+const IMM_MASKS: [u64; 8] = [
+    0,
+    0x0000_0000_0000_00FF,
+    0x0000_0000_0000_FFFF,
+    0x0000_0000_00FF_FFFF,
+    0x0000_0000_FFFF_FFFF,
+    0x0000_00FF_FFFF_FFFF,
+    0x0000_FFFF_FFFF_FFFF,
+    0x00FF_FFFF_FFFF_FFFF,
+];
+
+#[inline(always)]
+fn immed_find(im: ImmedType, payload: &[u8], key: u64) -> Option<usize> {
+    match im.key_bytes() {
+        1 => immed_find_fixed::<1>(im, payload, key),
+        2 => immed_find_fixed::<2>(im, payload, key),
+        3 => immed_find_fixed::<3>(im, payload, key),
+        4 => immed_find_fixed::<4>(im, payload, key),
+        5 => immed_find_fixed::<5>(im, payload, key),
+        6 => immed_find_fixed::<6>(im, payload, key),
+        _ => immed_find_fixed::<7>(im, payload, key),
+    }
+}
+
+#[inline(always)]
+fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: u64) -> Option<usize> {
+    let n = im.key_count() as usize;
+    let needle = crate::mutate::key_low(key, KB as u8);
+    let ptr = payload.as_ptr();
+    // SAFETY: payload holds at least n * KB readable bytes per ImmedType invariant and i < n.
+    (0..n).find(|&i| unsafe { crate::mutate::read_packed_fixed::<KB>(ptr, i) } == needle)
+}
+
+/// Deterministic breakdown of dependent node visits during a probe descent.
+///
+/// Diagnostic instrument (issue #1249); outside the hot path. Not a stable API.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProbeVisits {
+    /// Number of edges followed during descent (e.g. from root edge or branch child edges).
+    pub edges_followed: usize,
+    /// Number of BranchB subarray loads incurred.
+    pub branch_b_subarrays: usize,
+    /// Number of leaf loads (root leaf, linear leaf, bitmap leaf, or multi-key immediate value array).
+    pub leaf_loads: usize,
+    /// Whether the key was found in the container.
+    pub found: bool,
+    /// Value found for the key, if present in a map; identical to `get(key)`.
+    pub value: Option<u64>,
+}
+
+impl ProbeVisits {
+    /// Total dependent node visits: edges followed + BranchB subarray loads + leaf loads.
+    #[inline]
+    #[must_use]
+    pub const fn total_visits(&self) -> usize {
+        self.edges_followed + self.branch_b_subarrays + self.leaf_loads
+    }
+}
+
+/// Walks a map-flavor subtree mirroring `get`, counting dependent node visits.
+///
+/// Diagnostic walker (Refs #1249); outside the hot path.
+/// If `SKIP_BRANCHB_SUBARRAY` is true (scanner-mutation negative control),
+/// the BranchB subarray load is not counted.
+#[doc(hidden)]
+pub unsafe fn walk_map_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
+    edge: &Edge,
+    key: u64,
+    level: u8,
+) -> ProbeVisits {
+    let mut edge = edge;
+    let mut level = level;
+    let mut edges_followed = 0;
+    let mut branch_b_subarrays = 0;
+    let mut leaf_loads = 0;
+
+    loop {
+        debug_assert!((1..=8).contains(&level));
+        let tag = edge.tag_byte();
+
+        match tag {
+            0x00 => {
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found: false,
+                    value: None,
+                };
+            }
+
+            0x01 => {
+                edges_followed += 1;
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                let bl = b.hdr.level;
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                let d = crate::types::digit(key, bl);
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                // SAFETY: `slot` is within bounds of `b.edges`.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = bl - 1;
+            }
+
+            0x02 => {
+                edges_followed += 1;
+                // SAFETY: pointer-tagged edge → live BranchL7.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+                let bl = b.hdr.level;
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                let d = crate::types::digit(key, bl);
+                let Some(slot) = b.hdr.find(d) else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                debug_assert!(slot < b.edges.len());
+                // SAFETY: `slot` is within bounds of `b.edges`.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = bl - 1;
+            }
+
+            0x03 => {
+                edges_followed += 1;
+                // SAFETY: pointer-tagged edge → live BranchB.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+                let bl = b.level;
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                let d = crate::types::digit(key, bl);
+                let Some((sub, slot)) = b.bitmap.test_and_subexpanse_rank_with_sub(d) else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                if !SKIP_BRANCHB_SUBARRAY {
+                    branch_b_subarrays += 1;
+                }
+                // SAFETY: `sub < 8` accesses a valid subarray pointer.
+                let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                // SAFETY: slot is the verified rank inside the live subexpanse subarray.
+                edge = unsafe { &*sub_ptr.add(slot) };
+                level = bl - 1;
+            }
+
+            0x04 => {
+                edges_followed += 1;
+                let mut b_ptr = edge.node_ptr().cast::<BranchU>();
+                loop {
+                    let d = crate::types::digit(key, level);
+                    // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
+                    let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                    level -= 1;
+                    let next_tag = next_edge.tag_byte();
+                    if next_tag == 0x04 {
+                        edges_followed += 1;
+                        b_ptr = next_edge.node_ptr().cast::<BranchU>();
+                    } else {
+                        edge = next_edge;
+                        break;
+                    }
+                }
+            }
+
+            0x0C => {
+                if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                leaf_loads += 1;
+                let d = (key & 0xFF) as u8;
+                // SAFETY: pointer-tagged edge → live LeafBitmapL.
+                let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
+                let Some((sub, slot)) = l.bitmap.test_and_subexpanse_rank_with_sub(d) else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                // SAFETY: `sub < 8` accesses a valid values subarray pointer.
+                let vals = unsafe { *l.values.as_ptr().add(sub) };
+                // SAFETY: `slot` is verified rank inside the values subarray.
+                let val = unsafe { *vals.add(slot) };
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found: true,
+                    value: Some(val),
+                };
+            }
+
+            0x05..=0x0B => {
+                let lf = tag - 0x04;
+                if level > lf && !crate::get::decode_matches(edge, key, lf, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                leaf_loads += 1;
+                let pop = edge.pop0(lf) as usize + 1;
+                let base = edge.node_ptr();
+                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
+                let keys = unsafe { base.add(crate::leaf::map_keys_offset(pop)) };
+                // SAFETY: `keys` points to the valid packed leaf keys slice.
+                let slot = unsafe { crate::leaf::search(keys, pop, lf, key) };
+                // SAFETY: `s < pop` indexes a valid value slot in the allocation.
+                let val = slot.map(|s| unsafe { *base.cast::<u64>().add(s) });
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found: val.is_some(),
+                    value: val,
+                };
+            }
+
+            0x7F => {
+                unreachable!("full-expanse edges are set-flavor only");
+            }
+
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                let matched = ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0;
+                let val = if matched { Some(edge.word0()) } else { None };
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found: matched,
+                    value: val,
+                };
+            }
+
+            _ => {
+                let Some(im) = ImmedType::from_u8(tag) else {
+                    debug_assert!(false, "invalid edge tag {:#04x}", tag);
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                debug_assert_eq!(
+                    im.key_bytes(),
+                    level,
+                    "an immediate's key size is its level"
+                );
+                let slot = immed_find(im, edge.aux_bytes(), key);
+                if let Some(s) = slot {
+                    leaf_loads += 1;
+                    let vals = edge.node_ptr().cast::<u64>();
+                    // SAFETY: `s` is a valid index into the immediate value array.
+                    let val = unsafe { *vals.add(s) };
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: true,
+                        value: Some(val),
+                    };
+                } else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+            }
+        }
+    }
+}
+
+/// Walks a set-flavor subtree mirroring `contains` / `test_set`, counting dependent node visits.
+#[doc(hidden)]
+pub unsafe fn walk_set_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
+    edge: &Edge,
+    key: u64,
+    level: u8,
+) -> ProbeVisits {
+    let mut edge = edge;
+    let mut level = level;
+    let mut edges_followed = 0;
+    let mut branch_b_subarrays = 0;
+    let mut leaf_loads = 0;
+
+    loop {
+        debug_assert!((1..=8).contains(&level));
+        let tag = edge.tag_byte();
+
+        match tag {
+            0x00 => {
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found: false,
+                    value: None,
+                };
+            }
+
+            0x01 => {
+                edges_followed += 1;
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                let bl = b.hdr.level;
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                let d = crate::types::digit(key, bl);
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                // SAFETY: `slot` is within bounds of `b.edges`.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = bl - 1;
+            }
+
+            0x02 => {
+                edges_followed += 1;
+                // SAFETY: pointer-tagged edge → live BranchL7.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+                let bl = b.hdr.level;
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                let d = crate::types::digit(key, bl);
+                let Some(slot) = b.hdr.find(d) else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                debug_assert!(slot < b.edges.len());
+                // SAFETY: `slot` is within bounds of `b.edges`.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = bl - 1;
+            }
+
+            0x03 => {
+                edges_followed += 1;
+                // SAFETY: pointer-tagged edge → live BranchB.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+                let bl = b.level;
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                let d = crate::types::digit(key, bl);
+                let Some((sub, slot)) = b.bitmap.test_and_subexpanse_rank_with_sub(d) else {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                if !SKIP_BRANCHB_SUBARRAY {
+                    branch_b_subarrays += 1;
+                }
+                // SAFETY: `sub < 8` accesses a valid subarray pointer.
+                let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                // SAFETY: `slot` is the verified rank inside the live subexpanse subarray.
+                edge = unsafe { &*sub_ptr.add(slot) };
+                level = bl - 1;
+            }
+
+            0x04 => {
+                edges_followed += 1;
+                let mut b_ptr = edge.node_ptr().cast::<BranchU>();
+                loop {
+                    let d = crate::types::digit(key, level);
+                    // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
+                    let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                    level -= 1;
+                    let next_tag = next_edge.tag_byte();
+                    if next_tag == 0x04 {
+                        edges_followed += 1;
+                        b_ptr = next_edge.node_ptr().cast::<BranchU>();
+                    } else {
+                        edge = next_edge;
+                        break;
+                    }
+                }
+            }
+
+            0x0C => {
+                if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                leaf_loads += 1;
+                let d = (key & 0xFF) as u8;
+                // SAFETY: pointer-tagged edge → live LeafBitmap1.
+                let l = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
+                let found = l.bitmap.test(d);
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found,
+                    value: None,
+                };
+            }
+
+            0x05..=0x0B => {
+                let lf = tag - 0x04;
+                if level > lf && !crate::get::decode_matches(edge, key, lf, level) {
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                }
+                leaf_loads += 1;
+                let pop = edge.pop0(lf) as usize + 1;
+                let base = edge.node_ptr();
+                // SAFETY: `base` points to a live leaf allocation with `pop` elements.
+                let found = (unsafe { crate::leaf::search(base, pop, lf, key) }).is_some();
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found,
+                    value: None,
+                };
+            }
+
+            0x7F => {
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found: true,
+                    value: None,
+                };
+            }
+
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                let found = ((key ^ edge.word0()) & IMM_MASKS[kb]) == 0;
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found,
+                    value: None,
+                };
+            }
+
+            _ => {
+                let Some(im) = ImmedType::from_u8(tag) else {
+                    debug_assert!(false, "invalid edge tag {:#04x}", tag);
+                    return ProbeVisits {
+                        edges_followed,
+                        branch_b_subarrays,
+                        leaf_loads,
+                        found: false,
+                        value: None,
+                    };
+                };
+                debug_assert_eq!(
+                    im.key_bytes(),
+                    level,
+                    "an immediate's key size is its level"
+                );
+                let payload = edge.imm_payload();
+                let found = immed_find(im, &payload, key).is_some();
+                return ProbeVisits {
+                    edges_followed,
+                    branch_b_subarrays,
+                    leaf_loads,
+                    found,
+                    value: None,
+                };
+            }
+        }
+    }
+}
+
+/// Walks a map-flavor subtree mirroring `get`, counting dependent node visits.
+///
+/// # Safety
+///
+/// `edge` must refer to a valid, live subtree edge descriptor.
+#[doc(hidden)]
+pub unsafe fn walk_map_probe_visits(edge: &Edge, key: u64, level: u8) -> ProbeVisits {
+    // SAFETY: caller guarantees `edge` points to a valid live subtree.
+    unsafe { walk_map_probe_visits_impl::<false>(edge, key, level) }
+}
+
+/// Walks a set-flavor subtree mirroring `contains` / `test_set`, counting dependent node visits.
+///
+/// # Safety
+///
+/// `edge` must refer to a valid, live subtree edge descriptor.
+#[doc(hidden)]
+pub unsafe fn walk_set_probe_visits(edge: &Edge, key: u64, level: u8) -> ProbeVisits {
+    // SAFETY: caller guarantees `edge` points to a valid live subtree.
+    unsafe { walk_set_probe_visits_impl::<false>(edge, key, level) }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::bytesmap::ExpanseBytesMap;
