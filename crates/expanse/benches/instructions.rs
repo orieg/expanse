@@ -615,6 +615,29 @@ fn map_compact_drained(drained: ExpanseMap) -> u64 {
     black_box(n)
 }
 
+// The shrink_to_fit arm of the remove-retention suite: the same drained tree
+// as `*_compact_drained`, with retained memory returned via shrink_to_fit().
+// Counted per surviving key (62,500).
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_set)]
+fn set_shrink_drained(drained: ExpanseSet) -> u64 {
+    let mut set = drained;
+    let released = black_box(&mut set).shrink_to_fit();
+    let n = set.len();
+    core::mem::forget(set);
+    black_box(n ^ (released as u64))
+}
+
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_map)]
+fn map_shrink_drained(drained: ExpanseMap) -> u64 {
+    let mut map = drained;
+    let released = black_box(&mut map).shrink_to_fit();
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n ^ (released as u64))
+}
+
 // Bulk construction: `ExpanseMap::from_sorted_iter` against `collect()` (an
 // insert per entry) over the same `POP` entries `(k, !k)`. `sequential` is
 // ascending (the builder's no-sort path), `random` is generator order (the
@@ -3125,6 +3148,8 @@ library_benchmark_group!(
         map_rebuild_drained,
         set_compact_drained,
         map_compact_drained,
+        set_shrink_drained,
+        map_shrink_drained,
         map_from_sorted_iter,
         map_collect,
         set_subtree_boundary_oscillate,
