@@ -361,6 +361,9 @@ CELLS = [
     Cell("masstree_insert_random_1m_shuffled", 725, "masstree_comparison",
          "masstree_latency", ["insert", "random", "1000000", "shuffled"], ["masstree"],
          note="the same cell shuffled; compare with masstree_insert_random_1m_sorted"),
+    Cell("masstree_insert_sparse_1m_shuffled", 725, "masstree_comparison",
+         "masstree_latency", ["insert", "sparse", "1000000", "shuffled"], ["masstree"],
+         note="the same sparse cell shuffled; compare with masstree_insert_sparse_1m_sorted"),
     # --- #737's own gate cell ---
     Cell("hot_lookup_random_1m", 737, "hot_comparison",
          "hot_latency", ["map", "lookup_hit", "random", "1000000"], [],
@@ -1106,7 +1109,8 @@ def c2c_round(cell: Cell, pin: list[str], env: dict, out_dir: Path) -> dict:
     }
 
 
-def provenance(pmu, why, pin, available, unavailable, repeats, futex: dict | None) -> dict:
+def provenance(pmu, why, pin, available, unavailable, repeats, futex: dict | None,
+               hugetlb: bool = False, nosuperpage: bool = False) -> dict:
     prov = {
         "instrument": {
             "process": "perf stat, one invocation per repeat, whole process",
@@ -1121,6 +1125,8 @@ def provenance(pmu, why, pin, available, unavailable, repeats, futex: dict | Non
         "pin_source": ("pmu" if os.environ.get("EXPANSE_BENCH_PIN_APPLIED") in UNPINNED
                        else "EXPANSE_BENCH_PIN_APPLIED"),
         "core_pin": os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset"),
+        "hugetlb": hugetlb,
+        "nosuperpage": nosuperpage,
         "host": host_facts(),
         "events_available": available, "events_unavailable": unavailable,
         "futex_preflight": futex,
@@ -1289,7 +1295,7 @@ def _self_test() -> int:
     # readers-alone controls, and three PR 5 multi-writer mechanism cells).
     # #802 adds six: idle and paced writers at R = 1, 2 and 7, and METHODOLOGY
     # section 5.16 six more: paced R = 1 and R = 7 under each seek lock scope.
-    for issue, want in ((724, 2), (725, 3), (730, 2), (737, 1), (568, 16), (802, 12), (1061, 4)):
+    for issue, want in ((724, 2), (725, 4), (730, 2), (737, 1), (568, 16), (802, 12), (1061, 4)):
         got = sum(1 for c in CELLS if c.issue == issue)
         if got != want:
             failures.append(f"expected {want} cell(s) for #{issue}, found {got}")
@@ -1497,6 +1503,10 @@ def main() -> int:
     ap.add_argument("--skip-build", action="store_true")
     ap.add_argument("--no-c2c", action="store_true",
                     help="skip the perf c2c round on the cells that carry one")
+    ap.add_argument("--hugetlb", action="store_true",
+                    help="run with GLIBC_TUNABLES=glibc.malloc.hugetlb=1 (Linux huge-page arenas)")
+    ap.add_argument("--nosuperpage", action="store_true",
+                    help="build and run Masstree with MASSTREE_NOSUPERPAGE=1 (-DNOSUPERPAGE)")
     args = ap.parse_args()
 
     if args.self_test:
@@ -1538,6 +1548,10 @@ def main() -> int:
             return 1
     env = dict(os.environ)
     env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-cpu=haswell"
+    if args.hugetlb:
+        env["GLIBC_TUNABLES"] = "glibc.malloc.hugetlb=1"
+    if args.nosuperpage:
+        env["MASSTREE_NOSUPERPAGE"] = "1"
 
     order = event_order()
     events = sorted({e for c in cells for e in c.events()}, key=order.index)
@@ -1561,7 +1575,8 @@ def main() -> int:
         else:
             unavailable = unavailable + [{"event": FUTEX_EVENT, "reason": futex["reason"]}]
 
-    prov = provenance(pmu, why, pin, available, unavailable, args.repeats, futex)
+    prov = provenance(pmu, why, pin, available, unavailable, args.repeats, futex,
+                      hugetlb=args.hugetlb, nosuperpage=args.nosuperpage)
     results = []
     for cell in cells:
         try:
