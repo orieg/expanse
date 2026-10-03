@@ -191,10 +191,13 @@ BENCH_N_MAP: Dict[str, int] = {
     "strmap_prefix_seek": 64,
     # Unbounded cursor walk over every path key.
     "strmap_cursor_scan": 50_000,
-    # Order-preserving escape transcoding arms (#808, `docs/ARCHITECTURE.md` §3.7.6).
+    # Order-preserving escape transcoding arms and raw string map twins (#808, `docs/ARCHITECTURE.md` §3.7.6).
     "strmap_transcode_insert": 50_000,
     "strmap_transcode_get": 50_000,
     "strmap_transcode_cursor": 50_000,
+    "strmap_raw_insert": 50_000,
+    "strmap_raw_get": 50_000,
+    "strmap_raw_cursor": 50_000,
     "domain_dict_insert": 50_000,
     "domain_dict_get": 50_000,
     "bytesmap_insert": 50_000,
@@ -340,6 +343,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "judysl_get",
             "strmap_get",
             "strmap_transcode_get",
+            "strmap_raw_get",
             "domain_dict_get",
             "bytesmap_get",
             "strmap_get_short",
@@ -381,6 +385,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "strmap_prefix_seek",
             "strmap_cursor_scan",
             "strmap_transcode_cursor",
+            "strmap_raw_cursor",
         },
     ),
     (
@@ -434,6 +439,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map32_insert",
             "strmap_insert",
             "strmap_transcode_insert",
+            "strmap_raw_insert",
             "domain_dict_insert",
             "strmap_churn",
             "strmap_oscillate",

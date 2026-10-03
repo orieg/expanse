@@ -10,11 +10,10 @@
 //! - Empty key `b""` handling.
 //! - Proptest property verification over arbitrary and 0x00/0x01-heavy byte keys.
 
-#![cfg(not(miri))]
-
 use core::ptr::NonNull;
 use expanse_trie::domain::EscapeDecodeError;
 use expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap;
+#[cfg(not(miri))]
 use proptest::prelude::*;
 use std::collections::BTreeMap;
 use std::ops::Bound;
@@ -29,6 +28,17 @@ fn write_slot(mut slot: NonNull<u64>, val: u64) {
     unsafe {
         *slot.as_mut() = val;
     }
+}
+
+#[test]
+fn test_send_auto_trait() {
+    fn _assert_send<T: Send>() {}
+    _assert_send::<ExpanseOrderedBytesMap>();
+    let map = ExpanseOrderedBytesMap::new();
+    let handle = std::thread::spawn(move || {
+        assert!(map.is_empty());
+    });
+    assert!(handle.join().is_ok());
 }
 
 #[test]
@@ -403,124 +413,221 @@ fn test_iterators_and_collection() {
     assert_eq!(map_from_iter.iter().collect::<Vec<_>>(), model_entries);
 }
 
+#[test]
+fn test_stack_buffer_boundary_32_33_bytes() {
+    let mut map = ExpanseOrderedBytesMap::new();
+
+    // 32 bytes of 0x00 -> encoded is exactly 64 bytes (fits within [u8; 64] stack buffer)
+    let key32 = vec![0u8; 32];
+    // 33 bytes of 0x00 -> encoded is 66 bytes (spills past [u8; 64] to escape_encode heap fallback)
+    let key33 = vec![0u8; 33];
+
+    assert_eq!(map.insert(&key32, 3200), None);
+    assert_eq!(map.insert(&key33, 3300), None);
+    assert_eq!(map.len(), 2);
+
+    assert_eq!(map.get(&key32), Some(3200));
+    assert_eq!(map.get(&key33), Some(3300));
+    assert!(map.contains_key(&key32));
+    assert!(map.contains_key(&key33));
+
+    // Lexicographical ordering: key32 is prefix of key33, so key32 < key33
+    let (first_k, first_v) = map.first_entry().unwrap();
+    assert_eq!(first_k, key32);
+    assert_eq!(first_v, 3200);
+
+    let (last_k, last_v) = map.last_entry().unwrap();
+    assert_eq!(last_k, key33);
+    assert_eq!(last_v, 3300);
+
+    let next = map.next_after_entry(&key32).unwrap();
+    assert_eq!(next.0, key33);
+    assert_eq!(next.1, 3300);
+
+    let prev = map.prev_before_entry(&key33).unwrap();
+    assert_eq!(prev.0, key32);
+    assert_eq!(prev.1, 3200);
+
+    // Buffer decode_into with exact buffer sizes
+    let mut buf32 = [0u8; 32];
+    let (len32, v32) = map.first_entry_decode_into(&mut buf32).unwrap().unwrap();
+    assert_eq!(len32, 32);
+    assert_eq!(&buf32, key32.as_slice());
+    assert_eq!(v32, 3200);
+
+    let mut buf33 = [0u8; 33];
+    let (len33, v33) = map.last_entry_decode_into(&mut buf33).unwrap().unwrap();
+    assert_eq!(len33, 33);
+    assert_eq!(&buf33, key33.as_slice());
+    assert_eq!(v33, 3300);
+
+    // Buffer too small checks for both boundary keys
+    let mut small_buf = [0u8; 10];
+    assert!(matches!(
+        map.first_entry_decode_into(&mut small_buf),
+        Err(EscapeDecodeError::BufferTooSmall {
+            required: 32,
+            provided: 10
+        })
+    ));
+    assert!(matches!(
+        map.last_entry_decode_into(&mut small_buf),
+        Err(EscapeDecodeError::BufferTooSmall {
+            required: 33,
+            provided: 10
+        })
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Proptest Model Tests
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug)]
-enum Op {
-    Insert(Vec<u8>, u64),
-    Remove(Vec<u8>),
-    Get(Vec<u8>),
-    Contains(Vec<u8>),
-    NextAtOrAfter(Vec<u8>),
-    PrevAtOrBefore(Vec<u8>),
-}
+#[cfg(not(miri))]
+mod proptest_model {
+    use super::*;
 
-fn byte_key_strategy() -> impl Strategy<Value = Vec<u8>> {
-    prop_oneof![
-        // Empty key
-        Just(vec![]),
-        // Heavy 0x00 / 0x01 keys
-        prop::collection::vec(prop_oneof![Just(0u8), Just(1u8), Just(2u8)], 1..32),
-        // UUID-like pattern with interior NULs
-        prop::collection::vec(any::<u8>(), 16..=16),
-        // General arbitrary byte strings
-        prop::collection::vec(any::<u8>(), 0..48),
-    ]
-}
+    #[derive(Clone, Debug)]
+    enum Op {
+        Insert(Vec<u8>, u64),
+        Remove(Vec<u8>),
+        Get(Vec<u8>),
+        Contains(Vec<u8>),
+        NextAtOrAfter(Vec<u8>),
+        PrevAtOrBefore(Vec<u8>),
+    }
 
-fn op_strategy() -> impl Strategy<Value = Op> {
-    prop_oneof![
-        3 => (byte_key_strategy(), any::<u64>()).prop_map(|(k, v)| Op::Insert(k, v)),
-        2 => byte_key_strategy().prop_map(Op::Remove),
-        2 => byte_key_strategy().prop_map(Op::Get),
-        1 => byte_key_strategy().prop_map(Op::Contains),
-        1 => byte_key_strategy().prop_map(Op::NextAtOrAfter),
-        1 => byte_key_strategy().prop_map(Op::PrevAtOrBefore),
-    ]
-}
+    fn op_strategy() -> impl Strategy<Value = Op> {
+        prop_oneof![
+            3 => (
+                prop_oneof![
+                    Just(vec![]),
+                    prop::collection::vec(prop_oneof![Just(0u8), Just(1u8), Just(2u8)], 1..32),
+                    prop::collection::vec(any::<u8>(), 16..=16),
+                    prop::collection::vec(any::<u8>(), 0..48),
+                ],
+                any::<u64>()
+            )
+                .prop_map(|(k, v)| Op::Insert(k, v)),
+            2 => prop_oneof![
+                Just(vec![]),
+                prop::collection::vec(prop_oneof![Just(0u8), Just(1u8), Just(2u8)], 1..32),
+                prop::collection::vec(any::<u8>(), 16..=16),
+                prop::collection::vec(any::<u8>(), 0..48),
+            ]
+            .prop_map(Op::Remove),
+            2 => prop_oneof![
+                Just(vec![]),
+                prop::collection::vec(prop_oneof![Just(0u8), Just(1u8), Just(2u8)], 1..32),
+                prop::collection::vec(any::<u8>(), 16..=16),
+                prop::collection::vec(any::<u8>(), 0..48),
+            ]
+            .prop_map(Op::Get),
+            1 => prop_oneof![
+                Just(vec![]),
+                prop::collection::vec(prop_oneof![Just(0u8), Just(1u8), Just(2u8)], 1..32),
+                prop::collection::vec(any::<u8>(), 16..=16),
+                prop::collection::vec(any::<u8>(), 0..48),
+            ]
+            .prop_map(Op::Contains),
+            1 => prop_oneof![
+                Just(vec![]),
+                prop::collection::vec(prop_oneof![Just(0u8), Just(1u8), Just(2u8)], 1..32),
+                prop::collection::vec(any::<u8>(), 16..=16),
+                prop::collection::vec(any::<u8>(), 0..48),
+            ]
+            .prop_map(Op::NextAtOrAfter),
+            1 => prop_oneof![
+                Just(vec![]),
+                prop::collection::vec(prop_oneof![Just(0u8), Just(1u8), Just(2u8)], 1..32),
+                prop::collection::vec(any::<u8>(), 16..=16),
+                prop::collection::vec(any::<u8>(), 0..48),
+            ]
+            .prop_map(Op::PrevAtOrBefore),
+        ]
+    }
 
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 64,
-        max_shrink_iters: 2048,
-        ..ProptestConfig::default()
-    })]
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 64,
+            max_shrink_iters: 2048,
+            ..ProptestConfig::default()
+        })]
 
-    #[test]
-    fn differential_model_matches_btreemap(ops in prop::collection::vec(op_strategy(), 1..200)) {
-        let mut map = ExpanseOrderedBytesMap::new();
-        let mut model = BTreeMap::new();
+        #[test]
+        fn differential_model_matches_btreemap(ops in prop::collection::vec(op_strategy(), 1..200)) {
+            let mut map = ExpanseOrderedBytesMap::new();
+            let mut model = BTreeMap::new();
 
-        for op in ops {
-            match op {
-                Op::Insert(k, v) => {
-                    let prev_map = map.insert(&k, v);
-                    let prev_model = model.insert(k.clone(), v);
-                    prop_assert_eq!(prev_map, prev_model);
-                }
-                Op::Remove(k) => {
-                    let rem_map = map.remove(&k);
-                    let rem_model = model.remove(&k);
-                    prop_assert_eq!(rem_map, rem_model);
-                }
-                Op::Get(k) => {
-                    let get_map = map.get(&k);
-                    let get_model = model.get(&k).copied();
-                    prop_assert_eq!(get_map, get_model);
-                }
-                Op::Contains(k) => {
-                    let cont_map = map.contains_key(&k);
-                    let cont_model = model.contains_key(&k);
-                    prop_assert_eq!(cont_map, cont_model);
-                }
-                Op::NextAtOrAfter(probe) => {
-                    let model_res = model.range(probe.clone()..).next();
-                    let map_res = map.next_at_or_after(&probe);
-                    match (model_res, map_res) {
-                        (Some((mk, mv)), Some((k, slot))) => {
-                            prop_assert_eq!(&k, mk);
-                            prop_assert_eq!(read_slot(slot), *mv);
+            for op in ops {
+                match op {
+                    Op::Insert(k, v) => {
+                        let prev_map = map.insert(&k, v);
+                        let prev_model = model.insert(k.clone(), v);
+                        prop_assert_eq!(prev_map, prev_model);
+                    }
+                    Op::Remove(k) => {
+                        let rem_map = map.remove(&k);
+                        let rem_model = model.remove(&k);
+                        prop_assert_eq!(rem_map, rem_model);
+                    }
+                    Op::Get(k) => {
+                        let get_map = map.get(&k);
+                        let get_model = model.get(&k).copied();
+                        prop_assert_eq!(get_map, get_model);
+                    }
+                    Op::Contains(k) => {
+                        let cont_map = map.contains_key(&k);
+                        let cont_model = model.contains_key(&k);
+                        prop_assert_eq!(cont_map, cont_model);
+                    }
+                    Op::NextAtOrAfter(probe) => {
+                        let model_res = model.range(probe.clone()..).next();
+                        let map_res = map.next_at_or_after(&probe);
+                        match (model_res, map_res) {
+                            (Some((mk, mv)), Some((k, slot))) => {
+                                prop_assert_eq!(&k, mk);
+                                prop_assert_eq!(read_slot(slot), *mv);
+                            }
+                            (None, None) => {}
+                            (m, actual) => {
+                                panic!(
+                                    "next_at_or_after mismatch for probe {:?}: model={:?}, actual={:?}",
+                                    probe,
+                                    m.map(|(k, v)| (k, *v)),
+                                    actual.map(|(k, s)| (k, read_slot(s)))
+                                );
+                            }
                         }
-                        (None, None) => {}
-                        (m, actual) => {
-                            panic!(
-                                "next_at_or_after mismatch for probe {:?}: model={:?}, actual={:?}",
-                                probe,
-                                m.map(|(k, v)| (k, *v)),
-                                actual.map(|(k, s)| (k, read_slot(s)))
-                            );
+                    }
+                    Op::PrevAtOrBefore(probe) => {
+                        let model_res = model.range(..=probe.clone()).next_back();
+                        let map_res = map.prev_at_or_before(&probe);
+                        match (model_res, map_res) {
+                            (Some((mk, mv)), Some((k, slot))) => {
+                                prop_assert_eq!(&k, mk);
+                                prop_assert_eq!(read_slot(slot), *mv);
+                            }
+                            (None, None) => {}
+                            (m, actual) => {
+                                panic!(
+                                    "prev_at_or_before mismatch for probe {:?}: model={:?}, actual={:?}",
+                                    probe,
+                                    m.map(|(k, v)| (k, *v)),
+                                    actual.map(|(k, s)| (k, read_slot(s)))
+                                );
+                            }
                         }
                     }
                 }
-                Op::PrevAtOrBefore(probe) => {
-                    let model_res = model.range(..=probe.clone()).next_back();
-                    let map_res = map.prev_at_or_before(&probe);
-                    match (model_res, map_res) {
-                        (Some((mk, mv)), Some((k, slot))) => {
-                            prop_assert_eq!(&k, mk);
-                            prop_assert_eq!(read_slot(slot), *mv);
-                        }
-                        (None, None) => {}
-                        (m, actual) => {
-                            panic!(
-                                "prev_at_or_before mismatch for probe {:?}: model={:?}, actual={:?}",
-                                probe,
-                                m.map(|(k, v)| (k, *v)),
-                                actual.map(|(k, s)| (k, read_slot(s)))
-                            );
-                        }
-                    }
-                }
+                prop_assert_eq!(map.len(), model.len() as u64);
+                prop_assert_eq!(map.is_empty(), model.is_empty());
             }
-            prop_assert_eq!(map.len(), model.len() as u64);
-            prop_assert_eq!(map.is_empty(), model.is_empty());
-        }
 
-        // Final iterator order check
-        let map_items: Vec<(Vec<u8>, u64)> = map.iter().collect();
-        let model_items: Vec<(Vec<u8>, u64)> = model.into_iter().collect();
-        prop_assert_eq!(map_items, model_items);
+            // Final iterator order check
+            let map_items: Vec<(Vec<u8>, u64)> = map.iter().collect();
+            let model_items: Vec<(Vec<u8>, u64)> = model.into_iter().collect();
+            prop_assert_eq!(map_items, model_items);
+        }
     }
 }

@@ -1957,6 +1957,62 @@ fn strmap_transcode_cursor(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64
     black_box(sink)
 }
 
+/// Prebuilt raw string map for twin baseline lookups and cursor walks (#808).
+fn built_raw_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let ks = transcode_keys(dist);
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+// Raw string map insert twin on clean keys (#808).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = transcode_keys)]
+fn strmap_raw_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        let val = black_box(i as u64);
+        map.insert(black_box(tk(k)), val);
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// Raw string map point-lookup twin on clean keys (#808).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_raw_strmap)]
+fn strmap_raw_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        let val = map.get(black_box(tk(k))).unwrap_or(0);
+        sink ^= val;
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Raw string map cursor-walk twin on clean keys (#808).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_raw_strmap)]
+fn strmap_raw_cursor(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    let mut cur = map.cursor();
+    while let Some((k, slot)) = cur.next() {
+        // SAFETY: as in `strmap_cursor_scan`.
+        sink ^= k.len() as u64 ^ unsafe { slot.as_ptr().read() };
+        n += 1;
+    }
+    drop(cur);
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 /// Prebuilt domain dictionary for lookup benchmarks.
 fn built_domain_dict(dist: &str) -> (ExpanseDomainDict, DomainSet, Vec<Vec<u8>>) {
     let ks = str_keys(dist);
@@ -3320,6 +3376,9 @@ library_benchmark_group!(
         strmap_transcode_insert,
         strmap_transcode_get,
         strmap_transcode_cursor,
+        strmap_raw_insert,
+        strmap_raw_get,
+        strmap_raw_cursor,
         domain_dict_insert,
         domain_dict_get,
         bytesmap_insert,
