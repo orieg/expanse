@@ -3276,8 +3276,8 @@ mod olc {
         ) {
             use crate::occ::{node_sample, node_validate, version_cell};
             use crate::sync::{
-                FallbackCause, OlcOutcome, olc_cas_publish_map, olc_cas_remove_map,
-                olc_insert_map, olc_remove_map, walk_validated_node,
+                FallbackCause, OlcOutcome, olc_cas_publish_map, olc_cas_remove_map, olc_insert_map,
+                olc_remove_map, walk_validated_node,
             };
             let key = key.as_bytes();
             let alloc = &self.alloc;
@@ -3297,11 +3297,15 @@ mod olc {
             let mut off = 0usize;
             loop {
                 let (chunk, terminal) = chunk_at(key, off);
+                // SAFETY: `node` is EBR-live under the writer pin; the word is
+                // projected from the raw pointer.
                 let word: *const u32 = unsafe { &raw const (*node).cover };
+                // SAFETY: `word` is a valid pointer to the node cover.
                 let cell = unsafe { version_cell(word) };
                 let Some(csnap) = node_sample(cell) else {
                     return (OlcOutcome::Retry, None);
                 };
+                // SAFETY: as above; a by-value copy validated before use.
                 let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
                 let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
                 let host = StrHost {
@@ -3319,11 +3323,15 @@ mod olc {
                         };
                         return (outcome, None);
                     }
-                    let found = match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) } {
-                        Ok(f) => f,
-                        Err(_) => return (OlcOutcome::Retry, None),
-                    };
-                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                    // SAFETY: pinned, and the cover was sampled just above.
+                    let found =
+                        match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) } {
+                            Ok(f) => f,
+                            Err(_) => return (OlcOutcome::Retry, None),
+                        };
+                    // SAFETY: live node (above).
+                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                    else {
                         return (OlcOutcome::Retry, None);
                     };
                     if found != expected {
@@ -3333,9 +3341,16 @@ mod olc {
                     }
                     match new {
                         Some(v) => {
+                            // SAFETY: cover lock excludes every other writer of this
+                            // node's leaf state, and readers validate the word.
                             unsafe {
                                 under_lock(node, alloc, || {
-                                    MapCore::insert_leaf_state_at(&raw mut (*node).map, alloc, chunk, v)
+                                    MapCore::insert_leaf_state_at(
+                                        &raw mut (*node).map,
+                                        alloc,
+                                        chunk,
+                                        v,
+                                    )
                                 })
                             };
                             drop(lock);
@@ -3347,18 +3362,27 @@ mod olc {
                                 drop(lock);
                                 return (OlcOutcome::Done(None), None);
                             }
+                            // SAFETY: cover lock held, as above.
                             unsafe {
                                 under_lock(node, alloc, || {
-                                    MapCore::remove_leaf_state_at(&raw mut (*node).map, alloc, chunk)
+                                    MapCore::remove_leaf_state_at(
+                                        &raw mut (*node).map,
+                                        alloc,
+                                        chunk,
+                                    )
                                 })
                             };
-                            let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
+                            // SAFETY: cover lock held and path is tracked.
+                            let deferred =
+                                unsafe { self.prune_locked(node, lock, &mut path, defer) };
                             return (OlcOutcome::Done(found), deferred);
                         }
                     }
                 }
 
-                let found = match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) } {
+                // SAFETY: pinned, and cover was sampled just above.
+                let found = match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) }
+                {
                     Ok(f) => f,
                     Err(_) => return (OlcOutcome::Retry, None),
                 };
@@ -3385,10 +3409,13 @@ mod olc {
                                 }
                             }
                         } else {
-                            let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                            // SAFETY: live node (above).
+                            let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                            else {
                                 free_unpublished_suffix(sfx, SuffixArena::of(alloc));
                                 return (OlcOutcome::Retry, None);
                             };
+                            // SAFETY: cover lock held.
                             let prev = unsafe {
                                 under_lock(node, alloc, || {
                                     MapCore::insert_leaf_state_at(
@@ -3409,15 +3436,20 @@ mod olc {
                 if is_suffix_ptr(v) {
                     let sfx = unpack_suffix(v);
                     let rem = &key[off + CHUNK..];
+                    // SAFETY: `v` was validated under this node's cover and EBR keeps
+                    // the block mapped under the pin; the bytes are write-once.
                     let same = unsafe { suffix_bytes(sfx) } == rem;
                     if !same {
                         if expected.is_some() {
                             return (OlcOutcome::Done(None), None);
                         }
                         debug_assert!(new.is_some());
-                        let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                        // SAFETY: live node (above).
+                        let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                        else {
                             return (OlcOutcome::Retry, None);
                         };
+                        // SAFETY: cover lock held.
                         let child_raw = unsafe {
                             under_lock(node, alloc, || Self::build_split_child::<true>(sfx, alloc))
                         };
@@ -3440,6 +3472,7 @@ mod olc {
                                 }
                             }
                         } else {
+                            // SAFETY: cover lock held.
                             let old_w = unsafe {
                                 under_lock(node, alloc, || {
                                     MapCore::insert_leaf_state_at(
@@ -3459,9 +3492,12 @@ mod olc {
                         continue;
                     }
 
-                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                    // SAFETY: live node (above).
+                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) })
+                    else {
                         return (OlcOutcome::Retry, None);
                     };
+                    // SAFETY: `sfx` is EBR-live and value field is readable.
                     let old_val = unsafe { (&raw const (*sfx).value).read() };
                     if expected != Some(old_val) {
                         lock.abort_unmodified();
@@ -3470,6 +3506,7 @@ mod olc {
                     }
                     match new {
                         Some(new_val) => {
+                            // SAFETY: cover lock held, atomic store into value slot.
                             unsafe {
                                 let p = &raw mut (*sfx).value;
                                 crate::bits::shared_word::store::<true>(p, new_val);
@@ -3500,16 +3537,24 @@ mod olc {
                                     }
                                 }
                             } else {
+                                // SAFETY: cover lock held.
                                 let w = unsafe {
                                     under_lock(node, alloc, || {
-                                        MapCore::remove_leaf_state_at(&raw mut (*node).map, alloc, chunk)
+                                        MapCore::remove_leaf_state_at(
+                                            &raw mut (*node).map,
+                                            alloc,
+                                            chunk,
+                                        )
                                     })
                                 };
                                 debug_assert_eq!(w, Some(v));
                             }
+                            // SAFETY: `sfx` is EBR-live.
                             let val = unsafe { (*sfx).value };
                             dispose_suffix(sfx, defer, SuffixArena::of(alloc));
-                            let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
+                            // SAFETY: cover lock held and path tracked.
+                            let deferred =
+                                unsafe { self.prune_locked(node, lock, &mut path, defer) };
                             return (OlcOutcome::Done(Some(val)), deferred);
                         }
                     }

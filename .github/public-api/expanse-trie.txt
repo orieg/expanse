@@ -281,6 +281,8 @@ impl expanse_trie::blobmap::ExpanseBlobMap
 pub fn expanse_trie::blobmap::ExpanseBlobMap::arena(&self) -> &expanse_trie::blobmap::BlobArena
 pub fn expanse_trie::blobmap::ExpanseBlobMap::clear(&mut self)
 pub fn expanse_trie::blobmap::ExpanseBlobMap::compact(&mut self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange(&mut self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, core::option::Option<(alloc::vec::Vec<u8>, u32)>>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange_meta(&mut self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, core::option::Option<u32>>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice(&[u8]) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice_with_max_capacity(&[u8], usize) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
@@ -2261,6 +2263,7 @@ impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BlobRe
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BlobReader<'a>
 pub struct expanse_trie::sync::BytesExclusive<'a, S: core::hash::BuildHasher>
 impl<S: core::hash::BuildHasher> expanse_trie::sync::BytesExclusive<'_, S>
+pub fn expanse_trie::sync::BytesExclusive<'_, S>::compare_exchange(&mut self, &[u8], core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::BytesExclusive<'_, S>::contains_key(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::BytesExclusive<'_, S>::get(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::BytesExclusive<'_, S>::insert(&mut self, &[u8], u64) -> core::option::Option<u64>
@@ -2354,6 +2357,7 @@ impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SetRea
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SetReader<'a>
 pub struct expanse_trie::sync::StrExclusive<'a>
 impl expanse_trie::sync::StrExclusive<'_>
+pub fn expanse_trie::sync::StrExclusive<'_>::compare_exchange(&mut self, &expanse_trie::strmap::NulFreeStr, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::StrExclusive<'_>::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
 pub fn expanse_trie::sync::StrExclusive<'_>::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::StrExclusive<'_>::insert(&mut self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
@@ -2384,6 +2388,8 @@ impl expanse_trie::sync::SyncExpanseBlobMap
 pub fn expanse_trie::sync::SyncExpanseBlobMap::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseBlobMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseBlobMap::compact(&self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
+pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange(&self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, core::option::Option<(alloc::vec::Vec<u8>, u32)>>
+pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange_meta(&self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, core::option::Option<u32>>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get(&self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get_meta(&self, expanse_trie::types::Key) -> core::option::Option<u32>
@@ -2420,6 +2426,7 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_hasher(S) -> Self
 impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync> expanse_trie::sync::SyncExpanseBytesMap<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::collector_census(&self) -> expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::compare_exchange(&self, &[u8], core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::contains_key(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::insert(&self, &[u8], u64) -> core::option::Option<u64>
@@ -2501,6 +2508,7 @@ pub struct expanse_trie::sync::SyncExpanseStrMap
 impl expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::clear(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseStrMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::sync::SyncExpanseStrMap::compare_exchange(&self, &expanse_trie::strmap::NulFreeStr, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseStrMap::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::insert(&self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
@@ -3430,6 +3438,8 @@ impl expanse_trie::blobmap::ExpanseBlobMap
 pub fn expanse_trie::blobmap::ExpanseBlobMap::arena(&self) -> &expanse_trie::blobmap::BlobArena
 pub fn expanse_trie::blobmap::ExpanseBlobMap::clear(&mut self)
 pub fn expanse_trie::blobmap::ExpanseBlobMap::compact(&mut self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange(&mut self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, core::option::Option<(alloc::vec::Vec<u8>, u32)>>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange_meta(&mut self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, core::option::Option<u32>>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice(&[u8]) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice_with_max_capacity(&[u8], usize) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>

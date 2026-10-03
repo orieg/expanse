@@ -4950,6 +4950,62 @@ mod loom_tests {
         cas_two_writers_model(CasCompare::BeforeLockExpectingNothing);
     }
 
+    /// One conditional removal; unlinks (stores 0) only if word matches expected.
+    fn cas_remove(v: &VersionCell, word: &AtomicU64, expected: u64) -> Result<u64, u64> {
+        loop {
+            let Some(snap) = node_sample(v) else {
+                loom::thread::yield_now();
+                continue;
+            };
+            let seen = word.load(Ordering::Relaxed);
+            if !node_validate(v, snap) {
+                loom::thread::yield_now();
+                continue;
+            }
+            if seen != expected {
+                return Err(seen);
+            }
+            let Ok(old_v) = version_try_lock_expect(v, snap) else {
+                loom::thread::yield_now();
+                continue;
+            };
+            let old = word.load(Ordering::Relaxed);
+            if old != expected {
+                version_unlock(v, old_v, false);
+                return Err(old);
+            }
+            word.store(0, Ordering::Relaxed);
+            version_unlock(v, old_v, true);
+            return Ok(old);
+        }
+    }
+
+    /// CAS publish races a concurrent removal on the same key: either CAS wins
+    /// (remove sees the new word and fails) or remove wins (CAS sees 0 and fails),
+    /// with zero lost updates.
+    #[test]
+    fn loom_cas_vs_concurrent_remove() {
+        loom::model(|| {
+            let node_v = Arc::new(VersionCell::new(0));
+            let word = Arc::new(AtomicU64::new(7));
+            let (v1, w1) = (Arc::clone(&node_v), Arc::clone(&word));
+            let t = loom::thread::spawn(move || cas_remove(&v1, &w1, 7));
+            let cas_res = cas_publish(&node_v, &word, 7, 100, CasCompare::UnderLock);
+            let rem_res = t.join().unwrap();
+            match (cas_res, rem_res) {
+                (Ok(7), Err(seen)) => {
+                    assert_eq!(seen, 100, "removal must observe the CAS winner's new word");
+                    assert_eq!(word.load(Ordering::Relaxed), 100);
+                }
+                (Err(seen), Ok(7)) => {
+                    assert_eq!(seen, 0, "CAS must observe removal having cleared the word");
+                    assert_eq!(word.load(Ordering::Relaxed), 0);
+                }
+                other => panic!("cas vs concurrent remove lost an update: {other:?}"),
+            }
+        });
+    }
+
     /// `sync::null_branch_u_slot` reduced to its words (Refs #1079): a
     /// `BranchU`'s slots, each 0 (null) or non-zero, and the branch's
     /// version. [`FLOOR`] stands in for `BRANCHU_TO_B_DOWN`.

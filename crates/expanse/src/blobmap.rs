@@ -2103,12 +2103,12 @@ impl ExpanseBlobMap {
         new: Option<u32>,
     ) -> Result<Option<u32>, Option<u32>> {
         let cur_slot_raw = self.index.get(key);
-        let cur_meta = cur_slot_raw.and_then(|raw| {
+        let cur_meta = cur_slot_raw.map(|raw| {
             let slot = ValueSlot::from_raw(raw);
             if slot.tag() == SlotTag::ArenaMeta {
-                Some(slot.arena_meta_meta())
+                slot.arena_meta_meta()
             } else {
-                Some(0)
+                0
             }
         });
         if cur_meta != expected {
@@ -2150,12 +2150,12 @@ impl ExpanseBlobMap {
         new: Option<u32>,
     ) -> Result<Option<u32>, Option<u32>> {
         let cur_slot_raw = self.index.get(key);
-        let cur_meta = cur_slot_raw.and_then(|raw| {
+        let cur_meta = cur_slot_raw.map(|raw| {
             let slot = ValueSlot::from_raw(raw);
             if slot.tag() == SlotTag::ArenaMeta {
-                Some(slot.arena_meta_meta())
+                slot.arena_meta_meta()
             } else {
-                Some(0)
+                0
             }
         });
         if cur_meta != expected {
@@ -2189,6 +2189,7 @@ impl ExpanseBlobMap {
     }
 
     /// Compare-and-swap the payload and metadata stored for `key`.
+    #[allow(clippy::type_complexity)]
     pub fn compare_exchange(
         &mut self,
         key: Key,
@@ -2221,6 +2222,7 @@ impl ExpanseBlobMap {
 
     /// Compare-and-swap the payload and metadata stored for `key` (shared index).
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[allow(clippy::type_complexity)]
     pub(crate) fn compare_exchange_shared(
         &mut self,
         key: Key,
