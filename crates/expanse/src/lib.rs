@@ -120,7 +120,7 @@ pub mod occ;
 #[cfg(target_pointer_width = "64")]
 pub mod occ_stats;
 // `ordered_bytesmap` wraps `strmap::ExpanseStrMap`, which is restricted to
-// 64-bit targets (below). It will expand to 32-bit targets if/when
+// 64-bit targets (`pub mod strmap;` below). It will expand to 32-bit targets if/when
 // `strmap32` is introduced.
 #[cfg(target_pointer_width = "64")]
 pub mod ordered_bytesmap;
