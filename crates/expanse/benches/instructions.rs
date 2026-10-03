@@ -28,7 +28,7 @@
 //! | `group` | 2 |
 //! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one; `*_compact_drained` compacts it in place once (or clone-rebuild baseline on 32-bit types); `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
 //! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), and `sync32_map_get` (50%) |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -615,13 +615,12 @@ fn map_compact_drained(drained: ExpanseMap) -> u64 {
     black_box(n)
 }
 
-// 32-bit compact arms of the remove-retention suite (#1200): mirrors
-// `set_compact_drained` and `map_compact_drained` on `ExpanseSet32` and
-// `ExpanseMap32`. In Stage 1 (prior to engine `compact()` landing), these
-// arms measure the clone-rebuild path so G-cost has an established baseline.
+// 32-bit rebuild arms of the remove-retention suite (#1200): mirrors
+// `set_rebuild_drained` and `map_rebuild_drained` on `ExpanseSet32` and
+// `ExpanseMap32`, measuring the clone-rebuild path so G-cost has an established baseline.
 // Counted per surviving key (62,500).
 
-/// `set32_compact_drained` / `map32_compact_drained` population: 200,000
+/// `set32_rebuild_drained` / `map32_rebuild_drained` population: 200,000
 /// uniform random keys at a 28-bit width (top 4 bits 0), λ = 200,000 / 4,096 = 48.8
 /// keys per 2-byte expanse, mirroring the 64-bit headline cell (METHODOLOGY §3).
 const PARTIAL32_N: usize = 200_000;
@@ -686,7 +685,7 @@ fn drained_partial_map32(arg: &str) -> ExpanseMap32 {
 
 #[library_benchmark]
 #[bench::random28(args = ("random28",), setup = drained_partial_set32)]
-fn set32_compact_drained(drained: ExpanseSet32) -> u64 {
+fn set32_rebuild_drained(drained: ExpanseSet32) -> u64 {
     let rebuilt = black_box(&drained).clone();
     drop(drained);
     let n = rebuilt.len() as u64;
@@ -696,7 +695,7 @@ fn set32_compact_drained(drained: ExpanseSet32) -> u64 {
 
 #[library_benchmark]
 #[bench::random28(args = ("random28",), setup = drained_partial_map32)]
-fn map32_compact_drained(drained: ExpanseMap32) -> u64 {
+fn map32_rebuild_drained(drained: ExpanseMap32) -> u64 {
     let rebuilt = black_box(&drained).clone();
     drop(drained);
     let n = rebuilt.len() as u64;
@@ -3214,8 +3213,8 @@ library_benchmark_group!(
         map_rebuild_drained,
         set_compact_drained,
         map_compact_drained,
-        set32_compact_drained,
-        map32_compact_drained,
+        set32_rebuild_drained,
+        map32_rebuild_drained,
         map_from_sorted_iter,
         map_collect,
         set_subtree_boundary_oscillate,

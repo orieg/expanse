@@ -541,3 +541,79 @@ path's per-class node census on every cell (a unit test checks its total
 census); the builder's own scratch on the process heap; every instruction
 count; and whether any existing arm moves, which a new function in the same
 crate can cause through inlining alone.
+
+## 13. 32-Bit Engine: `compact()` on `ExpanseSet32` and `ExpanseMap32` (pre-registration)
+
+A separate pre-registration (AGENTS.md §8.8 commit 2), appended for the 32-bit
+engine types (`ExpanseSet32` and `ExpanseMap32`, #1200). It does not amend
+§1–§12, which stay frozen; this section is frozen once merged.
+
+### 13.1 The question
+
+**Does an explicit `compact()` on `ExpanseSet32` and `ExpanseMap32` bring
+`mem_held()` after bulk deletes to within 10% of a fresh build of the same keys
+(`G-held`), at a transient peak bounded by `held_before + held_fresh × 1.10`
+(`G-peak`), and an instruction count at or below the clone-rebuild baseline
+(`G-cost`), while preserving existing arm counts within 0.1% (`G-ins`) and
+structural validation (`G-valid`)?**
+
+### 13.2 The design under test
+
+- **API:** `ExpanseSet32::compact(&mut self)` and `ExpanseMap32::compact(&mut self)`,
+  returning `()`.
+- **Set:** Iterates ascending keys into a newly allocated `ExpanseSet32::new()`,
+  replaces `self`, and drops the old tree and arena.
+- **Map:** Iterates ascending `(Key32, Value32)` entries into a newly allocated
+  `ExpanseMap32::new()`, replaces `self`, and drops the old tree and arena.
+- **Shared trees:** On trees whose arena defers reclamation
+  (`self.alloc.is_deferred()`, as when wrapped in `sync32`), `compact()` is a
+  no-op, exactly as 64-bit `compact()` exits early when `self.alloc.occ_enabled()`
+  is true (`crates/expanse/src/map.rs:4401`, `crates/expanse/src/set.rs:404`).
+- **Contract:** Identical to 64-bit (§12.3, L401): all nodes move, invalidating
+  all slot/value pointers. Cost is O(n) in surviving keys. `shrink_to_fit()`
+  remains the non-moving alternative.
+
+### 13.3 Gates (evaluated verbatim from §12.5)
+
+The 32-bit compaction work is evaluated against the 5 pre-registration gates of
+§12.5 verbatim:
+
+- **G-held** (`docs/benchmarks/remove_retention/METHODOLOGY.md:460`): After
+  `compact()`, `mem_held()` ÷ held_fresh ≤ 1.10. `mem_used()` after `compact()`
+  equals the fresh build's (both set and map are rebuilt via ascending inserts
+  into fresh arenas, achieving order-invariant minimal `mem_used()`).
+  *Falsifier:* held ÷ held_fresh > 1.10, or `mem_used()` differing from a fresh
+  build of the surviving keys.
+- **G-peak** (`docs/benchmarks/remove_retention/METHODOLOGY.md:470`): The peak
+  held during `compact()` ≤ held_before + held_fresh × 1.10.
+  *Falsifier:* `held_before + held_after` exceeding `held_before + held_fresh × 1.10`.
+- **G-cost** (`docs/benchmarks/remove_retention/METHODOLOGY.md:481`): The Callgrind
+  `set32_compact_drained` and `map32_compact_drained` arms are at or below the
+  matching `set32_rebuild_drained` and `map32_rebuild_drained` baseline arms
+  measured in the same CI run (x86_64 `instruction-counts`).
+  *Falsifier:* either 32-bit compact arm above its corresponding rebuild arm in
+  the same run.
+- **G-ins** (`docs/benchmarks/remove_retention/METHODOLOGY.md:489`): Every existing
+  Callgrind arm unchanged within the 0.1% review threshold (AGENTS.md §6).
+  *Falsifier:* any existing arm whose count moves by > 0.1% against `main`.
+- **G-valid** (`docs/benchmarks/remove_retention/METHODOLOGY.md:495`): The structural
+  validator after `compact()`; proptest of random mutations interleaved with
+  `compact()`; unit tests of `compact()`; ASan and Miri lanes clean; 32-bit
+  targets (`i686-unknown-linux-gnu`, `riscv32imac-unknown-none-elf`) green.
+  *Falsifier:* any failure in any of them.
+
+### 13.4 Instruments
+
+- **Instructions (G-cost, G-ins):** Measured by Callgrind on CI
+  (`instruction-counts` job). Arms in `crates/expanse/benches/instructions.rs`:
+  - Baselines: `set32_rebuild_drained` and `map32_rebuild_drained` (200k random
+    28-bit keys drained to 62.5k, measuring clone-rebuild).
+  - Compact: `set32_compact_drained` and `map32_compact_drained` (the same
+    drained trees, calling `.compact()`).
+- **Memory (G-held, G-peak):** `crates/expanse/examples/remove_retention.rs`
+  currently instruments the 64-bit `ExpanseSet` and `ExpanseMap` grids only.
+  For the 32-bit engine, G-held and G-peak are measured by dedicated memory
+  tests in `crates/expanse/tests/test_compact32_retention.rs` asserting
+  byte-exact `mem_held()`, `mem_used()`, and peak held before/after compaction
+  across drained uniform and structured workloads against fresh builds.
+
