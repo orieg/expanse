@@ -732,3 +732,81 @@ fn get_slot_ptr_addresses_the_live_value_and_is_none_when_absent() {
         "slot pointer went stale on an in-place value overwrite"
     );
 }
+
+#[test]
+fn test_plain_map_leaf_demotes_to_immediate_at_single_entry() {
+    let mut map = ExpanseMap::new();
+    // 1. Promote root to Root::Tree by inserting > ROOT_LEAF_CAP (31) keys at diverse high-order bytes.
+    for i in 0..50u64 {
+        map.insert((i + 1) << 56, i);
+    }
+    // 2. Insert 2 keys at level 4 (key_bytes = 4) under a common prefix.
+    let k1 = 0xAA11_2233_0000_0001u64;
+    let k2 = 0xAA11_2233_0000_0002u64;
+    map.insert(k1, 100);
+    map.insert(k2, 200);
+
+    let stats_before = map.stats();
+    assert_eq!(stats_before.node_counts.leaf_linear, 1);
+    assert_eq!(stats_before.node_counts.immed, 50);
+
+    // 3. Remove k2: only k1 remains in this subexpanse.
+    // At level 4, map_immed_max is 1, so the surviving key fits in a 1-entry immediate.
+    assert_eq!(map.remove(k2), Some(200));
+
+    // 4. Invariant: A leaf with 1 surviving entry at level in 4..=7 must demote
+    // to an immediate with zero heap allocation, never remaining as a 1-entry linear leaf.
+    let stats_after = map.stats();
+    assert_eq!(
+        stats_after.node_counts.leaf_linear, 0,
+        "plain map leaf with 1 remaining entry must demote to immediate, not stay Leaf4 (pop=1)"
+    );
+    assert_eq!(
+        stats_after.node_counts.immed, 51,
+        "plain map must convert surviving entry to immediate"
+    );
+    assert_eq!(
+        stats_after.node_bytes.leaf_linear, 0,
+        "demoted leaf must release all linear leaf heap bytes"
+    );
+}
+
+#[test]
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+fn test_sync_map_leaf_demotes_to_immediate_at_single_entry() {
+    use expanse_trie::sync::SyncExpanseMap;
+
+    let map = SyncExpanseMap::new();
+    // 1. Promote root to Root::Tree by inserting > ROOT_LEAF_CAP (31) keys at diverse high-order bytes.
+    for i in 0..50u64 {
+        map.insert((i + 1) << 56, i);
+    }
+    // 2. Insert 2 keys at level 4 (key_bytes = 4) under a common prefix.
+    let k1 = 0xAA11_2233_0000_0001u64;
+    let k2 = 0xAA11_2233_0000_0002u64;
+    map.insert(k1, 100);
+    map.insert(k2, 200);
+
+    let stats_before = map.with_locked(|m| m.stats());
+    assert_eq!(stats_before.node_counts.leaf_linear, 1);
+    assert_eq!(stats_before.node_counts.immed, 50);
+
+    // 3. Remove k2 via OLC removal.
+    assert_eq!(map.remove(k2), Some(200));
+
+    // 4. Invariant: A leaf with 1 surviving entry at level in 4..=7 must demote
+    // to an immediate with zero heap allocation, never remaining as a 1-entry linear leaf.
+    let stats_after = map.with_locked(|m| m.stats());
+    assert_eq!(
+        stats_after.node_counts.leaf_linear, 0,
+        "sync map leaf with 1 remaining entry must demote to immediate, not stay Leaf4 (pop=1)"
+    );
+    assert_eq!(
+        stats_after.node_counts.immed, 51,
+        "sync map must convert surviving entry to immediate"
+    );
+    assert_eq!(
+        stats_after.node_bytes.leaf_linear, 0,
+        "demoted leaf must release all linear leaf heap bytes"
+    );
+}

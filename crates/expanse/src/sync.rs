@@ -2718,7 +2718,7 @@ impl<T: SharedTree> Shared<T> {
     /// count in a field the optimistic writers never touch. The same
     /// instantiation as [`Self::remove_root_covered`], under the name of what
     /// it does.
-    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[cfg(feature = "std")]
     #[inline(always)]
     fn write_root_covered_exact<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
@@ -6047,7 +6047,7 @@ impl SyncExpanseSet {
 
     /// Removes every key from the set.
     pub fn clear(&self) {
-        self.shared.write_root_covered(|s| {
+        self.shared.write_root_covered_exact(|s| {
             s.clear();
             self.shared.tree_pop.flush_and_set(0);
         });
@@ -6647,7 +6647,7 @@ impl SyncExpanseMap {
 
     /// Removes every key-value pair from the map.
     pub fn clear(&self) {
-        self.shared.write_root_covered(|m| {
+        self.shared.write_root_covered_exact(|m| {
             m.clear();
             self.shared.tree_pop.flush_and_set(0);
         });
@@ -8819,7 +8819,9 @@ macro_rules! olc_remove_map_body {
                     }
                 }
                 let immed_max = crate::mutate::map_immed_max(level);
-                if pop > immed_max && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
+                if pop > 2
+                    && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
+                    && pop - 1 > immed_max
                 {
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -8842,7 +8844,7 @@ macro_rules! olc_remove_map_body {
                         return OlcOutcome::Done(Some(old));
                     }
                 }
-                if pop >= 2 && pop > immed_max {
+                if pop - 1 > immed_max {
                     let new_size = crate::leaf::size_map(kb as u8, pop - 1);
                     let alloc = $host.alloc();
                     let new_buf = alloc.alloc_bytes(new_size).as_ptr();
