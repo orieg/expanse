@@ -12771,6 +12771,372 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         }
     }
 
+    /// Conditionally stores `new` at `key` iff its current value is `expected`.
+    ///
+    /// # Semantics
+    ///
+    /// - `expected == None`, `new == Some(v)`: inserts `v` iff the key is absent.
+    /// - `expected == Some(e)`, `new == Some(v)`: updates to `v` iff the current value is `e`.
+    /// - `expected == Some(e)`, `new == None`: removes the key iff the current value is `e`.
+    /// - `expected == None`, `new == None`: validated lookup; `Ok(None)` if absent, `Err(seen)` if present.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(observed)` when the key's current value was not `expected`.
+    pub fn compare_exchange(
+        &self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        if expected.is_none() && new.is_none() {
+            return match self.get(key) {
+                None => Ok(None),
+                seen => Err(seen),
+            };
+        }
+        let observed = self.compare_exchange_observed(key, expected, new);
+        if observed == expected {
+            Ok(observed)
+        } else {
+            Err(observed)
+        }
+    }
+
+    /// The word the compare saw; the store happened iff it equals `expected`.
+    fn compare_exchange_observed(
+        &self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Option<u64> {
+        let exclusive = |m: &mut ExpanseBytesMap<S>| {
+            m.set_len(self.entry_pop.load());
+            let seen = m.get(key);
+            if seen == expected {
+                let pop_before = m.len();
+                match new {
+                    Some(v) => {
+                        m.insert_shared(key, v);
+                    }
+                    None => {
+                        m.remove_shared(key);
+                    }
+                }
+                let pop_after = m.len();
+                let delta = pop_after as i64 - pop_before as i64;
+                if pop_after == 0 && pop_before > 0 {
+                    self.entry_pop.flush_and_set(0);
+                } else if delta != 0 {
+                    self.entry_pop.add_base(delta);
+                }
+            }
+            seen
+        };
+
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            if !self.shared.published().is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                return self.shared.remove_root_covered(exclusive);
+            }
+
+            let guard = self.shared.enter_writer_blocking();
+            let h = self.hasher.hash_one(key);
+
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
+
+                let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
+                let mut backoff = 1;
+                macro_rules! stall {
+                    () => {{
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                        for _ in 0..backoff {
+                            core::hint::spin_loop();
+                        }
+                        if backoff < 64 {
+                            backoff <<= 1;
+                        }
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }};
+                }
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
+                        break;
+                    }
+
+                    let snap = self.shared.version().sample();
+                    let root = self.shared.published().load();
+                    let found = match unsafe {
+                        walk_validated::<true>(root, h, self.shared.version(), snap)
+                    } {
+                        Ok(f) => f,
+                        Err(Retry) => {
+                            stall!();
+                            continue;
+                        }
+                    };
+
+                    match found {
+                        None => {
+                            if expected.is_some() {
+                                crate::occ_stats::op_end();
+                                return Ok(None);
+                            }
+                            let val = new.expect("checked at entry");
+                            let bucket: Bucket = vec![(key.into(), val)];
+                            let new_raw = Box::into_raw(Box::new(bucket)) as u64;
+                            match olc_cas_publish_bucket_map(
+                                &*self.shared,
+                                h,
+                                None,
+                                0,
+                                new_raw,
+                            ) {
+                                OlcOutcome::Done(actual) => {
+                                    if actual.is_none() {
+                                        self.shared.tree_pop.add(guard.slot_id(), 1);
+                                        self.entry_pop.add(guard.slot_id(), 1);
+                                        guard.tick_advance(&self.shared.collector);
+                                        crate::occ_stats::op_end();
+                                        return Ok(None);
+                                    }
+                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    stall!();
+                                }
+                                OlcOutcome::Retry => {
+                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    stall!();
+                                }
+                                OlcOutcome::Fallback(c) => {
+                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    cause = c;
+                                    break;
+                                }
+                            }
+                        }
+                        Some(word) => {
+                            if word == 0 {
+                                stall!();
+                                continue;
+                            }
+                            let (len, at) = unsafe { crate::bytesmap::bucket_find(word, key) };
+                            match at {
+                                None => {
+                                    if expected.is_some() {
+                                        crate::occ_stats::op_end();
+                                        return Ok(None);
+                                    }
+                                    let val = new.expect("checked at entry");
+                                    let raw = unsafe {
+                                        crate::bytesmap::clone_bucket_with(word, len, key, val)
+                                    };
+                                    match olc_cas_publish_bucket_map(
+                                        &*self.shared,
+                                        h,
+                                        Some(word),
+                                        len,
+                                        raw as u64,
+                                    ) {
+                                        OlcOutcome::Done(actual) => {
+                                            if actual == Some(word) {
+                                                self.entry_pop.add(guard.slot_id(), 1);
+                                                dispose_bucket(
+                                                    word as *mut Bucket,
+                                                    true,
+                                                    Some(&self.shared.collector),
+                                                );
+                                                guard.tick_advance(&self.shared.collector);
+                                                crate::occ_stats::op_end();
+                                                return Ok(None);
+                                            }
+                                            drop(unsafe { Box::from_raw(raw) });
+                                            stall!();
+                                        }
+                                        OlcOutcome::Retry => {
+                                            drop(unsafe { Box::from_raw(raw) });
+                                            stall!();
+                                        }
+                                        OlcOutcome::Fallback(c) => {
+                                            drop(unsafe { Box::from_raw(raw) });
+                                            cause = c;
+                                            break;
+                                        }
+                                    }
+                                }
+                                Some(at) => {
+                                    let current_val =
+                                        unsafe { crate::bytesmap::read_entry_value(word, at) };
+                                    if expected != Some(current_val) {
+                                        crate::occ_stats::op_end();
+                                        return Ok(Some(current_val));
+                                    }
+                                    match new {
+                                        Some(val) => {
+                                            let mut prev = 0u64;
+                                            match olc_bucket_value_inplace_map(
+                                                &*self.shared,
+                                                h,
+                                                word,
+                                                at,
+                                                val,
+                                                &mut prev,
+                                            ) {
+                                                OlcOutcome::Done(Some(seen)) if seen == word => {
+                                                    guard.tick_advance(&self.shared.collector);
+                                                    crate::occ_stats::op_end();
+                                                    return Ok(Some(prev));
+                                                }
+                                                OlcOutcome::Fallback(c) => {
+                                                    cause = c;
+                                                    break;
+                                                }
+                                                OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                    stall!();
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        None => {
+                                            if len == 1 {
+                                                match olc_cas_remove_bucket_map(
+                                                    &*self.shared,
+                                                    h,
+                                                    word,
+                                                ) {
+                                                    OlcOutcome::Done(Some(seen))
+                                                        if seen == word =>
+                                                    {
+                                                        let prev = unsafe {
+                                                            crate::bytesmap::read_entry_value(
+                                                                word, 0,
+                                                            )
+                                                        };
+                                                        self.shared.tree_pop.add(
+                                                            guard.slot_id(),
+                                                            -1,
+                                                        );
+                                                        self.entry_pop.add(
+                                                            guard.slot_id(),
+                                                            -1,
+                                                        );
+                                                        dispose_bucket(
+                                                            word as *mut Bucket,
+                                                            true,
+                                                            Some(&self.shared.collector),
+                                                        );
+                                                        guard.tick_advance(&self.shared.collector);
+                                                        crate::occ_stats::op_end();
+                                                        return Ok(Some(prev));
+                                                    }
+                                                    OlcOutcome::Fallback(c) => {
+                                                        cause = c;
+                                                        break;
+                                                    }
+                                                    OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                        stall!();
+                                                        continue;
+                                                    }
+                                                }
+                                            } else {
+                                                let new_raw = unsafe {
+                                                    crate::bytesmap::clone_bucket_without(
+                                                        word, len, at,
+                                                    )
+                                                } as u64;
+                                                match olc_cas_publish_shorter_bucket_map(
+                                                    &*self.shared,
+                                                    h,
+                                                    word,
+                                                    len,
+                                                    at,
+                                                    new_raw,
+                                                ) {
+                                                    OlcOutcome::Done(Some(seen))
+                                                        if seen == word =>
+                                                    {
+                                                        let prev = unsafe {
+                                                            crate::bytesmap::read_entry_value(
+                                                                word, at,
+                                                            )
+                                                        };
+                                                        self.entry_pop.add(
+                                                            guard.slot_id(),
+                                                            -1,
+                                                        );
+                                                        dispose_bucket(
+                                                            word as *mut Bucket,
+                                                            true,
+                                                            Some(&self.shared.collector),
+                                                        );
+                                                        guard.tick_advance(&self.shared.collector);
+                                                        crate::occ_stats::op_end();
+                                                        return Ok(Some(prev));
+                                                    }
+                                                    OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                        drop(unsafe {
+                                                            Box::from_raw(new_raw as *mut Bucket)
+                                                        });
+                                                        stall!();
+                                                    }
+                                                    OlcOutcome::Fallback(c) => {
+                                                        drop(unsafe {
+                                                            Box::from_raw(new_raw as *mut Bucket)
+                                                        });
+                                                        cause = c;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
+                Err(cause)
+            });
+
+            drop(guard);
+            match res {
+                Ok(prev) => prev,
+                Err(_) => self.shared.remove_root_covered(exclusive),
+            }
+        }
+
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            self.shared.write(exclusive)
+        }
+    }
+
     /// Removes every key and releases all memory.
     pub fn clear(&self) {
         #[cfg(all(
@@ -13064,6 +13430,29 @@ impl<S: BuildHasher> BytesExclusive<'_, S> {
             None => {}
         }
         old
+    }
+
+    /// Conditionally stores `new` at `key` iff its current value is `expected`.
+    pub fn compare_exchange(
+        &mut self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        let old = self.get(key);
+        if old == expected {
+            match new {
+                Some(v) => {
+                    self.insert(key, v);
+                }
+                None => {
+                    self.remove(key);
+                }
+            }
+            Ok(old)
+        } else {
+            Err(old)
+        }
     }
 
     /// Number of keys in the map.
@@ -18367,6 +18756,54 @@ mod tests {
         for k in &keys {
             assert_eq!(rd.get(k), Some(str_val_of(k) ^ 3), "refilled {k:?}");
         }
+    }
+
+    #[test]
+    fn sync_bytes_compare_exchange_semantics() {
+        let m = SyncExpanseBytesMap::new();
+        let k1 = b"test/key/1";
+
+        // (None, None): lookup on absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, None), Ok(None));
+
+        // (Some(10), Some(20)) on absent key -> Err(None)
+        assert_eq!(m.compare_exchange(k1, Some(10), Some(20)), Err(None));
+
+        // (None, Some(100)): insert absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, Some(100)), Ok(None));
+        assert_eq!(m.get(k1), Some(100));
+        assert_eq!(m.len(), 1);
+
+        // (None, None): lookup on present key -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, None, None), Err(Some(100)));
+
+        // (Some(99), Some(200)): mismatch -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(99), Some(200)), Err(Some(100)));
+        assert_eq!(m.get(k1), Some(100));
+
+        // (Some(100), Some(200)): match -> Ok(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(100), Some(200)), Ok(Some(100)));
+        assert_eq!(m.get(k1), Some(200));
+
+        // (Some(99), None): remove mismatch -> Err(Some(200))
+        assert_eq!(m.compare_exchange(k1, Some(99), None), Err(Some(200)));
+        assert_eq!(m.get(k1), Some(200));
+
+        // (Some(200), None): remove match -> Ok(Some(200))
+        assert_eq!(m.compare_exchange(k1, Some(200), None), Ok(Some(200)));
+        assert_eq!(m.get(k1), None);
+        assert_eq!(m.len(), 0);
+
+        // Test with colliding keys using FewBuckets hasher
+        let m_coll = SyncExpanseBytesMap::with_hasher(FewBuckets::default());
+        let c1 = b"few/bucket/key/1";
+        let c2 = b"few/bucket/key/2";
+        assert_eq!(m_coll.compare_exchange(c1, None, Some(1)), Ok(None));
+        assert_eq!(m_coll.compare_exchange(c2, None, Some(2)), Ok(None));
+        assert_eq!(m_coll.compare_exchange(c1, Some(1), Some(10)), Ok(Some(1)));
+        assert_eq!(m_coll.compare_exchange(c2, Some(2), None), Ok(Some(2)));
+        assert_eq!(m_coll.get(c1), Some(10));
+        assert_eq!(m_coll.get(c2), None);
     }
 
     /// The optimistic **colliding** removal (Refs #1047): `FewBuckets`
