@@ -135,6 +135,7 @@ python3 scripts/check_test_floors.py
 python3 scripts/check_miri_shards.py
 python3 scripts/perf_report.py --self-test
 python3 tests/test_perf_report.py
+python3 tests/test_sync32_step.py
 python3 scripts/bench_counters.py --self-test
 python3 scripts/pin_exposure.py --self-test
 bash scripts/bench_host/runner_check.sh --self-test

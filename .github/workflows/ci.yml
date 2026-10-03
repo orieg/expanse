@@ -186,6 +186,7 @@ jobs:
               - 'bindings/**/*.py'
               - 'integrations/**/*.py'
               - 'tests/test_perf_report.py'
+              - 'tests/test_sync32_step.py'
               - '.github/workflows/**'
               - '.github/bench-suites.json'
               - '.github/superseded-figures.json'
@@ -452,6 +453,7 @@ jobs:
           # displayed memory ceilings are the ones examples/bytes_per_key.rs
           # enforces. Plain python3: the file runs its own test_* functions.
           python3 tests/test_perf_report.py
+          python3 tests/test_sync32_step.py
           python3 scripts/bench_report.py --self-test
           python3 scripts/bench_baseline.py --self-test
           # Renders the Homebrew formula and MacPorts Portfile templates against
