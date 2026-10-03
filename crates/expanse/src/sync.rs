@@ -8819,9 +8819,7 @@ macro_rules! olc_remove_map_body {
                     }
                 }
                 let immed_max = crate::mutate::map_immed_max(level);
-                if pop > 2
-                    && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
-                    && pop - 1 > immed_max
+                if pop > immed_max && crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop)
                 {
                     let Ok((old_v, lock_t0)) =
                         version_try_lock_expect_timed(p_cell, parent.version_snap)
@@ -8844,7 +8842,7 @@ macro_rules! olc_remove_map_body {
                         return OlcOutcome::Done(Some(old));
                     }
                 }
-                if pop - 1 > immed_max {
+                if pop >= 2 && pop > immed_max {
                     let new_size = crate::leaf::size_map(kb as u8, pop - 1);
                     let alloc = $host.alloc();
                     let new_buf = alloc.alloc_bytes(new_size).as_ptr();

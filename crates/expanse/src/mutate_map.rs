@@ -2309,10 +2309,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
             };
             // SAFETY: pos < pop is within the live map leaf values.
             let old = unsafe { *base.cast::<u64>().add(pos) };
-            if pop > 2
-                && pop - 1 > map_immed_max(level)
-                && leaf::cap_class(pop - 1) == leaf::cap_class(pop)
-            {
+            if pop > map_immed_max(level) && leaf::cap_class(pop - 1) == leaf::cap_class(pop) {
                 // Fast path: stays a leaf in the same class. Linear leaves
                 // carry no version; the parent's word brackets the shift.
                 cover.begin_if::<OCC, NESTED>(a);
@@ -2325,7 +2322,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool, const NESTED: bool>(
                 cover.end_if::<OCC, NESTED>(a);
                 return Some(old);
             }
-            if pop - 1 > map_immed_max(level) {
+            if pop >= 2 && pop > map_immed_max(level) {
                 // Class-crossing shrink that stays this leaf (the
                 // hysteresis band keeps it one below `map_immed_max`):
                 // direct copy with the slot elided into a private
@@ -2959,10 +2956,7 @@ pub(crate) unsafe fn map_remove_occ<const OCC: bool, const NESTED: bool>(
             };
             // SAFETY: pos < pop is within the live map leaf values.
             let old = unsafe { *base.cast::<u64>().add(pos) };
-            if pop > 2
-                && pop - 1 > map_immed_max(level)
-                && leaf::cap_class(pop - 1) == leaf::cap_class(pop)
-            {
+            if pop > map_immed_max(level) && leaf::cap_class(pop - 1) == leaf::cap_class(pop) {
                 // Fast path: stays a leaf in the same class. Linear leaves
                 // carry no version; the parent's word brackets the shift.
                 cover.begin_if::<OCC, NESTED>(a);
@@ -2977,7 +2971,7 @@ pub(crate) unsafe fn map_remove_occ<const OCC: bool, const NESTED: bool>(
                 cover.end_if::<OCC, NESTED>(a);
                 return Some(old);
             }
-            if pop - 1 > map_immed_max(level) {
+            if pop >= 2 && pop > map_immed_max(level) {
                 // Class-crossing shrink that stays this leaf (the
                 // hysteresis band keeps it one below `map_immed_max`):
                 // direct copy with the slot elided into a private
