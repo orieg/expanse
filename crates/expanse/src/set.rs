@@ -2202,21 +2202,24 @@ impl ExpanseSet {
         Self::from_sorted_keys(keys)
     }
 
-    /// Builds a set from a `Vec` of strictly ascending, distinct keys, choosing
-    /// the root-leaf or trie representation by population exactly as the insert
-    /// ladder would. Consumes the vector.
-    pub(crate) fn from_sorted_keys(keys: Vec<u64>) -> Self {
+    /// Builds a set from ascending distinct keys into a provided empty set,
+    /// preserving any pre-configured allocator state (e.g. deferred collector
+    /// binding and root cover).
+    pub(crate) fn from_sorted_keys_into(mut out: Self, keys: &[u64]) -> Self {
         debug_assert!(
             keys.windows(2).all(|w| w[0] < w[1]),
             "keys must be ascending"
         );
-        let mut out = Self::new();
         let n = keys.len();
         if n == 0 {
             return out;
         }
         if n <= ROOT_LEAF_CAP {
-            let leaf = out.alloc.alloc_bytes(root_leaf_size(n));
+            let leaf = if out.alloc.occ_enabled() {
+                out.alloc.alloc_bytes_dispatch::<true>(root_leaf_size(n))
+            } else {
+                out.alloc.alloc_bytes_dispatch::<false>(root_leaf_size(n))
+            };
             // SAFETY: `leaf` holds `n` u64 slots (class-sized); write each key.
             unsafe {
                 let dst = leaf.as_ptr().cast::<u64>();
@@ -2227,11 +2230,23 @@ impl ExpanseSet {
             out.root = Root::Leaf { keys: leaf, pop: n };
             return out;
         }
-        // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
-        let top = unsafe { crate::algebra_build::build_subtree(&out.alloc, &keys, 8) };
+        let top = if out.alloc.occ_enabled() {
+            // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
+            unsafe { crate::algebra_build::build_subtree::<true>(&out.alloc, keys, 8) }
+        } else {
+            // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
+            unsafe { crate::algebra_build::build_subtree::<false>(&out.alloc, keys, 8) }
+        };
         out.root = Root::Tree { top };
         out.tree_pop = n as u64;
         out
+    }
+
+    /// Builds a set from a `Vec` of strictly ascending, distinct keys, choosing
+    /// the root-leaf or trie representation by population exactly as the insert
+    /// ladder would. Consumes the vector.
+    pub(crate) fn from_sorted_keys(keys: Vec<u64>) -> Self {
+        Self::from_sorted_keys_into(Self::new(), &keys)
     }
 }
 

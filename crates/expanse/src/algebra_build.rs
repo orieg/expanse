@@ -74,7 +74,7 @@ fn set_skip_decode(edge: &mut Edge, level: u8, dv: u64) {
 /// # Safety
 ///
 /// `a` owns the tree the returned edge is spliced into.
-unsafe fn build_leaf_from_bitmap(
+unsafe fn build_leaf_from_bitmap<const OCC: bool>(
     a: &NodeAlloc,
     bm: &Bitmap256,
     level: u8,
@@ -111,7 +111,7 @@ unsafe fn build_leaf_from_bitmap(
             from = if b == 255 { None } else { bm.next_set(b + 1) };
         }
         let mut e = Edge::NULL;
-        mutate::build_leaf::<false>(a, &mut e, 1, &finals);
+        mutate::build_leaf::<OCC>(a, &mut e, 1, &finals);
         set_skip_decode(&mut e, level, dv);
         return Some(e);
     }
@@ -135,7 +135,7 @@ unsafe fn build_leaf_from_bitmap(
 ///
 /// `keys` is non-empty, sorted, distinct, sharing digits above the final byte;
 /// `a` owns the tree.
-unsafe fn build_terminal(a: &NodeAlloc, keys: &[u64], level: u8) -> Edge {
+unsafe fn build_terminal<const OCC: bool>(a: &NodeAlloc, keys: &[u64], level: u8) -> Edge {
     let mut bm = Bitmap256::new();
     for &k in keys {
         bm.set(digit(k, 1));
@@ -146,7 +146,7 @@ unsafe fn build_terminal(a: &NodeAlloc, keys: &[u64], level: u8) -> Edge {
         0
     };
     // SAFETY: non-empty bitmap; `a` owns the tree.
-    unsafe { build_leaf_from_bitmap(a, &bm, level, dv) }.expect("non-empty terminal")
+    unsafe { build_leaf_from_bitmap::<OCC>(a, &bm, level, dv) }.expect("non-empty terminal")
 }
 
 /// Assembles a branch node at `level` from `digits`/`children` (sorted by
@@ -236,7 +236,12 @@ unsafe fn build_branch(a: &NodeAlloc, level: u8, digits: &[u8], children: &[Edge
 ///
 /// `keys` is sorted, distinct, non-empty, sharing digits above `slot_level`;
 /// `a` owns the tree.
-unsafe fn build_branch_from_keys(a: &NodeAlloc, keys: &[u64], slot_level: u8, bl: u8) -> Edge {
+unsafe fn build_branch_from_keys<const OCC: bool>(
+    a: &NodeAlloc,
+    keys: &[u64],
+    slot_level: u8,
+    bl: u8,
+) -> Edge {
     let n = keys.len();
     let mut digits: Vec<u8> = Vec::new();
     let mut children: Vec<Edge> = Vec::new();
@@ -248,7 +253,7 @@ unsafe fn build_branch_from_keys(a: &NodeAlloc, keys: &[u64], slot_level: u8, bl
             i += 1;
         }
         // SAFETY: the run shares digits above `bl - 1`; `a` owns the tree.
-        let child = unsafe { build_subtree(a, &keys[start..i], bl - 1) };
+        let child = unsafe { build_subtree::<OCC>(a, &keys[start..i], bl - 1) };
         digits.push(d);
         children.push(child);
     }
@@ -319,14 +324,18 @@ unsafe fn wrap_u_narrow(
 /// # Safety
 ///
 /// The preconditions above hold and `a` owns the tree the edge is spliced into.
-pub(crate) unsafe fn build_subtree(a: &NodeAlloc, keys: &[u64], level: u8) -> Edge {
+pub(crate) unsafe fn build_subtree<const OCC: bool>(
+    a: &NodeAlloc,
+    keys: &[u64],
+    level: u8,
+) -> Edge {
     let n = keys.len();
     debug_assert!(n >= 1);
 
     if level == 8 {
         // The top can never skip: force a branch at level 8, even single-child.
         // SAFETY: forwarded contract.
-        return unsafe { build_branch_from_keys(a, keys, 8, 8) };
+        return unsafe { build_branch_from_keys::<OCC>(a, keys, 8, 8) };
     }
 
     if n == 1 {
@@ -358,7 +367,7 @@ pub(crate) unsafe fn build_subtree(a: &NodeAlloc, keys: &[u64], level: u8) -> Ed
         // an immediate overflows into and grows in place until it splits.
         let rem: Vec<u64> = keys.iter().map(|&k| mutate::key_low(k, level)).collect();
         let mut e = Edge::NULL;
-        mutate::build_leaf::<false>(a, &mut e, level, &rem);
+        mutate::build_leaf::<OCC>(a, &mut e, level, &rem);
         return e;
     }
 
@@ -366,10 +375,10 @@ pub(crate) unsafe fn build_subtree(a: &NodeAlloc, keys: &[u64], level: u8) -> Ed
     // is a bitmap leaf / full expanse; otherwise a branch at `bl`.
     if bl == 1 {
         // SAFETY: forwarded contract; keys share digits `2..=level`.
-        return unsafe { build_terminal(a, keys, level) };
+        return unsafe { build_terminal::<OCC>(a, keys, level) };
     }
     // SAFETY: forwarded contract.
-    unsafe { build_branch_from_keys(a, keys, level, bl) }
+    unsafe { build_branch_from_keys::<OCC>(a, keys, level, bl) }
 }
 
 // ===========================================================================
@@ -396,20 +405,24 @@ pub(crate) unsafe fn build_subtree(a: &NodeAlloc, keys: &[u64], level: u8) -> Ed
 ///
 /// The preconditions above hold and `a` owns the tree the edge is spliced
 /// into.
-pub(crate) unsafe fn build_map_subtree(a: &NodeAlloc, entries: &[(u64, u64)], level: u8) -> Edge {
+pub(crate) unsafe fn build_map_subtree<const OCC: bool>(
+    a: &NodeAlloc,
+    entries: &[(u64, u64)],
+    level: u8,
+) -> Edge {
     let n = entries.len();
     debug_assert!(n >= 1);
     debug_assert!(entries.windows(2).all(|w| w[0].0 < w[1].0));
 
     if level == 8 {
         // SAFETY: forwarded contract.
-        return unsafe { build_map_branch(a, entries, 8, 8) };
+        return unsafe { build_map_branch::<OCC>(a, entries, 8, 8) };
     }
     if n <= mutate::map_immed_max(level) {
         // Immediate: the low `level` bytes of each key in the aux bytes, the
         // value in word 0 (one entry) or in a class-sized value array.
         let mut e = Edge::NULL;
-        crate::mutate_map::write_map_immed::<false>(a, &mut e, level, entries);
+        crate::mutate_map::write_map_immed::<OCC>(a, &mut e, level, entries);
         return e;
     }
     let leaf_cap = if level == 1 {
@@ -420,7 +433,7 @@ pub(crate) unsafe fn build_map_subtree(a: &NodeAlloc, entries: &[(u64, u64)], le
     if n <= leaf_cap {
         // Linear leaf at `kb == level`: full remainders, no skip.
         let mut e = Edge::NULL;
-        crate::mutate_map::build_map_leaf::<false>(a, &mut e, level, entries);
+        crate::mutate_map::build_map_leaf::<OCC>(a, &mut e, level, entries);
         return e;
     }
     let bl = if level == 1 {
@@ -436,14 +449,14 @@ pub(crate) unsafe fn build_map_subtree(a: &NodeAlloc, entries: &[(u64, u64)], le
             .map(|&(k, v)| (mutate::key_low(k, 1), v))
             .collect();
         let mut e = Edge::NULL;
-        crate::mutate_map::build_bitmap_leaf_map::<false>(a, &mut e, &low);
+        crate::mutate_map::build_bitmap_leaf_map::<OCC>(a, &mut e, &low);
         if level > 1 {
             mutate::write_decode(&mut e, 1, level, entries[0].0);
         }
         return e;
     }
     // SAFETY: forwarded contract.
-    unsafe { build_map_branch(a, entries, level, bl) }
+    unsafe { build_map_branch::<OCC>(a, entries, level, bl) }
 }
 
 /// The map twin of `build_branch_from_keys`: partitions `entries` by their
@@ -455,7 +468,12 @@ pub(crate) unsafe fn build_map_subtree(a: &NodeAlloc, entries: &[(u64, u64)], le
 /// `entries` is sorted, distinct, non-empty, spans at least two digits at
 /// `bl` (or `bl == 8`), and shares digits above `slot_level`; `a` owns the
 /// tree.
-unsafe fn build_map_branch(a: &NodeAlloc, entries: &[(u64, u64)], slot_level: u8, bl: u8) -> Edge {
+unsafe fn build_map_branch<const OCC: bool>(
+    a: &NodeAlloc,
+    entries: &[(u64, u64)],
+    slot_level: u8,
+    bl: u8,
+) -> Edge {
     let n = entries.len();
     let mut digits: Vec<u8> = Vec::new();
     let mut children: Vec<Edge> = Vec::new();
@@ -467,7 +485,7 @@ unsafe fn build_map_branch(a: &NodeAlloc, entries: &[(u64, u64)], slot_level: u8
             i += 1;
         }
         // SAFETY: the run shares digits above `bl - 1`; `a` owns the tree.
-        let child = unsafe { build_map_subtree(a, &entries[start..i], bl - 1) };
+        let child = unsafe { build_map_subtree::<OCC>(a, &entries[start..i], bl - 1) };
         digits.push(d);
         children.push(child);
     }
@@ -834,7 +852,7 @@ unsafe fn assemble(a: &NodeAlloc, level: u8, digits: &[u8], children: &[Edge]) -
         }
         keys.sort_unstable();
         // SAFETY: keys share digits above `level`; `a` owns the rebuild.
-        return Some(unsafe { build_subtree(a, &keys, level) });
+        return Some(unsafe { build_subtree::<false>(a, &keys, level) });
     }
     if m == 1 && level < 8 {
         // A lone child collapses to a narrow pointer — except at level 8, which
@@ -1236,7 +1254,9 @@ unsafe fn materialize_branch_terminal(
                             .expect("digit in term_digits");
                         let (start, end) = term_ranges[g_idx];
                         // SAFETY: keys share digits above level - 1; a owns rebuild.
-                        Some(unsafe { build_subtree(a, &term_keys[start..end], level - 1) })
+                        Some(unsafe {
+                            build_subtree::<false>(a, &term_keys[start..end], level - 1)
+                        })
                     }
                 }
                 (true, true) => {
@@ -1248,7 +1268,8 @@ unsafe fn materialize_branch_terminal(
                     // SAFETY: acc views live branch.
                     let child_b = unsafe { acc.child(branch, d) };
                     // SAFETY: keys share digits above level - 1; a owns rebuild.
-                    let child_t = unsafe { build_subtree(a, &term_keys[start..end], level - 1) };
+                    let child_t =
+                        unsafe { build_subtree::<false>(a, &term_keys[start..end], level - 1) };
                     let (ca, cb) = if term_is_a {
                         (&child_t, &child_b)
                     } else {
@@ -1355,7 +1376,7 @@ unsafe fn materialize_mixed(
             return None;
         }
         // SAFETY: `out` is sorted/distinct and shares digits above `level`.
-        return Some(unsafe { build_subtree(a, &out_buf[..out_len], level) });
+        return Some(unsafe { build_subtree::<false>(a, &out_buf[..out_len], level) });
     }
 
     // One terminal, one branch.
@@ -1382,7 +1403,7 @@ unsafe fn materialize_mixed(
                 return None;
             }
             // SAFETY: sorted/distinct, sharing digits above `level`.
-            Some(unsafe { build_subtree(a, &out_buf[..out_len], level) })
+            Some(unsafe { build_subtree::<false>(a, &out_buf[..out_len], level) })
         }
         Op::Diff if term_is_a => {
             // terminal \ branch: keep terminal keys absent from the branch.
@@ -1399,7 +1420,7 @@ unsafe fn materialize_mixed(
                 return None;
             }
             // SAFETY: sorted/distinct, sharing digits above `level`.
-            Some(unsafe { build_subtree(a, &out_buf[..out_len], level) })
+            Some(unsafe { build_subtree::<false>(a, &out_buf[..out_len], level) })
         }
         _ => {
             // Op::Or, Op::Xor, or Op::Diff (branch \ terminal).
@@ -1439,7 +1460,7 @@ unsafe fn complement(a: &NodeAlloc, edge: &Edge, level: u8) -> Option<Edge> {
         let (_dv, bm) = unsafe { as_level1_bitmap(edge, 1) }.expect("level-1 bitmap");
         let comp = Bitmap256::full().xor(&bm);
         // SAFETY: `a` owns the result.
-        return unsafe { build_leaf_from_bitmap(a, &comp, 1, 0) };
+        return unsafe { build_leaf_from_bitmap::<false>(a, &comp, 1, 0) };
     }
     // level > 1: complement each of the 256 sub-expanses.
     let mut digits = [0u8; 256];
@@ -1569,7 +1590,7 @@ pub(crate) unsafe fn materialize(
             Op::Xor => ba.xor(&bb),
         };
         // SAFETY: `a` owns the result; `da` is the shared skip.
-        return unsafe { build_leaf_from_bitmap(a, &res, level, da) };
+        return unsafe { build_leaf_from_bitmap::<false>(a, &res, level, da) };
     }
     // Disjoint final-byte clusters at different skip positions: fall through
     // to the terminal merge (both are terminals).

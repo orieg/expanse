@@ -641,20 +641,12 @@ fn drained_partial_sync_map(_: &str) -> SyncExpanseMap {
 
 // The compact arm of the remove-retention suite on concurrent wrappers (Refs #1200):
 // the same drained tree as `*_compact_drained` under `SyncExpanseSet` and
-// `SyncExpanseMap`. In Stage 1, before the engine implementation lands, this
-// measures the closest existing baseline path (`with_locked` + plain compact)
-// against which the staged OCC compaction in Stage 2 is evaluated (G-cost).
-// Counted per surviving key (62,500).
+// `SyncExpanseMap`. Counted per surviving key (62,500).
 #[library_benchmark]
 #[bench::random60(args = ("random60",), setup = drained_partial_sync_set)]
 fn sync_set_compact_drained(drained: SyncExpanseSet) -> u64 {
-    let n = black_box(&drained).with_locked(|inner| {
-        let mut cloned = inner.clone();
-        cloned.compact();
-        let len = cloned.len();
-        core::mem::forget(cloned);
-        len
-    });
+    black_box(&drained).compact();
+    let n = drained.len();
     core::mem::forget(drained);
     black_box(n)
 }
@@ -662,13 +654,8 @@ fn sync_set_compact_drained(drained: SyncExpanseSet) -> u64 {
 #[library_benchmark]
 #[bench::random60(args = ("random60",), setup = drained_partial_sync_map)]
 fn sync_map_compact_drained(drained: SyncExpanseMap) -> u64 {
-    let n = black_box(&drained).with_locked(|inner| {
-        let mut cloned = inner.clone();
-        cloned.compact();
-        let len = cloned.len();
-        core::mem::forget(cloned);
-        len
-    });
+    black_box(&drained).compact();
+    let n = drained.len();
     core::mem::forget(drained);
     black_box(n)
 }
