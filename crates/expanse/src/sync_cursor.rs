@@ -1128,9 +1128,9 @@ mod tests {
         }
 
         let rd = sync_map.reader();
-        let mut cursor = rd.cursor();
+        let cursor = rd.cursor();
         let mut cursor_collected = Vec::new();
-        while let Some(item) = cursor.next() {
+        for item in cursor {
             cursor_collected.push(item);
         }
 
@@ -1241,9 +1241,9 @@ mod tests {
         });
         test_hooks::set_skip_parent_validation(false);
 
-        let mut cur = rd.cursor();
+        let cur = rd.cursor();
         let mut collected = Vec::new();
-        while let Some(e) = cur.next() {
+        for e in cur {
             collected.push(e);
         }
         assert!(
@@ -1267,9 +1267,9 @@ mod tests {
         test_hooks::set_skip_parent_validation(true);
         test_hooks::set_skip_final_validation(true);
 
-        let mut cur2 = rd2.cursor();
+        let cur2 = rd2.cursor();
         let mut collected2 = Vec::new();
-        while let Some(e) = cur2.next() {
+        for e in cur2 {
             collected2.push(e);
         }
         test_hooks::set_skip_parent_validation(false);
@@ -1300,9 +1300,9 @@ mod tests {
         });
         test_hooks::set_skip_branch_validation(false);
 
-        let mut cur = rd.cursor();
+        let cur = rd.cursor();
         let mut collected = Vec::new();
-        while let Some(e) = cur.next() {
+        for e in cur {
             collected.push(e);
         }
         assert!(
@@ -1327,9 +1327,9 @@ mod tests {
         test_hooks::set_skip_branch_validation(true);
         test_hooks::set_skip_final_validation(true);
 
-        let mut cur2 = rd2.cursor();
+        let cur2 = rd2.cursor();
         let mut collected2 = Vec::new();
-        while let Some(e) = cur2.next() {
+        for e in cur2 {
             collected2.push(e);
         }
         test_hooks::set_skip_parent_validation(false);
@@ -1359,9 +1359,9 @@ mod tests {
         });
         test_hooks::set_skip_parent_validation(false);
 
-        let mut cur = rd.cursor();
+        let cur = rd.cursor();
         let mut collected = Vec::new();
-        while let Some(e) = cur.next() {
+        for e in cur {
             collected.push(e);
         }
         assert!(
@@ -1385,9 +1385,9 @@ mod tests {
         test_hooks::set_skip_parent_validation(true);
         test_hooks::set_skip_final_validation(true);
 
-        let mut cur2 = rd2.cursor();
+        let cur2 = rd2.cursor();
         let mut collected2 = Vec::new();
-        while let Some(e) = cur2.next() {
+        for e in cur2 {
             collected2.push(e);
         }
         test_hooks::set_skip_parent_validation(false);
@@ -1420,9 +1420,9 @@ mod tests {
         test_hooks::set_skip_branch_validation(false);
         test_hooks::set_skip_final_validation(false);
 
-        let mut cur = rd.cursor();
+        let cur = rd.cursor();
         let mut collected = Vec::new();
-        while let Some(e) = cur.next() {
+        for e in cur {
             collected.push(e);
         }
         assert_eq!(
@@ -1452,9 +1452,9 @@ mod tests {
         test_hooks::set_skip_branch_validation(true);
         test_hooks::set_skip_final_validation(true);
 
-        let mut cur2 = rd2.cursor();
+        let cur2 = rd2.cursor();
         let mut collected2 = Vec::new();
-        while let Some(e) = cur2.next() {
+        for e in cur2 {
             collected2.push(e);
         }
         test_hooks::set_skip_parent_validation(false);
@@ -1492,9 +1492,9 @@ mod tests {
         });
         test_hooks::set_skip_final_validation(false);
 
-        let mut cur = rd.cursor();
+        let cur = rd.cursor();
         let mut collected = Vec::new();
-        while let Some(e) = cur.next() {
+        for e in cur {
             collected.push(e);
         }
         assert_eq!(
@@ -1521,9 +1521,9 @@ mod tests {
         });
         test_hooks::set_skip_final_validation(true);
 
-        let mut cur2 = rd2.cursor();
+        let cur2 = rd2.cursor();
         let mut collected2 = Vec::new();
-        while let Some(e) = cur2.next() {
+        for e in cur2 {
             collected2.push(e);
         }
         test_hooks::set_skip_final_validation(false);

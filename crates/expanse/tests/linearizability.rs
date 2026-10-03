@@ -1974,18 +1974,18 @@ fn check_scan_linearizability(
 
     // 4. Any insert that completed before scan started, and was not removed before scan.end, MUST be seen:
     for w in writes {
-        if let MapWriteOp::Insert(ik, iv) = w.op {
-            if w.end <= scan.start {
-                let removed = writes.iter().any(|other| {
-                    if let MapWriteOp::Remove(rk) = other.op {
-                        rk == ik && other.start >= w.end && other.start <= scan.end
-                    } else {
-                        false
-                    }
-                });
-                if !removed && scan_map.get(&ik) != Some(&iv) {
-                    return false;
+        if let MapWriteOp::Insert(ik, iv) = w.op
+            && w.end <= scan.start
+        {
+            let removed = writes.iter().any(|other| {
+                if let MapWriteOp::Remove(rk) = other.op {
+                    rk == ik && other.start >= w.end && other.start <= scan.end
+                } else {
+                    false
                 }
+            });
+            if !removed && scan_map.get(&ik) != Some(&iv) {
+                return false;
             }
         }
     }
@@ -2058,9 +2058,9 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
             let mut local = Vec::with_capacity(SCAN_ROUNDS);
             for _ in 0..SCAN_ROUNDS {
                 let start = Instant::now();
-                let mut cur = rd.cursor();
+                let cur = rd.cursor();
                 let mut results = Vec::new();
-                while let Some(e) = cur.next() {
+                for e in cur {
                     results.push(e);
                 }
                 let end = Instant::now();

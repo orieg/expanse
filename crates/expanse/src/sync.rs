@@ -13794,9 +13794,9 @@ mod miri_ub_sites {
             s.spawn(|| {
                 let rd = map.reader();
                 read_until(&done, || {
-                    let mut cur = rd.cursor();
+                    let cur = rd.cursor();
                     let mut seen = Vec::new();
-                    while let Some((k, _)) = cur.next() {
+                    for (k, _) in cur {
                         seen.push(k);
                     }
                     for i in 0..TREE_PREFILL {

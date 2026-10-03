@@ -2303,8 +2303,8 @@ fn sync_map_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     let rd = map.reader();
     let mut sink = 0u64;
     let mut n = 0usize;
-    let mut cur = rd.cursor();
-    while let Some((k, v)) = cur.next() {
+    let cur = rd.cursor();
+    for (k, v) in cur {
         sink ^= k ^ v;
         n += 1;
     }
