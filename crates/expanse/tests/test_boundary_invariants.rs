@@ -757,9 +757,9 @@ fn test_sync_map_clear_resets_alloc_bytes_in_use() {
         h.join().unwrap();
     }
 
-    assert!(map.len() > 0);
+    assert!(!map.is_empty());
     map.clear();
-    assert_eq!(map.len(), 0);
+    assert!(map.is_empty());
     assert_eq!(
         map.with_locked(|m| m.mem_used()),
         0,
