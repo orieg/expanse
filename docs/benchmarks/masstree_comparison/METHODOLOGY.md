@@ -674,3 +674,79 @@ number carries the new commit; nothing is patched in place (§8.10).
 
 The predictions of §6 are untouched; the verdicts are re-evaluated against
 the re-run, and README §8 says where they moved.
+
+---
+
+---
+
+## 11. Pre-Registration: String Lookup Traversal Cost and Sorted Insert Sensitivity (#724, #725)
+
+Pre-registered before execution on isolated benchmark hardware.
+
+- `novelty_tier_claimed`: Characterisation
+- `tier_justification`: Quantitative regime decomposition linking traversal and insertion latencies across paging configurations (4 KiB vs 2 MiB) and key arrival distributions (sorted vs shuffled) to microarchitectural hardware events (cache hierarchy stalls, TLB address translation, and instruction retired counts). As a Characterisation study, it maps the sensitivity surface without post-hoc pass/fail thresholds.
+
+### 11.1 Context, Prior Findings, and Open Questions
+
+#### What is already answered
+1. **#724 string lookup triage (PR #782)**: Commit `ee6b4290d` evaluated `strmap_get` against `map_get` under `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`. Quoting PR #782:
+   > *"Translation misses go to zero on both arms and the gap does not close: 3.44× → 3.29×. The misses were real, removing them is worth about 11% of the string arm, and 96% of the gap survives their complete elimination. An `madvise(MADV_HUGEPAGE)` change to the engine's arenas would buy a small real win and would not address what #724 is about."*
+   > *"With translation eliminated as a variable the surviving signal is `LLC-load-misses`, 2.899 against `map_get`'s 0.107, and `L1-dcache-load-misses` 8.556 against 3.918... the remaining target is the string tree's descent and node layout, neither the leaf nor the allocator."*
+   Callgrind profiling in #787 further confirmed that the string lookup overhead is distributed across multi-level pointer-chasing tree descent rather than localized in leaf operations.
+2. **#725 insert order decomposition (README §6 / commit `0f4fd40c`)**: Comparing whole-process `perf stat` on `masstree_insert_random_1m_sorted` vs `..._shuffled` measured:
+   - `page-faults`: 0.004621 vs 0.006296 (**1.36×**)
+   - `dTLB-load-misses`: 0.007217 vs 0.5137 (**71.18×**)
+   - `LLC-load-misses`: 0.01151 vs 0.1722 (**14.96×**)
+   - `cycles`: 270 vs 1,007 (**3.72×**)
+   - `instructions`: 973 vs 1,162 (**1.19×**)
+   Quoting README §6:
+   > *"The shuffled build costs 3.72× the cycles for 1.19× the instructions. It is not doing much more work; it is waiting. Translation misses rise 71× and last-level load misses 15×, while page faults move only 1.36× — so the cost is address-translation and cache locality, not the page-fault bill that §10.2 and #725 name as the first candidate. That is the question #725 asks first, answered."*
+
+#### What remains open
+1. **Which order Expanse loses in (#725)**: Expanse loses to Masstree in **ascending sorted order**, while winning in shuffled order. Quoting issue #725:
+   > *"In ascending key order — the order every comparative suite builds in, because the shared generators sort the population — Masstree inserts at a flat 20.6–20.9 ns per key at N = 10⁶ whatever the distribution, while ExpanseMap takes 13.47 ns on sequential, 21.43 on clustered, 27.16 on random and 31.32 on sparse: three unpredicted losses (0.971 [0.962, 0.979], 0.765 [0.759, 0.771], 0.662 [0.648, 0.670]) (measured: docs/benchmarks/masstree_comparison/results/baseline_latency.json at harness commit 82966aae; workload masstree_map_64bit). On a shuffled permutation of the same random keys the cell is 1.877 [1.856, 1.907] to Expanse (baseline_sensitivity.json)."*
+2. **Whole-process cell vs per-arm mechanism**: Because `perf stat` counts the whole binary running both engines, the existing figures reflect cell-level behavior and cannot isolate whether Masstree's path or Expanse's path accounts for the misses.
+3. **Paging sensitivity pair (4 KiB vs 2 MiB)**:
+   - In Masstree, superpage slab allocation is implemented in `third_party/masstree/kvthread.cc:216-229` via `posix_memalign(&pool, pool_size, pool_size)` with `madvise(pool, pool_size, MADV_HUGEPAGE)` under `#if HAVE_SUPERPAGE && !NOSUPERPAGE`.
+   - In Masstree, sequential leaf insertion carries an explicit split optimization in `third_party/masstree/masstree_split.hh:48-49, 75-78` (`p == width && !this->next_.ptr` setting `mid = width`, split type 2, where the new key goes into the new leaf alone, moving zero existing keys).
+   - Building Masstree with `-DNOSUPERPAGE` tests whether Masstree's sorted-order lead survives when forced onto 4 KiB heap pages (`kvthread.cc:244-250`).
+   - Running Expanse under `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` tests whether transparent 2 MiB huge pages narrow Expanse's sorted-order loss on `random` and `sparse` keys.
+4. **Sparse insert order effect**: Sparse integer keys (where Expanse's sorted loss is greatest at 0.662×) previously lacked a shuffled twin in `bench_counters.py`. Adding `masstree_insert_sparse_1m_shuffled` allows measuring the order effect on sparse keys.
+
+### 11.2 Evaluated Cells
+
+Measured via `scripts/bench_counters.py` on dedicated benchmark hardware:
+1. `masstree_lookup_counter_1m`: 1M sequential 8-byte numeric strings (`"00000000"` to `"00999999"`), 100% hit point lookups (#724).
+2. `masstree_lookup_short_1m`: 1M short random alphanumeric strings (lengths 4–12 bytes), 100% hit point lookups (#724).
+3. `masstree_insert_sparse_1m_sorted`: 1M sparse integer keys inserted in ascending sorted order (#725).
+4. `masstree_insert_sparse_1m_shuffled`: 1M sparse integer keys inserted in pseudo-random shuffled order (AGENTS.md §8.12.4 twin).
+5. `masstree_insert_random_1m_sorted`: 1M dense random integer keys inserted in ascending sorted order (#725).
+6. `masstree_insert_random_1m_shuffled`: 1M dense random integer keys inserted in pseudo-random shuffled order (AGENTS.md §8.12.4 twin).
+
+### 11.3 Experimental Configurations (Sensitivity Pair)
+
+Each cell is executed across four permutations:
+- **Baseline (4 KiB)**: Expanse shipped vs Masstree `-DNOSUPERPAGE`.
+- **Huge-Page Expanse**: Expanse `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` vs Masstree `-DNOSUPERPAGE`.
+- **Superpage Masstree**: Expanse shipped vs Masstree `HAVE_SUPERPAGE 1` (shipped).
+- **Huge-Page Symmetric (2 MiB)**: Expanse `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` vs Masstree `HAVE_SUPERPAGE 1`.
+
+*Instrument disclosure*: The Expanse huge-page arm uses `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` (glibc malloc huge-page arenas), identical to the instrument in PR #782, NOT internal `MADV_HUGEPAGE` calls on Expanse arenas. This transparently backs all heap allocations with 2 MiB pages at the allocator level without engine modifications, providing symmetric physical page sizing against Masstree's 2 MiB superpages.
+
+### 11.4 Hardware Events & Normalisation
+
+Events measured via `perf stat` on isolated cores:
+`cpu-cycles`, `instructions`, `L1-dcache-load-misses`, `LLC-load-misses`, `dTLB-load-misses`, `page-faults`, `branch-misses`.
+All metrics are normalised per operation (N = 1,000,000).
+Continuous means over $R \ge 10$ runs are reported with BCa 95% bootstrap confidence intervals ($B = 2000$) per Rule 1 / B-9.
+
+Cycle attribution is modelled as:
+
+```math
+\Delta \text{cycles} \approx (\Delta \text{instructions} \times \text{CPI}_{\text{base}}) + \sum_k (\Delta \text{misses}_k \times t_k)
+```
+
+where stalls are attributed to L1 data misses, LLC load misses, and dTLB translation misses.
+
+
+
