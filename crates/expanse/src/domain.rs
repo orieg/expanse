@@ -1114,6 +1114,8 @@ mod tests {
             (b"foo\x01", b"foo\x01bar"),
             (b"\x00", b"\x00\x01"),
             (b"\x01", b"\x01\x00"),
+            (b"\x00", b"\x01"),
+            (b"foo\x00", b"foo\x01"),
             (b"bar", b"foo"),
         ];
 
