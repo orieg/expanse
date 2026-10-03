@@ -214,9 +214,9 @@ Expanse is distributed on Maven Central as `io.github.orieg:expanse-java` with b
 
 #### 2.8.1 Maven Central Signing Key Maintenance
 
-Artifacts published to Maven Central (`io.github.orieg:expanse-java`) are signed using OpenPGP key `995C1FA9F413909685F3E91E7509E2D8A6A63BDE` (RSA 3072, created 2024-09-02, expires 2028-09-02).
+Artifacts published to Maven Central (`io.github.orieg:expanse-java`) are signed using OpenPGP key `995C1FA9F413909685F3E91E7509E2D8A6A63BDE` (RSA 3072, created 2026-09-03, expires 2028-09-02).
 
-- **Secrets Scoping**: The private key and passphrase are held exclusively in the `release` GitHub Environment (`MAVEN_GPG_PRIVATE_KEY` and `MAVEN_GPG_PASSPHRASE`), restricted to `v*.*.*` tag runs.
+- **Secrets Scoping**: The private key and passphrase are held exclusively in the `release` GitHub Environment (`MAVEN_GPG_PRIVATE_KEY` and `MAVEN_GPG_PASSPHRASE`), readable only by jobs bound to that environment on `main` or a `v*.*.*` tag ([ARCHITECTURE.md §11.3](ARCHITECTURE.md#113-environment-matrix--secret-scoping)).
 - **Key Inspection**:
   ```bash
   gpg --keyserver keys.openpgp.org --recv-keys 995C1FA9F413909685F3E91E7509E2D8A6A63BDE

@@ -1388,10 +1388,12 @@ Privileged operations are partitioned into GitHub Environments with explicit dep
 
 | Environment | Deployment Policy | Permitted Secrets | Purpose |
 |---|---|---|---|
-| `release` | Tags: `v*.*.*` | `CARGO_REGISTRY_TOKEN`, `MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `HOMEBREW_TAP_DEPLOY_KEY` | Publishing to crates.io, Maven Central, Homebrew tap |
+| `release` | Branches: `main`, Tags: `v*.*.*` | `CARGO_REGISTRY_TOKEN`, `MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_TOKEN`, `HOMEBREW_TAP_DEPLOY_KEY` | Publishing to crates.io, Maven Central, Homebrew tap (`release.yml`); Maven Central recovery (`java.yml`) |
 | `package-signing` | Branches: `main` | `REPO_SIGNING_KEY`, `REPO_SIGNING_PASSPHRASE` | Signing APT and RPM package repositories during Pages builds |
-| `subsplit` | Branches: `main`, Tags: `v*.*.*` | `SUBSPLIT_SSH_KEY` | Pushing subsplit git mirrors (`expanse-php-library`, `php-expanse`) |
+| `subsplit` | Branches: `main`, Tags: `v*.*.*` | `PHP_LIBRARY_SUBSPLIT_SSH_KEY`, `PHP_SUBSPLIT_SSH_KEY` | Pushing subsplit git mirrors (`expanse-php-library`, `php-expanse`) |
 | `github-pages` | Standard Pages policy | None | Publishing deployment artifact via GitHub Pages Actions runner |
+
+`release` admits `main` as well as release tags because two of its consumers run from `main`: the `release.yml` dry-run canary (`workflow_dispatch`, before a tag exists) and the `java.yml` recovery workflow, which must read its workflow file from `main` to pick up a fix. A job bound to an environment is rejected outright on a ref the policy does not admit, so a tag-only policy would fail both. The outward publish steps stay gated by their own conditions (a tag push, or `java.yml`'s `publish` input).
 
 ### 11.4 Signing Key Maintenance
 
@@ -1402,7 +1404,7 @@ Cryptographic signing keys for packages and registries are managed with document
   - Public keys are exported during repository generation to `/apt/expanse-archive-keyring.gpg` (binary) and `/rpm/RPM-GPG-KEY-expanse` (ASCII-armored).
   - Routine extension and secret updating procedures are documented in [PACKAGING.md §2.3.1](PACKAGING.md#231-package-repository-signing-key-maintenance).
 - **Maven Central Signing Key**:
-  - OpenPGP key `995C1FA9F413909685F3E91E7509E2D8A6A63BDE` (RSA 3072, created 2024-09-02, expires 2028-09-02).
+  - OpenPGP key `995C1FA9F413909685F3E91E7509E2D8A6A63BDE` (RSA 3072, created 2026-09-03, expires 2028-09-02).
   - Held exclusively in the `release` environment (`MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`).
   - Routine extension and emergency replacement procedures are documented in [PACKAGING.md §2.8.1](PACKAGING.md#281-maven-central-signing-key-maintenance).
 
