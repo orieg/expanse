@@ -2066,6 +2066,52 @@ fn blobmap_compact(mut map: ExpanseBlobMap) -> u64 {
     black_box(stats.live_records_moved as u64)
 }
 
+const RECLAIMING_KEYS: u64 = 16;
+const RECLAIMING_INSERTS: u64 = 1_000;
+const RECLAIMING_EXPECTED_COMPACTIONS: u32 = 10;
+
+/// Setup for `blobmap_insert_reclaiming`: an arena with 4096 B chunks and
+/// 16 KiB capacity ceiling prefilled to capacity with 16 keys, then churned
+/// to establish dead space while remaining at the ceiling.
+fn built_blobmap_reclaiming(_dist: &str) -> (ExpanseBlobMap, u32) {
+    let mut map = ExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 16 * 1024);
+    for k in 0..RECLAIMING_KEYS {
+        map.insert(k, &[k as u8; 128], 1).expect("prefill");
+    }
+    for i in 0..100u64 {
+        let k = i % RECLAIMING_KEYS;
+        let data = [(i % 251) as u8; 128];
+        let _ = map.insert(k, &data, 1);
+    }
+    let g0 = map.arena().generation();
+    (map, g0)
+}
+
+// 1,000 inserts into an arena at the capacity ceiling with dead space (#1320),
+// triggering the compaction / reclamation path on refusal. In today's engine
+// each refusal executes `reclaim_for_insert` (whole-arena bulk compaction,
+// exactly 10 compactions); in the incremental engine it executes bounded
+// evacuation. Counted per insert operation (1,000).
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_blobmap_reclaiming)]
+fn blobmap_insert_reclaiming(input: (ExpanseBlobMap, u32)) -> u64 {
+    let (mut map, g0) = input;
+    for i in 0..RECLAIMING_INSERTS {
+        let k = i % RECLAIMING_KEYS;
+        let data = [((i + 17) % 251) as u8; 128];
+        map.insert(black_box(k), black_box(&data), black_box(1))
+            .expect("reclaiming insert");
+    }
+    let reclaims = map.arena().generation() - g0;
+    assert_eq!(
+        reclaims, RECLAIMING_EXPECTED_COMPACTIONS,
+        "expected exactly 10 reclaims triggered"
+    );
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
 // Same-key replace, remove, reinsert: `sync_blobmap_churn`'s ladder on the
 // plain map.
 #[library_benchmark]
@@ -3053,6 +3099,43 @@ fn sync_blobmap_compact(map: SyncExpanseBlobMap) -> u64 {
     black_box(stats.live_records_moved as u64)
 }
 
+/// Setup for `sync_blobmap_insert_reclaiming`: `built_blobmap_reclaiming`'s
+/// concurrent twin.
+fn built_sync_blobmap_reclaiming(_dist: &str) -> (SyncExpanseBlobMap, u32) {
+    let map = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 16 * 1024);
+    for k in 0..RECLAIMING_KEYS {
+        map.insert(k, &[k as u8; 128], 1).expect("prefill");
+    }
+    for i in 0..100u64 {
+        let k = i % RECLAIMING_KEYS;
+        let data = [(i % 251) as u8; 128];
+        let _ = map.insert(k, &data, 1);
+    }
+    let g0 = map.with_locked(|t| t.arena().generation());
+    (map, g0)
+}
+
+// `blobmap_insert_reclaiming` through the concurrent wrapper (#1320): 1,000
+// inserts into an arena at the capacity ceiling triggering exactly 10 reclaims.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap_reclaiming)]
+fn sync_blobmap_insert_reclaiming(input: (SyncExpanseBlobMap, u32)) -> u64 {
+    let (map, g0) = input;
+    for i in 0..RECLAIMING_INSERTS {
+        let k = i % RECLAIMING_KEYS;
+        let data = [((i + 17) % 251) as u8; 128];
+        map.insert(black_box(k), black_box(&data), black_box(1))
+            .expect("sync reclaiming insert");
+    }
+    let reclaims = map.with_locked(|t| t.arena().generation()) - g0;
+    assert_eq!(
+        reclaims, RECLAIMING_EXPECTED_COMPACTIONS,
+        "expected exactly 10 reclaims triggered"
+    );
+    let n = map.len();
+    black_box(n)
+}
+
 /// Callgrind simulator settings for this harness.
 ///
 /// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
@@ -3211,11 +3294,13 @@ library_benchmark_group!(
         blobmap_overwrite,
         blobmap_churn,
         blobmap_compact,
+        blobmap_insert_reclaiming,
         sync_bytesmap_get,
         sync_bytesmap_overwrite,
         sync_blobmap_get,
         sync_blobmap_overwrite,
-        sync_blobmap_compact
+        sync_blobmap_compact,
+        sync_blobmap_insert_reclaiming
 );
 
 library_benchmark_group!(
