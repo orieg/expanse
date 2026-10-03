@@ -73,9 +73,13 @@ use expanse_trie::sync::{
 use expanse_trie::sync32::{Busy, SyncExpanseMap32, WriteError};
 use serde_json::json;
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier, RwLock};
 use std::time::{Duration, Instant};
+
+#[path = "concurrency_stat.rs"]
+mod concurrency_stat;
+use concurrency_stat::{STAT_SAMPLE_CADENCE, get_thread_id, read_proc_stat_cpu};
 
 /// Wraps a key for `ExpanseStrMap`.
 ///
@@ -324,7 +328,7 @@ impl From<(u64, u64)> for Counts {
 /// the timed windows this instrument publishes are unaffected; the census is
 /// a diagnostic for attributing a cell's loss to restarts, fallbacks or
 /// quiesce waits (Refs #1047).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Sample {
     threads: usize,
     round: usize,
@@ -345,6 +349,11 @@ struct Sample {
     reader_placement: [[i32; 4]; S32_MAX_READERS],
     /// `sync32` only: the writer thread's placement, as `reader_placement`.
     writer_placement: [i32; 4],
+    /// `sync32` only (#1292): worker thread last-run CPUs sampled from
+    /// `/proc/<pid>/task/<tid>/stat` field 39 during the measurement window
+    /// at [`STAT_SAMPLE_CADENCE`].
+    reader_cpu_samples: [Vec<i32>; S32_MAX_READERS],
+    writer_cpu_samples: Vec<i32>,
     #[cfg(feature = "occ-stats")]
     stats: [u64; expanse_trie::occ_stats::NUM_STATS],
 }
@@ -367,6 +376,8 @@ impl Default for Sample {
             arena_bytes: 0,
             reader_placement: [[-1; 4]; S32_MAX_READERS],
             writer_placement: [-1; 4],
+            reader_cpu_samples: [const { Vec::new() }; S32_MAX_READERS],
+            writer_cpu_samples: Vec::new(),
             #[cfg(feature = "occ-stats")]
             stats: [0; expanse_trie::occ_stats::NUM_STATS],
         }
@@ -1025,15 +1036,26 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
             let mut elapsed_s = 0.0;
             let mut reader_placement = [[-1; 4]; S32_MAX_READERS];
             let mut writer_placement = [-1; 4];
+            let mut reader_cpu_samples: [Vec<i32>; S32_MAX_READERS] = Default::default();
+            let mut writer_cpu_samples = Vec::new();
+            let sample_cpu = std::env::var("EXPANSE_BENCH_CPU_SAMPLES").as_deref() == Ok("1");
+            let pid = std::process::id();
+            let reader_tids: Vec<AtomicI32> = (0..threads).map(|_| AtomicI32::new(-1)).collect();
+            let writer_tid = AtomicI32::new(-1);
             std::thread::scope(|s| {
                 let mut reader_handles = Vec::with_capacity(threads);
                 for (i, r) in readers[..threads].iter_mut().enumerate() {
                     let window = &window;
                     let (busy_total, ok_total) = (&busy_total, &ok_total);
+                    let tid_slot = &reader_tids[i];
                     reader_handles.push(s.spawn(move || {
                         let mut rng = XorShift(0x1000 + i as u64);
                         let (mut ok, mut busy) = (0u64, 0u64);
                         let mut sink = 0u32;
+                        if sample_cpu {
+                            let tid = get_thread_id();
+                            tid_slot.store(tid, Ordering::Relaxed);
+                        }
                         let before = placement();
                         window.begin();
                         while window.running() {
@@ -1057,10 +1079,15 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                     let window = &window;
                     let w = &mut w;
                     let (refused_total, write_total) = (&refused_total, &write_total);
+                    let tid_slot = &writer_tid;
                     s.spawn(move || {
                         let mut rng = XorShift(0x5EED_5EED);
                         let (mut writes, mut refused) = (0u64, 0u64);
                         let period = write_rate.map(|r| Duration::from_secs_f64(1.0 / r as f64));
+                        if sample_cpu {
+                            let tid = get_thread_id();
+                            tid_slot.store(tid, Ordering::Relaxed);
+                        }
                         let before = placement();
                         window.begin();
                         let start = Instant::now();
@@ -1103,7 +1130,31 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                 };
                 window.begin();
                 let t0 = Instant::now();
-                std::thread::sleep(WINDOW);
+                if sample_cpu {
+                    let w_tid = writer_tid.load(Ordering::Relaxed);
+                    let r_tids: Vec<i32> = reader_tids
+                        .iter()
+                        .map(|t| t.load(Ordering::Relaxed))
+                        .collect();
+                    while t0.elapsed() < WINDOW {
+                        let remaining = WINDOW.saturating_sub(t0.elapsed());
+                        let sleep_dur = STAT_SAMPLE_CADENCE.min(remaining);
+                        std::thread::sleep(sleep_dur);
+                        if t0.elapsed() >= WINDOW {
+                            break;
+                        }
+                        if let Some(cpu) = read_proc_stat_cpu(pid, w_tid) {
+                            writer_cpu_samples.push(cpu);
+                        }
+                        for (slot, &tid) in reader_cpu_samples[..threads].iter_mut().zip(&r_tids) {
+                            if let Some(cpu) = read_proc_stat_cpu(pid, tid) {
+                                slot.push(cpu);
+                            }
+                        }
+                    }
+                } else {
+                    std::thread::sleep(WINDOW);
+                }
                 window.stop.store(true, Ordering::Relaxed);
                 elapsed_s = t0.elapsed().as_secs_f64();
                 for (slot, h) in reader_placement.iter_mut().zip(reader_handles) {
@@ -1124,6 +1175,8 @@ fn bench_sync32_map(plan: &Plan, write_rate: Option<u64>) -> Vec<Sample> {
                 refused: refused_total.load(Ordering::Relaxed),
                 reader_placement,
                 writer_placement,
+                reader_cpu_samples,
+                writer_cpu_samples,
                 #[cfg(feature = "occ-stats")]
                 stats: expanse_trie::occ_stats::snapshot(),
                 ..Sample::default()
@@ -1271,6 +1324,14 @@ fn write_samples(
         if cell.engine_key == SYNC32_KEY {
             row["reader_placement"] = json!(&s.reader_placement[..s.threads]);
             row["writer_placement"] = json!(s.writer_placement);
+            if !s.writer_cpu_samples.is_empty()
+                || s.reader_cpu_samples[..s.threads]
+                    .iter()
+                    .any(|v| !v.is_empty())
+            {
+                row["reader_cpu_samples"] = json!(&s.reader_cpu_samples[..s.threads]);
+                row["writer_cpu_samples"] = json!(s.writer_cpu_samples);
+            }
         }
         writeln!(out, "{row}").expect("write EXPANSE_BENCH_SAMPLES");
     }
