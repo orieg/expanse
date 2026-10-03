@@ -783,17 +783,33 @@ impl ProbeVisits {
     }
 }
 
+/// Structural census oracle for dependent node visits (Refs #1249).
+///
+/// Walks the tree independently of `get` and `probe_visits`, computing the
+/// exact aggregate sum of `(edges_followed, branch_b_subarrays, leaf_loads)`
+/// that present keys encounter.
+#[doc(hidden)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ProbeVisitsCensus {
+    /// Sum of branch edges followed across all present keys.
+    pub sum_edges_followed: usize,
+    /// Sum of BranchB subarray loads across all present keys.
+    pub sum_branch_b_subarrays: usize,
+    /// Sum of leaf loads across all present keys.
+    pub sum_leaf_loads: usize,
+    /// Total population of present keys.
+    pub total_keys: usize,
+}
+
 /// Walks a map-flavor subtree mirroring `get`, counting dependent node visits.
 ///
 /// Diagnostic walker (Refs #1249); outside the hot path.
-/// If `SKIP_BRANCHB_SUBARRAY` is true (scanner-mutation negative control),
-/// the BranchB subarray load is not counted.
+///
+/// # Safety
+///
+/// `edge` must refer to a valid, live subtree edge descriptor.
 #[doc(hidden)]
-pub unsafe fn walk_map_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
-    edge: &Edge,
-    key: u64,
-    level: u8,
-) -> ProbeVisits {
+pub unsafe fn walk_map_probe_visits(edge: &Edge, key: u64, level: u8) -> ProbeVisits {
     let mut edge = edge;
     let mut level = level;
     let mut edges_followed = 0;
@@ -905,9 +921,7 @@ pub unsafe fn walk_map_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
                         value: None,
                     };
                 };
-                if !SKIP_BRANCHB_SUBARRAY {
-                    branch_b_subarrays += 1;
-                }
+                branch_b_subarrays += 1;
                 // SAFETY: `sub < 8` accesses a valid subarray pointer.
                 let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
                 // SAFETY: slot is the verified rank inside the live subexpanse subarray.
@@ -1060,12 +1074,14 @@ pub unsafe fn walk_map_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
 }
 
 /// Walks a set-flavor subtree mirroring `contains` / `test_set`, counting dependent node visits.
+///
+/// Diagnostic walker (Refs #1249); outside the hot path.
+///
+/// # Safety
+///
+/// `edge` must refer to a valid, live subtree edge descriptor.
 #[doc(hidden)]
-pub unsafe fn walk_set_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
-    edge: &Edge,
-    key: u64,
-    level: u8,
-) -> ProbeVisits {
+pub unsafe fn walk_set_probe_visits(edge: &Edge, key: u64, level: u8) -> ProbeVisits {
     let mut edge = edge;
     let mut level = level;
     let mut edges_followed = 0;
@@ -1177,9 +1193,7 @@ pub unsafe fn walk_set_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
                         value: None,
                     };
                 };
-                if !SKIP_BRANCHB_SUBARRAY {
-                    branch_b_subarrays += 1;
-                }
+                branch_b_subarrays += 1;
                 // SAFETY: `sub < 8` accesses a valid subarray pointer.
                 let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
                 // SAFETY: `slot` is the verified rank inside the live subexpanse subarray.
@@ -1307,26 +1321,356 @@ pub unsafe fn walk_set_probe_visits_impl<const SKIP_BRANCHB_SUBARRAY: bool>(
     }
 }
 
-/// Walks a map-flavor subtree mirroring `get`, counting dependent node visits.
+/// Computes the aggregate node visits census for a map subtree.
 ///
 /// # Safety
 ///
 /// `edge` must refer to a valid, live subtree edge descriptor.
 #[doc(hidden)]
-pub unsafe fn walk_map_probe_visits(edge: &Edge, key: u64, level: u8) -> ProbeVisits {
-    // SAFETY: caller guarantees `edge` points to a valid live subtree.
-    unsafe { walk_map_probe_visits_impl::<false>(edge, key, level) }
+pub unsafe fn walk_map_probe_visits_census(
+    edge: &Edge,
+    _level: u8,
+    branches_above: usize,
+    branch_b_above: usize,
+) -> ProbeVisitsCensus {
+    let tag = edge.tag_byte();
+    match tag {
+        0x00 => ProbeVisitsCensus::default(),
+
+        0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => ProbeVisitsCensus {
+            sum_edges_followed: branches_above,
+            sum_branch_b_subarrays: branch_b_above,
+            sum_leaf_loads: 0,
+            total_keys: 1,
+        },
+
+        0x05..=0x0B => {
+            let lf = tag - 0x04;
+            let pop = edge.pop0(lf) as usize + 1;
+            ProbeVisitsCensus {
+                sum_edges_followed: pop * branches_above,
+                sum_branch_b_subarrays: pop * branch_b_above,
+                sum_leaf_loads: pop,
+                total_keys: pop,
+            }
+        }
+
+        0x0C => {
+            // SAFETY: pointer-tagged edge → live LeafBitmapL.
+            let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
+            let pop = l.bitmap.count() as usize;
+            ProbeVisitsCensus {
+                sum_edges_followed: pop * branches_above,
+                sum_branch_b_subarrays: pop * branch_b_above,
+                sum_leaf_loads: pop,
+                total_keys: pop,
+            }
+        }
+
+        0x01 => {
+            // SAFETY: pointer-tagged edge → live BranchL3.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+            let num = b.hdr.num as usize;
+            let mut census = ProbeVisitsCensus::default();
+            for i in 0..num {
+                // SAFETY: `i < num <= 3` indexes into valid edge in BranchL3.
+                let child = unsafe { &*b.edges.as_ptr().add(i) };
+                // SAFETY: contracts forwarded.
+                let c = unsafe {
+                    walk_map_probe_visits_census(
+                        child,
+                        b.hdr.level - 1,
+                        branches_above + 1,
+                        branch_b_above,
+                    )
+                };
+                census.sum_edges_followed += c.sum_edges_followed;
+                census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                census.sum_leaf_loads += c.sum_leaf_loads;
+                census.total_keys += c.total_keys;
+            }
+            census
+        }
+
+        0x02 => {
+            // SAFETY: pointer-tagged edge → live BranchL7.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+            let num = b.hdr.num as usize;
+            let mut census = ProbeVisitsCensus::default();
+            for i in 0..num {
+                // SAFETY: `i < num <= 7` indexes into valid edge in BranchL7.
+                let child = unsafe { &*b.edges.as_ptr().add(i) };
+                // SAFETY: contracts forwarded.
+                let c = unsafe {
+                    walk_map_probe_visits_census(
+                        child,
+                        b.hdr.level - 1,
+                        branches_above + 1,
+                        branch_b_above,
+                    )
+                };
+                census.sum_edges_followed += c.sum_edges_followed;
+                census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                census.sum_leaf_loads += c.sum_leaf_loads;
+                census.total_keys += c.total_keys;
+            }
+            census
+        }
+
+        0x03 => {
+            // SAFETY: pointer-tagged edge → live BranchB.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+            let mut census = ProbeVisitsCensus::default();
+            for sub in 0..8usize {
+                let count = (0..32u8)
+                    .filter(|i| b.bitmap.test((sub * 32) as u8 + i))
+                    .count();
+                if count > 0 {
+                    // SAFETY: `sub < 8` indexes into non-null subarray pointer.
+                    let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                    for slot in 0..count {
+                        // SAFETY: `slot < count` indexes into valid Edge in subarray.
+                        let child = unsafe { &*sub_ptr.add(slot) };
+                        // SAFETY: contracts forwarded.
+                        let c = unsafe {
+                            walk_map_probe_visits_census(
+                                child,
+                                b.level - 1,
+                                branches_above + 1,
+                                branch_b_above + 1,
+                            )
+                        };
+                        census.sum_edges_followed += c.sum_edges_followed;
+                        census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                        census.sum_leaf_loads += c.sum_leaf_loads;
+                        census.total_keys += c.total_keys;
+                    }
+                }
+            }
+            census
+        }
+
+        0x04 => {
+            // SAFETY: pointer-tagged edge → live BranchU.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchU>() };
+            let mut census = ProbeVisitsCensus::default();
+            for i in 0..256usize {
+                // SAFETY: `i < 256` indexes into BranchU edges.
+                let child = unsafe { &*b.edges.as_ptr().add(i) };
+                if !child.is_null() {
+                    // SAFETY: contracts forwarded.
+                    let c = unsafe {
+                        walk_map_probe_visits_census(
+                            child,
+                            _level - 1,
+                            branches_above + 1,
+                            branch_b_above,
+                        )
+                    };
+                    census.sum_edges_followed += c.sum_edges_followed;
+                    census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                    census.sum_leaf_loads += c.sum_leaf_loads;
+                    census.total_keys += c.total_keys;
+                }
+            }
+            census
+        }
+
+        _ => {
+            if let Some(im) = ImmedType::from_u8(tag) {
+                let pop = im.key_count() as usize;
+                ProbeVisitsCensus {
+                    sum_edges_followed: pop * branches_above,
+                    sum_branch_b_subarrays: pop * branch_b_above,
+                    sum_leaf_loads: pop,
+                    total_keys: pop,
+                }
+            } else {
+                ProbeVisitsCensus::default()
+            }
+        }
+    }
 }
 
-/// Walks a set-flavor subtree mirroring `contains` / `test_set`, counting dependent node visits.
+/// Computes the aggregate node visits census for a set subtree.
 ///
 /// # Safety
 ///
 /// `edge` must refer to a valid, live subtree edge descriptor.
 #[doc(hidden)]
-pub unsafe fn walk_set_probe_visits(edge: &Edge, key: u64, level: u8) -> ProbeVisits {
-    // SAFETY: caller guarantees `edge` points to a valid live subtree.
-    unsafe { walk_set_probe_visits_impl::<false>(edge, key, level) }
+pub unsafe fn walk_set_probe_visits_census(
+    edge: &Edge,
+    level: u8,
+    branches_above: usize,
+    branch_b_above: usize,
+) -> ProbeVisitsCensus {
+    let tag = edge.tag_byte();
+    match tag {
+        0x00 => ProbeVisitsCensus::default(),
+
+        0x7F => {
+            let pop = pow256(level) as usize;
+            ProbeVisitsCensus {
+                sum_edges_followed: pop * branches_above,
+                sum_branch_b_subarrays: pop * branch_b_above,
+                sum_leaf_loads: 0,
+                total_keys: pop,
+            }
+        }
+
+        0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => ProbeVisitsCensus {
+            sum_edges_followed: branches_above,
+            sum_branch_b_subarrays: branch_b_above,
+            sum_leaf_loads: 0,
+            total_keys: 1,
+        },
+
+        0x05..=0x0B => {
+            let lf = tag - 0x04;
+            let pop = edge.pop0(lf) as usize + 1;
+            ProbeVisitsCensus {
+                sum_edges_followed: pop * branches_above,
+                sum_branch_b_subarrays: pop * branch_b_above,
+                sum_leaf_loads: pop,
+                total_keys: pop,
+            }
+        }
+
+        0x0C => {
+            // SAFETY: pointer-tagged edge → live LeafBitmap1.
+            let l = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
+            let pop = l.bitmap.count() as usize;
+            ProbeVisitsCensus {
+                sum_edges_followed: pop * branches_above,
+                sum_branch_b_subarrays: pop * branch_b_above,
+                sum_leaf_loads: pop,
+                total_keys: pop,
+            }
+        }
+
+        0x01 => {
+            // SAFETY: pointer-tagged edge → live BranchL3.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+            let num = b.hdr.num as usize;
+            let mut census = ProbeVisitsCensus::default();
+            for i in 0..num {
+                // SAFETY: `i < num <= 3` indexes into valid edge in BranchL3.
+                let child = unsafe { &*b.edges.as_ptr().add(i) };
+                // SAFETY: contracts forwarded.
+                let c = unsafe {
+                    walk_set_probe_visits_census(
+                        child,
+                        b.hdr.level - 1,
+                        branches_above + 1,
+                        branch_b_above,
+                    )
+                };
+                census.sum_edges_followed += c.sum_edges_followed;
+                census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                census.sum_leaf_loads += c.sum_leaf_loads;
+                census.total_keys += c.total_keys;
+            }
+            census
+        }
+
+        0x02 => {
+            // SAFETY: pointer-tagged edge → live BranchL7.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+            let num = b.hdr.num as usize;
+            let mut census = ProbeVisitsCensus::default();
+            for i in 0..num {
+                // SAFETY: `i < num <= 7` indexes into valid edge in BranchL7.
+                let child = unsafe { &*b.edges.as_ptr().add(i) };
+                // SAFETY: contracts forwarded.
+                let c = unsafe {
+                    walk_set_probe_visits_census(
+                        child,
+                        b.hdr.level - 1,
+                        branches_above + 1,
+                        branch_b_above,
+                    )
+                };
+                census.sum_edges_followed += c.sum_edges_followed;
+                census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                census.sum_leaf_loads += c.sum_leaf_loads;
+                census.total_keys += c.total_keys;
+            }
+            census
+        }
+
+        0x03 => {
+            // SAFETY: pointer-tagged edge → live BranchB.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+            let mut census = ProbeVisitsCensus::default();
+            for sub in 0..8usize {
+                let count = (0..32u8)
+                    .filter(|i| b.bitmap.test((sub * 32) as u8 + i))
+                    .count();
+                if count > 0 {
+                    // SAFETY: `sub < 8` indexes into non-null subarray pointer.
+                    let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                    for slot in 0..count {
+                        // SAFETY: `slot < count` indexes into valid Edge in subarray.
+                        let child = unsafe { &*sub_ptr.add(slot) };
+                        // SAFETY: contracts forwarded.
+                        let c = unsafe {
+                            walk_set_probe_visits_census(
+                                child,
+                                b.level - 1,
+                                branches_above + 1,
+                                branch_b_above + 1,
+                            )
+                        };
+                        census.sum_edges_followed += c.sum_edges_followed;
+                        census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                        census.sum_leaf_loads += c.sum_leaf_loads;
+                        census.total_keys += c.total_keys;
+                    }
+                }
+            }
+            census
+        }
+
+        0x04 => {
+            // SAFETY: pointer-tagged edge → live BranchU.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchU>() };
+            let mut census = ProbeVisitsCensus::default();
+            for i in 0..256usize {
+                // SAFETY: `i < 256` indexes into BranchU edges.
+                let child = unsafe { &*b.edges.as_ptr().add(i) };
+                if !child.is_null() {
+                    // SAFETY: contracts forwarded.
+                    let c = unsafe {
+                        walk_set_probe_visits_census(
+                            child,
+                            level - 1,
+                            branches_above + 1,
+                            branch_b_above,
+                        )
+                    };
+                    census.sum_edges_followed += c.sum_edges_followed;
+                    census.sum_branch_b_subarrays += c.sum_branch_b_subarrays;
+                    census.sum_leaf_loads += c.sum_leaf_loads;
+                    census.total_keys += c.total_keys;
+                }
+            }
+            census
+        }
+
+        _ => {
+            if let Some(im) = ImmedType::from_u8(tag) {
+                let pop = im.key_count() as usize;
+                ProbeVisitsCensus {
+                    sum_edges_followed: pop * branches_above,
+                    sum_branch_b_subarrays: pop * branch_b_above,
+                    sum_leaf_loads: 0,
+                    total_keys: pop,
+                }
+            } else {
+                ProbeVisitsCensus::default()
+            }
+        }
+    }
 }
 
 #[cfg(test)]

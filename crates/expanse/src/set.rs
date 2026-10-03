@@ -563,20 +563,24 @@ impl ExpanseSet {
         }
     }
 
-    /// Same as [`Self::probe_visits`], but skips counting BranchB subarray loads.
+    /// Structural census oracle for dependent node visits across all present keys.
     ///
-    /// Test-only negative control demonstrating that the walker detects skipped
-    /// BranchB subarray loads (§5 scanner-mutation rule).
+    /// Diagnostic instrument (issue #1249); outside the hot path. Not a stable API.
     #[doc(hidden)]
     #[must_use]
-    pub fn probe_visits_skipping_branchb_subarray(&self, key: Key) -> crate::validate::ProbeVisits {
+    pub fn probe_visits_census(&self) -> crate::validate::ProbeVisitsCensus {
         self.flush_path();
         match &self.root {
-            Root::Empty => crate::validate::ProbeVisits::default(),
-            Root::Leaf { .. } => self.probe_visits(key),
+            Root::Empty => crate::validate::ProbeVisitsCensus::default(),
+            Root::Leaf { pop, .. } => crate::validate::ProbeVisitsCensus {
+                sum_edges_followed: 0,
+                sum_branch_b_subarrays: 0,
+                sum_leaf_loads: *pop,
+                total_keys: *pop,
+            },
             // SAFETY: `top` is a valid root edge of a live trie.
             Root::Tree { top, .. } => unsafe {
-                crate::validate::walk_set_probe_visits_impl::<true>(top, key, 8)
+                crate::validate::walk_set_probe_visits_census(top, 8, 0, 0)
             },
         }
     }
