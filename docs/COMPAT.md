@@ -179,6 +179,14 @@ width and is what `ExpanseBlobMap` names on a 32-bit target
 (`crates/expanse/src/lib.rs`), but no C entry point wraps it: `expanse_blob_map_*`
 is declared only in the wide surface.
 
+Compaction (`compact()`) is a Rust-only memory lifecycle operation implemented
+on `ExpanseSet`, `ExpanseMap`, `ExpanseSet32`, and `ExpanseMap32` (#1200). It
+rebuilds surviving elements into a fresh arena, reclaiming held memory after
+bulk removals while invalidating internal node pointers. It is a no-op on trees
+behind concurrent wrappers (`sync` / `sync32`). Neither width exports an
+`expanse_*_compact` C ABI symbol (pending consumer demand per #1200); language
+bindings target 64-bit hosts and do not expose compaction or 32-bit types.
+
 The reverse gap also exists. Two batched range entry points are declared in a
 `#if !EXPANSE_WIDE_SURFACE` block and shipped **only at 32-bit width**, because
 only the 32-bit engine carries the corresponding Rust methods:

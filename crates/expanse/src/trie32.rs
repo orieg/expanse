@@ -1652,6 +1652,13 @@ impl Arena {
         self.slots.len() - self.free.len()
     }
 
+    /// Total node allocations performed through this arena.
+    #[cfg(test)]
+    #[inline]
+    pub(crate) fn total_allocs(&self) -> usize {
+        self.mut_allocs
+    }
+
     #[inline]
     fn alloc(&mut self, node: NodeBox) -> u32 {
         #[cfg(test)]

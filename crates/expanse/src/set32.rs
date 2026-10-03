@@ -52,8 +52,9 @@ impl ExpanseSet32 {
     /// wrapper (`sync32`). Not public: rigid preallocation trades away the
     /// §2.1 expanse-proportional memory invariant, so it is opt-in through
     /// the concurrent surface only, where the trade is declared.
+    #[doc(hidden)]
     #[must_use]
-    pub(crate) fn with_fixed_arena(node_cap: usize, pending_cap: usize) -> Self {
+    pub fn with_fixed_arena(node_cap: usize, pending_cap: usize) -> Self {
         Self {
             alloc: Arena::with_capacity(node_cap, pending_cap),
             root: Edge32::null(),
@@ -327,6 +328,35 @@ impl ExpanseSet32 {
     /// no-op on a set behind the concurrent wrapper, whose table is fixed.
     pub fn shrink_to_fit(&mut self) -> usize {
         self.alloc.shrink_to_fit()
+    }
+
+    /// Compacts the set in place: rebuilds its keys into a fresh arena and
+    /// drops the old tree, returning to the allocator the old arena's memory.
+    /// Use it after deleting most of a set's keys: removals leave fragmented
+    /// nodes and branch structures that [`Self::shrink_to_fit`] cannot return.
+    /// After `compact` the set's [`Self::mem_used`] equals that of a set built
+    /// by inserting the same keys.
+    ///
+    /// **Every node moves.** Unlike [`Self::shrink_to_fit`], which moves
+    /// nothing, this invalidates every pointer derived from the set's nodes.
+    ///
+    /// **Cost.** O(n) in the population: one ordered walk of the old tree,
+    /// inserting into the fresh tree, and the old tree's drop.
+    ///
+    /// A no-op on a set shared through a concurrent wrapper ([`crate::sync32`]),
+    /// whose readers may hold the old nodes.
+    pub fn compact(&mut self) {
+        if self.alloc.is_deferred() {
+            return;
+        }
+        // Rebuild via `from_sorted_iter` using the ordered iterator.
+        // Note: unlike 64-bit `ExpanseSet::compact` which uses a direct-emission
+        // bottom-up builder where `live_allocs == total_allocs`, the 32-bit twin
+        // inserts key-by-key (see deferral note at line 91) and promotes leaves
+        // through capacity classes, freeing earlier nodes. Peak is not bounded
+        // by the zero-freed census identity (METHODOLOGY.md §13).
+        let compacted = Self::from_sorted_iter(self.iter());
+        drop(core::mem::replace(self, compacted));
     }
 
     /// Smallest key `>= bound`, if any.
@@ -1721,6 +1751,44 @@ mod tests {
         assert_eq!(copy.len(), 8);
         assert!(copy.contains(10));
         assert!(copy.contains(50000));
+    }
+
+    #[test]
+    fn from_sorted_iter_ladder_promotions_free_intermediate_nodes() {
+        // Documenting the 32-bit builder's behaviour (set32.rs:91, METHODOLOGY.md §13):
+        // unlike 64-bit direct emission, the 32-bit twin builds via sequential insert,
+        // so capacity promotions free intermediate nodes. On 100 sequential keys,
+        // live node allocations (4) are strictly less than total allocations made (33).
+        let s = ExpanseSet32::from_sorted_iter(0..100u32);
+        assert!(
+            s.alloc.live_allocs() < s.alloc.total_allocs(),
+            "32-bit sequential builder frees intermediate nodes on ladder promotion: live={}, total={}",
+            s.alloc.live_allocs(),
+            s.alloc.total_allocs()
+        );
+        assert_eq!(s.alloc.live_allocs(), 4);
+        assert_eq!(s.alloc.total_allocs(), 33);
+    }
+
+    #[test]
+    fn compact_small_and_empty() {
+        let mut s = ExpanseSet32::new();
+        s.compact();
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.mem_used(), 0);
+
+        s.insert(42);
+        s.compact();
+        assert_eq!(s.len(), 1);
+        assert!(s.contains(42));
+    }
+
+    #[test]
+    fn compact_is_a_no_op_on_a_shared_tree() {
+        let mut s = ExpanseSet32::with_fixed_arena(256, 128);
+        let held_before = s.mem_held();
+        s.compact();
+        assert_eq!(s.mem_held(), held_before);
     }
 
     #[test]

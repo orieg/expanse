@@ -838,6 +838,7 @@ pub mod expanse_trie::map32
 pub struct expanse_trie::map32::ExpanseMap32
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::clear(&mut self)
+pub fn expanse_trie::map32::ExpanseMap32::compact(&mut self)
 pub fn expanse_trie::map32::ExpanseMap32::contains_key(&self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::map32::ExpanseMap32::count_range(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::first(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
@@ -1580,6 +1581,7 @@ pub mod expanse_trie::set32
 pub struct expanse_trie::set32::ExpanseSet32
 impl expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::clear(&mut self)
+pub fn expanse_trie::set32::ExpanseSet32::compact(&mut self)
 pub fn expanse_trie::set32::ExpanseSet32::contains(&self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::set32::ExpanseSet32::contains_batch(&self, &[expanse_trie::types32::Key32], &mut [bool]) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::count_range(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32) -> usize
@@ -3360,6 +3362,7 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::map::ExpanseMap
 pub struct expanse_trie::ExpanseMap32
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::clear(&mut self)
+pub fn expanse_trie::map32::ExpanseMap32::compact(&mut self)
 pub fn expanse_trie::map32::ExpanseMap32::contains_key(&self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::map32::ExpanseMap32::count_range(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32) -> usize
 pub fn expanse_trie::map32::ExpanseMap32::first(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
@@ -3500,6 +3503,7 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::set::ExpanseSet
 pub struct expanse_trie::ExpanseSet32
 impl expanse_trie::set32::ExpanseSet32
 pub fn expanse_trie::set32::ExpanseSet32::clear(&mut self)
+pub fn expanse_trie::set32::ExpanseSet32::compact(&mut self)
 pub fn expanse_trie::set32::ExpanseSet32::contains(&self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::set32::ExpanseSet32::contains_batch(&self, &[expanse_trie::types32::Key32], &mut [bool]) -> usize
 pub fn expanse_trie::set32::ExpanseSet32::count_range(&self, expanse_trie::types32::Key32, expanse_trie::types32::Key32) -> usize
