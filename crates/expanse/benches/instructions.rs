@@ -44,8 +44,9 @@
 
 use expanse_trie::blobmap::ExpanseBlobMap;
 use expanse_trie::bytesmap::ExpanseBytesMap;
-use expanse_trie::domain::{DomainSet, ExpanseDomainDict, escape_decode, escape_encode};
+use expanse_trie::domain::{DomainSet, ExpanseDomainDict};
 use expanse_trie::map::ExpanseMap;
+use expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
 use expanse_trie::sync::{
@@ -2175,21 +2176,12 @@ fn transcode_keys(dist: &str) -> Vec<Vec<u8>> {
     out
 }
 
-/// Prebuilt string map for transcoding lookups and cursor walks.
-fn built_transcode_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+/// Prebuilt ordered bytes map for transcoding lookups and cursor walks.
+fn built_transcode_strmap(dist: &str) -> (ExpanseOrderedBytesMap, Vec<Vec<u8>>) {
     let ks = transcode_keys(dist);
-    let mut map = ExpanseStrMap::new();
+    let mut map = ExpanseOrderedBytesMap::new();
     for (i, k) in ks.iter().enumerate() {
-        if !k.iter().any(|&b| b <= 1) {
-            // SAFETY: `clean` keys contain no byte <= 1, so in particular no NUL.
-            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(k) };
-            map.insert(nul_free, i as u64);
-        } else {
-            let enc = escape_encode(k);
-            // SAFETY: `escape_encode` emits no NUL bytes.
-            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(&enc) };
-            map.insert(nul_free, i as u64);
-        }
+        map.insert(k, i as u64);
     }
     (map, shuffled_bytes(ks))
 }
@@ -2199,19 +2191,10 @@ fn built_transcode_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
 #[bench::clean(args = ("clean",), setup = transcode_keys)]
 #[bench::escaped(args = ("escaped",), setup = transcode_keys)]
 fn strmap_transcode_insert(ks: Vec<Vec<u8>>) -> u64 {
-    let mut map = ExpanseStrMap::new();
+    let mut map = ExpanseOrderedBytesMap::new();
     for (i, k) in ks.iter().enumerate() {
         let val = black_box(i as u64);
-        if !k.iter().any(|&b| b <= 1) {
-            // SAFETY: `clean` keys contain no byte <= 1.
-            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(black_box(k)) };
-            map.insert(nul_free, val);
-        } else {
-            let enc = escape_encode(black_box(k));
-            // SAFETY: `escape_encode` emits no NUL bytes.
-            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(&enc) };
-            map.insert(nul_free, val);
-        }
+        map.insert(black_box(k), val);
     }
     let n = map.len();
     core::mem::forget(map);
@@ -2222,21 +2205,11 @@ fn strmap_transcode_insert(ks: Vec<Vec<u8>>) -> u64 {
 #[library_benchmark]
 #[bench::clean(args = ("clean",), setup = built_transcode_strmap)]
 #[bench::escaped(args = ("escaped",), setup = built_transcode_strmap)]
-fn strmap_transcode_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+fn strmap_transcode_get(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64 {
     let (map, probes) = built;
     let mut sink = 0u64;
     for k in &probes {
-        let probe = black_box(k);
-        let val = if !probe.iter().any(|&b| b <= 1) {
-            // SAFETY: `clean` keys contain no byte <= 1.
-            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(probe) };
-            map.get(nul_free).unwrap_or(0)
-        } else {
-            let enc = escape_encode(probe);
-            // SAFETY: `escape_encode` emits no NUL bytes.
-            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(&enc) };
-            map.get(nul_free).unwrap_or(0)
-        };
+        let val = map.get(black_box(k)).unwrap_or(0);
         sink ^= val;
     }
     core::mem::forget(map);
@@ -2247,14 +2220,12 @@ fn strmap_transcode_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
 #[library_benchmark]
 #[bench::clean(args = ("clean",), setup = built_transcode_strmap)]
 #[bench::escaped(args = ("escaped",), setup = built_transcode_strmap)]
-fn strmap_transcode_cursor(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+fn strmap_transcode_cursor(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64 {
     let (map, _) = built;
     let (mut n, mut sink) = (0u64, 0u64);
     let mut cur = map.cursor();
-    while let Some((k, slot)) = cur.next() {
-        let decoded = escape_decode(k).expect("valid escaped key");
-        // SAFETY: slot pointer is valid while cursor is alive.
-        sink ^= decoded.len() as u64 ^ unsafe { slot.as_ptr().read() };
+    while let Some((decoded, val)) = cur.next_owned() {
+        sink ^= decoded.len() as u64 ^ val;
         n += 1;
     }
     drop(cur);
