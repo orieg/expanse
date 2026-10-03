@@ -10,6 +10,13 @@ set -euo pipefail
 #             C headers are read from include/.
 
 VERSION=${1:-"0.4.0"}
+VERSION="${VERSION#v}"
+# A pre-release (0.15.0-rc.1) is packaged as 0.15.0~rc.1: `-` is not allowed in an
+# RPM version and separates the revision in a Debian one; `~` sorts before 0.15.0.
+# File names keep `-`: GitHub renames release assets whose names carry `~`, and
+# SHA256SUMS must name the assets as the release stores them.
+FILE_VERSION="${VERSION}"
+VERSION="$(printf '%s' "${VERSION}" | sed 's/-/~/')"
 DEB_ARCH=${2:-"amd64"}
 DIST_DIR=${3:-"dist"}
 DEB_DIR="debian_build"
@@ -170,8 +177,8 @@ Description: Drop-in compatibility for libjudy applications (symlinks, man pages
 EOF
 
 # Build packages
-dpkg-deb --build "${DEB_DIR}/libexpanse1" "libexpanse1_${VERSION}_${DEB_ARCH}.deb"
-dpkg-deb --build "${DEB_DIR}/libexpanse-dev" "libexpanse-dev_${VERSION}_${DEB_ARCH}.deb"
-dpkg-deb --build "${DEB_DIR}/libjudy-compat" "libjudy-compat_${VERSION}_${DEB_ARCH}.deb"
+dpkg-deb --build "${DEB_DIR}/libexpanse1" "libexpanse1_${FILE_VERSION}_${DEB_ARCH}.deb"
+dpkg-deb --build "${DEB_DIR}/libexpanse-dev" "libexpanse-dev_${FILE_VERSION}_${DEB_ARCH}.deb"
+dpkg-deb --build "${DEB_DIR}/libjudy-compat" "libjudy-compat_${FILE_VERSION}_${DEB_ARCH}.deb"
 
 echo "Debian packaging completed successfully (${DEB_ARCH})!"

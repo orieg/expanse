@@ -73,8 +73,9 @@ Expanse maintains an automated, official Debian/Ubuntu APT repository hosted on 
 
 #### Quick APT Setup (Debian / Ubuntu / Raspberry Pi OS / RISC-V Linux):
 ```bash
-# 1. Add repository source
-echo "deb [trusted=yes] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
+# 1. Install the repository signing key and add the source
+curl -fsSL https://orieg.github.io/expanse/apt/expanse-archive-keyring.gpg | sudo tee /usr/share/keyrings/expanse-archive-keyring.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/expanse-archive-keyring.gpg] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
 
 # 2. Update and install
 sudo apt-get update
@@ -118,6 +119,26 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat
   - `libexpanse`: Runtime shared library (`/usr/lib64/libexpanse.so.1` with `glibc-hwcaps/` variants).
   - `libexpanse-devel`: Development headers (`/usr/include/expanse.h`, `Judy.h`), static library (`libexpanse.a`), pkg-config, and Section 3 man pages (`expanse(3)`, `expanse_map(3)`, etc.).
   - `libjudy-compat`: Drop-in replacement creating system-wide `/usr/lib64/libJudy.so.1` symlinks to Expanse, pkg-config, and Judy compatibility man pages (`Judy(3)`, `Judy1(3)`, `JudyL(3)`, etc.).
+- **Repository Verification**: The repository metadata (`repodata/repomd.xml`) is cryptographically signed with GPG (`repodata/repomd.xml.asc`) and pins every package's SHA-256 hash. `expanse.repo` enables `repo_gpgcheck=1` with public key `https://orieg.github.io/expanse/rpm/RPM-GPG-KEY-expanse`.
+
+#### 2.3.1 Package Repository Signing Key Maintenance
+
+The APT and RPM repositories are signed on every deploy using a dedicated OpenPGP signing key held in the `package-signing` GitHub Environment (`REPO_SIGNING_KEY`, passphrase-protected, and `REPO_SIGNING_PASSPHRASE`). The signing job in `.github/workflows/pages.yml` executes only on `main`, restricts egress to GitHub, and exports the public keys dynamically:
+- APT binary keyring: `https://orieg.github.io/expanse/apt/expanse-archive-keyring.gpg`
+- RPM armored public key: `https://orieg.github.io/expanse/rpm/RPM-GPG-KEY-expanse`
+
+##### Key Inspection:
+```bash
+curl -fsSL https://orieg.github.io/expanse/apt/expanse-archive-keyring.gpg | gpg --show-keys
+```
+
+##### Extending Expiry:
+1. On the maintainer's offline master key: `gpg --quick-set-expire <fingerprint> <new-expiry>`
+2. Update the `REPO_SIGNING_KEY` secret in the `package-signing` environment (`gpg --armor --export-secret-keys <fingerprint> | gh secret set REPO_SIGNING_KEY --env package-signing`).
+3. Re-run `pages.yml` (`gh workflow run pages.yml --ref main`) to republish the public keyring and sign metadata with the new expiry.
+4. Verify using `curl -fsSL https://orieg.github.io/expanse/apt/expanse-archive-keyring.gpg | gpg --show-keys`.
+
+---
 
 ### 2.4 Windows Distribution (`expanse.dll` / `expanse.lib`)
 Expanse delivers first-class Windows MSVC binaries built with 64-bit calling conventions:
@@ -190,6 +211,42 @@ Expanse is distributed on Maven Central as `io.github.orieg:expanse-java` with b
 - **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux (`x86_64`, `aarch64`), macOS (`aarch64`, `x86_64`), and Windows (`x86_64`).
 - **Registry Verification**: the `verify-registries` release job runs `scripts/verify_release_registries.py`, which fetches the version's POM from repo1.maven.org (the URL a pinned build resolves) with the group's `maven-metadata.xml` as fallback, both past the CDN cache, and gives Central extra retry attempts beyond the shared budget because its sync is the slowest of the registries.
 - **Full Guide**: See [docs/bindings/java.md](bindings/java.md).
+
+#### 2.8.1 Maven Central Signing Key Maintenance
+
+Artifacts published to Maven Central (`io.github.orieg:expanse-java`) are signed using OpenPGP key `995C1FA9F413909685F3E91E7509E2D8A6A63BDE` (RSA 3072, created 2024-09-02, expires 2028-09-02).
+
+- **Secrets Scoping**: The private key and passphrase are held exclusively in the `release` GitHub Environment (`MAVEN_GPG_PRIVATE_KEY` and `MAVEN_GPG_PASSPHRASE`), restricted to `v*.*.*` tag runs.
+- **Key Inspection**:
+  ```bash
+  gpg --keyserver keys.openpgp.org --recv-keys 995C1FA9F413909685F3E91E7509E2D8A6A63BDE
+  gpg --list-keys 995C1FA9F413909685F3E91E7509E2D8A6A63BDE
+  ```
+
+##### Routine Key Extension (Before 2028-09-02):
+1. **Extend Expiration Date**:
+   On the maintainer's primary GPG keyring containing the master key:
+   ```bash
+   gpg --quick-set-expire 995C1FA9F413909685F3E91E7509E2D8A6A63BDE 4y
+   ```
+2. **Update Environment Secret**:
+   Export the extended private key and update the `release` environment secret:
+   ```bash
+   gpg --armor --export-secret-keys 995C1FA9F413909685F3E91E7509E2D8A6A63BDE | gh secret set MAVEN_GPG_PRIVATE_KEY --env release
+   ```
+3. **Republish Public Key to Keyservers**:
+   Maven Central validation requires the public key to resolve on public keyservers:
+   ```bash
+   gpg --keyserver keys.openpgp.org --send-keys 995C1FA9F413909685F3E91E7509E2D8A6A63BDE
+   gpg --keyserver keyserver.ubuntu.com --send-keys 995C1FA9F413909685F3E91E7509E2D8A6A63BDE
+   ```
+
+##### Key Replacement (if Lost or Compromised):
+If replacing the key:
+1. Generate a new RSA 3072+ key.
+2. Publish public key to `keys.openpgp.org` and `keyserver.ubuntu.com`.
+3. Update `MAVEN_GPG_PRIVATE_KEY` and `MAVEN_GPG_PASSPHRASE` in the `release` environment.
+4. Announce the new signer fingerprint in the release notes.
 
 ---
 

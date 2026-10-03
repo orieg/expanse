@@ -1,100 +1,163 @@
 name: Deploy GitHub Pages
 
+# Builds the documentation portal and assembles the APT and RPM
+# repositories from the latest stable release's packages, signed with
+# REPO_SIGNING_KEY. No package or repository metadata is committed: packages come
+# from the release (checked against its SHA256SUMS), signatures are made here.
+# The key is only read by `sign`, a job bound to the `package-signing`
+# environment that runs no third-party action and can reach GitHub only.
+# Repository > Settings > Pages must use "GitHub Actions" as the source.
 on:
   push:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'scripts/**'
+      - 'scripts/build_repo.py'
+      - 'scripts/build_pages.py'
+      - 'scripts/build_apt_repo.py'
+      - 'scripts/build_rpm_repo.py'
+      - 'scripts/site_theme.py'
       - '.github/workflows/pages.yml'
       - 'Cargo.toml'
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: read-all
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  # Renders the site. It holds no secret; its output is data for `sign`, never code.
+  site:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-
-      - name: Download latest release packages
-        id: packages
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -uo pipefail
-          mkdir -p artifacts
-
-          # `gh release download` exits non-zero both when no release exists and
-          # when the download failed, and those two demand opposite responses:
-          # a genuine bootstrap SHOULD publish empty apt/rpm repos, a transient
-          # API error MUST NOT, because the deploy below runs with
-          # `keep_files: false` and would replace the live repositories with the
-          # empty ones. Ask about the release separately so the two are
-          # distinguishable, rather than inferring the cause from a failure code
-          # that cannot carry it.
-          if ! releases=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1); then
-            echo "::error::could not list releases; refusing to build package repos on an unknown state"
-            exit 1
-          fi
-          if [ -z "$releases" ]; then
-            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::No release exists yet; building empty apt/rpm repos (genuine bootstrap)."
-            exit 0
-          fi
-
-          echo "bootstrap=false" >> "$GITHUB_OUTPUT"
-          if ! gh release download --repo "$GITHUB_REPOSITORY" \
-                 --pattern '*.deb' --pattern '*.rpm' --dir artifacts; then
-            echo "::error::a release exists but its .deb/.rpm assets could not be downloaded; refusing to republish (this would replace the live apt/rpm repositories with empty ones)"
-            exit 1
-          fi
-          echo "Downloaded release packages:"
-          ls -la artifacts
-
-      - name: Build static site
-        # Via `env:` rather than interpolated into `run:`, matching how ci.yml
-        # passes PR_BODY: an expression expanded straight into the script body
-        # is a shell-injection shape, and keeping every one of them out of `run:`
-        # means no reviewer has to work out which values happen to be safe.
-        env:
-          BOOTSTRAP: ${{ steps.packages.outputs.bootstrap }}
+      - name: Build portal and documentation site
+        shell: bash
         run: |
           set -euo pipefail
-          if [ "$BOOTSTRAP" = "true" ]; then
-            python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir ./pages-root --allow-empty
-            exit 0
-          fi
+          mkdir -p artifacts
+          python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir _site --allow-empty --unsigned
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site
+          path: _site
+          if-no-files-found: error
+          retention-days: 1
 
-          # A release exists, so every asset type must be present. Test each glob
-          # on its own: `ls a* b*` exits non-zero when EITHER fails, so a release
-          # carrying .deb but no .rpm would otherwise look identical to having
-          # nothing at all and wipe the live rpm repository while the debs were
-          # fine.
-          missing=""
-          ls artifacts/*.deb >/dev/null 2>&1 || missing="$missing .deb"
-          ls artifacts/*.rpm >/dev/null 2>&1 || missing="$missing .rpm"
-          if [ -n "$missing" ]; then
-            echo "::error::release assets missing:$missing — refusing to build package repos from a partial download"
+  # Adds the signed APT and RPM repositories to the rendered site. The only
+  # job that reads REPO_SIGNING_KEY: first-party actions and this repository's
+  # own scripts, from a checkout of the same commit, with egress limited to GitHub.
+  sign:
+    needs: site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: package-signing
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            *.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site
+          path: _site
+      - name: Latest stable release packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName)"
+          echo "RELEASE_TAG=${tag}" >> "${GITHUB_ENV}"
+          mkdir -p artifacts
+          gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" --dir artifacts \
+            --pattern '*.deb' --pattern '*.rpm' --pattern SHA256SUMS
+          cd artifacts
+          grep -E '\.(deb|rpm)$' SHA256SUMS | sha256sum --check --strict
+          count="$(find . -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' \) | wc -l | tr -d ' ')"
+          [ "${count}" -ge 1 ] || { echo "::error::expected .deb and .rpm in ${tag}, found ${count}"; exit 1; }
+      - name: Import the repository signing key
+        shell: bash
+        env:
+          REPO_SIGNING_KEY: ${{ secrets.REPO_SIGNING_KEY }}
+          REPO_SIGNING_PASSPHRASE: ${{ secrets.REPO_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${REPO_SIGNING_KEY}" ]; then
+            echo "::error::REPO_SIGNING_KEY is not set. The APT and RPM repositories are only published signed."
             exit 1
           fi
-          python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir ./pages-root
-
-      - name: Deploy to GitHub Pages (gh-pages branch)
-        uses: peaceiris/actions-gh-pages@v4
+          gnupg="${RUNNER_TEMP}/gnupg"
+          mkdir -m 700 "${gnupg}"
+          echo "allow-loopback-pinentry" > "${gnupg}/gpg-agent.conf"
+          printf '%s\n' "${REPO_SIGNING_KEY}" | GNUPGHOME="${gnupg}" gpg --batch --import
+          key="$(GNUPGHOME="${gnupg}" gpg --batch --list-secret-keys --with-colons | awk -F: '/^fpr/ { print $10; exit }')"
+          [ -n "${key}" ] || { echo "::error::REPO_SIGNING_KEY holds no secret key"; exit 1; }
+          echo "GNUPGHOME=${gnupg}" >> "${GITHUB_ENV}"
+          echo "REPO_KEY=${key}" >> "${GITHUB_ENV}"
+      - name: Build the signed repositories
+        shell: bash
+        env:
+          REPO_SIGNING_PASSPHRASE: ${{ secrets.REPO_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          python3 scripts/build_repo.py --artifacts-dir artifacts --docs-dir _site \
+            --version "${RELEASE_TAG#v}" --sign-key "${REPO_KEY}"
+          gpgv --keyring _site/apt/expanse-archive-keyring.gpg _site/apt/dists/stable/InRelease
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./pages-root
-          keep_files: false
+          path: _site
+
+  deploy:
+    needs: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        with:
+          egress-policy: block
+          disable-telemetry: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            *.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

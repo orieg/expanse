@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 from build_apt_repo import build_apt_repo
+from build_repo import sign_repositories
 from build_rpm_repo import build_rpm_repo
 from site_theme import (
     BASE_CSS,
@@ -828,7 +829,12 @@ def _count_packages(artifacts_dir: str) -> int:
     return n
 
 
-def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
+def build_pages(
+    artifacts_dir: str,
+    output_dir: str,
+    allow_empty: bool = False,
+    sign_key: str | None = None,
+):
     # Fail loudly rather than force-replacing populated apt/rpm repos on gh-pages
     # (peaceiris keep_files: false) with empty ones built from missing artifacts.
     if not allow_empty:
@@ -1709,6 +1715,9 @@ void app_main(void) {
     build_apt_repo(artifacts_dir, apt_out, allow_empty=allow_empty, version=version)
     build_rpm_repo(artifacts_dir, rpm_out, allow_empty=allow_empty, version=version)
 
+    if sign_key:
+        sign_repositories(apt_out, rpm_out, sign_key)
+
     print(f"Complete GitHub Pages site generated in {output_dir}")
 
 if __name__ == "__main__":
@@ -1747,8 +1756,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Permit building the portal with empty apt/rpm repos (bootstrap only) instead of failing.",
     )
+    parser.add_argument(
+        "--sign-key",
+        default=None,
+        help="GPG key id that signs the APT Release file and the RPM repomd.xml.",
+    )
+    parser.add_argument(
+        "--unsigned",
+        action="store_true",
+        help="Build without signatures (local previews only; never publish an unsigned repository).",
+    )
     args = parser.parse_args()
 
     art_dir = args.artifacts_dir or args.artifacts_pos or "artifacts"
     out_dir = args.output_dir or args.output_pos or "pages-root"
-    build_pages(art_dir, out_dir, allow_empty=args.allow_empty)
+    build_pages(art_dir, out_dir, allow_empty=args.allow_empty, sign_key=args.sign_key)

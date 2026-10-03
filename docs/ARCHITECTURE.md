@@ -1,6 +1,6 @@
 # Expanse Architecture
 
-> Canonical design doc. Bit-level encoding reference: [§10](#10-bit-level-encoding-reference) · Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md) · 32-Bit & Embedded: [design/32-bit-embedded.md](design/32-bit-embedded.md) · Large Values: [design/large-values.md](design/large-values.md)
+> Canonical design doc. Bit-level encoding reference: [§10](#10-bit-level-encoding-reference) · Release & Environments: [§11](#11-release-pipeline-repository-settings--key-maintenance) · Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md) · 32-Bit & Embedded: [design/32-bit-embedded.md](design/32-bit-embedded.md) · Large Values: [design/large-values.md](design/large-values.md)
 
 Expanse is a clean-room reimplementation of the Judy array family (Judy1 bit set, JudyL word→word map, JudySL string→word map), redesigned for 2026 hardware and named for Judy's defining idea: partitioning keys by *expanse* rather than by population. Derived from published algorithm descriptions only; no libjudy source consulted (see COMPAT.md for the clean-room rules).
 
@@ -1328,3 +1328,81 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `ValueSlot32::ARENA_META_SHIFT` | 20 | `crates/expanse/src/slot32.rs:66` |
 
 <!-- /ENCODING-CONSTANTS -->
+
+## 11. Release Pipeline, Repository Settings & Key Maintenance
+
+The Expanse release pipeline enforces cryptographic provenance, secret isolation across distinct environments, and fail-closed integrity gates across every supported platform and package format.
+
+### 11.1 Release Pipeline Architecture (`.github/workflows/release.yml`)
+
+The release workflow implements an anchor-first DAG across three phases:
+
+1. **Phase 1 — Preflight Gate**:
+   - `release_ci_gate.py` requires a successful `ci.yml` run (with green `fast-lane`) on the tagged commit before releasing. If none exists, it dispatches `ci.yml` and waits for completion.
+2. **Phase 2 — Build & GitHub Release Anchor**:
+   - Cross-compiles native static and shared binaries across all supported targets (`x86_64-unknown-linux-gnu` with `glibc-hwcaps` `v1`–`v4`, `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`).
+   - Packages distribution archives, Debian `.deb` packages, and Enterprise Linux `.rpm` packages.
+   - Generates CycloneDX v1.5 SBOMs (`expanse.cdx.json`, `expanse-trie.cdx.json`) and Sigstore in-toto build provenance attestations (`expanse.intoto.jsonl`).
+   - Publishes the GitHub Release as the immutable release anchor before any registry jobs proceed.
+3. **Phase 3 — Ecosystem Registries & Distribution**:
+   - Publishes crates to crates.io (`expanse-trie`, `expanse-capi`) using OIDC / scoped token under `environment: release`.
+   - Publishes Java artifacts to Maven Central (`io.github.orieg:expanse-java`) with GPG signing under `environment: release`.
+   - Publishes npm packages (`@orieg/expanse`, `@orieg/expanse-wasm`) with OIDC trusted publishing.
+   - Publishes .NET package (`Orieg.Expanse`) to NuGet.org with OIDC trusted publishing.
+   - Publishes Ruby gem (`expanse`) to RubyGems with OIDC trusted publishing.
+   - Updates `orieg/homebrew-tap` with signed formula and release asset checksums under `environment: release`.
+   - Python wheels publish via `.github/workflows/python.yml` upon release publication.
+   - Triggers the 3-job Pages pipeline on `main` to update APT and RPM repositories.
+
+### 11.2 GitHub Pages 3-Job Pipeline (`.github/workflows/pages.yml`)
+
+The documentation and package repository portal on GitHub Pages runs through a 3-job pipeline enforcing least-privilege egress and secret isolation:
+
+```
+┌──────────────────┐
+│    Job: site     │ ──> Render static documentation portal, diagrams, visualizer
+│ (no credentials) │     (outputs site artifact)
+└─────────┬────────┘
+          │
+          ▼
+┌──────────────────┐
+│    Job: sign     │ ──> Environment: package-signing (main branch only)
+│  (GitHub egress  │     Downloads release packages, validates SHA256SUMS,
+│    only, GPG)    │     builds APT (InRelease) and RPM (repomd.xml.asc) metadata,
+└─────────┬────────┘     verifies signatures with gpgv, merges into site artifact
+          │
+          ▼
+┌──────────────────┐
+│   Job: deploy    │ ──> Environment: github-pages
+│ (deployment only)│     Publishes the final bundle via actions/deploy-pages
+└──────────────────┘
+```
+
+- **`site`**: Renders HTML documentation and visualizers without any repository secrets or signing credentials.
+- **`sign`**: Runs in the `package-signing` GitHub Environment restricted to the `main` branch. Egress is restricted to GitHub (`api.github.com`, `github.com`). It downloads release assets, verifies them against `SHA256SUMS`, imports `REPO_SIGNING_KEY` with `REPO_SIGNING_PASSPHRASE` using loopback pinentry, generates signed APT repository metadata (`InRelease`, `Release.gpg`, binary keyring) and signed RPM repository metadata (`repomd.xml.asc`, armored public key), verifies all signatures using `gpgv`, and produces the unified pages deployment artifact.
+- **`deploy`**: Runs in the `github-pages` environment using the official `actions/deploy-pages` action (`build_type: workflow`).
+
+### 11.3 Environment Matrix & Secret Scoping
+
+Privileged operations are partitioned into GitHub Environments with explicit deployment branch and tag policies:
+
+| Environment | Deployment Policy | Permitted Secrets | Purpose |
+|---|---|---|---|
+| `release` | Tags: `v*.*.*` | `CARGO_REGISTRY_TOKEN`, `MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `HOMEBREW_TAP_DEPLOY_KEY` | Publishing to crates.io, Maven Central, Homebrew tap |
+| `package-signing` | Branches: `main` | `REPO_SIGNING_KEY`, `REPO_SIGNING_PASSPHRASE` | Signing APT and RPM package repositories during Pages builds |
+| `subsplit` | Branches: `main`, Tags: `v*.*.*` | `SUBSPLIT_SSH_KEY` | Pushing subsplit git mirrors (`expanse-php-library`, `php-expanse`) |
+| `github-pages` | Standard Pages policy | None | Publishing deployment artifact via GitHub Pages Actions runner |
+
+### 11.4 Signing Key Maintenance
+
+Cryptographic signing keys for packages and registries are managed with documented lifecycles and rotation procedures:
+
+- **APT and RPM Package Repository Key**:
+  - Held in `package-signing` environment (`REPO_SIGNING_KEY`, `REPO_SIGNING_PASSPHRASE`).
+  - Public keys are exported during repository generation to `/apt/expanse-archive-keyring.gpg` (binary) and `/rpm/RPM-GPG-KEY-expanse` (ASCII-armored).
+  - Routine extension and secret updating procedures are documented in [PACKAGING.md §2.3.1](PACKAGING.md#231-package-repository-signing-key-maintenance).
+- **Maven Central Signing Key**:
+  - OpenPGP key `995C1FA9F413909685F3E91E7509E2D8A6A63BDE` (RSA 3072, created 2024-09-02, expires 2028-09-02).
+  - Held exclusively in the `release` environment (`MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`).
+  - Routine extension and emergency replacement procedures are documented in [PACKAGING.md §2.8.1](PACKAGING.md#281-maven-central-signing-key-maintenance).
+
