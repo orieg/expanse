@@ -9438,6 +9438,38 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
     olc_remove_map_body!(host, false, _old => false, key)
 }
 
+/// The conditional publish over any [`OlcHost`]: `olc_insert_map_body!` storing
+/// only over `expected`. `Done(seen)` is the word the compare saw under the
+/// parent's version lock; the store happened iff `seen == expected`.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(feature = "std")]
+pub(crate) fn olc_cas_publish_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: Option<u64>,
+    val: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(
+        host,
+        old => expected != Some(old),
+        expected.is_none(),
+        key,
+        val
+    )
+}
+
+/// The conditional remove over any [`OlcHost`]: `olc_remove_map_body!` removing
+/// only `expected`.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(feature = "std")]
+pub(crate) fn olc_cas_remove_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_remove_map_body!(host, true, old => old != expected, key)
+}
+
 // ---------------------------------------------------------------------
 // The bytes wrapper's two bucket publishes (#929).
 //
@@ -9675,31 +9707,21 @@ impl SyncExpanseMap {
     /// `seen == expected`.
     // The `// SAFETY:` comments sit on each block inside the macro body; clippy
     // cannot see a comment through a macro expansion.
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    #[cfg(feature = "std")]
     fn olc_cas_publish_map(
         &self,
         key: Key,
         expected: Option<u64>,
         val: u64,
     ) -> OlcOutcome<Option<u64>> {
-        olc_insert_map_body!(
-            self.shared,
-            old => expected != Some(old),
-            expected.is_none(),
-            key,
-            val
-        )
+        olc_cas_publish_map(&*self.shared, key, expected, val)
     }
 
     /// The conditional removal: `olc_remove_map_body!` removing only
     /// `expected`. `Done(seen)` as in [`Self::olc_cas_publish_map`].
-    // The `// SAFETY:` comments sit on each block inside the macro body; clippy
-    // cannot see a comment through a macro expansion.
     #[allow(clippy::undocumented_unsafe_blocks)]
     #[cfg(feature = "std")]
     fn olc_cas_remove_map(&self, key: Key, expected: u64) -> OlcOutcome<Option<u64>> {
-        olc_remove_map_body!(self.shared, true, old => old != expected, key)
+        olc_cas_remove_map(&*self.shared, key, expected)
     }
 
     /// The map wrapper's OLC remove: `olc_remove_map_body!` as the method it
@@ -11850,6 +11872,119 @@ impl SyncExpanseStrMap {
         }
     }
 
+    /// Compare-and-swap the value stored for `key`.
+    ///
+    /// The operation is atomic with respect to other writers:
+    /// - If the current value matches `expected`:
+    ///   - If `new` is `Some(val)`, updates the value to `val` (or inserts `val` if `expected` was `None`).
+    ///   - If `new` is `None`, removes the key.
+    ///   - Returns `Ok(expected)`.
+    /// - If the current value does not match `expected`:
+    ///   - Leaves the map unchanged.
+    ///   - Returns `Err(current_value)`.
+    ///
+    /// Passing `(None, None)` is equivalent to checking whether `key` is absent;
+    /// it returns `Ok(None)` if absent or `Err(Some(current))` if present,
+    /// without mutating the map.
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When storing locators or addresses into an external epoch-reclaimed store,
+    /// the writer must **not retire the old record until after `compare_exchange` returns**.
+    /// Expanse's internal collector protects only trie nodes and suffix leaves;
+    /// `compare_exchange` validates and publishes the new value under version bracketing before
+    /// returning. Retiring the replaced record only after `compare_exchange` returns guarantees
+    /// that any reader that observed the old locator was pinned in the caller's store
+    /// at or before the retirement epoch. See [`StrReader::get`].
+    pub fn compare_exchange(
+        &self,
+        key: &NulFreeStr,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        if expected.is_none() && new.is_none() {
+            return match self.get(key) {
+                None => Ok(None),
+                seen => Err(seen),
+            };
+        }
+        let observed = self.compare_exchange_observed(key, expected, new);
+        if observed == expected {
+            Ok(observed)
+        } else {
+            Err(observed)
+        }
+    }
+
+    /// The word the compare saw; the store happened iff it equals `expected`.
+    fn compare_exchange_observed(
+        &self,
+        key: &NulFreeStr,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Option<u64> {
+        let exclusive = |m: &mut ExpanseStrMap| {
+            let seen = m.get(key);
+            if seen == expected {
+                match new {
+                    Some(v) => {
+                        m.insert(key, v);
+                    }
+                    None => {
+                        m.remove(key);
+                    }
+                }
+            }
+            seen
+        };
+        #[cfg(feature = "ablation-str-serial-writers")]
+        {
+            self.shared.write(exclusive)
+        }
+        #[cfg(not(feature = "ablation-str-serial-writers"))]
+        {
+            let guard = self.shared.enter_writer_blocking();
+            let slot = guard.slot_id();
+            let res = self.shared.with_writer_pin(|| {
+                self.shared.str_optimistic(&guard, || {
+                    let (outcome, prune) = unsafe {
+                        (*self.shared.tree_ptr()).olc_compare_exchange(key, expected, new)
+                    };
+                    match outcome {
+                        OlcOutcome::Done(prev) => {
+                            if prev == expected {
+                                if prev.is_none() && new.is_some() {
+                                    self.shared.tree_pop.add(slot, 1);
+                                } else if prev.is_some() && new.is_none() {
+                                    self.shared.tree_pop.add(slot, -1);
+                                }
+                            }
+                            OlcOutcome::Done((prev, prune))
+                        }
+                        OlcOutcome::Retry => OlcOutcome::Retry,
+                        OlcOutcome::Fallback(cause) => OlcOutcome::Fallback(cause),
+                    }
+                })
+            });
+            drop(guard);
+            match res {
+                Ok((prev, None)) => prev,
+                Ok((prev, Some(cause))) => {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(cause.stat());
+                    #[cfg(feature = "occ-stats")]
+                    if cause == FallbackCause::Contention {
+                        crate::occ_stats::bump(contention_stat(false));
+                    }
+                    self.shared
+                        .write_root_covered_exact(|m| m.prune_empty_path(key));
+                    prev
+                }
+                Err(_) => self.shared.write_root_covered_exact(exclusive),
+            }
+        }
+    }
+
     /// Removes every entry; returns the heap bytes released. A whole-tree
     /// disposal, always serialised (T12).
     pub fn clear(&self) -> u64 {
@@ -12085,6 +12220,33 @@ impl StrExclusive<'_> {
             None => {}
         }
         old
+    }
+
+    /// Compare-and-swap the value for `key`.
+    ///
+    /// Stores `new` (or removes the key if `new == None`) if and only if the
+    /// current value equals `expected`. Returns `Ok(expected)` on success, or
+    /// `Err(current)` if the current value did not match.
+    pub fn compare_exchange(
+        &mut self,
+        key: &NulFreeStr,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        let old = self.get(key);
+        if old == expected {
+            match new {
+                Some(v) => {
+                    self.insert(key, v);
+                }
+                None => {
+                    self.remove(key);
+                }
+            }
+            Ok(old)
+        } else {
+            Err(old)
+        }
     }
 
     /// Number of keys in the map.
@@ -16667,6 +16829,54 @@ mod tests {
             }
             assert!(cursor.is_none());
         });
+    }
+
+    #[test]
+    fn sync_str_compare_exchange_semantics() {
+        let m = SyncExpanseStrMap::new();
+        let k1 = tk(b"apple");
+        let k2 = tk(b"application/json");
+
+        // (None, None): lookup on absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, None), Ok(None));
+
+        // (Some(10), Some(20)) on absent key -> Err(None)
+        assert_eq!(m.compare_exchange(k1, Some(10), Some(20)), Err(None));
+
+        // (None, Some(100)): insert absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, Some(100)), Ok(None));
+        assert_eq!(m.get(k1), Some(100));
+        assert_eq!(m.len(), 1);
+
+        // (None, None): lookup on present key -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, None, None), Err(Some(100)));
+
+        // (Some(99), Some(200)): mismatch -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(99), Some(200)), Err(Some(100)));
+        assert_eq!(m.get(k1), Some(100));
+
+        // (Some(100), Some(200)): match -> Ok(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(100), Some(200)), Ok(Some(100)));
+        assert_eq!(m.get(k1), Some(200));
+
+        // Suffix / split key k2:
+        assert_eq!(m.compare_exchange(k2, None, Some(300)), Ok(None));
+        assert_eq!(m.get(k2), Some(300));
+        assert_eq!(m.len(), 2);
+
+        // (Some(300), Some(400)) on k2 -> Ok(Some(300))
+        assert_eq!(m.compare_exchange(k2, Some(300), Some(400)), Ok(Some(300)));
+        assert_eq!(m.get(k2), Some(400));
+
+        // (Some(400), None) on k2 -> remove
+        assert_eq!(m.compare_exchange(k2, Some(400), None), Ok(Some(400)));
+        assert_eq!(m.get(k2), None);
+        assert_eq!(m.len(), 1);
+
+        // (Some(200), None) on k1 -> remove
+        assert_eq!(m.compare_exchange(k1, Some(200), None), Ok(Some(200)));
+        assert_eq!(m.get(k1), None);
+        assert_eq!(m.len(), 0);
     }
 
     /// The meta-trie root's slot is rewritten by the exclusive path while

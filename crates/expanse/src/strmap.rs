@@ -3265,6 +3265,265 @@ mod olc {
             }
         }
 
+        pub(crate) unsafe fn olc_compare_exchange(
+            &self,
+            key: &NulFreeStr,
+            expected: Option<u64>,
+            new: Option<u64>,
+        ) -> (
+            crate::sync::OlcOutcome<Option<u64>>,
+            Option<crate::sync::FallbackCause>,
+        ) {
+            use crate::occ::{node_sample, node_validate, version_cell};
+            use crate::sync::{
+                FallbackCause, OlcOutcome, olc_cas_publish_map, olc_cas_remove_map,
+                olc_insert_map, olc_remove_map, walk_validated_node,
+            };
+            let key = key.as_bytes();
+            let alloc = &self.alloc;
+            let defer = self.deferred.get();
+            debug_assert!(
+                defer.is_some(),
+                "optimistic compare_exchange on a map that was never deferred"
+            );
+            let Some(mut node) = self.root_raw() else {
+                if expected.is_none() {
+                    return (OlcOutcome::Fallback(FallbackCause::RootGrowth), None);
+                } else {
+                    return (OlcOutcome::Done(None), None);
+                }
+            };
+            let mut path = PathStack::new();
+            let mut off = 0usize;
+            loop {
+                let (chunk, terminal) = chunk_at(key, off);
+                let word: *const u32 = unsafe { &raw const (*node).cover };
+                let cell = unsafe { version_cell(word) };
+                let Some(csnap) = node_sample(cell) else {
+                    return (OlcOutcome::Retry, None);
+                };
+                let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
+                let is_tree = matches!(msnap, crate::sync::RootSnapshot::Tree { .. });
+                let host = StrHost {
+                    node,
+                    alloc,
+                    locked: false,
+                };
+
+                if terminal {
+                    if is_tree {
+                        let outcome = match (new, expected) {
+                            (Some(v), _) => olc_cas_publish_map(&host, chunk, expected, v),
+                            (None, Some(e)) => olc_cas_remove_map(&host, chunk, e),
+                            (None, None) => unreachable!("checked at entry"),
+                        };
+                        return (outcome, None);
+                    }
+                    let found = match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) } {
+                        Ok(f) => f,
+                        Err(_) => return (OlcOutcome::Retry, None),
+                    };
+                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                        return (OlcOutcome::Retry, None);
+                    };
+                    if found != expected {
+                        lock.abort_unmodified();
+                        drop(lock);
+                        return (OlcOutcome::Done(found), None);
+                    }
+                    match new {
+                        Some(v) => {
+                            unsafe {
+                                under_lock(node, alloc, || {
+                                    MapCore::insert_leaf_state_at(&raw mut (*node).map, alloc, chunk, v)
+                                })
+                            };
+                            drop(lock);
+                            return (OlcOutcome::Done(found), None);
+                        }
+                        None => {
+                            if found.is_none() {
+                                lock.abort_unmodified();
+                                drop(lock);
+                                return (OlcOutcome::Done(None), None);
+                            }
+                            unsafe {
+                                under_lock(node, alloc, || {
+                                    MapCore::remove_leaf_state_at(&raw mut (*node).map, alloc, chunk)
+                                })
+                            };
+                            let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
+                            return (OlcOutcome::Done(found), deferred);
+                        }
+                    }
+                }
+
+                let found = match unsafe { walk_validated_node::<true>(word, csnap, msnap, chunk) } {
+                    Ok(f) => f,
+                    Err(_) => return (OlcOutcome::Retry, None),
+                };
+
+                let v = match found {
+                    Some(v) => v,
+                    None => {
+                        if expected.is_some() {
+                            return (OlcOutcome::Done(None), None);
+                        }
+                        let val = new.expect("checked at entry");
+                        let sfx = new_suffix(&key[off + CHUNK..], val, SuffixArena::of(alloc));
+                        let w = pack_suffix(sfx);
+                        if is_tree {
+                            match olc_insert_map::<_, true>(&host, chunk, w) {
+                                OlcOutcome::Done(None) => return (OlcOutcome::Done(None), None),
+                                OlcOutcome::Done(Some(existing)) => {
+                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                    existing
+                                }
+                                other => {
+                                    free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                    return (other, None);
+                                }
+                            }
+                        } else {
+                            let Some(lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                                free_unpublished_suffix(sfx, SuffixArena::of(alloc));
+                                return (OlcOutcome::Retry, None);
+                            };
+                            let prev = unsafe {
+                                under_lock(node, alloc, || {
+                                    MapCore::insert_leaf_state_at(
+                                        &raw mut (*node).map,
+                                        alloc,
+                                        chunk,
+                                        w,
+                                    )
+                                })
+                            };
+                            debug_assert!(prev.is_none());
+                            drop(lock);
+                            return (OlcOutcome::Done(None), None);
+                        }
+                    }
+                };
+
+                if is_suffix_ptr(v) {
+                    let sfx = unpack_suffix(v);
+                    let rem = &key[off + CHUNK..];
+                    let same = unsafe { suffix_bytes(sfx) } == rem;
+                    if !same {
+                        if expected.is_some() {
+                            return (OlcOutcome::Done(None), None);
+                        }
+                        debug_assert!(new.is_some());
+                        let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                            return (OlcOutcome::Retry, None);
+                        };
+                        let child_raw = unsafe {
+                            under_lock(node, alloc, || Self::build_split_child::<true>(sfx, alloc))
+                        };
+                        let cw = pack_child(child_raw);
+                        if is_tree {
+                            let held = StrHost {
+                                node,
+                                alloc,
+                                locked: true,
+                            };
+                            match olc_insert_map::<_, false>(&held, chunk, cw) {
+                                OlcOutcome::Done(old_w) => {
+                                    debug_assert_eq!(old_w, Some(v));
+                                }
+                                other => {
+                                    dispose_tree(child_raw, alloc, None);
+                                    lock.abort_unmodified();
+                                    drop(lock);
+                                    return (other, None);
+                                }
+                            }
+                        } else {
+                            let old_w = unsafe {
+                                under_lock(node, alloc, || {
+                                    MapCore::insert_leaf_state_at(
+                                        &raw mut (*node).map,
+                                        alloc,
+                                        chunk,
+                                        cw,
+                                    )
+                                })
+                            };
+                            debug_assert_eq!(old_w, Some(v));
+                        }
+                        dispose_suffix(sfx, defer, SuffixArena::of(alloc));
+                        drop(lock);
+                        node = child_raw;
+                        off += CHUNK;
+                        continue;
+                    }
+
+                    let Some(mut lock) = (unsafe { CoverLock::try_lock_expect(node, csnap) }) else {
+                        return (OlcOutcome::Retry, None);
+                    };
+                    let old_val = unsafe { (&raw const (*sfx).value).read() };
+                    if expected != Some(old_val) {
+                        lock.abort_unmodified();
+                        drop(lock);
+                        return (OlcOutcome::Done(Some(old_val)), None);
+                    }
+                    match new {
+                        Some(new_val) => {
+                            unsafe {
+                                let p = &raw mut (*sfx).value;
+                                crate::bits::shared_word::store::<true>(p, new_val);
+                            }
+                            drop(lock);
+                            return (OlcOutcome::Done(Some(old_val)), None);
+                        }
+                        None => {
+                            if is_tree {
+                                let held = StrHost {
+                                    node,
+                                    alloc,
+                                    locked: true,
+                                };
+                                match olc_remove_map(&held, chunk) {
+                                    OlcOutcome::Done(Some(w)) => {
+                                        debug_assert_eq!(w, v);
+                                    }
+                                    OlcOutcome::Done(None) => {
+                                        lock.abort_unmodified();
+                                        drop(lock);
+                                        return (OlcOutcome::Done(None), None);
+                                    }
+                                    other => {
+                                        lock.abort_unmodified();
+                                        drop(lock);
+                                        return (other, None);
+                                    }
+                                }
+                            } else {
+                                let w = unsafe {
+                                    under_lock(node, alloc, || {
+                                        MapCore::remove_leaf_state_at(&raw mut (*node).map, alloc, chunk)
+                                    })
+                                };
+                                debug_assert_eq!(w, Some(v));
+                            }
+                            let val = unsafe { (*sfx).value };
+                            dispose_suffix(sfx, defer, SuffixArena::of(alloc));
+                            let deferred = unsafe { self.prune_locked(node, lock, &mut path, defer) };
+                            return (OlcOutcome::Done(Some(val)), deferred);
+                        }
+                    }
+                }
+
+                if !node_validate(cell, csnap) {
+                    return (OlcOutcome::Retry, None);
+                }
+                path.push((node, chunk));
+                node = unpack_child(v);
+                off += CHUNK;
+            }
+        }
+
         /// T9: `node` is locked and just lost an entry. While the node is empty
         /// and has a parent, unlink it from the parent under the parent's lock,
         /// mark it obsolete and retire it, then continue with the parent. Two
