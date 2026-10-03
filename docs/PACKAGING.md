@@ -133,9 +133,11 @@ The APT and RPM repositories are signed on every deploy using a dedicated OpenPG
 curl -fsSL https://orieg.github.io/expanse/apt/expanse-archive-keyring.gpg | gpg --show-keys
 ```
 
+The key is RSA 4096, sign-only, with no subkey, and its uid carries the comment `(expanse packages)`. `scripts/release_secrets.sh package-signing` finds it by that comment, and generates it when the keyring holds none.
+
 ##### Extending Expiry:
 1. On the maintainer's offline master key: `gpg --quick-set-expire <fingerprint> <new-expiry>`
-2. Update the `REPO_SIGNING_KEY` secret in the `package-signing` environment (`gpg --armor --export-secret-keys <fingerprint> | gh secret set REPO_SIGNING_KEY --env package-signing`).
+2. Upload the key again with `scripts/release_secrets.sh package-signing`. It exports the key, checks in an empty keyring that it signs with the passphrase entered, and only then sets `REPO_SIGNING_KEY` and `REPO_SIGNING_PASSPHRASE` in the `package-signing` environment.
 3. Re-run `pages.yml` (`gh workflow run pages.yml --ref main`) to republish the public keyring and sign metadata with the new expiry.
 4. Verify using `curl -fsSL https://orieg.github.io/expanse/apt/expanse-archive-keyring.gpg | gpg --show-keys`.
 
@@ -231,9 +233,9 @@ Artifacts published to Maven Central (`io.github.orieg:expanse-java`) are signed
    gpg --quick-set-expire 995C1FA9F413909685F3E91E7509E2D8A6A63BDE 4y
    ```
 2. **Update Environment Secret**:
-   Export the extended private key and update the `release` environment secret:
+   Export the extended private key and update the `release` environment secrets. The script checks in an empty keyring that the key signs with the passphrase entered before it sets `MAVEN_GPG_PRIVATE_KEY` and `MAVEN_GPG_PASSPHRASE`:
    ```bash
-   gpg --armor --export-secret-keys 995C1FA9F413909685F3E91E7509E2D8A6A63BDE | gh secret set MAVEN_GPG_PRIVATE_KEY --env release
+   scripts/release_secrets.sh maven-key
    ```
 3. **Republish Public Key to Keyservers**:
    Maven Central validation requires the public key to resolve on public keyservers:
@@ -528,23 +530,13 @@ The formula lives in the shared tap [`orieg/homebrew-tap`](https://github.com/or
 
 **Secret.** `HOMEBREW_TAP_DEPLOY_KEY`: the private half of an SSH deploy key that has **write** access to `orieg/homebrew-tap`. Without it the job still renders, smokes and attaches both files, and reports the skipped push as a workflow warning. A canary dispatch (`dry_run`) renders and smokes and publishes nothing.
 
-**Setting the secret up.** The same mechanism `orieg/discipline` uses: an SSH deploy key on the tap, its private half stored as an Actions secret on the publishing repository. The tap already holds discipline's write key; Expanse gets a key of its own, so either can be revoked without breaking the other. (GitHub refuses to register one public key on a second repository, and an Actions secret cannot be read back, so discipline's key is reusable only if its private file was kept.) Run once, from a scratch directory, as a user with admin rights on both repositories:
+**Setting the secret up.** The same mechanism `orieg/discipline` uses: an SSH deploy key on the tap, its private half stored as a secret of the `release` environment on the publishing repository. The tap already holds discipline's write key; Expanse has a key of its own, so either can be revoked without breaking the other. (GitHub refuses to register one public key on a second repository, and an Actions secret cannot be read back, so a key is reusable only if its private file was kept.) As a user with admin rights on both repositories:
 
 ```bash
-# 1. A dedicated key pair with no passphrase (the workflow cannot enter one)
-ssh-keygen -t ed25519 -N "" -C "expanse release -> homebrew-tap" -f ./expanse_tap_key
-
-# 2. Public half: a WRITE deploy key on the tap
-gh repo deploy-key add ./expanse_tap_key.pub -R orieg/homebrew-tap --allow-write --title "Expanse release deploy key"
-
-# 3. Private half: the Actions secret on this repository
-gh secret set HOMEBREW_TAP_DEPLOY_KEY -R orieg/expanse < ./expanse_tap_key
-
-# 4. Keep no copy on disk
-rm ./expanse_tap_key ./expanse_tap_key.pub
+scripts/release_secrets.sh rotate-deploy-keys HOMEBREW_TAP_DEPLOY_KEY
 ```
 
-Verify with `gh repo deploy-key list -R orieg/homebrew-tap` (the new key, `read-write`) and `gh secret list -R orieg/expanse` (the secret's name; its value is never shown). To rotate, repeat the four steps and delete the old entry with `gh repo deploy-key delete <id> -R orieg/homebrew-tap`. The key can push to the tap and nothing else: a deploy key is scoped to the one repository it is registered on.
+It generates an ed25519 key pair with no passphrase (the workflow cannot enter one) in a temporary directory, registers the public half as a write deploy key on the tap, sets the private half as `HOMEBREW_TAP_DEPLOY_KEY` in the `release` environment, and keeps no copy on disk. It then lists the tap's deploy keys: the one it replaced stays registered until it is deleted with `gh api -X DELETE repos/orieg/homebrew-tap/keys/<id>`, once a release has pushed with the new one. `scripts/release_secrets.sh status` shows which secrets each environment holds (names only; a value is never shown). The key can push to the tap and nothing else: a deploy key is scoped to the one repository it is registered on. The two PHP mirror keys (`PHP_LIBRARY_SUBSPLIT_SSH_KEY`, `PHP_SUBSPLIT_SSH_KEY`, environment `subsplit`) are rotated by the same command.
 
 **MacPorts.** The port is not in the official MacPorts tree; the rendered `Portfile` is a release asset. To install it from a local ports tree:
 
