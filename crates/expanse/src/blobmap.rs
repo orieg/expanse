@@ -2095,6 +2095,162 @@ impl ExpanseBlobMap {
         }
     }
 
+    /// Compare-and-swap the 24-bit hot metadata stored for `key`.
+    pub fn compare_exchange_meta(
+        &mut self,
+        key: Key,
+        expected: Option<u32>,
+        new: Option<u32>,
+    ) -> Result<Option<u32>, Option<u32>> {
+        let cur_slot_raw = self.index.get(key);
+        let cur_meta = cur_slot_raw.and_then(|raw| {
+            let slot = ValueSlot::from_raw(raw);
+            if slot.tag() == SlotTag::ArenaMeta {
+                Some(slot.arena_meta_meta())
+            } else {
+                Some(0)
+            }
+        });
+        if cur_meta != expected {
+            return Err(cur_meta);
+        }
+        match (cur_slot_raw, new) {
+            (None, None) => Ok(None),
+            (None, Some(_)) => Err(None),
+            (Some(raw), None) => {
+                let slot = ValueSlot::from_raw(raw);
+                self.index.remove(key);
+                self.arena.record_deleted_slot(slot);
+                Ok(cur_meta)
+            }
+            (Some(raw), Some(new_m)) => {
+                let slot = ValueSlot::from_raw(raw);
+                if slot.tag() == SlotTag::ArenaMeta {
+                    if let Some(new_slot) = slot.with_arena_meta_meta(new_m) {
+                        self.index.insert(key, new_slot.to_raw());
+                        Ok(cur_meta)
+                    } else {
+                        Err(cur_meta)
+                    }
+                } else if new_m == 0 {
+                    Ok(cur_meta)
+                } else {
+                    Err(cur_meta)
+                }
+            }
+        }
+    }
+
+    /// Compare-and-swap the 24-bit hot metadata stored for `key` (shared index).
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn compare_exchange_meta_shared(
+        &mut self,
+        key: Key,
+        expected: Option<u32>,
+        new: Option<u32>,
+    ) -> Result<Option<u32>, Option<u32>> {
+        let cur_slot_raw = self.index.get(key);
+        let cur_meta = cur_slot_raw.and_then(|raw| {
+            let slot = ValueSlot::from_raw(raw);
+            if slot.tag() == SlotTag::ArenaMeta {
+                Some(slot.arena_meta_meta())
+            } else {
+                Some(0)
+            }
+        });
+        if cur_meta != expected {
+            return Err(cur_meta);
+        }
+        match (cur_slot_raw, new) {
+            (None, None) => Ok(None),
+            (None, Some(_)) => Err(None),
+            (Some(raw), None) => {
+                let slot = ValueSlot::from_raw(raw);
+                self.index.remove_shared(key);
+                self.arena.record_deleted_slot(slot);
+                Ok(cur_meta)
+            }
+            (Some(raw), Some(new_m)) => {
+                let slot = ValueSlot::from_raw(raw);
+                if slot.tag() == SlotTag::ArenaMeta {
+                    if let Some(new_slot) = slot.with_arena_meta_meta(new_m) {
+                        self.index.insert_shared(key, new_slot.to_raw());
+                        Ok(cur_meta)
+                    } else {
+                        Err(cur_meta)
+                    }
+                } else if new_m == 0 {
+                    Ok(cur_meta)
+                } else {
+                    Err(cur_meta)
+                }
+            }
+        }
+    }
+
+    /// Compare-and-swap the payload and metadata stored for `key`.
+    pub fn compare_exchange(
+        &mut self,
+        key: Key,
+        expected: Option<(&[u8], u32)>,
+        new: Option<(&[u8], u32)>,
+    ) -> Result<Option<(Vec<u8>, u32)>, Option<(Vec<u8>, u32)>> {
+        let cur = self.get(key).map(|(v, m)| (v.as_bytes().to_vec(), m));
+        let matches = match (&cur, expected) {
+            (None, None) => true,
+            (Some((cur_b, cur_m)), Some((exp_b, exp_m))) => cur_b == exp_b && *cur_m == exp_m,
+            _ => false,
+        };
+        if !matches {
+            return Err(cur);
+        }
+        match new {
+            Some((data, meta)) => {
+                if self.insert(key, data, meta).is_ok() {
+                    Ok(cur)
+                } else {
+                    Err(cur)
+                }
+            }
+            None => {
+                self.remove(key);
+                Ok(cur)
+            }
+        }
+    }
+
+    /// Compare-and-swap the payload and metadata stored for `key` (shared index).
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    pub(crate) fn compare_exchange_shared(
+        &mut self,
+        key: Key,
+        expected: Option<(&[u8], u32)>,
+        new: Option<(&[u8], u32)>,
+    ) -> Result<Option<(Vec<u8>, u32)>, Option<(Vec<u8>, u32)>> {
+        let cur = self.get(key).map(|(v, m)| (v.as_bytes().to_vec(), m));
+        let matches = match (&cur, expected) {
+            (None, None) => true,
+            (Some((cur_b, cur_m)), Some((exp_b, exp_m))) => cur_b == exp_b && *cur_m == exp_m,
+            _ => false,
+        };
+        if !matches {
+            return Err(cur);
+        }
+        match new {
+            Some((data, meta)) => {
+                if self.insert_shared(key, data, meta).is_ok() {
+                    Ok(cur)
+                } else {
+                    Err(cur)
+                }
+            }
+            None => {
+                self.remove_shared(key);
+                Ok(cur)
+            }
+        }
+    }
+
     /// Executes a range scan with a predicate evaluated against hot metadata
     /// before dereferencing cold payload cache lines.
     ///
