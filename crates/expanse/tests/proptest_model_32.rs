@@ -177,6 +177,41 @@ proptest! {
     fn sync32_set_writer_matches_plain_set(ops in prop::collection::vec(shared_op_strategy(), 1..800)) {
         run_shared_set(&ops);
     }
+
+    #[test]
+    fn set32_from_sorted_iter_matches_insert_and_model(keys in prop::collection::vec(key_strategy(), 0..500)) {
+        let model: BTreeSet<u32> = keys.iter().copied().collect();
+        let built = ExpanseSet32::from_sorted_iter(keys.iter().copied());
+        assert_eq!(built.len(), model.len());
+        assert!(built.iter().eq(model.iter().copied()));
+        assert_eq!(built.live_allocs(), built.total_node_allocs());
+
+        let mut inserted = ExpanseSet32::new();
+        for &k in &model {
+            inserted.insert(k);
+        }
+        assert_eq!(built.mem_used(), inserted.mem_used());
+        assert_eq!(built.node_census(), inserted.node_census());
+    }
+
+    #[test]
+    fn map32_from_sorted_iter_matches_insert_and_model(entries in prop::collection::vec((key_strategy(), any::<u32>()), 0..500)) {
+        let mut model = BTreeMap::new();
+        for &(k, v) in &entries {
+            model.insert(k, v);
+        }
+        let built = ExpanseMap32::from_sorted_iter(entries.iter().copied());
+        assert_eq!(built.len(), model.len());
+        assert!(built.iter().eq(model.iter().map(|(&k, &v)| (k, v))));
+        assert_eq!(built.live_allocs(), built.total_node_allocs());
+
+        let mut inserted = ExpanseMap32::new();
+        for (&k, &v) in &model {
+            inserted.insert(k, v);
+        }
+        assert_eq!(built.mem_used(), inserted.mem_used());
+        assert_eq!(built.node_census(), inserted.node_census());
+    }
 }
 
 /// Keys for the shared-writer model (#1233): two full level-1 expanses (256

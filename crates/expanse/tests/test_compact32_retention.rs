@@ -298,6 +298,11 @@ fn check_g_held_and_g_peak_set(name: &str, keys: &[Key32], keep_indices: &[usize
         peak_held as f64 <= peak_ceiling + 1.0,
         "{name}: G-peak violated for set: peak={peak_held}, ceiling={peak_ceiling}"
     );
+    assert_eq!(
+        set.live_allocs(),
+        set.total_node_allocs(),
+        "{name}: G-peak census identity violated for set: live must equal total"
+    );
 
     // Validator check on compacted tree.
     validate_set32(&set, &to_keep);
@@ -367,6 +372,11 @@ fn check_g_held_and_g_peak_map(name: &str, keys: &[Key32], keep_indices: &[usize
     assert!(
         peak_held as f64 <= peak_ceiling + 1.0,
         "{name}: G-peak violated for map: peak={peak_held}, ceiling={peak_ceiling}"
+    );
+    assert_eq!(
+        map.live_allocs(),
+        map.total_node_allocs(),
+        "{name}: G-peak census identity violated for map: live must equal total"
     );
 
     // Validator check on compacted tree.

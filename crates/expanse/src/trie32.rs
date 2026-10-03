@@ -44,9 +44,9 @@ use crate::node32::{
     BranchB32, BranchHeader32, BranchL2_32, BranchL6_32, BranchU32, LeafBitmap1_32, LeafBitmapL_32,
 };
 use crate::types32::{
-    BRANCH_B_DOWN_32, BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32, BRANCH_L6_CAP_32, BRANCH_L6_DOWN_32,
-    BRANCH_U_DOWN_32, Edge32, MAP_BITMAP_ENTER_32, MAP_BITMAP_LEAVE_32, MAP_LEAF_MAX_32,
-    SET_BITMAP_ENTER_32, SET_BITMAP_LEAVE_32, SET_LEAF_MAX_32,
+    BRANCH_B_DOWN_32, BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32, BRANCH_L2_CAP_32, BRANCH_L6_CAP_32,
+    BRANCH_L6_DOWN_32, BRANCH_U_DOWN_32, Edge32, MAP_BITMAP_ENTER_32, MAP_BITMAP_LEAVE_32,
+    MAP_LEAF_MAX_32, SET_BITMAP_ENTER_32, SET_BITMAP_LEAVE_32, SET_LEAF_MAX_32,
 };
 
 // ---------------------------------------------------------------------------
@@ -1398,9 +1398,7 @@ pub struct Arena {
     /// pointer, so no `&mut Arena` the writer forms covers it, and freed in
     /// `Drop`. `None` on a growable arena.
     published: Option<NonNull<PubSlot>>,
-    /// Arena allocations since the last watermark reset (validates
-    /// [`MUTATION_HEADROOM`] in the sync32 tests).
-    #[cfg(test)]
+    /// Arena allocations since the creation of this arena.
     mut_allocs: usize,
     /// Retirements (frees + subarray replacements) since the last reset.
     #[cfg(test)]
@@ -1458,7 +1456,6 @@ impl Arena {
             pending: Vec::new(),
             pending_bytes: 0,
             published: None,
-            #[cfg(test)]
             mut_allocs: 0,
             #[cfg(test)]
             mut_retires: 0,
@@ -1486,7 +1483,6 @@ impl Arena {
             pending: Vec::with_capacity(pending_cap),
             pending_bytes: 0,
             published,
-            #[cfg(test)]
             mut_allocs: 0,
             #[cfg(test)]
             mut_retires: 0,
@@ -1645,26 +1641,39 @@ impl Arena {
         before - self.bytes_held()
     }
 
-    /// Number of live node allocations (leak diagnostics in tests).
-    #[cfg(test)]
+    /// Number of live node allocations (leak diagnostics in tests and compact assertions).
     #[inline]
     pub(crate) fn live_allocs(&self) -> usize {
         self.slots.len() - self.free.len()
     }
 
     /// Total node allocations performed through this arena.
-    #[cfg(test)]
     #[inline]
     pub(crate) fn total_allocs(&self) -> usize {
         self.mut_allocs
     }
 
+    /// Live node count by internal node class (diagnostics and tests).
+    pub(crate) fn node_census(&self) -> crate::types32::NodeCensus32 {
+        let mut census = crate::types32::NodeCensus32::default();
+        for slot in &self.slots {
+            match slot {
+                Some(NodeBox::L2(_)) => census.l2 += 1,
+                Some(NodeBox::L6(_)) => census.l6 += 1,
+                Some(NodeBox::B(_)) => census.b += 1,
+                Some(NodeBox::U(_)) => census.u += 1,
+                Some(NodeBox::Bitmap(_)) => census.bitmap += 1,
+                Some(NodeBox::MapBitmap(_)) => census.map_bitmap += 1,
+                Some(NodeBox::Leaf(_)) => census.leaf += 1,
+                None => {}
+            }
+        }
+        census
+    }
+
     #[inline]
     fn alloc(&mut self, node: NodeBox) -> u32 {
-        #[cfg(test)]
-        {
-            self.mut_allocs += 1;
-        }
+        self.mut_allocs += 1;
         self.bytes += node.heap_bytes();
         if let Some(h) = self.free.pop() {
             if let Some(table) = self.published {
@@ -5849,6 +5858,108 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
 /// [`map_remove_mode`] on the concurrent wrapper's tree.
 pub(crate) fn map_remove_shared(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Option<u32> {
     map_remove_mode::<true>(a, e, kb, rem)
+}
+
+/// Builds the canonical 32-bit set subtree for `keys` inside a `kb`-byte expanse.
+///
+/// Preconditions: `keys` is sorted ascending, distinct, non-empty, and every
+/// key shares its digits above `kb`.
+///
+/// Direct emission: allocates every linear leaf, bitmap leaf, and branch node
+/// directly at its final capacity class without ladder promotions or intermediate
+/// frees, guaranteeing `live_allocs == total_allocs` during bulk build.
+pub(crate) fn build_set_subtree(a: &mut Arena, keys: &[u32], kb: u8) -> Edge32 {
+    let n = keys.len();
+    if n == 0 {
+        return Edge32::null();
+    }
+    if n <= set_immed_cap(kb) {
+        return set_immed_edge(kb, keys);
+    }
+    if kb == 1 {
+        if n <= SET_BITMAP_ENTER {
+            return make_set_leaf(a, 1, keys);
+        } else {
+            return bitmap_from_keys(a, keys);
+        }
+    }
+    if n <= SET_LEAF_MAX {
+        return make_set_leaf(a, kb, keys);
+    }
+    let mut pairs = Vec::new();
+    let mut i = 0;
+    while i < n {
+        let d = digit_at(keys[i], kb);
+        let start = i;
+        while i < n && digit_at(keys[i], kb) == d {
+            i += 1;
+        }
+        let child = build_set_subtree(a, &keys[start..i], kb - 1);
+        pairs.push((d, child));
+    }
+    let m = pairs.len();
+    let total = n as u32;
+    if m <= BRANCH_L2_CAP_32 {
+        make_l2(a, kb, &pairs, total)
+    } else if m <= BRANCH_L6_CAP_32 {
+        make_l6(a, kb, &pairs, total)
+    } else if m <= BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 {
+        make_b(a, kb, &pairs, total)
+    } else {
+        make_u(a, kb, &pairs, total)
+    }
+}
+
+/// Builds the canonical 32-bit map subtree for `entries` inside a `kb`-byte expanse.
+///
+/// Preconditions: `entries` is sorted ascending by key, keys are distinct, non-empty,
+/// and every key shares its digits above `kb`.
+///
+/// Direct emission: allocates every linear leaf, bitmap leaf, and branch node
+/// directly at its final capacity class without ladder promotions or intermediate
+/// frees, guaranteeing `live_allocs == total_allocs` during bulk build.
+pub(crate) fn build_map_subtree(a: &mut Arena, entries: &[(u32, u32)], kb: u8) -> Edge32 {
+    let n = entries.len();
+    if n == 0 {
+        return Edge32::null();
+    }
+    if n == 1 && kb <= 3 {
+        return map_immed_edge(kb, entries[0].0, entries[0].1);
+    }
+    if kb == 1 {
+        if n <= MAP_BITMAP_ENTER {
+            return make_map_leaf(a, 1, entries);
+        } else {
+            let rem_entries: Vec<(u32, u32)> =
+                entries.iter().map(|&(k, v)| (k & 0xFF, v)).collect();
+            return make_map_bitmap(a, &rem_entries);
+        }
+    }
+    if n <= MAP_LEAF_MAX {
+        return make_map_leaf(a, kb, entries);
+    }
+    let mut pairs = Vec::new();
+    let mut i = 0;
+    while i < n {
+        let d = digit_at(entries[i].0, kb);
+        let start = i;
+        while i < n && digit_at(entries[i].0, kb) == d {
+            i += 1;
+        }
+        let child = build_map_subtree(a, &entries[start..i], kb - 1);
+        pairs.push((d, child));
+    }
+    let m = pairs.len();
+    let total = n as u32;
+    if m <= BRANCH_L2_CAP_32 {
+        make_l2(a, kb, &pairs, total)
+    } else if m <= BRANCH_L6_CAP_32 {
+        make_l6(a, kb, &pairs, total)
+    } else if m <= BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 {
+        make_b(a, kb, &pairs, total)
+    } else {
+        make_u(a, kb, &pairs, total)
+    }
 }
 
 /// Remove every map entry whose remainder lies in `lo..=hi` under `e`,

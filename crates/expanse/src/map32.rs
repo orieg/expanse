@@ -108,11 +108,10 @@ impl ExpanseMap32 {
     /// * **Memory.** The input is first collected into a buffer of the entries
     ///   (8 bytes per entry), held while the tree is built.
     ///
-    /// The 64-bit map emits its trie bottom-up in one pass; this twin loads
-    /// the sorted entries through the trie32 insert engine in ascending order,
-    /// because the 32-bit trie has no bottom-up builder (as with
-    /// [`crate::set32::ExpanseSet32::from_sorted_iter`]). The result is
-    /// exactly the tree those inserts build.
+    /// Emits the trie bottom-up in one pass (direct emission per METHODOLOGY.md §14, #1200 / Path B):
+    /// allocates every leaf, bitmap leaf, and branch node directly at its final capacity class
+    /// without ladder promotions or intermediate frees, guaranteeing `live_allocs == total_allocs`.
+    /// Sorted input is loaded directly; out-of-order input is sorted and deduplicated first.
     #[must_use]
     pub fn from_sorted_iter<I: IntoIterator<Item = (Key32, Value32)>>(iter: I) -> Self {
         let mut entries: Vec<(Key32, Value32)> = iter.into_iter().collect();
@@ -129,10 +128,10 @@ impl ExpanseMap32 {
                 }
             });
         }
+        let len = entries.len();
         let mut map = Self::new();
-        for (k, v) in entries {
-            map.insert(k, v);
-        }
+        map.root = trie32::build_map_subtree(&mut map.alloc, &entries, 4);
+        map.len = len;
         map
     }
 
@@ -412,6 +411,30 @@ impl ExpanseMap32 {
         self.alloc.bytes_held()
     }
 
+    /// Number of live node allocations (leak diagnostics).
+    #[doc(hidden)]
+    #[must_use]
+    #[inline]
+    pub fn live_allocs(&self) -> usize {
+        self.alloc.live_allocs()
+    }
+
+    /// Cumulative node allocations made by this container since it was created.
+    #[doc(hidden)]
+    #[must_use]
+    #[inline]
+    pub fn total_node_allocs(&self) -> usize {
+        self.alloc.total_allocs()
+    }
+
+    /// Live node count by internal node class (diagnostics and tests).
+    #[doc(hidden)]
+    #[must_use]
+    #[inline]
+    pub fn node_census(&self) -> crate::types32::NodeCensus32 {
+        self.alloc.node_census()
+    }
+
     /// Returns the arena tables' unused capacity to the global allocator:
     /// the slots past the last live node, and the spare capacity of the
     /// tables. Returns the bytes released; afterwards [`Self::mem_held`] is
@@ -438,7 +461,7 @@ impl ExpanseMap32 {
     /// and every other pointer derived from the map's nodes.
     ///
     /// **Cost.** O(n) in the population: one ordered walk of the old tree,
-    /// inserting into the fresh tree, and the old tree's drop.
+    /// one bottom-up build of the new one, and the old tree's drop.
     ///
     /// A no-op on a map shared through a concurrent wrapper ([`crate::sync32`]),
     /// whose readers may hold the old nodes.
@@ -447,13 +470,15 @@ impl ExpanseMap32 {
             return;
         }
         self.finger.clear();
-        // Rebuild via `from_sorted_iter` using the ordered iterator.
-        // Note: unlike 64-bit `ExpanseMap::compact` which uses a direct-emission
-        // bottom-up builder where `live_allocs == total_allocs`, the 32-bit twin
-        // inserts key-by-key (see deferral note at line 111) and promotes leaves
-        // through capacity classes, freeing earlier nodes. Peak is not bounded
-        // by the zero-freed census identity (METHODOLOGY.md §13).
+        // Ascending by construction, so the builder's sort check is skipped.
         let compacted = Self::from_sorted_iter(self.iter());
+        // Nothing the build allocated was freed: the peak of the new tree's
+        // held bytes is its final `mem_held`.
+        debug_assert_eq!(
+            compacted.alloc.live_allocs(),
+            compacted.alloc.total_allocs(),
+            "direct emission must not free intermediate nodes"
+        );
         drop(core::mem::replace(self, compacted));
     }
 
@@ -965,6 +990,29 @@ mod tests {
         assert_eq!(built.len(), 100);
         assert_eq!(built.get(250), Some(u32::MAX));
         from_sorted_iter_check32(&input);
+    }
+
+    #[test]
+    fn from_sorted_iter_direct_emission_frees_no_nodes() {
+        // Direct emission per METHODOLOGY.md §14, #1200 / Path B:
+        // allocates every node directly at its final capacity class without
+        // intermediate promotions or frees, guaranteeing live == total.
+        let input: Vec<(u32, u32)> = (0..100u32).map(|k| (k, k * 10)).collect();
+        let m = ExpanseMap32::from_sorted_iter(input.iter().copied());
+        assert_eq!(
+            m.alloc.live_allocs(),
+            m.alloc.total_allocs(),
+            "direct emission must not free intermediate nodes: live={}, total={}",
+            m.alloc.live_allocs(),
+            m.alloc.total_allocs()
+        );
+
+        let mut inserted = ExpanseMap32::new();
+        for &(k, v) in &input {
+            inserted.insert(k, v);
+        }
+        assert_eq!(m.alloc.live_allocs(), inserted.alloc.live_allocs());
+        assert_eq!(m.mem_used(), inserted.mem_used());
     }
 
     #[test]
