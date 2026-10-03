@@ -4074,6 +4074,30 @@ impl<'a> IntoIterator for &'a ExpanseMap {
         self.iter()
     }
 }
+/// Mutation of the OCC parity holder. Forwarded rather than reached through
+/// `DerefMut`, which would let safe code move the tree away from the version
+/// word its allocator points at (see [`crate::occ::DeferredTestTree`]).
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+#[doc(hidden)]
+impl crate::occ::DeferredTestTree<ExpanseMap> {
+    /// [`ExpanseMap::insert`] on the held tree.
+    #[inline(always)]
+    pub fn insert(&mut self, key: Key, val: u64) -> Option<u64> {
+        self.tree.insert(key, val)
+    }
+
+    /// [`ExpanseMap::remove`] on the held tree.
+    #[inline(always)]
+    pub fn remove(&mut self, key: Key) -> Option<u64> {
+        self.tree.remove(key)
+    }
+
+    /// [`ExpanseMap::ins_slot`] on the held tree.
+    #[inline(always)]
+    pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
+        self.tree.ins_slot(key)
+    }
+}
 
 /// A deep copy: a new map holding the same entries and sharing no node with
 /// this one, so later writes to either are invisible to the other. This is
@@ -4614,7 +4638,9 @@ impl ExpanseMap {
         let m = Self::new();
         let collector = std::sync::Arc::new(crate::occ::Collector::new());
         m.alloc.defer_to(std::sync::Arc::clone(&collector));
-        // SAFETY: `word` is heap-pinned by Box inside DeferredTestTree, which outlives `m`.
+        // SAFETY: `word` is heap-pinned by the Box moved into DeferredTestTree with
+        // `m`. The holder's fields are private and it has no `DerefMut`, so `m`
+        // cannot leave it, and its field order drops `m` before `word`.
         unsafe { m.alloc.bind_tree_word(core::ptr::from_ref(&*word)) };
         if engine_covers_root {
             m.alloc.cover_root();
