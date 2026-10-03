@@ -2718,7 +2718,7 @@ impl<T: SharedTree> Shared<T> {
     /// count in a field the optimistic writers never touch. The same
     /// instantiation as [`Self::remove_root_covered`], under the name of what
     /// it does.
-    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
+    #[cfg(feature = "std")]
     #[inline(always)]
     fn write_root_covered_exact<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
@@ -6047,7 +6047,7 @@ impl SyncExpanseSet {
 
     /// Removes every key from the set.
     pub fn clear(&self) {
-        self.shared.write_root_covered(|s| {
+        self.shared.write_root_covered_exact(|s| {
             s.clear();
             self.shared.tree_pop.flush_and_set(0);
         });
@@ -6647,7 +6647,7 @@ impl SyncExpanseMap {
 
     /// Removes every key-value pair from the map.
     pub fn clear(&self) {
-        self.shared.write_root_covered(|m| {
+        self.shared.write_root_covered_exact(|m| {
             m.clear();
             self.shared.tree_pop.flush_and_set(0);
         });

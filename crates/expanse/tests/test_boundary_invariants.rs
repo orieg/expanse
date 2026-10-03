@@ -732,3 +732,37 @@ fn get_slot_ptr_addresses_the_live_value_and_is_none_when_absent() {
         "slot pointer went stale on an in-place value overwrite"
     );
 }
+
+#[test]
+#[cfg(all(feature = "std", target_pointer_width = "64"))]
+fn test_sync_map_clear_resets_alloc_bytes_in_use() {
+    use expanse_trie::sync::SyncExpanseMap;
+    use std::sync::Arc;
+    use std::thread;
+
+    let map = Arc::new(SyncExpanseMap::new());
+    let mut handles = vec![];
+
+    for t_id in 0..4 {
+        let map_clone = Arc::clone(&map);
+        handles.push(thread::spawn(move || {
+            for i in 0..50u64 {
+                let k = (t_id as u64) << 32 | i;
+                map_clone.insert(k, i * 10);
+            }
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    assert!(!map.is_empty());
+    map.clear();
+    assert!(map.is_empty());
+    assert_eq!(
+        map.with_locked(|m| m.mem_used()),
+        0,
+        "SyncExpanseMap::clear must release all allocated bytes"
+    );
+}
