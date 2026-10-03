@@ -4505,10 +4505,11 @@ The validated batch cursor architecture:
 - **Pinning:** pins the epoch once per batch.
 - **Terminal buffer:** copies one terminal's `(key: u64, val: u64)` entries using raw atomic loads into a cursor-owned buffer.
 - **Buffer sizing derivation (`scripts/batch_cursor_bounds.py`):**
-  - In Expanse's digital trie, the widest terminal is a level-1 bitmap leaf (`LeafB1`), which represents an 8-bit byte expanse and holds at most $2^8 = 256$ entries (`MAX_LEAFB1_POP = 256`).
+  - In Expanse's digital trie, the widest terminal is a level-1 bitmap leaf (`LeafB1`), which represents an 8-bit byte expanse and holds at most $2^8 = 256$ entries (`MAX_LEAFB1_POP = 256`, `crates/expanse/src/leaf.rs`).
   - At 16 bytes per entry, a 4,096-byte (4 KiB) cursor-owned buffer strictly accommodates any terminal in the trie.
-  - Sizing decision: a 4 KiB buffer is chosen over mid-leaf resumption. A 4 KiB buffer guarantees that every terminal is copied in a single batch (0 extra descents, 0 extra version loads, 0 extra fences) and preserves terminal-level atomicity. A narrower buffer (e.g. 64 entries) incurs $\lceil P / B \rceil - 1$ extra root descents (up to 3 extra descents, 45 extra version loads, and 21 extra fences per leaf), breaks terminal atomicity across batches, and provides no memory advantage since 4 KiB resides entirely within L1 data cache and requires zero heap allocation during scanning.
-- **Sibling-step resume:** within a batch (while pinned), the cursor steps to the next sibling under the direct parent's retained version word. Under Expanse's lazy census (`docs/ARCHITECTURE.md` §4.1), child mutations do not modify ancestor version words. Validating the direct parent's version word alone verifies that the parent was not split or obsoleted, that no child was inserted at any intermediate skipped empty sibling digit, and that the child pointer is un-raced. The read set is strictly 1 branch node (the parent), paying 1 version load and 1 acquire fence (a $7.0\times$ node reduction and $15.0\times$ version load reduction relative to root descent).
+  - Sizing decision: a 4 KiB buffer is chosen over mid-leaf resumption. A 4 KiB buffer guarantees that every terminal is copied in a single batch (0 extra descents across all valid populations $P \in [0, 256]$) and preserves terminal-level atomicity under the parent bracket. A narrower buffer (e.g. 64 entries) incurs $\lceil P / B \rceil - 1$ extra root descents (up to 3 extra descents, 42 extra version loads, and 21 extra fences per leaf under depth-7 point descent), breaks terminal atomicity across batches, and provides no memory advantage since 4 KiB resides entirely within L1 data cache and requires zero heap allocation during scanning.
+- **Terminal atomicity and covering function:** in Expanse, terminal leaves (`Leaf1`..`Leaf7`, `LeafB1`, immediates) carry no version word of their own (`docs/ARCHITECTURE.md` §4.1 line 589; `crates/expanse/src/sync_nav.rs:26-29`). Their stores are bracketed by their covering parent branch's version word (`Holder::Node(vp, snap)`, `crates/expanse/src/sync_nav.rs:101-114`), which brackets every in-place store (`crates/expanse/src/mutate_map.rs:1339, 1485, 1500, 1684`). Draining a terminal leaf under its covering parent's version word validates strictly 1 branch node (`terminal_drain_read_set_branches() = 1`), paying 2 version loads and 1 acquire fence (`olc_bounds.version_word_cost(1, retained=False) = (2, 1)`: `occ::node_sample` at line 44, `occ::node_validate` at line 60).
+- **Sibling-step resume and skipped empty siblings:** within a batch (while pinned), the cursor steps to the next sibling under the direct parent's retained version word. Under Expanse's lazy census rollup (`docs/ARCHITECTURE.md` §4.1 line 591), child mutations do not modify ancestor version words. However, filling an empty slot in a branch rewrites the branch's digit and edge arrays inside that branch's own version bracket (`crates/expanse/src/mutate_map.rs:1868` for `BranchL3`, line 1904 for `BranchL7`, line 2000 for `BranchB`, line 2140 for `BranchU`). Therefore, the parent branch's version word covers the absence of any skipped empty sibling. If navigation enters a non-empty child subtree, that child has its own version word and may mutate without moving the parent; hence any entered branch is retained in the read set (`crates/expanse/src/sync_nav.rs:407, 442, 490`), bounded by `ordered_read_set_branches(l) <= 13` (`scripts/olc_bounds.py`), within `READ_SET_CAP = 16` (`sync_nav.rs:46`), and re-validated at the end (`sync_nav.rs:209`).
 - **Across-batch resume:** across batches, the cursor unpins and re-descends from the root by key (`next_at_or_after`). Once unpinned, epoch-based reclamation (EBR) permits node memory to be retired and recycled through freelists; retaining raw node pointers across an unpin would introduce a use-after-free hazard.
 
 ### 32.2 Scan semantics
@@ -4535,15 +4536,15 @@ No performance claim is evaluated until every gate below passes:
   - In each PR that adds batch-cursor code, against that PR's base, `map_cursor_scan/*`, `map_nav/*`, `map_prev/*`, `map_get/*`, and `map_insert/*` change by at most 0.1%, the §6 review threshold.
   - **REFUTED** on any single-threaded arm regressing by > 0.1%.
 - **P32.2 — Callgrind instruction reduction against `sync_map_next_after_scan`:**
-  - Predictions derived in code via `scripts/batch_cursor_bounds.py`:
-    - `sync_map_scan/sequential`: instruction count ratio $\le 0.30$ vs `sync_map_next_after_scan/sequential` (>= 70% instruction reduction).
-    - `sync_map_scan/clustered`: instruction count ratio $\le 0.40$ vs `sync_map_next_after_scan/clustered` (>= 60% instruction reduction).
-    - `sync_map_scan/random`: instruction count ratio $\le 0.50$ vs `sync_map_next_after_scan/random` (>= 50% instruction reduction).
+  - Pre-registered target ceilings (target) registered in `scripts/batch_cursor_bounds.py::TARGET_CALLGRIND_RATIOS`:
+    - `sync_map_scan/sequential`: instruction count ratio $\le 0.30$ vs `sync_map_next_after_scan/sequential` (target) (>= 70% instruction reduction target).
+    - `sync_map_scan/clustered`: instruction count ratio $\le 0.40$ vs `sync_map_next_after_scan/clustered` (target) (>= 60% instruction reduction target).
+    - `sync_map_scan/random`: instruction count ratio $\le 0.50$ vs `sync_map_next_after_scan/random` (target) (>= 50% instruction reduction target).
   - Evaluated on CI `instruction-counts` job.
-  - **REFUTED** if any ratio exceeds its conservative gate ceiling.
+  - **REFUTED** if any ratio exceeds its pre-registered target ceiling.
 - **P32.3 — Concurrent wall-clock throughput scaling:**
   - Evaluated on the reference host via `writer_scaling --read-op scan` (specified in §32.5 below; not run in this stage).
-  - Reader scan throughput with batch cursor exceeds unbatched `next_after` scan throughput by $\ge 3\times$ at W = 0 and $\ge 2\times$ at W = 1, R = 4.
+  - Reader scan throughput with batch cursor exceeds unbatched `next_after` scan throughput by $\ge 3\times$ at W = 0 (target) and $\ge 2\times$ at W = 1, R = 4 (target).
   - **REFUTED** if BCa 95% confidence interval lower bound falls below these thresholds across two independent runs.
 
 ### 32.5 Instruments and cells specification
@@ -4567,4 +4568,5 @@ No performance claim is evaluated until every gate below passes:
 - Host contention per AGENTS.md §8.17 (non-target CPU > 100%, load average > cores / 2, or load shift > 2).
 - Inconsistent counters or uncompleted rounds.
 - Runs compared across different commits.
+
 
