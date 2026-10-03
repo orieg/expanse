@@ -77,6 +77,8 @@ use crate::node::{
 #[cfg(feature = "collector-census")]
 use crate::occ::CollectorCounters;
 use crate::occ::{Collector, CollectorCensus, Pin, Reader, SeqVersion};
+use crate::domain::EscapeDecodeError;
+use crate::ordered_bytesmap::{ExpanseOrderedBytesMap, with_encoded_key};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
 use crate::strmap::{ExpanseStrMap, NulFreeStr, StrMapStats};
@@ -13163,6 +13165,414 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SyncExpanseOrderedBytesMap (issue #808, Phase 7 completion)
+// ---------------------------------------------------------------------------
+
+/// An **ordered** arbitrary-byte concurrent map shareable across threads
+/// (issue #808, Phase 7 completion): multi-writer OLC with root-covered fallback,
+/// validated optimistic readers, and bijective order-preserving escape transcoding
+/// (`0x00 -> [0x01, 0x01]`, `0x01 -> [0x01, 0x02]`).
+///
+/// Wraps [`SyncExpanseStrMap`], providing the exact same clean-key zero-allocation
+/// fast path (`!key.iter().any(|&b| b <= 1)`) and stack-buffered encoding for keys
+/// up to 32 bytes as [`ExpanseOrderedBytesMap`].
+///
+/// # Concurrency & Mutation Architecture
+///
+/// `SyncExpanseOrderedBytesMap` introduces **no new engine mutation entry points**:
+/// all mutations (`insert`, `remove`, `clear`) route through [`SyncExpanseStrMap`],
+/// reusing its existing covered and optimistic paths. The engine's `by_mode!`
+/// dispatch is completely untouched.
+///
+/// # Ordered Navigation & Caller Buffers (AGENTS §2.4)
+///
+/// Navigation methods (`first`, `last`, `next_after`, `prev_before`, etc.) and their
+/// caller-buffer zero-allocation twins (`first_decode_into`, `next_after_decode_into`,
+/// etc.) run under the reader-writer lock via [`SyncExpanseStrMap::with_locked`],
+/// ensuring a consistent snapshot without ever using unsafe rotating ring buffers.
+///
+/// # Memory-model soundness
+///
+/// Concurrent use forms no data race and no aliasing violation; lookups and mutations
+/// validate version words and pin epochs identically to [`SyncExpanseStrMap`].
+#[repr(transparent)]
+pub struct SyncExpanseOrderedBytesMap {
+    inner: SyncExpanseStrMap,
+}
+
+impl Default for SyncExpanseOrderedBytesMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SyncExpanseOrderedBytesMap {
+    /// Creates an empty concurrent ordered bytes map.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: SyncExpanseStrMap::new(),
+        }
+    }
+
+    /// Number of keys: a point-in-time sum of the wrapper's sharded population.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.inner.len()
+    }
+
+    /// True when no keys are present.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Heap bytes used (consistent read under the writer lock).
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.inner.mem_used()
+    }
+
+    /// Gathers structural statistics of the underlying string map (runs under the writer lock).
+    #[must_use]
+    pub fn stats(&self) -> StrMapStats {
+        self.inner.stats()
+    }
+
+    /// Heap bytes held from the global allocator, including freelists and slab slack.
+    #[must_use]
+    pub fn mem_held(&self) -> usize {
+        self.inner.mem_held()
+    }
+
+    /// Releases freed blocks held by the map's epoch collector to the global allocator.
+    pub fn shrink_to_fit(&self) -> usize {
+        self.inner.shrink_to_fit()
+    }
+
+    /// Inserts `key → val`; returns the replaced value, if any.
+    ///
+    /// Multi-writer OLC via [`SyncExpanseStrMap::insert`]. Keys containing no
+    /// bytes $\le 1$ bypass escaping with zero allocation.
+    pub fn insert(&self, key: &[u8], val: u64) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.insert(nul_free, val))
+    }
+
+    /// Removes `key`; returns its value, if present.
+    pub fn remove(&self, key: &[u8]) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.remove(nul_free))
+    }
+
+    /// Removes every entry; returns the heap bytes released.
+    pub fn clear(&self) -> u64 {
+        self.inner.clear()
+    }
+
+    /// Registers a reader handle for this thread's lookups.
+    #[must_use]
+    pub fn reader(&self) -> OrderedBytesReader<'_> {
+        OrderedBytesReader {
+            inner: self.inner.reader(),
+        }
+    }
+
+    /// One-shot lookup (registers a throwaway reader; use [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        self.reader().get(key)
+    }
+
+    /// One-shot membership test.
+    #[must_use]
+    pub fn contains_key(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Convenience alias for [`Self::contains_key`].
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        self.contains_key(key)
+    }
+
+    /// Runs `f` over the map with all writers excluded.
+    pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseOrderedBytesMap) -> R) -> R {
+        self.inner.with_locked(|str_map| {
+            // SAFETY: ExpanseOrderedBytesMap is #[repr(transparent)] over ExpanseStrMap.
+            let obm: &ExpanseOrderedBytesMap =
+                unsafe { &*(str_map as *const ExpanseStrMap as *const ExpanseOrderedBytesMap) };
+            f(obm)
+        })
+    }
+
+    /// Runs `f` with every other writer excluded, through an exclusive handle.
+    pub fn with_exclusive<R>(&self, f: impl FnOnce(&mut OrderedBytesExclusive<'_>) -> R) -> R {
+        self.inner.exclusive(|map| {
+            let mut ex = OrderedBytesExclusive {
+                inner: StrExclusive { map },
+            };
+            f(&mut ex)
+        })
+    }
+
+    /// Consumes the concurrent wrapper and returns the underlying [`SyncExpanseStrMap`].
+    #[must_use]
+    pub fn into_inner(self) -> SyncExpanseStrMap {
+        self.inner
+    }
+
+    /// Returns a reference to the underlying [`SyncExpanseStrMap`].
+    #[must_use]
+    pub fn inner(&self) -> &SyncExpanseStrMap {
+        &self.inner
+    }
+
+    /// Returns a census of memory held by the map's epoch collector.
+    #[must_use]
+    pub fn collector_census(&self) -> CollectorCensus {
+        self.inner.collector_census()
+    }
+
+    /// Cumulative block counters of the map's epoch collector.
+    #[cfg(feature = "collector-census")]
+    #[must_use]
+    pub fn collector_counters(&self) -> CollectorCounters {
+        self.inner.collector_counters()
+    }
+
+    /// Structural node layout census over the shared map.
+    #[cfg(feature = "layout-census")]
+    #[must_use]
+    pub fn layout_census(
+        &self,
+        rule: Option<crate::census::MergeRule>,
+    ) -> crate::census::LayoutCensus {
+        self.inner.layout_census(rule)
+    }
+
+    // --- Navigation (Consistent read under lock, returning owned Vec<u8>) ---
+
+    /// Smallest entry in byte-lexicographical order: `(key, value)`.
+    pub fn first(&self) -> Option<(Vec<u8>, u64)> {
+        self.with_locked(|m| m.first_entry())
+    }
+
+    /// Largest entry in byte-lexicographical order: `(key, value)`.
+    pub fn last(&self) -> Option<(Vec<u8>, u64)> {
+        self.with_locked(|m| m.last_entry())
+    }
+
+    /// Smallest entry with key `> key`: `(key, value)`.
+    pub fn next_after(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
+        self.with_locked(|m| m.next_after_entry(key))
+    }
+
+    /// Largest entry with key `< key`: `(key, value)`.
+    pub fn prev_before(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
+        self.with_locked(|m| m.prev_before_entry(key))
+    }
+
+    /// Smallest entry with key `>= key`: `(key, value)`.
+    pub fn next_at_or_after(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
+        self.with_locked(|m| m.next_at_or_after_entry(key))
+    }
+
+    /// Largest entry with key `<= key`: `(key, value)`.
+    pub fn prev_at_or_before(&self, key: &[u8]) -> Option<(Vec<u8>, u64)> {
+        self.with_locked(|m| m.prev_at_or_before_entry(key))
+    }
+
+    // --- Caller-Buffer decode APIs (`*_decode_into`, AGENTS §2.4) ---
+
+    /// Decodes the smallest entry's key into `buf`.
+    pub fn first_decode_into(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u64)>, EscapeDecodeError> {
+        self.with_locked(|m| match m.first_decode_into(buf) {
+            Ok(Some((len, slot))) => {
+                // SAFETY: valid aligned slot read while with_locked borrow is held.
+                let val = unsafe { slot.as_ptr().read() };
+                Ok(Some((len, val)))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        })
+    }
+
+    /// Decodes the largest entry's key into `buf`.
+    pub fn last_decode_into(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u64)>, EscapeDecodeError> {
+        self.with_locked(|m| match m.last_decode_into(buf) {
+            Ok(Some((len, slot))) => {
+                // SAFETY: valid aligned slot read while with_locked borrow is held.
+                let val = unsafe { slot.as_ptr().read() };
+                Ok(Some((len, val)))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        })
+    }
+
+    /// Decodes the key of the smallest entry `> key` into `buf`.
+    pub fn next_after_decode_into(
+        &self,
+        key: &[u8],
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u64)>, EscapeDecodeError> {
+        self.with_locked(|m| match m.next_after_decode_into(key, buf) {
+            Ok(Some((len, slot))) => {
+                // SAFETY: valid aligned slot read while with_locked borrow is held.
+                let val = unsafe { slot.as_ptr().read() };
+                Ok(Some((len, val)))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        })
+    }
+
+    /// Decodes the key of the largest entry `< key` into `buf`.
+    pub fn prev_before_decode_into(
+        &self,
+        key: &[u8],
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u64)>, EscapeDecodeError> {
+        self.with_locked(|m| match m.prev_before_decode_into(key, buf) {
+            Ok(Some((len, slot))) => {
+                // SAFETY: valid aligned slot read while with_locked borrow is held.
+                let val = unsafe { slot.as_ptr().read() };
+                Ok(Some((len, val)))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        })
+    }
+
+    /// Decodes the key of the smallest entry `>= key` into `buf`.
+    pub fn next_at_or_after_decode_into(
+        &self,
+        key: &[u8],
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u64)>, EscapeDecodeError> {
+        self.with_locked(|m| match m.next_at_or_after_decode_into(key, buf) {
+            Ok(Some((len, slot))) => {
+                // SAFETY: valid aligned slot read while with_locked borrow is held.
+                let val = unsafe { slot.as_ptr().read() };
+                Ok(Some((len, val)))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        })
+    }
+
+    /// Decodes the key of the largest entry `<= key` into `buf`.
+    pub fn prev_at_or_before_decode_into(
+        &self,
+        key: &[u8],
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u64)>, EscapeDecodeError> {
+        self.with_locked(|m| match m.prev_at_or_before_decode_into(key, buf) {
+            Ok(Some((len, slot))) => {
+                // SAFETY: valid aligned slot read while with_locked borrow is held.
+                let val = unsafe { slot.as_ptr().read() };
+                Ok(Some((len, val)))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => Err(err),
+        })
+    }
+}
+
+/// Wraps an already-populated single-threaded ordered bytes map for concurrent sharing.
+impl From<ExpanseOrderedBytesMap> for SyncExpanseOrderedBytesMap {
+    fn from(map: ExpanseOrderedBytesMap) -> Self {
+        Self {
+            inner: SyncExpanseStrMap::from(map.into_inner()),
+        }
+    }
+}
+
+/// Wraps an existing [`SyncExpanseStrMap`] as an ordered bytes map.
+impl From<SyncExpanseStrMap> for SyncExpanseOrderedBytesMap {
+    fn from(inner: SyncExpanseStrMap) -> Self {
+        Self { inner }
+    }
+}
+
+/// A per-thread reader handle for [`SyncExpanseOrderedBytesMap`].
+///
+/// One handle per thread. The handle is `Send`, not `Sync`.
+pub struct OrderedBytesReader<'a> {
+    inner: StrReader<'a>,
+}
+
+impl OrderedBytesReader<'_> {
+    /// Optimistic lookup with clean-key zero-allocation fast path.
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.get(nul_free))
+    }
+
+    /// Optimistic membership test.
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        with_encoded_key(key, |nul_free| self.inner.contains(nul_free))
+    }
+}
+
+/// The handle [`SyncExpanseOrderedBytesMap::with_exclusive`] passes its closure:
+/// operations run with every other writer excluded.
+pub struct OrderedBytesExclusive<'a> {
+    inner: StrExclusive<'a>,
+}
+
+impl OrderedBytesExclusive<'_> {
+    /// The value stored for `key`, if any.
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.get(nul_free))
+    }
+
+    /// Whether `key` is present.
+    #[must_use]
+    pub fn contains_key(&self, key: &[u8]) -> bool {
+        with_encoded_key(key, |nul_free| self.inner.contains_key(nul_free))
+    }
+
+    /// Stores `val` for `key`, returning the value it replaced.
+    pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.insert(nul_free, val))
+    }
+
+    /// Removes `key`, returning its value.
+    pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.remove(nul_free))
+    }
+
+    /// Replaces the value for `key` with `f(current)`.
+    pub fn update(
+        &mut self,
+        key: &[u8],
+        f: impl FnOnce(Option<u64>) -> Option<u64>,
+    ) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.update(nul_free, f))
+    }
+
+    /// Number of keys in the map.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.inner.len()
+    }
+
+    /// Whether the map is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
 /// Miri-visible: the concurrent wrappers on one thread, through the
 /// root-leaf-to-tree promotion, so the aliasing model sees the wrapper's
 /// block, the tree word bound into the allocator and the engine's first read
@@ -13208,6 +13618,33 @@ mod miri_tests {
         let released = m.shrink_to_fit();
         assert_eq!(released, census.free_bytes());
         assert_eq!(m.collector_census().free_bytes(), 0);
+    }
+
+    /// `SyncExpanseOrderedBytesMap` operations under Miri (Tier-1):
+    /// inserts clean and escaped keys, performs lookups, caller-buffer decodes,
+    /// and ensures zero undefined behavior or memory leaks under the memory model.
+    #[test]
+    fn sync_ordered_bytesmap_under_miri() {
+        let m = SyncExpanseOrderedBytesMap::new();
+        let clean_key = b"miri_clean_key";
+        let escaped_key = [0x00, 0x01, 0xFE, 0xFF];
+
+        assert_eq!(m.insert(clean_key, 42), None);
+        assert_eq!(m.insert(&escaped_key, 84), None);
+        assert_eq!(m.len(), 2);
+
+        let reader = m.reader();
+        assert_eq!(reader.get(clean_key), Some(42));
+        assert_eq!(reader.get(&escaped_key), Some(84));
+
+        let mut buf = [0u8; 16];
+        let (len, val) = m.first_decode_into(&mut buf).unwrap().unwrap();
+        assert_eq!(&buf[..len], &escaped_key);
+        assert_eq!(val, 84);
+
+        assert_eq!(m.remove(clean_key), Some(42));
+        assert_eq!(m.remove(&escaped_key), Some(84));
+        assert!(m.is_empty());
     }
 
     /// Runs `op` with a hook at the start of its compaction copy that reads
