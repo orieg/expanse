@@ -294,6 +294,11 @@ fn check_g_held_and_g_peak_set(name: &str, keys: &[Key32], keep_indices: &[usize
     // G-peak: held_before + held_after <= held_before + held_fresh * 1.10.
     let peak_held = held_before + held_after;
     let peak_ceiling = held_before as f64 + (held_fresh as f64 * 1.10);
+    eprintln!(
+        "[G-PEAK SET] {name}: held_before={held_before}, held_after={held_after}, held_fresh={held_fresh}, peak_held={peak_held}, peak_ceiling={peak_ceiling:.1}, live={}, total={}",
+        set.live_allocs(),
+        set.total_node_allocs()
+    );
     assert!(
         peak_held as f64 <= peak_ceiling + 1.0,
         "{name}: G-peak violated for set: peak={peak_held}, ceiling={peak_ceiling}"
@@ -369,6 +374,11 @@ fn check_g_held_and_g_peak_map(name: &str, keys: &[Key32], keep_indices: &[usize
     // G-peak: held_before + held_after <= held_before + held_fresh * 1.10.
     let peak_held = held_before + held_after;
     let peak_ceiling = held_before as f64 + (held_fresh as f64 * 1.10);
+    eprintln!(
+        "[G-PEAK MAP] {name}: held_before={held_before}, held_after={held_after}, held_fresh={held_fresh}, peak_held={peak_held}, peak_ceiling={peak_ceiling:.1}, live={}, total={}",
+        map.live_allocs(),
+        map.total_node_allocs()
+    );
     assert!(
         peak_held as f64 <= peak_ceiling + 1.0,
         "{name}: G-peak violated for map: peak={peak_held}, ceiling={peak_ceiling}"
