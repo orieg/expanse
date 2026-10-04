@@ -11111,7 +11111,7 @@ impl SyncExpanseBlobMap {
         }
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(feature = "ablation-blob-serial-writers")))]
     fn resolve_slot_to_owned(&self, slot: ValueSlot) -> Option<(Vec<u8>, u32)> {
         let tag = slot.tag();
         if tag.is_raw_inline() {
@@ -13609,9 +13609,19 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         new: Option<u64>,
     ) -> Option<u64> {
         let exclusive = |m: &mut ExpanseBytesMap<S>| {
+            #[cfg(all(
+                feature = "std",
+                target_pointer_width = "64",
+                not(feature = "ablation-bytes-serial-writers")
+            ))]
             m.set_len(self.entry_pop.load());
             let seen = m.get(key);
             if seen == expected {
+                #[cfg(all(
+                    feature = "std",
+                    target_pointer_width = "64",
+                    not(feature = "ablation-bytes-serial-writers")
+                ))]
                 let pop_before = m.len();
                 match new {
                     Some(v) => {
@@ -13621,12 +13631,19 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                         m.remove_shared(key);
                     }
                 }
-                let pop_after = m.len();
-                let delta = pop_after as i64 - pop_before as i64;
-                if pop_after == 0 && pop_before > 0 {
-                    self.entry_pop.flush_and_set(0);
-                } else if delta != 0 {
-                    self.entry_pop.add_base(delta);
+                #[cfg(all(
+                    feature = "std",
+                    target_pointer_width = "64",
+                    not(feature = "ablation-bytes-serial-writers")
+                ))]
+                {
+                    let pop_after = m.len();
+                    let delta = pop_after as i64 - pop_before as i64;
+                    if pop_after == 0 && pop_before > 0 {
+                        self.entry_pop.flush_and_set(0);
+                    } else if delta != 0 {
+                        self.entry_pop.add_base(delta);
+                    }
                 }
             }
             seen

@@ -2142,7 +2142,11 @@ impl ExpanseBlobMap {
     }
 
     /// Compare-and-swap the 24-bit hot metadata stored for `key` (shared index).
-    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers")
+    ))]
     pub(crate) fn compare_exchange_meta_shared(
         &mut self,
         key: Key,
@@ -2231,7 +2235,11 @@ impl ExpanseBlobMap {
     }
 
     /// Compare-and-swap the payload and metadata stored for `key` (shared index).
-    #[cfg(all(target_pointer_width = "64", feature = "std"))]
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-blob-serial-writers")
+    ))]
     #[allow(clippy::type_complexity)]
     pub(crate) fn compare_exchange_shared(
         &mut self,

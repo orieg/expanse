@@ -1206,7 +1206,7 @@ locator       = global_offset / ARENA_ALIGN          (ARENA_ALIGN = 16)
 global_offset = locator * ARENA_ALIGN
 ```
 
-`slot_from_global` (`crates/expanse/src/blobmap.rs:603`) performs the first, `resolve_meta` (`crates/expanse/src/blobmap.rs:1122`) and `resolve_meta_in_table` (`crates/expanse/src/blobmap.rs:678`) the second. The chunk/offset split is resolved by the arena geometry afterwards, so a chunk boundary must stay a multiple of 16 — a loaded image with a misaligned boundary is rejected (`ARENA_ALIGN`, `crates/expanse/src/blobmap.rs:2382`). The envelope is `ARENA_META_CEILING = 2^32 × 16` = 64 GiB (`crates/expanse/src/blobmap.rs:523`), and every arena capacity cap is clamped to it; the default cap, `DEFAULT_ARENA_CAPACITY`, is 1 GiB (`crates/expanse/src/blobmap.rs:553`), so a locator overflow cannot occur under any cap.
+`slot_from_global` (`crates/expanse/src/blobmap.rs:603`) performs the first, `resolve_meta` (`crates/expanse/src/blobmap.rs:1122`) and `resolve_meta_in_table` (`crates/expanse/src/blobmap.rs:678`) the second. The chunk/offset split is resolved by the arena geometry afterwards, so a chunk boundary must stay a multiple of 16 — a loaded image with a misaligned boundary is rejected (`ARENA_ALIGN`, `crates/expanse/src/blobmap.rs:2558`). The envelope is `ARENA_META_CEILING = 2^32 × 16` = 64 GiB (`crates/expanse/src/blobmap.rs:523`), and every arena capacity cap is clamped to it; the default cap, `DEFAULT_ARENA_CAPACITY`, is 1 GiB (`crates/expanse/src/blobmap.rs:553`), so a locator overflow cannot occur under any cap.
 
 **`ValueSlot32`** (`crates/expanse/src/slot32.rs:47`) is the 32-bit counterpart, `#[repr(transparent)]` over a `u32`, same low-byte-is-tag convention:
 
