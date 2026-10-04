@@ -187,7 +187,7 @@ fn test_binary_image_format_version_2_roundtrip() {
     // Verify format version in header bytes 8..12
     let version = u32::from_le_bytes(buf[8..12].try_into().unwrap());
     assert_eq!(version, EXPANSE_FORMAT_VERSION);
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
 
     let loaded = ExpanseBlobMap::from_bytes_slice(&buf).expect("load must succeed");
     assert_eq!(loaded.len(), 4);

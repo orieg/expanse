@@ -162,9 +162,13 @@ pub fn expanse_trie::blobmap::ArenaChunk::as_bytes(&self) -> &[u8]
 pub fn expanse_trie::blobmap::ArenaChunk::can_fit(&self, usize) -> bool
 pub fn expanse_trie::blobmap::ArenaChunk::capacity(&self) -> usize
 pub fn expanse_trie::blobmap::ArenaChunk::cursor(&self) -> usize
+pub fn expanse_trie::blobmap::ArenaChunk::empty() -> Self
 pub fn expanse_trie::blobmap::ArenaChunk::from_raw_parts(usize, usize, u32, &[u8]) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ArenaChunk::generation(&self) -> u32
 pub fn expanse_trie::blobmap::ArenaChunk::get_slice(&self, usize) -> core::option::Option<&[u8]>
+pub fn expanse_trie::blobmap::ArenaChunk::is_empty_chunk(&self) -> bool
+pub fn expanse_trie::blobmap::ArenaChunk::live_bytes(&self) -> usize
+pub fn expanse_trie::blobmap::ArenaChunk::live_records(&self) -> usize
 pub fn expanse_trie::blobmap::ArenaChunk::new(usize, u32) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ArenaChunk::raw_bytes(&self) -> &[u8]
 pub fn expanse_trie::blobmap::ArenaChunk::remaining(&self) -> usize
@@ -231,8 +235,9 @@ impl core::marker::Unpin for expanse_trie::blobmap::BlobMapFileHeader
 impl core::marker::UnsafeUnpin for expanse_trie::blobmap::BlobMapFileHeader
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::blobmap::BlobMapFileHeader
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::blobmap::BlobMapFileHeader
-#[repr(C, packed(1))] pub struct expanse_trie::blobmap::BlobRecordHeader
+#[repr(C)] pub struct expanse_trie::blobmap::BlobRecordHeader
 pub expanse_trie::blobmap::BlobRecordHeader::generation: u32
+pub expanse_trie::blobmap::BlobRecordHeader::key: u64
 pub expanse_trie::blobmap::BlobRecordHeader::len: u32
 impl core::clone::Clone for expanse_trie::blobmap::BlobRecordHeader
 pub fn expanse_trie::blobmap::BlobRecordHeader::clone(&self) -> expanse_trie::blobmap::BlobRecordHeader
@@ -282,6 +287,7 @@ pub fn expanse_trie::blobmap::ExpanseBlobMap::arena(&self) -> &expanse_trie::blo
 pub fn expanse_trie::blobmap::ExpanseBlobMap::clear(&mut self)
 pub fn expanse_trie::blobmap::ExpanseBlobMap::compact(&mut self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::blobmap::ExpanseBlobMap::evacuate_victim_for_insert(&mut self) -> core::result::Result<bool, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice(&[u8]) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice_with_max_capacity(&[u8], usize) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::get<'a>(&'a self, expanse_trie::types::Key) -> core::option::Option<(expanse_trie::blobmap::BlobView<'a>, u32)>
@@ -299,6 +305,7 @@ pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_file<P: core::convert::AsR
 pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_writer<W: core::io::write::Write>(&self, &mut W) -> core::io::error::Result<usize>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, expanse_trie::blobmap::BlobView<'_>, u32) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::set_reclaim_at_cap(&mut self, bool)
+pub fn expanse_trie::blobmap::ExpanseBlobMap::validate_invariants(&self) -> core::result::Result<(), expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size(usize) -> Self
 pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size_and_max_capacity(usize, usize) -> Self
 impl core::convert::From<expanse_trie::blobmap::ExpanseBlobMap> for expanse_trie::sync::SyncExpanseBlobMap
@@ -2171,6 +2178,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseBlobMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseBlobMap::compact(&self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::SyncExpanseBlobMap::evacuate_victim(&self) -> core::result::Result<bool, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get(&self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get_meta(&self, expanse_trie::types::Key) -> core::option::Option<u32>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::insert(&self, expanse_trie::types::Key, &[u8], u32) -> core::result::Result<(), expanse_trie::blobmap::ArenaError>
@@ -2184,6 +2192,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::reclaim_at_cap(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::remove(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::set_reclaim_at_cap(&self, bool)
 pub fn expanse_trie::sync::SyncExpanseBlobMap::shrink_to_fit(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseBlobMap::validate_invariants(&self) -> core::result::Result<(), expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_chunk_size(usize) -> Self
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_chunk_size_and_max_capacity(usize, usize) -> Self
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::blobmap::ExpanseBlobMap) -> R) -> R
@@ -3179,6 +3188,7 @@ pub fn expanse_trie::blobmap::ExpanseBlobMap::arena(&self) -> &expanse_trie::blo
 pub fn expanse_trie::blobmap::ExpanseBlobMap::clear(&mut self)
 pub fn expanse_trie::blobmap::ExpanseBlobMap::compact(&mut self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::blobmap::ExpanseBlobMap::evacuate_victim_for_insert(&mut self) -> core::result::Result<bool, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice(&[u8]) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice_with_max_capacity(&[u8], usize) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::get<'a>(&'a self, expanse_trie::types::Key) -> core::option::Option<(expanse_trie::blobmap::BlobView<'a>, u32)>
@@ -3196,6 +3206,7 @@ pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_file<P: core::convert::AsR
 pub fn expanse_trie::blobmap::ExpanseBlobMap::save_to_writer<W: core::io::write::Write>(&self, &mut W) -> core::io::error::Result<usize>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::scan_filtered<P, F>(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>, P, F) where P: core::ops::function::FnMut(expanse_trie::types::Key, u32) -> bool, F: core::ops::function::FnMut(expanse_trie::types::Key, expanse_trie::blobmap::BlobView<'_>, u32) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::set_reclaim_at_cap(&mut self, bool)
+pub fn expanse_trie::blobmap::ExpanseBlobMap::validate_invariants(&self) -> core::result::Result<(), expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size(usize) -> Self
 pub fn expanse_trie::blobmap::ExpanseBlobMap::with_chunk_size_and_max_capacity(usize, usize) -> Self
 impl core::convert::From<expanse_trie::blobmap::ExpanseBlobMap> for expanse_trie::sync::SyncExpanseBlobMap

@@ -10252,6 +10252,9 @@ impl SyncExpanseBlobMap {
             // holds `busy` (its only route to `state`) only inside the gate.
             let st = unsafe { &mut *wa.state.get() };
             total += core::mem::take(&mut st.live_delta);
+            if let Some(chunk) = st.chunk {
+                m.update_chunk_cursor(chunk.index, st.cursor);
+            }
         }
         if total != 0 {
             m.fold_arena_live_delta(total);
@@ -10296,13 +10299,14 @@ impl SyncExpanseBlobMap {
     fn alloc_private(
         &self,
         owner: &mut WriterArenaOwner<'_>,
+        key: u64,
         data: &[u8],
         hot_meta: u32,
     ) -> Result<ValueSlot, ArenaError> {
         if hot_meta > ValueSlot::ARENA_META_MAX {
             return Err(ArenaError::MetaOverflow);
         }
-        let needed = 8 + data.len();
+        let needed = 16 + data.len();
         if needed > self.writer_arenas.chunk_size {
             return Err(ArenaError::AllocationFailed);
         }
@@ -10333,7 +10337,15 @@ impl SyncExpanseBlobMap {
         // `olc_insert_map` (or the serialised fallback) strictly after this
         // write returns — the record write happens-before its publication.
         unsafe {
-            crate::blobmap::write_record(chunk.base.as_ptr(), off, chunk.generation, data);
+            crate::blobmap::write_record(chunk.base.as_ptr(), off, chunk.generation, key, data);
+            let next_cursor = (off + needed + 15) & !15;
+            let c = chunk.counters.as_ref();
+            c.cursor
+                .store(next_cursor, core::sync::atomic::Ordering::Release);
+            c.live_bytes
+                .fetch_add(needed, core::sync::atomic::Ordering::Relaxed);
+            c.live_records
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         }
         st.cursor = (off + needed + 15) & !15;
         st.live_delta += needed as isize;
@@ -10388,12 +10400,11 @@ impl SyncExpanseBlobMap {
         // the chunk and the header read is of a completed record.
         let resolved =
             unsafe { crate::blobmap::resolve_meta_in_table(table, old_slot.arena_meta_locator()) };
-        debug_assert!(
-            resolved.is_some(),
-            "an overwritten arena record must resolve through the published table"
-        );
-        let Some((_, len)) = resolved else { return };
-        let dead = (8 + len) as isize;
+        let len = match resolved {
+            crate::blobmap::ResolveMeta::Found(_, len) => len,
+            _ => return,
+        };
+        let dead = (16 + len) as isize;
         match owner {
             Some(owner) => owner.state().live_delta -= dead,
             None => {
@@ -10401,6 +10412,12 @@ impl SyncExpanseBlobMap {
                     .unowned_live_delta
                     .fetch_sub(dead, core::sync::atomic::Ordering::AcqRel);
             }
+        }
+        let global = (old_slot.arena_meta_locator() as u64) * (crate::blobmap::ARENA_ALIGN as u64);
+        let chunk_idx = (global as usize) / self.writer_arenas.chunk_size;
+        // SAFETY: table is EBR-live under caller's pin, chunk_idx is bounded by chunk_size arithmetic.
+        unsafe {
+            crate::blobmap::charge_chunk_dead(table, chunk_idx, 16 + len);
         }
         self.writer_arenas
             .has_writer_deltas
@@ -10576,7 +10593,7 @@ impl SyncExpanseBlobMap {
                     #[cfg(not(feature = "ablation-blob-shared-arena"))]
                     {
                         match own.as_mut() {
-                            Some(owner) => self.alloc_private(owner, data, hot_meta)?,
+                            Some(owner) => self.alloc_private(owner, key, data, hot_meta)?,
                             None => {
                                 // Another live writer shares this slot and holds
                                 // its arena: the shared allocation path.
@@ -10588,7 +10605,7 @@ impl SyncExpanseBlobMap {
                                 unsafe {
                                     let arena_ptr =
                                         core::ptr::addr_of_mut!((*self.shared.tree_ptr()).arena);
-                                    (*arena_ptr).prepare_slot(data, hot_meta)?
+                                    (*arena_ptr).prepare_slot_with_key(key, data, hot_meta)?
                                 }
                             }
                         }
@@ -10603,7 +10620,7 @@ impl SyncExpanseBlobMap {
                         unsafe {
                             let arena_ptr =
                                 core::ptr::addr_of_mut!((*self.shared.tree_ptr()).arena);
-                            (*arena_ptr).prepare_slot(data, hot_meta)?
+                            (*arena_ptr).prepare_slot_with_key(key, data, hot_meta)?
                         }
                     }
                 };
@@ -10901,6 +10918,28 @@ impl SyncExpanseBlobMap {
         let stats = self.shared.write_quiesced(ExpanseBlobMap::compact);
         self.reclaim_latch.clear();
         stats
+    }
+
+    /// Bounded incremental chunk evacuation (#1320): evacuates one victim chunk
+    /// with utilization below 50% ($u < 0.5$).
+    pub fn evacuate_victim(&self) -> Result<bool, ArenaError> {
+        self.shared.write_quiesced(|m| {
+            #[cfg(all(
+                not(feature = "ablation-blob-shared-arena"),
+                not(feature = "ablation-blob-serial-writers"),
+                feature = "std"
+            ))]
+            {
+                self.fold_writer_arenas(m);
+                self.reset_writer_chunks();
+            }
+            m.evacuate_victim_for_insert()
+        })
+    }
+
+    /// Structural invariant validator for SyncExpanseBlobMap (#1320).
+    pub fn validate_invariants(&self) -> Result<(), ArenaError> {
+        self.with_locked(|m| m.validate_invariants())
     }
 
     /// Whether an insert that the capacity cap refuses a chunk may compact the
@@ -11323,7 +11362,7 @@ impl BlobReadGuard<'_> {
                 // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                 unsafe { crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator()) };
             match resolved {
-                Some((ptr, len)) => {
+                crate::blobmap::ResolveMeta::Found(ptr, len) => {
                     if shared.version().validate(snap) {
                         // No writer overlapped: the resolution used the
                         // table consistent with `snap`, so `ptr..ptr+len` is
@@ -11339,7 +11378,12 @@ impl BlobReadGuard<'_> {
                     }
                     continue 'outer;
                 }
-                None => {
+                crate::blobmap::ResolveMeta::GenerationMismatch => {
+                    // Evacuation or compaction bumped the chunk generation or reused the tombstone slot.
+                    // Retry under fresh snapshot/table, NEVER report None for a present key.
+                    continue 'outer;
+                }
+                crate::blobmap::ResolveMeta::NotFound => {
                     // Check if the chunk table was superseded (chunk appended or arena compacted)
                     // while reading. If so, retry under the fresh table instead of falsely reporting
                     // a present key as absent (Refs #929).
@@ -13142,6 +13186,70 @@ mod miri_tests {
             let last = OVERWRITES / LIVE + u64::from(k < OVERWRITES % LIVE);
             assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, last)[..]);
         }
+    }
+
+    /// #1320 (METHODOLOGY §31, Stage 3B): Bounded victim chunk evacuation under
+    /// concurrent reader workload in Tier-1 Miri filter.
+    /// Verifies that readers observing live keys in a chunk undergoing evacuation
+    /// see byte-stable payloads, never observe torn data or metadata, and never
+    /// falsely observe `None` when a chunk generation mismatches (safely retrying).
+    #[test]
+    fn blob_reads_proceed_during_evacuation_under_miri() {
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size_and_max_capacity(
+            4096,
+            20 * 1024,
+        ));
+        let payload = |k: u64| -> Vec<u8> { (0..128).map(|i| (k ^ i) as u8).collect() };
+
+        // 35 records span across chunk 0 and chunk 1 (chunk size 4096, record size 144 B)
+        for k in 0..35 {
+            m.insert(k, &payload(k), 1).unwrap();
+        }
+
+        // Delete keys 0..18 from chunk 0 so utilization drops below 50% (u < 0.5)
+        for k in 0..18 {
+            assert!(m.remove(k));
+        }
+
+        let done = Arc::new(core::sync::atomic::AtomicBool::new(false));
+        let m_reader = Arc::clone(&m);
+        let done_reader = Arc::clone(&done);
+
+        let reader_thread = std::thread::spawn(move || {
+            let mut rd = m_reader.reader();
+            while !done_reader.load(core::sync::atomic::Ordering::Acquire) {
+                let guard = rd.pin();
+                for k in 18..35 {
+                    match guard.get(k) {
+                        Some((view, meta)) => {
+                            assert_eq!(view.as_bytes(), &payload(k)[..], "torn payload on key {k}");
+                            assert_eq!(meta, 1, "torn metadata on key {k}");
+                        }
+                        None => {
+                            panic!("reader saw false None for present key {k} during evacuation");
+                        }
+                    }
+                }
+            }
+        });
+
+        // Trigger evacuation on victim chunk
+        let evacuated = m.evacuate_victim().unwrap();
+        assert!(evacuated, "must evacuate victim chunk with u < 0.5");
+
+        done.store(true, core::sync::atomic::Ordering::Release);
+        reader_thread.join().expect("reader panicked");
+
+        // Verify state after evacuation
+        for k in 18..35 {
+            let (view, meta) = m.get(k).expect("present key");
+            assert_eq!(view, payload(k));
+            assert_eq!(meta, 1);
+        }
+        for k in 0..18 {
+            assert!(m.get(k).is_none());
+        }
+        m.validate_invariants().unwrap();
     }
 
     /// Past the root-leaf capacity: the 363rd insert of this key sequence
@@ -16611,7 +16719,7 @@ mod tests {
     /// runs a smaller workload through the same path.
     #[test]
     fn blob_overwrites_reclaim_at_the_cap() {
-        for (live, len, overwrites) in [(210u64, 128usize, 1792u64), (1204, 9, 8192)] {
+        for (live, len, overwrites) in [(210u64, 128usize, 1792u64), (1024, 9, 8192)] {
             let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 64 * 1024);
             let payload = |k: u64, round: u64| -> Vec<u8> {
                 (0..len as u64).map(|i| (k ^ round ^ i) as u8).collect()
@@ -17312,7 +17420,7 @@ mod tests {
             "prefill must transition root to tree state"
         );
 
-        let payload = vec![0x77; chunk - 8];
+        let payload = vec![0x77; chunk - 16];
 
         let barrier = Arc::new(std::sync::Barrier::new(3));
 

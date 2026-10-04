@@ -664,7 +664,10 @@ def self_test() -> int:
     assert _read_const(r"^pub const MAX_ARENA_CHUNKS: usize = (.+);") == MAX_ARENA_CHUNKS
     assert _read_const(r"^pub const ARENA_ALIGN: usize = (.+);") == ARENA_ALIGN
     src = BLOBMAP_RS.read_text()
-    assert "self.cursor = (next_cursor + 15) & !15;" in src, "ArenaChunk::alloc's cursor rounding moved"
+    assert (
+        "self.cursor = (next_cursor + 15) & !15;" in src
+        or "let next_cursor = (record_offset + needed + 15) & !15;" in src
+    ), "ArenaChunk::alloc's cursor rounding moved"
     assert "self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity" in src
     # The rule itself, as the engine states it (`BlobArena::reclaim_allowed`).
     assert _read_const(r"^pub\(crate\) const RECLAIM_COPY_PER_GROWTH: usize = (.+);") == RECLAIM_COPY_PER_GROWTH

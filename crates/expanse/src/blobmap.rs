@@ -21,8 +21,8 @@
 //! [`ArenaError::OffsetOverflow`] once growth would cross that cap (or the
 //! [`MAX_ARENA_CHUNKS`] chunk-count sanity limit), and [`ArenaError::MetaOverflow`]
 //! if `hot_meta` exceeds the 24-bit field. A single payload must still fit in one
-//! chunk, so its length is bounded by `chunk_size - 8` (each record carries an
-//! 8-byte [`BlobRecordHeader`]). The `External` slot encoding remains reserved.
+//! chunk, so its length is bounded by `chunk_size - 16` (each record carries a
+//! 16-byte [`BlobRecordHeader`]). The `External` slot encoding remains reserved.
 //!
 //! # Inline metadata
 //!
@@ -52,21 +52,51 @@ use core_alloc::vec::Vec;
 #[cfg(feature = "std")]
 use std::sync::OnceLock;
 
-/// Packed 8-byte record header preceding every arena payload.
-#[repr(C, packed)]
+/// Outcome of resolving a record within a chunk.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ResolveMeta {
+    /// Found valid record: pointer to payload and payload length.
+    Found(*const u8, usize),
+    /// Generation mismatch: record belongs to an older/newer epoch or was relocated.
+    GenerationMismatch,
+    /// Out of bounds or invalid offset.
+    NotFound,
+}
+
+impl ResolveMeta {
+    /// Returns `Some((ptr, len))` if `Found`, `None` otherwise.
+    #[inline(always)]
+    #[cfg(test)]
+    pub(crate) fn found(self) -> Option<(*const u8, usize)> {
+        match self {
+            Self::Found(ptr, len) => Some((ptr, len)),
+            _ => None,
+        }
+    }
+}
+
+/// 16-byte record header preceding every arena payload.
+#[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct BlobRecordHeader {
-    /// Payload length in bytes. Bounded in practice by `chunk_size - 8`
+    /// 64-bit key owning this record, for reverse lookup without full-index scanning.
+    pub key: u64,
+    /// Payload length in bytes. Bounded in practice by `chunk_size - 16`
     /// (a payload must fit in one chunk); the `u32` width is not the limit.
     pub len: u32,
     /// Generation counter for ABA protection and compaction validation.
     pub generation: u32,
 }
 
+const _: () = assert!(core::mem::size_of::<BlobRecordHeader>() == 16);
+const _: () = assert!(core::mem::align_of::<BlobRecordHeader>() == 8);
+const _: () = assert!(core::mem::offset_of!(BlobRecordHeader, key) == 0);
+const _: () = assert!(core::mem::offset_of!(BlobRecordHeader, len) == 8);
+const _: () = assert!(core::mem::offset_of!(BlobRecordHeader, generation) == 12);
+
 /// Parses the record at `off` within a chunk whose first `bound` bytes are
 /// readable, expecting records stamped `generation`; returns the payload's
-/// base pointer and length, or `None` when anything fails to check out
-/// (offset past `bound`, generation mismatch, length past `bound`).
+/// base pointer and length, or `ResolveMeta` status when anything fails to check out.
 ///
 /// **The one definition of the record wire format on the read side.** The
 /// single-threaded path ([`ArenaChunk::get_slice`]) calls it with
@@ -78,35 +108,58 @@ pub struct BlobRecordHeader {
 ///
 /// `base .. base + bound` must be readable bytes of one live allocation.
 #[inline(always)]
-unsafe fn read_record(
+unsafe fn read_record(base: *const u8, off: usize, bound: usize, generation: u32) -> ResolveMeta {
+    if off.checked_add(16).is_none_or(|end| end > bound) {
+        return ResolveMeta::NotFound;
+    }
+    // SAFETY: `off + 16 <= bound`, readable per this function's contract.
+    let header = unsafe { core::ptr::read_unaligned(base.add(off).cast::<BlobRecordHeader>()) };
+    if header.generation != generation {
+        return ResolveMeta::GenerationMismatch;
+    }
+    let len = header.len as usize;
+    if off
+        .checked_add(16)
+        .and_then(|h| h.checked_add(len))
+        .is_none_or(|end| end > bound)
+    {
+        return ResolveMeta::NotFound;
+    }
+    // SAFETY: `off + 16 + len <= bound` — in-bounds of the allocation.
+    ResolveMeta::Found(unsafe { base.add(off + 16) }, len)
+}
+
+/// Reads only the record header at `off` within `bound` bytes.
+///
+/// # Safety
+///
+/// `base .. base + bound` must be readable bytes of one live allocation.
+#[inline(always)]
+unsafe fn read_record_header(
     base: *const u8,
     off: usize,
     bound: usize,
-    generation: u32,
-) -> Option<(*const u8, usize)> {
-    if off.checked_add(8)? > bound {
+) -> Option<BlobRecordHeader> {
+    if off.checked_add(16).is_none_or(|end| end > bound) {
         return None;
     }
-    // SAFETY: `off + 8 <= bound`, readable per this function's contract. The
-    // loaded bytes may be torn/stale on the optimistic path — every use is
-    // range-checked here and discarded by that caller unless its seqlock
-    // snapshot validates.
+    // SAFETY: `off + 16 <= bound`, readable per this function's contract.
     let header = unsafe { core::ptr::read_unaligned(base.add(off).cast::<BlobRecordHeader>()) };
-    if header.generation != generation {
-        return None;
-    }
     let len = header.len as usize;
-    if off.checked_add(8)?.checked_add(len)? > bound {
+    if off
+        .checked_add(16)
+        .and_then(|h| h.checked_add(len))
+        .is_none_or(|end| end > bound)
+    {
         return None;
     }
-    // SAFETY: `off + 8 + len <= bound` — in-bounds of the allocation.
-    Some((unsafe { base.add(off + 8) }, len))
+    Some(header)
 }
 
 /// Magic identifier for Expanse binary image files ("EXPANSE\0").
 pub const EXPANSE_MAGIC: [u8; 8] = *b"EXPANSE\0";
 /// Current format version for relocatable ExpanseBlobMap images.
-pub const EXPANSE_FORMAT_VERSION: u32 = 2;
+pub const EXPANSE_FORMAT_VERSION: u32 = 3;
 
 /// Relocatable 64-byte binary image file header.
 #[repr(C)]
@@ -323,17 +376,52 @@ pub(crate) struct PreparedCompaction {
     source_total_allocated: usize,
 }
 
+#[repr(align(64))]
+pub(crate) struct ChunkCounters {
+    pub(crate) cursor: core::sync::atomic::AtomicUsize,
+    pub(crate) live_bytes: core::sync::atomic::AtomicUsize,
+    pub(crate) live_records: core::sync::atomic::AtomicUsize,
+}
+
+#[inline(always)]
+pub(crate) fn atomic_sub_saturating(atomic: &core::sync::atomic::AtomicUsize, val: usize) {
+    let ord = core::sync::atomic::Ordering::Relaxed;
+    let mut cur = atomic.load(ord);
+    // Loop until compare_exchange_weak succeeds without error-swallowing.
+    while let Err(actual) = atomic.compare_exchange_weak(cur, cur.saturating_sub(val), ord, ord) {
+        cur = actual;
+    }
+}
+
 /// A single contiguous 16-byte aligned bump-allocated slab chunk.
 pub struct ArenaChunk {
     ptr: NonNull<u8>,
     capacity: usize,
-    cursor: usize,
     generation: u32,
+    pub(crate) counters: NonNull<ChunkCounters>,
 }
 
 impl ArenaChunk {
     /// Maximum allowed chunk capacity (1 GiB) to prevent corrupted images from causing OOM.
     pub const MAX_CHUNK_CAPACITY: usize = 1024 * 1024 * 1024;
+
+    /// Creates an empty tombstone chunk (0 capacity, dangling pointer).
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            ptr: NonNull::dangling(),
+            capacity: 0,
+            generation: 0,
+            counters: NonNull::dangling(),
+        }
+    }
+
+    /// Returns `true` if this chunk is an empty tombstone (0 capacity).
+    #[inline(always)]
+    #[must_use]
+    pub fn is_empty_chunk(&self) -> bool {
+        self.capacity == 0
+    }
 
     /// Creates a new arena chunk of given capacity and initial generation.
     pub fn new(capacity: usize, generation: u32) -> Result<Self, ArenaError> {
@@ -345,11 +433,23 @@ impl ArenaChunk {
         // SAFETY: Allocating memory with 16-byte alignment.
         let raw = unsafe { alloc_zeroed(layout) };
         let ptr = NonNull::new(raw).ok_or(ArenaError::AllocationFailed)?;
+
+        let counters_layout = Layout::new::<ChunkCounters>();
+        // SAFETY: Allocating zeroed memory for ChunkCounters with valid non-zero layout.
+        let counters_raw = unsafe { alloc_zeroed(counters_layout) };
+        let counters = NonNull::new(counters_raw.cast::<ChunkCounters>()).ok_or_else(|| {
+            // SAFETY: Layout matches allocation of ptr.
+            unsafe {
+                dealloc(ptr.as_ptr(), layout);
+            }
+            ArenaError::AllocationFailed
+        })?;
+
         Ok(Self {
             ptr,
             capacity,
-            cursor: 0,
             generation,
+            counters,
         })
     }
 
@@ -364,32 +464,110 @@ impl ArenaChunk {
     #[inline(always)]
     #[must_use]
     pub fn cursor(&self) -> usize {
-        self.cursor
+        if self.capacity == 0 {
+            0
+        } else {
+            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+            unsafe { self.counters.as_ref() }
+                .cursor
+                .load(core::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    /// Returns the current live bytes within this chunk.
+    #[inline(always)]
+    #[must_use]
+    pub fn live_bytes(&self) -> usize {
+        if self.capacity == 0 {
+            0
+        } else {
+            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+            unsafe { self.counters.as_ref() }
+                .live_bytes
+                .load(core::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    /// Returns the current live record count within this chunk.
+    #[inline(always)]
+    #[must_use]
+    pub fn live_records(&self) -> usize {
+        if self.capacity == 0 {
+            0
+        } else {
+            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+            unsafe { self.counters.as_ref() }
+                .live_records
+                .load(core::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_cursor(&mut self, cursor: usize) {
+        if self.capacity != 0 {
+            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+            unsafe { self.counters.as_ref() }
+                .cursor
+                .store(cursor, core::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_live_bytes(&mut self, live_bytes: usize) {
+        if self.capacity != 0 {
+            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+            unsafe { self.counters.as_ref() }
+                .live_bytes
+                .store(live_bytes, core::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn set_live_records(&mut self, live_records: usize) {
+        if self.capacity != 0 {
+            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+            unsafe { self.counters.as_ref() }
+                .live_records
+                .store(live_records, core::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn add_live_record(&mut self, rec_bytes: usize) {
+        if self.capacity != 0 {
+            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+            let c = unsafe { self.counters.as_ref() };
+            c.live_bytes
+                .fetch_add(rec_bytes, core::sync::atomic::Ordering::Relaxed);
+            c.live_records
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     /// Returns remaining unused bytes in this chunk.
     #[inline(always)]
     #[must_use]
     pub fn remaining(&self) -> usize {
-        self.capacity.saturating_sub(self.cursor)
+        self.capacity.saturating_sub(self.cursor())
     }
 
     /// Returns `true` if a payload of `data_len` bytes fits in this chunk.
     #[inline(always)]
     #[must_use]
     pub fn can_fit(&self, data_len: usize) -> bool {
-        let needed = 8 + data_len;
-        self.cursor + needed <= self.capacity
+        let needed = 16 + data_len;
+        self.cursor() + needed <= self.capacity
     }
 
-    /// Allocates a record in this chunk, returning the byte offset of the header.
-    pub fn alloc(&mut self, data: &[u8]) -> Result<usize, ArenaError> {
-        let needed = 8 + data.len();
-        if self.cursor + needed > self.capacity {
+    /// Allocates a record with key in this chunk, returning the byte offset of the header.
+    pub(crate) fn alloc_with_key(&mut self, key: u64, data: &[u8]) -> Result<usize, ArenaError> {
+        let needed = 16 + data.len();
+        if !self.can_fit(data.len()) {
             return Err(ArenaError::AllocationFailed);
         }
-        let record_offset = self.cursor;
+        let record_offset = self.cursor();
         let header = BlobRecordHeader {
+            key,
             len: data.len() as u32,
             generation: self.generation,
         };
@@ -398,30 +576,48 @@ impl ArenaChunk {
             let base = self.ptr.as_ptr().add(record_offset);
             core::ptr::write_unaligned(base.cast::<BlobRecordHeader>(), header);
             if !data.is_empty() {
-                core::ptr::copy_nonoverlapping(data.as_ptr(), base.add(8), data.len());
+                core::ptr::copy_nonoverlapping(data.as_ptr(), base.add(16), data.len());
             }
         }
-        let next_cursor = record_offset + needed;
-        // Align to 16 bytes for next record
-        self.cursor = (next_cursor + 15) & !15;
+        let next_cursor = (record_offset + needed + 15) & !15;
+        // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
+        let c = unsafe { self.counters.as_ref() };
+        c.cursor
+            .store(next_cursor, core::sync::atomic::Ordering::Release);
+        c.live_bytes
+            .fetch_add(needed, core::sync::atomic::Ordering::Relaxed);
+        c.live_records
+            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         Ok(record_offset)
+    }
+
+    /// Allocates a record in this chunk, returning the byte offset of the header.
+    pub fn alloc(&mut self, data: &[u8]) -> Result<usize, ArenaError> {
+        self.alloc_with_key(0, data)
     }
 
     /// Reads payload slice from offset within chunk.
     #[must_use]
     pub fn get_slice(&self, offset_in_chunk: usize) -> Option<&[u8]> {
+        if self.capacity == 0 {
+            return None;
+        }
         // SAFETY: `ptr .. ptr + cursor` is the initialized prefix of this
         // chunk's live allocation (`cursor <= capacity`).
-        let (payload, len) = unsafe {
+        match unsafe {
             read_record(
                 self.ptr.as_ptr(),
                 offset_in_chunk,
-                self.cursor,
+                self.cursor(),
                 self.generation,
             )
-        }?;
-        // SAFETY: `read_record` bounds the payload within the allocation.
-        Some(unsafe { core::slice::from_raw_parts(payload, len) })
+        } {
+            ResolveMeta::Found(payload, len) => {
+                // SAFETY: `read_record` bounds the payload within the allocation.
+                Some(unsafe { core::slice::from_raw_parts(payload, len) })
+            }
+            _ => None,
+        }
     }
 
     /// Returns the generation counter.
@@ -434,11 +630,12 @@ impl ArenaChunk {
     /// Returns the live bump-allocated slice of this chunk.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
-        if self.cursor == 0 {
+        let cur = self.cursor();
+        if cur == 0 || self.capacity == 0 {
             &[]
         } else {
             // SAFETY: cursor <= capacity, ptr is allocated and valid.
-            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.cursor) }
+            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), cur) }
         }
     }
 
@@ -473,7 +670,9 @@ impl ArenaChunk {
                 );
             }
         }
-        chunk.cursor = cursor;
+        chunk.set_cursor(cursor);
+        chunk.set_live_bytes(0);
+        chunk.set_live_records(0);
         Ok(chunk)
     }
 
@@ -483,23 +682,39 @@ impl ArenaChunk {
     /// `Drop` (the collector frees the memory after the grace period).
     #[cfg(feature = "std")]
     pub(crate) fn retire_into(self, collector: &Collector) {
+        if self.capacity == 0 {
+            return;
+        }
         let ptr = self.ptr;
         let capacity = self.capacity;
+        let counters = self.counters;
         core::mem::forget(self);
         // SAFETY: `ptr` is this chunk's own allocation, made by the global
         // allocator with `(capacity, 16)`; `forget` gave up the only owner, so
         // it is retired once. The caller unlinked the chunk from the published
         // table, so only readers pinned before that can still hold it.
-        unsafe { collector.retire(ptr, capacity, 16) };
+        unsafe {
+            collector.retire(
+                counters.cast::<u8>(),
+                core::mem::size_of::<ChunkCounters>(),
+                core::mem::align_of::<ChunkCounters>(),
+            );
+            collector.retire(ptr, capacity, 16);
+        }
     }
 }
 
 impl Drop for ArenaChunk {
     fn drop(&mut self) {
+        if self.capacity == 0 {
+            return;
+        }
         let layout = Layout::from_size_align(self.capacity, 16).unwrap();
-        // SAFETY: self.ptr was allocated with this exact layout.
+        let counters_layout = Layout::new::<ChunkCounters>();
+        // SAFETY: self.ptr and self.counters were allocated with these exact layouts.
         unsafe {
             dealloc(self.ptr.as_ptr(), layout);
+            dealloc(self.counters.as_ptr().cast(), counters_layout);
         }
     }
 }
@@ -626,6 +841,8 @@ struct ChunkRef {
     capacity: usize,
     /// Generation stamped on the chunk's records.
     generation: u32,
+    /// Shared atomic counters for this chunk.
+    counters: *const ChunkCounters,
 }
 
 /// Phase 7 (issue #219): header of the RCU-published chunk table. `len`
@@ -675,20 +892,19 @@ fn table_layout(len: usize) -> Layout {
 /// table and every chunk it references are then EBR-live, so all reads stay
 /// within live allocations even when the table has been superseded.
 #[cfg(feature = "std")]
-pub(crate) unsafe fn resolve_meta_in_table(
-    table: *const ChunkTable,
-    locator: u32,
-) -> Option<(*const u8, usize)> {
+pub(crate) unsafe fn resolve_meta_in_table(table: *const ChunkTable, locator: u32) -> ResolveMeta {
     if table.is_null() {
-        return None;
+        return ResolveMeta::NotFound;
     }
     // SAFETY: non-null published table, EBR-live under the caller's pin.
     let (len, chunk_size) = unsafe { ((*table).len, (*table).chunk_size) };
-    let offset = usize::try_from((locator as u64) * (ARENA_ALIGN as u64)).ok()?;
+    let Some(offset) = usize::try_from((locator as u64) * (ARENA_ALIGN as u64)).ok() else {
+        return ResolveMeta::NotFound;
+    };
     let idx = offset / chunk_size;
     let off = offset % chunk_size;
     if idx >= len {
-        return None;
+        return ResolveMeta::NotFound;
     }
     // SAFETY: `idx < len` entries trail the header in the same allocation.
     let entry = unsafe {
@@ -698,11 +914,46 @@ pub(crate) unsafe fn resolve_meta_in_table(
             .cast::<ChunkRef>()
             .add(idx)
     };
+    if entry.ptr.is_null() {
+        return ResolveMeta::GenerationMismatch;
+    }
     // SAFETY: `entry.ptr .. entry.ptr + capacity` is one chunk allocation,
     // EBR-live under the caller's pin; the shared parser range-checks every
     // access against `capacity`, and the caller discards the result unless
     // its seqlock snapshot validates.
     unsafe { read_record(entry.ptr, off, entry.capacity, entry.generation) }
+}
+
+/// Atomically charges dead bytes to a chunk through the published chunk table.
+#[cfg(feature = "std")]
+pub(crate) unsafe fn charge_chunk_dead(
+    table: *const ChunkTable,
+    chunk_idx: usize,
+    dead_bytes: usize,
+) {
+    if table.is_null() {
+        return;
+    }
+    // SAFETY: caller guarantees table points to an active ChunkTable.
+    // When chunk_idx < len, entry_ptr is within the allocation and counters
+    // points to valid ChunkCounters.
+    unsafe {
+        let len = (*table).len;
+        if chunk_idx >= len {
+            return;
+        }
+        let entry_ptr = table
+            .cast::<u8>()
+            .add(core::mem::size_of::<ChunkTable>())
+            .cast::<ChunkRef>()
+            .add(chunk_idx);
+        let entry = *entry_ptr;
+        if !entry.counters.is_null() {
+            let c = &*entry.counters;
+            atomic_sub_saturating(&c.live_bytes, dead_bytes);
+            atomic_sub_saturating(&c.live_records, 1);
+        }
+    }
 }
 
 /// Multi-writer private arena (Refs #929, AGENTS.md §2.7): the geometry of a
@@ -722,7 +973,24 @@ pub(crate) struct PrivateChunk {
     pub(crate) capacity: usize,
     /// Generation to stamp on records written into the chunk.
     pub(crate) generation: u32,
+    /// Atomic counters for this chunk.
+    pub(crate) counters: NonNull<ChunkCounters>,
 }
+
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
+// SAFETY: PrivateChunk contains raw pointers to exclusively owned or synchronized arena memory.
+unsafe impl Send for PrivateChunk {}
+#[cfg(all(
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers"),
+    feature = "std"
+))]
+// SAFETY: PrivateChunk operations on counters and base are synchronized by the writer gate.
+unsafe impl Sync for PrivateChunk {}
 
 /// Multi-writer private arena (Refs #929): writes one record — header then
 /// payload — at `off` in a privately owned chunk. The write-side twin of
@@ -730,7 +998,7 @@ pub(crate) struct PrivateChunk {
 ///
 /// # Safety
 ///
-/// `base + off .. base + off + 8 + data.len()` must lie inside one live chunk
+/// `base + off .. base + off + 16 + data.len()` must lie inside one live chunk
 /// allocation, and no other thread may read or write those bytes until the
 /// caller publishes a locator to them.
 #[cfg(all(
@@ -739,8 +1007,15 @@ pub(crate) struct PrivateChunk {
     feature = "std"
 ))]
 #[inline]
-pub(crate) unsafe fn write_record(base: *mut u8, off: usize, generation: u32, data: &[u8]) {
+pub(crate) unsafe fn write_record(
+    base: *mut u8,
+    off: usize,
+    generation: u32,
+    key: u64,
+    data: &[u8],
+) {
     let header = BlobRecordHeader {
+        key,
         len: data.len() as u32,
         generation,
     };
@@ -750,7 +1025,7 @@ pub(crate) unsafe fn write_record(base: *mut u8, off: usize, generation: u32, da
         let at = base.add(off);
         core::ptr::write_unaligned(at.cast::<BlobRecordHeader>(), header);
         if !data.is_empty() {
-            core::ptr::copy_nonoverlapping(data.as_ptr(), at.add(8), data.len());
+            core::ptr::copy_nonoverlapping(data.as_ptr(), at.add(16), data.len());
         }
     }
 }
@@ -963,10 +1238,19 @@ impl BlobArena {
                         .add(core::mem::size_of::<ChunkTable>())
                         .cast::<ChunkRef>();
                     for (i, chunk) in self.chunks.iter().enumerate() {
+                        let (ptr, counters) = if chunk.capacity == 0 {
+                            (core::ptr::null(), core::ptr::null())
+                        } else {
+                            (
+                                chunk.ptr.as_ptr() as *const u8,
+                                chunk.counters.as_ptr() as *const ChunkCounters,
+                            )
+                        };
                         entries.add(i).write(ChunkRef {
-                            ptr: chunk.ptr.as_ptr(),
+                            ptr,
                             capacity: chunk.capacity,
                             generation: chunk.generation,
+                            counters,
                         });
                     }
                 }
@@ -1031,9 +1315,12 @@ impl BlobArena {
     ///
     /// Inlined, so a caller's fast path (the active chunk has room) makes no
     /// call; opening a chunk is `alloc_blob_in_new_chunk`, out of line.
+    /// Allocates a blob payload in the arena with a key, returning its flat **global byte
+    /// offset** (the caller encodes it into an `ArenaMeta` [`ValueSlot`] via
+    /// [`slot_from_global`]).
     #[inline]
-    pub fn alloc_blob(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
-        let needed = 8 + data.len();
+    pub(crate) fn alloc_blob_with_key(&mut self, key: u64, data: &[u8]) -> Result<u64, ArenaError> {
+        let needed = 16 + data.len();
         if needed > self.chunk_size {
             return Err(ArenaError::AllocationFailed);
         }
@@ -1041,32 +1328,65 @@ impl BlobArena {
         if let Some(idx) = self.active_chunk
             && self.chunks[idx].can_fit(data.len())
         {
-            let offset_in_chunk = self.chunks[idx].alloc(data)?;
+            let offset_in_chunk = self.chunks[idx].alloc_with_key(key, data)?;
             self.live_bytes += needed;
             return Ok(self.global_offset(idx, offset_in_chunk));
         }
-        self.alloc_blob_in_new_chunk(data)
+        self.alloc_blob_in_new_chunk_with_key(key, data)
+    }
+
+    /// Allocates a blob payload in the arena, returning its flat **global byte
+    /// offset** (the caller encodes it into an `ArenaMeta` [`ValueSlot`] via
+    /// [`slot_from_global`]).
+    ///
+    /// Fails with [`ArenaError::OffsetOverflow`] once growing the arena would
+    /// cross the [`MAX_ARENA_CHUNKS`] chunk-count cap or the arena's capacity
+    /// cap ([`Self::max_capacity`]), and with [`ArenaError::AllocationFailed`]
+    /// if a single record cannot fit one chunk (`16 + data.len() > chunk_size`).
+    /// The arena cannot compact without the index, so this never reclaims;
+    /// [`ExpanseBlobMap::insert`] does, under the reclaim rule.
+    ///
+    /// Inlined, so a caller's fast path (the active chunk has room) makes no
+    /// call; opening a chunk is `alloc_blob_in_new_chunk`, out of line.
+    #[inline]
+    pub fn alloc_blob(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
+        self.alloc_blob_with_key(0, data)
     }
 
     /// [`Self::alloc_blob`]'s growth path: the active chunk cannot fit the
     /// record, so a new chunk is opened, within the caps.
     #[inline(never)]
-    fn alloc_blob_in_new_chunk(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
-        let needed = 8 + data.len();
-        // A new chunk is required — enforce the chunk-count and total capacity
-        // caps before allocating anything.
-        let idx = self.chunks.len();
-        if idx >= MAX_ARENA_CHUNKS {
-            return Err(ArenaError::OffsetOverflow);
-        }
+    fn alloc_blob_in_new_chunk_with_key(
+        &mut self,
+        key: u64,
+        data: &[u8],
+    ) -> Result<u64, ArenaError> {
+        let needed = 16 + data.len();
+        // Check if an empty chunk slot exists to reuse:
+        let empty_idx = self.chunks.iter().position(|c| c.capacity == 0);
+        let idx = match empty_idx {
+            Some(slot) => slot,
+            None => {
+                let count = self.chunks.len();
+                if count >= MAX_ARENA_CHUNKS {
+                    return Err(ArenaError::OffsetOverflow);
+                }
+                count
+            }
+        };
+
         if self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity {
             return Err(ArenaError::OffsetOverflow);
         }
 
         // Allocate a new chunk stamped with the arena's current generation.
         let mut new_chunk = ArenaChunk::new(self.chunk_size, self.generation)?;
-        let offset_in_chunk = new_chunk.alloc(data)?;
-        self.chunks.push(new_chunk);
+        let offset_in_chunk = new_chunk.alloc_with_key(key, data)?;
+        if let Some(slot) = empty_idx {
+            self.chunks[slot] = new_chunk;
+        } else {
+            self.chunks.push(new_chunk);
+        }
         self.total_allocated += self.chunk_size;
         self.active_chunk = Some(idx);
         self.live_bytes += needed;
@@ -1077,12 +1397,13 @@ impl BlobArena {
         Ok(self.global_offset(idx, offset_in_chunk))
     }
 
-    /// Prepares a [`ValueSlot`] for `data` and `hot_meta`: inline if `<= 7` bytes,
-    /// compressed inline if compressible with `hot_meta == 0`, or allocated in the
-    /// arena returning an `ArenaMeta` slot.
+    /// Prepares a [`ValueSlot`] for `data` and `hot_meta` with associated `key`:
+    /// inline if `<= 7` bytes, compressed inline if compressible with `hot_meta == 0`,
+    /// or allocated in the arena returning an `ArenaMeta` slot.
     #[inline(always)]
-    pub(crate) fn prepare_slot(
+    pub(crate) fn prepare_slot_with_key(
         &mut self,
+        key: u64,
         data: &[u8],
         hot_meta: u32,
     ) -> Result<ValueSlot, ArenaError> {
@@ -1098,9 +1419,21 @@ impl BlobArena {
             if hot_meta > ValueSlot::ARENA_META_MAX {
                 return Err(ArenaError::MetaOverflow);
             }
-            let global = self.alloc_blob(data)?;
+            let global = self.alloc_blob_with_key(key, data)?;
             slot_from_global(global, hot_meta)
         }
+    }
+
+    /// Prepares a [`ValueSlot`] for `data` and `hot_meta`: inline if `<= 7` bytes,
+    /// compressed inline if compressible with `hot_meta == 0`, or allocated in the
+    /// arena returning an `ArenaMeta` slot.
+    #[inline(always)]
+    pub(crate) fn prepare_slot(
+        &mut self,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> Result<ValueSlot, ArenaError> {
+        self.prepare_slot_with_key(0, data, hot_meta)
     }
 
     /// Returns a slice of the blob payload at flat `global_offset`. The chunk is
@@ -1126,10 +1459,32 @@ impl BlobArena {
     /// Records that the blob at flat `global_offset` was deleted/overwritten,
     /// decrementing the live-byte accounting used to decide compaction.
     pub fn record_deleted(&mut self, global_offset: u64) {
-        // Resolve the length and drop the borrow before mutating `live_bytes`.
-        let len = self.get_blob_slice(global_offset).map(<[u8]>::len);
-        if let Some(len) = len {
-            self.live_bytes = self.live_bytes.saturating_sub(8 + len);
+        let offset = match usize::try_from(global_offset) {
+            Ok(off) => off,
+            Err(_) => return,
+        };
+        let chunk_idx = offset / self.chunk_size;
+        let offset_in_chunk = offset % self.chunk_size;
+        let Some(chunk) = self.chunks.get_mut(chunk_idx) else {
+            return;
+        };
+        if chunk.capacity == 0 {
+            return;
+        }
+        // SAFETY: chunk.ptr is valid up to chunk.cursor(), and offset_in_chunk is bounded.
+        let Some(header) =
+            (unsafe { read_record_header(chunk.ptr.as_ptr(), offset_in_chunk, chunk.cursor()) })
+        else {
+            return;
+        };
+        let len = header.len as usize;
+        let rec_bytes = 16 + len;
+        self.live_bytes = self.live_bytes.saturating_sub(rec_bytes);
+        // SAFETY: chunk.counters points to valid ChunkCounters for this chunk.
+        unsafe {
+            let c = chunk.counters.as_ref();
+            atomic_sub_saturating(&c.live_bytes, rec_bytes);
+            atomic_sub_saturating(&c.live_records, 1);
         }
     }
 
@@ -1229,7 +1584,7 @@ impl BlobArena {
             let (key, raw) = rewrites[i];
             let slot = ValueSlot::from_raw(raw);
             if let Some(payload) = self.resolve_meta(slot.arena_meta_locator()) {
-                let global = new_arena.alloc_blob(payload)?;
+                let global = new_arena.alloc_blob_with_key(key, payload)?;
                 let new_slot = slot_from_global(global, slot.arena_meta_meta())?;
                 rewrites[kept] = (key, new_slot.to_raw());
                 kept += 1;
@@ -1407,13 +1762,13 @@ impl BlobArena {
         if self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity {
             return Err(ArenaError::OffsetOverflow);
         }
-        let mut chunk = ArenaChunk::new(self.chunk_size, self.generation)?;
-        chunk.cursor = chunk.capacity;
+        let chunk = ArenaChunk::new(self.chunk_size, self.generation)?;
         let grant = PrivateChunk {
             base: chunk.ptr,
             index,
             capacity: chunk.capacity,
             generation: chunk.generation,
+            counters: chunk.counters,
         };
         self.chunks.push(chunk);
         self.total_allocated += self.chunk_size;
@@ -1474,7 +1829,7 @@ impl BlobArena {
         not(feature = "ablation-blob-shared-arena")
     ))]
     pub(crate) fn alloc_would_refuse_at_cap(&self, len: usize) -> bool {
-        if 8 + len > self.chunk_size {
+        if 16 + len > self.chunk_size {
             return false;
         }
         if let Some(idx) = self.active_chunk
@@ -1484,6 +1839,139 @@ impl BlobArena {
         }
         self.chunks.len() >= MAX_ARENA_CHUNKS
             || self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity
+    }
+
+    /// Selects a victim chunk for bounded incremental evacuation (#1320).
+    ///
+    /// Requirements:
+    /// - Chunk is not empty (`capacity > 0`).
+    /// - Chunk is not the active chunk being allocated into (`Some(idx) != self.active_chunk`).
+    /// - Waste guard: `chunk.live_bytes * 2 < chunk.capacity` (utilization < 50%).
+    ///
+    /// Returns the chunk index with the minimum `live_bytes` (lowest live fraction / highest waste).
+    #[must_use]
+    pub(crate) fn select_victim_chunk(&self) -> Option<usize> {
+        let mut best_idx = None;
+        let mut min_live = usize::MAX;
+
+        for (i, chunk) in self.chunks.iter().enumerate() {
+            if chunk.capacity == 0 || Some(i) == self.active_chunk {
+                continue;
+            }
+            let live = chunk.live_bytes();
+            let cursor = chunk.cursor();
+            if live >= cursor {
+                continue;
+            }
+            if live.saturating_mul(2) < chunk.capacity && live < min_live {
+                min_live = live;
+                best_idx = Some(i);
+            }
+        }
+        best_idx
+    }
+
+    /// Evacuates one victim chunk, moving its live records to a new chunk (or reusing an empty slot)
+    /// and rewriting their index slots.
+    pub(crate) fn evacuate_victim_chunk<F>(
+        &mut self,
+        index: &mut ExpanseMap,
+        mut slot_writer: F,
+    ) -> Result<bool, ArenaError>
+    where
+        F: FnMut(&mut ExpanseMap, Key, u64),
+    {
+        let Some(victim_idx) = self.select_victim_chunk() else {
+            return Ok(false);
+        };
+
+        let victim_cursor = self.chunks[victim_idx].cursor();
+        let victim_ptr = self.chunks[victim_idx].ptr.as_ptr();
+
+        // If the victim chunk has 0 live records, free it directly without allocating a new chunk.
+        if self.chunks[victim_idx].live_records() == 0 {
+            let old_victim = core::mem::replace(&mut self.chunks[victim_idx], ArenaChunk::empty());
+            self.total_allocated = self.total_allocated.saturating_sub(self.chunk_size);
+            self.republish_table();
+            self.dispose_chunks(core_alloc::vec![old_victim]);
+            return Ok(true);
+        }
+
+        // Allocate a fresh destination chunk.
+        let dest_chunk = ArenaChunk::new(self.chunk_size, self.generation)?;
+        let empty_idx = self
+            .chunks
+            .iter()
+            .enumerate()
+            .position(|(i, c)| i != victim_idx && c.capacity == 0);
+        let dest_idx = match empty_idx {
+            Some(slot) => {
+                self.chunks[slot] = dest_chunk;
+                slot
+            }
+            None => {
+                if self.chunks.len() >= MAX_ARENA_CHUNKS {
+                    return Err(ArenaError::OffsetOverflow);
+                }
+                self.chunks.push(dest_chunk);
+                self.chunks.len() - 1
+            }
+        };
+
+        // Republish table so readers can resolve locators into dest_idx once slots are updated.
+        self.republish_table();
+
+        // Relocate live records.
+        let mut off = 0;
+        while off + 16 <= victim_cursor {
+            // SAFETY: victim_ptr is valid up to victim_cursor, off + 16 <= victim_cursor.
+            let Some(header) = (unsafe { read_record_header(victim_ptr, off, victim_cursor) })
+            else {
+                break;
+            };
+            let len = header.len as usize;
+            let key = header.key;
+            let rec_bytes = 16 + len;
+
+            // Check if this record is still live in the index.
+            let slot_ptr = index.get_value_slot(key);
+            let is_live = if let Some(slot_ptr) = slot_ptr {
+                // SAFETY: slot_ptr points to the live slot of key in the index.
+                let raw = unsafe { *slot_ptr.as_ptr() };
+                let slot = ValueSlot::from_raw(raw);
+                if slot.tag() == SlotTag::ArenaMeta {
+                    let locator = slot.arena_meta_locator();
+                    let global = (locator as u64) * (ARENA_ALIGN as u64);
+                    let expected_global =
+                        (victim_idx as u64) * (self.chunk_size as u64) + (off as u64);
+                    global == expected_global
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if is_live {
+                // SAFETY: victim_ptr is valid and off + 16 + len <= victim_cursor.
+                let payload = unsafe { core::slice::from_raw_parts(victim_ptr.add(off + 16), len) };
+                let new_off = self.chunks[dest_idx].alloc_with_key(key, payload)?;
+                let new_global = (dest_idx as u64) * (self.chunk_size as u64) + (new_off as u64);
+                // SAFETY: slot_ptr was verified Some above and is unchanged.
+                let old_slot = ValueSlot::from_raw(unsafe { *slot_ptr.unwrap().as_ptr() });
+                let new_slot = slot_from_global(new_global, old_slot.arena_meta_meta())?;
+                slot_writer(index, key, new_slot.to_raw());
+            }
+
+            off = (off + rec_bytes + 15) & !15;
+        }
+
+        // Replace victim chunk with empty tombstone.
+        let old_victim = core::mem::replace(&mut self.chunks[victim_idx], ArenaChunk::empty());
+        self.active_chunk = Some(dest_idx);
+        self.republish_table();
+        self.dispose_chunks(core_alloc::vec![old_victim]);
+        Ok(true)
     }
 
     /// Moves the reclaim rule's baseline to the arena's current state: after a
@@ -1743,6 +2231,17 @@ impl ExpanseBlobMap {
         self.arena.fold_live_delta(delta);
     }
 
+    #[cfg(all(
+        not(feature = "ablation-blob-shared-arena"),
+        not(feature = "ablation-blob-serial-writers"),
+        feature = "std"
+    ))]
+    pub(crate) fn update_chunk_cursor(&mut self, chunk_idx: usize, cursor: usize) {
+        if let Some(chunk) = self.arena.chunks.get_mut(chunk_idx) {
+            chunk.set_cursor(cursor);
+        }
+    }
+
     // No `arena_mut`. The index stores flat arena offsets, so handing out
     // `&mut BlobArena` is a licence to change one half of a two-part invariant
     // whose other half the holder cannot see (#763). Every mutation reachable
@@ -1805,7 +2304,7 @@ impl ExpanseBlobMap {
             if hot_meta > ValueSlot::ARENA_META_MAX {
                 return Err(ArenaError::MetaOverflow);
             }
-            let global = self.alloc_payload(data)?;
+            let global = self.alloc_payload(key, data)?;
             slot_from_global(global, hot_meta)?
         };
 
@@ -1817,13 +2316,13 @@ impl ExpanseBlobMap {
 
     /// [`Self::insert`]'s arena allocation, out of line so `insert` makes one
     /// call and holds nothing across it, as it did before the reclaim rule. The
-    /// retry needs `data` after a refusal, and only [`BlobArena::alloc_blob`]'s
+    /// retry needs `data` after a refusal, and only [`BlobArena::alloc_blob_with_key`]'s
     /// growth call can refuse; with the fast path inlined here, `data` stays live
     /// across that cold call alone.
     #[inline(never)]
-    fn alloc_payload(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
-        match self.arena.alloc_blob(data) {
-            Err(ArenaError::OffsetOverflow) => self.alloc_after_reclaim(data),
+    fn alloc_payload(&mut self, key: Key, data: &[u8]) -> Result<u64, ArenaError> {
+        match self.arena.alloc_blob_with_key(key, data) {
+            Err(ArenaError::OffsetOverflow) => self.alloc_after_reclaim(key, data),
             res => res,
         }
     }
@@ -1834,19 +2333,18 @@ impl ExpanseBlobMap {
     /// that are already indexed.
     #[cold]
     #[inline(never)]
-    fn alloc_after_reclaim(&mut self, data: &[u8]) -> Result<u64, ArenaError> {
+    fn alloc_after_reclaim(&mut self, key: Key, data: &[u8]) -> Result<u64, ArenaError> {
         if !self.reclaim_for_insert()? {
             return Err(ArenaError::OffsetOverflow);
         }
         self.arena
-            .alloc_blob(data)
+            .alloc_blob_with_key(key, data)
             .map_err(refused_after_compaction)
     }
 
-    /// Compacts once if the reclaim rule allows (#1290), returning whether it
-    /// did. A compaction that fails leaves the map untouched, and the rule's
-    /// baseline moves to the current state so the next refused insert does not
-    /// repeat it before the arena grows or loses live bytes.
+    /// Compacts once if the reclaim rule allows (#1290, #1320), returning whether it
+    /// did. First attempts bounded incremental victim evacuation under the waste guard.
+    /// If no victim chunk is eligible, falls back to full copying compaction.
     fn reclaim_for_insert(&mut self) -> Result<bool, ArenaError> {
         if !self.reclaim_at_cap || !self.arena.reclaim_allowed() {
             return Ok(false);
@@ -1858,6 +2356,29 @@ impl ExpanseBlobMap {
                 Err(e)
             }
         }
+    }
+
+    /// Evacuates one victim chunk if eligible under the waste guard ($u < 0.5$).
+    ///
+    /// Live records from the victim chunk are copied into an available chunk slot or a new chunk,
+    /// and their index slots are rewritten in place. The victim chunk is replaced with an empty
+    /// chunk tombstone and retired/disposed.
+    pub fn evacuate_victim_for_insert(&mut self) -> Result<bool, ArenaError> {
+        self.arena
+            .evacuate_victim_chunk(&mut self.index, |index, key, new_raw| {
+                if let Some(slot_ptr) = index.get_value_slot(key) {
+                    // SAFETY: slot_ptr points to the live slot of key in index, valid until next structural mutation.
+                    unsafe {
+                        #[cfg(all(target_pointer_width = "64", feature = "std"))]
+                        core::sync::atomic::AtomicU64::from_ptr(slot_ptr.as_ptr())
+                            .store(new_raw, core::sync::atomic::Ordering::Relaxed);
+                        #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
+                        {
+                            *slot_ptr.as_ptr() = new_raw;
+                        }
+                    }
+                }
+            })
     }
 
     /// [`Self::insert_shared`], compacting once under the reclaim rule if the
@@ -2014,7 +2535,7 @@ impl ExpanseBlobMap {
             if hot_meta > ValueSlot::ARENA_META_MAX {
                 return Err(ArenaError::MetaOverflow);
             }
-            let global = self.arena.alloc_blob(data)?;
+            let global = self.arena.alloc_blob_with_key(key, data)?;
             slot_from_global(global, hot_meta)?
         };
 
@@ -2188,6 +2709,98 @@ impl ExpanseBlobMap {
     /// Runs in-place garbage collection and compaction.
     pub fn compact(&mut self) -> Result<CompactionStats, ArenaError> {
         self.arena.compact_with_index(&mut self.index)
+    }
+
+    /// Structural invariant validator for ExpanseBlobMap (#1320).
+    ///
+    /// Validates:
+    /// - Every non-empty chunk capacity equals `arena.chunk_size`.
+    /// - Every chunk cursor and live accounting are consistent and within bounds.
+    /// - Every `ArenaMeta` slot in `index` resolves to a valid chunk and record header matching `key`.
+    /// - Total live bytes across chunks matches `arena.live_bytes`.
+    /// - Total allocated bytes matches `arena.total_allocated`.
+    pub fn validate_invariants(&self) -> Result<(), ArenaError> {
+        let chunk_size = self.arena.chunk_size;
+        let mut total_chunk_alloc = 0;
+        let mut total_chunk_live = 0;
+
+        for chunk in self.arena.chunks.iter() {
+            if chunk.capacity == 0 {
+                if chunk.cursor() != 0 || chunk.live_bytes() != 0 || chunk.live_records() != 0 {
+                    return Err(ArenaError::CorruptedHeader);
+                }
+                continue;
+            }
+            if chunk.capacity != chunk_size || chunk.cursor() > chunk.capacity {
+                return Err(ArenaError::CorruptedHeader);
+            }
+            if chunk.live_bytes() > chunk.cursor() {
+                return Err(ArenaError::CorruptedHeader);
+            }
+            total_chunk_alloc += chunk.capacity;
+            total_chunk_live += chunk.live_bytes();
+
+            // Verify record headers in this chunk.
+            let mut off = 0;
+            let mut verified_records = 0;
+            while off + 16 <= chunk.cursor() {
+                // SAFETY: chunk.ptr points to valid chunk memory up to chunk.cursor().
+                let Some(header) =
+                    (unsafe { read_record_header(chunk.ptr.as_ptr(), off, chunk.cursor()) })
+                else {
+                    return Err(ArenaError::CorruptedHeader);
+                };
+                let len = header.len as usize;
+                let rec_bytes = 16 + len;
+                if off + rec_bytes > chunk.cursor() {
+                    return Err(ArenaError::CorruptedHeader);
+                }
+                verified_records += 1;
+                off = (off + rec_bytes + 15) & !15;
+            }
+            if chunk.live_records() > verified_records {
+                return Err(ArenaError::CorruptedHeader);
+            }
+        }
+
+        if total_chunk_alloc != self.arena.total_allocated {
+            return Err(ArenaError::CorruptedHeader);
+        }
+        if total_chunk_live != self.arena.live_bytes {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        // Verify index entries pointing to arena.
+        for (key, raw_slot) in self.index.iter() {
+            let slot = ValueSlot::from_raw(raw_slot);
+            if slot.tag() == SlotTag::ArenaMeta {
+                let locator = slot.arena_meta_locator();
+                let global = (locator as u64) * (ARENA_ALIGN as u64);
+                let chunk_idx = (global as usize) / chunk_size;
+                let off = (global as usize) % chunk_size;
+
+                let Some(chunk) = self.arena.chunks.get(chunk_idx) else {
+                    return Err(ArenaError::InvalidOffset);
+                };
+                if chunk.capacity == 0 || off + 16 > chunk.cursor() {
+                    return Err(ArenaError::InvalidOffset);
+                }
+                // SAFETY: chunk.ptr points to valid chunk memory and off + 16 <= chunk.cursor().
+                let Some(header) =
+                    (unsafe { read_record_header(chunk.ptr.as_ptr(), off, chunk.cursor()) })
+                else {
+                    return Err(ArenaError::CorruptedHeader);
+                };
+                if header.key != key || header.generation != chunk.generation {
+                    return Err(ArenaError::GenerationMismatch);
+                }
+                if off + 16 + (header.len as usize) > chunk.cursor() {
+                    return Err(ArenaError::CorruptedHeader);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Returns a reference to the internal index.
@@ -2501,7 +3114,14 @@ impl ExpanseBlobMap {
                 None
             };
             if let Some(len) = payload_len {
-                map.arena.live_bytes += 8 + len;
+                let rec_bytes = 16 + len;
+                map.arena.live_bytes += rec_bytes;
+                let locator = slot.arena_meta_locator();
+                let global = (locator as u64) * (ARENA_ALIGN as u64);
+                let chunk_idx = (global as usize) / map.arena.chunk_size;
+                if let Some(chunk) = map.arena.chunks.get_mut(chunk_idx) {
+                    chunk.add_live_record(rec_bytes);
+                }
             }
         }
 
@@ -2610,9 +3230,9 @@ mod tests {
         // 16 chunks hold 448 records of 128 B (28 per chunk); 4 x 448 overwrites.
         assert_eq!(overwrite_at_cap(224, 128, 1792), (0, 7), "G1.1");
         assert_eq!(overwrite_at_cap(225, 128, 1792), (1346, 1), "G1.2");
-        // 9 B records: 17 bytes charged, a 32-byte stride, 128 per chunk.
-        assert_eq!(overwrite_at_cap(1280, 9, 8192), (0, 10), "G1.3");
-        assert_eq!(overwrite_at_cap(1281, 9, 8192), (6658, 1), "G1.4");
+        // 9 B records: 25 bytes charged, a 32-byte stride, 128 per chunk (#1320 keyed header).
+        assert_eq!(overwrite_at_cap(1146, 9, 8192), (0, 9), "G1.3");
+        assert_eq!(overwrite_at_cap(1147, 9, 8192), (6390, 1), "G1.4");
     }
 
     /// #1290 G1.5a (METHODOLOGY §28a), `simulate_fill_then_remove` in the
@@ -2742,7 +3362,9 @@ mod tests {
         let table = arena.reader_table();
         assert!(!table.is_null(), "first chunk publishes a table");
         // SAFETY: pinned, freshly published table.
-        let (ptr, len) = unsafe { resolve_meta_in_table(table, locator) }.expect("resolves");
+        let (ptr, len) = unsafe { resolve_meta_in_table(table, locator) }
+            .found()
+            .expect("resolves");
         // SAFETY: in-bounds of the live chunk (per resolve contract).
         let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
         assert_eq!(bytes, &payload[..]);
@@ -2766,6 +3388,7 @@ mod tests {
         // SAFETY: pinned, freshly published table.
         let (p2, l2) =
             unsafe { resolve_meta_in_table(arena.reader_table(), new_slot.arena_meta_locator()) }
+                .found()
                 .expect("relocated record resolves");
         // SAFETY: in-bounds of the live compacted chunk.
         let bytes = unsafe { core::slice::from_raw_parts(p2, l2) };
@@ -3330,7 +3953,7 @@ mod tests {
         let chunk = 1024 * 1024; // 1 MiB
         let mut map = ExpanseBlobMap::with_chunk_size(chunk);
         for k in 0..20u64 {
-            let payload = vec![(0xA0 + k) as u8; chunk - 8];
+            let payload = vec![(0xA0 + k) as u8; chunk - 16];
             map.insert(k, &payload, 1000 + k as u32)
                 .expect("insert past 16 MiB");
         }
@@ -3344,7 +3967,7 @@ mod tests {
             );
             let (view, meta) = map.get(k).expect("value present");
             assert!(view.is_arena());
-            assert_eq!(view.as_bytes(), &vec![(0xA0 + k) as u8; chunk - 8][..]);
+            assert_eq!(view.as_bytes(), &vec![(0xA0 + k) as u8; chunk - 16][..]);
             // Metadata is preserved for ALL keys, including those past 16 MiB.
             assert_eq!(meta, 1000 + k as u32, "k={k} meta must survive past 16 MiB");
         }
@@ -3395,7 +4018,7 @@ mod tests {
             "max_capacity must be clamped to ARENA_META_CEILING"
         );
 
-        let payload = vec![0x42; chunk - 8];
+        let payload = vec![0x42; chunk - 16];
         // 1st chunk
         assert!(map.insert(1, &payload, 0).is_ok());
         assert_eq!(map.len(), 1);
@@ -3439,7 +4062,7 @@ mod tests {
         // cheaply (the compacted arena inherits this cap), exercising the
         // all-or-nothing failure path without allocating gigabytes.
         map.arena.max_capacity = 16 * 1024 * 1024;
-        let payload = vec![0x5A; chunk - 8];
+        let payload = vec![0x5A; chunk - 16];
         map.insert(0, &payload, 42).unwrap();
         let raw = map.index.get(0).expect("key 0 present");
         // 16 extra index entries aliasing the single arena record at offset 0.
@@ -3458,7 +4081,7 @@ mod tests {
         assert_eq!(map.arena().generation(), gen_before);
         for k in 0..=16u64 {
             let (view, _) = map.get(k).expect("entry survives failed compaction");
-            assert_eq!(view.len(), chunk - 8);
+            assert_eq!(view.len(), chunk - 16);
         }
     }
 
@@ -3740,7 +4363,7 @@ mod tests {
         let arena_payload = b"this is a larger payload > 7 bytes";
         map.insert(1, arena_payload, 0x1234).unwrap();
         assert_eq!(map.len(), 1);
-        assert_eq!(map.arena.live_bytes, 8 + arena_payload.len());
+        assert_eq!(map.arena.live_bytes, 16 + arena_payload.len());
         let (view, meta) = map.get(1).unwrap();
         assert_eq!(view.as_bytes(), arena_payload);
         assert_eq!(meta, 0x1234);
@@ -3749,7 +4372,7 @@ mod tests {
         let arena_payload_2 = b"another large payload for replacement";
         map.insert(1, arena_payload_2, 0x5678).unwrap();
         assert_eq!(map.len(), 1);
-        assert_eq!(map.arena.live_bytes, 8 + arena_payload_2.len());
+        assert_eq!(map.arena.live_bytes, 16 + arena_payload_2.len());
         let (view, meta) = map.get(1).unwrap();
         assert_eq!(view.as_bytes(), arena_payload_2);
         assert_eq!(meta, 0x5678);

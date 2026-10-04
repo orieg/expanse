@@ -99,9 +99,10 @@ format.** A build reads only images written with its own format version; an
 image carrying another version is refused with
 `ArenaError::UnsupportedFormatVersion { found, supported }`, never loaded
 partially and never migrated. The version is
-`2` since #518 (inline compressed value slots), which means images written by
-v0.5.0 (`1`) do not load in later releases; nothing in the library rewrites a
-v1 image, so a consumer that needs continuity across that boundary re-inserts
+`3` since #1320 (16-byte keyed `BlobRecordHeader` for incremental compaction
+and bounded evacuation), which means images written by earlier releases
+(`1` or `2`) do not load in later releases; nothing in the library rewrites an
+older image, so a consumer that needs continuity across that boundary re-inserts
 from its source of truth. A change to the format bumps the constant and is
 called out in the release notes; a damaged header (bad magic, size or
 chunk-geometry fields) is `CorruptedHeader`, a different error.

@@ -4544,8 +4544,8 @@ All quantities and thresholds below are computed by pure functions in `scripts/b
 6. **Writer-stall projection and target gate ceiling:**
    - Evacuating at most 7,281 live records:
      - Payload copy stall: `predicted_incremental_stall_ns(128, 2 MiB)` = 467,757 ns $\approx 0.468\text{ ms}$ `(projected)` (derived via `step0_max_phase1_ns_per_record()` = 64.244 ns/record from committed artifact `STEP0_PROBE_LOG`, `docs/benchmarks/concurrency/results/step0_1300_phases/probe.log`; cf. README §29.1, `docs/benchmarks/concurrency/README.md:5674–5675`).
-     - Slot rewrite component: each evacuated record's slot is rewritten via an $O(k)$ trie descent ($k \le 8$ levels) using its header key (eliminating the $O(\text{index population})$ full-index scan). At $\sim 50\text{ ns}$ per descent, rewriting 7,281 slots adds $\sim 364\text{ µs}$.
-     - Combined projected stall: $\approx 0.832\text{ ms}$ `(projected)`.
+     - Slot rewrite component: each evacuated record's slot is rewritten via an $O(k)$ trie descent ($k \le 8$ levels) using its header key (eliminating the $O(\text{index population})$ full-index scan). At $\sim 50\text{ ns}$ per descent (assumed root-to-leaf trie traversal latency without cached leaf on the reference host; not measured from a committed artifact), rewriting 7,281 slots adds $\approx 0.364\text{ ms}$ `(projected)` ($\approx 364\text{ µs}$).
+     - Combined projected stall: $\approx 0.832\text{ ms}$ `(projected)` ($0.468\text{ ms}$ copy + $0.364\text{ ms}$ slot rewrite).
    - Gate ceiling: largest insert latency $\le 5.0\text{ ms}$ `(target)` — maintainer policy providing a $>60\times$ reduction from the 302.5–320.1 ms whole-arena baseline and a $>6\times$ operational margin over the 0.832 ms projected stall to absorb tail dispersion across writer counts.
 
 ### 31.3 The change
@@ -4593,10 +4593,14 @@ All quantities and thresholds below are computed by pure functions in `scripts/b
 
 | id | quantity | prediction | verdict |
 |---|---|---|---|
-| G1 | at 3,600,000 live, per `SyncExpanseBlobMap` (W = 1, 4, 12) and `ExpanseBlobMap` overwrite cell, largest insert latency | H's BCa 95 % upper bound $\le 5.0\text{ ms}$ `(target)` (predicted stall 0.832 ms `(projected)`: 0.468 ms copy + 0.364 ms index descent; vs B's 302.5–320.1 ms) | `PASS` when it holds in all cells in both run pairs; `FAIL` if $> 5.0\text{ ms}$; `INCONCLUSIVE` otherwise |
-| G2 | non-compaction Callgrind arms: <br>• unmodified paths (`blobmap_get`, `sync_blobmap_get`, `blobmap_insert_inline`, non-blob arms) <br>• plain mutations gaining header write / counters (`blobmap_insert`, `blobmap_overwrite`, `blobmap_remove`) <br>• concurrent mutations gaining counters (`sync_blobmap_insert`, `sync_blobmap_overwrite`, `sync_blobmap_remove`, `sync_blobmap_churn`) | <br>within +0.1 % of B <br>within +1.5 % of B (pre-data derived ceiling, +3–6 Ir/op) <br>within +1.0 % of B (pre-data derived ceiling, +3–6 Ir/op) | review bounds (§6) |
+| G1 | at 3,600,000 live, per `SyncExpanseBlobMap` (W = 1, 4, 12) and `ExpanseBlobMap` overwrite cell, largest insert latency | H's BCa 95 % upper bound $\le 5.0\text{ ms}$ `(target)` (predicted stall 0.832 ms `(projected)`: 0.468 ms copy + 0.364 ms index descent [50 ns assumed descent latency]; vs B's 302.5–320.1 ms) | `PASS` when it holds in all cells in both run pairs; `FAIL` if $> 5.0\text{ ms}$; `INCONCLUSIVE` otherwise |
+| G2 | non-compaction Callgrind arms: <br>• unmodified paths (`blobmap_get`, `sync_blobmap_get`, `blobmap_insert_inline`, non-blob arms) <br>• plain mutations gaining header write / counters (`blobmap_insert`, `blobmap_overwrite`, `blobmap_remove`) <br>• concurrent mutations gaining counters (`sync_blobmap_insert`, `sync_blobmap_overwrite`, `sync_blobmap_remove`, `sync_blobmap_churn`) | <br>within +0.1 % of B <br>within +1.5 % `(target)` of B (+3–6 Ir/op basis over ~482–520 Ir/op bases) <br>within +1.0 % `(target)` of B (+3–6 Ir/op basis over ~640–1108 Ir/op bases) | review bounds (§6) |
 | G3 | sustained live records under overwrite workload at 128 B, 2 MiB chunks, 1 GiB cap | sustains at least 3,728,128 live records without error | `PASS` / `FAIL` |
 | P4 | density loss at 128 B payload | matches `density_cost_ratio` (2.66 %, 101,941 records) | reported |
+
+**Pre-data G2 amendment note.** This G2 ceiling amendment predates all data for these arms on this branch (pre-registered at commit `5f2776ac2`). The derived ceilings are grounded in CI instruction-counts run [36887889806](https://github.com/orieg/expanse/actions/runs/36887889806) on `main` at `0d414380`:
+- Plain mutations: `blobmap_insert/random` base is 520.14 Ir/op (26,007,112 Ir / 50k ops), `blobmap_overwrite/random` base is 482.35 Ir/op (24,117,540 Ir / 50k ops), `blobmap_remove/random` base is 518.18 Ir/op (25,908,756 Ir / 50k ops). A +3–6 Ir/op structural cost from writing the 8-byte key and/or updating chunk live counters represents +0.58% to +1.24%, establishing the $\le +1.5$% `(target)` ceiling.
+- Concurrent mutations: `sync_blobmap_insert/random` base is 1,107.97 Ir/op (55,398,502 Ir / 50k ops, README:2847), `sync_blobmap_overwrite/random` base is 640.21 Ir/op (32,010,456 Ir / 50k ops), `sync_blobmap_remove/random` base is 848.55 Ir/op (42,427,487 Ir / 50k ops), `sync_blobmap_churn/random` base is 985.20 Ir/op (49,260,110 Ir / 50k ops). A +3–6 Ir/op structural cost represents +0.27% to +0.94%, establishing the $\le +1.0$% `(target)` ceiling.
 
 **Gate.**
 - G1 `PASS`, G2 review bound met, G3 `PASS`, with all tests and §2.3 five-subsystem audit satisfied: the change merges.

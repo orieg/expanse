@@ -975,7 +975,7 @@ The design would address this with **base-relative addressing**:
 
 ```
 ========================================================================================
-ExpanseBlobMap image (EXPANSE_FORMAT_VERSION = 2)
+ExpanseBlobMap image (EXPANSE_FORMAT_VERSION = 3)
 ========================================================================================
 +--------------------------------------------------------------------------------------+
 | Header (64 bytes)                                                                    |

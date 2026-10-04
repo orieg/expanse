@@ -340,3 +340,204 @@ fn test_image_format_version_is_checked_before_corruption() {
     let loaded = ExpanseBlobMap::from_bytes_slice(&image).unwrap();
     assert_eq!(loaded.get(1).unwrap().0.as_bytes(), b"alpha");
 }
+
+#[test]
+fn test_blob_record_header_layout() {
+    use core::mem::{align_of, offset_of, size_of};
+    use expanse_trie::blobmap::BlobRecordHeader;
+
+    assert_eq!(
+        size_of::<BlobRecordHeader>(),
+        16,
+        "BlobRecordHeader must be exactly 16 bytes"
+    );
+    assert_eq!(
+        align_of::<BlobRecordHeader>(),
+        8,
+        "BlobRecordHeader must have 8-byte alignment"
+    );
+    assert_eq!(
+        offset_of!(BlobRecordHeader, key),
+        0,
+        "key must be at offset 0"
+    );
+    assert_eq!(
+        offset_of!(BlobRecordHeader, len),
+        8,
+        "len must be at offset 8"
+    );
+    assert_eq!(
+        offset_of!(BlobRecordHeader, generation),
+        12,
+        "generation must be at offset 12"
+    );
+}
+
+#[test]
+#[cfg(not(miri))]
+fn test_image_format_version_rejection_matrix() {
+    use expanse_trie::blobmap::{ArenaError, EXPANSE_FORMAT_VERSION};
+
+    let mut map = ExpanseBlobMap::new();
+    map.insert(1, b"hello world payload", 0).unwrap();
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("expanse_fmt_matrix_{}.img", std::process::id()));
+    map.save_to_file(&path).unwrap();
+    let image = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).ok();
+
+    assert_eq!(EXPANSE_FORMAT_VERSION, 3);
+    assert_eq!(
+        &image[8..12],
+        &3u32.to_le_bytes(),
+        "header word 2 must be format version 3"
+    );
+
+    // Test rejection of versions 0, 1, 2, 4
+    for &unsupported_version in &[0u32, 1u32, 2u32, 4u32] {
+        let mut corrupted = image.clone();
+        corrupted[8..12].copy_from_slice(&unsupported_version.to_le_bytes());
+        match ExpanseBlobMap::from_bytes_slice(&corrupted) {
+            Err(ArenaError::UnsupportedFormatVersion { found, supported }) => {
+                assert_eq!(found, unsupported_version);
+                assert_eq!(supported, 3);
+            }
+            Err(other) => {
+                panic!("expected UnsupportedFormatVersion for {unsupported_version}, got {other:?}")
+            }
+            Ok(_) => panic!("version {unsupported_version} must not load"),
+        }
+    }
+
+    // Supported version 3 loads correctly
+    let loaded = ExpanseBlobMap::from_bytes_slice(&image).unwrap();
+    assert_eq!(loaded.get(1).unwrap().0.as_bytes(), b"hello world payload");
+}
+
+#[test]
+fn test_blob_arena_validate_invariants_positive_and_negative_control() {
+    use expanse_trie::blobmap::ArenaError;
+
+    let mut map = ExpanseBlobMap::with_chunk_size(4096);
+    assert!(map.validate_invariants().is_ok());
+
+    // Positive control: insert varied payloads
+    for i in 0..50 {
+        let payload = vec![(i & 0xff) as u8; 64];
+        map.insert(i, &payload, (i as u32) % 10).unwrap();
+    }
+    assert!(map.validate_invariants().is_ok());
+
+    // Delete some keys (keep key 0 live as the first record in chunk 0)
+    for i in (10..50).step_by(2) {
+        map.remove(i);
+    }
+    assert!(map.validate_invariants().is_ok());
+
+    // Serialize to buffer
+    let mut bytes = Vec::new();
+    map.save_to_writer(&mut bytes).unwrap();
+
+    let loaded = ExpanseBlobMap::from_bytes_slice(&bytes).unwrap();
+    loaded
+        .validate_invariants()
+        .expect("loaded validate_invariants");
+
+    // Negative control 1: corrupt the chunk_size in the global header
+    // In global header: bytes 48..56 is chunk_size (after magic[8], ver[4], flags[4], entry_count[8], idx_off[8], arena_off[8], total_size[8]) -> chunk_size is offset 48
+    let mut corrupted_hdr = bytes.clone();
+    corrupted_hdr[48..56].copy_from_slice(&99999u64.to_le_bytes());
+    assert!(matches!(
+        ExpanseBlobMap::from_bytes_slice(&corrupted_hdr),
+        Err(ArenaError::CorruptedHeader)
+    ));
+
+    // Negative control 2: corrupt first record header's key
+    // File header is 64 bytes. Index is map.len() * 16 bytes.
+    // Chunk 0 header is 24 bytes. First record starts right after chunk 0 header.
+    let arena_offset = 64 + (map.len() as usize) * 16;
+    let first_record_key_offset = arena_offset + 24;
+    let mut corrupted_rec = bytes.clone();
+    corrupted_rec[first_record_key_offset] ^= 0xFF; // corrupt key of first record
+    let loaded_bad = ExpanseBlobMap::from_bytes_slice(&corrupted_rec).unwrap();
+    let res = loaded_bad.validate_invariants();
+    assert!(
+        matches!(res, Err(ArenaError::GenerationMismatch)),
+        "corrupted record key mismatch must be caught by validate_invariants, got {res:?}"
+    );
+}
+
+#[test]
+fn test_bounded_victim_chunk_evacuation() {
+    let mut map = ExpanseBlobMap::with_chunk_size(4096);
+    let payload = |k: u64| -> Vec<u8> { (0..128).map(|i| (k ^ i) as u8).collect() };
+    for k in 0..35 {
+        map.insert(k, &payload(k), 1).unwrap();
+    }
+    assert!(map.validate_invariants().is_ok());
+
+    // Initial state: chunk 0 is full (u > 0.9). No victim chunk should be selectable.
+    assert!(
+        !map.evacuate_victim_for_insert().unwrap(),
+        "no victim when utilization is high"
+    );
+
+    // Invalidate records in chunk 0: delete 18 records (0..18) from chunk 0.
+    // Utilization drops below 0.5. Chunk 0 is now a valid victim.
+    for k in 0..18 {
+        assert!(map.remove(k), "remove key {k}");
+    }
+    assert!(map.validate_invariants().is_ok());
+
+    // Evacuate victim chunk
+    let evacuated = map.evacuate_victim_for_insert().unwrap();
+    assert!(evacuated, "victim chunk with u < 0.5 must be evacuated");
+
+    // Invariants must hold after evacuation
+    assert!(map.validate_invariants().is_ok());
+
+    // Verify all remaining live keys are present with intact payloads
+    for k in 18..35 {
+        let (view, meta) = map.get(k).expect("live key after evacuation");
+        assert_eq!(view.as_bytes(), &payload(k)[..]);
+        assert_eq!(meta, 1);
+    }
+
+    // Verify deleted keys are absent
+    for k in 0..18 {
+        assert!(map.get(k).is_none());
+    }
+}
+
+#[test]
+fn test_bounded_per_insert_evacuation_under_capacity_cap() {
+    let mut map = ExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 3 * 4096);
+    map.set_reclaim_at_cap(true);
+
+    let payload = |k: u64| -> Vec<u8> { (0..128).map(|i| (k ^ i) as u8).collect() };
+
+    for k in 0..50 {
+        map.insert(k, &payload(k), 1).unwrap();
+    }
+    assert!(map.validate_invariants().is_ok());
+
+    // Delete records from chunk 0 so that it becomes a victim (u < 0.5)
+    for k in 0..18 {
+        map.remove(k);
+    }
+    assert!(map.validate_invariants().is_ok());
+
+    // Insert more records up to and beyond the cap:
+    // With chunk 0 wasted space, cap would normally be exceeded.
+    // But per-insert evacuation reclaims the victim chunk and allows inserts to proceed!
+    for k in 50..80 {
+        map.insert(k, &payload(k), 1)
+            .expect("insert should succeed due to bounded evacuation");
+    }
+
+    assert!(map.validate_invariants().is_ok());
+    for k in 18..80 {
+        let (view, _) = map.get(k).expect("key present");
+        assert_eq!(view.as_bytes(), &payload(k)[..]);
+    }
+}
