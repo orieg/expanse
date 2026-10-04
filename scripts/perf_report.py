@@ -127,6 +127,7 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_map_prev": 50_000,
     # Full ascending scans (#1142): one step per entry of the 50k-key map.
     "sync_map_next_after_scan": 50_000,
+    "sync_map_scan": 50_000,
     # Concurrent counts under a writer (#1144): `COUNT_OPS` steps each over
     # the 50k-key map (`benches/instructions.rs`).
     "sync_map_count_locked": 1_000,
@@ -358,6 +359,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_map_prev",
             "map_cursor_scan",
             "sync_map_next_after_scan",
+            "sync_map_scan",
             "map_count_below",
             "set_count_below",
             "sync_map_count_locked",

@@ -2290,6 +2290,31 @@ fn sync_map_next_after_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// Full ascending scan through the concurrent map batch cursor (#1142).
+// In Stage 1 (arm registered before engine code per AGENTS.md §6), this
+// exercises the baseline scan loop identical to `sync_map_next_after_scan`.
+// When the batch cursor lands in Later Stages, this arm calls the batch cursor.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+#[bench::sequential(args = ("sequential",), setup = built_sync_map)]
+#[bench::clustered(args = ("clustered",), setup = built_sync_map)]
+fn sync_map_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, _probes) = built;
+    let rd = map.reader();
+    let mut sink = 0u64;
+    let mut n = 0usize;
+    let cur = rd.cursor();
+    for (k, v) in cur {
+        sink ^= k ^ v;
+        n += 1;
+    }
+    assert_eq!(n, POP, "the scan visits every entry once");
+    // Leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 // ---- Concurrent counts under a writer (#1144) -----------------------------
 //
 // Counts on the concurrent map go through `with_locked`, which folds the
@@ -3175,6 +3200,7 @@ library_benchmark_group!(
         sync_map_prev_locked,
         sync_map_prev,
         sync_map_next_after_scan,
+        sync_map_scan,
         sync_map_count_locked,
         sync_map_write_twin,
         sync_map_count_after_write,

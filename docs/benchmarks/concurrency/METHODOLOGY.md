@@ -4490,3 +4490,83 @@ No tree mutation entry point is added. Phase 2 stores slots through the existing
 - **Out of scope:**
   - the writers' wait, which is item 5;
   - the free's placement, which gets its own record on #1300.
+
+## 32. Pre-registration for #1142 — validated batch cursor on concurrent map readers (appended 2026-10-03, locked before any batch-cursor engine code)
+
+> **Section numbering note:** Section 31 is allocated to PR #1344 (A5, incremental blob arena compaction). This section uses §32 and will be renumbered if needed upon merge per work plan §0 rule 11.
+
+### 32.1 The problem and architectural shape
+
+`SyncExpanseMap` reader handles (`MapReader`, `OwnedMapReader`, `DetachedMapReader`) expose single-key ordered operations (`first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before`, `prev_before`) via `map_reader_ordered_reads!` (`crates/expanse/src/sync.rs`). These entry points are public and tracked in `.github/public-api/expanse-trie.txt`, completing prerequisite (a) of #1142.
+
+However, each single-key ordered operation pins the epoch, samples the tree version word, and descends from the root through `sync_nav::next_validated`. A $K$-entry scan using `next_after` therefore pays $K$ epoch pins and $K$ root descents.
+
+The validated batch cursor architecture:
+- **Pinning:** pins the epoch once per batch.
+- **Terminal buffer:** copies one terminal's `(key: u64, val: u64)` entries using raw atomic loads into a cursor-owned buffer.
+- **Buffer sizing derivation (`scripts/batch_cursor_bounds.py`):**
+  - In Expanse's digital trie, the widest terminal is a level-1 bitmap leaf (`LeafB1`), which represents an 8-bit byte expanse and holds at most $2^8 = 256$ entries (`MAX_LEAFB1_POP = 256`, `crates/expanse/src/leaf.rs`).
+  - At 16 bytes per entry, a 4,096-byte (4 KiB) cursor-owned buffer strictly accommodates any terminal in the trie.
+  - Sizing decision: a 4 KiB buffer is chosen over mid-leaf resumption. A 4 KiB buffer guarantees that every terminal is copied in a single batch (0 extra descents across all valid populations $P \in [0, 256]$) and preserves terminal-level atomicity under the parent bracket. A narrower buffer (e.g. 64 entries) incurs $\lceil P / B \rceil - 1$ extra root descents (up to 3 extra descents, 42 extra version loads, and 21 extra fences per leaf under depth-7 point descent), breaks terminal atomicity across batches, and provides no memory advantage since 4 KiB resides entirely within L1 data cache and requires zero heap allocation during scanning.
+- **Terminal atomicity and covering function:** in Expanse, terminal leaves (`Leaf1`..`Leaf7`, `LeafB1`, immediates) carry no version word of their own (`docs/ARCHITECTURE.md` §4.1 line 589; `crates/expanse/src/sync_nav.rs:26-29`). Their stores are bracketed by their covering parent branch's version word (`Holder::Node(vp, snap)`, `crates/expanse/src/sync_nav.rs:101-114`), which brackets every in-place store (`crates/expanse/src/mutate_map.rs:1339, 1485, 1500, 1684`). Draining a terminal leaf under its covering parent's version word validates strictly 1 branch node (`terminal_drain_read_set_branches() = 1`), paying 2 version loads and 1 acquire fence (`olc_bounds.version_word_cost(1, retained=False) = (2, 1)`: `occ::node_sample` at line 44, `occ::node_validate` at line 60).
+- **Sibling-step resume and skipped empty siblings:** within a batch (while pinned), the cursor steps to the next sibling under the direct parent's retained version word. Under Expanse's lazy census rollup (`docs/ARCHITECTURE.md` §4.1 line 591), child mutations do not modify ancestor version words. However, filling an empty slot in a branch rewrites the branch's digit and edge arrays inside that branch's own version bracket (`crates/expanse/src/mutate_map.rs:1868` for `BranchL3`, line 1904 for `BranchL7`, line 2000 for `BranchB`, line 2140 for `BranchU`). Therefore, the parent branch's version word covers the absence of any skipped empty sibling. If navigation enters a non-empty child subtree, that child has its own version word and may mutate without moving the parent; hence any entered branch is retained in the read set (`crates/expanse/src/sync_nav.rs:407, 442, 490`), bounded by `ordered_read_set_branches(l) <= 13` (`scripts/olc_bounds.py`), within `READ_SET_CAP = 16` (`sync_nav.rs:46`), and re-validated at the end (`sync_nav.rs:209`).
+- **Across-batch resume:** across batches, the cursor unpins and re-descends from the root by key (`next_at_or_after`). Once unpinned, epoch-based reclamation (EBR) permits node memory to be retired and recycled through freelists; retaining raw node pointers across an unpin would introduce a use-after-free hazard.
+
+### 32.2 Scan semantics
+
+The batch cursor provides a **weakly consistent, strictly ascending scan**:
+1. **Strictly ascending:** keys are yielded in strictly increasing order ($k_1 < k_2 < \dots < k_m$).
+2. **Atomic terminal snapshots:** each copied terminal is read and validated atomically under its parent's OCC version bracket.
+3. **Present throughout:** every key that exists in the map continuously from the start of the scan until the scan passes its key value is guaranteed to be emitted exactly once.
+4. **Not a snapshot (#1103):** keys inserted or removed concurrently during the scan may or may not be observed; keys inserted in regions already passed are not seen; keys inserted ahead of the cursor before it reaches that terminal may be seen. No key is ever emitted more than once.
+
+### 32.3 Soundness gates, before any measurement
+
+No performance claim is evaluated until every gate below passes:
+- **G32.1 — Deterministic park-point tests:** thread-armed `cfg(test)` park points at key transitions with negative controls (insertion into just-copied terminal before validation, insertion into skipped sibling, removal from next leaf, obsolete/split parent, leaf demotion). Each negative control must fail by name; the positive tests must pass (AGENTS.md §2.3).
+- **G32.2 — Loom model:** model verifying the retained-path resume and parent validation safety under concurrent preemptions.
+- **G32.3 — Scan linearizability checker:** whole-scan checker in `tests/linearizability.rs` verifying scan semantics over concurrent execution histories.
+- **G32.4 — Miri UB-site workload:** concurrent reader/writer batch cursor scan workload registered in `.github/miri-ub-sites.json`.
+- **G32.5 — Differential testing:** differential testing against `MapCursor` and `std::collections::BTreeMap` on quiescent trees across all key distributions.
+- **G32.6 — Boundary tests:** verification of empty map, empty range ($lo > hi$), single-key present/absent ($lo == hi$), bounds between existing keys, and extremal keys ($0$ and `u64::MAX`).
+
+### 32.4 Predictions, each with its refuter
+
+- **P32.1 — Single-threaded scalar paths do not move (AGENTS.md §2.1.5):**
+  - In each PR that adds batch-cursor code, against that PR's base, `map_cursor_scan/*`, `map_nav/*`, `map_prev/*`, `map_get/*`, and `map_insert/*` change by at most 0.1%, the §6 review threshold.
+  - **REFUTED** on any single-threaded arm regressing by > 0.1%.
+- **P32.2 — Callgrind instruction reduction against `sync_map_next_after_scan`:**
+  - Pre-registered target ceilings (target) registered in `scripts/batch_cursor_bounds.py::TARGET_CALLGRIND_RATIOS`:
+    - `sync_map_scan/sequential`: instruction count ratio $\le 0.30$ vs `sync_map_next_after_scan/sequential` (target) (>= 70% instruction reduction target).
+    - `sync_map_scan/clustered`: instruction count ratio $\le 0.40$ vs `sync_map_next_after_scan/clustered` (target) (>= 60% instruction reduction target).
+    - `sync_map_scan/random`: instruction count ratio $\le 0.50$ vs `sync_map_next_after_scan/random` (target) (>= 50% instruction reduction target).
+  - Evaluated on CI `instruction-counts` job.
+  - **REFUTED** if any ratio exceeds its pre-registered target ceiling.
+- **P32.3 — Concurrent wall-clock throughput scaling:**
+  - Evaluated on the reference host via `writer_scaling --read-op scan` (specified in §32.5 below; not run in this stage).
+  - Reader scan throughput with batch cursor exceeds unbatched `next_after` scan throughput by $\ge 3\times$ at W = 0 (target) and $\ge 2\times$ at W = 1, R = 4 (target).
+  - **REFUTED** if BCa 95% confidence interval lower bound falls below these thresholds across two independent runs.
+
+### 32.5 Instruments and cells specification
+
+- **Harness:** `crates/expanse/examples/writer_scaling.rs` gains `--read-op scan` for `--arm map`.
+  - Readers traverse the map via the batch cursor in batches of up to 256 entries.
+  - With W $\ge$ 1, readers scan from the writers' start barrier until writers complete. With W = 0, readers scan until completing a fixed probe quota.
+  - Rows record `readers`, `read_op`, `probe`, `reader_ops`, `reader_elapsed_s`, and counters `read_ops`, `read_attempts`, `read_fallbacks`.
+- **Probes:**
+  - `uniform`: 64-bit uniform random prefill keys.
+  - `hotspot`: clustered keys where writes land within active scan subtrees.
+- **Cells:** $`(W, R) \in \{(0, 1), (0, 4), (1, 4), (4, 4)\} \times \text{probe} \in \{\text{uniform}, \text{hotspot}\}`$: 8 cells total.
+- **Driver:** `writer_scaling.py --scan-cells`, 8 rounds per cell, Williams construction permutation ordering.
+- **Pin:** `0,2,4,6,8,10,12,14`, one thread per physical P-core on the reference host.
+- **Protocol:** Two independent runs (`results/scan_cells_writer_scaling.json` and `scan_cells_writer_scaling_run2.json`), BCa 95% confidence intervals, pre/post system load snapshots.
+- **Execution status:** Specified in this pre-registration; execution deferred to reference host evaluation.
+
+### 32.6 What voids a cell or a run
+
+- An applied pin other than `0,2,4,6,8,10,12,14`.
+- Host contention per AGENTS.md §8.17 (non-target CPU > 100%, load average > cores / 2, or load shift > 2).
+- Inconsistent counters or uncompleted rounds.
+- Runs compared across different commits.
+
+

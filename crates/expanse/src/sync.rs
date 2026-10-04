@@ -6695,6 +6695,18 @@ impl SyncExpanseMap {
         }
     }
 
+    /// Performs an optimistic read against this map with automatic retry and lock fallback (#1142).
+    #[inline(always)]
+    pub(crate) fn optimistic_read<R>(
+        &self,
+        reader: &Reader,
+        walk: impl FnMut(RootSnapshot, &SeqVersion, u64) -> Result<R, Retry>,
+        locked: impl FnOnce(&ExpanseMap) -> R,
+    ) -> R {
+        self.shared
+            .optimistic_read(reader, |m| m.occ_root().0, walk, locked)
+    }
+
     /// One-shot lookup (registers a throwaway reader; use
     /// [`Self::reader`] in hot loops).
     ///
@@ -9569,6 +9581,8 @@ impl SyncExpanseMap {
     }
 }
 
+pub use crate::sync_cursor::SyncMapCursor;
+
 /// A per-thread reader handle for [`SyncExpanseMap`].
 ///
 /// Besides `get`, the handle has the ordered reads `first`, `last`,
@@ -9655,6 +9669,21 @@ impl OwnedMapReader {
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(&self.map, &self.reader, key)
+    }
+
+    /// Returns a forward batch cursor scanning the map in ascending order (#1142).
+    #[must_use]
+    pub fn cursor(&self) -> crate::sync_cursor::SyncMapCursor<'_, '_> {
+        crate::sync_cursor::SyncMapCursor::new(&self.map, &self.reader)
+    }
+
+    /// Returns a forward batch cursor scanning keys in `start..=end` (#1142).
+    ///
+    /// The range is inclusive of both bounds (`start..=end`), matching future
+    /// single-threaded `MapCursor RangeBounds` conventions.
+    #[must_use]
+    pub fn range_cursor(&self, start: u64, end: u64) -> crate::sync_cursor::SyncMapCursor<'_, '_> {
+        crate::sync_cursor::SyncMapCursor::range(&self.map, &self.reader, start, end)
     }
 }
 
@@ -9769,9 +9798,29 @@ impl DetachedMapReader {
     pub fn prev_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
         map_prev_with(map, &self.reader, key.checked_sub(1)?)
     }
+
+    /// Returns a forward batch cursor scanning `map` in ascending order (#1142).
+    #[must_use]
+    pub fn cursor<'m>(&self, map: &'m SyncExpanseMap) -> crate::sync_cursor::SyncMapCursor<'m, '_> {
+        crate::sync_cursor::SyncMapCursor::new(map, &self.reader)
+    }
+
+    /// Returns a forward batch cursor scanning keys in `start..=end` on `map` (#1142).
+    ///
+    /// The range is inclusive of both bounds (`start..=end`), matching future
+    /// single-threaded `MapCursor RangeBounds` conventions.
+    #[must_use]
+    pub fn range_cursor<'m>(
+        &self,
+        map: &'m SyncExpanseMap,
+        start: u64,
+        end: u64,
+    ) -> crate::sync_cursor::SyncMapCursor<'m, '_> {
+        crate::sync_cursor::SyncMapCursor::range(map, &self.reader, start, end)
+    }
 }
 
-impl MapReader<'_> {
+impl<'a> MapReader<'a> {
     /// Optimistic lookup.
     ///
     /// # Reclamation contract for locator values
@@ -9804,6 +9853,21 @@ impl MapReader<'_> {
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(self.map, &self.reader, key)
+    }
+
+    /// Returns a forward batch cursor scanning the map in ascending order (#1142).
+    #[must_use]
+    pub fn cursor(&self) -> crate::sync_cursor::SyncMapCursor<'a, '_> {
+        crate::sync_cursor::SyncMapCursor::new(self.map, &self.reader)
+    }
+
+    /// Returns a forward batch cursor scanning keys in `start..=end` (#1142).
+    ///
+    /// The range is inclusive of both bounds (`start..=end`), matching future
+    /// single-threaded `MapCursor RangeBounds` conventions.
+    #[must_use]
+    pub fn range_cursor(&self, start: u64, end: u64) -> crate::sync_cursor::SyncMapCursor<'a, '_> {
+        crate::sync_cursor::SyncMapCursor::range(self.map, &self.reader, start, end)
     }
 }
 
@@ -13700,6 +13764,41 @@ mod miri_ub_sites {
                 let rd = map.reader();
                 read_until(&done, || {
                     let seen = ordered_passes(&rd);
+                    for i in 0..TREE_PREFILL {
+                        assert!(seen.binary_search(&splitmix64(i)).is_ok());
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
+    /// A batch cursor scan (#1142) over a tree a writer inserts into:
+    /// every prefilled key is present for the whole run, so every batch cursor
+    /// pass sees all of them.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_batch_cursor_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for i in 0..TREE_PREFILL {
+            map.insert(splitmix64(i), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_KEYS {
+                    assert_eq!(map.insert(key(0, i), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = map.reader();
+                read_until(&done, || {
+                    let cur = rd.cursor();
+                    let mut seen = Vec::new();
+                    for (k, _) in cur {
+                        seen.push(k);
+                    }
                     for i in 0..TREE_PREFILL {
                         assert!(seen.binary_search(&splitmix64(i)).is_ok());
                     }

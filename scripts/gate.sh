@@ -196,6 +196,7 @@ python3 scripts/ycsb_concurrent_bounds.py --self-test
 python3 scripts/branchu_band_bounds.py --self-test
 python3 scripts/blob_mixed_bounds.py --self-test
 python3 scripts/blob_reclaim_bounds.py --self-test
+python3 scripts/batch_cursor_bounds.py --self-test
 python3 scripts/c2c_ranking.py --self-test
 python3 scripts/callgrind_wrapper_ranking.py --self-test
 python3 scripts/fit_usl.py --self-test

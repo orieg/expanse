@@ -1657,6 +1657,7 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `sync_map_prev/*` | `prev_before` through a `SyncExpanseMap` reader handle, by the validated ordered walk | The optimistic ordered read (#900); prediction P12.3 compares it with `sync_map_prev_locked` on the same head. |
 | `map_cursor_scan/*` | Full forward scan of a prebuilt map through `MapCursor::next` | The single-threaded reference for a concurrent batch cursor (#1142); asserts every entry is visited once. |
 | `sync_map_next_after_scan/*` | Full ascending scan of a `SyncExpanseMap` by `first` then `next_after` on a reader handle | One pin, version sample and root descent per entry: the per-element baseline a concurrent batch cursor is predicted against (#1142). |
+| `sync_map_scan/*` | Full ascending scan of a `SyncExpanseMap` through the validated batch cursor | The batch cursor (#1142); in Stage 1 baseline, falls back to ordered reads. |
 | `map_count_below/*` · `set_count_below/*` | `count_below` (rank) from each present key | `nav::count_below`, summing sibling `pop0` down the descent; the plain-engine control for the concurrent count arms (#1144). |
 | `sync_map_count_locked/*` | `count_below` through `with_locked`, no writes | The lock, the writer quiesce and the count, with the dirty mask clean after setup's fold (#1144). |
 | `sync_map_write_twin/*` | Insert an absent key and remove it | The writes of `sync_map_count_after_write` without its count (#1144). |
@@ -1823,6 +1824,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_map_prev` | `random` | 50,000 |
 | `cost` | `sync_map_prev_locked` | `random` | 50,000 |
 | `cost` | `sync_map_remove` | `random` | 50,000 |
+| `cost` | `sync_map_scan` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `sync_map_write_twin` | `random`, `sequential`, `one_top_byte` | 1,000 |
 | `cost` | `sync_set_churn` | `random`, `leaf` | 50,000 |
 | `cost` | `sync_set_contains` | `random`, `leaf` | 50,000 |

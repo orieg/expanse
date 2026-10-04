@@ -5358,4 +5358,73 @@ mod loom_tests {
     fn loom_blob_overwrite_unlocking_unmodified_double_charges() {
         blob_dead_charge_model(false);
     }
+
+    /// Abstract concurrency protocol model of batch cursor traversal under retained
+    /// parent branch version (issue #1142).
+    ///
+    /// Note: This is an abstract concurrency protocol model simulating hand-over-hand
+    /// version validation across sibling edges under concurrent writer mutations
+    /// (abstracting `SyncMapCursor::try_fill_buf` and `ReadSet::validate_all`), rather than
+    /// executing the full 64-bit trie engine under Loom (which would lead to state explosion).
+    ///
+    /// Draining terminal leaves under the parent branch relies on the parent's
+    /// version word to bracket updates to children and sibling slot allocations.
+    /// `reader_validates_parent` controls whether the reader validates the
+    /// retained parent branch version before accepting the batch.
+    fn cursor_retained_path_resume_model(reader_validates_parent: bool) {
+        loom::model(move || {
+            let parent_ver = Arc::new(VersionCell::new(0));
+            let dummy_ver = Arc::new(VersionCell::new(0));
+            // Two fields representing sibling consistency across cursor drain:
+            let child0 = Arc::new(AtomicU64::new(10));
+            let child1 = Arc::new(AtomicU64::new(20));
+
+            let (pw, c0w, c1w) = (
+                Arc::clone(&parent_ver),
+                Arc::clone(&child0),
+                Arc::clone(&child1),
+            );
+            let writer = loom::thread::spawn(move || {
+                let old = version_try_lock(&pw).expect("uncontended");
+                c0w.store(15, Ordering::Relaxed);
+                c1w.store(25, Ordering::Relaxed);
+                version_unlock(&pw, old, true);
+            });
+
+            let ver_to_validate = if reader_validates_parent {
+                &parent_ver
+            } else {
+                &dummy_ver
+            };
+
+            if let Some(s) = node_sample(&parent_ver) {
+                let v0 = child0.load(Ordering::Relaxed);
+                loom::thread::yield_now();
+                let v1 = child1.load(Ordering::Relaxed);
+                if node_validate(ver_to_validate, s) {
+                    assert!(
+                        (v0 == 10 && v1 == 20) || (v0 == 15 && v1 == 25),
+                        "batch cursor read across siblings is torn: ({v0}, {v1})"
+                    );
+                }
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    /// Verifies the abstract concurrency protocol model: retaining and validating the
+    /// covering parent branch version prevents torn or inconsistent sibling reads across
+    /// the batch cursor traversal.
+    #[test]
+    fn loom_cursor_retained_path_resume() {
+        cursor_retained_path_resume_model(true);
+    }
+
+    /// Negative control: omitting retained parent branch validation lets the
+    /// cursor accept a torn batch where one sibling is pre-write and one post-write.
+    #[test]
+    #[should_panic(expected = "batch cursor read across siblings is torn")]
+    fn loom_cursor_retained_path_resume_without_parent_validation_is_torn() {
+        cursor_retained_path_resume_model(false);
+    }
 }
