@@ -803,6 +803,53 @@ fn map32_compact_drained(mut drained: ExpanseMap32) -> u64 {
     black_box(n)
 }
 
+// The shrink_to_fit arm of the remove-retention suite: the same drained tree
+// as `*_compact_drained`, with retained memory returned via shrink_to_fit().
+// Counted per surviving key (62,500).
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_set)]
+fn set_shrink_drained(drained: ExpanseSet) -> u64 {
+    let mut set = drained;
+    let released = black_box(&mut set).shrink_to_fit();
+    let n = set.len();
+    core::mem::forget(set);
+    black_box(n ^ (released as u64))
+}
+
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_map)]
+fn map_shrink_drained(drained: ExpanseMap) -> u64 {
+    let mut map = drained;
+    let released = black_box(&mut map).shrink_to_fit();
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n ^ (released as u64))
+}
+
+fn shrink_drained_map_with_keys(arg: &str) -> (ExpanseMap, Vec<u64>) {
+    let (mut map, removals) = built_partial_map(arg);
+    for &k in &removals {
+        assert!(map.remove(k).is_some());
+    }
+    map.shrink_to_fit();
+    (map, removals)
+}
+
+// Regrowth after shrink_to_fit(): re-inserts the 137,500 drained keys into the
+// shrunk map, measuring the O(1) recarving of released slab pages vs allocating
+// new regions. Counted per re-inserted key (137,500).
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = shrink_drained_map_with_keys)]
+fn map_regrow_after_shrink(input: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (mut map, reinsertions) = input;
+    let mut inserted = 0u64;
+    for &k in &reinsertions {
+        inserted += u64::from(map.insert(black_box(k), black_box(!k)).is_none());
+    }
+    core::mem::forget(map);
+    black_box(inserted)
+}
+
 // Bulk construction: `ExpanseMap::from_sorted_iter` against `collect()` (an
 // insert per entry) over the same `POP` entries `(k, !k)`. `sequential` is
 // ascending (the builder's no-sort path), `random` is generator order (the
@@ -3796,6 +3843,9 @@ library_benchmark_group!(
         map32_rebuild_drained,
         set32_compact_drained,
         map32_compact_drained,
+        set_shrink_drained,
+        map_shrink_drained,
+        map_regrow_after_shrink,
         map_from_sorted_iter,
         map_collect,
         set_subtree_boundary_oscillate,

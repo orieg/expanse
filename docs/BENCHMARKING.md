@@ -201,6 +201,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `art_memory` | wall-clock | Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales. |
 | `art_small_payload` | wall-clock | Adaptive Radix Tree (ART) vs Expanse small-payload regime (<= 7 keys) lookups, inserts, and memory census. |
 | `patricia_comparison` | wall-clock | Expanse vs three radix tries (`patricia_tree`, `fast_radix_trie`, `qp-trie`) through `docs/benchmarks/patricia_comparison/scripts/run_all.py`: live-heap census (requested and usable bytes), point lookup at 100% and 50% hit, cold-build insert in both orders, shared-prefix string lookup across four prefix lengths, full traversal and prefix scan; paired per-round ratios with BCa intervals; writes `results/baseline_*.json`. |
+| `allocator_overhead` | wall-clock | Allocator overhead and RSS census at N = 10^7 on main and candidate head (two runs each): pre-shrink RSS across all shapes and shrink_to_fit RSS recovery fraction (Issue #1108, Gate G1). |
 
 Bench targets deliberately **not** reachable from a slash command:
 
@@ -1770,8 +1771,10 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map_prev` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `map_rebuild_drained` | `random60` | 62,500 |
 | `cost` | `map_refill` | `random` | 100,000 |
+| `cost` | `map_regrow_after_shrink` | `random60` | 137,500 |
 | `cost` | `map_remove` | `random` | 50,000 |
 | `cost` | `map_remove_partial` | `random60` | 137,500 |
+| `cost` | `map_shrink_drained` | `random60` | 62,500 |
 | `cost` | `set32_compact_drained` | `random28` | 62,500 |
 | `cost` | `set32_insert` | `sensor_timestamps` | 10,000 |
 | `cost` | `set32_iterate` | `sequential`, `clustered`, `random` | 2,000 |
@@ -1790,6 +1793,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `set_refill` | `random` | 100,000 |
 | `cost` | `set_remove` | `random` | 50,000 |
 | `cost` | `set_remove_partial` | `random60` | 137,500 |
+| `cost` | `set_shrink_drained` | `random60` | 62,500 |
 | `cost` | `set_subtree_boundary_oscillate` | `band2`, `band9` | `band2` 32,768, `band9` 147,456 |
 | `cost` | `set_subtree_condense` | `h1`, `wide` | 1,024 |
 | `cost` | `set_subtree_condense_control` | `h1`, `wide` | 1,024 |
