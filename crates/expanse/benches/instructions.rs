@@ -1576,6 +1576,28 @@ fn blobmap32_scan(blobmap: ExpanseBlobMap32) -> usize {
 /// run, defeating callgrind's exact-reproducibility contract.
 type DetHasher = std::hash::BuildHasherDefault<std::collections::hash_map::DefaultHasher>;
 
+/// Distinct deterministic hasher for the concurrent bytes map RMW arms (#1194).
+///
+/// Using a distinct hasher type isolates generic monomorphizations of
+/// `SyncExpanseBytesMap` and `BytesReader` in `sync_bytesmap_update` and
+/// `sync_bytesmap_compare_exchange` so they do not share generic call sites
+/// with `sync_bytesmap_get` or alter LLVM's inlining decisions.
+#[derive(Clone, Default)]
+struct RmwDefaultHasher(std::collections::hash_map::DefaultHasher);
+
+impl std::hash::Hasher for RmwDefaultHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes);
+    }
+}
+
+type RmwDetHasher = std::hash::BuildHasherDefault<RmwDefaultHasher>;
+
 /// Route-shaped string keys (~40 bytes, long shared prefixes): the
 /// JudySL working shape — prefix chains, suffix leaves, splits — and a
 /// realistic JudyHS byte-key distribution.
@@ -2719,6 +2741,26 @@ fn sync_map_compare_exchange(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(won)
 }
 
+// The single-key optimistic update on `SyncExpanseMap` (#1194).
+// In Stage 1, exercises the closest existing path: an optimistic read followed
+// by `compare_exchange`. In Stage 2, will exercise `SyncExpanseMap::update`.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_update(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut won = 0u64;
+    for &k in &probes {
+        let cur = rd.get(black_box(k));
+        let next = cur.map(|v| v.wrapping_add(1));
+        won += u64::from(map.compare_exchange(black_box(k), cur, next).is_ok());
+    }
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(won)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
 #[bench::leaf(args = ("leaf",), setup = built_sync_set_leaf)]
@@ -3007,6 +3049,15 @@ fn built_sync_bytesmap(dist: &str) -> (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u
     (map, shuffled_bytes(ks))
 }
 
+fn built_sync_bytesmap_rmw(dist: &str) -> (SyncExpanseBytesMap<RmwDetHasher>, Vec<Vec<u8>>) {
+    let ks = str_keys(dist);
+    let map = SyncExpanseBytesMap::with_hasher(RmwDetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(k, i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
 /// The blob arms' payload for `k`: 16 key-derived bytes, an arena payload.
 fn blob_payload(k: u64) -> [u8; 16] {
     let mut out = [0u8; 16];
@@ -3087,6 +3138,58 @@ fn sync_strmap_churn(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     }
     core::mem::forget(map);
     black_box(sink)
+}
+
+// The single-key update on `SyncExpanseStrMap` (#1194).
+// In Stage 1, exercises the closest existing path: `with_exclusive` + `StrExclusive::update`.
+// In Stage 2, will exercise optimistic covered `SyncExpanseStrMap::update`.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_strmap)]
+fn sync_strmap_update(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map
+            .with_exclusive(|tx| tx.update(black_box(tk(k)), |v| v.map(|x| x.wrapping_add(1))))
+            .unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// The conditional publish (compare_exchange) on `SyncExpanseStrMap` (#1194).
+// In Stage 1, exercises the closest existing path: optimistic read followed by `with_exclusive` CAS.
+// In Stage 2, will exercise optimistic covered `SyncExpanseStrMap::compare_exchange`.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_strmap)]
+fn sync_strmap_compare_exchange(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut won = 0u64;
+    for k in &probes {
+        let cur = rd.get(black_box(tk(k)));
+        let next = cur.map(|v| v.wrapping_add(1));
+        let ok = map.with_exclusive(|tx| {
+            let seen = tx.get(black_box(tk(k)));
+            if seen == cur {
+                match next {
+                    Some(v) => {
+                        tx.insert(black_box(tk(k)), v);
+                    }
+                    None => {
+                        tx.remove(black_box(tk(k)));
+                    }
+                }
+                true
+            } else {
+                false
+            }
+        });
+        won += u64::from(ok);
+    }
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(won)
 }
 
 // ---- Ascending UUID text keys through the string wrapper (#1162) ---------
@@ -3212,6 +3315,58 @@ fn sync_bytesmap_overwrite(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)
     black_box(sink)
 }
 
+// The single-key update on `SyncExpanseBytesMap` (#1194).
+// In Stage 1, exercises the closest existing path: `with_exclusive` + `BytesExclusive::update`.
+// In Stage 2, will exercise optimistic covered `SyncExpanseBytesMap::update`.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap_rmw)]
+fn sync_bytesmap_update(built: (SyncExpanseBytesMap<RmwDetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map
+            .with_exclusive(|tx| tx.update(black_box(k), |v| v.map(|x| x.wrapping_add(1))))
+            .unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// The conditional publish (compare_exchange) on `SyncExpanseBytesMap` (#1194).
+// In Stage 1, exercises the closest existing path: optimistic read followed by `with_exclusive` CAS.
+// In Stage 2, will exercise optimistic covered `SyncExpanseBytesMap::compare_exchange`.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap_rmw)]
+fn sync_bytesmap_compare_exchange(built: (SyncExpanseBytesMap<RmwDetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let rd = map.reader();
+    let mut won = 0u64;
+    for k in &probes {
+        let cur = rd.get(black_box(k));
+        let next = cur.map(|v| v.wrapping_add(1));
+        let ok = map.with_exclusive(|tx| {
+            let seen = tx.get(black_box(k));
+            if seen == cur {
+                match next {
+                    Some(v) => {
+                        tx.insert(black_box(k), v);
+                    }
+                    None => {
+                        tx.remove(black_box(k));
+                    }
+                }
+                true
+            } else {
+                false
+            }
+        });
+        won += u64::from(ok);
+    }
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(won)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = keys)]
 fn sync_blobmap_insert(ks: Vec<u64>) -> u64 {
@@ -3322,6 +3477,39 @@ fn sync_blobmap_overwrite(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     let n = map.with_locked(|m| m.len());
     core::mem::forget(map);
     black_box(n)
+}
+
+// The conditional publish (compare_exchange) on `SyncExpanseBlobMap` (#1194).
+// In Stage 1, exercises the closest existing path: optimistic read of payload and
+// metadata followed by `insert`. In Stage 2, will exercise `SyncExpanseBlobMap::compare_exchange`.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap)]
+fn sync_blobmap_compare_exchange(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut rd = map.reader();
+    let mut won = 0u64;
+    for &k in &probes {
+        let guard = rd.pin();
+        let cur = guard.get(black_box(k));
+        let expected_meta = blob_meta(k);
+        let expected_data = blob_payload(k);
+        let matches = match cur {
+            Some((data, meta)) => meta == expected_meta && data.as_ref() == expected_data,
+            None => false,
+        };
+        drop(guard);
+        if matches {
+            let next_payload = blob_payload(!k);
+            let next_meta = blob_meta(!k);
+            won += u64::from(
+                map.insert(black_box(k), black_box(&next_payload), black_box(next_meta))
+                    .is_ok(),
+            );
+        }
+    }
+    core::mem::forget(rd);
+    core::mem::forget(map);
+    black_box(won)
 }
 
 // `blobmap_compact` through the wrapper: the exclusive section, the writers'
@@ -3473,6 +3661,7 @@ library_benchmark_group!(
         sync_map_churn,
         sync_map_remove,
         sync_map_compare_exchange,
+        sync_map_update,
         sync_set_churn,
         sync_set_remove,
         sync_map_drain_floor,
@@ -3485,6 +3674,8 @@ library_benchmark_group!(
         sync_strmap_insert,
         sync_strmap_remove,
         sync_strmap_churn,
+        sync_strmap_update,
+        sync_strmap_compare_exchange,
         sync_strmap_insert_sorted,
         sync_bytesmap_insert,
         sync_bytesmap_remove,
@@ -3504,8 +3695,11 @@ library_benchmark_group!(
         blobmap_compact,
         sync_bytesmap_get,
         sync_bytesmap_overwrite,
+        sync_bytesmap_update,
+        sync_bytesmap_compare_exchange,
         sync_blobmap_get,
         sync_blobmap_overwrite,
+        sync_blobmap_compare_exchange,
         sync_blobmap_compact
 );
 
