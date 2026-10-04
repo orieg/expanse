@@ -4506,6 +4506,7 @@ impl ExpanseMap {
     /// Builds a map from entries sorted by key with distinct keys into a provided
     /// empty map, preserving any pre-configured allocator state (e.g. deferred
     /// collector binding and root cover).
+    #[cfg(feature = "std")]
     pub(crate) fn from_sorted_entries_into(out: Self, entries: &[(u64, u64)]) -> Self {
         if out.alloc.occ_enabled() {
             Self::from_sorted_entries_dispatch::<true>(out, entries)

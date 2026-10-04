@@ -2245,6 +2245,7 @@ impl ExpanseSet {
     /// Builds a set from ascending distinct keys into a provided empty set,
     /// preserving any pre-configured allocator state (e.g. deferred collector
     /// binding and root cover).
+    #[cfg(feature = "std")]
     pub(crate) fn from_sorted_keys_into(out: Self, keys: &[u64]) -> Self {
         if out.alloc.occ_enabled() {
             Self::from_sorted_keys_dispatch::<true>(out, keys)
