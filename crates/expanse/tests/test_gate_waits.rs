@@ -158,30 +158,32 @@ fn structural_contention_stat_routing_in_sync_rs() {
         "Found direct use of ContentionGateClosed / ContentionRetryExhausted outside fn contention_stat: {:?}",
         direct_uses
     );
-    // Ten write loops: SyncExpanseSet and SyncExpanseMap insert and remove,
+    // Thirteen write loops: SyncExpanseSet and SyncExpanseMap insert and remove,
     // the map's conditional publish (`compare_exchange`, one loop for its
     // publish and removal forms), the string wrapper's shared loop
-    // `Shared::str_optimistic` (#929), the blob map's optimistic insert (#929)
-    // and optimistic remove (#1280), and the bytes map's optimistic insert
-    // (#929) and optimistic remove (#1047).
+    // `Shared::str_optimistic` (#929), the blob map's optimistic insert (#929),
+    // optimistic remove (#1280), and conditional update / publish
+    // (`compare_exchange_meta` and `compare_exchange`, Refs #1194), and the
+    // bytes map's optimistic insert (#929), optimistic remove (#1047), and
+    // optimistic conditional update (`compare_exchange`, Refs #1194).
     assert_eq!(
-        call_sites, 10,
-        "Expected exactly 10 write loop call sites for contention_stat(closed), found {}",
+        call_sites, 13,
+        "Expected exactly 13 write loop call sites for contention_stat(closed), found {}",
         call_sites
     );
     assert_eq!(
-        gate_closed_checks, 10,
-        "Expected exactly 10 'gate.is_closed() {{' checks in write loops, found {}",
+        gate_closed_checks, 13,
+        "Expected exactly 13 'gate.is_closed() {{' checks in write loops, found {}",
         gate_closed_checks
     );
     assert_eq!(
-        paired_closed_assignments, 10,
-        "Expected exactly 10 'closed = true;' assignments within 4 lines of 'is_closed()', found {}",
+        paired_closed_assignments, 13,
+        "Expected exactly 13 'closed = true;' assignments within 4 lines of 'is_closed()', found {}",
         paired_closed_assignments
     );
     assert_eq!(
-        closed_true_assignments, 10,
-        "Expected 'closed = true' to occur nowhere else (exactly 10 total assignments), found {}",
+        closed_true_assignments, 13,
+        "Expected 'closed = true' to occur nowhere else (exactly 13 total assignments), found {}",
         closed_true_assignments
     );
 }
