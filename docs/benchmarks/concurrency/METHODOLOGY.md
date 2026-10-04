@@ -4613,6 +4613,41 @@ All quantities and thresholds below are computed by pure functions in `scripts/b
   - 32-bit embedded `ExpanseBlobMap32` (fixed 4,096-slot arena);
   - variable-length or non-integer key headers.
 
+### 31.7 Verdict note — Stage 3B G2 review outcome and engine deferral (appended 2026-10-04)
+
+The incremental compaction engine spike (PR #1344, branch `feat/1320-incremental-blob-compaction`, commit `1ce0974b53ab35ba3222d31a7f7c23826075fdcd`) was evaluated under CI `Perf / Callgrind Deterministic Instructions` run [37169426109](https://github.com/orieg/expanse/actions/runs/37169426109) against the `main` baseline run [37158441818](https://github.com/orieg/expanse/actions/runs/37158441818) at commit `9427093c1493f7c77c3b12ce99f42685efd00a15`.
+
+**Verdict: §31 G2 FAIL on 10 of 13 blob arms.**
+
+| Benchmark Arm | Main Baseline (Ir) | Spike Branch (Ir) | Delta (Ir) | Delta (%) | Locked §31 G2 Ceiling | Verdict |
+|---|---:|---:|---:|---:|---|:---:|
+| `cost::blobmap_get::random` | 10,692,296 | 10,942,296 | +250,000 | +2.3381% | +0.1% | **FAIL** |
+| `cost::sync_blobmap_get::random` | 19,682,875 | 19,782,875 | +100,000 | +0.5081% | +0.1% | **FAIL** |
+| `cost::blobmap_insert_inline::random` | 28,902,578 | 28,802,802 | -99,776 | -0.3452% | +0.1% | **PASS** |
+| `cost::blobmap32_scan::ipv4_routes` | 343,888 | 343,888 | +0 | +0.0000% | +0.1% | **PASS** |
+| `cost::sync_blobmap_remove_miss::random` | 19,221,107 | 19,269,545 | +48,438 | +0.2520% | +0.1% | **FAIL** |
+| `cost::blobmap_insert::random` | 31,353,427 | 31,603,651 | +250,224 | +0.7981% | +1.5% | **PASS** |
+| `cost::blobmap_overwrite::random` | 19,537,355 | 20,787,389 | +1,250,034 | +6.3982% | +1.5% | **FAIL** |
+| `cost::blobmap_remove::random` | 25,873,477 | 26,823,477 | +950,000 | +3.6717% | +1.5% | **FAIL** |
+| `cost::blobmap_churn::random` | 74,458,987 | 76,909,061 | +2,450,074 | +3.2905% | +1.5% | **FAIL** |
+| `cost::sync_blobmap_insert::random` | 58,997,033 | 59,901,165 | +904,132 | +1.5325% | +1.0% | **FAIL** |
+| `cost::sync_blobmap_overwrite::random` | 34,411,875 | 37,462,869 | +3,050,994 | +8.8661% | +1.0% | **FAIL** |
+| `cost::sync_blobmap_remove::random` | 67,503,439 | 72,618,157 | +5,114,718 | +7.5770% | +1.0% | **FAIL** |
+| `cost::sync_blobmap_churn::random` | 143,334,856 | 156,724,505 | +13,389,649 | +9.3415% | +1.0% | **FAIL** |
+| `cost::blobmap_compact::random` | 19,436,154 | 20,335,943 | +899,789 | +4.6295% | N/A (partial evac) | REPORTED |
+| `cost::sync_blobmap_compact::random` | 19,436,930 | 20,388,976 | +952,046 | +4.8981% | N/A (partial evac) | REPORTED |
+| `cost::blobmap_insert_reclaiming::random` | *(new)* | 540,425 | — | — | NEW | REPORTED |
+| `cost::sync_blobmap_insert_reclaiming::random` | *(new)* | 933,171 | — | — | NEW | REPORTED |
+
+**Suite integrity (non-blob arms):** All 172 non-blob arms across the Callgrind suite passed within 0.1% (maximum $|\Delta| = 0.001507$%, worst arm `cost::strmap_get_short::short` at +308 Ir on 20,437,539 Ir baseline).
+
+**Root cause analysis:**
+1. Point lookup paths (`blobmap_get`, `sync_blobmap_get`): `read_record` reads and validates the widened 16-byte `BlobRecordHeader` (with embedded `key: u64` for $O(1)$ reverse lookup during relocation) instead of the former 8-byte header, adding $+5.0\text{ Ir/op}$ (+2.34%) on the plain path and $+2.0\text{ Ir/op}$ (+0.51%) on the concurrent path against the locked +0.1% ceiling.
+2. Mutation paths (`overwrite`, `remove`, `churn`, `sync_*`): Stamping keys into headers, maintaining per-chunk live bytes/records, and atomic synchronization (`ChunkCounters` `fetch_sub`/`fetch_add`) added $+3$ to $+20\text{ Ir/op}$ across plain and concurrent mutations, exceeding the pre-registered +1.0% / +1.5% target ceilings.
+
+**Resolution (maintainer decision):**
+Per rule B-12 and AGENTS §1.6 (no post-hoc threshold redesigns to force a pass), the engine changes cannot merge as-is. The engine implementation is deferred to v0.12 under a new pre-registration with redesigned thresholds and/or an optimized record format. This evaluation PR lands the committed mathematical derivations (`scripts/blob_reclaim_bounds.py`), the §31 pre-registration, the new reclaiming Callgrind benchmark arms, and this recorded verdict.
+
 ## 32. Pre-registration for #1142 — validated batch cursor on concurrent map readers (appended 2026-10-03, locked before any batch-cursor engine code)
 
 > **Section numbering note:** Section 31 is allocated to PR #1344 (A5, incremental blob arena compaction). This section uses §32 and will be renumbered if needed upon merge per work plan §0 rule 11.
