@@ -1594,7 +1594,6 @@ impl core::iter::traits::collect::IntoIterator for expanse_trie::ordered_bytesma
 pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = expanse_trie::ordered_bytesmap::IntoIter
 pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
 pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
-impl core::marker::Send for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl<'a> core::iter::traits::collect::Extend<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::extend<I: core::iter::traits::collect::IntoIterator<Item = (&'a [u8], u64)>>(&mut self, I)
 impl<'a> core::iter::traits::collect::FromIterator<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
@@ -1604,6 +1603,7 @@ pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = 
 pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
 pub fn &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
 impl !core::marker::Freeze for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::marker::Send for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl !core::marker::Sync for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl core::marker::Unpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
@@ -3682,7 +3682,6 @@ impl core::iter::traits::collect::IntoIterator for expanse_trie::ordered_bytesma
 pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = expanse_trie::ordered_bytesmap::IntoIter
 pub type expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
 pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
-impl core::marker::Send for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl<'a> core::iter::traits::collect::Extend<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 pub fn expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::extend<I: core::iter::traits::collect::IntoIterator<Item = (&'a [u8], u64)>>(&mut self, I)
 impl<'a> core::iter::traits::collect::FromIterator<(&'a [u8], u64)> for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
@@ -3692,6 +3691,7 @@ pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::IntoIter = 
 pub type &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::Item = (alloc::vec::Vec<u8>, u64)
 pub fn &'a expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap::into_iter(self) -> Self::IntoIter
 impl !core::marker::Freeze for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
+impl core::marker::Send for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl !core::marker::Sync for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl core::marker::Unpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
 impl core::marker::UnsafeUnpin for expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap
