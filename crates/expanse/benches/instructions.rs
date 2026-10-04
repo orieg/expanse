@@ -46,6 +46,7 @@ use expanse_trie::blobmap::ExpanseBlobMap;
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::domain::{DomainSet, ExpanseDomainDict, escape_decode, escape_encode};
 use expanse_trie::map::ExpanseMap;
+use expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
 use expanse_trie::sync::{
@@ -2263,6 +2264,139 @@ fn strmap_transcode_cursor(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+/// Prebuilt ordered bytes map for wrapper lookups and cursor walks (#808).
+fn built_ordered_bytesmap(dist: &str) -> (ExpanseOrderedBytesMap, Vec<Vec<u8>>) {
+    let ks = transcode_keys(dist);
+    let mut map = ExpanseOrderedBytesMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(k, i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+// Ordered bytes map wrapper insert arm on clean and escaped keys (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = transcode_keys)]
+#[bench::escaped(args = ("escaped",), setup = transcode_keys)]
+fn ordered_bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseOrderedBytesMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        let val = black_box(i as u64);
+        map.insert(black_box(k), val);
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// Ordered bytes map wrapper point-lookup arm on clean and escaped keys (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_ordered_bytesmap)]
+#[bench::escaped(args = ("escaped",), setup = built_ordered_bytesmap)]
+fn ordered_bytesmap_get(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        let val = map.get(black_box(k)).unwrap_or(0);
+        sink ^= val;
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Ordered bytes map wrapper cursor-walk arm on clean and escaped keys (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_ordered_bytesmap)]
+#[bench::escaped(args = ("escaped",), setup = built_ordered_bytesmap)]
+fn ordered_bytesmap_cursor(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    let mut cur = map.cursor();
+    while let Some((decoded, val)) = cur.next_owned() {
+        sink ^= decoded.len() as u64 ^ val;
+        n += 1;
+    }
+    drop(cur);
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Ordered bytes map wrapper cursor-walk arm decoding into a reusable caller buffer (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_ordered_bytesmap)]
+#[bench::escaped(args = ("escaped",), setup = built_ordered_bytesmap)]
+fn ordered_bytesmap_cursor_into(built: (ExpanseOrderedBytesMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    let mut cur = map.cursor();
+    let mut buf = [0u8; 64];
+    while let Ok(Some((len, val))) = cur.next_entry_decode_into(&mut buf) {
+        sink ^= len as u64 ^ val;
+        n += 1;
+    }
+    drop(cur);
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+/// Prebuilt raw string map for twin baseline lookups and cursor walks (#808).
+fn built_raw_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let ks = transcode_keys(dist);
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
+// Raw string map insert twin on clean keys (#808).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = transcode_keys)]
+fn strmap_raw_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        let val = black_box(i as u64);
+        map.insert(black_box(tk(k)), val);
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// Raw string map point-lookup twin on clean keys (#808).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_raw_strmap)]
+fn strmap_raw_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        let val = map.get(black_box(tk(k))).unwrap_or(0);
+        sink ^= val;
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Raw string map cursor-walk twin on clean keys (#808).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_raw_strmap)]
+fn strmap_raw_cursor(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    let mut cur = map.cursor();
+    while let Some((k, slot)) = cur.next() {
+        // SAFETY: as in `strmap_cursor_scan`.
+        sink ^= k.len() as u64 ^ unsafe { slot.as_ptr().read() };
+        n += 1;
+    }
+    drop(cur);
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 /// Prebuilt domain dictionary for lookup benchmarks.
 fn built_domain_dict(dist: &str) -> (ExpanseDomainDict, DomainSet, Vec<Vec<u8>>) {
     let ks = str_keys(dist);
@@ -3912,6 +4046,13 @@ library_benchmark_group!(
         strmap_transcode_insert,
         strmap_transcode_get,
         strmap_transcode_cursor,
+        ordered_bytesmap_insert,
+        ordered_bytesmap_get,
+        ordered_bytesmap_cursor,
+        ordered_bytesmap_cursor_into,
+        strmap_raw_insert,
+        strmap_raw_get,
+        strmap_raw_cursor,
         domain_dict_insert,
         domain_dict_get,
         bytesmap_insert,

@@ -337,8 +337,10 @@ fn test_embedded_nul_and_binary_keys() {
     assert_eq!(dict.len(), 3);
     assert_eq!(set.len(), 3);
 
-    // In un-escaped StrMap, key1 and key2 would alias to "uuid" in release mode.
-    // With order-preserving escape encoding, they are strictly distinct:
+    // In raw ExpanseStrMap, keys containing embedded NUL are rejected by NulFreeStr::new,
+    // and if inserted unescaped via new_unchecked, chunk_at treats the first NUL as the
+    // terminal sentinel, aliasing key1 and key2 to "uuid". With order-preserving escape
+    // encoding (as in ExpanseDomainDict and ExpanseOrderedBytesMap), they are strictly distinct:
     assert!(dict.contains(&set, key1).unwrap());
     assert!(dict.contains(&set, key2).unwrap());
     assert!(dict.contains(&set, key3).unwrap());

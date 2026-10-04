@@ -204,7 +204,6 @@ pub fn escape_encode(data: &[u8]) -> Vec<u8> {
 
 /// Error returned when decoding an invalid or malformed escaped byte sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[doc(hidden)]
 pub enum EscapeDecodeError {
     /// Escape byte `0x01` at end of slice with no subsequent byte.
     TrailingEscape,
@@ -329,6 +328,7 @@ pub fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDe
     }
     let mut w = 0;
     let mut i = 0;
+    let mut too_small = false;
     while i < data.len() {
         let b = data[i];
         let decoded = match b {
@@ -352,15 +352,19 @@ pub fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDe
             }
             _ => b,
         };
-        if w >= buf.len() {
-            return Err(EscapeDecodeError::BufferTooSmall {
-                required: w + 1,
-                provided: buf.len(),
-            });
+        if w < buf.len() {
+            buf[w] = decoded;
+        } else {
+            too_small = true;
         }
-        buf[w] = decoded;
         w += 1;
         i += 1;
+    }
+    if too_small {
+        return Err(EscapeDecodeError::BufferTooSmall {
+            required: w,
+            provided: buf.len(),
+        });
     }
     Ok(w)
 }

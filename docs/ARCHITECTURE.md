@@ -528,16 +528,16 @@ To store arbitrary byte slices in an ordered trie without changing the underlyin
 
 The critical design decision for issue #808 governs where escaping takes place:
 
-> **Design Decision (Binding)**: Escaping must be an internal property of a dedicated wrapper map type (`ExpanseByteMap` / `OrderedBytesMap`), and MUST NEVER be a property of the key type.
+> **Design Decision (Binding, D1)**: Escaping must be an internal property of a dedicated wrapper map type (`ExpanseOrderedBytesMap`, concurrent twin `SyncExpanseOrderedBytesMap`), and MUST NEVER be a property of the key type.
 
 **Rationale**:
 - **Cross-Surface Protocol Invariance (§2.2)**: If escaping were attached to a key type (e.g. `struct OrderedByteKey(&[u8])` that automatically escaped during conversion or hashing), a Rust caller inserting `OrderedByteKey([0x01])` would write `[0x01, 0x02]` into the trie. If a C ABI caller inserted `[0x01]` via `JudySLIns`, or another Rust caller inserted `NulFreeStr::new(&[0x01])`, raw bytes would be written directly. The two callers would observe divergent contents in the same map, and a raw `[0x01, 0x02]` key would collide with an escaped `0x01` key.
 - **Contract Segregation**: `ExpanseStrMap` remains the frozen, unescaped, NUL-free C ABI `JudySL` drop-in type. Its key domain remains `NulFreeStr`. The escaped byte-keyed map is a distinct, dedicated wrapper type built on top of `ExpanseStrMap`. Two types, two distinct contracts.
-- **Compile-Time Guidance**: A caller holding arbitrary byte slices who attempts to insert into `ExpanseStrMap` encounters `NulInKey` from `NulFreeStr::new`. The type signature and doc comments direct the caller directly to `ExpanseByteMap` (for ordered keys) or `ExpanseBytesMap` (for unordered hash keys).
+- **Compile-Time Guidance**: A caller holding arbitrary byte slices who attempts to insert into `ExpanseStrMap` encounters `NulInKey` from `NulFreeStr::new`. The type signature and doc comments direct the caller directly to `ExpanseOrderedBytesMap` (for ordered keys) or `ExpanseBytesMap` (for unordered hash keys).
 
 #### 3.7.4 Wrapper architecture & transcoding lifecycle
 
-The dedicated wrapper type (`ExpanseByteMap` / `OrderedBytesMap`, along with its concurrent twin `SyncExpanseByteMap`) manages transcoding transparently across all operations:
+The dedicated wrapper type (`ExpanseOrderedBytesMap`, along with its concurrent twin `SyncExpanseOrderedBytesMap`) manages transcoding transparently across all operations:
 
 1. **Write Path (`insert`, `remove`)**:
    - Accepts arbitrary `key: &[u8]`.
@@ -568,7 +568,7 @@ The decoding function inverts the transformation deterministically:
 
 - **Fast-Path Efficiency**: Keys lacking `0x00` and `0x01` pay only a single SIMD or SWAR scan `any(|b| b <= 1)` on lookup, with zero memory allocations and identical tree traversal instructions to `ExpanseStrMap`.
 - **Expansion Overhead**: Keys containing $k$ bytes $\le 1$ expand by exactly $k$ bytes (at most $2\times$ length in the theoretical worst case of all-NUL keys).
-- **Measurement Prerequisite (AGENTS.md §6)**: Because transcoding introduces byte inspection and potential buffer allocation, landing a public `ExpanseByteMap` requires:
+- **Measurement Prerequisite (AGENTS.md §6)**: Because transcoding introduces byte inspection and potential buffer allocation, landing a public `ExpanseOrderedBytesMap` requires:
   1. Registering dedicated Callgrind benchmark arms in `crates/expanse/benches/instructions.rs` (covering insert, get, and cursor walks for both clean and escaped workloads).
   2. Registering ops counts in `scripts/perf_report.py`.
   3. Establishing zero regression on scalar paths before publishing performance claims.
@@ -1011,7 +1011,7 @@ byte 4 .. 6   aux      3 B, decode digits / population / more payload
 byte 7        tag      1 B tag discriminant
 ```
 
-`Edge32` is declared at `crates/expanse/src/types32.rs:167`; `size_of` = 8, `align_of` = 4, const-asserted (`size_of::<Edge32>`, `crates/expanse/src/types32.rs:176`–`177`). `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally on every target; on a 32-bit target the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, and so on, `crates/expanse/src/lib.rs:162`–`176`).
+`Edge32` is declared at `crates/expanse/src/types32.rs:167`; `size_of` = 8, `align_of` = 4, const-asserted (`size_of::<Edge32>`, `crates/expanse/src/types32.rs:176`–`177`). `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally on every target; on a 32-bit target the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, and so on, `crates/expanse/src/lib.rs:174`–`183`).
 
 Three divergences from the 64-bit `Edge` matter:
 
