@@ -69,6 +69,7 @@ on:
           - writer_scaling_ablation_blob_shared_arena
           - writer_scaling_ordered_readers
           - writer_scaling_band
+          - writer_scaling_count_cells
           - writer_scaling_readers_only
           - writer_scaling_929_str_gate
           - writer_scaling_929_str_gate_v2
@@ -1336,6 +1337,18 @@ jobs:
                   --band-cells \
                   --out docs/benchmarks/concurrency/results/branchu_band_writer_scaling.json | tee writer_scaling.txt
                 ;;
+              "writer_scaling_count_cells")
+                # The cost of a concurrent count under a writer (#1144,
+                # concurrency METHODOLOGY.md §23). Re-pinned as the ordered
+                # readers and band are: §23.3 fixes one thread per physical P-core
+                # (0,2,4,6,8,10,12,14), the driver refuses any other pin, and
+                # the inherited marker is dropped so it applies this one.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0,2,4,6,8,10,12,14}" \
+                  python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --count-cells \
+                  --out docs/benchmarks/concurrency/results/count_cells_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "writer_scaling_readers_only")
                 # Readers-only scaling at W = 0 (#730): map, set and str at
                 # R in {1, 2, 4, 8}. Unlike the ordered-reader sweep this
@@ -2119,6 +2132,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json \
             docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json \
             docs/benchmarks/concurrency/results/branchu_band_writer_scaling.json \
+            docs/benchmarks/concurrency/results/count_cells_writer_scaling.json \
             docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json \
             docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json \
             docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json \

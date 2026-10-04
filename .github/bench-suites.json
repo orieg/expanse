@@ -246,6 +246,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_count_cells",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Concurrent count under a writer (#1144, concurrency METHODOLOGY.md \u00a723): uniform and one_top_byte probe modes over (W, R) in {(0,1), (1,0), (1,1), (4,0), (4,1)} under the pin 0,2,4,6,8,10,12,14; outputs count_cells_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling_readers_only",
       "available": true,
       "kind": "wallclock",
