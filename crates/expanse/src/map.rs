@@ -3882,6 +3882,38 @@ impl MapCore {
         crate::cursor::MapCursor::new(self.range_fwd_raw(start), self.cursor_top())
     }
 
+    /// Creates a forward [`MapRangeCursor`](crate::cursor::MapRangeCursor) scanning
+    /// entries matching `range`.
+    #[inline]
+    #[must_use]
+    pub(crate) fn range_cursor<R: core::ops::RangeBounds<Key>>(
+        &self,
+        range: R,
+    ) -> crate::cursor::MapRangeCursor<'_> {
+        let end = match range.end_bound() {
+            core::ops::Bound::Included(&e) => e,
+            core::ops::Bound::Excluded(&e) => match e.checked_sub(1) {
+                Some(prev) => prev,
+                None => return crate::cursor::MapRangeCursor::empty(0),
+            },
+            core::ops::Bound::Unbounded => Key::MAX,
+        };
+        let start = match range.start_bound() {
+            core::ops::Bound::Included(&s) => s,
+            core::ops::Bound::Excluded(&s) => match s.checked_add(1) {
+                Some(next) => next,
+                None => return crate::cursor::MapRangeCursor::empty(end),
+            },
+            core::ops::Bound::Unbounded => 0,
+        };
+        if start > end {
+            crate::cursor::MapRangeCursor::empty(end)
+        } else {
+            let cur = self.cursor_from(start);
+            crate::cursor::MapRangeCursor::new(cur, end)
+        }
+    }
+
     /// Re-seeds `cursor` in place at the smallest key `>= start` — the state
     /// [`cursor_from`](Self::cursor_from) builds, without constructing and
     /// moving a cursor (#1096). It works on the engine cursor rather than
@@ -5019,6 +5051,16 @@ impl ExpanseMap {
     #[must_use]
     pub fn cursor_from(&self, start: Key) -> crate::cursor::MapCursor<'_> {
         self.core.cursor_from(start)
+    }
+
+    /// Creates a forward [`MapRangeCursor`](crate::cursor::MapRangeCursor) scanning
+    /// entries matching `range`.
+    #[must_use]
+    pub fn range_cursor<R: core::ops::RangeBounds<Key>>(
+        &self,
+        range: R,
+    ) -> crate::cursor::MapRangeCursor<'_> {
+        self.core.range_cursor(range)
     }
 
     /// Ascending iterator over `(key, value)` entries.

@@ -150,7 +150,7 @@ pub mod types32;
 #[cfg(target_pointer_width = "64")]
 pub use blobmap::{BlobArena, BlobView, ExpanseBlobMap};
 #[cfg(target_pointer_width = "64")]
-pub use cursor::{MapCursor, SetCursor};
+pub use cursor::{MapCursor, MapRangeCursor, SetCursor};
 #[cfg(target_pointer_width = "64")]
 pub use domain::{
     DomainError, DomainMismatch, DomainOrdinal, DomainSet, ExpanseDomainDict, ResolveIter,
@@ -165,7 +165,9 @@ pub use slot::{SlotTag, ValueSlot};
 #[cfg(target_pointer_width = "32")]
 pub use blobmap32::ExpanseBlobMap32 as ExpanseBlobMap;
 #[cfg(target_pointer_width = "32")]
-pub use cursor32::{MapCursor32 as MapCursor, SetCursor32 as SetCursor};
+pub use cursor32::{
+    MapCursor32 as MapCursor, MapRangeCursor32 as MapRangeCursor, SetCursor32 as SetCursor,
+};
 #[cfg(target_pointer_width = "32")]
 pub use map32::ExpanseMap32 as ExpanseMap;
 #[cfg(target_pointer_width = "32")]
@@ -174,7 +176,7 @@ pub use set32::ExpanseSet32 as ExpanseSet;
 pub use slot32::ValueSlot32 as ValueSlot;
 
 pub use blobmap32::{BlobMap32Error, BlobView32, ExpanseBlobMap32};
-pub use cursor32::{MapCursor32, SetCursor32};
+pub use cursor32::{MapCursor32, MapRangeCursor32, SetCursor32};
 pub use map32::ExpanseMap32;
 pub use occ32::SeqVersion32;
 pub use set32::ExpanseSet32;

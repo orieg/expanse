@@ -173,6 +173,81 @@ impl<'a> MapCursor32<'a> {
     }
 }
 
+/// A stateful, forward-only ordered cursor over a bounded range of an [`ExpanseMap32`],
+/// yielding `(key, value)`. See [`SetCursor32`] and the [module docs](self).
+///
+/// Construct with [`ExpanseMap32::range_cursor`](ExpanseMap32::range_cursor).
+pub struct MapRangeCursor32<'a> {
+    cur: Option<MapCursor32<'a>>,
+    end: Key32,
+}
+
+impl<'a> MapRangeCursor32<'a> {
+    #[inline]
+    pub(crate) fn new(cur: MapCursor32<'a>, end: Key32) -> Self {
+        Self {
+            cur: Some(cur),
+            end,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn empty(end: Key32) -> Self {
+        Self { cur: None, end }
+    }
+
+    /// The upper inclusive bound for this cursor.
+    #[inline]
+    #[must_use]
+    pub fn end_bound(&self) -> Key32 {
+        self.end
+    }
+
+    /// The `(key, value)` at the cursor's current position, or `None`.
+    #[inline]
+    #[must_use]
+    pub fn current(&self) -> Option<(Key32, Value32)> {
+        match self.cur.as_ref()?.current() {
+            Some((k, v)) if k <= self.end => Some((k, v)),
+            _ => None,
+        }
+    }
+
+    /// Advances to and returns the entry with the smallest key `>= target` that
+    /// is `>=` the cursor's current position and `<= end_bound()`; `None` once exhausted.
+    #[inline]
+    pub fn advance_to(&mut self, target: Key32) -> Option<(Key32, Value32)> {
+        if target > self.end {
+            return None;
+        }
+        let cur = self.cur.as_mut()?;
+        match cur.advance_to(target) {
+            Some((k, v)) if k <= self.end => Some((k, v)),
+            _ => None,
+        }
+    }
+
+    /// Returns the current entry and advances one step; `None` past the end.
+    #[inline]
+    #[allow(clippy::should_implement_trait)] // discipline:allow(suppression-delta): clippy::should_implement_trait inherent cursor next
+    pub fn next(&mut self) -> Option<(Key32, Value32)> {
+        let cur = self.cur.as_mut()?;
+        match cur.current() {
+            Some((k, _)) if k <= self.end => cur.next(),
+            _ => None,
+        }
+    }
+}
+
+impl<'a> Iterator for MapRangeCursor32<'a> {
+    type Item = (Key32, Value32);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        MapRangeCursor32::next(self)
+    }
+}
+
 impl ExpanseSet32 {
     /// Creates a stateful forward [`SetCursor32`] positioned before the first
     /// key. See [`crate::cursor32`] for the 32-bit skip-scan contract (correct,
@@ -207,6 +282,34 @@ impl ExpanseMap32 {
     pub fn cursor_from(&self, start: Key32) -> MapCursor32<'_> {
         let front = MapCursor32::seek(self, start);
         MapCursor32::new(self, front)
+    }
+
+    /// Creates a forward [`MapRangeCursor32`](crate::cursor32::MapRangeCursor32) scanning entries matching `range`.
+    #[inline]
+    #[must_use]
+    pub fn range_cursor<R: core::ops::RangeBounds<Key32>>(&self, range: R) -> MapRangeCursor32<'_> {
+        let end = match range.end_bound() {
+            core::ops::Bound::Included(&e) => e,
+            core::ops::Bound::Excluded(&e) => match e.checked_sub(1) {
+                Some(prev) => prev,
+                None => return MapRangeCursor32::empty(0),
+            },
+            core::ops::Bound::Unbounded => Key32::MAX,
+        };
+        let start = match range.start_bound() {
+            core::ops::Bound::Included(&s) => s,
+            core::ops::Bound::Excluded(&s) => match s.checked_add(1) {
+                Some(next) => next,
+                None => return MapRangeCursor32::empty(end),
+            },
+            core::ops::Bound::Unbounded => 0,
+        };
+        if start > end {
+            MapRangeCursor32::empty(end)
+        } else {
+            let cur = self.cursor_from(start);
+            MapRangeCursor32::new(cur, end)
+        }
     }
 }
 
@@ -313,5 +416,58 @@ mod tests {
             })
             .collect();
         check(&rand);
+    }
+
+    #[test]
+    fn test_map32_range_cursor_boundary_and_differential() {
+        use std::collections::BTreeMap;
+        let mut map = ExpanseMap32::new();
+        let mut btree = BTreeMap::new();
+
+        // 1. Empty map checks
+        assert_eq!(map.range_cursor(..).collect::<Vec<_>>(), vec![]);
+        assert_eq!(map.range_cursor(10..=20).collect::<Vec<_>>(), vec![]);
+
+        // 2. Populate
+        for k in [0u32, 10, 20, 30, 100, 255, 1000, u32::MAX - 1, u32::MAX] {
+            map.insert(k, k.wrapping_mul(10));
+            btree.insert(k, k.wrapping_mul(10));
+        }
+
+        // Test boundary conditions
+        assert_eq!(map.range_cursor(0..=0).collect::<Vec<_>>(), vec![(0, 0)]);
+        assert_eq!(
+            map.range_cursor(u32::MAX..=u32::MAX).collect::<Vec<_>>(),
+            vec![(u32::MAX, u32::MAX.wrapping_mul(10))]
+        );
+        let (lo, hi) = (50u32, 10u32);
+        assert_eq!(map.range_cursor(lo..=hi).collect::<Vec<_>>(), vec![]); // lo > hi
+        assert_eq!(map.range_cursor(15..=15).collect::<Vec<_>>(), vec![]); // absent lo == hi
+        assert_eq!(map.range_cursor(12..=18).collect::<Vec<_>>(), vec![]); // absent between keys
+        assert_eq!(
+            map.range_cursor(15..=35).collect::<Vec<_>>(),
+            vec![(20, 200), (30, 300)]
+        );
+
+        // Iterator trait operations
+        let sum: u32 = map.range_cursor(10..=30).map(|(_, v)| v).sum();
+        assert_eq!(sum, 100 + 200 + 300);
+
+        // Differential against BTreeMap
+        let queries = [
+            0..=0,
+            0..=10,
+            10..=10,
+            11..=19,
+            20..=100,
+            100..=1000,
+            2000..=5000,
+            0..=u32::MAX,
+        ];
+        for r in queries {
+            let exp: Vec<_> = map.range_cursor(r.clone()).collect();
+            let bt: Vec<_> = btree.range(r.clone()).map(|(&k, &v)| (k, v)).collect();
+            assert_eq!(exp, bt, "Mismatch for {:?}", r);
+        }
     }
 }

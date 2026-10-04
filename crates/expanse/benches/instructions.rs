@@ -1103,6 +1103,27 @@ fn map_cursor_scan(built: (ExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// A full forward scan through the bounded range cursor (#1142): one `next` per
+// entry, measuring the bounded path under range bounds.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::clustered(args = ("clustered",), setup = built_map)]
+fn map_range_cursor_scan(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, _probes) = built;
+    let mut sink = 0u64;
+    let mut n = 0usize;
+    let mut cur = map.range_cursor(..);
+    while let Some((k, v)) = cur.next() {
+        sink ^= k ^ v;
+        n += 1;
+    }
+    assert_eq!(n, POP, "the range scan visits every entry once");
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 // Rank from each present key (#1144): `nav::count_below` sums sibling
 // `pop0` down the descent. The §6 prerequisite for any change to the
 // concurrent count path; `one_top_byte` is that issue's worst case for the
@@ -3809,6 +3830,7 @@ library_benchmark_group!(
         map_nav,
         map_prev,
         map_cursor_scan,
+        map_range_cursor_scan,
         map_count_below,
         set_count_below,
         set32_insert,
