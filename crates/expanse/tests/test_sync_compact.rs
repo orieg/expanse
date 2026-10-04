@@ -233,6 +233,23 @@ fn test_sync_map_compact_reclaims_memory() {
     );
     assert!(ratio <= 1.10, "G-held ratio {ratio} exceeds 1.10 ceiling");
 
+    // G-peak §12.5 (METHODOLOGY.md:470): peak = held_before + held_after <= held_before + held_fresh * 1.10
+    let peak_held = held_before + held_compacted;
+    let peak_ceiling = held_before as f64 + (held_fresh as f64 * 1.10);
+    let (live_allocs, total_allocs) =
+        map.with_locked(|inner| (inner.live_allocs(), inner.total_node_allocs()));
+    eprintln!(
+        "[G-PEAK MAP] drained_stride: held_before={held_before}, held_after={held_compacted}, held_fresh={held_fresh}, peak_held={peak_held}, peak_ceiling={peak_ceiling:.1}, live={live_allocs}, total={total_allocs}"
+    );
+    assert!(
+        peak_held as f64 <= peak_ceiling + 1.0,
+        "G-peak violated for sync map: peak={peak_held}, ceiling={peak_ceiling}"
+    );
+    assert_eq!(
+        live_allocs, total_allocs,
+        "G-peak census identity violated for sync map: live must equal total"
+    );
+
     // Verify all remaining entries survived intact
     for i in REMOVE..TOTAL {
         assert_eq!(map.get(i * 13), Some(!i));
@@ -258,6 +275,7 @@ fn test_sync_set_compact_reclaims_memory() {
     assert_eq!(set.len(), TOTAL - REMOVE);
 
     let used_before = set.mem_used();
+    let held_before = set.mem_held();
 
     set.compact();
 
@@ -280,6 +298,23 @@ fn test_sync_set_compact_reclaims_memory() {
         "SyncExpanseSet G-held: held_compacted={held_compacted}, held_fresh={held_fresh}, ratio={ratio:.4}"
     );
     assert!(ratio <= 1.10, "G-held ratio {ratio} exceeds 1.10 ceiling");
+
+    // G-peak §12.5 (METHODOLOGY.md:470): peak = held_before + held_after <= held_before + held_fresh * 1.10
+    let peak_held = held_before + held_compacted;
+    let peak_ceiling = held_before as f64 + (held_fresh as f64 * 1.10);
+    let (live_allocs, total_allocs) =
+        set.with_locked(|inner| (inner.live_allocs(), inner.total_node_allocs()));
+    eprintln!(
+        "[G-PEAK SET] drained_stride: held_before={held_before}, held_after={held_compacted}, held_fresh={held_fresh}, peak_held={peak_held}, peak_ceiling={peak_ceiling:.1}, live={live_allocs}, total={total_allocs}"
+    );
+    assert!(
+        peak_held as f64 <= peak_ceiling + 1.0,
+        "G-peak violated for sync set: peak={peak_held}, ceiling={peak_ceiling}"
+    );
+    assert_eq!(
+        live_allocs, total_allocs,
+        "G-peak census identity violated for sync set: live must equal total"
+    );
 
     for i in REMOVE..TOTAL {
         assert!(set.contains(i * 13));
@@ -564,4 +599,158 @@ fn test_sync_set_writers_running_during_old_tree_drop() {
         assert!(w > 0);
     }
     set.with_locked(|inner| inner.validate());
+}
+
+// ---------------------------------------------------------------------------
+// G-Peak Retention Tests Across Shapes (METHODOLOGY.md §12.5 / B3 check)
+// ---------------------------------------------------------------------------
+
+struct XorShift(u64);
+impl XorShift {
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+}
+
+fn check_sync_set_g_peak(name: &str, keys: &[u64], keep_indices: &[usize]) {
+    let set = SyncExpanseSet::new();
+    for &k in keys {
+        set.insert(k);
+    }
+
+    let to_keep: std::collections::BTreeSet<u64> = keep_indices.iter().map(|&i| keys[i]).collect();
+    for &k in keys {
+        if !to_keep.contains(&k) {
+            set.remove(k);
+        }
+    }
+
+    let held_before = set.mem_held();
+
+    let fresh = SyncExpanseSet::new();
+    for &k in &to_keep {
+        fresh.insert(k);
+    }
+    let held_fresh = fresh.with_locked(|inner| inner.mem_held());
+
+    set.compact();
+
+    let held_after = set.with_locked(|inner| inner.mem_held());
+    let peak_held = held_before + held_after;
+    let peak_ceiling = held_before as f64 + (held_fresh as f64 * 1.10);
+    let (live_allocs, total_allocs) =
+        set.with_locked(|inner| (inner.live_allocs(), inner.total_node_allocs()));
+
+    eprintln!(
+        "[G-PEAK SET] {name}: held_before={held_before}, held_after={held_after}, held_fresh={held_fresh}, peak_held={peak_held}, peak_ceiling={peak_ceiling:.1}, live={live_allocs}, total={total_allocs}"
+    );
+    assert!(
+        peak_held as f64 <= peak_ceiling + 1.0,
+        "{name}: G-peak violated for sync set: peak={peak_held}, ceiling={peak_ceiling}"
+    );
+    assert_eq!(
+        live_allocs, total_allocs,
+        "{name}: G-peak census identity violated for sync set: live must equal total"
+    );
+    set.with_locked(|inner| inner.validate());
+}
+
+fn check_sync_map_g_peak(name: &str, keys: &[u64], keep_indices: &[usize]) {
+    let map = SyncExpanseMap::new();
+    for &k in keys {
+        map.insert(k, !k);
+    }
+
+    let to_keep: std::collections::BTreeMap<u64, u64> =
+        keep_indices.iter().map(|&i| (keys[i], !keys[i])).collect();
+    for &k in keys {
+        if !to_keep.contains_key(&k) {
+            map.remove(k);
+        }
+    }
+
+    let held_before = map.mem_held();
+
+    let fresh = SyncExpanseMap::new();
+    for (&k, &v) in &to_keep {
+        fresh.insert(k, v);
+    }
+    let held_fresh = fresh.with_locked(|inner| inner.mem_held());
+
+    map.compact();
+
+    let held_after = map.with_locked(|inner| inner.mem_held());
+    let peak_held = held_before + held_after;
+    let peak_ceiling = held_before as f64 + (held_fresh as f64 * 1.10);
+    let (live_allocs, total_allocs) =
+        map.with_locked(|inner| (inner.live_allocs(), inner.total_node_allocs()));
+
+    eprintln!(
+        "[G-PEAK MAP] {name}: held_before={held_before}, held_after={held_after}, held_fresh={held_fresh}, peak_held={peak_held}, peak_ceiling={peak_ceiling:.1}, live={live_allocs}, total={total_allocs}"
+    );
+    assert!(
+        peak_held as f64 <= peak_ceiling + 1.0,
+        "{name}: G-peak violated for sync map: peak={peak_held}, ceiling={peak_ceiling}"
+    );
+    assert_eq!(
+        live_allocs, total_allocs,
+        "{name}: G-peak census identity violated for sync map: live must equal total"
+    );
+    map.with_locked(|inner| inner.validate());
+}
+
+#[test]
+fn test_sync_g_peak_retention_uniform_random() {
+    let _lock = SUITE_LOCK.lock().unwrap();
+    let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+    let mask = (1u64 << 28) - 1;
+    let mut seen = std::collections::HashSet::with_capacity(20_000);
+    let mut keys = Vec::with_capacity(20_000);
+    while keys.len() < 20_000 {
+        let k = rng.next() & mask;
+        if seen.insert(k) {
+            keys.push(k);
+        }
+    }
+    let keep_indices: Vec<usize> = (0..keys.len()).filter(|i| i % 4 == 0).collect();
+    check_sync_set_g_peak("uniform_28bit", &keys, &keep_indices);
+    check_sync_map_g_peak("uniform_28bit", &keys, &keep_indices);
+}
+
+#[test]
+fn test_sync_g_peak_retention_clustered() {
+    let _lock = SUITE_LOCK.lock().unwrap();
+    let mut keys = Vec::with_capacity(32 * 256);
+    for c in 0..32u64 {
+        let prefix = (c << 16) | 0xAA00;
+        for i in 0..256u64 {
+            keys.push(prefix | i);
+        }
+    }
+    let keep_indices: Vec<usize> = (0..keys.len()).filter(|i| i % 256 == 0).collect();
+    check_sync_set_g_peak("clustered", &keys, &keep_indices);
+    check_sync_map_g_peak("clustered", &keys, &keep_indices);
+}
+
+#[test]
+fn test_sync_g_peak_retention_sequential() {
+    let _lock = SUITE_LOCK.lock().unwrap();
+    let keys: Vec<u64> = (0..10_000u64).collect();
+    let keep_indices: Vec<usize> = (0..keys.len()).filter(|i| i % 20 == 0).collect();
+    check_sync_set_g_peak("sequential", &keys, &keep_indices);
+    check_sync_map_g_peak("sequential", &keys, &keep_indices);
+}
+
+#[test]
+fn test_sync_g_peak_retention_sparse() {
+    let _lock = SUITE_LOCK.lock().unwrap();
+    let keys: Vec<u64> = (0..2_000u64).map(|i| (i << 24) | (i & 0xFF)).collect();
+    let keep_indices: Vec<usize> = (0..keys.len()).filter(|i| i % 10 == 0).collect();
+    check_sync_set_g_peak("sparse", &keys, &keep_indices);
+    check_sync_map_g_peak("sparse", &keys, &keep_indices);
 }

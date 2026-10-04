@@ -6192,6 +6192,13 @@ impl SyncExpanseSet {
                     let staged = self.shared.prepare_staged(ExpanseSet::new());
                     let staged = ExpanseSet::from_sorted_keys_into(staged, &keys);
                     drop(keys);
+                    // Nothing the build allocated was freed: the peak of the new tree's
+                    // held bytes is its final `mem_held`.
+                    debug_assert_eq!(
+                        staged.live_allocs(),
+                        staged.total_node_allocs(),
+                        "staged set compact build must not free"
+                    );
                     staged
                 },
                 |inner, staged| {
@@ -6864,6 +6871,13 @@ impl SyncExpanseMap {
                     let staged = self.shared.prepare_staged(ExpanseMap::new());
                     let staged = ExpanseMap::from_sorted_entries_into(staged, &entries);
                     drop(entries);
+                    // Nothing the build allocated was freed: the peak of the new tree's
+                    // held bytes is its final `mem_held`.
+                    debug_assert_eq!(
+                        staged.live_allocs(),
+                        staged.total_node_allocs(),
+                        "staged map compact build must not free"
+                    );
                     staged
                 },
                 |inner, staged| {
