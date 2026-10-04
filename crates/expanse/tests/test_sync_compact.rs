@@ -188,6 +188,7 @@ fn test_sync_set_post_compact_optimistic_insert_takes_olc_path() {
 
 #[test]
 fn test_sync_map_compact_reclaims_memory() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     let map = SyncExpanseMap::new();
     const TOTAL: u64 = 20_000;
     const REMOVE: u64 = 16_000;
@@ -219,6 +220,22 @@ fn test_sync_map_compact_reclaims_memory() {
         "used after {used_after} should be <= used before {used_before}"
     );
 
+    // G-held §12.5: compute held_fresh from a fresh build with the same surviving entries
+    let fresh = SyncExpanseMap::new();
+    for i in REMOVE..TOTAL {
+        fresh.insert(i * 13, !i);
+    }
+    let held_fresh = fresh.with_locked(|inner| inner.mem_held());
+    let held_compacted = map.with_locked(|inner| inner.mem_held());
+    let ratio = held_compacted as f64 / held_fresh as f64;
+    println!(
+        "SyncExpanseMap G-held: held_compacted={held_compacted}, held_fresh={held_fresh}, ratio={ratio:.4}"
+    );
+    assert!(
+        ratio <= 1.10,
+        "G-held ratio {ratio} exceeds 1.10 ceiling"
+    );
+
     // Verify all remaining entries survived intact
     for i in REMOVE..TOTAL {
         assert_eq!(map.get(i * 13), Some(!i));
@@ -228,6 +245,7 @@ fn test_sync_map_compact_reclaims_memory() {
 
 #[test]
 fn test_sync_set_compact_reclaims_memory() {
+    let _lock = SUITE_LOCK.lock().unwrap();
     let set = SyncExpanseSet::new();
     const TOTAL: u64 = 20_000;
     const REMOVE: u64 = 16_000;
@@ -251,6 +269,22 @@ fn test_sync_set_compact_reclaims_memory() {
     assert!(
         used_after <= used_before,
         "used after {used_after} should be <= used before {used_before}"
+    );
+
+    // G-held §12.5: compute held_fresh from a fresh build with the same surviving keys
+    let fresh = SyncExpanseSet::new();
+    for i in REMOVE..TOTAL {
+        fresh.insert(i * 13);
+    }
+    let held_fresh = fresh.with_locked(|inner| inner.mem_held());
+    let held_compacted = set.with_locked(|inner| inner.mem_held());
+    let ratio = held_compacted as f64 / held_fresh as f64;
+    println!(
+        "SyncExpanseSet G-held: held_compacted={held_compacted}, held_fresh={held_fresh}, ratio={ratio:.4}"
+    );
+    assert!(
+        ratio <= 1.10,
+        "G-held ratio {ratio} exceeds 1.10 ceiling"
     );
 
     for i in REMOVE..TOTAL {
