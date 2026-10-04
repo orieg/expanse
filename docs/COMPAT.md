@@ -185,12 +185,21 @@ width and is what `ExpanseBlobMap` names on a 32-bit target
 is declared only in the wide surface.
 
 Compaction (`compact()`) is a Rust-only memory lifecycle operation implemented
-on `ExpanseSet`, `ExpanseMap`, `ExpanseSet32`, and `ExpanseMap32` (#1200). It
+on `ExpanseSet`, `ExpanseMap`, `ExpanseSet32`, and `ExpanseMap32` (#1200, #1347),
+and on concurrent containers `SyncExpanseSet` and `SyncExpanseMap` (#1354). It
 rebuilds surviving elements into a fresh arena, reclaiming held memory after
-bulk removals while invalidating internal node pointers. It is a no-op on trees
-behind concurrent wrappers (`sync` / `sync32`). Neither width exports an
-`expanse_*_compact` C ABI symbol (pending consumer demand per #1200); language
-bindings target 64-bit hosts and do not expose compaction or 32-bit types.
+bulk removals while invalidating internal node pointers. Under concurrent models,
+it allocates through staged OCC allocation (`write_quiesced_staged`) under writer
+exclusion and publishes under a version bracket while retiring the old tree through
+the collector after bracket close. It is a no-op on trees behind `sync32`. Neither
+width exports an `expanse_*_compact` C ABI symbol (pending consumer demand per #1200);
+language bindings target 64-bit hosts and do not expose compaction or 32-bit types.
+
+In #1357, `ExpanseSet32::from_sorted_iter` and `ExpanseMap32::from_sorted_iter` were
+rewritten to use bottom-up direct emission (`trie32::build_set_subtree` / `build_map_subtree`),
+allocating nodes directly at their final capacity class so total allocations equal
+live allocations (4 instead of 33 on 100 sequential keys, per `set32.rs`), satisfying
+the G-peak census identity for 32-bit compaction.
 
 The reverse gap also exists. Two batched range entry points are declared in a
 `#if !EXPANSE_WIDE_SURFACE` block and shipped **only at 32-bit width**, because
@@ -369,6 +378,9 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 | **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (18 fns, 6 of them reader-handle ordered reads) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
 | **`SyncExpanseOrderedBytesMap` (#808)**| Follow-up (`expanse_sync_ordered_bytesmap_*`) | `SyncExpanseOrderedBytesMap` | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up |
 | **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (17 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
+| **Atomic RMW (`compare_exchange` / `update`) (#1194)** | Follow-up | `compare_exchange` (Map/Str/Bytes/Blob), `update` (Map/Str/Bytes) | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up |
+| **Compaction (`compact`) (#1200)** | Follow-up | ✅ Set/Map, Set32/Map32, SyncSet/SyncMap | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up |
+| **32-bit direct emission (`from_sorted_iter`) (#1357)** | N/A (32-bit embedded) | ✅ `from_sorted_iter` (Set32/Map32) | N/A | N/A | N/A | N/A | N/A | N/A |
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
 | **Metadata Filtering** | ✅ Predicate callbacks | ✅ Scalar per-entry predicate closure (`scan_filtered`) | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
 | **Optimistic Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe | ✅ Optimistic OCC | ✅ GVL-safe FFI |
