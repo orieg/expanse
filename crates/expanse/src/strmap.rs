@@ -2443,6 +2443,29 @@ impl ExpanseStrMap {
         self.remove_impl(key)
     }
 
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Returns the value that was replaced (or `None`
+    /// if the key was absent).
+    pub fn update(
+        &mut self,
+        key: &NulFreeStr,
+        f: impl FnOnce(Option<u64>) -> Option<u64>,
+    ) -> Option<u64> {
+        let old = self.get(key);
+        match f(old) {
+            Some(v) => {
+                self.insert(key, v);
+                old
+            }
+            None => {
+                if old.is_some() {
+                    self.remove(key);
+                }
+                old
+            }
+        }
+    }
+
     /// [`Self::remove`] on an unshared map; a shared map's is
     /// [`Self::remove_shared`]. Inlined, as [`Self::insert_impl`].
     #[inline(always)]

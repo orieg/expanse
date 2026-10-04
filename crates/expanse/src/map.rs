@@ -4897,6 +4897,25 @@ impl ExpanseMap {
             .remove_plain(&self.alloc, key, self.path.get_mut())
     }
 
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Returns the value that was replaced (or `None`
+    /// if the key was absent).
+    pub fn update(&mut self, key: Key, f: impl FnOnce(Option<u64>) -> Option<u64>) -> Option<u64> {
+        let old = self.get(key);
+        match f(old) {
+            Some(v) => {
+                self.insert(key, v);
+                old
+            }
+            None => {
+                if old.is_some() {
+                    self.remove(key);
+                }
+                old
+            }
+        }
+    }
+
     /// Removes every entry, and returns the blocks the map's allocator
     /// kept for reuse to the system allocator, so the map holds what a new
     /// one does ([`Self::mem_held`] is 0). Unlike `Vec::clear` and
