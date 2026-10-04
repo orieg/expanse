@@ -31,6 +31,8 @@
 pub use crate::domain::EscapeDecodeError;
 use crate::domain::{escape_decode, escape_decode_in_place, escape_decode_into, escape_encode};
 use crate::strmap::{ExpanseStrMap, NulFreeStr, StrCursor};
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
+pub use crate::sync::SyncExpanseOrderedBytesMap;
 use core::ptr::NonNull;
 use core_alloc::vec::Vec;
 
@@ -39,7 +41,7 @@ use core_alloc::vec::Vec;
 /// Every byte expands to at most 2 bytes ($0x00 \to [1, 1]$, $0x01 \to [1, 2]$),
 /// so `buf` must have capacity $\ge 2 \times \text{data.len()}$.
 #[inline]
-fn encode_into_slice(data: &[u8], buf: &mut [u8]) -> usize {
+pub(crate) fn encode_into_slice(data: &[u8], buf: &mut [u8]) -> usize {
     let mut w = 0;
     for &b in data {
         match b {
@@ -68,7 +70,7 @@ fn encode_into_slice(data: &[u8], buf: &mut [u8]) -> usize {
 /// - **Short key ($\le 32$ B)**: encodes into a stack buffer `[u8; 64]` with zero heap allocation.
 /// - **Long key**: falls back to [`escape_encode`].
 #[inline]
-fn with_encoded_key<R>(key: &[u8], f: impl FnOnce(&NulFreeStr) -> R) -> R {
+pub(crate) fn with_encoded_key<R>(key: &[u8], f: impl FnOnce(&NulFreeStr) -> R) -> R {
     if !key.iter().any(|&b| b <= 1) {
         debug_assert!(!key.contains(&0));
         // SAFETY:
@@ -102,18 +104,43 @@ fn with_encoded_key<R>(key: &[u8], f: impl FnOnce(&NulFreeStr) -> R) -> R {
 }
 
 /// An ordered map from arbitrary byte sequences (`&[u8]`) to `u64` values.
+///
+/// Marked `#[repr(transparent)]` over [`ExpanseStrMap`] so [`SyncExpanseOrderedBytesMap::with_locked`]
+/// can soundly cast `&ExpanseStrMap` to `&ExpanseOrderedBytesMap` inside its exclusive lock closure
+/// without allocation.
 #[derive(Default)]
+#[repr(transparent)]
 pub struct ExpanseOrderedBytesMap {
-    inner: ExpanseStrMap,
+    pub(crate) inner: ExpanseStrMap,
 }
 
 impl ExpanseOrderedBytesMap {
+    /// Borrows an [`ExpanseStrMap`] reference as an [`ExpanseOrderedBytesMap`] reference.
+    #[cfg(feature = "std")]
+    #[inline]
+    #[must_use]
+    pub(crate) fn from_ref(inner: &ExpanseStrMap) -> &Self {
+        // SAFETY: ExpanseOrderedBytesMap is #[repr(transparent)] over ExpanseStrMap.
+        unsafe { &*(inner as *const ExpanseStrMap as *const Self) }
+    }
     /// Creates an empty map.
     #[must_use]
     pub fn new() -> Self {
         Self {
             inner: ExpanseStrMap::new(),
         }
+    }
+
+    /// Consumes the wrapper and returns the underlying [`ExpanseStrMap`].
+    #[must_use]
+    pub fn into_inner(self) -> ExpanseStrMap {
+        self.inner
+    }
+
+    /// Returns a reference to the underlying [`ExpanseStrMap`].
+    #[must_use]
+    pub fn as_inner(&self) -> &ExpanseStrMap {
+        &self.inner
     }
 
     /// Number of entries stored.
