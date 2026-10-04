@@ -180,7 +180,8 @@ impl DomainOrdinal {
 /// - `0x01 -> [0x01, 0x02]`
 /// - `b -> [b]` (for `b in 0x02..=0xFF`)
 #[inline]
-pub(crate) fn escape_encode(data: &[u8]) -> Vec<u8> {
+#[doc(hidden)]
+pub fn escape_encode(data: &[u8]) -> Vec<u8> {
     if !data.iter().any(|&b| b <= 1) {
         return data.to_vec();
     }
@@ -199,6 +200,213 @@ pub(crate) fn escape_encode(data: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// Error returned when decoding an invalid or malformed escaped byte sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum EscapeDecodeError {
+    /// Escape byte `0x01` at end of slice with no subsequent byte.
+    TrailingEscape,
+    /// Escape byte `0x01` followed by an invalid byte (expected `0x01` or `0x02`).
+    InvalidEscapeByte {
+        /// The invalid byte encountered after `0x01`.
+        byte: u8,
+        /// The byte offset within the encoded slice where the invalid byte occurred.
+        offset: usize,
+    },
+    /// Unexpected NUL byte (`0x00`) in encoded stream.
+    ///
+    /// Valid encoded streams are strictly NUL-free by construction.
+    NulInEncoded {
+        /// The byte offset where `0x00` occurred.
+        offset: usize,
+    },
+    /// Destination buffer has insufficient capacity for decoded bytes.
+    BufferTooSmall {
+        /// Bytes required for decoded output.
+        required: usize,
+        /// Bytes available in provided buffer.
+        provided: usize,
+    },
+}
+
+impl core::fmt::Display for EscapeDecodeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TrailingEscape => write!(f, "truncated escape sequence: trailing 0x01 byte"),
+            Self::InvalidEscapeByte { byte, offset } => {
+                write!(
+                    f,
+                    "invalid escape sequence at offset {offset}: 0x01 followed by 0x{byte:02x}",
+                )
+            }
+            Self::NulInEncoded { offset } => {
+                write!(
+                    f,
+                    "unexpected NUL byte (0x00) in encoded data at offset {offset}"
+                )
+            }
+            Self::BufferTooSmall { required, provided } => {
+                write!(
+                    f,
+                    "output buffer too small: required {required} bytes, provided {provided} bytes"
+                )
+            }
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for EscapeDecodeError {}
+
+/// Inverts [`escape_encode`], decoding an order-preserving escaped byte sequence
+/// back to raw arbitrary bytes (Issue #808, `docs/ARCHITECTURE.md` §3.7.5).
+///
+/// Deterministically inverts:
+/// - `[0x01, 0x01] -> 0x00`
+/// - `[0x01, 0x02] -> 0x01`
+/// - `b -> b` for `b in 0x02..=0xFF`
+///
+/// Invariants:
+/// - **Length invariant**: For all inputs `s`, `len(decode(s)) <= len(s)`. Decoding never expands,
+///   allowing safe in-place decoding into caller-provided buffers of input length.
+/// - **Safe bounds**: No unsafe indexing or out-of-bounds reads on truncated or malformed inputs.
+/// - **Malformed inputs**: Returns [`EscapeDecodeError`] on trailing `0x01`, invalid escape byte,
+///   or embedded `0x00`.
+#[inline]
+#[doc(hidden)]
+pub fn escape_decode(data: &[u8]) -> Result<Vec<u8>, EscapeDecodeError> {
+    if !data.iter().any(|&b| b <= 1) {
+        return Ok(data.to_vec());
+    }
+    let mut out = Vec::with_capacity(data.len());
+    let mut i = 0;
+    while i < data.len() {
+        let b = data[i];
+        match b {
+            0 => return Err(EscapeDecodeError::NulInEncoded { offset: i }),
+            1 => {
+                i += 1;
+                if i >= data.len() {
+                    return Err(EscapeDecodeError::TrailingEscape);
+                }
+                let esc = data[i];
+                match esc {
+                    1 => out.push(0),
+                    2 => out.push(1),
+                    other => {
+                        return Err(EscapeDecodeError::InvalidEscapeByte {
+                            byte: other,
+                            offset: i,
+                        });
+                    }
+                }
+            }
+            _ => out.push(b),
+        }
+        i += 1;
+    }
+    Ok(out)
+}
+
+/// Decodes an order-preserving escaped byte sequence into a caller-provided destination buffer.
+///
+/// Returns the number of decoded bytes written to `buf`.
+/// Returns [`EscapeDecodeError::BufferTooSmall`] if `buf` is too small to hold the decoded bytes.
+#[inline]
+#[doc(hidden)]
+pub fn escape_decode_into(data: &[u8], buf: &mut [u8]) -> Result<usize, EscapeDecodeError> {
+    if !data.iter().any(|&b| b <= 1) {
+        if buf.len() < data.len() {
+            return Err(EscapeDecodeError::BufferTooSmall {
+                required: data.len(),
+                provided: buf.len(),
+            });
+        }
+        buf[..data.len()].copy_from_slice(data);
+        return Ok(data.len());
+    }
+    let mut w = 0;
+    let mut i = 0;
+    while i < data.len() {
+        let b = data[i];
+        let decoded = match b {
+            0 => return Err(EscapeDecodeError::NulInEncoded { offset: i }),
+            1 => {
+                i += 1;
+                if i >= data.len() {
+                    return Err(EscapeDecodeError::TrailingEscape);
+                }
+                let esc = data[i];
+                match esc {
+                    1 => 0,
+                    2 => 1,
+                    other => {
+                        return Err(EscapeDecodeError::InvalidEscapeByte {
+                            byte: other,
+                            offset: i,
+                        });
+                    }
+                }
+            }
+            _ => b,
+        };
+        if w >= buf.len() {
+            return Err(EscapeDecodeError::BufferTooSmall {
+                required: w + 1,
+                provided: buf.len(),
+            });
+        }
+        buf[w] = decoded;
+        w += 1;
+        i += 1;
+    }
+    Ok(w)
+}
+
+/// Decodes an order-preserving escaped byte sequence in-place within `buf`.
+///
+/// Because `len(decode(s)) <= len(s)` holds for all inputs, decoding never expands,
+/// so writing at index `w <= r` never overwrites unread bytes.
+///
+/// Returns the number of decoded bytes; the decoded bytes reside in `buf[..len]`.
+#[inline]
+#[doc(hidden)]
+pub fn escape_decode_in_place(buf: &mut [u8]) -> Result<usize, EscapeDecodeError> {
+    if !buf.iter().any(|&b| b <= 1) {
+        return Ok(buf.len());
+    }
+    let n = buf.len();
+    let mut r = 0;
+    let mut w = 0;
+    while r < n {
+        let b = buf[r];
+        match b {
+            0 => return Err(EscapeDecodeError::NulInEncoded { offset: r }),
+            1 => {
+                r += 1;
+                if r >= n {
+                    return Err(EscapeDecodeError::TrailingEscape);
+                }
+                let esc = buf[r];
+                match esc {
+                    1 => buf[w] = 0,
+                    2 => buf[w] = 1,
+                    other => {
+                        return Err(EscapeDecodeError::InvalidEscapeByte {
+                            byte: other,
+                            offset: r,
+                        });
+                    }
+                }
+            }
+            _ => buf[w] = b,
+        }
+        w += 1;
+        r += 1;
+    }
+    Ok(w)
 }
 
 #[inline]
@@ -722,5 +930,277 @@ impl<'a> Iterator for ResolveIter<'a> {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn test_escape_roundtrip_deterministic() {
+        let cases: &[&[u8]] = &[
+            b"",
+            b"hello world",
+            b"\x00",
+            b"\x01",
+            b"\x00\x01\x02",
+            b"\x01\x01",
+            b"\x01\x02",
+            b"\x00\x00\x00",
+            b"\x01\x01\x01",
+            b"prefix\x00suffix",
+            b"user:8f3c1e\x00\x01uuid",
+        ];
+
+        for &raw in cases {
+            let enc = escape_encode(raw);
+            assert!(
+                !enc.contains(&0),
+                "Encoded output for {raw:?} contained NUL byte"
+            );
+            assert!(
+                raw.len() <= enc.len() && enc.len() <= 2 * raw.len(),
+                "Length bound violated for {raw:?}: raw={}, enc={}",
+                raw.len(),
+                enc.len()
+            );
+
+            // 1. escape_decode
+            let dec = escape_decode(&enc).expect("decode failed");
+            assert_eq!(dec, raw, "Roundtrip failed for {raw:?}");
+
+            // 2. escape_decode_into
+            let mut buf = vec![0u8; enc.len()];
+            let written = escape_decode_into(&enc, &mut buf).expect("decode_into failed");
+            assert_eq!(written, raw.len());
+            assert_eq!(&buf[..written], raw);
+
+            // 3. escape_decode_in_place
+            let mut in_place_buf = enc.clone();
+            let in_place_len =
+                escape_decode_in_place(&mut in_place_buf).expect("decode_in_place failed");
+            assert_eq!(in_place_len, raw.len());
+            assert_eq!(&in_place_buf[..in_place_len], raw);
+        }
+
+        // Test with full 256-byte alphabet
+        let all_bytes: Vec<u8> = (0..=255).collect();
+        let enc_all = escape_encode(&all_bytes);
+        assert!(!enc_all.contains(&0));
+        assert_eq!(escape_decode(&enc_all).unwrap(), all_bytes);
+    }
+
+    #[test]
+    fn test_escape_malformed_inputs() {
+        // 1. Trailing escape
+        assert_eq!(escape_decode(&[1]), Err(EscapeDecodeError::TrailingEscape));
+        assert_eq!(
+            escape_decode(&[2, 3, 1]),
+            Err(EscapeDecodeError::TrailingEscape)
+        );
+
+        // 2. Invalid escape byte
+        assert_eq!(
+            escape_decode(&[1, 0]),
+            Err(EscapeDecodeError::InvalidEscapeByte { byte: 0, offset: 1 })
+        );
+        assert_eq!(
+            escape_decode(&[1, 3]),
+            Err(EscapeDecodeError::InvalidEscapeByte { byte: 3, offset: 1 })
+        );
+        assert_eq!(
+            escape_decode(&[2, 1, 255]),
+            Err(EscapeDecodeError::InvalidEscapeByte {
+                byte: 255,
+                offset: 2
+            })
+        );
+
+        // 3. Unexpected NUL byte in encoded stream
+        assert_eq!(
+            escape_decode(&[0]),
+            Err(EscapeDecodeError::NulInEncoded { offset: 0 })
+        );
+        assert_eq!(
+            escape_decode(&[2, 0, 3]),
+            Err(EscapeDecodeError::NulInEncoded { offset: 1 })
+        );
+
+        // 4. Buffer too small
+        let enc = escape_encode(b"hello world");
+        let mut small_buf = [0u8; 5];
+        assert_eq!(
+            escape_decode_into(&enc, &mut small_buf),
+            Err(EscapeDecodeError::BufferTooSmall {
+                required: 11,
+                provided: 5
+            })
+        );
+    }
+
+    #[test]
+    fn test_escape_length_invariant() {
+        let cases: &[&[u8]] = &[
+            b"",
+            b"a",
+            b"\x00",
+            b"\x01",
+            b"\x00\x00\x00\x00",
+            b"long string with mixed \x00 and \x01 bytes",
+        ];
+        for &c in cases {
+            let enc = escape_encode(c);
+            let dec = escape_decode(&enc).unwrap();
+            assert!(
+                dec.len() <= enc.len(),
+                "len(decode) {} must be <= len(encode) {}",
+                dec.len(),
+                enc.len()
+            );
+        }
+    }
+
+    #[test]
+    fn test_escape_order_preservation_deterministic() {
+        let keys: Vec<&[u8]> = vec![
+            b"apple",
+            b"apple\x00",
+            b"apple\x00\x00",
+            b"apple\x00\x01",
+            b"apple\x01",
+            b"apple\x01\x00",
+            b"apple\x02",
+            b"banana",
+            b"uuid:\x00\x01\x02",
+            b"uuid:\x00\x01\x03",
+            b"uuid:\x01\x00\x00",
+            b"uuid:\x01\x01\x00",
+            b"uuid:\x02\x00\x00",
+        ];
+        let mut sorted_raw = keys.clone();
+        sorted_raw.sort();
+
+        let mut sorted_enc = keys.clone();
+        sorted_enc.sort_by_key(|&k| escape_encode(k));
+
+        assert_eq!(
+            sorted_raw, sorted_enc,
+            "Lexicographical order was not preserved!"
+        );
+
+        // Pairwise comparison
+        for i in 0..keys.len() {
+            for j in 0..keys.len() {
+                let a = keys[i];
+                let b = keys[j];
+                let enc_a = escape_encode(a);
+                let enc_b = escape_encode(b);
+                assert_eq!(
+                    a.cmp(b),
+                    enc_a.cmp(&enc_b),
+                    "Order mismatch for a={a:?}, b={b:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_escape_prefix_freedom_deterministic() {
+        let pairs: &[(&[u8], &[u8])] = &[
+            (b"foo", b"foobar"),
+            (b"foo\x00", b"foo\x00bar"),
+            (b"foo\x01", b"foo\x01bar"),
+            (b"\x00", b"\x00\x01"),
+            (b"\x01", b"\x01\x00"),
+            (b"\x00", b"\x01"),
+            (b"foo\x00", b"foo\x01"),
+            (b"bar", b"foo"),
+        ];
+
+        for &(a, b) in pairs {
+            let enc_a = escape_encode(a);
+            let enc_b = escape_encode(b);
+            let is_prefix = b.starts_with(a);
+            let is_enc_prefix = enc_b.starts_with(&enc_a);
+            assert_eq!(
+                is_prefix, is_enc_prefix,
+                "Prefix relation mismatch: a={a:?}, b={b:?}"
+            );
+        }
+    }
+
+    #[cfg(not(miri))]
+    mod native_proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn proptest_escape_roundtrip(data in prop::collection::vec(any::<u8>(), 0..256)) {
+                let enc = escape_encode(&data);
+                prop_assert!(!enc.contains(&0));
+                prop_assert!(data.len() <= enc.len());
+                prop_assert!(enc.len() <= 2 * data.len());
+
+                let dec = escape_decode(&enc).expect("decode should succeed on valid encode");
+                prop_assert_eq!(&dec, &data);
+
+                let mut buf = vec![0u8; enc.len()];
+                let written = escape_decode_into(&enc, &mut buf).expect("decode_into should succeed");
+                prop_assert_eq!(written, data.len());
+                prop_assert_eq!(&buf[..written], &data[..]);
+
+                let mut in_place = enc.clone();
+                let in_place_len = escape_decode_in_place(&mut in_place).expect("decode_in_place should succeed");
+                prop_assert_eq!(in_place_len, data.len());
+                prop_assert_eq!(&in_place[..in_place_len], &data[..]);
+            }
+
+            #[test]
+            fn proptest_escape_order_preservation(
+                a in prop::collection::vec(any::<u8>(), 0..64),
+                b in prop::collection::vec(any::<u8>(), 0..64),
+            ) {
+                let enc_a = escape_encode(&a);
+                let enc_b = escape_encode(&b);
+                prop_assert_eq!(a.cmp(&b), enc_a.cmp(&enc_b));
+            }
+
+            #[test]
+            fn proptest_escape_prefix_freedom(
+                a in prop::collection::vec(any::<u8>(), 0..64),
+                b in prop::collection::vec(any::<u8>(), 0..64),
+            ) {
+                let enc_a = escape_encode(&a);
+                let enc_b = escape_encode(&b);
+                prop_assert_eq!(b.starts_with(&a), enc_b.starts_with(&enc_a));
+            }
+
+            #[test]
+            fn proptest_escape_length_invariant(
+                data in prop::collection::vec(any::<u8>(), 0..256),
+            ) {
+                let enc = escape_encode(&data);
+                let dec = escape_decode(&enc).expect("decode should succeed");
+                prop_assert!(dec.len() <= enc.len());
+            }
+
+            #[test]
+            fn proptest_arbitrary_input_safety(
+                data in prop::collection::vec(any::<u8>(), 0..128),
+            ) {
+                // Must never panic or crash on arbitrary random byte sequences.
+                if let Ok(dec) = escape_decode(&data) {
+                    prop_assert!(dec.len() <= data.len());
+                }
+
+                let mut in_place = data.clone();
+                if let Ok(len) = escape_decode_in_place(&mut in_place) {
+                    prop_assert!(len <= data.len());
+                }
+            }
+        }
     }
 }

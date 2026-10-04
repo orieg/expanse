@@ -44,6 +44,7 @@
 
 use expanse_trie::blobmap::ExpanseBlobMap;
 use expanse_trie::bytesmap::ExpanseBytesMap;
+use expanse_trie::domain::{DomainSet, ExpanseDomainDict, escape_decode, escape_encode};
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
@@ -1849,6 +1850,185 @@ fn strmap_refill_small(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+/// Keys for the order-preserving escape transcoding benchmark arms (#808,
+/// `docs/ARCHITECTURE.md` §3.7.6).
+///
+/// - `clean`: 16-byte keys where every byte is >= 2, measuring the zero-allocation
+///   fast path `!k.iter().any(|&b| b <= 1)`.
+/// - `escaped`: 16-byte keys containing embedded 0x00 and 0x01 bytes, measuring
+///   the slow transcoding path that byte-stuffs `0x00 -> [0x01, 0x01]` and
+///   `0x01 -> [0x01, 0x02]`.
+fn transcode_keys(dist: &str) -> Vec<Vec<u8>> {
+    let escaped = match dist {
+        "clean" => false,
+        "escaped" => true,
+        other => panic!("unknown transcode-key distribution {other}"),
+    };
+    let mut rng = XorShift(0x5A71_C1A0_0000_0001);
+    let mut out = Vec::with_capacity(POP);
+    for i in 0..POP as u64 {
+        let mut k = Vec::with_capacity(16);
+        let idx_bytes = i.to_be_bytes();
+        for &b in &idx_bytes {
+            if !escaped && b <= 1 {
+                k.push(b + 2);
+            } else {
+                k.push(b);
+            }
+        }
+        let r = rng.next();
+        let rand_bytes = r.to_le_bytes();
+        for (pos, &b) in rand_bytes.iter().enumerate() {
+            if escaped {
+                if pos == 0 {
+                    k.push(0);
+                } else if pos == 1 {
+                    k.push(1);
+                } else {
+                    k.push(b);
+                }
+            } else if b <= 1 {
+                k.push(b + 2);
+            } else {
+                k.push(b);
+            }
+        }
+        out.push(k);
+    }
+    out
+}
+
+/// Prebuilt string map for transcoding lookups and cursor walks.
+fn built_transcode_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let ks = transcode_keys(dist);
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        if !k.iter().any(|&b| b <= 1) {
+            // SAFETY: `clean` keys contain no byte <= 1, so in particular no NUL.
+            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(k) };
+            map.insert(nul_free, i as u64);
+        } else {
+            let enc = escape_encode(k);
+            // SAFETY: `escape_encode` emits no NUL bytes.
+            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(&enc) };
+            map.insert(nul_free, i as u64);
+        }
+    }
+    (map, shuffled_bytes(ks))
+}
+
+// Transcoding insert arm on clean and escaped keys (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = transcode_keys)]
+#[bench::escaped(args = ("escaped",), setup = transcode_keys)]
+fn strmap_transcode_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        let val = black_box(i as u64);
+        if !k.iter().any(|&b| b <= 1) {
+            // SAFETY: `clean` keys contain no byte <= 1.
+            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(black_box(k)) };
+            map.insert(nul_free, val);
+        } else {
+            let enc = escape_encode(black_box(k));
+            // SAFETY: `escape_encode` emits no NUL bytes.
+            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(&enc) };
+            map.insert(nul_free, val);
+        }
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+// Transcoding point-lookup arm on clean and escaped keys (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_transcode_strmap)]
+#[bench::escaped(args = ("escaped",), setup = built_transcode_strmap)]
+fn strmap_transcode_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        let probe = black_box(k);
+        let val = if !probe.iter().any(|&b| b <= 1) {
+            // SAFETY: `clean` keys contain no byte <= 1.
+            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(probe) };
+            map.get(nul_free).unwrap_or(0)
+        } else {
+            let enc = escape_encode(probe);
+            // SAFETY: `escape_encode` emits no NUL bytes.
+            let nul_free = unsafe { expanse_trie::strmap::NulFreeStr::new_unchecked(&enc) };
+            map.get(nul_free).unwrap_or(0)
+        };
+        sink ^= val;
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Transcoding cursor-walk arm on clean and escaped keys (#808, §3.7.6).
+#[library_benchmark]
+#[bench::clean(args = ("clean",), setup = built_transcode_strmap)]
+#[bench::escaped(args = ("escaped",), setup = built_transcode_strmap)]
+fn strmap_transcode_cursor(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    let mut cur = map.cursor();
+    while let Some((k, slot)) = cur.next() {
+        let decoded = escape_decode(k).expect("valid escaped key");
+        // SAFETY: slot pointer is valid while cursor is alive.
+        sink ^= decoded.len() as u64 ^ unsafe { slot.as_ptr().read() };
+        n += 1;
+    }
+    drop(cur);
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+/// Prebuilt domain dictionary for lookup benchmarks.
+fn built_domain_dict(dist: &str) -> (ExpanseDomainDict, DomainSet, Vec<Vec<u8>>) {
+    let ks = str_keys(dist);
+    let mut dict = ExpanseDomainDict::new();
+    let mut set = dict.new_set();
+    for k in &ks {
+        dict.insert(&mut set, k).expect("insert failed");
+    }
+    let probes = shuffled_bytes(ks);
+    (dict, set, probes)
+}
+
+// Domain dictionary insert arm (#808, `docs/ARCHITECTURE.md` §3.7.6).
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn domain_dict_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut dict = ExpanseDomainDict::new();
+    let mut set = dict.new_set();
+    for k in &ks {
+        dict.insert(&mut set, black_box(k)).expect("insert failed");
+    }
+    let n = set.len();
+    core::mem::forget(dict);
+    core::mem::forget(set);
+    black_box(n)
+}
+
+// Domain dictionary lookup arm (#808, `docs/ARCHITECTURE.md` §3.7.6).
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_domain_dict)]
+fn domain_dict_get(built: (ExpanseDomainDict, DomainSet, Vec<Vec<u8>>)) -> u64 {
+    let (dict, set, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        if dict.contains(&set, black_box(k)).unwrap_or(false) {
+            sink += 1;
+        }
+    }
+    core::mem::forget(dict);
+    core::mem::forget(set);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = str_keys)]
 fn bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
@@ -3191,6 +3371,11 @@ library_benchmark_group!(
         strmap_prefix_bounded,
         strmap_prefix_seek,
         strmap_cursor_scan,
+        strmap_transcode_insert,
+        strmap_transcode_get,
+        strmap_transcode_cursor,
+        domain_dict_insert,
+        domain_dict_get,
         bytesmap_insert,
         bytesmap_get,
         bytesmap_churn,
