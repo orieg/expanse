@@ -1205,3 +1205,602 @@ fn test_expert_review_new_wide_surface_symbols() {
         expanse_blob_map_free(blob_map);
     }
 }
+
+#[test]
+fn test_modern_capi_ordered_bytesmap_lifecycle_and_crud() {
+    use expanse::modern::{
+        expanse_ordered_bytesmap_clear, expanse_ordered_bytesmap_contains,
+        expanse_ordered_bytesmap_free, expanse_ordered_bytesmap_get,
+        expanse_ordered_bytesmap_ins_slot, expanse_ordered_bytesmap_insert,
+        expanse_ordered_bytesmap_len, expanse_ordered_bytesmap_mem_held,
+        expanse_ordered_bytesmap_mem_used, expanse_ordered_bytesmap_new,
+        expanse_ordered_bytesmap_remove, expanse_ordered_bytesmap_shrink_to_fit,
+        expanse_ordered_bytesmap_slot,
+    };
+
+    // SAFETY: Exercising C ABI with valid handles and pointers.
+    unsafe {
+        // Null handle safety
+        assert_eq!(expanse_ordered_bytesmap_len(core::ptr::null()), 0);
+        assert_eq!(expanse_ordered_bytesmap_mem_used(core::ptr::null()), 0);
+        assert_eq!(expanse_ordered_bytesmap_mem_held(core::ptr::null()), 0);
+        assert_eq!(
+            expanse_ordered_bytesmap_shrink_to_fit(core::ptr::null_mut()),
+            0
+        );
+        expanse_ordered_bytesmap_clear(core::ptr::null_mut());
+        expanse_ordered_bytesmap_free(core::ptr::null_mut());
+
+        let map = expanse_ordered_bytesmap_new();
+        assert!(!map.is_null());
+        assert_eq!(expanse_ordered_bytesmap_len(map), 0);
+
+        // Insert clean key
+        let mut old = 0u64;
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            b"hello".as_ptr().cast(),
+            5,
+            100,
+            &mut old
+        ));
+        assert_eq!(expanse_ordered_bytesmap_len(map), 1);
+        assert!(expanse_ordered_bytesmap_contains(
+            map,
+            b"hello".as_ptr().cast(),
+            5
+        ));
+
+        let mut val = 0u64;
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            b"hello".as_ptr().cast(),
+            5,
+            &mut val
+        ));
+        assert_eq!(val, 100);
+
+        // Overwrite key: returns false and writes old value
+        assert!(!expanse_ordered_bytesmap_insert(
+            map,
+            b"hello".as_ptr().cast(),
+            5,
+            200,
+            &mut old
+        ));
+        assert_eq!(old, 100);
+        assert_eq!(expanse_ordered_bytesmap_len(map), 1);
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            b"hello".as_ptr().cast(),
+            5,
+            &mut val
+        ));
+        assert_eq!(val, 200);
+
+        // Insert escaped keys: embedded NUL, byte 0x01, and combinations
+        let nul_key = b"key\0with\0nuls";
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            nul_key.as_ptr().cast(),
+            nul_key.len(),
+            300,
+            core::ptr::null_mut()
+        ));
+        let esc_key = b"key\x01with\x01escapes";
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            esc_key.as_ptr().cast(),
+            esc_key.len(),
+            400,
+            core::ptr::null_mut()
+        ));
+        let combined_key = b"key\x01\0combined";
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            combined_key.as_ptr().cast(),
+            combined_key.len(),
+            500,
+            core::ptr::null_mut()
+        ));
+        let empty_key = b"";
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            empty_key.as_ptr().cast(),
+            0,
+            600,
+            core::ptr::null_mut()
+        ));
+        assert_eq!(expanse_ordered_bytesmap_len(map), 5);
+
+        // Verify gets
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            nul_key.as_ptr().cast(),
+            nul_key.len(),
+            &mut val
+        ));
+        assert_eq!(val, 300);
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            esc_key.as_ptr().cast(),
+            esc_key.len(),
+            &mut val
+        ));
+        assert_eq!(val, 400);
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            combined_key.as_ptr().cast(),
+            combined_key.len(),
+            &mut val
+        ));
+        assert_eq!(val, 500);
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            empty_key.as_ptr().cast(),
+            0,
+            &mut val
+        ));
+        assert_eq!(val, 600);
+
+        // Slot and ins_slot: access and mutate value through slot pointer
+        let slot_ptr = expanse_ordered_bytesmap_slot(map, nul_key.as_ptr().cast(), nul_key.len());
+        assert!(!slot_ptr.is_null());
+        assert_eq!(*slot_ptr, 300);
+        *slot_ptr = 333; // Mutate value in-place
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            nul_key.as_ptr().cast(),
+            nul_key.len(),
+            &mut val
+        ));
+        assert_eq!(val, 333);
+
+        // ins_slot for a new key
+        let new_key = b"inserted_via_slot";
+        let ins_slot_ptr =
+            expanse_ordered_bytesmap_ins_slot(map, new_key.as_ptr().cast(), new_key.len());
+        assert!(!ins_slot_ptr.is_null());
+        assert_eq!(*ins_slot_ptr, 0); // Default initialized to 0
+        *ins_slot_ptr = 777;
+        assert_eq!(expanse_ordered_bytesmap_len(map), 6);
+        assert!(expanse_ordered_bytesmap_get(
+            map,
+            new_key.as_ptr().cast(),
+            new_key.len(),
+            &mut val
+        ));
+        assert_eq!(val, 777);
+
+        // Memory accounting
+        assert!(expanse_ordered_bytesmap_mem_used(map) > 0);
+        let _held = expanse_ordered_bytesmap_mem_held(map);
+        let _freed = expanse_ordered_bytesmap_shrink_to_fit(map);
+
+        // Removals
+        assert!(expanse_ordered_bytesmap_remove(
+            map,
+            b"hello".as_ptr().cast(),
+            5,
+            &mut old
+        ));
+        assert_eq!(old, 200);
+        assert!(!expanse_ordered_bytesmap_contains(
+            map,
+            b"hello".as_ptr().cast(),
+            5
+        ));
+        assert!(!expanse_ordered_bytesmap_remove(
+            map,
+            b"hello".as_ptr().cast(),
+            5,
+            core::ptr::null_mut()
+        ));
+
+        // Clear
+        expanse_ordered_bytesmap_clear(map);
+        assert_eq!(expanse_ordered_bytesmap_len(map), 0);
+
+        expanse_ordered_bytesmap_free(map);
+    }
+}
+
+#[test]
+fn test_modern_capi_ordered_bytesmap_navigation_caller_buffers() {
+    use expanse::modern::{
+        ExpanseOrderedBytesNavStatus, expanse_ordered_bytesmap_first,
+        expanse_ordered_bytesmap_free, expanse_ordered_bytesmap_insert,
+        expanse_ordered_bytesmap_last, expanse_ordered_bytesmap_new,
+        expanse_ordered_bytesmap_next_after, expanse_ordered_bytesmap_next_at_or_after,
+        expanse_ordered_bytesmap_prev_at_or_before, expanse_ordered_bytesmap_prev_before,
+    };
+
+    // SAFETY: Exercising C ABI navigation functions with caller buffers.
+    unsafe {
+        let map = expanse_ordered_bytesmap_new();
+
+        // Empty map navigation returns NotFound
+        let mut buf = [0u8; 32];
+        let mut req = 0usize;
+        let mut val = 0u64;
+        assert_eq!(
+            expanse_ordered_bytesmap_first(
+                map,
+                buf.as_mut_ptr().cast(),
+                buf.len(),
+                &mut req,
+                &mut val
+            ),
+            ExpanseOrderedBytesNavStatus::NotFound
+        );
+        assert_eq!(
+            expanse_ordered_bytesmap_last(
+                map,
+                buf.as_mut_ptr().cast(),
+                buf.len(),
+                &mut req,
+                &mut val
+            ),
+            ExpanseOrderedBytesNavStatus::NotFound
+        );
+
+        // Insert lexicographically ordered keys:
+        // 1. b"a"
+        // 2. b"a\0b"
+        // 3. b"a\x01b"
+        // 4. b"b"
+        // 5. b"c\0\0\0long_key_with_embedded_nuls"
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            b"a".as_ptr().cast(),
+            1,
+            10,
+            core::ptr::null_mut()
+        ));
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            b"a\0b".as_ptr().cast(),
+            3,
+            20,
+            core::ptr::null_mut()
+        ));
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            b"a\x01b".as_ptr().cast(),
+            3,
+            30,
+            core::ptr::null_mut()
+        ));
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            b"b".as_ptr().cast(),
+            1,
+            40,
+            core::ptr::null_mut()
+        ));
+        let long_key = b"c\0\0\0long_key_with_embedded_nuls";
+        assert!(expanse_ordered_bytesmap_insert(
+            map,
+            long_key.as_ptr().cast(),
+            long_key.len(),
+            50,
+            core::ptr::null_mut()
+        ));
+
+        // --- FIRST ---
+        // Probe size with null buffer (value is not written on BufferTooSmall)
+        let st = expanse_ordered_bytesmap_first(map, core::ptr::null_mut(), 0, &mut req, &mut val);
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::BufferTooSmall);
+        assert_eq!(req, 1);
+
+        // Fetch into sized buffer
+        let st = expanse_ordered_bytesmap_first(
+            map,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(req, 1);
+        assert_eq!(val, 10);
+        assert_eq!(&buf[..req], b"a");
+
+        // --- NEXT_AT_OR_AFTER ---
+        // At "a" -> "a"
+        let st = expanse_ordered_bytesmap_next_at_or_after(
+            map,
+            b"a".as_ptr().cast(),
+            1,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(req, 1);
+        assert_eq!(val, 10);
+        assert_eq!(&buf[..req], b"a");
+
+        // --- NEXT_AFTER ---
+        // From "a" -> "a\0b"
+        let st = expanse_ordered_bytesmap_next_after(
+            map,
+            b"a".as_ptr().cast(),
+            1,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(req, 3);
+        assert_eq!(val, 20);
+        assert_eq!(&buf[..req], b"a\0b");
+
+        // From "a\0b" -> "a\x01b"
+        let st = expanse_ordered_bytesmap_next_after(
+            map,
+            b"a\0b".as_ptr().cast(),
+            3,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(req, 3);
+        assert_eq!(val, 30);
+        assert_eq!(&buf[..req], b"a\x01b");
+
+        // From "a\x01b" -> "b"
+        let st = expanse_ordered_bytesmap_next_after(
+            map,
+            b"a\x01b".as_ptr().cast(),
+            3,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(req, 1);
+        assert_eq!(val, 40);
+        assert_eq!(&buf[..req], b"b");
+
+        // --- BufferTooSmall probe and recovery on long key ---
+        // next_after "b" is long_key (len 31). Probe with buffer size 4.
+        let mut short_buf = [0xFFu8; 4];
+        let st = expanse_ordered_bytesmap_next_after(
+            map,
+            b"b".as_ptr().cast(),
+            1,
+            short_buf.as_mut_ptr().cast(),
+            short_buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::BufferTooSmall);
+        assert_eq!(req, long_key.len());
+        // Verify buffer was not corrupted on overflow
+        assert_eq!(short_buf, [0xFFu8; 4]);
+
+        // Now retry with dynamically sized buffer
+        let mut dynamic_buf = vec![0u8; req];
+        let st = expanse_ordered_bytesmap_next_after(
+            map,
+            b"b".as_ptr().cast(),
+            1,
+            dynamic_buf.as_mut_ptr().cast(),
+            dynamic_buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(req, long_key.len());
+        assert_eq!(val, 50);
+        assert_eq!(&dynamic_buf[..req], long_key);
+
+        // Next after long key -> NotFound
+        let st = expanse_ordered_bytesmap_next_after(
+            map,
+            long_key.as_ptr().cast(),
+            long_key.len(),
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::NotFound);
+
+        // --- LAST & PREV_BEFORE ---
+        let st = expanse_ordered_bytesmap_last(
+            map,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(&buf[..req], long_key);
+        assert_eq!(val, 50);
+
+        let st = expanse_ordered_bytesmap_prev_before(
+            map,
+            long_key.as_ptr().cast(),
+            long_key.len(),
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(&buf[..req], b"b");
+        assert_eq!(val, 40);
+
+        // --- PREV_AT_OR_BEFORE ---
+        let st = expanse_ordered_bytesmap_prev_at_or_before(
+            map,
+            b"b".as_ptr().cast(),
+            1,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!(&buf[..req], b"b");
+
+        // Prev before "a" -> NotFound
+        let st = expanse_ordered_bytesmap_prev_before(
+            map,
+            b"a".as_ptr().cast(),
+            1,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::NotFound);
+
+        expanse_ordered_bytesmap_free(map);
+    }
+}
+
+#[test]
+fn test_modern_capi_ordered_bytesmap_slot_pointer_lifetime() {
+    use expanse::modern::{
+        ExpanseOrderedBytesNavStatus, expanse_ordered_bytesmap_contains,
+        expanse_ordered_bytesmap_first, expanse_ordered_bytesmap_free,
+        expanse_ordered_bytesmap_get, expanse_ordered_bytesmap_ins_slot,
+        expanse_ordered_bytesmap_insert, expanse_ordered_bytesmap_len,
+        expanse_ordered_bytesmap_mem_used, expanse_ordered_bytesmap_new,
+        expanse_ordered_bytesmap_remove, expanse_ordered_bytesmap_slot,
+    };
+
+    // SAFETY: Exercising C ABI with valid handles and raw slot pointers.
+    unsafe {
+        let map = expanse_ordered_bytesmap_new();
+        assert!(!map.is_null());
+
+        // 1. Generate 64 binary keys with embedded NULs to thoroughly exceed
+        // any putative 16- or 32-element rotating ring buffer (AGENTS §2.4).
+        let keys: Vec<Vec<u8>> = (0..64)
+            .map(|i: usize| {
+                let mut k = Vec::new();
+                k.extend_from_slice(b"prefix\0byte\0key_");
+                k.extend_from_slice(&(i as u32).to_be_bytes());
+                k
+            })
+            .collect();
+
+        // 2. Insert half via expanse_ordered_bytesmap_insert and half via expanse_ordered_bytesmap_ins_slot.
+        for (i, key) in keys.iter().enumerate() {
+            if i % 2 == 0 {
+                let mut old = 0;
+                assert!(expanse_ordered_bytesmap_insert(
+                    map,
+                    key.as_ptr().cast(),
+                    key.len(),
+                    (i as u64) * 10,
+                    &mut old
+                ));
+            } else {
+                let p = expanse_ordered_bytesmap_ins_slot(map, key.as_ptr().cast(), key.len());
+                assert!(!p.is_null());
+                assert_eq!(*p, 0); // default initialized to 0
+                *p = (i as u64) * 10;
+            }
+        }
+
+        assert_eq!(expanse_ordered_bytesmap_len(map), 64);
+
+        // 3. Obtain slot pointers for all 64 keys. Without any intervening structural mutations,
+        // all 64 slot pointers must be valid, live, and point to distinct leaf slot locations.
+        let mut slots: Vec<*mut u64> = Vec::with_capacity(64);
+        for key in &keys {
+            let p = expanse_ordered_bytesmap_slot(map, key.as_ptr().cast(), key.len());
+            assert!(!p.is_null());
+            slots.push(p);
+        }
+        assert_eq!(slots.len(), 64);
+
+        // Verify all 64 slot pointers are distinct (no aliasing through a rotating buffer)
+        let ptr_set: std::collections::HashSet<usize> = slots.iter().map(|&p| p as usize).collect();
+        assert_eq!(
+            ptr_set.len(),
+            64,
+            "All 64 slot pointers must be distinct memory locations"
+        );
+
+        // 3. Mutate values directly in-place through raw slot pointers
+        for (i, &p) in slots.iter().enumerate() {
+            *p = (i as u64) * 1000 + 42;
+        }
+
+        // 4. Interleave non-structural read operations:
+        // - Point queries (get, contains)
+        // - Navigation (first)
+        // - Accounting (len, mem_used)
+        for (i, key) in keys.iter().enumerate() {
+            let mut val = 0;
+            assert!(expanse_ordered_bytesmap_get(
+                map,
+                key.as_ptr().cast(),
+                key.len(),
+                &mut val
+            ));
+            assert_eq!(val, (i as u64) * 1000 + 42);
+            assert!(expanse_ordered_bytesmap_contains(
+                map,
+                key.as_ptr().cast(),
+                key.len()
+            ));
+        }
+
+        let mut buf = [0u8; 64];
+        let mut req = 0;
+        let mut nav_val = 0;
+        let st = expanse_ordered_bytesmap_first(
+            map,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut nav_val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+
+        assert_eq!(expanse_ordered_bytesmap_len(map), 64);
+        assert!(expanse_ordered_bytesmap_mem_used(map) > 0);
+
+        // 5. Verify that despite all intermediate reads and navigation,
+        // every single slot pointer remains valid and holds its expected in-place value!
+        for (i, &p) in slots.iter().enumerate() {
+            assert_eq!(
+                *p,
+                (i as u64) * 1000 + 42,
+                "Slot pointer for key {} must remain valid across reads and in-place writes",
+                i
+            );
+        }
+
+        // 6. Demonstrate invalidation boundary: structural mutation (removal)
+        let mut old = 0;
+        let removed_key = &keys[0];
+        assert!(expanse_ordered_bytesmap_remove(
+            map,
+            removed_key.as_ptr().cast(),
+            removed_key.len(),
+            &mut old
+        ));
+        assert_eq!(old, 42);
+        assert_eq!(expanse_ordered_bytesmap_len(map), 63);
+
+        // Subsequent lookup for removed key returns false and NULL slot
+        let null_slot =
+            expanse_ordered_bytesmap_slot(map, removed_key.as_ptr().cast(), removed_key.len());
+        assert!(null_slot.is_null());
+
+        expanse_ordered_bytesmap_free(map);
+    }
+}

@@ -573,6 +573,114 @@ expanse_str_nav_status expanse_strmap_prev_before_ex(const expanse_strmap_t *map
                                                      char *key_out, size_t buf_len,
                                                      size_t *required_len, uint64_t *value_out);
 
+/* ---- expanse_ordered_bytesmap_t: ordered arbitrary bytes -> uint64_t map --- */
+
+typedef struct expanse_ordered_bytesmap expanse_ordered_bytesmap_t;
+
+/*
+ * Status returned by expanse_ordered_bytesmap navigation functions.
+ * Disambiguates an absent key from a caller destination buffer that is too small.
+ */
+typedef enum {
+    EXPANSE_ORDERED_BYTES_NAV_OK = 0,
+    EXPANSE_ORDERED_BYTES_NAV_NOT_FOUND = 1,
+    EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL = 2
+} expanse_ordered_bytes_nav_status;
+typedef expanse_ordered_bytes_nav_status expanse_ordered_bytes_nav_status_t;
+
+expanse_ordered_bytesmap_t *expanse_ordered_bytesmap_new(void);
+void                        expanse_ordered_bytesmap_free(expanse_ordered_bytesmap_t *map);
+
+bool     expanse_ordered_bytesmap_insert(expanse_ordered_bytesmap_t *map, const void *key, size_t len,
+                                         uint64_t value, uint64_t *old_out) EXPANSE_NONNULL(1);
+bool     expanse_ordered_bytesmap_get(const expanse_ordered_bytesmap_t *map, const void *key, size_t len,
+                                      uint64_t *value_out);
+bool     expanse_ordered_bytesmap_contains(const expanse_ordered_bytesmap_t *map, const void *key, size_t len);
+bool     expanse_ordered_bytesmap_remove(expanse_ordered_bytesmap_t *map, const void *key, size_t len,
+                                         uint64_t *old_out);
+/*
+ * Value slots (classic JudyL convention): _slot returns a writable pointer
+ * to the stored value, NULL if the key is absent; _ins_slot inserts the
+ * key with value 0 if absent (an existing value is kept) and always returns
+ * its slot. Valid until the next structural mutation of that map.
+ * Zero rotating ring buffers are used; pointers refer directly to the stored
+ * value slot.
+ */
+uint64_t *expanse_ordered_bytesmap_slot(const expanse_ordered_bytesmap_t *map, const void *key, size_t len);
+uint64_t *expanse_ordered_bytesmap_ins_slot(expanse_ordered_bytesmap_t *map, const void *key, size_t len);
+uint64_t expanse_ordered_bytesmap_len(const expanse_ordered_bytesmap_t *map);
+size_t   expanse_ordered_bytesmap_mem_used(const expanse_ordered_bytesmap_t *map);
+size_t   expanse_ordered_bytesmap_mem_held(const expanse_ordered_bytesmap_t *map);
+size_t   expanse_ordered_bytesmap_shrink_to_fit(expanse_ordered_bytesmap_t *map);
+void     expanse_ordered_bytesmap_clear(expanse_ordered_bytesmap_t *map);
+
+/*
+ * Ordered navigation over arbitrary byte keys using caller-allocated buffers.
+ *
+ * Keys are written to `key_out` (up to `buf_len` bytes).
+ * On EXPANSE_ORDERED_BYTES_NAV_OK, the decoded key is written to `key_out`,
+ * `*value_out` (if non-NULL) receives the value, and `*required_len` (if non-NULL)
+ * receives the exact byte length of the key.
+ * On EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL, nothing is written to `key_out`
+ * (avoiding silent truncation), but `*required_len` (if non-NULL) receives the
+ * needed buffer size so the caller can reallocate and retry.
+ * On EXPANSE_ORDERED_BYTES_NAV_NOT_FOUND, no matching key was found.
+ *
+ * Passing `key_out == NULL` and `buf_len == 0` is valid to probe the required
+ * buffer length for the matching key without writing.
+ */
+expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_first(
+    const expanse_ordered_bytesmap_t *map,
+    void *key_out,
+    size_t buf_len,
+    size_t *required_len,
+    uint64_t *value_out
+);
+expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_last(
+    const expanse_ordered_bytesmap_t *map,
+    void *key_out,
+    size_t buf_len,
+    size_t *required_len,
+    uint64_t *value_out
+);
+expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_next_at_or_after(
+    const expanse_ordered_bytesmap_t *map,
+    const void *key,
+    size_t len,
+    void *key_out,
+    size_t buf_len,
+    size_t *required_len,
+    uint64_t *value_out
+);
+expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_next_after(
+    const expanse_ordered_bytesmap_t *map,
+    const void *key,
+    size_t len,
+    void *key_out,
+    size_t buf_len,
+    size_t *required_len,
+    uint64_t *value_out
+);
+expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_prev_at_or_before(
+    const expanse_ordered_bytesmap_t *map,
+    const void *key,
+    size_t len,
+    void *key_out,
+    size_t buf_len,
+    size_t *required_len,
+    uint64_t *value_out
+);
+expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_prev_before(
+    const expanse_ordered_bytesmap_t *map,
+    const void *key,
+    size_t len,
+    void *key_out,
+    size_t buf_len,
+    size_t *required_len,
+    uint64_t *value_out
+);
+
+
 /* ---- Concurrent types: one writer, optimistic readers ---------------- */
 
 /*
