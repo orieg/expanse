@@ -165,7 +165,11 @@ fn build_masstree(manifest: &Path) {
     for unit in ["compiler", "kvthread", "str", "string", "straccum", "json"] {
         b.file(mt.join(format!("{unit}.cc")));
     }
+    if std::env::var_os("MASSTREE_NOSUPERPAGE").is_some() {
+        b.define("NOSUPERPAGE", None);
+    }
     b.compile("masstree_shim");
     println!("cargo:rerun-if-changed=cpp/masstree_shim.cpp");
     println!("cargo:rerun-if-changed=cpp/masstree_config/config.h");
+    println!("cargo:rerun-if-env-changed=MASSTREE_NOSUPERPAGE");
 }
