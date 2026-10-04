@@ -1500,6 +1500,28 @@ fn blobmap32_scan(blobmap: ExpanseBlobMap32) -> usize {
 /// run, defeating callgrind's exact-reproducibility contract.
 type DetHasher = std::hash::BuildHasherDefault<std::collections::hash_map::DefaultHasher>;
 
+/// Distinct deterministic hasher for the concurrent bytes map RMW arms (#1194).
+///
+/// Using a distinct hasher type isolates generic monomorphizations of
+/// `SyncExpanseBytesMap` and `BytesReader` in `sync_bytesmap_update` and
+/// `sync_bytesmap_compare_exchange` so they do not share generic call sites
+/// with `sync_bytesmap_get` or alter LLVM's inlining decisions.
+#[derive(Clone, Default)]
+struct RmwDefaultHasher(std::collections::hash_map::DefaultHasher);
+
+impl std::hash::Hasher for RmwDefaultHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes);
+    }
+}
+
+type RmwDetHasher = std::hash::BuildHasherDefault<RmwDefaultHasher>;
+
 /// Route-shaped string keys (~40 bytes, long shared prefixes): the
 /// JudySL working shape — prefix chains, suffix leaves, splits — and a
 /// realistic JudyHS byte-key distribution.
@@ -2951,6 +2973,15 @@ fn built_sync_bytesmap(dist: &str) -> (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u
     (map, shuffled_bytes(ks))
 }
 
+fn built_sync_bytesmap_rmw(dist: &str) -> (SyncExpanseBytesMap<RmwDetHasher>, Vec<Vec<u8>>) {
+    let ks = str_keys(dist);
+    let map = SyncExpanseBytesMap::with_hasher(RmwDetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(k, i as u64);
+    }
+    (map, shuffled_bytes(ks))
+}
+
 /// The blob arms' payload for `k`: 16 key-derived bytes, an arena payload.
 fn blob_payload(k: u64) -> [u8; 16] {
     let mut out = [0u8; 16];
@@ -3212,8 +3243,8 @@ fn sync_bytesmap_overwrite(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)
 // In Stage 1, exercises the closest existing path: `with_exclusive` + `BytesExclusive::update`.
 // In Stage 2, will exercise optimistic covered `SyncExpanseBytesMap::update`.
 #[library_benchmark]
-#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
-fn sync_bytesmap_update(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap_rmw)]
+fn sync_bytesmap_update(built: (SyncExpanseBytesMap<RmwDetHasher>, Vec<Vec<u8>>)) -> u64 {
     let (map, probes) = built;
     let mut sink = 0u64;
     for k in &probes {
@@ -3229,8 +3260,8 @@ fn sync_bytesmap_update(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -
 // In Stage 1, exercises the closest existing path: optimistic read followed by `with_exclusive` CAS.
 // In Stage 2, will exercise optimistic covered `SyncExpanseBytesMap::compare_exchange`.
 #[library_benchmark]
-#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
-fn sync_bytesmap_compare_exchange(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap_rmw)]
+fn sync_bytesmap_compare_exchange(built: (SyncExpanseBytesMap<RmwDetHasher>, Vec<Vec<u8>>)) -> u64 {
     let (map, probes) = built;
     let rd = map.reader();
     let mut won = 0u64;
