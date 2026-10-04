@@ -6548,6 +6548,28 @@ impl SyncExpanseMap {
         }
     }
 
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Retried over [`Self::compare_exchange`] until
+    /// the exchange succeeds. Returns the value that was replaced (or `None`
+    /// if the key was absent).
+    ///
+    /// Because `compare_exchange` may fail under concurrent writes, `f` is an
+    /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
+    /// be side-effect free or idempotent.
+    pub fn update(&self, key: Key, mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
+        let mut expected = self.get(key);
+        loop {
+            let new = f(expected);
+            match self.compare_exchange(key, expected, new) {
+                Ok(prev) => return prev,
+                Err(seen) => {
+                    expected = seen;
+                    core::hint::spin_loop();
+                }
+            }
+        }
+    }
+
     /// The word the compare saw; the store happened iff it equals `expected`.
     fn compare_exchange_observed(
         &self,
@@ -12553,6 +12575,32 @@ impl SyncExpanseStrMap {
         }
     }
 
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Retried over [`Self::compare_exchange`] until
+    /// the exchange succeeds. Returns the value that was replaced (or `None`
+    /// if the key was absent).
+    ///
+    /// Because `compare_exchange` may fail under concurrent writes, `f` is an
+    /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
+    /// be side-effect free or idempotent.
+    pub fn update(
+        &self,
+        key: &NulFreeStr,
+        mut f: impl FnMut(Option<u64>) -> Option<u64>,
+    ) -> Option<u64> {
+        let mut expected = self.get(key);
+        loop {
+            let new = f(expected);
+            match self.compare_exchange(key, expected, new) {
+                Ok(prev) => return prev,
+                Err(seen) => {
+                    expected = seen;
+                    core::hint::spin_loop();
+                }
+            }
+        }
+    }
+
     /// The word the compare saw; the store happened iff it equals `expected`.
     fn compare_exchange_observed(
         &self,
@@ -13600,6 +13648,28 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
             Ok(observed)
         } else {
             Err(observed)
+        }
+    }
+
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Retried over [`Self::compare_exchange`] until
+    /// the exchange succeeds. Returns the value that was replaced (or `None`
+    /// if the key was absent).
+    ///
+    /// Because `compare_exchange` may fail under concurrent writes, `f` is an
+    /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
+    /// be side-effect free or idempotent.
+    pub fn update(&self, key: &[u8], mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
+        let mut expected = self.get(key);
+        loop {
+            let new = f(expected);
+            match self.compare_exchange(key, expected, new) {
+                Ok(prev) => return prev,
+                Err(seen) => {
+                    expected = seen;
+                    core::hint::spin_loop();
+                }
+            }
         }
     }
 
@@ -15291,6 +15361,42 @@ mod miri_ub_sites {
 
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_update_two_writers() {
+        let map = SyncExpanseMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..LEAF_KEYS {
+                        let k = key(t, i);
+                        assert_eq!(
+                            map.update(k, |cur| {
+                                assert_eq!(cur, None);
+                                Some(t * 1000 + i)
+                            }),
+                            None
+                        );
+                        assert_eq!(
+                            map.update(k, |cur| {
+                                assert_eq!(cur, Some(t * 1000 + i));
+                                Some(t * 1000 + i + 1)
+                            }),
+                            Some(t * 1000 + i)
+                        );
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..LEAF_KEYS {
+                assert_eq!(map.get(key(t, i)), Some(t * 1000 + i + 1));
+            }
+        }
+        assert_eq!(map.len(), 2 * LEAF_KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn map_leaf_reader_writer() {
         let map = SyncExpanseMap::new();
         let done = AtomicBool::new(false);
@@ -16254,6 +16360,42 @@ mod miri_ub_sites {
 
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_update_two_writers() {
+        let map = SyncExpanseStrMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        let k = str_key(t, i);
+                        assert_eq!(
+                            map.update(nf(&k), |cur| {
+                                assert_eq!(cur, None);
+                                Some(t * 1000 + i)
+                            }),
+                            None
+                        );
+                        assert_eq!(
+                            map.update(nf(&k), |cur| {
+                                assert_eq!(cur, Some(t * 1000 + i));
+                                Some(t * 1000 + i + 1)
+                            }),
+                            Some(t * 1000 + i)
+                        );
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                assert_eq!(map.get(nf(&str_key(t, i))), Some(t * 1000 + i + 1));
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn str_reader_writer() {
         let map = SyncExpanseStrMap::new();
         let done = AtomicBool::new(false);
@@ -16460,6 +16602,42 @@ mod miri_ub_sites {
                         assert_eq!(
                             map.compare_exchange(&k, Some(t * 1000 + i), Some(t * 1000 + i + 1)),
                             Ok(Some(t * 1000 + i))
+                        );
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                assert_eq!(map.get(&key(t, i).to_le_bytes()), Some(t * 1000 + i + 1));
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn bytes_update_two_writers() {
+        let map = SyncExpanseBytesMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        let k = key(t, i).to_le_bytes();
+                        assert_eq!(
+                            map.update(&k, |cur| {
+                                assert_eq!(cur, None);
+                                Some(t * 1000 + i)
+                            }),
+                            None
+                        );
+                        assert_eq!(
+                            map.update(&k, |cur| {
+                                assert_eq!(cur, Some(t * 1000 + i));
+                                Some(t * 1000 + i + 1)
+                            }),
+                            Some(t * 1000 + i)
                         );
                     }
                 });
@@ -18086,6 +18264,48 @@ mod tests {
         assert_eq!(m.compare_exchange(k1, Some(200), None), Ok(Some(200)));
         assert_eq!(m.get(k1), None);
         assert_eq!(m.len(), 0);
+    }
+
+    #[test]
+    fn sync_str_update_semantics() {
+        let m = SyncExpanseStrMap::new();
+        let k1 = tk(b"apple");
+        let k2 = tk(b"application/json");
+
+        // Absent key, f returns None -> no-op, returns None
+        assert_eq!(m.update(k1, |_| None), None);
+        assert_eq!(m.get(k1), None);
+        assert_eq!(m.len(), 0);
+
+        // Absent key, f returns Some(100) -> inserts, returns None
+        assert_eq!(m.update(k1, |_| Some(100)), None);
+        assert_eq!(m.get(k1), Some(100));
+        assert_eq!(m.len(), 1);
+
+        // Present key, f returns Some(v + 50) -> updates, returns previous
+        assert_eq!(m.update(k1, |cur| cur.map(|v| v + 50)), Some(100));
+        assert_eq!(m.get(k1), Some(150));
+        assert_eq!(m.len(), 1);
+
+        // Present key k2 insert via update
+        assert_eq!(m.update(k2, |_| Some(300)), None);
+        assert_eq!(m.get(k2), Some(300));
+        assert_eq!(m.len(), 2);
+
+        // Present key k2 remove via update returning None
+        assert_eq!(m.update(k2, |_| None), Some(300));
+        assert_eq!(m.get(k2), None);
+        assert_eq!(m.len(), 1);
+
+        // Plain ExpanseStrMap::update symmetry check
+        let mut plain = ExpanseStrMap::new();
+        assert_eq!(plain.update(k1, |_| None), None);
+        assert_eq!(plain.update(k1, |_| Some(10)), None);
+        assert_eq!(plain.get(k1), Some(10));
+        assert_eq!(plain.update(k1, |cur| cur.map(|v| v * 2)), Some(10));
+        assert_eq!(plain.get(k1), Some(20));
+        assert_eq!(plain.update(k1, |_| None), Some(20));
+        assert_eq!(plain.get(k1), None);
     }
 
     /// The meta-trie root's slot is rewritten by the exclusive path while
@@ -20223,6 +20443,48 @@ mod tests {
         assert_eq!(m_coll.compare_exchange(c2, Some(2), None), Ok(Some(2)));
         assert_eq!(m_coll.get(c1), Some(10));
         assert_eq!(m_coll.get(c2), None);
+    }
+
+    #[test]
+    fn sync_bytes_update_semantics() {
+        let m = SyncExpanseBytesMap::new();
+        let k1 = b"apple";
+        let k2 = b"application/json";
+
+        // Absent key, f returns None -> no-op, returns None
+        assert_eq!(m.update(k1, |_| None), None);
+        assert_eq!(m.get(k1), None);
+        assert_eq!(m.len(), 0);
+
+        // Absent key, f returns Some(100) -> inserts, returns None
+        assert_eq!(m.update(k1, |_| Some(100)), None);
+        assert_eq!(m.get(k1), Some(100));
+        assert_eq!(m.len(), 1);
+
+        // Present key, f returns Some(v + 50) -> updates, returns previous
+        assert_eq!(m.update(k1, |cur| cur.map(|v| v + 50)), Some(100));
+        assert_eq!(m.get(k1), Some(150));
+        assert_eq!(m.len(), 1);
+
+        // Present key k2 insert via update
+        assert_eq!(m.update(k2, |_| Some(300)), None);
+        assert_eq!(m.get(k2), Some(300));
+        assert_eq!(m.len(), 2);
+
+        // Present key k2 remove via update returning None
+        assert_eq!(m.update(k2, |_| None), Some(300));
+        assert_eq!(m.get(k2), None);
+        assert_eq!(m.len(), 1);
+
+        // Plain ExpanseBytesMap::update symmetry check
+        let mut plain = ExpanseBytesMap::new();
+        assert_eq!(plain.update(k1, |_| None), None);
+        assert_eq!(plain.update(k1, |_| Some(10)), None);
+        assert_eq!(plain.get(k1), Some(10));
+        assert_eq!(plain.update(k1, |cur| cur.map(|v| v * 2)), Some(10));
+        assert_eq!(plain.get(k1), Some(20));
+        assert_eq!(plain.update(k1, |_| None), Some(20));
+        assert_eq!(plain.get(k1), None);
     }
 
     #[test]
@@ -23634,6 +23896,48 @@ mod compare_exchange_tests {
         assert_eq!(map.len(), 1_000);
         assert_eq!(map.compare_exchange(5, Some(2), None), Err(None));
         assert_eq!(map.len(), 1_000);
+    }
+
+    #[test]
+    fn sync_map_update_semantics() {
+        let map = SyncExpanseMap::new();
+        let k1 = 42;
+        let k2 = 1000;
+
+        // Absent key, f returns None -> no-op, returns None
+        assert_eq!(map.update(k1, |_| None), None);
+        assert_eq!(map.get(k1), None);
+        assert_eq!(map.len(), 0);
+
+        // Absent key, f returns Some(100) -> inserts, returns None
+        assert_eq!(map.update(k1, |_| Some(100)), None);
+        assert_eq!(map.get(k1), Some(100));
+        assert_eq!(map.len(), 1);
+
+        // Present key, f returns Some(v + 50) -> updates, returns previous
+        assert_eq!(map.update(k1, |cur| cur.map(|v| v + 50)), Some(100));
+        assert_eq!(map.get(k1), Some(150));
+        assert_eq!(map.len(), 1);
+
+        // Present key k2 insert via update
+        assert_eq!(map.update(k2, |_| Some(300)), None);
+        assert_eq!(map.get(k2), Some(300));
+        assert_eq!(map.len(), 2);
+
+        // Present key k2 remove via update returning None
+        assert_eq!(map.update(k2, |_| None), Some(300));
+        assert_eq!(map.get(k2), None);
+        assert_eq!(map.len(), 1);
+
+        // Plain ExpanseMap::update symmetry check
+        let mut plain = crate::map::ExpanseMap::new();
+        assert_eq!(plain.update(k1, |_| None), None);
+        assert_eq!(plain.update(k1, |_| Some(10)), None);
+        assert_eq!(plain.get(k1), Some(10));
+        assert_eq!(plain.update(k1, |cur| cur.map(|v| v * 2)), Some(10));
+        assert_eq!(plain.get(k1), Some(20));
+        assert_eq!(plain.update(k1, |_| None), Some(20));
+        assert_eq!(plain.get(k1), None);
     }
 }
 

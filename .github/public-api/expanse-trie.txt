@@ -466,6 +466,7 @@ pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::mem_used(&self) -> usize
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::remove(&mut self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::stats(&self) -> expanse_trie::validate::BytesMapStats
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::try_for_each(&self, impl core::ops::function::FnMut(&[u8], u64) -> bool) -> usize
+pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::update(&mut self, &[u8], impl core::ops::function::FnOnce(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<S>::with_hasher(S) -> Self
 impl core::default::Default for expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>
 pub fn expanse_trie::bytesmap::ExpanseBytesMap<expanse_trie::bytesmap::DefaultBuildHasher>::default() -> Self
@@ -827,6 +828,7 @@ pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key
 pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
+pub fn expanse_trie::map::ExpanseMap::update(&mut self, expanse_trie::types::Key, impl core::ops::function::FnOnce(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
 pub fn expanse_trie::map::ExpanseMap::validate_defensive(&self) -> core::result::Result<(), alloc::string::String>
 impl core::clone::Clone for expanse_trie::map::ExpanseMap
@@ -2118,6 +2120,7 @@ pub fn expanse_trie::strmap::ExpanseStrMap::prev_before(&self, &expanse_trie::st
 pub fn expanse_trie::strmap::ExpanseStrMap::remove(&mut self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::strmap::ExpanseStrMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::strmap::ExpanseStrMap::stats(&self) -> expanse_trie::validate::StrMapStats
+pub fn expanse_trie::strmap::ExpanseStrMap::update(&mut self, &expanse_trie::strmap::NulFreeStr, impl core::ops::function::FnOnce(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
 pub fn expanse_trie::sync::SyncExpanseStrMap::from(expanse_trie::strmap::ExpanseStrMap) -> Self
 impl core::default::Default for expanse_trie::strmap::ExpanseStrMap
@@ -2515,6 +2518,7 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::reader(&self) -> expanse_trie
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::remove(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::shrink_to_fit(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::stats(&self) -> expanse_trie::validate::BytesMapStats
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::update(&self, &[u8], impl core::ops::function::FnMut(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::BytesExclusive<'_, S>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::bytesmap::ExpanseBytesMap<S>) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseBytesMap<std::hash::random::RandomState>
@@ -2546,6 +2550,7 @@ pub fn expanse_trie::sync::SyncExpanseMap::owned_reader(&alloc::sync::Arc<Self>)
 pub fn expanse_trie::sync::SyncExpanseMap::reader(&self) -> expanse_trie::sync::MapReader<'_>
 pub fn expanse_trie::sync::SyncExpanseMap::remove(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseMap::shrink_to_fit(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseMap::update(&self, expanse_trie::types::Key, impl core::ops::function::FnMut(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::map::ExpanseMap) -> R) -> R
 impl core::default::Default for expanse_trie::sync::SyncExpanseMap
 pub fn expanse_trie::sync::SyncExpanseMap::default() -> Self
@@ -2644,6 +2649,7 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::reader(&self) -> expanse_trie::syn
 pub fn expanse_trie::sync::SyncExpanseStrMap::remove(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::shrink_to_fit(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::stats(&self) -> expanse_trie::validate::StrMapStats
+pub fn expanse_trie::sync::SyncExpanseStrMap::update(&self, &expanse_trie::strmap::NulFreeStr, impl core::ops::function::FnMut(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::StrExclusive<'_>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseStrMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::strmap::ExpanseStrMap) -> R) -> R
 impl core::convert::From<expanse_trie::strmap::ExpanseStrMap> for expanse_trie::sync::SyncExpanseStrMap
@@ -3678,6 +3684,7 @@ pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key
 pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
 pub fn expanse_trie::map::ExpanseMap::stats(&self) -> expanse_trie::validate::ExpanseStats
 pub fn expanse_trie::map::ExpanseMap::total_node_allocs(&self) -> usize
+pub fn expanse_trie::map::ExpanseMap::update(&mut self, expanse_trie::types::Key, impl core::ops::function::FnOnce(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::validate(&self)
 pub fn expanse_trie::map::ExpanseMap::validate_defensive(&self) -> core::result::Result<(), alloc::string::String>
 impl core::clone::Clone for expanse_trie::map::ExpanseMap

@@ -20,6 +20,7 @@ enum Op {
     Remove(u64),
     Get(u64),
     CompareExchange(u64, Option<u64>, Option<u64>),
+    Update(u64, i64),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +29,7 @@ enum Ret {
     Remove(Option<u64>),
     Get(Option<u64>),
     CompareExchange(Result<Option<u64>, Option<u64>>),
+    Update(Option<u64>),
 }
 
 impl Op {
@@ -37,6 +39,7 @@ impl Op {
             Op::Remove(k) => *k,
             Op::Get(k) => *k,
             Op::CompareExchange(k, _, _) => *k,
+            Op::Update(k, _) => *k,
         }
     }
 }
@@ -48,6 +51,19 @@ struct Event {
     ret: Ret,
     start: Instant,
     end: Instant,
+}
+
+fn update_state(cur: Option<u64>, delta: i64) -> Option<u64> {
+    if delta == 0 {
+        None
+    } else if delta > 0 {
+        Some(cur.unwrap_or(0).wrapping_add(delta as u64))
+    } else {
+        match cur {
+            Some(v) if (v as i64) + delta > 0 => Some(((v as i64) + delta) as u64),
+            _ => None,
+        }
+    }
 }
 
 fn is_valid_transition(state: &Option<u64>, op: &Op, ret: &Ret) -> (bool, Option<u64>) {
@@ -71,6 +87,13 @@ fn is_valid_transition(state: &Option<u64>, op: &Op, ret: &Ret) -> (bool, Option
                 }
             }
         },
+        (Op::Update(_, delta), Ret::Update(old)) => {
+            if old == state {
+                (true, update_state(*state, *delta))
+            } else {
+                (false, None)
+            }
+        }
         _ => (false, None),
     }
 }
@@ -167,6 +190,7 @@ fn test_sync_map_linearizability() {
                     Op::CompareExchange(k, exp, new) => {
                         Ret::CompareExchange(map_clone.compare_exchange(*k, *exp, *new))
                     }
+                    Op::Update(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -257,6 +281,7 @@ fn test_sync_map_linearizability_zipfian() {
                     Op::CompareExchange(k, exp, new) => {
                         Ret::CompareExchange(map_clone.compare_exchange(*k, *exp, *new))
                     }
+                    Op::Update(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -346,6 +371,7 @@ fn test_sync_map_linearizability_single_threaded() {
                 Ret::Get(v)
             }
             Op::CompareExchange(..) => unreachable!(),
+            Op::Update(..) => unreachable!(),
         };
         let end = Instant::now();
 
@@ -734,6 +760,7 @@ fn test_sync_map_linearizability_tree_rooted() {
                     Op::Remove(k) => Ret::Remove(map_clone.remove(*k)),
                     Op::Get(k) => Ret::Get(map_clone.get(*k)),
                     Op::CompareExchange(..) => unreachable!(),
+                    Op::Update(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1292,6 +1319,7 @@ fn test_sync_strmap_linearizability() {
                     Op::Remove(k) => Ret::Remove(map_clone.remove(str_key(*k))),
                     Op::Get(k) => Ret::Get(reader.get(str_key(*k))),
                     Op::CompareExchange(..) => unreachable!(),
+                    Op::Update(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1379,6 +1407,7 @@ fn test_sync_strmap_compare_exchange_linearizability() {
                         Ret::CompareExchange(map_clone.compare_exchange(str_key(*k), *exp, *new))
                     }
                     Op::Get(k) => Ret::Get(reader.get(str_key(*k))),
+                    Op::Update(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1475,6 +1504,303 @@ fn test_sync_bytesmap_compare_exchange_linearizability() {
                     Op::Remove(k) => Ret::Remove(map_clone.remove(bytes_key(*k))),
                     Op::CompareExchange(k, exp, new) => {
                         Ret::CompareExchange(map_clone.compare_exchange(bytes_key(*k), *exp, *new))
+                    }
+                    Op::Get(k) => Ret::Get(reader.get(bytes_key(*k))),
+                    Op::Update(..) => unreachable!(),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            let mut h = history_clone.lock().unwrap();
+            h.extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for bytes key {}",
+            key
+        );
+    }
+}
+
+/// Linearizability verification of `SyncExpanseMap::update`
+/// across concurrent writers and readers mixing inserts, removes, gets, CAS, and update.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_update_linearizability() {
+    let map = Arc::new(SyncExpanseMap::new());
+    let history = Arc::new(Mutex::new(Vec::new()));
+
+    let num_threads = 8;
+    let ops_per_thread = 200;
+
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            let keys = [1u64, 2];
+
+            for i in 0..ops_per_thread {
+                let key = keys[(t_id + i) % keys.len()];
+
+                let op = match (t_id + i) % 5 {
+                    0 => Op::Insert(key, (t_id * 1000 + i) as u64),
+                    1 => Op::Remove(key),
+                    2 => {
+                        let expected = if (t_id + i) % 2 == 0 {
+                            Some((t_id * 1000 + i.saturating_sub(1)) as u64)
+                        } else {
+                            None
+                        };
+                        let new = Some((t_id * 1000 + i) as u64);
+                        Op::CompareExchange(key, expected, new)
+                    }
+                    3 => {
+                        let delta = match (t_id + i) % 3 {
+                            0 => 10,
+                            1 => -5,
+                            _ => 0,
+                        };
+                        Op::Update(key, delta)
+                    }
+                    _ => Op::Get(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(*k, *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(*k)),
+                    Op::CompareExchange(k, exp, new) => {
+                        Ret::CompareExchange(map_clone.compare_exchange(*k, *exp, *new))
+                    }
+                    Op::Update(k, delta) => {
+                        let d = *delta;
+                        Ret::Update(map_clone.update(*k, |cur| update_state(cur, d)))
+                    }
+                    Op::Get(k) => Ret::Get(map_clone.get(*k)),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            let mut h = history_clone.lock().unwrap();
+            h.extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for map key {}",
+            key
+        );
+    }
+}
+
+/// Linearizability verification of `SyncExpanseStrMap::update`
+/// across concurrent writers and readers mixing inserts, removes, gets, CAS, and update.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_strmap_update_linearizability() {
+    let map = Arc::new(SyncExpanseStrMap::new());
+    let history = Arc::new(Mutex::new(Vec::new()));
+
+    let num_threads = 8;
+    let ops_per_thread = 200;
+
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            let reader = map_clone.reader();
+            let keys = [1u64, 2];
+
+            for i in 0..ops_per_thread {
+                let key = keys[(t_id + i) % keys.len()];
+
+                let op = match (t_id + i) % 5 {
+                    0 => Op::Insert(key, (t_id * 1000 + i) as u64),
+                    1 => Op::Remove(key),
+                    2 => {
+                        let expected = if (t_id + i) % 2 == 0 {
+                            Some((t_id * 1000 + i.saturating_sub(1)) as u64)
+                        } else {
+                            None
+                        };
+                        let new = Some((t_id * 1000 + i) as u64);
+                        Op::CompareExchange(key, expected, new)
+                    }
+                    3 => {
+                        let delta = match (t_id + i) % 3 {
+                            0 => 10,
+                            1 => -5,
+                            _ => 0,
+                        };
+                        Op::Update(key, delta)
+                    }
+                    _ => Op::Get(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(str_key(*k), *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(str_key(*k))),
+                    Op::CompareExchange(k, exp, new) => {
+                        Ret::CompareExchange(map_clone.compare_exchange(str_key(*k), *exp, *new))
+                    }
+                    Op::Update(k, delta) => {
+                        let d = *delta;
+                        Ret::Update(map_clone.update(str_key(*k), |cur| update_state(cur, d)))
+                    }
+                    Op::Get(k) => Ret::Get(reader.get(str_key(*k))),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            let mut h = history_clone.lock().unwrap();
+            h.extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for string key {}",
+            key
+        );
+    }
+}
+
+/// Linearizability verification of `SyncExpanseBytesMap::update`
+/// across concurrent writers and readers mixing inserts, removes, gets, CAS, and update.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_bytesmap_update_linearizability() {
+    let map = Arc::new(SyncExpanseBytesMap::new());
+    let history = Arc::new(Mutex::new(Vec::new()));
+
+    let num_threads = 8;
+    let ops_per_thread = 200;
+
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            let reader = map_clone.reader();
+            let keys = [1u64, 2];
+
+            for i in 0..ops_per_thread {
+                let key = keys[(t_id + i) % keys.len()];
+
+                let op = match (t_id + i) % 5 {
+                    0 => Op::Insert(key, (t_id * 1000 + i) as u64),
+                    1 => Op::Remove(key),
+                    2 => {
+                        let expected = if (t_id + i) % 2 == 0 {
+                            Some((t_id * 1000 + i.saturating_sub(1)) as u64)
+                        } else {
+                            None
+                        };
+                        let new = Some((t_id * 1000 + i) as u64);
+                        Op::CompareExchange(key, expected, new)
+                    }
+                    3 => {
+                        let delta = match (t_id + i) % 3 {
+                            0 => 10,
+                            1 => -5,
+                            _ => 0,
+                        };
+                        Op::Update(key, delta)
+                    }
+                    _ => Op::Get(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(bytes_key(*k), *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(bytes_key(*k))),
+                    Op::CompareExchange(k, exp, new) => {
+                        Ret::CompareExchange(map_clone.compare_exchange(bytes_key(*k), *exp, *new))
+                    }
+                    Op::Update(k, delta) => {
+                        let d = *delta;
+                        Ret::Update(map_clone.update(bytes_key(*k), |cur| update_state(cur, d)))
                     }
                     Op::Get(k) => Ret::Get(reader.get(bytes_key(*k))),
                 };
@@ -2080,6 +2406,7 @@ fn test_sync_map_linearizability_branch_u_floor_crossings() {
                         Op::Remove(k) => Ret::Remove(map.remove(*k)),
                         Op::Get(k) => Ret::Get(map.get(*k)),
                         Op::CompareExchange(..) => unreachable!(),
+                        Op::Update(..) => unreachable!(),
                     };
                     let end = Instant::now();
                     // The first writer validates the tree every tenth step
