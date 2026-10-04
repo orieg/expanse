@@ -3278,7 +3278,7 @@ def combine_scan_cells_verdict(run1_path: Path | str, run2_path: Path | str) -> 
     listing failing cells and runs (METHODOLOGY.md §32.4 P32.3).
 
     Refuses (raises ValueError) if either artifact is void (pin non-conforming, --quick),
-    the two commits differ (§32.6), or any gated cell is missing.
+    the two commits differ (§32.6), or any gated cell is missing from either run.
     """
     p1 = Path(run1_path)
     p2 = Path(run2_path)
