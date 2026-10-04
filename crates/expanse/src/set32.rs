@@ -83,16 +83,10 @@ impl ExpanseSet32 {
 
     /// Bulk-build a 32-bit set from an ascending iterator of keys (issue #348).
     ///
-    /// A convenience bulk-load entry mirroring [`crate::set::ExpanseSet::from_sorted_iter`].
-    /// Sorted input is loaded in ascending order (so the insert cursor stays on
-    /// the hot path); any out-of-order input is sorted and deduplicated first,
-    /// so the result is always correct. Duplicate keys are collapsed.
-    ///
-    /// Note: the 64-bit `ExpanseSet` emits the trie bottom-up in one pass
-    /// (direct emission); the 32-bit twin builds via the shared trie32 insert
-    /// engine — the 32-bit trie has no structural set-algebra kernel to emit
-    /// from, so a dedicated direct-emission builder is deferred with the 32-bit
-    /// materialization work.
+    /// Emits the trie bottom-up in one pass (direct emission per METHODOLOGY.md §14, #1200 / Path B):
+    /// allocates every leaf and branch node directly at its final capacity class without
+    /// ladder promotions or intermediate frees, guaranteeing `live_allocs == total_allocs`.
+    /// Sorted input is loaded directly; out-of-order input is sorted and deduplicated first.
     #[must_use]
     pub fn from_sorted_iter<I: IntoIterator<Item = Key32>>(iter: I) -> Self {
         let mut keys: Vec<Key32> = iter.into_iter().collect();
@@ -100,10 +94,10 @@ impl ExpanseSet32 {
             keys.sort_unstable();
             keys.dedup();
         }
+        let len = keys.len();
         let mut set = Self::new();
-        for k in keys {
-            set.insert(k);
-        }
+        set.root = trie32::build_set_subtree(&mut set.alloc, &keys, 4);
+        set.len = len;
         set
     }
 
@@ -318,6 +312,30 @@ impl ExpanseSet32 {
         self.alloc.bytes_held()
     }
 
+    /// Number of live node allocations (leak diagnostics).
+    #[doc(hidden)]
+    #[must_use]
+    #[inline]
+    pub fn live_allocs(&self) -> usize {
+        self.alloc.live_allocs()
+    }
+
+    /// Cumulative node allocations made by this container since it was created.
+    #[doc(hidden)]
+    #[must_use]
+    #[inline]
+    pub fn total_node_allocs(&self) -> usize {
+        self.alloc.total_allocs()
+    }
+
+    /// Live node count by internal node class (diagnostics and tests).
+    #[doc(hidden)]
+    #[must_use]
+    #[inline]
+    pub fn node_census(&self) -> crate::types32::NodeCensus32 {
+        self.alloc.node_census()
+    }
+
     /// Returns the arena tables' unused capacity to the global allocator:
     /// the slots past the last live node, and the spare capacity of the
     /// tables. Returns the bytes released; afterwards [`Self::mem_held`] is
@@ -341,7 +359,7 @@ impl ExpanseSet32 {
     /// nothing, this invalidates every pointer derived from the set's nodes.
     ///
     /// **Cost.** O(n) in the population: one ordered walk of the old tree,
-    /// inserting into the fresh tree, and the old tree's drop.
+    /// one bottom-up build of the new one, and the old tree's drop.
     ///
     /// A no-op on a set shared through a concurrent wrapper ([`crate::sync32`]),
     /// whose readers may hold the old nodes.
@@ -349,13 +367,15 @@ impl ExpanseSet32 {
         if self.alloc.is_deferred() {
             return;
         }
-        // Rebuild via `from_sorted_iter` using the ordered iterator.
-        // Note: unlike 64-bit `ExpanseSet::compact` which uses a direct-emission
-        // bottom-up builder where `live_allocs == total_allocs`, the 32-bit twin
-        // inserts key-by-key (see deferral note at line 91) and promotes leaves
-        // through capacity classes, freeing earlier nodes. Peak is not bounded
-        // by the zero-freed census identity (METHODOLOGY.md §13).
+        // Ascending by construction, so the builder's sort check is skipped.
         let compacted = Self::from_sorted_iter(self.iter());
+        // Nothing the build allocated was freed: the peak of the new tree's
+        // held bytes is its final `mem_held`.
+        debug_assert_eq!(
+            compacted.alloc.live_allocs(),
+            compacted.alloc.total_allocs(),
+            "direct emission must not free intermediate nodes"
+        );
         drop(core::mem::replace(self, compacted));
     }
 
@@ -1754,20 +1774,28 @@ mod tests {
     }
 
     #[test]
-    fn from_sorted_iter_ladder_promotions_free_intermediate_nodes() {
-        // Documenting the 32-bit builder's behaviour (set32.rs:91, METHODOLOGY.md §13):
-        // unlike 64-bit direct emission, the 32-bit twin builds via sequential insert,
-        // so capacity promotions free intermediate nodes. On 100 sequential keys,
-        // live node allocations (4) are strictly less than total allocations made (33).
+    fn from_sorted_iter_direct_emission_frees_no_nodes() {
+        // Direct emission per METHODOLOGY.md §14, #1200 / Path B:
+        // allocates every node directly at its final capacity class without
+        // intermediate promotions or frees, guaranteeing live == total.
+        // On 100 sequential keys, live node allocations (4) equal total allocations made (4).
         let s = ExpanseSet32::from_sorted_iter(0..100u32);
-        assert!(
-            s.alloc.live_allocs() < s.alloc.total_allocs(),
-            "32-bit sequential builder frees intermediate nodes on ladder promotion: live={}, total={}",
+        assert_eq!(
+            s.alloc.live_allocs(),
+            s.alloc.total_allocs(),
+            "direct emission must not free intermediate nodes: live={}, total={}",
             s.alloc.live_allocs(),
             s.alloc.total_allocs()
         );
         assert_eq!(s.alloc.live_allocs(), 4);
-        assert_eq!(s.alloc.total_allocs(), 33);
+        assert_eq!(s.alloc.total_allocs(), 4);
+
+        let mut inserted = ExpanseSet32::new();
+        for k in 0..100u32 {
+            inserted.insert(k);
+        }
+        assert_eq!(s.alloc.live_allocs(), inserted.alloc.live_allocs());
+        assert_eq!(s.mem_used(), inserted.mem_used());
     }
 
     #[test]

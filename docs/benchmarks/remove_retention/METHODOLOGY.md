@@ -617,6 +617,83 @@ The 32-bit compaction work is evaluated against the 5 pre-registration gates of
   byte-exact `mem_held()`, `mem_used()`, and peak held before/after compaction
   across drained uniform and structured workloads against fresh builds.
 
+## 14. 32-Bit Engine: Bottom-Up Direct-Emission Radix Trie Builder for `trie32` (pre-registration)
+
+A separate pre-registration (AGENTS.md §8.8 commit 2), appended for the 32-bit
+direct-emission radix trie builder (`trie32::build_set_subtree`,
+`trie32::build_map_subtree`, `ExpanseSet32::from_sorted_iter`,
+`ExpanseMap32::from_sorted_iter`, #1200 / Path B). It does not amend §1–§13, which
+stay frozen; this section is frozen once merged.
+
+### 14.1 The question
+
+Does bottom-up direct emission of `trie32` allocate every leaf, bitmap, and branch
+node exactly once at its final capacity class, achieving the zero-freed census
+identity `live_allocs == total_allocs` during bulk build, while producing trees that
+are content- and class-equivalent to insert-built trees and matching `mem_used()`
+exactly, under strict `no_std` compilation on bare-metal 32-bit targets?
+
+### 14.2 The design under test
+
+- **Algorithms:** `trie32::build_set_subtree` and `trie32::build_map_subtree`
+  recursively construct digital trie subtrees from sorted key/entry slices bottom-up.
+- **Node allocations:** Each linear leaf, bitmap leaf, and branch is allocated
+  directly at its target capacity class via `make_set_leaf`, `make_map_leaf`,
+  `bitmap_from_keys`, `make_map_bitmap`, `make_l2`, `make_l6`, `make_b`, and `make_u`.
+- **Zero intermediate frees:** No intermediate capacity classes are allocated or
+  freed during the build (`Arena::free` is never called).
+- **Public integration:** `ExpanseSet32::from_sorted_iter` and
+  `ExpanseMap32::from_sorted_iter` route sorted slices to the direct emitters.
+- **Embedded target compliance:** Core trie algorithms depend strictly on `core`
+  and `alloc`, compiling cleanly on `riscv32imac-unknown-none-elf`,
+  `riscv32imc-unknown-none-elf`, and `thumbv7em-none-eabihf`.
+
+### 14.3 Gates
+
+- **G-census (zero intermediate frees):** For any tree built via `from_sorted_iter`
+  with N >= 1 keys, `live_allocs() == total_allocs()` identically.
+  *Falsifier:* Any key set where `live_allocs() != total_allocs()`.
+- **G-equiv (structural and content equivalence):** A tree produced by direct
+  emission matches the twin insert-built tree constructed by sequentially
+  inserting the same ascending sequence in:
+  1. Content (`iter()`, `iter_rev()`, `first()`, `last()`, `range()`).
+  2. Total node count and per-node-class census (`L2`, `L6`, `B`, `U`, `Leaf`,
+     `Bitmap`, `MapBitmap`).
+  3. Byte-exact `mem_used()`.
+  *Code derivation:* During strictly ascending inserts, populations and child
+  counts grow monotonically and never decrease. Consequently, demotion thresholds
+  (`BRANCH_B_DOWN_32`, `BRANCH_L6_DOWN_32`, `MAP_BITMAP_LEAVE_32`,
+  `SET_BITMAP_LEAVE_32`, `crates/expanse/src/types32.rs:65-90`) are never tested
+  or crossed; only promotion thresholds (`SET_LEAF_MAX_32` line 75,
+  `SET_BITMAP_ENTER_32` line 78, `MAP_LEAF_MAX_32` line 84, `MAP_BITMAP_ENTER_32`
+  line 87, `BRANCH_L6_CAP_32` line 60, `BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32`
+  line 63) govern node form selection, which the direct emitter mirrors
+  identically.
+  *Falsifier:* Any mismatch in content, node counts, class census, or `mem_used()`
+  against the insert-built twin.
+- **G-embed (embedded bare-metal compilation):** Compiles without error or warning
+  under `--no-default-features` on:
+  - `riscv32imac-unknown-none-elf` (gated by CI job `Cross / RV32IMAC Cross-Compile (Bare-Metal)`
+    via `cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf`)
+  - `riscv32imc-unknown-none-elf` (ESP32-C3, gated by CI job `Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC)`)
+  - `thumbv7em-none-eabihf` (Cortex-M4, gated by CI job `Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)`)
+  *Falsifier:* Compilation failure on any of these three bare-metal targets.
+- **G-cost-build (bulk build vs sequential insert twin):** The Callgrind arms
+  `set32_from_sorted_iter` and `map32_from_sorted_iter` are at or below the
+  matching twin baseline arms `set32_insert_sorted` and `map32_insert_sorted`
+  measured in the same CI run (`instruction-counts` job on x86_64).
+  *Falsifier:* Either direct emission arm exceeding its twin insert arm in the
+  same run.
+- **G-ins (zero hot-path regression):** Every existing Callgrind arm unchanged
+  within the 0.1% review threshold (AGENTS.md §6).
+  *Falsifier:* Any existing arm whose count moves by > 0.1% against baseline.
+
+### 14.4 Blast radius
+
+Confined strictly to `crates/expanse/src/trie32.rs`, `set32.rs`, `map32.rs`, and
+corresponding tests/benchmarks. Zero changes to 64-bit engine, OCC synchronization
+protocols, or C ABI surface.
+
 ## 15. Pre-registration: `shrink_to_fit` RSS recovery and allocator overhead (Issue #1108)
 
 A separate pre-registration (AGENTS.md §8.8 commit 2), appended for Issue #1108

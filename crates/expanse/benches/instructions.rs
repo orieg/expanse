@@ -894,6 +894,94 @@ fn map_collect(es: Vec<(u64, u64)>) -> u64 {
     black_box(n)
 }
 
+// Bulk construction (32-bit): `ExpanseSet32::from_sorted_iter` against sequential
+// insert (`set32_insert_sorted`), and `ExpanseMap32::from_sorted_iter` against
+// sequential insert (`map32_insert_sorted`) over the same 10,000 keys/entries (#1200 Path B).
+// `sequential` is ascending, `random` is generator order, `random_sorted` is
+// the same random keys sorted ascending. Counted per key/entry (10,000).
+fn keys32_build(dist: &str) -> Vec<Key32> {
+    let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+    let mut ks: Vec<Key32> = (0..10_000u32)
+        .map(|i| match dist {
+            "random" => {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                (x >> 16) as Key32
+            }
+            "clustered" => (i / 8) * 4096 + (i % 8),
+            _ => 1_000 + i,
+        })
+        .collect();
+    if dist == "random_sorted" {
+        ks.sort_unstable();
+        ks.dedup();
+    }
+    ks
+}
+
+fn entries32_build(dist: &str) -> Vec<(Key32, Value32)> {
+    keys32_build(dist)
+        .into_iter()
+        .enumerate()
+        .map(|(i, k)| (k, (i * 3) as Value32))
+        .collect()
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = keys32_build)]
+#[bench::random(args = ("random",), setup = keys32_build)]
+#[bench::random_sorted(args = ("random_sorted",), setup = keys32_build)]
+fn set32_from_sorted_iter(ks: Vec<Key32>) -> u64 {
+    let set = ExpanseSet32::from_sorted_iter(black_box(&ks).iter().copied());
+    let n = set.len() as u64;
+    core::mem::forget(set);
+    drop(ks);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = keys32_build)]
+#[bench::random(args = ("random",), setup = keys32_build)]
+#[bench::random_sorted(args = ("random_sorted",), setup = keys32_build)]
+fn set32_insert_sorted(ks: Vec<Key32>) -> u64 {
+    let mut set = ExpanseSet32::new();
+    for &k in black_box(&ks) {
+        set.insert(k);
+    }
+    let n = set.len() as u64;
+    core::mem::forget(set);
+    drop(ks);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = entries32_build)]
+#[bench::random(args = ("random",), setup = entries32_build)]
+#[bench::random_sorted(args = ("random_sorted",), setup = entries32_build)]
+fn map32_from_sorted_iter(es: Vec<(Key32, Value32)>) -> u64 {
+    let map = ExpanseMap32::from_sorted_iter(black_box(&es).iter().copied());
+    let n = map.len() as u64;
+    core::mem::forget(map);
+    drop(es);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = entries32_build)]
+#[bench::random(args = ("random",), setup = entries32_build)]
+#[bench::random_sorted(args = ("random_sorted",), setup = entries32_build)]
+fn map32_insert_sorted(es: Vec<(Key32, Value32)>) -> u64 {
+    let mut map = ExpanseMap32::new();
+    for &(k, v) in black_box(&es) {
+        map.insert(k, v);
+    }
+    let n = map.len() as u64;
+    core::mem::forget(map);
+    drop(es);
+    black_box(n)
+}
+
 /// Level-6 expanses the subtree arms drive (METHODOLOGY §7.3, §7.4: E).
 const SUBTREE_E: usize = 1_024;
 /// Spacing of the driven expanses among the 65,536 2-byte prefixes.
@@ -4003,6 +4091,10 @@ library_benchmark_group!(
         map_regrow_after_shrink,
         map_from_sorted_iter,
         map_collect,
+        set32_from_sorted_iter,
+        set32_insert_sorted,
+        map32_from_sorted_iter,
+        map32_insert_sorted,
         set_subtree_boundary_oscillate,
         set_subtree_split,
         set_subtree_split_control,

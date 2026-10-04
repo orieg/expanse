@@ -128,6 +128,11 @@ BENCH_N_MAP: Dict[str, int] = {
     # the same 50,000 entries.
     "map_from_sorted_iter": 50_000,
     "map_collect": 50_000,
+    # 32-bit bulk construction arms (#1200 Path B): 10,000 keys/entries.
+    "set32_from_sorted_iter": 10_000,
+    "set32_insert_sorted": 10_000,
+    "map32_from_sorted_iter": 10_000,
+    "map32_insert_sorted": 10_000,
     "set_subtree_boundary_oscillate": 32_768,
     "set_subtree_boundary_oscillate/band9": 147_456,
     "set_subtree_split": 1_024,
@@ -458,6 +463,10 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_regrow_after_shrink",
             "map_from_sorted_iter",
             "map_collect",
+            "set32_from_sorted_iter",
+            "set32_insert_sorted",
+            "map32_from_sorted_iter",
+            "map32_insert_sorted",
             "set_subtree_boundary_oscillate",
             "set_subtree_split",
             "set_subtree_split_control",

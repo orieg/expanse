@@ -345,6 +345,35 @@ impl fmt::Debug for Edge32 {
     }
 }
 
+/// Census of live nodes by internal class in the 32-bit arena (diagnostics and tests).
+#[doc(hidden)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct NodeCensus32 {
+    /// Two-child linear branch nodes (`BranchL2_32`).
+    pub l2: usize,
+    /// Up to six-child linear branch nodes (`BranchL6_32`).
+    pub l6: usize,
+    /// Bitmap-indexed branch nodes (`BranchB32`).
+    pub b: usize,
+    /// Uncompressed 256-edge branch nodes (`BranchU32`).
+    pub u: usize,
+    /// Set bitmap leaf nodes (`LeafBitmap1_32`).
+    pub bitmap: usize,
+    /// Map bitmap leaf nodes (`LeafBitmapL_32`).
+    pub map_bitmap: usize,
+    /// Linear leaf nodes (`Kind::SetLeaf` or `Kind::MapLeaf`).
+    pub leaf: usize,
+}
+
+impl NodeCensus32 {
+    /// Total live nodes across all classes.
+    #[must_use]
+    #[inline]
+    pub const fn total(&self) -> usize {
+        self.l2 + self.l6 + self.b + self.u + self.bitmap + self.map_bitmap + self.leaf
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
