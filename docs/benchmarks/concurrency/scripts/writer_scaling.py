@@ -3189,11 +3189,9 @@ def p323_paired_ratio(
 
     if gated and threshold is not None:
         if lo >= threshold:
-            verdict = "SINGLE_RUN_PASS"
-        elif hi < threshold:
-            verdict = "REJECTED"
+            verdict = "LB_AT_OR_ABOVE_FLOOR"
         else:
-            verdict = "INCONCLUSIVE"
+            verdict = "LB_BELOW_FLOOR"
     else:
         verdict = "REPORT_ONLY"
 
@@ -3215,26 +3213,24 @@ def p323_paired_ratio(
 
 
 def p323_report(throughput_rows: list[dict[str, Any]], rounds: int) -> dict[str, Any]:
-    """The P32.3 scaling ratios across all 8 (probe, W, R) cells, with gated verdicts."""
+    """The P32.3 scaling ratios across all 8 (probe, W, R) cells, with per-run floor status."""
     cells = [
         p323_paired_ratio(throughput_rows, probe, w, r, rounds)
         for probe in SCAN_CELLS_PROBES
         for w, r in SCAN_CELLS_WR
     ]
     gated_cells = [c for c in cells if c["gated"]]
-    if any(c["verdict"] == "REJECTED" for c in gated_cells):
-        overall = "REJECTED"
-    elif all(c["verdict"] == "SINGLE_RUN_PASS" for c in gated_cells):
-        overall = "SINGLE_RUN_PASS"
+    if all(c["verdict"] == "LB_AT_OR_ABOVE_FLOOR" for c in gated_cells):
+        overall = "LB_AT_OR_ABOVE_FLOOR"
     else:
-        overall = "INCONCLUSIVE"
+        overall = "LB_BELOW_FLOOR"
 
     return {
         "statistic": "mean over rounds of reader_mops(scan) / reader_mops(next_after_scan), each ratio paired "
                      "within one round of the throughput build, with a BCa 95% interval "
                      "(METHODOLOGY.md §32.4 P32.3)",
-        "decision": "SINGLE_RUN_PASS when CI lower bound >= floor across all gated cells (3.0x at W=0, 2.0x at W=1 R=4); "
-                     "REJECTED when any gated CI upper bound < floor; INCONCLUSIVE otherwise",
+        "decision": "LB_AT_OR_ABOVE_FLOOR when CI lower bound >= floor across all gated cells (3.0x at W=0, 2.0x at W=1 R=4); "
+                     "LB_BELOW_FLOOR when any gated CI lower bound < floor. Two independent runs combined via --scan-cells-verdict",
         "verdict": overall,
         "cells": cells,
     }
@@ -3271,6 +3267,134 @@ def build_scan_cells_artifact(
             "soundness_gates": "not evaluated by this driver: a cell read before every §32.2 gate passed on "
                                "the measured head is void (§32.6)",
             "p32_3": p323_report(throughput_rows, rounds),
+        },
+    }
+
+
+def combine_scan_cells_verdict(run1_path: Path | str, run2_path: Path | str) -> dict[str, Any]:
+    """Combines two independent scan_cells runs into a P32.3 final verdict.
+
+    PASS iff every gated cell has LB >= floor in BOTH runs; otherwise REFUTED,
+    listing failing cells and runs (METHODOLOGY.md §32.4 P32.3).
+
+    Refuses (raises ValueError) if either artifact is void (pin non-conforming, --quick),
+    the two commits differ (§32.6), or any gated cell is missing.
+    """
+    p1 = Path(run1_path)
+    p2 = Path(run2_path)
+    if not p1.exists():
+        raise ValueError(f"run 1 artifact does not exist: {p1}")
+    if not p2.exists():
+        raise ValueError(f"run 2 artifact does not exist: {p2}")
+
+    with p1.open("r", encoding="utf-8") as f:
+        art1 = json.load(f)
+    with p2.open("r", encoding="utf-8") as f:
+        art2 = json.load(f)
+
+    # 1. Refuse if either artifact is void (pin non-conforming, --quick, or void list non-empty)
+    for idx, (path, art) in enumerate([(p1, art1), (p2, art2)], 1):
+        sc = art.get("scan_cells")
+        if not sc:
+            raise ValueError(f"run {idx} artifact ({path}) lacks 'scan_cells' section")
+        if sc.get("quick"):
+            raise ValueError(f"run {idx} artifact ({path}) was run with --quick; not an evaluation artifact (§32.6)")
+        voids = sc.get("void", [])
+        if voids:
+            raise ValueError(f"run {idx} artifact ({path}) is void (§32.6): {voids}")
+        pin_info = sc.get("pin", {})
+        if not pin_info.get("conforms", False) or not pins_equal(pin_info.get("applied", ""), SCAN_CELLS_PIN):
+            raise ValueError(
+                f"run {idx} artifact ({path}) core pin {pin_info.get('applied')!r} does not conform to {SCAN_CELLS_PIN} (§32.6)"
+            )
+
+    # 2. Refuse if the two commits differ (§32.6)
+    commit1 = art1.get("provenance", {}).get("commit") or art1.get("provenance", {}).get("git_commit")
+    commit2 = art2.get("provenance", {}).get("commit") or art2.get("provenance", {}).get("git_commit")
+    if not commit1 or not commit2:
+        raise ValueError("both artifacts must record commit in provenance")
+    if commit1 != commit2:
+        raise ValueError(f"commit mismatch: run 1 was {commit1}, run 2 was {commit2} (§32.6)")
+
+    # 3. Check for missing cells and evaluate gated cells across both runs
+    p32_3_1 = art1["scan_cells"].get("p32_3", {})
+    p32_3_2 = art2["scan_cells"].get("p32_3", {})
+    cells1 = {(c["probe"], int(c["writers"]), int(c["readers"])): c for c in p32_3_1.get("cells", [])}
+    cells2 = {(c["probe"], int(c["writers"]), int(c["readers"])): c for c in p32_3_2.get("cells", [])}
+
+    expected_gated = [
+        (probe, w, r)
+        for probe in SCAN_CELLS_PROBES
+        for w, r in SCAN_CELLS_WR
+        if w == 0 or (w == 1 and r == 4)
+    ]
+    for cell_key in expected_gated:
+        probe, w, r = cell_key
+        cell_name = f"{probe} W={w} R={r}"
+        if cell_key not in cells1:
+            raise ValueError(f"run 1 artifact ({p1}) missing gated cell {cell_name}")
+        if cell_key not in cells2:
+            raise ValueError(f"run 2 artifact ({p2}) missing gated cell {cell_name}")
+
+    failing_cells: list[dict[str, Any]] = []
+    gated_breakdown: list[dict[str, Any]] = []
+
+    for cell_key in expected_gated:
+        probe, w, r = cell_key
+        cell_name = f"{probe} W={w} R={r}"
+        c1 = cells1[cell_key]
+        c2 = cells2[cell_key]
+        threshold = c1["threshold"]
+        c1_lb = float(c1["ratio_ci_lower"])
+        c2_lb = float(c2["ratio_ci_lower"])
+
+        c1_pass = c1_lb >= threshold
+        c2_pass = c2_lb >= threshold
+
+        failing_runs = []
+        if not c1_pass:
+            failing_runs.append("run1")
+        if not c2_pass:
+            failing_runs.append("run2")
+
+        if failing_runs:
+            failing_cells.append({
+                "cell": cell_name,
+                "threshold": threshold,
+                "failing_runs": failing_runs,
+                "run1_lb": c1_lb,
+                "run2_lb": c2_lb,
+            })
+
+        gated_breakdown.append({
+            "cell": cell_name,
+            "threshold": threshold,
+            "run1": {
+                "ratio_mean": c1["ratio_mean"],
+                "ratio_ci_lower": c1_lb,
+                "ratio_ci_upper": c1["ratio_ci_upper"],
+                "status": "LB_AT_OR_ABOVE_FLOOR" if c1_pass else "LB_BELOW_FLOOR",
+            },
+            "run2": {
+                "ratio_mean": c2["ratio_mean"],
+                "ratio_ci_lower": c2_lb,
+                "ratio_ci_upper": c2["ratio_ci_upper"],
+                "status": "LB_AT_OR_ABOVE_FLOOR" if c2_pass else "LB_BELOW_FLOOR",
+            },
+            "holds_both_runs": c1_pass and c2_pass,
+        })
+
+    verdict = "PASS" if not failing_cells else "REFUTED"
+    return {
+        "verdict": verdict,
+        "evaluation": {
+            "standard": "METHODOLOGY.md §32.4 P32.3",
+            "decision": "PASS iff every gated cell has LB >= floor in BOTH runs; otherwise REFUTED",
+            "git_commit": commit1,
+            "run1_artifact": str(p1),
+            "run2_artifact": str(p2),
+            "failing_cells": failing_cells,
+            "gated_cells": gated_breakdown,
         },
     }
 
@@ -5922,7 +6046,7 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
     cells_pass = summarize_scan_cells(t_rows_pass, c_rows_pass, rounds, load)
     assert len(cells_pass) == len(SCAN_CELLS_PROBES) * len(SCAN_BLOCK), len(cells_pass)
     report_pass = p323_report(t_rows_pass, rounds)
-    assert report_pass["verdict"] == "SINGLE_RUN_PASS", report_pass
+    assert report_pass["verdict"] == "LB_AT_OR_ABOVE_FLOOR", report_pass
 
     prov = new_provenance(
         suite="concurrency", issue=1142, ratio="test", repo_root=REPO_ROOT, core_pin=pin,
@@ -5931,15 +6055,48 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
     art_pass = build_scan_cells_artifact(prov, cells_pass, t_rows_pass, rounds, pin, quick=True)
     assert "scan_cells" in art_pass
     assert any("--quick" in v for v in art_pass["scan_cells"]["void"])
-    assert art_pass["scan_cells"]["p32_3"]["verdict"] == "SINGLE_RUN_PASS"
+    assert art_pass["scan_cells"]["p32_3"]["verdict"] == "LB_AT_OR_ABOVE_FLOOR"
 
-    # REJECT case: scan is only 1.5x (below 3.0x floor at W=0)
+    # Below floor case: scan is only 1.5x (below 3.0x floor at W=0)
     t_rows_fail = [dict(r) for r in t_rows_pass]
     for r in t_rows_fail:
         if r["read_op"] == "scan" and r["writers"] == 0:
             r["reader_mops"] = r["reader_mops"] / 3.0
     report_fail = p323_report(t_rows_fail, rounds)
-    assert report_fail["verdict"] == "REJECTED", report_fail
+    assert report_fail["verdict"] == "LB_BELOW_FLOOR", report_fail
+
+    # 4. Combiner self-tests
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        p_pass1 = tmp / "pass1.json"
+        p_pass2 = tmp / "pass2.json"
+        p_fail = tmp / "fail.json"
+        p_quick = tmp / "quick.json"
+
+        art_pass_clean = build_scan_cells_artifact(prov, cells_pass, t_rows_pass, rounds, SCAN_CELLS_PIN, quick=False)
+        p_pass1.write_text(json.dumps(art_pass_clean))
+        p_pass2.write_text(json.dumps(art_pass_clean))
+
+        art_fail_clean = build_scan_cells_artifact(prov, cells_pass, t_rows_fail, rounds, SCAN_CELLS_PIN, quick=False)
+        p_fail.write_text(json.dumps(art_fail_clean))
+
+        p_quick.write_text(json.dumps(art_pass))
+
+        comb_pass = combine_scan_cells_verdict(p_pass1, p_pass2)
+        assert comb_pass["verdict"] == "PASS", comb_pass
+        assert len(comb_pass["evaluation"]["failing_cells"]) == 0
+
+        comb_fail = combine_scan_cells_verdict(p_pass1, p_fail)
+        assert comb_fail["verdict"] == "REFUTED", comb_fail
+        assert len(comb_fail["evaluation"]["failing_cells"]) > 0
+
+        _expect_value_error(lambda: combine_scan_cells_verdict(p_quick, p_pass2), "--quick")
+
+        prov_diff_commit = {**prov, "commit": "other_commit_hash", "git_commit": "other_commit_hash"}
+        art_diff_commit = build_scan_cells_artifact(prov_diff_commit, cells_pass, t_rows_pass, rounds, SCAN_CELLS_PIN, quick=False)
+        p_diff_commit = tmp / "diff_commit.json"
+        p_diff_commit.write_text(json.dumps(art_diff_commit))
+        _expect_value_error(lambda: combine_scan_cells_verdict(p_pass1, p_diff_commit), "commit mismatch")
 
     sys.stderr.write("Batch cursor scan instrument PASSED\n")
 
@@ -8171,6 +8328,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow --quick to write to committed results path (normally forbidden)",
     )
     parser.add_argument(
+        "--scan-cells-verdict",
+        nargs=2,
+        metavar=("RUN1_JSON", "RUN2_JSON"),
+        help="Combine two independent scan_cells runs into a P32.3 verdict (PASS iff all gated cells hold in both runs, else REFUTED). "
+             "Each baremetal dispatch writes scan_cells_writer_scaling.json; run 2's artifact is renamed to *_run2.json on download (or via --out).",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run self-test and exit",
@@ -8180,6 +8344,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+
+    if args.scan_cells_verdict:
+        r1, r2 = args.scan_cells_verdict
+        try:
+            res = combine_scan_cells_verdict(r1, r2)
+        except ValueError as exc:
+            sys.stderr.write(f"refusing to combine: {exc}\n")
+            return 1
+        print(json.dumps(res, indent=2))
+        return 0
 
     if args.self_test:
         return self_test()

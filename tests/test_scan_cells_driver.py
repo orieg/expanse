@@ -2,11 +2,13 @@
 """Unit tests for the batch cursor scan instrument in writer_scaling.py (#1142).
 
 Pins the schedule structure, Williams design balance, pin resolution,
-P32.3 decision logic, and artifact schema.
+P32.3 per-run decision logic, two-run combiner, and artifact schema.
 """
 
 from __future__ import annotations
 
+import json
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -24,6 +26,7 @@ from writer_scaling import (  # noqa: E402
     SCAN_CELLS_PROBES,
     SCAN_CELLS_WORKLOAD_ID,
     build_scan_cells_artifact,
+    combine_scan_cells_verdict,
     p323_paired_ratio,
     p323_report,
     resolve_scan_cells_pin,
@@ -183,34 +186,35 @@ class ScanCellsP323DecisionTests(unittest.TestCase):
     def setUp(self):
         self.sched = scan_cells_schedule(8)
 
-    def test_p323_report_single_run_pass(self):
+    def test_p323_report_lb_at_or_above_floor(self):
         t_rows, c_rows = make_synthetic_rows(
             self.sched, scan_w0_speedup=3.5, scan_w1_r4_speedup=2.5
         )
         report = p323_report(t_rows, 8)
-        self.assertEqual(report["verdict"], "SINGLE_RUN_PASS")
+        self.assertEqual(report["verdict"], "LB_AT_OR_ABOVE_FLOOR")
         gated_cells = [c for c in report["cells"] if c["gated"]]
         report_only_cells = [c for c in report["cells"] if not c["gated"]]
         self.assertEqual(len(gated_cells), 6)
         self.assertEqual(len(report_only_cells), 2)
         for cell in gated_cells:
+            self.assertEqual(cell["verdict"], "LB_AT_OR_ABOVE_FLOOR")
             self.assertGreaterEqual(cell["ratio_ci_lower"], cell["threshold"])
 
-    def test_p323_report_rejects_when_w0_below_floor(self):
+    def test_p323_report_lb_below_floor_on_w0(self):
         # 2.5x speedup at W=0 is below the 3.0x floor
         t_rows, c_rows = make_synthetic_rows(
             self.sched, scan_w0_speedup=2.5, scan_w1_r4_speedup=2.5
         )
         report = p323_report(t_rows, 8)
-        self.assertEqual(report["verdict"], "REJECTED")
+        self.assertEqual(report["verdict"], "LB_BELOW_FLOOR")
 
-    def test_p323_report_rejects_when_w1_r4_below_floor(self):
+    def test_p323_report_lb_below_floor_on_w1_r4(self):
         # 1.5x speedup at W=1 R=4 is below the 2.0x floor
         t_rows, c_rows = make_synthetic_rows(
             self.sched, scan_w0_speedup=3.5, scan_w1_r4_speedup=1.5
         )
         report = p323_report(t_rows, 8)
-        self.assertEqual(report["verdict"], "REJECTED")
+        self.assertEqual(report["verdict"], "LB_BELOW_FLOOR")
 
     def test_p323_paired_ratio_computation(self):
         t_rows, _ = make_synthetic_rows(
@@ -222,9 +226,149 @@ class ScanCellsP323DecisionTests(unittest.TestCase):
         self.assertEqual(cell["readers"], 1)
         self.assertTrue(cell["gated"])
         self.assertEqual(cell["threshold"], 3.0)
-        self.assertEqual(cell["verdict"], "SINGLE_RUN_PASS")
+        self.assertEqual(cell["verdict"], "LB_AT_OR_ABOVE_FLOOR")
         self.assertAlmostEqual(cell["ratio_mean"], 3.5, places=1)
         self.assertEqual(len(cell["paired_ratios_raw"]), 8)
+
+    def test_negative_control_mean_vs_lb_discrimination(self):
+        """Negative control (a): Discriminates CI lower bound logic from point mean.
+
+        Constructs a cell where point mean >= floor (3.25 >= 3.0) but sampling variance
+        pushes the BCa 95% CI lower bound below the floor (LB < 3.0).
+        Per §32.4 / Rule 1, the verdict must be LB_BELOW_FLOOR.
+        If the logic is broken to test mean >= floor, this test fails red.
+        """
+        rows: list[dict[str, Any]] = []
+        # Mean ratio is (1.5 + 5.0)/2 = 3.25 >= 3.0, but spread drops LB below 3.0
+        ratios_pattern = [1.8, 1.9, 2.0, 2.2, 4.8, 4.9, 5.0, 5.2]
+        for r, ratio in enumerate(ratios_pattern):
+            rows.append({
+                "workload_id": SCAN_CELLS_WORKLOAD_ID,
+                "role": "throughput",
+                "probe": "uniform",
+                "writers": 0,
+                "readers": 1,
+                "read_op": "scan",
+                "round": r,
+                "reader_mops": ratio,
+            })
+            rows.append({
+                "workload_id": SCAN_CELLS_WORKLOAD_ID,
+                "role": "throughput",
+                "probe": "uniform",
+                "writers": 0,
+                "readers": 1,
+                "read_op": "next_after_scan",
+                "round": r,
+                "reader_mops": 1.0,
+            })
+        cell = p323_paired_ratio(rows, "uniform", 0, 1, 8)
+        self.assertGreaterEqual(cell["ratio_mean"], 3.0)
+        self.assertLess(cell["ratio_ci_lower"], 3.0)
+        self.assertEqual(cell["verdict"], "LB_BELOW_FLOOR")
+
+
+class ScanCellsCombinerTests(unittest.TestCase):
+    def setUp(self):
+        self.rounds = 8
+        self.sched = scan_cells_schedule(self.rounds)
+        load = {
+            "since": "scan_cells:throughput",
+            "wall_s": 1.0,
+            "busy_cpus_since_prev": 1.0,
+            "own_busy_cpus": 1.0,
+            "foreign_busy_cpus": 0.0,
+        }
+        self.prov = new_provenance(
+            suite="concurrency",
+            issue=1142,
+            ratio="Batch cursor scan over next_after_scan",
+            repo_root=REPO_ROOT,
+            core_pin=SCAN_CELLS_PIN,
+            estimators=estimators("test"),
+        )
+        t_pass, c_pass = make_synthetic_rows(self.sched, scan_w0_speedup=3.5, scan_w1_r4_speedup=2.5)
+        cells_pass = summarize_scan_cells(t_pass, c_pass, self.rounds, load)
+        self.art_pass = build_scan_cells_artifact(self.prov, cells_pass, t_pass, self.rounds, SCAN_CELLS_PIN, quick=False)
+
+        t_fail, c_fail = make_synthetic_rows(self.sched, scan_w0_speedup=3.5, scan_w1_r4_speedup=1.5)
+        cells_fail = summarize_scan_cells(t_fail, c_fail, self.rounds, load)
+        self.art_fail = build_scan_cells_artifact(self.prov, cells_fail, t_fail, self.rounds, SCAN_CELLS_PIN, quick=False)
+
+    def test_combiner_pass_when_both_runs_hold(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            f1, f2 = tmp / "run1.json", tmp / "run2.json"
+            f1.write_text(json.dumps(self.art_pass))
+            f2.write_text(json.dumps(self.art_pass))
+            res = combine_scan_cells_verdict(f1, f2)
+            self.assertEqual(res["verdict"], "PASS")
+            self.assertEqual(len(res["evaluation"]["failing_cells"]), 0)
+
+    def test_negative_control_two_runs_vs_one_discrimination(self):
+        """Negative control (b): Discriminates two-run conjunction vs accepting one run.
+
+        Run 1 passes all thresholds, Run 2 fails W=1 R=4.
+        Per §32.4 P32.3, the verdict across two runs must be REFUTED.
+        If the combiner is broken to check only one run (Run 1), this test fails red.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            f1, f2 = tmp / "run1.json", tmp / "run2.json"
+            f1.write_text(json.dumps(self.art_pass))
+            f2.write_text(json.dumps(self.art_fail))
+            res = combine_scan_cells_verdict(f1, f2)
+            self.assertEqual(res["verdict"], "REFUTED")
+            failing = res["evaluation"]["failing_cells"]
+            self.assertGreater(len(failing), 0)
+            self.assertTrue(all("run2" in f["failing_runs"] for f in failing))
+
+    def test_negative_control_refuses_quick_void_artifact(self):
+        """Negative control (c): Discriminates void enforcement vs un-gated evaluation.
+
+        If an artifact was run with --quick, it carries void notices and quick=True.
+        The combiner must refuse to evaluate and raise ValueError.
+        If the void check is dropped, this test fails red.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            f_quick, f_valid = tmp / "quick.json", tmp / "valid.json"
+            art_quick = json.loads(json.dumps(self.art_pass))
+            art_quick["scan_cells"]["quick"] = True
+            art_quick["scan_cells"]["void"] = ["--quick smoke run"]
+            f_quick.write_text(json.dumps(art_quick))
+            f_valid.write_text(json.dumps(self.art_pass))
+            with self.assertRaises(ValueError) as ctx:
+                combine_scan_cells_verdict(f_quick, f_valid)
+            self.assertIn("--quick", str(ctx.exception))
+
+    def test_combiner_refuses_commit_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            f1, f2 = tmp / "run1.json", tmp / "run2.json"
+            art_diff = json.loads(json.dumps(self.art_pass))
+            art_diff["provenance"]["commit"] = "0123456789abcdef"
+            f1.write_text(json.dumps(self.art_pass))
+            f2.write_text(json.dumps(art_diff))
+            with self.assertRaises(ValueError) as ctx:
+                combine_scan_cells_verdict(f1, f2)
+            self.assertIn("commit mismatch", str(ctx.exception))
+
+    def test_combiner_refuses_missing_cell(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            f1, f2 = tmp / "run1.json", tmp / "run2.json"
+            art_missing = json.loads(json.dumps(self.art_pass))
+            # Remove one gated cell from run 2
+            art_missing["scan_cells"]["p32_3"]["cells"] = [
+                c for c in art_missing["scan_cells"]["p32_3"]["cells"]
+                if not (c["probe"] == "uniform" and c["writers"] == 0 and c["readers"] == 1)
+            ]
+            f1.write_text(json.dumps(self.art_pass))
+            f2.write_text(json.dumps(art_missing))
+            with self.assertRaises(ValueError) as ctx:
+                combine_scan_cells_verdict(f1, f2)
+            self.assertIn("missing gated cell", str(ctx.exception))
 
 
 class ScanCellsArtifactTests(unittest.TestCase):
@@ -261,7 +405,7 @@ class ScanCellsArtifactTests(unittest.TestCase):
         self.assertEqual(sc["pin"]["applied"], SCAN_CELLS_PIN)
         self.assertTrue(sc["pin"]["conforms"])
         self.assertIn("p32_3", sc)
-        self.assertEqual(sc["p32_3"]["verdict"], "SINGLE_RUN_PASS")
+        self.assertEqual(sc["p32_3"]["verdict"], "LB_AT_OR_ABOVE_FLOOR")
         self.assertTrue(any("--quick" in v for v in sc["void"]))
 
 
