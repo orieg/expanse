@@ -442,6 +442,27 @@ def validate_stated_deferrals(
     return errors
 
 
+def split_deferred(
+    raw_missing: Set[str],
+    ecosystem: str,
+    deferrals: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Tuple[Set[str], Set[str]]:
+    """Splits raw missing symbols into (deferred, truly_missing) for the given ecosystem.
+
+    A symbol is deferred iff it is present in `deferrals` and lists `ecosystem`
+    in its declared target ecosystems.
+    """
+    if deferrals is None:
+        deferrals = STATED_DEFERRALS
+    deferred = {
+        s
+        for s in raw_missing
+        if s in deferrals and ecosystem in deferrals[s].get("ecosystems", ())
+    }
+    missing = raw_missing - deferred
+    return deferred, missing
+
+
 # `#if !EXPANSE_WIDE_SURFACE` / `#if EXPANSE_WIDE_SURFACE == 0` open the
 # 32-bit-only surface block in expanse.h.
 _NARROW_IF_RE = re.compile(r"^#if\s*(?:!\s*EXPANSE_WIDE_SURFACE|EXPANSE_WIDE_SURFACE\s*==\s*0)\b")
@@ -747,22 +768,17 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
     go_symbols = parse_go_purego(go_path)
 
     java_raw_missing = c_symbol_names - java_symbols
-    java_deferred = {s for s in java_raw_missing if s in STATED_DEFERRALS and "java" in STATED_DEFERRALS[s].get("ecosystems", ())}
-    java_missing = java_raw_missing - java_deferred
+    java_deferred, java_missing = split_deferred(java_raw_missing, "java")
 
     dotnet_raw_missing = c_symbol_names - dotnet_symbols
-    dotnet_deferred = {s for s in dotnet_raw_missing if s in STATED_DEFERRALS and "dotnet" in STATED_DEFERRALS[s].get("ecosystems", ())}
-    dotnet_missing = dotnet_raw_missing - dotnet_deferred
+    dotnet_deferred, dotnet_missing = split_deferred(dotnet_raw_missing, "dotnet")
 
-    py_deferred = {s for s in py_raw_missing if s in STATED_DEFERRALS and "python" in STATED_DEFERRALS[s].get("ecosystems", ())}
-    py_missing = py_raw_missing - py_deferred
+    py_deferred, py_missing = split_deferred(py_raw_missing, "python")
 
-    node_deferred = {s for s in node_raw_missing if s in STATED_DEFERRALS and "node" in STATED_DEFERRALS[s].get("ecosystems", ())}
-    node_missing = node_raw_missing - node_deferred
+    node_deferred, node_missing = split_deferred(node_raw_missing, "node")
 
     go_raw_missing = c_symbol_names - go_symbols
-    go_deferred = {s for s in go_raw_missing if s in STATED_DEFERRALS and "go" in STATED_DEFERRALS[s].get("ecosystems", ())}
-    go_missing = go_raw_missing - go_deferred
+    go_deferred, go_missing = split_deferred(go_raw_missing, "go")
 
     report = ParityReport(
         total_c_symbols=len(c_symbols),
@@ -1205,14 +1221,13 @@ def self_test() -> int:
     # 7b. Fail-then-pass check: an unlisted missing symbol reports in missing (FAIL),
     # while a stated deferral reports in deferred and not missing (PASS).
     raw_missing = {test_sym}
-    deferred_empty = {s for s in raw_missing if s in STATED_DEFERRALS and "java" in STATED_DEFERRALS[s].get("ecosystems", ())}
-    missing_unlisted = raw_missing - deferred_empty
+    deferred_empty, missing_unlisted = split_deferred(raw_missing, "java")
     assert test_sym in missing_unlisted, "Unlisted missing symbol must report as missing (fail loud)"
+    assert test_sym not in deferred_empty
 
     # With deferral:
     test_deferral = {test_sym: {"issue": "#808", "reason": "test deferral", "ecosystems": {"java"}}}
-    deferred_listed = {s for s in raw_missing if s in test_deferral and "java" in test_deferral[s].get("ecosystems", ())}
-    missing_listed = raw_missing - deferred_listed
+    deferred_listed, missing_listed = split_deferred(raw_missing, "java", test_deferral)
     assert test_sym in deferred_listed, "Listed deferred symbol must report in deferred"
     assert test_sym not in missing_listed, "Listed deferred symbol must not report in missing"
 
