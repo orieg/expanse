@@ -9438,6 +9438,38 @@ pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Optio
     olc_remove_map_body!(host, false, _old => false, key)
 }
 
+/// The conditional publish over any [`OlcHost`]: `olc_insert_map_body!` storing
+/// only over `expected`. `Done(seen)` is the word the compare saw under the
+/// parent's version lock; the store happened iff `seen == expected`.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(feature = "std")]
+pub(crate) fn olc_cas_publish_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: Option<u64>,
+    val: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(
+        host,
+        old => expected != Some(old),
+        expected.is_none(),
+        key,
+        val
+    )
+}
+
+/// The conditional remove over any [`OlcHost`]: `olc_remove_map_body!` removing
+/// only `expected`.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(feature = "std")]
+pub(crate) fn olc_cas_remove_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_remove_map_body!(host, true, old => old != expected, key)
+}
+
 // ---------------------------------------------------------------------
 // The bytes wrapper's two bucket publishes (#929).
 //
@@ -9675,31 +9707,20 @@ impl SyncExpanseMap {
     /// `seen == expected`.
     // The `// SAFETY:` comments sit on each block inside the macro body; clippy
     // cannot see a comment through a macro expansion.
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    #[cfg(feature = "std")]
     fn olc_cas_publish_map(
         &self,
         key: Key,
         expected: Option<u64>,
         val: u64,
     ) -> OlcOutcome<Option<u64>> {
-        olc_insert_map_body!(
-            self.shared,
-            old => expected != Some(old),
-            expected.is_none(),
-            key,
-            val
-        )
+        olc_cas_publish_map(&*self.shared, key, expected, val)
     }
 
     /// The conditional removal: `olc_remove_map_body!` removing only
     /// `expected`. `Done(seen)` as in [`Self::olc_cas_publish_map`].
-    // The `// SAFETY:` comments sit on each block inside the macro body; clippy
-    // cannot see a comment through a macro expansion.
-    #[allow(clippy::undocumented_unsafe_blocks)]
     #[cfg(feature = "std")]
     fn olc_cas_remove_map(&self, key: Key, expected: u64) -> OlcOutcome<Option<u64>> {
-        olc_remove_map_body!(self.shared, true, old => old != expected, key)
+        olc_cas_remove_map(&*self.shared, key, expected)
     }
 
     /// The map wrapper's OLC remove: `olc_remove_map_body!` as the method it
@@ -11061,6 +11082,642 @@ impl SyncExpanseBlobMap {
         }
     }
 
+    #[cfg(all(not(feature = "ablation-blob-serial-writers"), feature = "std"))]
+    unsafe fn charge_slot_dead(
+        &self,
+        guard: &crate::occ::WriterGuard<'_>,
+        #[cfg(not(feature = "ablation-blob-shared-arena"))] owner: Option<
+            &mut WriterArenaOwner<'_>,
+        >,
+        slot: ValueSlot,
+    ) {
+        if slot.tag() != SlotTag::ArenaMeta {
+            return;
+        }
+        #[cfg(not(feature = "ablation-blob-shared-arena"))]
+        {
+            // SAFETY: writer slot and guard are held, slot is dead.
+            unsafe { self.charge_dead(guard, owner, slot) };
+        }
+        #[cfg(feature = "ablation-blob-shared-arena")]
+        {
+            let _ = guard;
+            let _arena_guard = self.arena_write.lock().expect("arena write lock poisoned");
+            // SAFETY: tree pointer is valid and exclusive arena write lock is held.
+            unsafe {
+                let arena_ptr = core::ptr::addr_of_mut!((*self.shared.tree_ptr()).arena);
+                (*arena_ptr).record_deleted_slot(slot);
+            }
+        }
+    }
+
+    #[cfg(all(feature = "std", not(feature = "ablation-blob-serial-writers")))]
+    fn resolve_slot_to_owned(&self, slot: ValueSlot) -> Option<(Vec<u8>, u32)> {
+        let tag = slot.tag();
+        if tag.is_raw_inline() {
+            let (raw_buf, len) = slot.inline_payload();
+            return Some((raw_buf[..len].to_vec(), 0));
+        }
+        if tag.is_compressed_inline() {
+            let mut buf = [0u8; 16];
+            if let Some(len) = crate::codec::decompress_inline(slot, &mut buf) {
+                return Some((buf[..len].to_vec(), 0));
+            }
+        }
+        if tag == SlotTag::ArenaMeta {
+            let meta = slot.arena_meta_meta();
+            let table = self.tables.reader_table();
+            // SAFETY: reader_table remains valid under epoch pin, locator is well-formed.
+            let resolved =
+                unsafe { crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator()) };
+            if let Some((ptr, len)) = resolved {
+                // SAFETY: pointer and length come from the validated table resolution.
+                let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+                return Some((slice.to_vec(), meta));
+            }
+        }
+        None
+    }
+
+    /// Compare-and-swap the 24-bit hot metadata stored for `key`.
+    ///
+    /// The update is performed in-slot on `ValueSlot`'s 24-bit `hot_meta`
+    /// field without allocating or copying arena payload data.
+    ///
+    /// - If `expected` matches the current metadata (or `None` if the key is absent):
+    ///   - If `new` is `Some(val)`, updates the metadata to `val`.
+    ///   - If `new` is `None`, removes the key.
+    ///   - Returns `Ok(expected)`.
+    /// - If the current metadata does not match `expected`:
+    ///   - Leaves the map unchanged.
+    ///   - Returns `Err(current_meta)`.
+    pub fn compare_exchange_meta(
+        &self,
+        key: Key,
+        expected: Option<u32>,
+        new: Option<u32>,
+    ) -> Result<Option<u32>, Option<u32>> {
+        if expected.is_none() && new.is_none() {
+            return match self.get_meta(key) {
+                None => Ok(None),
+                seen => Err(seen),
+            };
+        }
+        if matches!(new, Some(m) if m > ValueSlot::ARENA_META_MAX) {
+            return Err(self.get_meta(key));
+        }
+        #[cfg(feature = "ablation-blob-serial-writers")]
+        {
+            self.shared
+                .write(|m| m.compare_exchange_meta(key, expected, new))
+        }
+        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        {
+            #[cfg(feature = "std")]
+            {
+                if !self.shared.published().is_tree() {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                    return self.shared.write_quiesced(|m| {
+                        #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                        self.fold_writer_arenas(m);
+                        m.compare_exchange_meta_shared(key, expected, new)
+                    });
+                }
+                let guard = self.shared.enter_writer_blocking();
+                let slot_id = guard.slot_id();
+                let res = self.shared.with_writer_pin(|| {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                    crate::occ_stats::op_begin();
+                    let mut cause = FallbackCause::Contention;
+                    #[cfg(feature = "occ-stats")]
+                    let mut closed = false;
+                    let mut backoff = 1;
+                    for _ in 0..MAX_RETRIES {
+                        if self.shared.gate.is_closed() {
+                            #[cfg(feature = "occ-stats")]
+                            {
+                                closed = true;
+                            }
+                            break;
+                        }
+                        let snap = self.shared.version().sample();
+                        let root = self.shared.published().load();
+                        // SAFETY: root edge is loaded from published root and protected by epoch pin.
+                        let walked = unsafe {
+                            walk_validated::<true>(root, key, self.shared.version(), snap)
+                        };
+                        let found = match walked {
+                            Ok(f) => f,
+                            Err(_) => {
+                                crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                                for _ in 0..backoff {
+                                    core::hint::spin_loop();
+                                }
+                                if backoff < 64 {
+                                    backoff <<= 1;
+                                }
+                                #[cfg(loom)]
+                                loom::thread::yield_now();
+                                continue;
+                            }
+                        };
+                        let cur_meta = found.and_then(blob_slot_meta);
+                        if cur_meta != expected {
+                            crate::occ_stats::op_end();
+                            return Ok(Err(cur_meta));
+                        }
+                        let old_raw = found;
+                        match (old_raw, new) {
+                            (None, None) => {
+                                crate::occ_stats::op_end();
+                                return Ok(Ok(None));
+                            }
+                            (None, Some(_)) => {
+                                crate::occ_stats::op_end();
+                                return Ok(Err(None));
+                            }
+                            (Some(raw), None) => {
+                                match olc_cas_remove_map(&*self.shared, key, raw) {
+                                    OlcOutcome::Done(seen) => {
+                                        if seen == Some(raw) {
+                                            self.shared.tree_pop.add(slot_id, -1);
+                                            let old_slot = ValueSlot::from_raw(raw);
+                                            if old_slot.tag() == SlotTag::ArenaMeta {
+                                                self.charge_removed(&guard, old_slot);
+                                            }
+                                            guard.tick_advance(&self.shared.collector);
+                                            crate::occ_stats::op_end();
+                                            return Ok(Ok(cur_meta));
+                                        }
+                                        crate::occ_stats::bump(
+                                            crate::occ_stats::Stat::LockRestarts,
+                                        );
+                                        for _ in 0..backoff {
+                                            core::hint::spin_loop();
+                                        }
+                                        if backoff < 64 {
+                                            backoff <<= 1;
+                                        }
+                                        #[cfg(loom)]
+                                        loom::thread::yield_now();
+                                    }
+                                    OlcOutcome::Retry => {
+                                        crate::occ_stats::bump(
+                                            crate::occ_stats::Stat::LockRestarts,
+                                        );
+                                        for _ in 0..backoff {
+                                            core::hint::spin_loop();
+                                        }
+                                        if backoff < 64 {
+                                            backoff <<= 1;
+                                        }
+                                        #[cfg(loom)]
+                                        loom::thread::yield_now();
+                                    }
+                                    OlcOutcome::Fallback(c) => {
+                                        cause = c;
+                                        break;
+                                    }
+                                }
+                            }
+                            (Some(raw), Some(new_m)) => {
+                                let old_slot = ValueSlot::from_raw(raw);
+                                if old_slot.tag() == SlotTag::ArenaMeta {
+                                    let new_slot = old_slot.with_arena_meta_meta(new_m).unwrap();
+                                    match olc_cas_publish_map(
+                                        &*self.shared,
+                                        key,
+                                        Some(raw),
+                                        new_slot.to_raw(),
+                                    ) {
+                                        OlcOutcome::Done(seen) => {
+                                            if seen == Some(raw) {
+                                                guard.tick_advance(&self.shared.collector);
+                                                crate::occ_stats::op_end();
+                                                return Ok(Ok(cur_meta));
+                                            }
+                                            crate::occ_stats::bump(
+                                                crate::occ_stats::Stat::LockRestarts,
+                                            );
+                                            for _ in 0..backoff {
+                                                core::hint::spin_loop();
+                                            }
+                                            if backoff < 64 {
+                                                backoff <<= 1;
+                                            }
+                                            #[cfg(loom)]
+                                            loom::thread::yield_now();
+                                        }
+                                        OlcOutcome::Retry => {
+                                            crate::occ_stats::bump(
+                                                crate::occ_stats::Stat::LockRestarts,
+                                            );
+                                            for _ in 0..backoff {
+                                                core::hint::spin_loop();
+                                            }
+                                            if backoff < 64 {
+                                                backoff <<= 1;
+                                            }
+                                            #[cfg(loom)]
+                                            loom::thread::yield_now();
+                                        }
+                                        OlcOutcome::Fallback(c) => {
+                                            cause = c;
+                                            break;
+                                        }
+                                    }
+                                } else if new_m == 0 {
+                                    crate::occ_stats::op_end();
+                                    return Ok(Ok(cur_meta));
+                                } else {
+                                    crate::occ_stats::op_end();
+                                    return Ok(Err(cur_meta));
+                                }
+                            }
+                        }
+                    }
+                    crate::occ_stats::op_end();
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(cause.stat());
+                    #[cfg(feature = "occ-stats")]
+                    if cause == FallbackCause::Contention {
+                        crate::occ_stats::bump(contention_stat(closed));
+                    }
+                    Err(cause)
+                });
+                drop(guard);
+                match res {
+                    Ok(outcome) => outcome,
+                    Err(_) => self.shared.write_quiesced(|m| {
+                        #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                        self.fold_writer_arenas(m);
+                        m.compare_exchange_meta_shared(key, expected, new)
+                    }),
+                }
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                self.shared
+                    .write(|m| m.compare_exchange_meta(key, expected, new))
+            }
+        }
+    }
+
+    /// Compare-and-swap the payload and metadata stored for `key`.
+    ///
+    /// Performs a compare-then-write protocol: if `expected` does not match
+    /// the current value, the operation aborts with zero bytes allocated in
+    /// the arena. If the CAS matches, the new payload is stored (or the key
+    /// is removed if `new == None`).
+    ///
+    /// - Returns `Ok(expected)` if the current value matched and the update succeeded.
+    /// - Returns `Err(current_value)` if the current value did not match.
+    ///
+    /// # Allocation Note on Failure
+    /// On mismatch, returning `Err(Some((Vec<u8>, u32)))` allocates a fresh `Vec<u8>`
+    /// to return the observed payload bytes. In high-contention loops where CAS operations
+    /// retry frequently, allocating on failure introduces heap overhead.
+    ///
+    /// For workloads where synchronization is governed by metadata (e.g. sequence numbers,
+    /// version counters, or status tags in the 24-bit metadata field), callers should prefer
+    /// [`Self::compare_exchange_meta`], which executes directly on the in-slot `hot_meta`
+    /// word with zero heap allocation and zero arena access on both success and failure.
+    #[allow(clippy::type_complexity)]
+    pub fn compare_exchange(
+        &self,
+        key: Key,
+        expected: Option<(&[u8], u32)>,
+        new: Option<(&[u8], u32)>,
+    ) -> Result<Option<(Vec<u8>, u32)>, Option<(Vec<u8>, u32)>> {
+        if expected.is_none() && new.is_none() {
+            return match self.get(key) {
+                None => Ok(None),
+                seen => Err(seen),
+            };
+        }
+        if matches!(new, Some((data, meta)) if data.len() > 7 && meta > ValueSlot::ARENA_META_MAX) {
+            return Err(self.get(key));
+        }
+        #[cfg(feature = "ablation-blob-serial-writers")]
+        {
+            self.shared
+                .write(|m| m.compare_exchange(key, expected, new))
+        }
+        #[cfg(not(feature = "ablation-blob-serial-writers"))]
+        {
+            #[cfg(feature = "std")]
+            {
+                if !self.shared.published().is_tree() {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                    return self.shared.write_quiesced(|m| {
+                        #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                        self.fold_writer_arenas(m);
+                        m.compare_exchange_shared(key, expected, new)
+                    });
+                }
+
+                let guard = self.shared.enter_writer_blocking();
+                let slot_id = guard.slot_id();
+                #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                let mut own = self.writer_arenas.arenas[slot_id].try_own();
+
+                let res = self.shared.with_writer_pin(|| {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                    crate::occ_stats::op_begin();
+                    let mut cause = FallbackCause::Contention;
+                    #[cfg(feature = "occ-stats")]
+                    let mut closed = false;
+                    let mut backoff = 1;
+                    for _ in 0..MAX_RETRIES {
+                        if self.shared.gate.is_closed() {
+                            #[cfg(feature = "occ-stats")]
+                            {
+                                closed = true;
+                            }
+                            break;
+                        }
+                        let snap = self.shared.version().sample();
+                        let root = self.shared.published().load();
+                        // SAFETY: root edge is loaded from published root and protected by epoch pin.
+                        let walked = unsafe {
+                            walk_validated::<true>(root, key, self.shared.version(), snap)
+                        };
+                        let found = match walked {
+                            Ok(f) => f,
+                            Err(_) => {
+                                crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                                for _ in 0..backoff {
+                                    core::hint::spin_loop();
+                                }
+                                if backoff < 64 {
+                                    backoff <<= 1;
+                                }
+                                #[cfg(loom)]
+                                loom::thread::yield_now();
+                                continue;
+                            }
+                        };
+                        let observed = found
+                            .and_then(|raw| self.resolve_slot_to_owned(ValueSlot::from_raw(raw)));
+                        let matches = match (&observed, expected) {
+                            (None, None) => true,
+                            (Some((obs_b, obs_m)), Some((exp_b, exp_m))) => {
+                                obs_b.as_slice() == exp_b && *obs_m == exp_m
+                            }
+                            _ => false,
+                        };
+                        if !matches {
+                            // ZERO arena bytes allocated!
+                            crate::occ_stats::op_end();
+                            return Ok(Err(observed));
+                        }
+
+                        // Target matches expected!
+                        match new {
+                            None => {
+                                let raw = match found {
+                                    Some(r) => r,
+                                    None => {
+                                        crate::occ_stats::op_end();
+                                        return Ok(Ok(None));
+                                    }
+                                };
+                                match olc_cas_remove_map(&*self.shared, key, raw) {
+                                    OlcOutcome::Done(seen) => {
+                                        if seen == Some(raw) {
+                                            self.shared.tree_pop.add(slot_id, -1);
+                                            let old_slot = ValueSlot::from_raw(raw);
+                                            if old_slot.tag() == SlotTag::ArenaMeta {
+                                                self.charge_removed(&guard, old_slot);
+                                            }
+                                            guard.tick_advance(&self.shared.collector);
+                                            crate::occ_stats::op_end();
+                                            return Ok(Ok(observed));
+                                        }
+                                        crate::occ_stats::bump(
+                                            crate::occ_stats::Stat::LockRestarts,
+                                        );
+                                        for _ in 0..backoff {
+                                            core::hint::spin_loop();
+                                        }
+                                        if backoff < 64 {
+                                            backoff <<= 1;
+                                        }
+                                        #[cfg(loom)]
+                                        loom::thread::yield_now();
+                                    }
+                                    OlcOutcome::Retry => {
+                                        crate::occ_stats::bump(
+                                            crate::occ_stats::Stat::LockRestarts,
+                                        );
+                                        for _ in 0..backoff {
+                                            core::hint::spin_loop();
+                                        }
+                                        if backoff < 64 {
+                                            backoff <<= 1;
+                                        }
+                                        #[cfg(loom)]
+                                        loom::thread::yield_now();
+                                    }
+                                    OlcOutcome::Fallback(c) => {
+                                        cause = c;
+                                        break;
+                                    }
+                                }
+                            }
+                            Some((new_data, new_meta)) => {
+                                let new_slot = if new_data.len() <= 7 {
+                                    match ValueSlot::new_inline(new_data) {
+                                        Some(s) => s,
+                                        None => {
+                                            cause = FallbackCause::Contention;
+                                            break;
+                                        }
+                                    }
+                                } else if new_meta == 0
+                                    && let Some(inline_slot) =
+                                        crate::codec::try_compress_inline(new_data)
+                                {
+                                    inline_slot
+                                } else {
+                                    #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                                    {
+                                        let alloc_res = match own.as_mut() {
+                                            Some(owner) => {
+                                                self.alloc_private(owner, new_data, new_meta)
+                                            }
+                                            None => {
+                                                let _arena_guard = self
+                                                    .arena_write
+                                                    .lock()
+                                                    .expect("arena write lock poisoned");
+                                                // SAFETY: tree pointer is valid and exclusive arena write lock is held.
+                                                unsafe {
+                                                    let arena_ptr = core::ptr::addr_of_mut!(
+                                                        (*self.shared.tree_ptr()).arena
+                                                    );
+                                                    (*arena_ptr).prepare_slot(new_data, new_meta)
+                                                }
+                                            }
+                                        };
+                                        match alloc_res {
+                                            Ok(s) => s,
+                                            Err(_) => {
+                                                cause = FallbackCause::Contention;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    #[cfg(feature = "ablation-blob-shared-arena")]
+                                    {
+                                        let _arena_guard = self
+                                            .arena_write
+                                            .lock()
+                                            .expect("arena write lock poisoned");
+                                        // SAFETY: tree pointer is valid and exclusive arena write lock is held.
+                                        let alloc_res = unsafe {
+                                            let arena_ptr = core::ptr::addr_of_mut!(
+                                                (*self.shared.tree_ptr()).arena
+                                            );
+                                            (*arena_ptr).prepare_slot(new_data, new_meta)
+                                        };
+                                        match alloc_res {
+                                            Ok(s) => s,
+                                            Err(_) => {
+                                                cause = FallbackCause::Contention;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                };
+
+                                match olc_cas_publish_map(
+                                    &*self.shared,
+                                    key,
+                                    found,
+                                    new_slot.to_raw(),
+                                ) {
+                                    OlcOutcome::Done(seen) => {
+                                        if seen == found {
+                                            if found.is_none() {
+                                                self.shared.tree_pop.add(slot_id, 1);
+                                            } else if let Some(old_raw) = found {
+                                                let old_slot = ValueSlot::from_raw(old_raw);
+                                                // SAFETY: writer slot and guard are held, slot is dead.
+                                                unsafe {
+                                                    self.charge_slot_dead(
+                                                        &guard,
+                                                        #[cfg(not(
+                                                            feature = "ablation-blob-shared-arena"
+                                                        ))]
+                                                        own.as_mut(),
+                                                        old_slot,
+                                                    );
+                                                }
+                                            }
+                                            guard.tick_advance(&self.shared.collector);
+                                            crate::occ_stats::op_end();
+                                            return Ok(Ok(observed));
+                                        }
+                                        // Publish conflict! Another writer changed the slot.
+                                        // Charge the newly allocated record dead!
+                                        // SAFETY: writer slot and guard are held, slot is dead.
+                                        unsafe {
+                                            self.charge_slot_dead(
+                                                &guard,
+                                                #[cfg(not(
+                                                    feature = "ablation-blob-shared-arena"
+                                                ))]
+                                                own.as_mut(),
+                                                new_slot,
+                                            );
+                                        }
+                                        crate::occ_stats::bump(
+                                            crate::occ_stats::Stat::LockRestarts,
+                                        );
+                                        for _ in 0..backoff {
+                                            core::hint::spin_loop();
+                                        }
+                                        if backoff < 64 {
+                                            backoff <<= 1;
+                                        }
+                                        #[cfg(loom)]
+                                        loom::thread::yield_now();
+                                    }
+                                    OlcOutcome::Retry => {
+                                        // SAFETY: writer slot and guard are held, slot is dead.
+                                        unsafe {
+                                            self.charge_slot_dead(
+                                                &guard,
+                                                #[cfg(not(
+                                                    feature = "ablation-blob-shared-arena"
+                                                ))]
+                                                own.as_mut(),
+                                                new_slot,
+                                            );
+                                        }
+                                        crate::occ_stats::bump(
+                                            crate::occ_stats::Stat::LockRestarts,
+                                        );
+                                        for _ in 0..backoff {
+                                            core::hint::spin_loop();
+                                        }
+                                        if backoff < 64 {
+                                            backoff <<= 1;
+                                        }
+                                        #[cfg(loom)]
+                                        loom::thread::yield_now();
+                                    }
+                                    OlcOutcome::Fallback(c) => {
+                                        // SAFETY: writer slot and guard are held, slot is dead.
+                                        unsafe {
+                                            self.charge_slot_dead(
+                                                &guard,
+                                                #[cfg(not(
+                                                    feature = "ablation-blob-shared-arena"
+                                                ))]
+                                                own.as_mut(),
+                                                new_slot,
+                                            );
+                                        }
+                                        cause = c;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    crate::occ_stats::op_end();
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(cause.stat());
+                    #[cfg(feature = "occ-stats")]
+                    if cause == FallbackCause::Contention {
+                        crate::occ_stats::bump(contention_stat(closed));
+                    }
+                    Err(cause)
+                });
+                #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                drop(own);
+                drop(guard);
+                match res {
+                    Ok(outcome) => outcome,
+                    Err(_) => self.shared.write_quiesced(|m| {
+                        #[cfg(not(feature = "ablation-blob-shared-arena"))]
+                        self.fold_writer_arenas(m);
+                        m.compare_exchange_shared(key, expected, new)
+                    }),
+                }
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                self.shared
+                    .write(|m| m.compare_exchange(key, expected, new))
+            }
+        }
+    }
+
     /// Runs arena garbage collection and compaction. Dead chunks are retired
     /// through the epoch collector, so concurrent pinned readers keep reading
     /// their (relocated-from) payload bytes safely.
@@ -11850,6 +12507,120 @@ impl SyncExpanseStrMap {
         }
     }
 
+    /// Compare-and-swap the value stored for `key`.
+    ///
+    /// The operation is atomic with respect to other writers:
+    /// - If the current value matches `expected`:
+    ///   - If `new` is `Some(val)`, updates the value to `val` (or inserts `val` if `expected` was `None`).
+    ///   - If `new` is `None`, removes the key.
+    ///   - Returns `Ok(expected)`.
+    /// - If the current value does not match `expected`:
+    ///   - Leaves the map unchanged.
+    ///   - Returns `Err(current_value)`.
+    ///
+    /// Passing `(None, None)` is equivalent to checking whether `key` is absent;
+    /// it returns `Ok(None)` if absent or `Err(Some(current))` if present,
+    /// without mutating the map.
+    ///
+    /// # Reclamation contract for locator values
+    ///
+    /// When storing locators or addresses into an external epoch-reclaimed store,
+    /// the writer must **not retire the old record until after `compare_exchange` returns**.
+    /// Expanse's internal collector protects only trie nodes and suffix leaves;
+    /// `compare_exchange` validates and publishes the new value under version bracketing before
+    /// returning. Retiring the replaced record only after `compare_exchange` returns guarantees
+    /// that any reader that observed the old locator was pinned in the caller's store
+    /// at or before the retirement epoch. See [`StrReader::get`].
+    pub fn compare_exchange(
+        &self,
+        key: &NulFreeStr,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        if expected.is_none() && new.is_none() {
+            return match self.get(key) {
+                None => Ok(None),
+                seen => Err(seen),
+            };
+        }
+        let observed = self.compare_exchange_observed(key, expected, new);
+        if observed == expected {
+            Ok(observed)
+        } else {
+            Err(observed)
+        }
+    }
+
+    /// The word the compare saw; the store happened iff it equals `expected`.
+    fn compare_exchange_observed(
+        &self,
+        key: &NulFreeStr,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Option<u64> {
+        let exclusive = |m: &mut ExpanseStrMap| {
+            let seen = m.get(key);
+            if seen == expected {
+                match new {
+                    Some(v) => {
+                        m.insert(key, v);
+                    }
+                    None => {
+                        m.remove(key);
+                    }
+                }
+            }
+            seen
+        };
+        #[cfg(feature = "ablation-str-serial-writers")]
+        {
+            self.shared.write(exclusive)
+        }
+        #[cfg(not(feature = "ablation-str-serial-writers"))]
+        {
+            let guard = self.shared.enter_writer_blocking();
+            let slot = guard.slot_id();
+            let res = self.shared.with_writer_pin(|| {
+                self.shared.str_optimistic(&guard, || {
+                    // SAFETY: writer slot is pinned, tree pointer is valid across optimistic mutation.
+                    let (outcome, prune) = unsafe {
+                        (*self.shared.tree_ptr()).olc_compare_exchange(key, expected, new)
+                    };
+                    match outcome {
+                        OlcOutcome::Done(prev) => {
+                            if prev == expected {
+                                if prev.is_none() && new.is_some() {
+                                    self.shared.tree_pop.add(slot, 1);
+                                } else if prev.is_some() && new.is_none() {
+                                    self.shared.tree_pop.add(slot, -1);
+                                }
+                            }
+                            OlcOutcome::Done((prev, prune))
+                        }
+                        OlcOutcome::Retry => OlcOutcome::Retry,
+                        OlcOutcome::Fallback(cause) => OlcOutcome::Fallback(cause),
+                    }
+                })
+            });
+            drop(guard);
+            match res {
+                Ok((prev, None)) => prev,
+                Ok((prev, Some(cause))) => {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                    crate::occ_stats::bump(cause.stat());
+                    #[cfg(feature = "occ-stats")]
+                    if cause == FallbackCause::Contention {
+                        crate::occ_stats::bump(contention_stat(false));
+                    }
+                    self.shared
+                        .write_root_covered_exact(|m| m.prune_empty_path(key));
+                    prev
+                }
+                Err(_) => self.shared.write_root_covered_exact(exclusive),
+            }
+        }
+    }
+
     /// Removes every entry; returns the heap bytes released. A whole-tree
     /// disposal, always serialised (T12).
     pub fn clear(&self) -> u64 {
@@ -12085,6 +12856,33 @@ impl StrExclusive<'_> {
             None => {}
         }
         old
+    }
+
+    /// Compare-and-swap the value for `key`.
+    ///
+    /// Stores `new` (or removes the key if `new == None`) if and only if the
+    /// current value equals `expected`. Returns `Ok(expected)` on success, or
+    /// `Err(current)` if the current value did not match.
+    pub fn compare_exchange(
+        &mut self,
+        key: &NulFreeStr,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        let old = self.get(key);
+        if old == expected {
+            match new {
+                Some(v) => {
+                    self.insert(key, v);
+                }
+                None => {
+                    self.remove(key);
+                }
+            }
+            Ok(old)
+        } else {
+            Err(old)
+        }
     }
 
     /// Number of keys in the map.
@@ -12771,6 +13569,392 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         }
     }
 
+    /// Conditionally stores `new` at `key` iff its current value is `expected`.
+    ///
+    /// # Semantics
+    ///
+    /// - `expected == None`, `new == Some(v)`: inserts `v` iff the key is absent.
+    /// - `expected == Some(e)`, `new == Some(v)`: updates to `v` iff the current value is `e`.
+    /// - `expected == Some(e)`, `new == None`: removes the key iff the current value is `e`.
+    /// - `expected == None`, `new == None`: validated lookup; `Ok(None)` if absent, `Err(seen)` if present.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(observed)` when the key's current value was not `expected`.
+    pub fn compare_exchange(
+        &self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        if expected.is_none() && new.is_none() {
+            return match self.get(key) {
+                None => Ok(None),
+                seen => Err(seen),
+            };
+        }
+        let observed = self.compare_exchange_observed(key, expected, new);
+        if observed == expected {
+            Ok(observed)
+        } else {
+            Err(observed)
+        }
+    }
+
+    /// The word the compare saw; the store happened iff it equals `expected`.
+    fn compare_exchange_observed(
+        &self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Option<u64> {
+        let exclusive = |m: &mut ExpanseBytesMap<S>| {
+            #[cfg(all(
+                feature = "std",
+                target_pointer_width = "64",
+                not(feature = "ablation-bytes-serial-writers")
+            ))]
+            m.set_len(self.entry_pop.load());
+            let seen = m.get(key);
+            if seen == expected {
+                #[cfg(all(
+                    feature = "std",
+                    target_pointer_width = "64",
+                    not(feature = "ablation-bytes-serial-writers")
+                ))]
+                let pop_before = m.len();
+                match new {
+                    Some(v) => {
+                        m.insert_shared(key, v);
+                    }
+                    None => {
+                        m.remove_shared(key);
+                    }
+                }
+                #[cfg(all(
+                    feature = "std",
+                    target_pointer_width = "64",
+                    not(feature = "ablation-bytes-serial-writers")
+                ))]
+                {
+                    let pop_after = m.len();
+                    let delta = pop_after as i64 - pop_before as i64;
+                    if pop_after == 0 && pop_before > 0 {
+                        self.entry_pop.flush_and_set(0);
+                    } else if delta != 0 {
+                        self.entry_pop.add_base(delta);
+                    }
+                }
+            }
+            seen
+        };
+
+        #[cfg(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        ))]
+        {
+            if !self.shared.published().is_tree() {
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(FallbackCause::RootGrowth.stat());
+                return self.shared.remove_root_covered(exclusive);
+            }
+
+            let guard = self.shared.enter_writer_blocking();
+            let h = self.hasher.hash_one(key);
+
+            let res = self.shared.with_writer_pin(|| {
+                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+                crate::occ_stats::op_begin();
+
+                let mut cause = FallbackCause::Contention;
+                #[cfg(feature = "occ-stats")]
+                let mut closed = false;
+                let mut backoff = 1;
+                macro_rules! stall {
+                    () => {{
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                        for _ in 0..backoff {
+                            core::hint::spin_loop();
+                        }
+                        if backoff < 64 {
+                            backoff <<= 1;
+                        }
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }};
+                }
+                for _ in 0..MAX_RETRIES {
+                    if self.shared.gate.is_closed() {
+                        #[cfg(feature = "occ-stats")]
+                        {
+                            closed = true;
+                        }
+                        break;
+                    }
+
+                    let snap = self.shared.version().sample();
+                    let root = self.shared.published().load();
+                    // SAFETY: root edge is loaded from published root and protected by epoch pin.
+                    let found = match unsafe {
+                        walk_validated::<true>(root, h, self.shared.version(), snap)
+                    } {
+                        Ok(f) => f,
+                        Err(Retry) => {
+                            stall!();
+                            continue;
+                        }
+                    };
+
+                    match found {
+                        None => {
+                            if expected.is_some() {
+                                crate::occ_stats::op_end();
+                                return Ok(None);
+                            }
+                            let val = new.expect("checked at entry");
+                            let bucket: Bucket = vec![(key.into(), val)];
+                            let new_raw = Box::into_raw(Box::new(bucket)) as u64;
+                            match olc_cas_publish_bucket_map(&*self.shared, h, None, 0, new_raw) {
+                                OlcOutcome::Done(actual) => {
+                                    if actual.is_none() {
+                                        self.shared.tree_pop.add(guard.slot_id(), 1);
+                                        self.entry_pop.add(guard.slot_id(), 1);
+                                        guard.tick_advance(&self.shared.collector);
+                                        crate::occ_stats::op_end();
+                                        return Ok(None);
+                                    }
+                                    // SAFETY: new_raw was created from Box::into_raw above and not published.
+                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    stall!();
+                                }
+                                OlcOutcome::Retry => {
+                                    // SAFETY: new_raw was created from Box::into_raw above and not published.
+                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    stall!();
+                                }
+                                OlcOutcome::Fallback(c) => {
+                                    // SAFETY: new_raw was created from Box::into_raw above and not published.
+                                    drop(unsafe { Box::from_raw(new_raw as *mut Bucket) });
+                                    cause = c;
+                                    break;
+                                }
+                            }
+                        }
+                        Some(word) => {
+                            if word == 0 {
+                                stall!();
+                                continue;
+                            }
+                            // SAFETY: `word` is a valid published Bucket pointer protected by the reader pin.
+                            let (len, at) = unsafe { crate::bytesmap::bucket_find(word, key) };
+                            match at {
+                                None => {
+                                    if expected.is_some() {
+                                        crate::occ_stats::op_end();
+                                        return Ok(None);
+                                    }
+                                    let val = new.expect("checked at entry");
+                                    // SAFETY: `word` is a valid published Bucket pointer protected by the reader pin.
+                                    let raw = unsafe {
+                                        crate::bytesmap::clone_bucket_with(word, len, key, val)
+                                    };
+                                    match olc_cas_publish_bucket_map(
+                                        &*self.shared,
+                                        h,
+                                        Some(word),
+                                        len,
+                                        raw as u64,
+                                    ) {
+                                        OlcOutcome::Done(actual) => {
+                                            if actual == Some(word) {
+                                                self.entry_pop.add(guard.slot_id(), 1);
+                                                dispose_bucket(
+                                                    word as *mut Bucket,
+                                                    true,
+                                                    Some(&self.shared.collector),
+                                                );
+                                                guard.tick_advance(&self.shared.collector);
+                                                crate::occ_stats::op_end();
+                                                return Ok(None);
+                                            }
+                                            // SAFETY: `raw` was allocated above and publish failed; never published.
+                                            drop(unsafe { Box::from_raw(raw) });
+                                            stall!();
+                                        }
+                                        OlcOutcome::Retry => {
+                                            // SAFETY: `raw` was allocated above and publish failed; never published.
+                                            drop(unsafe { Box::from_raw(raw) });
+                                            stall!();
+                                        }
+                                        OlcOutcome::Fallback(c) => {
+                                            // SAFETY: `raw` was allocated above and publish failed; never published.
+                                            drop(unsafe { Box::from_raw(raw) });
+                                            cause = c;
+                                            break;
+                                        }
+                                    }
+                                }
+                                Some(at) => {
+                                    // SAFETY: `word` is a valid Bucket pointer and `at` was found within bounds.
+                                    let current_val =
+                                        unsafe { crate::bytesmap::read_entry_value(word, at) };
+                                    if expected != Some(current_val) {
+                                        crate::occ_stats::op_end();
+                                        return Ok(Some(current_val));
+                                    }
+                                    match new {
+                                        Some(val) => {
+                                            let mut prev = 0u64;
+                                            match olc_bucket_value_inplace_map(
+                                                &*self.shared,
+                                                h,
+                                                word,
+                                                at,
+                                                val,
+                                                &mut prev,
+                                            ) {
+                                                OlcOutcome::Done(Some(seen)) if seen == word => {
+                                                    guard.tick_advance(&self.shared.collector);
+                                                    crate::occ_stats::op_end();
+                                                    return Ok(Some(prev));
+                                                }
+                                                OlcOutcome::Fallback(c) => {
+                                                    cause = c;
+                                                    break;
+                                                }
+                                                OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                    stall!();
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        None => {
+                                            if len == 1 {
+                                                match olc_cas_remove_bucket_map(
+                                                    &*self.shared,
+                                                    h,
+                                                    word,
+                                                ) {
+                                                    OlcOutcome::Done(Some(seen))
+                                                        if seen == word =>
+                                                    {
+                                                        // SAFETY: `word` is an unlinked Bucket pointer; value frozen.
+                                                        let prev = unsafe {
+                                                            crate::bytesmap::read_entry_value(
+                                                                word, 0,
+                                                            )
+                                                        };
+                                                        self.shared
+                                                            .tree_pop
+                                                            .add(guard.slot_id(), -1);
+                                                        self.entry_pop.add(guard.slot_id(), -1);
+                                                        dispose_bucket(
+                                                            word as *mut Bucket,
+                                                            true,
+                                                            Some(&self.shared.collector),
+                                                        );
+                                                        guard.tick_advance(&self.shared.collector);
+                                                        crate::occ_stats::op_end();
+                                                        return Ok(Some(prev));
+                                                    }
+                                                    OlcOutcome::Fallback(c) => {
+                                                        cause = c;
+                                                        break;
+                                                    }
+                                                    OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                        stall!();
+                                                        continue;
+                                                    }
+                                                }
+                                            } else {
+                                                // SAFETY: `word` is a valid Bucket pointer and `at` was found within bounds.
+                                                let new_raw = unsafe {
+                                                    crate::bytesmap::clone_bucket_without(
+                                                        word, len, at,
+                                                    )
+                                                }
+                                                    as u64;
+                                                match olc_cas_publish_shorter_bucket_map(
+                                                    &*self.shared,
+                                                    h,
+                                                    word,
+                                                    len,
+                                                    at,
+                                                    new_raw,
+                                                ) {
+                                                    OlcOutcome::Done(Some(seen))
+                                                        if seen == word =>
+                                                    {
+                                                        // SAFETY: `word` is an unlinked Bucket pointer; value frozen.
+                                                        let prev = unsafe {
+                                                            crate::bytesmap::read_entry_value(
+                                                                word, at,
+                                                            )
+                                                        };
+                                                        self.entry_pop.add(guard.slot_id(), -1);
+                                                        dispose_bucket(
+                                                            word as *mut Bucket,
+                                                            true,
+                                                            Some(&self.shared.collector),
+                                                        );
+                                                        guard.tick_advance(&self.shared.collector);
+                                                        crate::occ_stats::op_end();
+                                                        return Ok(Some(prev));
+                                                    }
+                                                    OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                        // SAFETY: `new_raw` was allocated above and publish failed; never published.
+                                                        drop(unsafe {
+                                                            Box::from_raw(new_raw as *mut Bucket)
+                                                        });
+                                                        stall!();
+                                                    }
+                                                    OlcOutcome::Fallback(c) => {
+                                                        // SAFETY: `new_raw` was allocated above and publish failed; never published.
+                                                        drop(unsafe {
+                                                            Box::from_raw(new_raw as *mut Bucket)
+                                                        });
+                                                        cause = c;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                crate::occ_stats::op_end();
+                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+                crate::occ_stats::bump(cause.stat());
+                #[cfg(feature = "occ-stats")]
+                if cause == FallbackCause::Contention {
+                    crate::occ_stats::bump(contention_stat(closed));
+                }
+                Err(cause)
+            });
+
+            drop(guard);
+            match res {
+                Ok(prev) => prev,
+                Err(_) => self.shared.remove_root_covered(exclusive),
+            }
+        }
+
+        #[cfg(not(all(
+            feature = "std",
+            target_pointer_width = "64",
+            not(feature = "ablation-bytes-serial-writers")
+        )))]
+        {
+            self.shared.write(exclusive)
+        }
+    }
+
     /// Removes every key and releases all memory.
     pub fn clear(&self) {
         #[cfg(all(
@@ -13064,6 +14248,29 @@ impl<S: BuildHasher> BytesExclusive<'_, S> {
             None => {}
         }
         old
+    }
+
+    /// Conditionally stores `new` at `key` iff its current value is `expected`.
+    pub fn compare_exchange(
+        &mut self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        let old = self.get(key);
+        if old == expected {
+            match new {
+                Some(v) => {
+                    self.insert(key, v);
+                }
+                None => {
+                    self.remove(key);
+                }
+            }
+            Ok(old)
+        } else {
+            Err(old)
+        }
     }
 
     /// Number of keys in the map.
@@ -14554,6 +15761,40 @@ mod miri_ub_sites {
 
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_compare_exchange_two_writers() {
+        let map = SyncExpanseStrMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        let k = str_key(t, i);
+                        assert_eq!(
+                            map.compare_exchange(nf(&k), None, Some(t * 1000 + i)),
+                            Ok(None)
+                        );
+                        assert_eq!(
+                            map.compare_exchange(
+                                nf(&k),
+                                Some(t * 1000 + i),
+                                Some(t * 1000 + i + 1)
+                            ),
+                            Ok(Some(t * 1000 + i))
+                        );
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                assert_eq!(map.get(nf(&str_key(t, i))), Some(t * 1000 + i + 1));
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn str_reader_writer() {
         let map = SyncExpanseStrMap::new();
         let done = AtomicBool::new(false);
@@ -14748,6 +15989,33 @@ mod miri_ub_sites {
 
     #[test]
     #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn bytes_compare_exchange_two_writers() {
+        let map = SyncExpanseBytesMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        let k = key(t, i).to_le_bytes();
+                        assert_eq!(map.compare_exchange(&k, None, Some(t * 1000 + i)), Ok(None));
+                        assert_eq!(
+                            map.compare_exchange(&k, Some(t * 1000 + i), Some(t * 1000 + i + 1)),
+                            Ok(Some(t * 1000 + i))
+                        );
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                assert_eq!(map.get(&key(t, i).to_le_bytes()), Some(t * 1000 + i + 1));
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn bytes_reader_writer() {
         let map = SyncExpanseBytesMap::new();
         let done = AtomicBool::new(false);
@@ -14828,6 +16096,39 @@ mod miri_ub_sites {
             for i in 0..KEYS {
                 let (data, _) = map.get(key(t, i)).expect("present");
                 assert_eq!(data, i.to_le_bytes());
+            }
+        }
+        assert_eq!(map.len(), 2 * KEYS);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn blob_compare_exchange_two_writers() {
+        let map = SyncExpanseBlobMap::new();
+        thread::scope(|s| {
+            for t in 0..2 {
+                let map = &map;
+                s.spawn(move || {
+                    for i in 0..KEYS {
+                        let k = key(t, i);
+                        let p1 = blob_payload(k, t as u8);
+                        let p2 = blob_payload(k, (t + 10) as u8);
+                        assert_eq!(map.compare_exchange(k, None, Some((&p1, 0))), Ok(None));
+                        assert_eq!(
+                            map.compare_exchange(k, Some((&p1, 0)), Some((&p2, 1))),
+                            Ok(Some((p1.to_vec(), 0)))
+                        );
+                        assert_eq!(map.compare_exchange_meta(k, Some(1), Some(2)), Ok(Some(1)));
+                    }
+                });
+            }
+        });
+        for t in 0..2 {
+            for i in 0..KEYS {
+                let k = key(t, i);
+                let (data, meta) = map.get(k).expect("present");
+                assert_eq!(data, blob_payload(k, (t + 10) as u8));
+                assert_eq!(meta, 2);
             }
         }
         assert_eq!(map.len(), 2 * KEYS);
@@ -16278,6 +17579,54 @@ mod tests {
             }
             assert!(cursor.is_none());
         });
+    }
+
+    #[test]
+    fn sync_str_compare_exchange_semantics() {
+        let m = SyncExpanseStrMap::new();
+        let k1 = tk(b"apple");
+        let k2 = tk(b"application/json");
+
+        // (None, None): lookup on absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, None), Ok(None));
+
+        // (Some(10), Some(20)) on absent key -> Err(None)
+        assert_eq!(m.compare_exchange(k1, Some(10), Some(20)), Err(None));
+
+        // (None, Some(100)): insert absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, Some(100)), Ok(None));
+        assert_eq!(m.get(k1), Some(100));
+        assert_eq!(m.len(), 1);
+
+        // (None, None): lookup on present key -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, None, None), Err(Some(100)));
+
+        // (Some(99), Some(200)): mismatch -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(99), Some(200)), Err(Some(100)));
+        assert_eq!(m.get(k1), Some(100));
+
+        // (Some(100), Some(200)): match -> Ok(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(100), Some(200)), Ok(Some(100)));
+        assert_eq!(m.get(k1), Some(200));
+
+        // Suffix / split key k2:
+        assert_eq!(m.compare_exchange(k2, None, Some(300)), Ok(None));
+        assert_eq!(m.get(k2), Some(300));
+        assert_eq!(m.len(), 2);
+
+        // (Some(300), Some(400)) on k2 -> Ok(Some(300))
+        assert_eq!(m.compare_exchange(k2, Some(300), Some(400)), Ok(Some(300)));
+        assert_eq!(m.get(k2), Some(400));
+
+        // (Some(400), None) on k2 -> remove
+        assert_eq!(m.compare_exchange(k2, Some(400), None), Ok(Some(400)));
+        assert_eq!(m.get(k2), None);
+        assert_eq!(m.len(), 1);
+
+        // (Some(200), None) on k1 -> remove
+        assert_eq!(m.compare_exchange(k1, Some(200), None), Ok(Some(200)));
+        assert_eq!(m.get(k1), None);
+        assert_eq!(m.len(), 0);
     }
 
     /// The meta-trie root's slot is rewritten by the exclusive path while
@@ -18367,6 +19716,212 @@ mod tests {
         for k in &keys {
             assert_eq!(rd.get(k), Some(str_val_of(k) ^ 3), "refilled {k:?}");
         }
+    }
+
+    #[test]
+    fn sync_bytes_compare_exchange_semantics() {
+        let m = SyncExpanseBytesMap::new();
+        let k1 = b"test/key/1";
+
+        // (None, None): lookup on absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, None), Ok(None));
+
+        // (Some(10), Some(20)) on absent key -> Err(None)
+        assert_eq!(m.compare_exchange(k1, Some(10), Some(20)), Err(None));
+
+        // (None, Some(100)): insert absent key -> Ok(None)
+        assert_eq!(m.compare_exchange(k1, None, Some(100)), Ok(None));
+        assert_eq!(m.get(k1), Some(100));
+        assert_eq!(m.len(), 1);
+
+        // (None, None): lookup on present key -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, None, None), Err(Some(100)));
+
+        // (Some(99), Some(200)): mismatch -> Err(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(99), Some(200)), Err(Some(100)));
+        assert_eq!(m.get(k1), Some(100));
+
+        // (Some(100), Some(200)): match -> Ok(Some(100))
+        assert_eq!(m.compare_exchange(k1, Some(100), Some(200)), Ok(Some(100)));
+        assert_eq!(m.get(k1), Some(200));
+
+        // (Some(99), None): remove mismatch -> Err(Some(200))
+        assert_eq!(m.compare_exchange(k1, Some(99), None), Err(Some(200)));
+        assert_eq!(m.get(k1), Some(200));
+
+        // (Some(200), None): remove match -> Ok(Some(200))
+        assert_eq!(m.compare_exchange(k1, Some(200), None), Ok(Some(200)));
+        assert_eq!(m.get(k1), None);
+        assert_eq!(m.len(), 0);
+
+        // Test with colliding keys using FewBuckets hasher
+        let m_coll = SyncExpanseBytesMap::with_hasher(FewBuckets::default());
+        let c1 = b"few/bucket/key/1";
+        let c2 = b"few/bucket/key/2";
+        assert_eq!(m_coll.compare_exchange(c1, None, Some(1)), Ok(None));
+        assert_eq!(m_coll.compare_exchange(c2, None, Some(2)), Ok(None));
+        assert_eq!(m_coll.compare_exchange(c1, Some(1), Some(10)), Ok(Some(1)));
+        assert_eq!(m_coll.compare_exchange(c2, Some(2), None), Ok(Some(2)));
+        assert_eq!(m_coll.get(c1), Some(10));
+        assert_eq!(m_coll.get(c2), None);
+    }
+
+    #[test]
+    fn sync_blob_compare_exchange_meta_semantics() {
+        let m = SyncExpanseBlobMap::new();
+        let k1 = 42u64;
+
+        // (None, None): lookup on absent key -> Ok(None)
+        assert_eq!(m.compare_exchange_meta(k1, None, None), Ok(None));
+
+        // (Some(10), Some(20)) on absent key -> Err(None)
+        assert_eq!(m.compare_exchange_meta(k1, Some(10), Some(20)), Err(None));
+
+        // Insert arena-backed key (payload > 7 bytes)
+        m.insert(k1, b"hello-arena-world-12345", 100).unwrap();
+        assert_eq!(m.get_meta(k1), Some(100));
+
+        // (None, None) on present key -> Err(Some(100))
+        assert_eq!(m.compare_exchange_meta(k1, None, None), Err(Some(100)));
+
+        // Mismatch meta: (Some(99), Some(200)) -> Err(Some(100))
+        assert_eq!(
+            m.compare_exchange_meta(k1, Some(99), Some(200)),
+            Err(Some(100))
+        );
+        assert_eq!(m.get_meta(k1), Some(100));
+
+        // Successful in-slot CAS: (Some(100), Some(200)) -> Ok(Some(100))
+        assert_eq!(
+            m.compare_exchange_meta(k1, Some(100), Some(200)),
+            Ok(Some(100))
+        );
+        assert_eq!(m.get_meta(k1), Some(200));
+
+        // Verify payload bytes unchanged
+        let (view, meta) = m.get(k1).unwrap();
+        assert_eq!(view.as_slice(), b"hello-arena-world-12345");
+        assert_eq!(meta, 200);
+
+        // Remove via CAS: (Some(200), None) -> Ok(Some(200))
+        assert_eq!(m.compare_exchange_meta(k1, Some(200), None), Ok(Some(200)));
+        assert_eq!(m.get_meta(k1), None);
+        assert_eq!(m.get(k1), None);
+    }
+
+    #[test]
+    fn sync_blob_compare_exchange_payload_semantics() {
+        let m = SyncExpanseBlobMap::new();
+        let k_inline = 100u64;
+        let k_arena = 200u64;
+
+        // 1. Inline payload CAS (<= 7 bytes)
+        assert_eq!(m.compare_exchange(k_inline, None, None), Ok(None));
+        assert_eq!(
+            m.compare_exchange(k_inline, Some((b"nonexistent", 0)), None),
+            Err(None)
+        );
+        assert_eq!(
+            m.compare_exchange(k_inline, None, Some((b"tiny", 0))),
+            Ok(None)
+        );
+        assert_eq!(m.get(k_inline), Some((b"tiny".to_vec(), 0)));
+
+        assert_eq!(
+            m.compare_exchange(k_inline, Some((b"wrong", 0)), Some((b"next", 0))),
+            Err(Some((b"tiny".to_vec(), 0)))
+        );
+        assert_eq!(
+            m.compare_exchange(k_inline, Some((b"tiny", 0)), Some((b"next", 0))),
+            Ok(Some((b"tiny".to_vec(), 0)))
+        );
+        assert_eq!(m.get(k_inline), Some((b"next".to_vec(), 0)));
+
+        assert_eq!(
+            m.compare_exchange(k_inline, Some((b"next", 0)), None),
+            Ok(Some((b"next".to_vec(), 0)))
+        );
+        assert_eq!(m.get(k_inline), None);
+
+        // 2. Arena payload CAS (> 7 bytes)
+        let arena_p1 = b"arena-payload-one-12345678";
+        let arena_p2 = b"arena-payload-two-87654321";
+
+        assert_eq!(
+            m.compare_exchange(k_arena, None, Some((arena_p1, 10))),
+            Ok(None)
+        );
+        assert_eq!(m.get(k_arena), Some((arena_p1.to_vec(), 10)));
+
+        assert_eq!(
+            m.compare_exchange(k_arena, Some((arena_p1, 10)), Some((arena_p2, 20))),
+            Ok(Some((arena_p1.to_vec(), 10)))
+        );
+        assert_eq!(m.get(k_arena), Some((arena_p2.to_vec(), 20)));
+
+        // 3. Failed CAS allocates zero arena bytes
+        let live_before = m.with_locked(|m| m.arena().live_bytes());
+        let res = m.compare_exchange(
+            k_arena,
+            Some((b"wrong-arena-payload-mismatch", 99)),
+            Some((b"speculative-arena-payload-should-not-allocate", 77)),
+        );
+        assert_eq!(res, Err(Some((arena_p2.to_vec(), 20))));
+        let live_after = m.with_locked(|m| m.arena().live_bytes());
+        assert_eq!(
+            live_before, live_after,
+            "Failed CAS must allocate zero arena bytes"
+        );
+
+        // Remove arena key
+        assert_eq!(
+            m.compare_exchange(k_arena, Some((arena_p2, 20)), None),
+            Ok(Some((arena_p2.to_vec(), 20)))
+        );
+        assert_eq!(m.get(k_arena), None);
+    }
+
+    #[test]
+    fn sync_blob_compare_exchange_publish_conflict_charges_dead() {
+        use std::sync::Barrier;
+        let m = Arc::new(SyncExpanseBlobMap::new());
+        let k = 9999u64;
+        const T: usize = 4;
+        let barrier = Arc::new(Barrier::new(T));
+        let handles: Vec<_> = (0..T)
+            .map(|i| {
+                let m = Arc::clone(&m);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let payload = format!("concurrent-arena-payload-for-thread-{i}");
+                    barrier.wait();
+                    m.compare_exchange(k, None, Some((payload.as_bytes(), i as u32)))
+                })
+            })
+            .collect();
+
+        let mut successes = 0;
+        for h in handles {
+            if h.join().unwrap().is_ok() {
+                successes += 1;
+            }
+        }
+        assert_eq!(
+            successes, 1,
+            "Exactly one thread must succeed inserting the key"
+        );
+        assert_eq!(m.len(), 1);
+
+        // Crucial verification: the 3 losers had publish conflicts and allocated arena
+        // bytes, but must have charged their allocated records dead via charge_dead.
+        // Therefore, the total arena live_bytes must equal ONLY the 1 winning record's bytes!
+        let (winning_bytes, _) = m.get(k).unwrap();
+        let expected_live = 8 + winning_bytes.len();
+        let actual_live = m.with_locked(|m| m.arena().live_bytes());
+        assert_eq!(
+            actual_live, expected_live,
+            "Publish conflicts must charge uncommitted arena allocations dead"
+        );
     }
 
     /// The optimistic **colliding** removal (Refs #1047): `FewBuckets`
