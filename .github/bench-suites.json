@@ -262,6 +262,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_scan",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Batch cursor scan on SyncExpanseMap (#1142, concurrency METHODOLOGY.md §32.5): scan vs next_after across probe x (W, R) cells under pin 0,2,4,6,8,10,12,14 with P32.3 ratios; outputs scan_cells_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling_929_str_gate",
       "available": true,
       "kind": "wallclock",

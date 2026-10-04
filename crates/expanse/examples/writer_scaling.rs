@@ -261,7 +261,8 @@ use std::time::Instant;
 use expanse_trie::occ_stats::{self, Stat};
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::{
-    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
+    MapReader, SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet,
+    SyncExpanseStrMap,
 };
 
 // The repository's one Zipfian generator (Gray et al.), shared with the YCSB
@@ -470,6 +471,20 @@ impl Counters {
                     return Err(format!(
                         "{cell}: locked_reads = {}, readers made {reader_ops} with_locked calls",
                         self.locked_reads
+                    ));
+                }
+            }
+            ReadOp::Scan | ReadOp::NextAfterScan => {
+                if self.locked_reads != self.read_fallbacks {
+                    return Err(format!(
+                        "{cell}: locked_reads = {}, read_fallbacks = {} (an optimistic reader \
+                         reaches the writer mutex only by falling back)",
+                        self.locked_reads, self.read_fallbacks
+                    ));
+                }
+                if reader_ops > 0 && self.read_ops == 0 {
+                    return Err(format!(
+                        "{cell}: read_ops = 0, readers made {reader_ops} probes",
                     ));
                 }
             }
@@ -1829,6 +1844,10 @@ enum ReadOp {
     /// `ExpanseMap::count_below` under `SyncExpanseMap::with_locked`, which
     /// folds the ancestor `pop0` the writers left stale (#1144).
     CountLocked,
+    /// `MapReader::cursor` batch scan (#1142, `METHODOLOGY.md` §32.5).
+    Scan,
+    /// `MapReader::first` + `MapReader::next_after` unbatched scan (#1142, `METHODOLOGY.md` §32.4).
+    NextAfterScan,
 }
 
 impl ReadOp {
@@ -1838,8 +1857,10 @@ impl ReadOp {
             "prev_locked" => Ok(Self::PrevLocked),
             "prev" => Ok(Self::Prev),
             "count_locked" => Ok(Self::CountLocked),
+            "scan" => Ok(Self::Scan),
+            "next_after_scan" => Ok(Self::NextAfterScan),
             other => Err(format!(
-                "unknown --read-op {other:?} (expected get, prev_locked, prev or count_locked)"
+                "unknown --read-op {other:?} (expected get, prev_locked, prev, count_locked, scan or next_after_scan)"
             )),
         }
     }
@@ -1850,6 +1871,8 @@ impl ReadOp {
             Self::PrevLocked => "prev_locked",
             Self::Prev => "prev",
             Self::CountLocked => "count_locked",
+            Self::Scan => "scan",
+            Self::NextAfterScan => "next_after_scan",
         }
     }
 }
@@ -2176,6 +2199,128 @@ fn probe_loop(
     ops
 }
 
+/// Readers traverse the map via the batch cursor in batches of up to 256 entries
+/// (#1142, `METHODOLOGY.md` §32.5).
+/// With W >= 1, readers scan from the writers' start barrier until writers complete.
+/// With W = 0, readers scan until completing a fixed probe quota.
+#[inline(always)]
+fn scan_loop(rd: &MapReader<'_>, limit: Option<u64>, stop: &AtomicBool) -> u64 {
+    let mut sink = 0u64;
+    let mut ops = 0u64;
+    match limit {
+        Some(n) => {
+            while ops < n {
+                let cur = rd.cursor();
+                let mut empty = true;
+                for (k, v) in cur {
+                    empty = false;
+                    sink = sink.wrapping_add(k ^ v);
+                    ops += 1;
+                    if ops == n {
+                        break;
+                    }
+                }
+                if empty {
+                    break;
+                }
+            }
+        }
+        None => {
+            while !stop.load(Ordering::Relaxed) {
+                let cur = rd.cursor();
+                let mut empty = true;
+                for (k, v) in cur {
+                    empty = false;
+                    sink = sink.wrapping_add(k ^ v);
+                    ops += 1;
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                }
+                if empty {
+                    break;
+                }
+            }
+        }
+    }
+    black_box(sink);
+    ops
+}
+
+/// Unbatched `next_after` scan loop: the single-key ordered baseline against which
+/// the batch cursor is compared (#1142, `METHODOLOGY.md` §32.4).
+#[inline(always)]
+fn next_after_scan_loop(rd: &MapReader<'_>, limit: Option<u64>, stop: &AtomicBool) -> u64 {
+    let mut sink = 0u64;
+    let mut ops = 0u64;
+    match limit {
+        Some(n) => {
+            while ops < n {
+                let mut at = rd.first();
+                if at.is_none() {
+                    break;
+                }
+                while let Some((k, v)) = at {
+                    sink = sink.wrapping_add(k ^ v);
+                    ops += 1;
+                    if ops == n {
+                        break;
+                    }
+                    at = rd.next_after(black_box(k));
+                }
+            }
+        }
+        None => {
+            while !stop.load(Ordering::Relaxed) {
+                let mut at = rd.first();
+                if at.is_none() {
+                    break;
+                }
+                while let Some((k, v)) = at {
+                    sink = sink.wrapping_add(k ^ v);
+                    ops += 1;
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    at = rd.next_after(black_box(k));
+                }
+            }
+        }
+    }
+    black_box(sink);
+    ops
+}
+
+/// Verifies that a full scan of the map produces the prefilled entries in strictly
+/// ascending order without omission or duplication. Untimed, and only meaningful at W = 0.
+fn verify_scan_answers(map: &SyncExpanseMap, sorted: &[u64], round: usize) -> Result<(), String> {
+    let reader = map.reader();
+    let cur = reader.cursor();
+    let mut count = 0;
+    for (k, v) in cur {
+        if count >= sorted.len() {
+            return Err(format!(
+                "round {round}: scan emitted more keys than prefill"
+            ));
+        }
+        if k != sorted[count] || v != value_of(k) {
+            return Err(format!(
+                "round {round}: scan emitted ({k:#x}, {v}) at index {count}, expected ({:#x}, {})",
+                sorted[count],
+                value_of(sorted[count])
+            ));
+        }
+        count += 1;
+    }
+    if count != sorted.len() {
+        return Err(format!(
+            "round {round}: scan emitted {count} keys, expected {}",
+            sorted.len()
+        ));
+    }
+    Ok(())
+}
+
 /// Checks a sample of `prev_before` answers, optimistic and locked, against
 /// the sorted prefill. Untimed, and only meaningful at W = 0, where the
 /// prefill is the whole tree.
@@ -2331,6 +2476,20 @@ fn run_reader_cell(
                             });
                             (n, t0.elapsed().as_secs_f64())
                         }
+                        ReadOp::Scan => {
+                            let rd = m.reader();
+                            b.wait();
+                            let t0 = Instant::now();
+                            let n = scan_loop(&rd, limit, stop);
+                            (n, t0.elapsed().as_secs_f64())
+                        }
+                        ReadOp::NextAfterScan => {
+                            let rd = m.reader();
+                            b.wait();
+                            let t0 = Instant::now();
+                            let n = next_after_scan_loop(&rd, limit, stop);
+                            (n, t0.elapsed().as_secs_f64())
+                        }
                     })
                 })
                 .collect();
@@ -2394,6 +2553,9 @@ fn run_reader_cell(
         match cell.op {
             ReadOp::CountLocked => {
                 verify_count_answers(&map, &wl.prefill_all, &wl.probes[0], round)?;
+            }
+            ReadOp::Scan | ReadOp::NextAfterScan => {
+                verify_scan_answers(&map, &wl.prefill_all, round)?;
             }
             _ => verify_prev_answers(&map, &wl.prefill_all, &wl.probes[0], round)?,
         }
@@ -3949,6 +4111,8 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         ReadOp::PrevLocked,
         ReadOp::Get,
         ReadOp::CountLocked,
+        ReadOp::Scan,
+        ReadOp::NextAfterScan,
     ] {
         for probe in [Probe::Uniform, Probe::Hotspot, Probe::OneTopByte] {
             let wl = ReaderWorkload::generate(n0, m, probe, 2)?;

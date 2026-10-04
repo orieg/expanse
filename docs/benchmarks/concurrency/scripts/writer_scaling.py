@@ -1503,6 +1503,21 @@ ORDERED_READERS_WR = ((0, 1), (0, 4), (1, 4), (4, 4))
 ORDERED_READERS_BLOCK = tuple(
     (op, w, r) for (w, r) in ORDERED_READERS_WR for op in ORDERED_READERS_OPS
 )
+# Batch cursor scan on SyncExpanseMap (#1142, METHODOLOGY.md §32.5).
+SCAN_CELLS_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "scan_cells_writer_scaling.json"
+)
+SCAN_CELLS_RUN2_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "scan_cells_writer_scaling_run2.json"
+)
+SCAN_CELLS_PIN = ORDERED_READERS_PIN
+SCAN_CELLS_WORKLOAD_ID = ORDERED_READERS_WORKLOAD_ID
+SCAN_CELLS_PROBES = ("uniform", "hotspot")
+SCAN_CELLS_WR = ((0, 1), (0, 4), (1, 4), (4, 4))
+SCAN_OPS = ("next_after_scan", "scan")
+SCAN_BLOCK = tuple(
+    (op, w, r) for (w, r) in SCAN_CELLS_WR for op in SCAN_OPS
+)
 # P12.4's ceiling as an exact fraction: read_fallbacks / read_ops < 1 / 1000.
 P124_CEILING = (1, 1000)
 P125_GATE = ("uniform", 1, 4)
@@ -2439,6 +2454,8 @@ def committed_result_paths() -> tuple[Path, ...]:
         GATE_929_STR_V2_RESULTS_PATH.resolve(),
         GATE_929_BLOB_RESULTS_PATH.resolve(),
         GATE_929_BYTES_RESULTS_PATH.resolve(),
+        SCAN_CELLS_RESULTS_PATH.resolve(),
+        SCAN_CELLS_RUN2_RESULTS_PATH.resolve(),
     )
 
 
@@ -2632,6 +2649,13 @@ def check_reader_counters_row(row: dict[str, Any]) -> None:
             raise ValueError(
                 f"{ctx}: a with_locked reader cell needs read_ops == 0 and locked_reads == reader_ops, "
                 f"got read_ops {ops}, locked_reads {row['locked_reads']}, reader_ops {reader_ops}"
+            )
+    elif row["read_op"] == "scan":
+        if ops <= 0 or int(row["locked_reads"]) != int(row["read_fallbacks"]):
+            raise ValueError(
+                f"{ctx}: a scan reader cell needs read_ops > 0 and locked_reads == "
+                f"read_fallbacks, got read_ops {ops}, reader_ops {reader_ops}, locked_reads "
+                f"{row['locked_reads']}, read_fallbacks {row['read_fallbacks']}"
             )
     elif ops != reader_ops or int(row["locked_reads"]) != int(row["read_fallbacks"]):
         raise ValueError(
@@ -2999,6 +3023,334 @@ def run_ordered_readers(args: argparse.Namespace) -> int:
               f"[{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}] {e['verdict']}")
     for reason in report["void"]:
         sys.stderr.write(f"::warning:: this run is void as a §12.4 measurement: {reason}\n")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nWrote artifact to {out_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Batch cursor scan on SyncExpanseMap (#1142, METHODOLOGY.md §32.5)
+# ---------------------------------------------------------------------------
+
+
+def scan_cells_schedule(rounds: int) -> list[dict[str, Any]]:
+    """Every harness invocation of a scan sweep, in execution order.
+
+    Each round runs both probe blocks, and which block goes first alternates by
+    round. Within a block the eight (read_op, W, R) treatments follow row
+    `round` of a Williams design (§32.5's interleaving), so across 8 rounds each
+    treatment holds each position once and each ordered pair of treatments is
+    adjacent once. The `position` is the treatment's index within its block.
+    """
+    out: list[dict[str, Any]] = []
+    n = len(SCAN_BLOCK)
+    for r in range(rounds):
+        probes = SCAN_CELLS_PROBES if r % 2 == 0 else SCAN_CELLS_PROBES[::-1]
+        for block, probe in enumerate(probes):
+            for pos, idx in enumerate(williams_positions(n, r)):
+                op, w, rd = SCAN_BLOCK[idx]
+                out.append({
+                    "round": r, "block": block, "probe": probe, "position": pos,
+                    "read_op": op, "writers": w, "readers": rd,
+                })
+    return out
+
+
+def resolve_scan_cells_pin(
+    env: dict[str, str], smoke: bool
+) -> str | None:
+    return resolve_ordered_readers_pin(env, smoke, "--scan-cells", "§32.5", "§32.6")
+
+
+def summarize_scan_cells(
+    throughput_rows: list[dict[str, Any]],
+    counters_rows: list[dict[str, Any]],
+    rounds: int,
+    load: dict[str, Any],
+    throughput_target: Path = THROUGHPUT_TARGET,
+) -> list[dict[str, Any]]:
+    """One cell per (probe, read_op, W, R), each carrying every round of both roles.
+
+    A cell missing a round in either role, or holding a round twice, is refused:
+    its statistics would silently rest on fewer rounds than §32.5 fixes.
+    """
+    cells: list[dict[str, Any]] = []
+    for probe in SCAN_CELLS_PROBES:
+        for op, w, r in SCAN_BLOCK:
+            key = (probe, op, w, r)
+            label = f"{probe} {op} W={w} R={r}"
+
+            def matches(row: dict[str, Any]) -> bool:
+                return (row["probe"], row["read_op"], int(row["writers"]), int(row["readers"])) == key
+
+            t = sorted((x for x in throughput_rows if matches(x)), key=lambda x: int(x["round"]))
+            c = sorted((x for x in counters_rows if matches(x)), key=lambda x: int(x["round"]))
+            for role, got in (("throughput", t), ("counters", c)):
+                seen = [int(x["round"]) for x in got]
+                if seen != list(range(rounds)):
+                    raise ValueError(
+                        f"{label}: {role} rows cover rounds {seen}, expected each of 0..{rounds - 1} once"
+                    )
+            for x in t:
+                check_reader_throughput_row(x)
+            for x in c:
+                check_reader_counters_row(x)
+            if rounds < 3:
+                raise ValueError(f"{label}: need at least 3 rounds for a BCa interval, got {rounds}")
+
+            mops = [float(x["reader_mops"]) for x in t]
+            mean, lo, hi, reader_ci_method = bca_bootstrap_ci_with_method(mops, confidence=0.95)
+            totals = {k: sum(int(x[k]) for x in c) for k in (*READER_COUNTER_FIELDS, "reader_ops")}
+            read_ops = totals["read_ops"]
+            cells.append({
+                "workload_id": t[0]["workload_id"],
+                "arm": "map",
+                "probe": probe,
+                "read_op": op,
+                "writers": w,
+                "readers": r,
+                "prefill": t[0]["prefill"],
+                "hotspot_prefill": t[0]["hotspot_prefill"],
+                "hotspot_base": t[0]["hotspot_base"],
+                "fresh_keys": t[0]["fresh_keys"],
+                "rounds": rounds,
+                "cpu_pin": t[0]["cpu_pin"],
+                "reader_mops_mean": round(mean, 6),
+                "reader_ci_lower": round(lo, 6),
+                "reader_ci_upper": round(hi, 6),
+                "reader_ci_method": reader_ci_method,
+                "reader_mops_median": round(sorted(mops)[len(mops) // 2], 6),
+                "read_counters_total": totals,
+                "attempts_per_op": round(totals["read_attempts"] / read_ops, 6) if read_ops else None,
+                "fallback_rate": (totals["read_fallbacks"] / read_ops) if read_ops else None,
+                "build_provenance": {
+                    "throughput": f"{throughput_target.relative_to(REPO_ROOT)}/release/examples/writer_scaling",
+                    "counters": f"{COUNTERS_TARGET.relative_to(REPO_ROOT)}/release/examples/writer_scaling (--features occ-stats)",
+                },
+                "rounds_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_mops", "reader_elapsed_s",
+                        "reader_thread_elapsed_s", "writer_elapsed_s", "writer_mops",
+                    )}
+                    for x in t
+                ],
+                "counters_raw": [
+                    {k: x.get(k) for k in (
+                        "round", "block", "position", "reader_ops", "write_ops", "inserts",
+                        *READER_COUNTER_FIELDS, "lock_fallbacks", "quiesce_calls", "fallback_causes",
+                        "population_after", "cpu_pin",
+                    )}
+                    for x in c
+                ],
+                "load": load,
+            })
+    return cells
+
+
+def p323_paired_ratio(
+    throughput_rows: list[dict[str, Any]], probe: str, writers: int, readers: int, rounds: int
+) -> dict[str, Any]:
+    """`reader_mops(scan) / reader_mops(next_after_scan)`, paired within each round, with BCa 95% CI."""
+    label = f"{probe} W={writers} R={readers}"
+    by_round: dict[tuple[int, str], float] = {}
+    for row in throughput_rows:
+        if (row["probe"], int(row["writers"]), int(row["readers"])) != (probe, writers, readers):
+            continue
+        key = (int(row["round"]), row["read_op"])
+        if key in by_round:
+            raise ValueError(f"P32.3 {label}: round {key[0]} holds two {key[1]} rows")
+        by_round[key] = float(row["reader_mops"])
+    ratios: list[float] = []
+    for r in range(rounds):
+        scan_val = by_round.get((r, "scan"))
+        unbatched_val = by_round.get((r, "next_after_scan"))
+        if scan_val is None or unbatched_val is None:
+            raise ValueError(
+                f"P32.3 {label}: round {r} is unpaired (scan {scan_val}, next_after_scan {unbatched_val})"
+            )
+        if scan_val <= 0 or unbatched_val <= 0:
+            raise ValueError(f"P32.3 {label}: round {r} has a non-positive throughput ({scan_val}, {unbatched_val})")
+        ratios.append(scan_val / unbatched_val)
+    if len(ratios) < 3:
+        raise ValueError(f"P32.3 {label}: need at least 3 paired rounds for a BCa interval, got {len(ratios)}")
+    mean, lo, hi, ci_method = bca_bootstrap_ci_with_method(ratios, confidence=0.95)
+
+    if writers == 0:
+        threshold = 3.0
+        gated = True
+    elif writers == 1 and readers == 4:
+        threshold = 2.0
+        gated = True
+    else:
+        threshold = None
+        gated = False
+
+    if gated and threshold is not None:
+        if lo >= threshold:
+            verdict = "SINGLE_RUN_PASS"
+        elif hi < threshold:
+            verdict = "REJECTED"
+        else:
+            verdict = "INCONCLUSIVE"
+    else:
+        verdict = "REPORT_ONLY"
+
+    return {
+        "cell": label,
+        "probe": probe,
+        "writers": writers,
+        "readers": readers,
+        "gated": gated,
+        "threshold": threshold,
+        "ratio_mean": round(mean, 6),
+        "ratio_ci_lower": round(lo, 6),
+        "ratio_ci_upper": round(hi, 6),
+        "ratio_ci_method": ci_method,
+        "ratio_median": round(sorted(ratios)[len(ratios) // 2], 6),
+        "paired_ratios_raw": [round(x, 6) for x in ratios],
+        "verdict": verdict,
+    }
+
+
+def p323_report(throughput_rows: list[dict[str, Any]], rounds: int) -> dict[str, Any]:
+    """The P32.3 scaling ratios across all 8 (probe, W, R) cells, with gated verdicts."""
+    cells = [
+        p323_paired_ratio(throughput_rows, probe, w, r, rounds)
+        for probe in SCAN_CELLS_PROBES
+        for w, r in SCAN_CELLS_WR
+    ]
+    gated_cells = [c for c in cells if c["gated"]]
+    if any(c["verdict"] == "REJECTED" for c in gated_cells):
+        overall = "REJECTED"
+    elif all(c["verdict"] == "SINGLE_RUN_PASS" for c in gated_cells):
+        overall = "SINGLE_RUN_PASS"
+    else:
+        overall = "INCONCLUSIVE"
+
+    return {
+        "statistic": "mean over rounds of reader_mops(scan) / reader_mops(next_after_scan), each ratio paired "
+                     "within one round of the throughput build, with a BCa 95% interval "
+                     "(METHODOLOGY.md §32.4 P32.3)",
+        "decision": "SINGLE_RUN_PASS when CI lower bound >= floor across all gated cells (3.0x at W=0, 2.0x at W=1 R=4); "
+                     "REJECTED when any gated CI upper bound < floor; INCONCLUSIVE otherwise",
+        "verdict": overall,
+        "cells": cells,
+    }
+
+
+def build_scan_cells_artifact(
+    prov: dict[str, Any],
+    cells: list[dict[str, Any]],
+    throughput_rows: list[dict[str, Any]],
+    rounds: int,
+    applied_pin: str,
+    quick: bool,
+) -> dict[str, Any]:
+    """The committed shape: provenance, the cells, and the P32.3 prediction verdicts."""
+    conforms = pins_equal(applied_pin, SCAN_CELLS_PIN)
+    void: list[str] = []
+    if not conforms:
+        void.append(f"applied pin {applied_pin!r} is not {SCAN_CELLS_PIN} (METHODOLOGY.md §32.6)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §32.5 cells")
+    return {
+        "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
+        "throughput": cells,
+        "scan_cells": {
+            "issue": 1142,
+            "preregistration": "docs/benchmarks/concurrency/METHODOLOGY.md §32.4-§32.6",
+            "pin": {"required": SCAN_CELLS_PIN, "applied": applied_pin, "conforms": conforms},
+            "rounds": rounds,
+            "quick": quick,
+            "schedule": "each round runs both probe blocks, alternating which goes first; within a block the "
+                        "eight (read_op, W, R) treatments follow that round's row of a Williams design; one harness "
+                        "process per treatment; the throughput pass runs every round before the counters pass",
+            "void": void,
+            "soundness_gates": "not evaluated by this driver: a cell read before every §32.2 gate passed on "
+                               "the measured head is void (§32.6)",
+            "p32_3": p323_report(throughput_rows, rounds),
+        },
+    }
+
+
+def run_scan_cells(args: argparse.Namespace) -> int:
+    """`--scan-cells`: the §32.5 cells, both roles, and the P32.3 verdicts."""
+    out_path = Path(args.out) if args.out else SCAN_CELLS_RESULTS_PATH
+    committed = out_path.resolve().is_relative_to((REPO_ROOT / "docs" / "benchmarks").resolve())
+    smoke = bool(args.quick) and not committed
+    try:
+        notice = resolve_scan_cells_pin(os.environ, smoke)
+    except ValueError as exc:
+        sys.stderr.write(f"refusing to start: {exc}\nNo benchmark was run and no numbers were produced.\n")
+        return 1
+    if notice:
+        sys.stderr.write(f"::notice:: smoke run: {notice}; nothing this run produces is a §32.5 cell\n")
+    applied = bench_pin.apply("writer_scaling.py --scan-cells")
+    if not pins_equal(applied, SCAN_CELLS_PIN) and not smoke:
+        sys.stderr.write(
+            f"refusing to start: the applied pin is {applied!r}, not {SCAN_CELLS_PIN} (§32.6)\n"
+        )
+        return 1
+
+    throughput_bin, counters_bin = build_binaries(verbose=True)
+    ratio = ("P32.3: mean over rounds of reader_mops(scan) / reader_mops(next_after_scan), paired within each "
+             "round, BCa 95% interval")
+    prov = new_provenance(
+        suite="concurrency",
+        issue=1142,
+        ratio=ratio,
+        repo_root=REPO_ROOT,
+        core_pin=applied,
+        estimators=estimators(
+            ratio,
+            columns="per-cell reader_mops_mean is the mean over rounds with a BCa 95% interval; "
+                    "reader_mops_median is auxiliary; P32.3 reads paired ratios over rounds",
+        ),
+    )
+    schedule = scan_cells_schedule(args.rounds)
+    print("========================================================================")
+    print(" Batch cursor scan on SyncExpanseMap (#1142, METHODOLOGY.md §32.5)")
+    print(f" Cells: {len(SCAN_CELLS_PROBES) * len(SCAN_CELLS_WR)} | Rounds: {args.rounds} | "
+          f"Pin: {applied} | Quick: {bool(args.quick)}")
+    print("========================================================================")
+    try:
+        start = begin_cell(prov, "scan_cells:throughput")
+        t_rows = []
+        for i, run in enumerate(schedule):
+            t_rows.append(run_reader_invocation(throughput_bin, "throughput", run, args.quick))
+            if (i + 1) % len(SCAN_BLOCK) == 0:
+                print(f"  [throughput] {i + 1}/{len(schedule)} cells")
+        load = end_cell(start)
+        c_rows = []
+        for i, run in enumerate(schedule):
+            c_rows.append(run_reader_invocation(counters_bin, "counters", run, args.quick))
+            if (i + 1) % len(SCAN_BLOCK) == 0:
+                print(f"  [counters] {i + 1}/{len(schedule)} cells")
+        check_row_pins(t_rows + c_rows, applied)
+        cells = summarize_scan_cells(t_rows, c_rows, args.rounds, load)
+        artifact = build_scan_cells_artifact(prov, cells, t_rows, args.rounds, applied, bool(args.quick))
+    except (RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"scan cells failed: {exc} (AGENTS.md §8.1)\n")
+        return 1
+
+    report = artifact["scan_cells"]
+    for c in cells:
+        rate = "n/a" if c["fallback_rate"] is None else f"{c['fallback_rate'] * 100:.4f}%"
+        print(
+            f"  {c['probe']:>7} {c['read_op']:>15} W={c['writers']} R={c['readers']} | reader Mops/s "
+            f"{c['reader_mops_mean']:.4f} [{c['reader_ci_lower']:.4f}, {c['reader_ci_upper']:.4f}] "
+            f"| attempts/op {c['attempts_per_op']} | fallbacks {rate}"
+        )
+    p323 = report["p32_3"]
+    print(f"\n  P32.3 Overall: {p323['verdict']}")
+    for e in p323["cells"]:
+        gated_tag = f" [floor {e['threshold']}x]" if e['gated'] else " [reference]"
+        print(f"    {e['cell']:<20}{gated_tag}: ratio {e['ratio_mean']:.4f} "
+              f"[{e['ratio_ci_lower']:.4f}, {e['ratio_ci_upper']:.4f}] {e['verdict']}")
+    for reason in report["void"]:
+        sys.stderr.write(f"::warning:: this run is void as a §32.5 measurement: {reason}\n")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(artifact, indent=2) + "\n")
@@ -5484,6 +5836,114 @@ def _self_test_readers_only(throughput_bin: Path, counters_bin: Path, pin: str) 
     sys.stderr.write("Readers-only instrument PASSED\n")
 
 
+def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) -> None:
+    """The batch cursor scan instrument (#1142): schedule, verdicts, refusals, artifact."""
+    sys.stderr.write("Testing the batch cursor scan instrument (#1142, METHODOLOGY.md §32.4-§32.6)...\n")
+    rounds = 8
+    n = len(SCAN_BLOCK)
+
+    # 1. The schedule: per probe block, every treatment in every position once and
+    # every ordered pair of treatments adjacent once over 8 rounds; the block that
+    # runs first alternates by round.
+    sched = scan_cells_schedule(rounds)
+    assert len(sched) == rounds * len(SCAN_CELLS_PROBES) * n, len(sched)
+    for probe in SCAN_CELLS_PROBES:
+        positions = {cell: [0] * n for cell in SCAN_BLOCK}
+        pairs: dict[tuple[Any, Any], int] = {}
+        for r in range(rounds):
+            block = sorted((x for x in sched if x["round"] == r and x["probe"] == probe),
+                           key=lambda x: x["position"])
+            assert [x["position"] for x in block] == list(range(n)), block
+            order = [(x["read_op"], x["writers"], x["readers"]) for x in block]
+            assert sorted(order) == sorted(SCAN_BLOCK), order
+            for i, cell in enumerate(order):
+                positions[cell][i] += 1
+            for a, b in zip(order, order[1:]):
+                pairs[(a, b)] = pairs.get((a, b), 0) + 1
+        assert all(v == [1] * n for v in positions.values()), positions
+        assert len(pairs) == n * (n - 1) and all(v == 1 for v in pairs.values()), pairs
+    firsts = [next(x["probe"] for x in sched if x["round"] == r) for r in range(rounds)]
+    assert firsts == [SCAN_CELLS_PROBES[r % 2] for r in range(rounds)], firsts
+
+    # 2. Pin resolution
+    assert resolve_scan_cells_pin({"EXPANSE_BENCH_PIN": SCAN_CELLS_PIN}, smoke=False) is None
+    _expect_value_error(
+        lambda: resolve_scan_cells_pin({"EXPANSE_BENCH_PIN": "0-15"}, smoke=False),
+        "0-15",
+    )
+    smoke_notice = resolve_scan_cells_pin({"EXPANSE_BENCH_PIN": "off"}, smoke=True)
+    assert smoke_notice and "off" in smoke_notice, smoke_notice
+
+    # 3. Synthetic rows & P32.3 Verdicts
+    load = {"since": "scan_cells:throughput", "wall_s": 1.0, "busy_cpus_since_prev": 1.0,
+            "own_busy_cpus": 1.0, "foreign_busy_cpus": 0.0}
+
+    # PASS case: scan is 3.5x faster than next_after_scan at W=0, and 2.5x faster at W=1 R=4
+    t_rows_pass: list[dict[str, Any]] = []
+    c_rows_pass: list[dict[str, Any]] = []
+    for run in sched:
+        op = run["read_op"]
+        w = run["writers"]
+        r = run["readers"]
+        probe = run["probe"]
+        rnd = run["round"]
+        base_mops = 1.0 + 0.01 * rnd
+        if op == "scan":
+            factor = 3.5 if w == 0 else (2.5 if (w == 1 and r == 4) else 1.5)
+            mops = base_mops * factor
+        else:
+            mops = base_mops
+
+        t_row = {
+            "workload_id": SCAN_CELLS_WORKLOAD_ID, "role": "throughput", "arm": "expanse",
+            "cell": f"map_w{w}_r{r}_{op}_{probe}", "keyspace_bits": 64, "prefill": 4096,
+            "hotspot_prefill": 256, "hotspot_base": 0, "fresh_keys": 0 if w == 0 else 1000,
+            "writers": w, "readers": r, "read_op": op, "probe": probe, "round": rnd,
+            "position": run["position"], "write_ops": 0 if w == 0 else 1000,
+            "writer_elapsed_s": None if w == 0 else 0.01, "writer_mops": None if w == 0 else 1.0,
+            "reader_ops": 4096, "reader_elapsed_s": 0.001, "reader_thread_elapsed_s": [0.001] * r,
+            "reader_mops": mops, "cpu_pin": pin, "tsc_hz": 24000000, "population_after": 4096,
+        }
+        c_row = {
+            "workload_id": SCAN_CELLS_WORKLOAD_ID, "role": "counters", "arm": "expanse",
+            "cell": f"map_w{w}_r{r}_{op}_{probe}", "keyspace_bits": 64, "prefill": 4096,
+            "hotspot_prefill": 256, "hotspot_base": 0, "fresh_keys": 0 if w == 0 else 1000,
+            "writers": w, "readers": r, "read_op": op, "probe": probe, "round": rnd,
+            "position": run["position"], "write_ops": 0 if w == 0 else 1000,
+            "inserts": 0 if w == 0 else 1000,
+            "reader_ops": 4096, "cpu_pin": pin, "tsc_hz": 24000000, "lock_fallbacks": 0,
+            "quiesce_calls": 0, "read_ops": 16 if op == "scan" else 4096, "read_attempts": 16 if op == "scan" else 4096,
+            "read_fallbacks": 0, "locked_reads": 0,
+            "fallback_causes": {cause: 0 for cause in CAUSE_NAMES}, "population_after": 4096,
+        }
+        t_rows_pass.append(t_row)
+        c_rows_pass.append(c_row)
+
+    cells_pass = summarize_scan_cells(t_rows_pass, c_rows_pass, rounds, load)
+    assert len(cells_pass) == len(SCAN_CELLS_PROBES) * len(SCAN_BLOCK), len(cells_pass)
+    report_pass = p323_report(t_rows_pass, rounds)
+    assert report_pass["verdict"] == "SINGLE_RUN_PASS", report_pass
+
+    prov = new_provenance(
+        suite="concurrency", issue=1142, ratio="test", repo_root=REPO_ROOT, core_pin=pin,
+        estimators=estimators("test"),
+    )
+    art_pass = build_scan_cells_artifact(prov, cells_pass, t_rows_pass, rounds, pin, quick=True)
+    assert "scan_cells" in art_pass
+    assert any("--quick" in v for v in art_pass["scan_cells"]["void"])
+    assert art_pass["scan_cells"]["p32_3"]["verdict"] == "SINGLE_RUN_PASS"
+
+    # REJECT case: scan is only 1.5x (below 3.0x floor at W=0)
+    t_rows_fail = [dict(r) for r in t_rows_pass]
+    for r in t_rows_fail:
+        if r["read_op"] == "scan" and r["writers"] == 0:
+            r["reader_mops"] = r["reader_mops"] / 3.0
+    report_fail = p323_report(t_rows_fail, rounds)
+    assert report_fail["verdict"] == "REJECTED", report_fail
+
+    sys.stderr.write("Batch cursor scan instrument PASSED\n")
+
+
 def _self_test_c2c_window() -> None:
     """Pin that `run_c2c_pass` records only the barrier-to-join window.
 
@@ -7539,6 +7999,7 @@ def self_test() -> int:
     _self_test_count_cells(throughput_bin, counters_bin, pin)
     _self_test_band_cells(throughput_bin, counters_bin, pin)
     _self_test_readers_only(throughput_bin, counters_bin, pin)
+    _self_test_scan_cells(throughput_bin, counters_bin, pin)
 
     eprintln("writer_scaling.py self-test PASSED\n")
     return 0
@@ -7667,6 +8128,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ordered readers on the map (#900, METHODOLOGY.md §12.4): probe x (W, R) x read_op cells "
              "under the pin 0,2,4,6,8,10,12,14, with the P12.4 and P12.5 verdicts "
              "(default output ordered_readers_writer_scaling.json)",
+    )
+    comparison.add_argument(
+        "--scan-cells",
+        action="store_true",
+        help="Batch cursor scan on the map (#1142, METHODOLOGY.md §32.5): probe x (W, R) cells of "
+             "batch cursor scan vs next_after scan under the pin 0,2,4,6,8,10,12,14, with "
+             "the P32.3 scaling ratios (default output scan_cells_writer_scaling.json)",
     )
     parser.add_argument(
         "--pmu",
@@ -7821,6 +8289,33 @@ def main() -> int:
             )
             return 1
         return run_ordered_readers(args)
+
+    if args.scan_cells:
+        # A sweep of its own: none of the writer sweep's selectors apply, and
+        # accepting one would silently drop it.
+        conflicts = [
+            flag for flag, on in (
+                ("--diagnostic", args.diagnostic), ("--pmu", args.pmu), ("--c2c", args.c2c),
+                ("--features", args.features is not None), ("--arm", args.arm != "all"),
+                ("--writers", args.writers != "1,2,4,8"),
+            ) if on
+        ]
+        if conflicts:
+            sys.stderr.write(f"error: --scan-cells does not combine with {', '.join(conflicts)}\n")
+            return 1
+        if args.rounds < 3:
+            sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
+            return 1
+        if not args.out:
+            args.out = str(SCAN_CELLS_RESULTS_PATH)
+        if (args.quick and Path(args.out).resolve() in committed_result_paths()
+                and not args.force_quick_out):
+            sys.stderr.write(
+                "error: --quick output cannot overwrite committed results path "
+                f"{Path(args.out).resolve()} without --force-quick-out\n"
+            )
+            return 1
+        return run_scan_cells(args)
 
     if args.diagnostic:
         args.pmu = True
