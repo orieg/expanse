@@ -231,10 +231,7 @@ fn test_sync_map_compact_reclaims_memory() {
     println!(
         "SyncExpanseMap G-held: held_compacted={held_compacted}, held_fresh={held_fresh}, ratio={ratio:.4}"
     );
-    assert!(
-        ratio <= 1.10,
-        "G-held ratio {ratio} exceeds 1.10 ceiling"
-    );
+    assert!(ratio <= 1.10, "G-held ratio {ratio} exceeds 1.10 ceiling");
 
     // Verify all remaining entries survived intact
     for i in REMOVE..TOTAL {
@@ -282,10 +279,7 @@ fn test_sync_set_compact_reclaims_memory() {
     println!(
         "SyncExpanseSet G-held: held_compacted={held_compacted}, held_fresh={held_fresh}, ratio={ratio:.4}"
     );
-    assert!(
-        ratio <= 1.10,
-        "G-held ratio {ratio} exceeds 1.10 ceiling"
-    );
+    assert!(ratio <= 1.10, "G-held ratio {ratio} exceeds 1.10 ceiling");
 
     for i in REMOVE..TOTAL {
         assert!(set.contains(i * 13));
