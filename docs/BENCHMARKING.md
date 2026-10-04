@@ -1820,6 +1820,8 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_bytesmap_remove` | `routes` | 50,000 |
 | `cost` | `sync_map_branchu_band` | `top` | 200 |
 | `cost` | `sync_map_churn` | `random`, `leaf` | 50,000 |
+| `cost` | `sync_map_compact_baseline` | `random60` | 62,500 |
+| `cost` | `sync_map_compact_drained` | `random60` | 62,500 |
 | `cost` | `sync_map_compare_exchange` | `random` | 50,000 |
 | `cost` | `sync_map_count_after_write` | `random`, `sequential`, `one_top_byte` | 1,000 |
 | `cost` | `sync_map_count_locked` | `random`, `sequential`, `one_top_byte` | 1,000 |
@@ -1833,6 +1835,8 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_map_scan` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `sync_map_write_twin` | `random`, `sequential`, `one_top_byte` | 1,000 |
 | `cost` | `sync_set_churn` | `random`, `leaf` | 50,000 |
+| `cost` | `sync_set_compact_baseline` | `random60` | 62,500 |
+| `cost` | `sync_set_compact_drained` | `random60` | 62,500 |
 | `cost` | `sync_set_contains` | `random`, `leaf` | 50,000 |
 | `cost` | `sync_set_drain_floor` | `top` | 200 |
 | `cost` | `sync_set_insert` | `random` | 50,000 |

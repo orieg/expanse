@@ -616,6 +616,82 @@ fn map_compact_drained(drained: ExpanseMap) -> u64 {
     black_box(n)
 }
 
+fn drained_partial_sync_set(_: &str) -> SyncExpanseSet {
+    let (all, removals) = partial_keys();
+    let set = SyncExpanseSet::new();
+    for &k in &all {
+        set.insert(k);
+    }
+    for &k in &removals {
+        assert!(set.remove(k));
+    }
+    set
+}
+
+fn drained_partial_sync_map(_: &str) -> SyncExpanseMap {
+    let (all, removals) = partial_keys();
+    let map = SyncExpanseMap::new();
+    for &k in &all {
+        map.insert(k, !k);
+    }
+    for &k in &removals {
+        assert!(map.remove(k).is_some());
+    }
+    map
+}
+
+// The compact arm of the remove-retention suite on concurrent wrappers (Refs #1200):
+// the same drained tree as `*_compact_drained` under `SyncExpanseSet` and
+// `SyncExpanseMap`. Counted per surviving key (62,500).
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_sync_set)]
+fn sync_set_compact_drained(drained: SyncExpanseSet) -> u64 {
+    black_box(&drained).compact();
+    let n = drained.len();
+    core::mem::forget(drained);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_sync_map)]
+fn sync_map_compact_drained(drained: SyncExpanseMap) -> u64 {
+    black_box(&drained).compact();
+    let n = drained.len();
+    core::mem::forget(drained);
+    black_box(n)
+}
+
+// The baseline twin for G-cost evaluation (Refs #1200, D4): measures the Stage-1
+// baseline path (`with_locked` + clone + plain compact) against which the staged
+// OCC compaction in `sync_*_compact_drained` is evaluated. Counted per surviving key (62,500).
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_sync_set)]
+fn sync_set_compact_baseline(drained: SyncExpanseSet) -> u64 {
+    let n = black_box(&drained).with_locked(|inner| {
+        let mut cloned = inner.clone();
+        cloned.compact();
+        let len = cloned.len();
+        core::mem::forget(cloned);
+        len
+    });
+    core::mem::forget(drained);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::random60(args = ("random60",), setup = drained_partial_sync_map)]
+fn sync_map_compact_baseline(drained: SyncExpanseMap) -> u64 {
+    let n = black_box(&drained).with_locked(|inner| {
+        let mut cloned = inner.clone();
+        cloned.compact();
+        let len = cloned.len();
+        core::mem::forget(cloned);
+        len
+    });
+    core::mem::forget(drained);
+    black_box(n)
+}
+
 // Bulk construction: `ExpanseMap::from_sorted_iter` against `collect()` (an
 // insert per entry) over the same `POP` entries `(k, !k)`. `sequential` is
 // ascending (the builder's no-sort path), `random` is generator order (the
@@ -3330,6 +3406,10 @@ library_benchmark_group!(
         map_rebuild_drained,
         set_compact_drained,
         map_compact_drained,
+        sync_set_compact_drained,
+        sync_map_compact_drained,
+        sync_set_compact_baseline,
+        sync_map_compact_baseline,
         map_from_sorted_iter,
         map_collect,
         set_subtree_boundary_oscillate,

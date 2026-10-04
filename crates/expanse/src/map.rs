@@ -4564,18 +4564,20 @@ impl ExpanseMap {
         Self::from_sorted_entries(&entries)
     }
 
-    /// Builds a map from entries sorted by key with distinct keys, choosing
-    /// the root-leaf or trie form by population as the insert path would, and
-    /// emitting the trie bottom-up (`algebra_build::build_map_subtree`).
-    fn from_sorted_entries(entries: &[(u64, u64)]) -> Self {
+    /// Builds a map from entries sorted by key with distinct keys into a provided
+    /// empty map, preserving any pre-configured allocator state (e.g. deferred
+    /// collector binding and root cover).
+    fn from_sorted_entries_dispatch<const OCC: bool>(
+        mut out: Self,
+        entries: &[(u64, u64)],
+    ) -> Self {
         debug_assert!(entries.windows(2).all(|w| w[0].0 < w[1].0));
-        let mut out = Self::new();
         let n = entries.len();
         if n == 0 {
             return out;
         }
         if n <= ROOT_LEAF_CAP {
-            let ptr = out.alloc.alloc_bytes(leaf_size(n));
+            let ptr = out.alloc.alloc_bytes_dispatch::<OCC>(leaf_size(n));
             // SAFETY: a fresh root leaf of `leaf_size(n)` bytes holds `n` keys
             // from offset 0 and `n` values from `leaf_values_offset(n)`.
             unsafe {
@@ -4591,10 +4593,30 @@ impl ExpanseMap {
         }
         // SAFETY: `entries` is sorted with distinct keys; `out.alloc` owns
         // the built trie.
-        let top = unsafe { crate::algebra_build::build_map_subtree(&out.alloc, entries, 8) };
+        let top = unsafe { crate::algebra_build::build_map_subtree::<OCC>(&out.alloc, entries, 8) };
         out.core.root = Root::Tree { top };
         out.core.tree_pop = n as u64;
         out
+    }
+
+    /// Builds a map from entries sorted by key with distinct keys into a provided
+    /// empty map, preserving any pre-configured allocator state (e.g. deferred
+    /// collector binding and root cover).
+    #[cfg(feature = "std")]
+    pub(crate) fn from_sorted_entries_into(out: Self, entries: &[(u64, u64)]) -> Self {
+        if out.alloc.occ_enabled() {
+            Self::from_sorted_entries_dispatch::<true>(out, entries)
+        } else {
+            Self::from_sorted_entries_dispatch::<false>(out, entries)
+        }
+    }
+
+    /// Builds a map from entries sorted by key with distinct keys, choosing
+    /// the root-leaf or trie form by population as the insert path would, and
+    /// emitting the trie bottom-up (`algebra_build::build_map_subtree`).
+    /// Pure `<false>` instantiation with no runtime OCC branch.
+    fn from_sorted_entries(entries: &[(u64, u64)]) -> Self {
+        Self::from_sorted_entries_dispatch::<false>(Self::new(), entries)
     }
 
     /// A read-only census of the allocator's slab pages and freelists, for
@@ -4744,6 +4766,18 @@ impl ExpanseMap {
     #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
         (self.core.occ_snapshot(), &self.alloc)
+    }
+
+    /// Test helper: whether the inner allocator is deferred to a concurrent epoch collector.
+    #[doc(hidden)]
+    pub fn is_occ_enabled(&self) -> bool {
+        self.alloc.occ_enabled()
+    }
+
+    /// Test helper: whether the inner allocator's engine covers the root.
+    #[doc(hidden)]
+    pub fn is_engine_covers_root(&self) -> bool {
+        self.alloc.engine_covers_root()
     }
 
     /// Test helper: creates an `ExpanseMap` deferred to a fresh `Collector`,

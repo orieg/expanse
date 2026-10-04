@@ -2240,6 +2240,7 @@ pub struct expanse_trie::sync::SyncExpanseMap
 impl expanse_trie::sync::SyncExpanseMap
 pub fn expanse_trie::sync::SyncExpanseMap::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::sync::SyncExpanseMap::compact(&self)
 pub fn expanse_trie::sync::SyncExpanseMap::compare_exchange(&self, expanse_trie::types::Key, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseMap::detached_reader(&self) -> expanse_trie::sync::DetachedMapReader
 pub fn expanse_trie::sync::SyncExpanseMap::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
@@ -2267,6 +2268,7 @@ pub struct expanse_trie::sync::SyncExpanseSet
 impl expanse_trie::sync::SyncExpanseSet
 pub fn expanse_trie::sync::SyncExpanseSet::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseSet::collector_census(&self) -> expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::sync::SyncExpanseSet::compact(&self)
 pub fn expanse_trie::sync::SyncExpanseSet::contains(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::insert(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::is_empty(&self) -> bool

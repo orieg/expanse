@@ -700,6 +700,12 @@ pub(crate) trait SharedTree {
     /// Hands the tree word to the wrapper for one covered write (`true`) and
     /// back (`false`): see `NodeAlloc::hold_tree_word`.
     fn hold_tree_word(&self, _held: bool) {}
+
+    /// Binds an external collector to this tree's allocator before any allocations.
+    fn defer_to(&self, _collector: &Arc<Collector>) {}
+
+    /// Hands root coverage to the engine after the tree-level version word is bound.
+    fn cover_root(&self) {}
 }
 
 impl SharedTree for ExpanseMap {
@@ -734,6 +740,14 @@ impl SharedTree for ExpanseMap {
     fn hold_tree_word(&self, held: bool) {
         self.alloc().hold_tree_word(held);
     }
+
+    fn defer_to(&self, collector: &Arc<Collector>) {
+        self.alloc().defer_to(Arc::clone(collector));
+    }
+
+    fn cover_root(&self) {
+        self.alloc().cover_root();
+    }
 }
 
 impl SharedTree for ExpanseSet {
@@ -767,6 +781,14 @@ impl SharedTree for ExpanseSet {
 
     fn hold_tree_word(&self, held: bool) {
         self.alloc().hold_tree_word(held);
+    }
+
+    fn defer_to(&self, collector: &Arc<Collector>) {
+        self.alloc().defer_to(Arc::clone(collector));
+    }
+
+    fn cover_root(&self) {
+        self.alloc().cover_root();
     }
 }
 
@@ -2245,6 +2267,21 @@ impl<T: SharedTree> Shared<T> {
 }
 
 impl<T: SharedTree> Shared<T> {
+    /// Sets up an empty staged tree with the wrapper's deferred allocator,
+    /// bound tree version word, and covered root state in preparation for
+    /// a quiesced root swap.
+    #[cfg(feature = "std")]
+    pub(crate) fn prepare_staged(&self, staged: T) -> T {
+        staged.clear_path();
+        staged.defer_to(&self.collector);
+        // SAFETY: `self.version()` points to the wrapper's tree version word
+        // which outlives `staged`.
+        unsafe { staged.bind_tree_word(core::ptr::from_ref(self.version())) };
+        staged.cover_root();
+        staged.hold_tree_word(true);
+        staged
+    }
+
     /// Heap bytes the collector holds beyond the tree's own share: freed
     /// blocks past their grace period on its freelists, plus retired blocks
     /// still in their grace period. Out of line: a cold accounting path.
@@ -2840,7 +2877,6 @@ impl<T: SharedTree> Shared<T> {
     /// serialised write, and a parameter there changed its code on paths that
     /// never compact (AGENTS.md §2.1 invariant 5).
     #[cfg(feature = "std")]
-    #[allow(dead_code)]
     fn write_quiesced_staged<P, R>(
         &self,
         stage: impl FnOnce(&mut T) -> P,
@@ -4083,11 +4119,11 @@ impl SyncExpanseSet {
     pub fn new() -> Self {
         let shared = Shared::build(ExpanseSet::new(), |s, c| {
             s.clear_path();
-            s.occ_root().1.defer_to(Arc::clone(c));
+            s.defer_to(c);
         });
         // The word is bound at its final address; the engine may now cover
         // the root state itself.
-        shared.inner_ref().occ_root().1.cover_root();
+        shared.inner_ref().cover_root();
         Self { shared }
     }
 
@@ -6127,6 +6163,54 @@ impl SyncExpanseSet {
         self.shared.release_collector()
     }
 
+    /// Reclaims unused memory left behind by removals by building a fresh,
+    /// compact tree from the set's keys and swapping it in place of the
+    /// current tree.
+    ///
+    /// # Memory: `mem_used` vs `mem_held`
+    ///
+    /// Compacting allocates a new tree alongside the old one. During compaction,
+    /// both trees exist simultaneously in memory. The old tree's nodes are
+    /// retired to the concurrent epoch collector upon publication; readers that
+    /// began before the swap may continue reading from the old nodes until their
+    /// epoch guards end. Consequently, while `mem_used` reflects only active
+    /// keys, `mem_held` will reflect memory from both trees until an epoch
+    /// advance reclaims the retired nodes.
+    ///
+    /// # Concurrency
+    ///
+    /// The staging step rebuilds the new tree under exclusive writer exclusion
+    /// while optimistic readers continue unblocked at full rate. The new root
+    /// is atomically published under a brief seqlock version bracket.
+    pub fn compact(&self) {
+        #[cfg(feature = "std")]
+        {
+            let old_tree = self.shared.write_quiesced_staged(
+                |inner| {
+                    let mut keys = Vec::with_capacity(inner.len() as usize);
+                    keys.extend(inner.iter());
+                    let staged = self.shared.prepare_staged(ExpanseSet::new());
+                    let staged = ExpanseSet::from_sorted_keys_into(staged, &keys);
+                    drop(keys);
+                    // Nothing the build allocated was freed: the peak of the new tree's
+                    // held bytes is its final `mem_held`.
+                    debug_assert_eq!(
+                        staged.live_allocs(),
+                        staged.total_node_allocs(),
+                        "staged set compact build must not free"
+                    );
+                    staged
+                },
+                |inner, staged| {
+                    let old = core::mem::replace(inner, staged);
+                    old.hold_tree_word(false);
+                    old
+                },
+            );
+            drop(old_tree);
+        }
+    }
+
     /// Where the bytes the set's epoch collector holds sit: per size
     /// class, the blocks on its freelists (reusable now, and what
     /// [`Self::shrink_to_fit`] releases) and the retired blocks still in
@@ -6244,11 +6328,11 @@ impl SyncExpanseMap {
     pub fn new() -> Self {
         let shared = Shared::build(ExpanseMap::new(), |m, c| {
             m.clear_path();
-            m.occ_root().1.defer_to(Arc::clone(c));
+            m.defer_to(c);
         });
         // The word is bound at its final address; the engine may now cover
         // the root state itself.
-        shared.inner_ref().occ_root().1.cover_root();
+        shared.inner_ref().cover_root();
         Self { shared }
     }
 
@@ -6768,6 +6852,54 @@ impl SyncExpanseMap {
     /// released by a later call, once reclaimed.
     pub fn shrink_to_fit(&self) -> usize {
         self.shared.release_collector()
+    }
+
+    /// Reclaims unused memory left behind by removals by building a fresh,
+    /// compact tree from the map's entries and swapping it in place of the
+    /// current tree.
+    ///
+    /// # Memory: `mem_used` vs `mem_held`
+    ///
+    /// Compacting allocates a new tree alongside the old one. During compaction,
+    /// both trees exist simultaneously in memory. The old tree's nodes are
+    /// retired to the concurrent epoch collector upon publication; readers that
+    /// began before the swap may continue reading from the old nodes until their
+    /// epoch guards end. Consequently, while `mem_used` reflects only active
+    /// entries, `mem_held` will reflect memory from both trees until an epoch
+    /// advance reclaims the retired nodes.
+    ///
+    /// # Concurrency
+    ///
+    /// The staging step rebuilds the new tree under exclusive writer exclusion
+    /// while optimistic readers continue unblocked at full rate. The new root
+    /// is atomically published under a brief seqlock version bracket.
+    pub fn compact(&self) {
+        #[cfg(feature = "std")]
+        {
+            let old_tree = self.shared.write_quiesced_staged(
+                |inner| {
+                    let mut entries = Vec::with_capacity(inner.len() as usize);
+                    entries.extend(inner.iter());
+                    let staged = self.shared.prepare_staged(ExpanseMap::new());
+                    let staged = ExpanseMap::from_sorted_entries_into(staged, &entries);
+                    drop(entries);
+                    // Nothing the build allocated was freed: the peak of the new tree's
+                    // held bytes is its final `mem_held`.
+                    debug_assert_eq!(
+                        staged.live_allocs(),
+                        staged.total_node_allocs(),
+                        "staged map compact build must not free"
+                    );
+                    staged
+                },
+                |inner, staged| {
+                    let old = core::mem::replace(inner, staged);
+                    old.hold_tree_word(false);
+                    old
+                },
+            );
+            drop(old_tree);
+        }
     }
 
     /// Where the bytes the map's epoch collector holds sit: per size
@@ -13923,6 +14055,39 @@ mod miri_ub_sites {
         map.with_locked(ExpanseMap::validate);
     }
 
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn map_compact_reader_writer() {
+        let map = SyncExpanseMap::new();
+        for i in 0..LEAF_KEYS {
+            map.insert(key(0, i), i);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..(LEAF_KEYS / 2) {
+                    assert_eq!(map.remove(key(0, i)), Some(i));
+                }
+                map.compact();
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in (LEAF_KEYS / 2)..LEAF_KEYS {
+                        if let Some(v) = map.get(key(0, i)) {
+                            assert_eq!(v, i);
+                        }
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), LEAF_KEYS - LEAF_KEYS / 2);
+        for i in (LEAF_KEYS / 2)..LEAF_KEYS {
+            assert_eq!(map.get(key(0, i)), Some(i));
+        }
+        map.with_locked(ExpanseMap::validate);
+    }
+
     // --- SyncExpanseSet ---------------------------------------------------
 
     #[test]
@@ -14330,6 +14495,37 @@ mod miri_ub_sites {
         });
         assert_eq!(set.len(), COVERED_PREFILL - COVERED_REMOVE);
         report_cover_overlaps("set_covered_reader_writer");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_compact_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for i in 0..LEAF_KEYS {
+            set.insert(key(0, i));
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..(LEAF_KEYS / 2) {
+                    assert!(set.remove(key(0, i)));
+                }
+                set.compact();
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    for i in (LEAF_KEYS / 2)..LEAF_KEYS {
+                        std::hint::black_box(set.contains(key(0, i)));
+                    }
+                });
+            });
+        });
+        assert_eq!(set.len(), LEAF_KEYS - LEAF_KEYS / 2);
+        for i in (LEAF_KEYS / 2)..LEAF_KEYS {
+            assert!(set.contains(key(0, i)));
+        }
+        set.with_locked(ExpanseSet::validate);
     }
 
     // --- SyncExpanseStrMap ------------------------------------------------
@@ -20931,6 +21127,58 @@ mod loom_tests {
             for c in cells.iter() {
                 assert_eq!(c.version(), 2, "each probe advances its word by two, once");
             }
+        });
+    }
+
+    /// Interleaving of `write_quiesced_staged` root publish and retirement vs
+    /// an optimistic concurrent reader.
+    ///
+    /// The reader registers with the EBR collector, samples the tree version word,
+    /// accesses the root under an epoch pin, and validates the version.
+    /// The compactor thread prepares a staged tree, quiesces writers, atomically
+    /// swaps the root under the version bracket, retires the old root to the
+    /// collector, and advances the epoch.
+    ///
+    /// Under all explored preemption schedules, the reader either:
+    /// 1. Reads the old root under a valid pre-swap version, protected by its pin;
+    /// 2. Reads during the version bracket / detects version shift, and validates as false (retry);
+    /// 3. Reads the new staged root under a valid post-swap version.
+    #[test]
+    fn loom_compact_publish_retire_vs_reader() {
+        let mut model = loom::model::Builder::new();
+        model.preemption_bound = Some(2);
+        model.check(|| {
+            let collector = Arc::new(Collector::new());
+            let reader_handle = collector.register();
+            let version = Arc::new(SeqVersion::new());
+            let root = Arc::new(loom::sync::atomic::AtomicU64::new(1)); // 1: old, 2: staged
+
+            let (c_w, v_w, r_w) = (
+                Arc::clone(&collector),
+                Arc::clone(&version),
+                Arc::clone(&root),
+            );
+
+            let writer = loom::thread::spawn(move || {
+                // write_quiesced_staged: swap under version bracket
+                v_w.begin();
+                r_w.store(2, Ordering::Release);
+                v_w.end();
+                // Old root retired and epoch advanced
+                c_w.try_advance();
+            });
+
+            // Reader
+            let pin = reader_handle.pin();
+            let v = version.sample();
+            let observed = root.load(Ordering::Acquire);
+            if version.validate(v) {
+                assert!(observed == 1 || observed == 2);
+            }
+            drop(pin);
+
+            writer.join().unwrap();
+            drop(reader_handle);
         });
     }
 }

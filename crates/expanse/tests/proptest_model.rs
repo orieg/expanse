@@ -23,6 +23,7 @@
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
 use proptest::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -229,6 +230,93 @@ fn run_map(ops: &[Op]) {
     }
     assert!(map.is_empty());
     assert_eq!(map.mem_used(), 0, "leak after drain");
+}
+
+/// Runs `ops` against `SyncExpanseSet` and a `BTreeSet` model, asserting
+/// agreement on every operation and full ordered equality after compact.
+fn run_sync_set(ops: &[Op]) {
+    let set = SyncExpanseSet::new();
+    let mut model = BTreeSet::new();
+    for op in ops {
+        match *op {
+            Op::Insert(k) => assert_eq!(set.insert(k), model.insert(k), "insert {k:#x}"),
+            Op::Remove(k) => assert_eq!(set.remove(k), model.remove(&k), "remove {k:#x}"),
+            Op::Get(k) => assert_eq!(set.contains(k), model.contains(&k), "contains {k:#x}"),
+            Op::Compact => {
+                set.compact();
+                set.with_locked(|inner| {
+                    inner.validate();
+                    assert_eq!(inner.len(), model.len() as u64, "len after compact");
+                    assert!(
+                        inner.iter().eq(model.iter().copied()),
+                        "contents after compact"
+                    );
+                });
+            }
+            Op::Audit => {
+                set.with_locked(|inner| {
+                    inner.validate();
+                    assert_eq!(inner.len(), model.len() as u64, "len");
+                    assert!(inner.iter().eq(model.iter().copied()), "ordered iteration");
+                });
+            }
+        }
+    }
+    set.with_locked(|inner| {
+        inner.validate();
+        assert!(inner.iter().eq(model.iter().copied()));
+    });
+    for k in &model {
+        assert!(set.remove(*k), "final drain {k:#x}");
+    }
+    assert!(set.is_empty());
+}
+
+/// Runs `ops` against `SyncExpanseMap` and a `BTreeMap` model.
+fn run_sync_map(ops: &[Op]) {
+    let val_of = |k: u64| !k ^ 0x5EED;
+    let map = SyncExpanseMap::new();
+    let mut model = BTreeMap::new();
+    for op in ops {
+        match *op {
+            Op::Insert(k) => assert_eq!(
+                map.insert(k, val_of(k)),
+                model.insert(k, val_of(k)),
+                "insert {k:#x}"
+            ),
+            Op::Remove(k) => assert_eq!(map.remove(k), model.remove(&k), "remove {k:#x}"),
+            Op::Get(k) => assert_eq!(map.get(k), model.get(&k).copied(), "get {k:#x}"),
+            Op::Compact => {
+                map.compact();
+                map.with_locked(|inner| {
+                    inner.validate();
+                    assert_eq!(inner.len(), model.len() as u64, "len after compact");
+                    assert!(
+                        inner.iter().eq(model.iter().map(|(k, v)| (*k, *v))),
+                        "contents after compact"
+                    );
+                });
+            }
+            Op::Audit => {
+                map.with_locked(|inner| {
+                    inner.validate();
+                    assert_eq!(inner.len(), model.len() as u64, "len");
+                    assert!(
+                        inner.iter().eq(model.iter().map(|(k, v)| (*k, *v))),
+                        "ordered iteration"
+                    );
+                });
+            }
+        }
+    }
+    map.with_locked(|inner| {
+        inner.validate();
+        assert!(inner.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
+    });
+    for k in model.keys() {
+        assert_eq!(map.remove(*k), Some(val_of(*k)), "final drain {k:#x}");
+    }
+    assert!(map.is_empty());
 }
 
 proptest! {
@@ -544,5 +632,19 @@ proptest! {
     #[test]
     fn map_matches_btreemap_with_compact(ops in prop::collection::vec(op_strategy_with_compact(), 0..400)) {
         run_map(&ops);
+    }
+
+    /// `compact()` on SyncExpanseSet interleaved with random operations:
+    /// after each one the set matches its model, and the rebuilt tree keeps
+    /// taking inserts and removes.
+    #[test]
+    fn sync_set_matches_btreeset_with_compact(ops in prop::collection::vec(op_strategy_with_compact(), 0..200)) {
+        run_sync_set(&ops);
+    }
+
+    /// Map twin for SyncExpanseMap.
+    #[test]
+    fn sync_map_matches_btreemap_with_compact(ops in prop::collection::vec(op_strategy_with_compact(), 0..200)) {
+        run_sync_map(&ops);
     }
 }
