@@ -450,6 +450,28 @@ Set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way
 
 5. **Zero-Copy Slab Resolution (#611)**: Direct slice projection from stable `BlobArena` chunk slabs measures **608.9 M keys/s (1.642 ns/key)** at N=10k and **615.8 M keys/s (1.624 ns/key)** at N=100k, with zero heap allocations during traversal *(measured: reference host — Intel i9-12900F, 8 P-cores + 8 E-cores, 24 logical CPUs, 30 MiB L3, Linux 6.8, rustc 1.98.1, commit `fcca1c0d`; 5 independent whole-harness runs, bench lock held, P-core pin; paired ratio per repetition, 95% percentile bootstrap over repetitions; [`docs/benchmarks/set_algebra/results/bench_domain_algebra.json`](benchmarks/set_algebra/results/bench_domain_algebra.json))*. The previously published **16.4 M keys/s (61 ns/key)** is **refuted** — it is ~37× too slow. Note that the measured *total* scan time at N=10k is 16.4 µs, and `1 / 16.4 M = 61 ns`: the published pair is consistent with a criterion total-time reading transcribed as a per-key throughput, from which the second figure was then derived. That reconstruction is inference from the coincidence of values, not an established fact.
 
+### 4.4 Key Encoding for Low-Cardinality & Composite Keys (#1257)
+
+In database storage engines, string dictionaries and secondary indexes often index composite keys (such as `prefix ‖ name ‖ '/' ‖ id` or decimal order identifiers `t%03d:orders:%010d`). When keys contain low-cardinality byte ranges (e.g. ASCII decimal digits `0..=9`), each byte takes only 10 of 256 possible values. Because 100 keys under a common prefix exceed `LEAF_CAP` (32), the trie cascades into a `BranchB` containing ten 10-key leaves in 12-slot size classes, costing 17.60–17.97 B/key for 8-byte values ([#1257](https://github.com/orieg/expanse/issues/1257)).
+
+Database index and dictionary designers can eliminate this overhead without any engine layout changes by structuring key encodings around Expanse's byte-expanse invariants:
+
+1. **Base-32 Digits (`0x01..=0x20`)**:
+   By encoding low-cardinality fields with 5 bits per digit (values 1..=32, one byte per digit), a range of keys differing only in the lowest-order digit byte holds at most 32 keys. This fits exactly into a single linear leaf at `LEAF_CAP` = 32 rather than cascading into branches of single-key 16-byte edges (which occurs with 128- or 255-valued byte alphabets) or fragmenting across smaller leaves (as occurs with 16-value hex).
+2. **Align Key Length to 7 (mod 8) Bytes**:
+   `ExpanseStrMap` chunks keys into 8-byte big-endian words (`CHUNK_BYTES` = 8). The terminal chunk ends with the terminating NUL byte (`\0`), placing data bytes at word levels 2 and up. When the total key length is chosen per prefix/name such that `key.len() % CHUNK_BYTES == CHUNK_BYTES - 1`, the lowest-order id byte lands at word level 2 of the final chunk, where each leaf key costs only 2 bytes beside its 8-byte value slot. Unaligned lengths spill the trailing byte into a separate chunk (cascading into single-key edges) or into a separate suffix leaf.
+   The alignment contract is anchored to the public `expanse_trie::strmap::CHUNK_BYTES` constant.
+
+**Measured Outcomes on Current Layout:**
+On the downstream composite benchmark of #1257 (10⁷ keys, 8-byte values, evaluated against an application requirement of ≤ 13.2 B/key):
+- Aligned base-32 encoding (`b32x4a7`) measures **10.88 B/key** uniform and **10.70 B/key** skewed, meeting the ≤ 13.2 B/key bar on the unchanged production layout *(measured: current, class 10, and leaf cap on every encoding whose bytes take at most 128 values; projected: product leaf; engine sources of c5a6f6886, built with this change's census tooling; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_encodings.json`](../results/leaf_layout_census_encodings.json), totals in `results/leaf_layout_census_encodings_{class10,cap128}.json`, model output in [`results/leaf_layout_model_encodings.txt`](../results/leaf_layout_model_encodings.txt))*.
+- Transcoding fixed-width decimal order fields (`orders_b32a7`) similarly reduces memory from 17.97 B/key to **10.71 B/key** *(measured on all three builds; engine at 45eb0f6ac, whose engine sources are those of c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_encodings.json`](../results/leaf_layout_census_encodings.json) and its `_class10` / `_cap128` totals)*.
+- Full-width 64-bit ids (`b32full`) measure **10.93 B/key** uniform and **10.71 B/key** skewed *(measured on all three builds; engine at 45eb0f6ac, whose engine sources are those of c5a6f6886; workload: `example_leaf_layout_census`; [`results/leaf_layout_census_encodings.json`](../results/leaf_layout_census_encodings.json) and its `_class10` / `_cap128` totals)*.
+- W3 concurrent lookup benchmarks show aligned base-32 keys introduce no lookup latency penalty (hit throughput 1.03–1.16×, hit latency 0.88–0.96×).
+
+**Canonical Reference:**
+For the complete evaluation of engine leaf layout candidates (class-10 ladder, adaptive leaf cap, grouped leaf, product leaf), cost model checks, and write amplification analysis, see [`docs/ARCHITECTURE.md` §3.6](ARCHITECTURE.md#36-low-cardinality-key-bytes-leaf-layout-evaluation-1257--evaluation-no-layout-change-shipped).
+
 ---
 
 ## 5. Secondary Indexes & Ordered Key Range Scans
@@ -459,7 +481,7 @@ Database MemTables (LSM-trees in RocksDB, Pebble, LevelDB) and in-memory seconda
 2. High-throughput ordered inserts with minimal rebalancing overhead.
 3. Cache-friendly forward and backward range iteration.
 
-Traditional B-Trees incur cache-line straddles and structural node split/merge rebalancing overhead. SkipLists pay high pointer overhead (16–32 bytes per node) and random memory access penalties.
+Traditional B-Trees incur cache-line straddles and structural node split/merge rebalancing overhead. SkipLists pay high pointer overhead (16–32 bytes per node) and random memory access penalties. *(For secondary indexes with composite or low-cardinality string keys, see the key-encoding guidance in §4.4 and [`docs/ARCHITECTURE.md` §3.6](ARCHITECTURE.md#36-low-cardinality-key-bytes-leaf-layout-evaluation-1257--evaluation-no-layout-change-shipped).)*
 
 ```
  B-Tree (Traditional)                  ExpanseMap (Digital Trie)

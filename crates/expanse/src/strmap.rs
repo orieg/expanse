@@ -24,6 +24,48 @@
 //! - Tag `0`: Pointer to child `StrNode` branch.
 //! - Tag `1`: Pointer to `StrSuffix` leaf, which stores the remaining
 //!   NUL-free key bytes and the user value in a single allocation.
+//!
+//! ### Key-Encoding Guidance for Low-Cardinality & Composite Keys (#1257)
+//!
+//! Keys whose byte at a trie level takes few of its 256 values (such as
+//! decimal digits, hex characters, or composite strings with low-cardinality
+//! segments) underfill linear leaves or cascade past `LEAF_CAP` (32) into
+//! branches of small leaves or single-key edges
+//! ([#1257](https://github.com/orieg/expanse/issues/1257)).
+//!
+//! Applications can avoid this overhead without engine layout changes by
+//! following two structural key-encoding rules:
+//!
+//! 1. **Base-32 digits (5 bits per byte, values `0x01..=0x20`)**: A range whose
+//!    lowest-order digit byte takes at most 32 distinct values holds at most 32 keys,
+//!    fitting exactly into one linear leaf at `LEAF_CAP` = 32 rather than cascading
+//!    into branches of single-key 16-byte edges (as occurs with 128- or 255-valued
+//!    alphabets) or fragmenting into multiple smaller leaves (as with hex).
+//! 2. **Align total key length to 7 (mod 8) bytes**: Keys are partitioned into
+//!    8-byte big-endian chunks ([`CHUNK_BYTES`] = 8). The terminal chunk ends with
+//!    the terminating NUL byte, placing data bytes at word levels 2 and up. When the
+//!    total key length is chosen per prefix/name such that
+//!    `key.len() % CHUNK_BYTES == CHUNK_BYTES - 1`, the lowest-order id byte
+//!    lands at word level 2 of the final chunk, where each leaf key costs only
+//!    2 bytes beside its 8-byte value slot. Unaligned lengths spill the trailing
+//!    byte into a separate chunk (cascading into single-key edges) or into a separate
+//!    suffix leaf.
+//!
+//! **Measured results on the current layout:**
+//! On the composite benchmark of #1257 (10⁷ keys, 8-byte values, evaluated against
+//! an application bar of ≤ 13.2 B/key), aligned base-32 encoding (`b32x4a7`)
+//! measures **10.88 B/key** uniform and **10.70 B/key** skewed, meeting the
+//! ≤ 13.2 B/key bar on the current layout with no engine change
+//! *(measured: current, class 10, and leaf cap on every encoding whose bytes take at most 128 values; projected: product leaf; engine sources of c5a6f6886, built with this change's census tooling; workload: `example_leaf_layout_census`; `results/leaf_layout_census_encodings.json`, totals in `results/leaf_layout_census_encodings_{class10,cap128}.json`, model output in `results/leaf_layout_model_encodings.txt`)*.
+//! Transcoding fixed-width decimal fields (`orders_b32a7`) likewise reduces memory
+//! from 17.97 B/key to **10.71 B/key** *(measured on all three builds; engine at 45eb0f6ac, whose engine sources are those of c5a6f6886; workload: `example_leaf_layout_census`; `results/leaf_layout_census_encodings.json` and its `_class10` / `_cap128` totals)*.
+//! Full-width 64-bit ids (`b32full`) measure **10.93 B/key** uniform and **10.71 B/key** skewed *(measured on all three builds; engine at 45eb0f6ac, whose engine sources are those of c5a6f6886; workload: `example_leaf_layout_census`; `results/leaf_layout_census_encodings.json` and its `_class10` / `_cap128` totals)*.
+//! W3 concurrent lookup timing confirms aligned base-32 composite introduces no
+//! lookup regression (hit throughput 1.03–1.16×, hit latency 0.88–0.96×).
+//!
+//! The alignment property derives from the public [`CHUNK_BYTES`] contract.
+//! The canonical reference and full trade-off analysis live in
+//! `docs/ARCHITECTURE.md` §3.6.
 
 use crate::alloc::NodeAlloc;
 use crate::cursor::RawCursor;
