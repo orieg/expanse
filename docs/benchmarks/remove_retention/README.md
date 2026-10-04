@@ -13,6 +13,8 @@ losses) is [`METHODOLOGY.md`](METHODOLOGY.md).
 | 3 | Engine change behind `subtree-condense`, the new Callgrind arms, gate evaluation | evaluated; **negative**, nothing promoted (§2); the engine code is kept at tag `poc/subtree-condense`, not on `main` |
 | — | Allocator census and rebuild arm (`NodeAlloc::census`, `set_rebuild_drained` / `map_rebuild_drained`) | measured; pinning confirmed, no option chosen (§3) |
 | — | Explicit `compact()` for the 64-bit `ExpanseSet` / `ExpanseMap`: bounds in `scripts/compact_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §12 | evaluated: G-held, G-peak, G-cost and G-valid met; **G-ins not met** (three `from_sorted_iter` arms moved down by more than 0.1%, attributed to code generation); result `INTERMEDIATE` (§4) |
+| — | `shrink_to_fit()` RSS recovery and allocator overhead (Issue #1108): bounds in `scripts/shrink_rss_bounds.py`, gates in [`METHODOLOGY.md`](METHODOLOGY.md) §15 | pre-registered (§15) |
+
 
 **Reproduce.** `EXPANSE_COMMIT=<sha> EXPANSE_RUSTC="$(rustc -V)" cargo run --release -p expanse-trie --example remove_retention -- --json docs/benchmarks/remove_retention/results/step0a_retention.json`.
 Single-threaded and deterministic: any 64-bit host reproduces every byte at the

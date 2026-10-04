@@ -617,3 +617,90 @@ The 32-bit compaction work is evaluated against the 5 pre-registration gates of
   byte-exact `mem_held()`, `mem_used()`, and peak held before/after compaction
   across drained uniform and structured workloads against fresh builds.
 
+## 15. Pre-registration: `shrink_to_fit` RSS recovery and allocator overhead (Issue #1108)
+
+A separate pre-registration (AGENTS.md §8.8 commit 2), appended for Issue #1108
+(Tier 2, Wave-1). It does not amend §1–§14, which stay frozen as the record of
+their respective phases; this section is frozen once merged in the same way.
+Outcomes are reported in [`README.md`](README.md), never reconciled into this
+section, and a threshold, method or sample changed after results are seen relabels
+the result `INTERMEDIATE` (§8.19).
+
+### 15.1 Original pre-registration: Issue #1108 gates (verbatim)
+
+Issue [#1108](https://github.com/orieg/expanse/issues/1108) pre-registered three
+falsifiable gates governing the return of resident set memory upon `shrink_to_fit()`:
+
+- **Gate G0:**
+  > Every Callgrind arm within 0.1% of main.
+- **Gate G1:**
+  > The census RSS after `shrink_to_fit()` drops by at least 75% of the released `mem_held`
+  > on random u64 keys at 1e7, with no shape's pre-shrink RSS worse than main by more than 1%.
+- **Gate G2:**
+  > `mem_used` / `mem_held` / LSan unchanged in meaning.
+
+### 15.2 Structural mechanism & why naive "released mem_held" collapses
+
+Expanse's baseline slab allocator carves 4096-byte slab pages directly from
+individual `GlobalAlloc` allocations (`alloc_zeroed(page_layout)`). On Linux, glibc
+allocator fragmentation and dynamic `M_MMAP_THRESHOLD` scaling (which rises dynamically
+from 128 KiB up to 32 MiB, `mallopt(3)`) cause freed 4096-byte chunks to become free
+heap bins (`mallinfo2().fordblks`) rather than returning physical pages to the kernel
+(`results/allocator_overhead_a4b03ad5.txt`). Consequently, `shrink_to_fit()` released
+4.31 B/key of `mem_held` on 1e7 random u64 keys, but physical RSS dropped by only
+1.48 B/key (an RSS recovery fraction of 1.48 / 4.31 ≈ 34.3%, below the 75% floor).
+
+To achieve ≥ 75% physical RSS return, slab pages are carved from 128 KiB
+multi-page regions (K = 32 pages) allocated from `GlobalAlloc` via `alloc`, with
+fully-free 4096-byte slab pages returned directly to the Linux kernel via
+`madvise(MADV_DONTNEED)` during `shrink_to_fit()`.
+
+However, this introduces an architectural conflict between Gate G1 and Gate G2:
+- Under Gate G2, `mem_held()` preserves its strict meaning: bytes held from the
+  global allocator, including allocated regions (`num_regions * 131072 + system_allocations`).
+- On 1e7 random keys, live nodes are distributed across slab pages such that many
+  individual 4096-byte pages become completely empty, but very few or no entire
+  128 KiB regions (all 32 pages) become simultaneously empty.
+- Because whole regions remain allocated from `GlobalAlloc`, `mem_held()` does not
+  drop upon sub-region page madvise.
+- If Gate G1's Clause 1 evaluated against `released mem_held` (delta held =
+  `mem_held_before - mem_held_after`), the denominator would be near zero (≈ 0 B/key),
+  collapsing the ratio and rendering Clause 1 invalid or undefined.
+
+### 15.3 Locked Gate G1 Amendment (Option 1C)
+
+Locked on 2026-10-04, **before any candidate Gate G1 evaluation data exists**
+(GEMINI.md §1.6, D203, B-12 pre-registration discipline):
+
+1. **Amended Clause 1 Denominator:**
+   The denominator of Clause 1 is formally amended from `released mem_held` to
+   **bytes returned to the OS (madvised pages + deallocated regions)**, read from
+   the dedicated read-only counter `mem_returned_to_os()` (or table column `ret_os/shr`).
+   On non-Linux platforms (or where OS page size > 4096), `mem_returned_to_os()`
+   reports whole-region deallocations.
+2. **Thresholds Unchanged:**
+   - **Clause 1 Recovery Floor:** ≥ 75% (0.7500) of returned OS bytes recovered
+     in resident set size (delta RSS / returned_to_os ≥ 0.75) on random u64 keys at
+     1e7 in **both** independent candidate runs.
+   - **Clause 2 Pre-Shrink Ceiling:** ≤ 1.0% (1.0100×) pre-shrink RSS overhead
+     compared to `main` (RSS_head / RSS_base ≤ 1.0100) across all five shapes
+     (`sequential`, `timestamp`, `random`, `prefix`, `uuid`) in **both** independent
+     run pairs.
+3. **Gates G0 and G2 Unchanged:**
+   - **Gate G0:** Every Callgrind arm within 0.1% of main (|Δ| ≤ 0.1%).
+   - **Gate G2:** `mem_used`, `mem_held`, and LSan invariants remain unchanged.
+     `shrink_to_fit()` continues to return the drop in `mem_held` (0 for sub-region
+     madvise, preserving existing drain and counting tests).
+
+### 15.4 Instruments
+
+- **Suite Token:** `allocator_overhead` (registered in `.github/bench-suites.json`).
+- **Driver:** `scripts/allocator_overhead_bench.py` (executes two pinned runs of
+  `main` and candidate head at N = 1e7 keys across all 5 shapes with CPU pinning
+  and load snapshots; evaluates Clause 1 and Clause 2 per-run with fail-closed checks).
+- **Workload Binary:** `crates/expanse/examples/allocator_overhead.rs` running
+  N = 1e7 keys per shape, emitting exact byte accounting and RSS census.
+- **Mathematical Bounds:** `scripts/shrink_rss_bounds.py` (pins page containment
+  probabilities, region header overhead, and expected RSS recovery fraction
+  S_min = 61.93%).
+
