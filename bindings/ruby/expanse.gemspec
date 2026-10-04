@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name          = "expanse"
-  spec.version       = "0.10.2"
+  spec.version       = "0.11.0"
   spec.authors       = ["Nicolas Brousse"]
   spec.email         = ["nicolas@brousse.info"]
   spec.summary       = "Expanse: clean-room, pure-Rust Judy arrays"
