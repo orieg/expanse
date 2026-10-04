@@ -1732,6 +1732,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `blobmap_get` | `random` | 50,000 |
 | `cost` | `blobmap_insert` | `random` | 50,000 |
 | `cost` | `blobmap_insert_inline` | `random` | 50,000 |
+| `cost` | `blobmap_insert_reclaiming` | `random` | 1,000 |
 | `cost` | `blobmap_overwrite` | `random` | 50,000 |
 | `cost` | `blobmap_remove` | `random` | 50,000 |
 | `cost` | `bytesmap_churn` | `routes` | 50,000 |
@@ -1812,6 +1813,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_blobmap_compare_exchange` | `random` | 50,000 |
 | `cost` | `sync_blobmap_get` | `random` | 50,000 |
 | `cost` | `sync_blobmap_insert` | `random` | 50,000 |
+| `cost` | `sync_blobmap_insert_reclaiming` | `random` | 1,000 |
 | `cost` | `sync_blobmap_overwrite` | `random` | 50,000 |
 | `cost` | `sync_blobmap_remove` | `random` | 50,000 |
 | `cost` | `sync_blobmap_remove_miss` | `random` | 50,000 |

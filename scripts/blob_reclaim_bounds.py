@@ -89,6 +89,8 @@ STEP0_PROBE_LOG = (REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
                    / "step0_1300_phases" / "probe.log")
 
 RECORD_HEADER_BYTES = 8
+KEY_BYTES = 8
+KEYED_RECORD_HEADER_BYTES = RECORD_HEADER_BYTES + KEY_BYTES
 ARENA_ALIGN = 16
 DEFAULT_CHUNK_SIZE = 2 * 1024 * 1024
 MAX_ARENA_CAPACITY = 1 << 30
@@ -204,11 +206,191 @@ def stall_copy_bytes(live_records: int, payload_len: int) -> int:
     return live_records * record_needed(payload_len)
 
 
-def max_stall_bytes(cap: int) -> int:
-    """Largest live-byte copy an automatic compaction can make: the waste guard
-    requires 2 * live_bytes < total_allocated <= cap, so live_bytes < cap / 2."""
-    _pos_int("cap", cap)
-    return (cap - 1) // 2
+# ---------------------------------------------------------------------------
+# Keyed record geometry and incremental compaction bounds (#1320)
+# ---------------------------------------------------------------------------
+
+def keyed_record_needed(payload_len: int) -> int:
+    """Bytes `live_bytes` charges for one record with an 8-byte key in its header:
+    header (16 bytes: 8-byte key, 4-byte len, 4-byte generation) plus payload, unaligned.
+
+    Source: issue #1320 (incremental blob arena compaction format change), extending
+    `BlobRecordHeader` in `crates/expanse/src/blobmap.rs` with an 8-byte key.
+    """
+    _nonneg_int("payload_len", payload_len)
+    return KEYED_RECORD_HEADER_BYTES + payload_len
+
+
+record_needed_keyed = keyed_record_needed
+
+
+def keyed_record_stride(payload_len: int) -> int:
+    """Cursor advance per keyed record: `keyed_record_needed` rounded up to `ARENA_ALIGN`."""
+    n = keyed_record_needed(payload_len)
+    return -(-n // ARENA_ALIGN) * ARENA_ALIGN
+
+
+record_stride_keyed = keyed_record_stride
+
+
+def keyed_records_per_chunk(payload_len: int, chunk: int) -> int:
+    """Keyed records of one size a chunk holds: the largest i with (i-1)*stride + needed <= chunk.
+
+    Source: issue #1320; mirrors `ArenaChunk::alloc` with a 16-byte record header.
+    """
+    _pos_int("chunk", chunk)
+    needed = keyed_record_needed(payload_len)
+    if needed > chunk:
+        raise ValueError("a record larger than a chunk is refused (AllocationFailed)")
+    return (chunk - needed) // keyed_record_stride(payload_len) + 1
+
+
+records_per_chunk_keyed = keyed_records_per_chunk
+
+
+def keyed_compacted_chunks(live_records: int, payload_len: int, chunk: int) -> int:
+    """Chunks a compaction leaves with keyed records: live records packed densely from chunk 0."""
+    _nonneg_int("live_records", live_records)
+    per = keyed_records_per_chunk(payload_len, chunk)
+    return -(-live_records // per)
+
+
+compacted_chunks_keyed = keyed_compacted_chunks
+
+
+def keyed_sustains_overwrite(live_records: int, payload_len: int, chunk: int, cap: int,
+                             k: int = RECLAIM_COPY_PER_GROWTH) -> bool:
+    """Whether the reclaim rule keeps an overwrite-forever workload running at the cap
+    with 16-byte keyed record headers.
+
+    Source: issue #1320; `docs/design/large-values.md` §6.3.1 amended by METHODOLOGY §28a.
+    """
+    _pos_int("k", k)
+    mc = max_chunks(chunk, cap)
+    per = keyed_records_per_chunk(payload_len, chunk)
+    if live_records >= mc * per:
+        return False
+    cc = keyed_compacted_chunks(live_records, payload_len, chunk)
+    growth = (mc - cc) * chunk
+    live = live_records * keyed_record_needed(payload_len)
+    return live <= k * growth and 2 * live < mc * chunk
+
+
+sustains_overwrite_keyed = keyed_sustains_overwrite
+
+
+def keyed_max_sustained_live_records(payload_len: int, chunk: int, cap: int,
+                                     k: int = RECLAIM_COPY_PER_GROWTH) -> int:
+    """The largest live set `keyed_sustains_overwrite` accepts (monotone in live_records).
+
+    Source: issue #1320; `docs/design/large-values.md` §6.3.1.
+    """
+    lo, hi = 0, max_chunks(chunk, cap) * keyed_records_per_chunk(payload_len, chunk)
+    if not keyed_sustains_overwrite(0, payload_len, chunk, cap, k):
+        return -1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if keyed_sustains_overwrite(mid, payload_len, chunk, cap, k):
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+max_sustained_live_records_keyed = keyed_max_sustained_live_records
+
+
+def density_cost_records(payload_len: int, chunk: int, cap: int,
+                         k: int = RECLAIM_COPY_PER_GROWTH) -> int:
+    """Loss in sustained live records caused by adding the 8-byte key to the header:
+    `max_sustained_live_records(...) - keyed_max_sustained_live_records(...)`.
+
+    Source: issue #1320.
+    """
+    base = max_sustained_live_records(payload_len, chunk, cap, k)
+    keyed = keyed_max_sustained_live_records(payload_len, chunk, cap, k)
+    return base - keyed
+
+
+def density_cost_ratio(payload_len: int, chunk: int, cap: int,
+                       k: int = RECLAIM_COPY_PER_GROWTH) -> float:
+    """Fractional loss in sustained live records caused by adding the 8-byte key:
+    `density_cost_records / max_sustained_live_records`.
+
+    Source: issue #1320; Cormen et al. §17.4 space accounting.
+    """
+    base = max_sustained_live_records(payload_len, chunk, cap, k)
+    if base <= 0:
+        raise ValueError("baseline sustained live records must be positive")
+    return density_cost_records(payload_len, chunk, cap, k) / base
+
+
+def victim_chunk_max_live_records(payload_len: int, chunk: int, keyed: bool = True) -> int:
+    """Upper bound on live records in a victim chunk selected under the waste guard
+    (live_bytes < total_allocated / 2): at most half the chunk capacity.
+
+    Source: issue #1320; Rosenblum & Ousterhout 1992 §4 (LFS segment cleaner);
+    `docs/design/large-values.md` §6.3.1 waste guard.
+    """
+    per = keyed_records_per_chunk(payload_len, chunk) if keyed else records_per_chunk(payload_len, chunk)
+    return per // 2
+
+
+def victim_chunk_max_live_bytes(payload_len: int, chunk: int, keyed: bool = True) -> int:
+    """Upper bound on live bytes copied when evacuating one victim chunk under the waste guard:
+    `victim_chunk_max_live_records * record_needed`.
+
+    Source: issue #1320; `docs/design/large-values.md` §6.3.1 waste guard.
+    """
+    recs = victim_chunk_max_live_records(payload_len, chunk, keyed=keyed)
+    needed = keyed_record_needed(payload_len) if keyed else record_needed(payload_len)
+    return recs * needed
+
+
+def incremental_per_insert_copy_records(live_records: int, payload_len: int, chunk: int, cap: int,
+                                        keyed: bool = True) -> int:
+    """Upper bound on live records an insert must copy under incremental continuous evacuation
+    to keep pace with allocation in the steady state: ceil(live_records / (total_records - live_records)).
+    Under the waste guard (live < cap / 2), this is at most 1 record per insert.
+
+    Source: issue #1320; Cormen, Leiserson, Rivest, Stein, "Introduction to Algorithms",
+    3rd ed., §17.4 (dynamic tables incremental rebuilding); Baker 1978 (real-time copying GC).
+    """
+    _nonneg_int("live_records", live_records)
+    per = keyed_records_per_chunk(payload_len, chunk) if keyed else records_per_chunk(payload_len, chunk)
+    total = max_chunks(chunk, cap) * per
+    appends = total - live_records
+    if appends <= 0:
+        raise ValueError("the live records fill the arena; nothing can be appended")
+    return -(-live_records // appends)
+
+
+def incremental_per_insert_copy_bytes(live_records: int, payload_len: int, chunk: int, cap: int,
+                                      keyed: bool = True) -> int:
+    """Bytes copied per insert under incremental continuous evacuation:
+    `incremental_per_insert_copy_records * record_needed`.
+
+    Source: issue #1320; Cormen et al. §17.4.
+    """
+    recs = incremental_per_insert_copy_records(live_records, payload_len, chunk, cap, keyed=keyed)
+    needed = keyed_record_needed(payload_len) if keyed else record_needed(payload_len)
+    return recs * needed
+
+
+def per_insert_copy_bound(payload_len: int, chunk: int, cap: int,
+                          live_records: int | None = None, keyed: bool = True) -> int:
+    """Upper bound on bytes copied inside a single insert during incremental compaction.
+
+    If `live_records` is specified, computes continuous incremental copy bound
+    `incremental_per_insert_copy_bytes(live_records, payload_len, chunk, cap, keyed)`.
+    If `live_records` is None, computes the worst-case victim-chunk evacuation bound
+    `victim_chunk_max_live_bytes(payload_len, chunk, keyed)` under the waste guard.
+
+    Source: issue #1320; Rosenblum & Ousterhout 1992 §4; Cormen et al. §17.4.
+    """
+    if live_records is not None:
+        return incremental_per_insert_copy_bytes(live_records, payload_len, chunk, cap, keyed=keyed)
+    return victim_chunk_max_live_bytes(payload_len, chunk, keyed=keyed)
 
 
 def s27_ns_per_record(paths: tuple = S27_D_ARTIFACTS, live_records: int = S27_LIVE_RECORDS) -> list[float]:
@@ -231,6 +413,77 @@ def s27_ns_per_record(paths: tuple = S27_D_ARTIFACTS, live_records: int = S27_LI
     if not out:
         raise ValueError("no §27 cell carries compactions")
     return out
+
+
+def s27_max_ns_per_record(paths: tuple = S27_D_ARTIFACTS, live_records: int = S27_LIVE_RECORDS) -> float:
+    """Maximum nanoseconds per live record across §27 D build artifacts (200,000 live records).
+
+    Derived from committed artifacts `S27_D_ARTIFACTS` (58.7958... ns).
+    See also `docs/benchmarks/concurrency/README.md:5674–5675` ("Phase 1 costs 57.3–59.5 ns per record
+    at 200,000 and 60.3–64.2 ns at 3,600,000").
+    """
+    return max(s27_ns_per_record(paths=paths, live_records=live_records))
+
+
+def step0_phase1_ns_per_record(path: Path = STEP0_PROBE_LOG, live_records: int = 3_600_000) -> list[float]:
+    """Nanoseconds per live record of Phase 1 payload copy from README §29.1's Step 0 probe log.
+
+    Committed artifact: `docs/benchmarks/concurrency/results/step0_1300_phases/probe.log`.
+    At `live_records=3_600_000`, 12 compactions yield 60.28–64.24 ns per record (max 64.2435 ns/record),
+    matching README §29.1 (`docs/benchmarks/concurrency/README.md:5674–5675`: "Phase 1 is linear in the
+    live records. It costs 57.3–59.5 ns per record at 200,000 and 60.3–64.2 ns at 3,600,000").
+    At `live_records=200_000`, 12 compactions yield 57.26–59.52 ns per record.
+    """
+    _pos_int("live_records", live_records)
+    out = []
+    cur_live = None
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("== "):
+            fields = dict(kv.split("=", 1) for kv in line[3:].split())
+            cur_live = int(fields["live"])
+        elif line.startswith("PHASE ") and cur_live == live_records:
+            phase = json.loads(line[6:])
+            moved = phase["moved"]
+            _pos_int("moved", moved)
+            out.append(phase["phase1_ns"] / moved)
+    if not out:
+        raise ValueError(f"no phase lines for live_records={live_records} in {path}")
+    return out
+
+
+def step0_max_phase1_ns_per_record(path: Path = STEP0_PROBE_LOG, live_records: int = 3_600_000) -> float:
+    """Maximum Phase 1 nanoseconds per record from committed artifact `STEP0_PROBE_LOG`."""
+    return max(step0_phase1_ns_per_record(path=path, live_records=live_records))
+
+
+def predicted_incremental_stall_ns(payload_len: int, chunk: int,
+                                   ns_per_record: float | None = None,
+                                   keyed: bool = True) -> float:
+    """Predicted writer stall in nanoseconds for evacuating one victim chunk under the waste guard:
+    `victim_chunk_max_live_records * ns_per_record`.
+
+    When `ns_per_record` is None, defaults to `step0_max_phase1_ns_per_record()` (64.2435... ns)
+    derived from committed artifact `STEP0_PROBE_LOG` at 3,600,000 live records.
+    See also `docs/benchmarks/concurrency/README.md:5674–5675` ("Phase 1 is linear in the live records.
+    It costs 57.3–59.5 ns per record at 200,000 and 60.3–64.2 ns at 3,600,000").
+
+    Source: issue #1320; README §29.1 (`docs/benchmarks/concurrency/README.md:5674–5675`);
+    `docs/benchmarks/concurrency/results/step0_1300_phases/probe.log`.
+    """
+    _pos_int("chunk", chunk)
+    if ns_per_record is None:
+        ns_per_record = step0_max_phase1_ns_per_record()
+    elif not ns_per_record > 0:
+        raise ValueError("ns_per_record must be positive")
+    recs = victim_chunk_max_live_records(payload_len, chunk, keyed=keyed)
+    return recs * ns_per_record
+
+
+def max_stall_bytes(cap: int) -> int:
+    """Largest live-byte copy an automatic compaction can make: the waste guard
+    requires 2 * live_bytes < total_allocated <= cap, so live_bytes < cap / 2."""
+    _pos_int("cap", cap)
+    return (cap - 1) // 2
 
 
 def predicted_stall_ns(live_records: int, ns_per_record: float) -> float:
@@ -544,12 +797,75 @@ def self_test() -> int:
     assert 1_481_000 < min(map(reader_wait_bound_ns, secs[200_000])) < 1_482_000
     assert 26_464_000 < max(map(reader_wait_bound_ns, secs[3_600_000])) < 26_465_000
 
+    # Keyed record geometry (#1320): 16-byte header with 8-byte key.
+    assert keyed_record_needed(128) == 144 and keyed_record_stride(128) == 144
+    assert keyed_record_needed(0) == 16 and keyed_record_needed(8) == 24 and keyed_record_stride(8) == 32
+    assert keyed_record_needed(9) == 25 and keyed_record_stride(9) == 32
+    assert keyed_record_needed(64) == 80 and keyed_record_stride(64) == 80
+    assert keyed_records_per_chunk(128, DEFAULT_CHUNK_SIZE) == 14_563
+    assert keyed_records_per_chunk(8, DEFAULT_CHUNK_SIZE) == 65_536
+    assert keyed_records_per_chunk(9, DEFAULT_CHUNK_SIZE) == 65_536
+    assert keyed_records_per_chunk(64, DEFAULT_CHUNK_SIZE) == 26_214
+    assert keyed_records_per_chunk(1024, DEFAULT_CHUNK_SIZE) == 2_016
+    assert keyed_compacted_chunks(HARNESS_LIVE, 128, DEFAULT_CHUNK_SIZE) == 14
+
+    # Pinned: the largest L with L * 144 <= (512 - ceil(L / 14,563)) * 2 MiB.
+    # L = 3,728,128 fills 256 chunks exactly: 536,850,432 <= 256 * 2 MiB = 536,870,912.
+    # One more record opens a 257th: 536,850,576 > 255 * 2 MiB = 534,773,760.
+    # Waste guard allows 2 * L * 144 < 2^30, L <= 3,728,270, so (A) binds here.
+    km = keyed_max_sustained_live_records(HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    assert km == 3_728_128, km
+    assert keyed_sustains_overwrite(km, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    assert not keyed_sustains_overwrite(km + 1, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    assert keyed_sustains_overwrite(HARNESS_LIVE, HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    assert keyed_sustains_overwrite(3_600_000, HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+
+    # Density cost: loss of 101,941 sustained live records at 128 B (-2.66 %).
+    assert density_cost_records(HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) == 101_941
+    cost_ratio = density_cost_ratio(HARNESS_LEN, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY)
+    assert abs(cost_ratio - 101_941 / 3_830_069) < 1e-12
+    assert 0.0266 < cost_ratio < 0.0267
+
+    # Incremental copy bounds (#1320):
+    # Continuous copy per append at 3,600,000 live and at km is exactly 1 record.
+    assert incremental_per_insert_copy_records(3_600_000, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) == 1
+    assert incremental_per_insert_copy_records(km, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) == 1
+    assert incremental_per_insert_copy_bytes(3_600_000, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) == 144
+    assert per_insert_copy_bound(128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY, live_records=3_600_000) == 144
+
+    # Victim chunk evacuation bound: at most half the chunk capacity (7,281 records, 1,048,464 B).
+    assert victim_chunk_max_live_records(128, DEFAULT_CHUNK_SIZE) == 7_281
+    assert victim_chunk_max_live_bytes(128, DEFAULT_CHUNK_SIZE) == 1_048_464
+    assert per_insert_copy_bound(128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY) == 1_048_464
+    # Phase 1 cost per record from committed artifact STEP0_PROBE_LOG at 3,600,000 live (README §29.1):
+    p1_36m = step0_phase1_ns_per_record(live_records=3_600_000)
+    assert len(p1_36m) == 12, len(p1_36m)
+    assert 60.28 < min(p1_36m) < 60.29 and 64.24 < max(p1_36m) < 64.25, (min(p1_36m), max(p1_36m))
+    max_p1 = step0_max_phase1_ns_per_record()
+    assert 64.243 < max_p1 < 64.244, max_p1
+
+    # Incremental stall prediction at 3,600,000 live max ns per record (64.2435... ns/rec):
+    stall_def = predicted_incremental_stall_ns(128, DEFAULT_CHUNK_SIZE)
+    assert 467_757 < stall_def < 467_758, stall_def  # ~0.468 ms at 3.6M live max (64.2435... ns/rec)
+    stall_642 = predicted_incremental_stall_ns(128, DEFAULT_CHUNK_SIZE, ns_per_record=64.2)
+    assert 467_440 < stall_642 < 467_441, stall_642  # ~0.467 ms at nominal 64.2 ns/rec
+
     # Invalid inputs fail loudly.
     for bad in (lambda: records_per_chunk(5000, 4096), lambda: record_needed(-1),
                 lambda: max_chunks(0, 10), lambda: sustains_overwrite(1, 8, 4096, 65536, k=0),
                 lambda: copy_per_append(512 * 14_563, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY),
                 lambda: reader_wait_ratio_bound({"phase2_ns": 1, "publish_ns": 0, "inside_ns": 0}),
-                lambda: reader_wait_bound_ns({"phase2_ns": -1, "publish_ns": 0})):
+                lambda: reader_wait_bound_ns({"phase2_ns": -1, "publish_ns": 0}),
+                lambda: keyed_record_needed(-1),
+                lambda: keyed_records_per_chunk(5000, 4096),
+                lambda: keyed_sustains_overwrite(1, 8, 4096, 65536, k=0),
+                lambda: victim_chunk_max_live_records(5000, 4096),
+                lambda: incremental_per_insert_copy_records(-1, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY),
+                lambda: incremental_per_insert_copy_records(512 * 14_563, 128, DEFAULT_CHUNK_SIZE, MAX_ARENA_CAPACITY),
+                lambda: step0_phase1_ns_per_record(live_records=-1),
+                lambda: step0_phase1_ns_per_record(live_records=999),
+                lambda: predicted_incremental_stall_ns(128, DEFAULT_CHUNK_SIZE, ns_per_record=0),
+                lambda: predicted_incremental_stall_ns(128, DEFAULT_CHUNK_SIZE, ns_per_record=-1.0)):
         try:
             bad()
         except ValueError:
@@ -576,6 +892,26 @@ def report() -> None:
           f"{sustains_overwrite(HARNESS_LIVE, HARNESS_LEN, chunk, cap)}, copy/append="
           f"{copy_per_append(HARNESS_LIVE, HARNESS_LEN, chunk, cap):.4f}, stall="
           f"{stall_copy_bytes(HARNESS_LIVE, HARNESS_LEN) / 2**20:.1f} MiB")
+
+    print("\n#1320 incremental compaction bounds (16 B keyed header):")
+    print(f"{'payload B':>10} {'rec/chunk':>10} {'max live recs':>14} {'density loss':>14} "
+          f"{'victim live B':>16} {'victim stall ms':>16}")
+    for plen in (8, 9, 64, 128, 1024, 65536, 1_048_577):
+        km = keyed_max_sustained_live_records(plen, chunk, cap)
+        d_loss = density_cost_ratio(plen, chunk, cap)
+        v_bytes = victim_chunk_max_live_bytes(plen, chunk)
+        v_stall = predicted_incremental_stall_ns(plen, chunk) / 1e6
+        print(f"{plen:>10} {keyed_records_per_chunk(plen, chunk):>10} {km:>14,} "
+              f"{d_loss * 100:>13.2f}% "
+              f"{v_bytes:>16,} "
+              f"{v_stall:>16.3f}")
+    max_p1 = step0_max_phase1_ns_per_record()
+    print(f"#1280 harness keyed ({HARNESS_LIVE:,} x {HARNESS_LEN} B): sustained="
+          f"{keyed_sustains_overwrite(HARNESS_LIVE, HARNESS_LEN, chunk, cap)}, "
+          f"copy/append={incremental_per_insert_copy_records(HARNESS_LIVE, HARNESS_LEN, chunk, cap)} rec/ins "
+          f"({incremental_per_insert_copy_bytes(HARNESS_LIVE, HARNESS_LEN, chunk, cap)} B/ins), "
+          f"victim stall={predicted_incremental_stall_ns(HARNESS_LEN, chunk) / 1e6:.3f} ms "
+          f"({max_p1:.2f} ns/rec at 3.6M live)")
 
 
 def main() -> int:

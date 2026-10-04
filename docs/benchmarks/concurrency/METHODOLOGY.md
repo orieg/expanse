@@ -4491,6 +4491,163 @@ No tree mutation entry point is added. Phase 2 stores slots through the existing
   - the writers' wait, which is item 5;
   - the free's placement, which gets its own record on #1300.
 
+## 31. Pre-registration for #1320 — incremental blob arena compaction and bounded per-insert evacuation (appended 2026-10-03, locked before any engine code of the change below; next free section, may be renumbered at merge)
+
+### 31.1 Context
+
+Compaction at the arena cap is currently $O(\text{live records})$ executed synchronously inside a single triggering insert. On `SyncExpanseBlobMap` (W = 1, 4, 12) and `ExpanseBlobMap`, the largest insert latency measured at 3,600,000 live 128 B records is 302.5–320.1 ms (README §29–§30, `results/gate_1300_split_h_run{1,2}.json`).
+
+Where the time goes (README §29.1, `results/step0_1300_phases/probe.log`):
+- payload copy (phase 1): 217.0–231.3 ms (57.3–64.2 ns per live record);
+- index collect: 34.2–36.4 ms;
+- slot rewrite: 24.8–26.5 ms.
+
+While #1318 split the reader bracket so readers no longer wait for phase 1, writers still wait for all of it. To eliminate this stall, compaction transitions from a whole-arena bulk copy to bounded incremental evacuation (log-structured segment cleaning; Rosenblum & Ousterhout 1992 §4; Baker 1978; Cormen et al. §17.4):
+1. Per-chunk live counters, to select candidate victim chunks by highest dead share.
+2. An 8-byte key stored directly in each record header (`BlobRecordHeader { key: u64, len: u32, generation: u32 }`). When records in a victim chunk are relocated, the key enables compactor reverse lookup from evacuated record to index slot and direct rewrite without scanning the entire index ($O(1)$ per evacuated record vs $O(\text{index})$ whole-index traversal).
+3. A partial evacuation reclaim rule budgeting bounded copies per insert.
+
+### 31.2 Mathematical derivations and bounds (`scripts/blob_reclaim_bounds.py`)
+
+All quantities and thresholds below are computed by pure functions in `scripts/blob_reclaim_bounds.py` (Rule 12 / §8.8 commit 1; no hand arithmetic):
+
+1. **Header layout and record needed:**
+   - Baseline: 8-byte header (`len: u32`, `generation: u32`). `record_needed(128)` = 136 B.
+   - Keyed header: 16-byte header (`key: u64`, `len: u32`, `generation: u32`; `KEYED_RECORD_HEADER_BYTES = 16`). `keyed_record_needed(128)` = 144 B.
+   - Stride: records are aligned to 16 bytes (`ARENA_ALIGN = 16`). `keyed_record_stride(128)` = 144 B (identical to baseline stride of 144 B).
+
+2. **Chunk density and records per chunk:**
+   - At default chunk size (2 MiB, 2,097,152 B):
+     - `records_per_chunk(128, 2 MiB)` = 14,563.
+     - `keyed_records_per_chunk(128, 2 MiB)` = 14,563.
+     - Because 128 B payloads with 8 B headers required 136 B and padded to 144 B, the additional 8-byte key fits within the existing 8-byte alignment tail. Records per chunk is strictly preserved for 128 B payloads.
+
+3. **Sustained-live bound:**
+   - With 8 B headers: `max_sustained_live_records(128, 2 MiB, 1 GiB)` = 3,830,069 records (fills 263 chunks).
+   - With 16 B headers: `keyed_max_sustained_live_records(128, 2 MiB, 1 GiB)` = 3,728,128 records (fills exactly 256 chunks: $3,728,128 \times 144 = 536,850,432 \le 256 \times 2\text{ MiB} = 536,870,912$).
+   - Condition (B) waste guard requires $2 \times L \times 144 < 2^{30} \implies L \le 3,728,270$, so condition (A) binds at 3,728,128.
+
+4. **Density cost:**
+   - At 128 B payload, 2 MiB chunks and 1 GiB cap:
+     - `density_cost_records(128, 2 MiB, 1 GiB)` = 101,941 records.
+     - `density_cost_ratio(128, 2 MiB, 1 GiB)` = 2.66% ($101,941 / 3,830,069 \approx 0.026616$).
+   - For small unpadded payloads (e.g. 8 B), where records packed without padding (16 B vs 32 B stride), density loss is 42.97% (`density_cost_ratio(8, 2 MiB, 1 GiB)` = 0.4297).
+
+5. **Per-insert copy bound (chunk-wise victim evacuation on refusal):**
+   - Under the waste guard (`blobmap.rs:1463`: `self.live_bytes.saturating_mul(2) < self.total_allocated`), the arena's overall live fraction is strictly below 0.5 ($u_{\text{mean}} < 0.5$).
+   - Because candidate victim chunks are selected by lowest live utilisation (highest dead share), the victim chunk's live fraction satisfies $u_{\text{victim}} \le u_{\text{mean}} < 0.5$.
+   - A single refusal therefore evacuates at most:
+     `victim_chunk_max_live_records(128, 2 MiB)` = $\lfloor 14,563 / 2 \rfloor = 7,281$ records.
+     `victim_chunk_max_live_bytes(128, 2 MiB)` = $7,281 \times 144 = 1,048,464$ B ($\le 1\text{ MiB}$; `per_insert_copy_bound(128, 2 MiB, 1 GiB)` = 1,048,464 B).
+   - The continuous 1-record / 144 B scheme is out of scope for this design; chunk-wise evacuation on refusal is the single operational rule.
+
+6. **Writer-stall projection and target gate ceiling:**
+   - Evacuating at most 7,281 live records:
+     - Payload copy stall: `predicted_incremental_stall_ns(128, 2 MiB)` = 467,757 ns $\approx 0.468\text{ ms}$ `(projected)` (derived via `step0_max_phase1_ns_per_record()` = 64.244 ns/record from committed artifact `STEP0_PROBE_LOG`, `docs/benchmarks/concurrency/results/step0_1300_phases/probe.log`; cf. README §29.1, `docs/benchmarks/concurrency/README.md:5674–5675`).
+     - Slot rewrite component: each evacuated record's slot is rewritten via an $O(k)$ trie descent ($k \le 8$ levels) using its header key (eliminating the $O(\text{index population})$ full-index scan). At $\sim 50\text{ ns}$ per descent, rewriting 7,281 slots adds $\sim 364\text{ µs}$.
+     - Combined projected stall: $\approx 0.832\text{ ms}$ `(projected)`.
+   - Gate ceiling: largest insert latency $\le 5.0\text{ ms}$ `(target)` — maintainer policy providing a $>60\times$ reduction from the 302.5–320.1 ms whole-arena baseline and a $>6\times$ operational margin over the 0.832 ms projected stall to absorb tail dispersion across writer counts.
+
+### 31.3 The change
+
+- **Format change (`crates/expanse/src/blobmap.rs`):**
+  - Extend `BlobRecordHeader` from 8 bytes to 16 bytes:
+    ```rust
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct BlobRecordHeader {
+        pub key: u64,
+        pub len: u32,
+        pub generation: u32,
+    }
+    ```
+    Under `#[repr(C)]`, `size_of::<BlobRecordHeader>()` is exactly 16 bytes and `align_of` is 8 bytes with zero interior or trailing padding. Because every record allocation is aligned to `ARENA_ALIGN = 16` (`blobmap.rs:518`, `ArenaChunk::alloc` at `:406`), every record offset is a multiple of 16, guaranteeing aligned pointer dereferences for `base.cast::<BlobRecordHeader>()` without `read_unaligned` or packed UB.
+  - Update `read_record` to validate 16-byte header bounds and offset payload pointers by 16 bytes.
+- **Binary image format version bump:**
+  - `EXPANSE_FORMAT_VERSION` will bump from `2` to `3`. Older version 2 images will be rejected explicitly with `ArenaError::UnsupportedFormatVersion { found: 2, supported: 3 }` on load (`from_bytes_slice` at `blobmap.rs:2356`, `load_from_file` at `:2530`).
+- **Per-chunk live accounting:**
+  - Add per-chunk live byte/record counters to `BlobChunk` / `BlobArena` to identify candidate victim chunks by highest dead share.
+- **Partial evacuation path:**
+  - On refused allocation at the cap, select the victim chunk with highest dead share ($u < 0.5$), copy its live records into the active chunk, update each relocated record's index slot directly via $O(k)$ trie descent on its header key, and retire the victim chunk to EBR (or reuse in plain mode).
+- **Instruments:**
+  - Callgrind arms `blobmap_insert_reclaiming` and `sync_blobmap_insert_reclaiming` (N = 1,000 ops, exactly 10 reclaims asserted inside each arm) added to `benches/instructions.rs` and registered in `scripts/perf_report.py`.
+
+**Hazards, each with its check:**
+
+| id | hazard | check |
+|---|---|---|
+| H1 | Header format change corrupts OCC readers | `BlobReadGuard::get` (struct at `sync.rs:11249`) validates seqlock bracket via `shared.version().validate(snap)` (`:11327`); `read_record` validates 16-byte header bounds and `header.generation != generation` (`blobmap.rs:95`); generation mismatch or failed validation triggers retry loop / fallback, never returning `None` for a present key; old chunks remain EBR-live and immutable; Miri test runs concurrent reads through partial evacuation |
+| H2 | Older binary image format loaded without validation | `load_from_file` / `from_bytes_slice` explicitly returns `ArenaError::UnsupportedFormatVersion { found, supported: 3 }` |
+| H3 | Stale index slot points to reclaimed chunk | Atomic slot store updates locator to new chunk before victim chunk is retired |
+| H4 | Non-compaction blob operations pay for header or counters | CI Callgrind arms checked against pre-data derived ceilings (G2) |
+| H5 | Corrupted metadata during partial evacuation | `hot_meta` is preserved in slot writeback; `scan_filtered` differential test passes |
+
+### 31.4 Instrument and protocol
+
+- **Suite:** `reclaim_stall` (§29) on the reference host, 5 rounds per cell, W ∈ {1, 4, 12}, 3,600,000 live 128 B records.
+- **Builds:** B (merge base `7ca19dc7`) and H (head with incremental compaction).
+- **Runs:** dispatched in order B, H, H, B, 5 rounds per cell each.
+- **Callgrind:** CI `instruction-counts` job on PR, evaluating `instructions.rs`.
+
+### 31.5 Predictions and gate
+
+| id | quantity | prediction | verdict |
+|---|---|---|---|
+| G1 | at 3,600,000 live, per `SyncExpanseBlobMap` (W = 1, 4, 12) and `ExpanseBlobMap` overwrite cell, largest insert latency | H's BCa 95 % upper bound $\le 5.0\text{ ms}$ `(target)` (predicted stall 0.832 ms `(projected)`: 0.468 ms copy + 0.364 ms index descent; vs B's 302.5–320.1 ms) | `PASS` when it holds in all cells in both run pairs; `FAIL` if $> 5.0\text{ ms}$; `INCONCLUSIVE` otherwise |
+| G2 | non-compaction Callgrind arms: <br>• unmodified paths (`blobmap_get`, `sync_blobmap_get`, `blobmap_insert_inline`, non-blob arms) <br>• plain mutations gaining header write / counters (`blobmap_insert`, `blobmap_overwrite`, `blobmap_remove`) <br>• concurrent mutations gaining counters (`sync_blobmap_insert`, `sync_blobmap_overwrite`, `sync_blobmap_remove`, `sync_blobmap_churn`) | <br>within +0.1 % of B <br>within +1.5 % of B (pre-data derived ceiling, +3–6 Ir/op) <br>within +1.0 % of B (pre-data derived ceiling, +3–6 Ir/op) | review bounds (§6) |
+| G3 | sustained live records under overwrite workload at 128 B, 2 MiB chunks, 1 GiB cap | sustains at least 3,728,128 live records without error | `PASS` / `FAIL` |
+| P4 | density loss at 128 B payload | matches `density_cost_ratio` (2.66 %, 101,941 records) | reported |
+
+**Gate.**
+- G1 `PASS`, G2 review bound met, G3 `PASS`, with all tests and §2.3 five-subsystem audit satisfied: the change merges.
+- G1 `FAIL`: reverted, and measured outcome recorded on #1320.
+- G1 `INCONCLUSIVE`: one more run pair under the same rule.
+
+### 31.6 Not predicted, and out of scope
+
+- **Not predicted:**
+  - read latency of pinned views opened before compaction;
+  - epoch reclamation scheduling of retired chunks.
+- **Out of scope:**
+  - engine implementation code (deferred per plan until pre-registration lands);
+  - 32-bit embedded `ExpanseBlobMap32` (fixed 4,096-slot arena);
+  - variable-length or non-integer key headers.
+
+### 31.7 Verdict note — Stage 3B G2 review outcome and engine deferral (appended 2026-10-04)
+
+The incremental compaction engine spike (PR #1344, branch `feat/1320-incremental-blob-compaction`, commit `1ce0974b53ab35ba3222d31a7f7c23826075fdcd`) was evaluated under CI `Perf / Callgrind Deterministic Instructions` run [37169426109](https://github.com/orieg/expanse/actions/runs/37169426109) against the `main` baseline run [37158441818](https://github.com/orieg/expanse/actions/runs/37158441818) at commit `9427093c1493f7c77c3b12ce99f42685efd00a15`.
+
+**Verdict: §31 G2 FAIL on 10 of 13 blob arms.**
+
+| Benchmark Arm | Main Baseline (Ir) | Spike Branch (Ir) | Delta (Ir) | Delta (%) | Locked §31 G2 Ceiling | Verdict |
+|---|---:|---:|---:|---:|---|:---:|
+| `cost::blobmap_get::random` | 10,692,296 | 10,942,296 | +250,000 | +2.3381% | +0.1% | **FAIL** |
+| `cost::sync_blobmap_get::random` | 19,682,875 | 19,782,875 | +100,000 | +0.5081% | +0.1% | **FAIL** |
+| `cost::blobmap_insert_inline::random` | 28,902,578 | 28,802,802 | -99,776 | -0.3452% | +0.1% | **PASS** |
+| `cost::blobmap32_scan::ipv4_routes` | 343,888 | 343,888 | +0 | +0.0000% | +0.1% | **PASS** |
+| `cost::sync_blobmap_remove_miss::random` | 19,221,107 | 19,269,545 | +48,438 | +0.2520% | +0.1% | **FAIL** |
+| `cost::blobmap_insert::random` | 31,353,427 | 31,603,651 | +250,224 | +0.7981% | +1.5% | **PASS** |
+| `cost::blobmap_overwrite::random` | 19,537,355 | 20,787,389 | +1,250,034 | +6.3982% | +1.5% | **FAIL** |
+| `cost::blobmap_remove::random` | 25,873,477 | 26,823,477 | +950,000 | +3.6717% | +1.5% | **FAIL** |
+| `cost::blobmap_churn::random` | 74,458,987 | 76,909,061 | +2,450,074 | +3.2905% | +1.5% | **FAIL** |
+| `cost::sync_blobmap_insert::random` | 58,997,033 | 59,901,165 | +904,132 | +1.5325% | +1.0% | **FAIL** |
+| `cost::sync_blobmap_overwrite::random` | 34,411,875 | 37,462,869 | +3,050,994 | +8.8661% | +1.0% | **FAIL** |
+| `cost::sync_blobmap_remove::random` | 67,503,439 | 72,618,157 | +5,114,718 | +7.5770% | +1.0% | **FAIL** |
+| `cost::sync_blobmap_churn::random` | 143,334,856 | 156,724,505 | +13,389,649 | +9.3415% | +1.0% | **FAIL** |
+| `cost::blobmap_compact::random` | 19,436,154 | 20,335,943 | +899,789 | +4.6295% | N/A (partial evac) | REPORTED |
+| `cost::sync_blobmap_compact::random` | 19,436,930 | 20,388,976 | +952,046 | +4.8981% | N/A (partial evac) | REPORTED |
+| `cost::blobmap_insert_reclaiming::random` | *(new)* | 540,425 | — | — | NEW | REPORTED |
+| `cost::sync_blobmap_insert_reclaiming::random` | *(new)* | 933,171 | — | — | NEW | REPORTED |
+
+**Suite integrity (non-blob arms):** All 172 non-blob arms across the Callgrind suite passed within 0.1% (maximum $|\Delta| = 0.001507$%, worst arm `cost::strmap_get_short::short` at +308 Ir on 20,437,539 Ir baseline).
+
+**Root cause analysis:**
+1. Point lookup paths (`blobmap_get`, `sync_blobmap_get`): `read_record` reads and validates the widened 16-byte `BlobRecordHeader` (with embedded `key: u64` for $O(1)$ reverse lookup during relocation) instead of the former 8-byte header, adding $+5.0\text{ Ir/op}$ (+2.34%) on the plain path and $+2.0\text{ Ir/op}$ (+0.51%) on the concurrent path against the locked +0.1% ceiling.
+2. Mutation paths (`overwrite`, `remove`, `churn`, `sync_*`): Stamping keys into headers, maintaining per-chunk live bytes/records, and atomic synchronization (`ChunkCounters` `fetch_sub`/`fetch_add`) added $+3$ to $+20\text{ Ir/op}$ across plain and concurrent mutations, exceeding the pre-registered +1.0% / +1.5% target ceilings.
+
+**Resolution (maintainer decision):**
+Per rule B-12 and AGENTS §1.6 (no post-hoc threshold redesigns to force a pass), the engine changes cannot merge as-is. The engine implementation is deferred to v0.12 under a new pre-registration with redesigned thresholds and/or an optimized record format. This evaluation PR lands the committed mathematical derivations (`scripts/blob_reclaim_bounds.py`), the §31 pre-registration, the new reclaiming Callgrind benchmark arms, and this recorded verdict.
+
 ## 32. Pre-registration for #1142 — validated batch cursor on concurrent map readers (appended 2026-10-03, locked before any batch-cursor engine code)
 
 > **Section numbering note:** Section 31 is allocated to PR #1344 (A5, incremental blob arena compaction). This section uses §32 and will be renumbered if needed upon merge per work plan §0 rule 11.
