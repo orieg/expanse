@@ -58,6 +58,7 @@ suite is visible rather than silently absent from this index.
 | Token | Instrument | What it runs |
 |---|---|---|
 | `all` | Callgrind | Default for a bare `/bench`: dual-pass Callgrind over `instructions` and `vs_stock`, the two B/key examples, the paired `bench_vs_libjudy` wall-clock comparison, and the fast comparative sweep. |
+| `allocator_overhead` | wall-clock | Allocator overhead and RSS census at N = 10^7 on main and candidate head (two runs each): pre-shrink RSS across all shapes and shrink_to_fit RSS recovery fraction (Issue #1108, Gate G1). |
 | `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |
 | `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
 | `compare` | wall-clock | Standing container comparison harness across the core map and set types. |

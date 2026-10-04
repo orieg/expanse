@@ -117,6 +117,7 @@ on:
           - art_memory
           - art_small_payload
           - patricia_comparison
+          - allocator_overhead
           # END GENERATED: bench-suites
   issue_comment:
     types: [created]
@@ -1243,6 +1244,20 @@ jobs:
                   --run-id "$RUN_URL" \
                   | tee hashbrown-ycsb.txt
                 ;;
+              "allocator_overhead")
+                # Allocator-inclusive memory census and RSS recovery under shrink_to_fit (Issue #1108, Gate G1).
+                # Runs N = 10^7 keys across all five shapes on base and head (two runs each) with load snapshots.
+                python3 scripts/allocator_overhead_bench.py \
+                  --base-ref "${BASE_REF:-main}" \
+                  --head-ref "$REF" \
+                  --population 10000000 \
+                  --runs 2 \
+                  --host-desc "$HOST_DESC" \
+                  --run-id "$RUN_URL" \
+                  --out baseline-allocator_overhead.json \
+                  --md-out head-to-head.md \
+                  | tee allocator-overhead.txt
+                ;;
               "patricia_comparison")
                 # Six harness=false benches driven by the suite runner, which
                 # writes one `results/baseline_*.json` per pillar with host
@@ -2157,6 +2172,7 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json \
             ycsb.txt \
             hashbrown-ycsb.txt \
+            allocator-overhead.txt \
             docs/benchmarks/patricia_comparison/results/baseline_*.json \
             comparative.txt \
             bytes-per-key.txt \
