@@ -112,6 +112,12 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_map_compact_drained": 62_500,
     "sync_set_compact_baseline": 62_500,
     "sync_map_compact_baseline": 62_500,
+    # 32-bit rebuild and compact arms of the remove-retention suite (#1200):
+    # 62,500 keys kept after partial draining.
+    "set32_rebuild_drained": 62_500,
+    "map32_rebuild_drained": 62_500,
+    "set32_compact_drained": 62_500,
+    "map32_compact_drained": 62_500,
     # Bulk construction: `ExpanseMap::from_sorted_iter` and `collect()` over
     # the same 50,000 entries.
     "map_from_sorted_iter": 50_000,
@@ -424,6 +430,10 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_map_compact_drained",
             "sync_set_compact_baseline",
             "sync_map_compact_baseline",
+            "set32_rebuild_drained",
+            "map32_rebuild_drained",
+            "set32_compact_drained",
+            "map32_compact_drained",
             "map_from_sorted_iter",
             "map_collect",
             "set_subtree_boundary_oscillate",

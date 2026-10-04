@@ -55,8 +55,9 @@ impl ExpanseMap32 {
     /// wrapper (`sync32`). Not public: rigid preallocation trades away the
     /// §2.1 expanse-proportional memory invariant, so it is opt-in through
     /// the concurrent surface only, where the trade is declared.
+    #[doc(hidden)]
     #[must_use]
-    pub(crate) fn with_fixed_arena(node_cap: usize, pending_cap: usize) -> Self {
+    pub fn with_fixed_arena(node_cap: usize, pending_cap: usize) -> Self {
         Self {
             alloc: Arena::with_capacity(node_cap, pending_cap),
             root: Edge32::null(),
@@ -422,6 +423,38 @@ impl ExpanseMap32 {
     pub fn shrink_to_fit(&mut self) -> usize {
         self.finger.clear();
         self.alloc.shrink_to_fit()
+    }
+
+    /// Compacts the map in place: rebuilds its entries into a fresh arena and
+    /// drops the old tree, returning to the allocator the old arena's memory.
+    /// Use it after deleting most of a map's entries: removals leave fragmented
+    /// nodes and branch structures that [`Self::shrink_to_fit`] cannot return.
+    /// After `compact` the map's [`Self::mem_used`] equals that of a map built
+    /// by inserting the same entries.
+    ///
+    /// **Every node moves.** Unlike [`Self::shrink_to_fit`], which moves
+    /// nothing, this invalidates every value pointer
+    /// ([`Self::get_slot_ptr`], [`Self::get_value_slot`], [`Self::ins_slot`])
+    /// and every other pointer derived from the map's nodes.
+    ///
+    /// **Cost.** O(n) in the population: one ordered walk of the old tree,
+    /// inserting into the fresh tree, and the old tree's drop.
+    ///
+    /// A no-op on a map shared through a concurrent wrapper ([`crate::sync32`]),
+    /// whose readers may hold the old nodes.
+    pub fn compact(&mut self) {
+        if self.alloc.is_deferred() {
+            return;
+        }
+        self.finger.clear();
+        // Rebuild via `from_sorted_iter` using the ordered iterator.
+        // Note: unlike 64-bit `ExpanseMap::compact` which uses a direct-emission
+        // bottom-up builder where `live_allocs == total_allocs`, the 32-bit twin
+        // inserts key-by-key (see deferral note at line 111) and promotes leaves
+        // through capacity classes, freeing earlier nodes. Peak is not bounded
+        // by the zero-freed census identity (METHODOLOGY.md §13).
+        let compacted = Self::from_sorted_iter(self.iter());
+        drop(core::mem::replace(self, compacted));
     }
 
     /// Smallest entry with key `>= bound`, if any.
@@ -1571,5 +1604,26 @@ mod tests {
             assert_eq!(m_len, 1);
             assert_eq!(copy_len, 1);
         }
+    }
+
+    #[test]
+    fn compact_small_and_empty() {
+        let mut m = ExpanseMap32::new();
+        m.compact();
+        assert_eq!(m.len(), 0);
+        assert_eq!(m.mem_used(), 0);
+
+        m.insert(42, 100);
+        m.compact();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m.get(42), Some(100));
+    }
+
+    #[test]
+    fn compact_is_a_no_op_on_a_shared_tree() {
+        let mut m = ExpanseMap32::with_fixed_arena(256, 128);
+        let held_before = m.mem_held();
+        m.compact();
+        assert_eq!(m.mem_held(), held_before);
     }
 }
