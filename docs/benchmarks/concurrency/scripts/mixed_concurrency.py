@@ -92,6 +92,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -152,6 +153,15 @@ RAW_KEYS = ("round", "position", "elapsed_s", "read_ops", "write_ops", "busy", "
 # its timed loop, where `core` is the lowest-numbered CPU sharing that
 # physical core. Carried into that arm's `rounds_raw` only.
 PLACEMENT_KEYS = ("reader_placement", "writer_placement")
+# Worker thread last-run CPU samples from /proc/<pid>/task/<tid>/stat field 39 (#1292),
+# sampled at STAT_SAMPLE_CADENCE (50 ms) during the measurement window.
+CPU_SAMPLE_KEYS = ("reader_cpu_samples", "writer_cpu_samples")
+
+# Paced duties step detection (#1292): a paced duty is stepped if its T = 1 read
+# mean is below 0.85 * that duty's median across the batch (batch-relative), or
+# below 0.85 * reference read mean (when evaluated against a committed reference artifact).
+SYNC32_STEP_THRESHOLD_FACTOR = 0.85
+SYNC32_PACED_RATES = (1_000_000, 100_000, 10_000)
 # The share of writes that removed a present key once the independent write
 # bit holds occupancy at half the keyspace (#1280): half the writes are
 # removals and half of those find their key. A mixed window far from it
@@ -436,8 +446,9 @@ def summarize_cell(rows: list[dict[str, Any]], base: dict[int, float] | None,
             by_round = [t for _, t in sorted(zip((r["round"] for r in rows), total))]
             cell["later_over_earlier_median"] = _median(by_round[half:]) / _median(by_round[:half])
     cell["load"] = dict(load, scope=LOAD_SCOPE)
-    raw_keys = RAW_KEYS + (PLACEMENT_KEYS if first["engine_key"] == SYNC32
-                           and all(k in first for k in PLACEMENT_KEYS) else ())
+    extra_keys = tuple(k for k in PLACEMENT_KEYS + CPU_SAMPLE_KEYS
+                       if all(k in r for r in rows))
+    raw_keys = RAW_KEYS + (extra_keys if first["engine_key"] == SYNC32 else ())
     cell["rounds_raw"] = [{k: r[k] for k in raw_keys} for r in rows]
     return cell
 
@@ -456,6 +467,234 @@ def writer_core_shared(rows: list[dict[str, Any]]) -> float | None:
             return None
         shared += writer_core in reader_cores
     return shared / len(rows)
+
+
+def wilson_interval(k: int, n: int, confidence: float = 0.95) -> tuple[float, float]:
+    """Wilson score confidence interval for binomial proportion k / n (issue #1292).
+
+    Returns (lower, upper) bounded in [0.0, 1.0].
+    """
+    if n <= 0:
+        return (0.0, 0.0)
+    z = 1.959963984540054  # 95% standard normal quantile
+    if confidence != 0.95:
+        import scipy.stats
+        z = float(scipy.stats.norm.ppf((1 + confidence) / 2))
+    p_hat = k / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    center = (p_hat + z2 / (2.0 * n)) / denom
+    half = (z / denom) * math.sqrt(p_hat * (1.0 - p_hat) / n + z2 / (4.0 * n * n))
+    return (max(0.0, center - half), min(1.0, center + half))
+
+
+def _extract_sync32_paced_cells(cells: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    """Finds the T = 1 cell for each paced duty (1M/s, 100k/s, 10k/s) in cells."""
+    hits = {}
+    for c in cells:
+        if c.get("engine_key") != SYNC32 or c.get("threads") != 1:
+            continue
+        rate = c.get("write_rate")
+        workload = c.get("workload", "")
+        for target_rate, label in ((1_000_000, "1M/s"), (100_000, "100k/s"), (10_000, "10k/s")):
+            if rate == target_rate or (rate is None and label in workload):
+                hits[target_rate] = c
+                break
+    return hits
+
+
+def check_sync32_steps(
+    runs: Any,
+    reference: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Per-duty stepped/not-stepped check on sync32 paced duties (#1292).
+
+    Evaluates whether any paced duty (1M/s, 100k/s, 10k/s) stepped:
+    - Primary mode (batch-relative): when >= 2 runs are supplied, calculates each
+      duty's median T=1 read mean across the batch. Stepped = T=1 read mean < 0.85 * median.
+    - Single-run fallback: when 1 run is supplied, requires an explicit reference
+      artifact (via `reference`), computing floor = 0.85 * reference read mean.
+      Prints the reference commit and governor beside every verdict.
+    - No constants in source.
+    - Reports k/N with Wilson 95% confidence interval.
+    """
+    labels = {1_000_000: "1M/s", 100_000: "100k/s", 10_000: "10k/s"}
+    runs_list: list[list[dict[str, Any]]] = []
+    if isinstance(runs, dict):
+        if "throughput" in runs:
+            runs_list = [runs["throughput"]]
+    elif isinstance(runs, list):
+        if runs:
+            first = runs[0]
+            if isinstance(first, dict):
+                if "throughput" in first:
+                    runs_list = [r["throughput"] for r in runs if isinstance(r, dict) and "throughput" in r]
+                elif "engine_key" in first:
+                    runs_list = [runs]
+            elif isinstance(first, list):
+                runs_list = runs
+
+    if not runs_list:
+        return {"mode": "empty", "stepped_count": 0, "total_duties": 0, "wilson_ci": (0.0, 0.0), "duties": []}
+
+    per_run_paced = [_extract_sync32_paced_cells(r) for r in runs_list]
+    present_rates = [r for r in SYNC32_PACED_RATES if any(r in pr for pr in per_run_paced)]
+    if not present_rates:
+        return {"mode": "empty", "stepped_count": 0, "total_duties": 0, "wilson_ci": (0.0, 0.0), "duties": []}
+
+    if len(runs_list) >= 2:
+        # Primary mode: batch-relative
+        duties_out = []
+        k = 0
+        n_total = 0
+        for rate in present_rates:
+            duty_label = labels[rate]
+            vals = [pr[rate]["read_ops_s_mean"] for pr in per_run_paced if rate in pr]
+            if not vals:
+                continue
+            batch_median = _median(vals)
+            floor = SYNC32_STEP_THRESHOLD_FACTOR * batch_median
+            run_checks = []
+            for run_idx, pr in enumerate(per_run_paced):
+                if rate not in pr:
+                    continue
+                v = pr[rate]["read_ops_s_mean"]
+                stepped = v < floor
+                if stepped:
+                    k += 1
+                n_total += 1
+                run_checks.append({
+                    "run_index": run_idx,
+                    "read_ops_s_mean": v,
+                    "floor": floor,
+                    "median": batch_median,
+                    "stepped": stepped,
+                })
+            duties_out.append({
+                "rate": rate,
+                "duty": duty_label,
+                "median": batch_median,
+                "floor": floor,
+                "runs": run_checks,
+            })
+        ci = wilson_interval(k, n_total)
+        return {
+            "mode": "batch-relative",
+            "runs_count": len(runs_list),
+            "stepped_count": k,
+            "total_duties": n_total,
+            "wilson_ci": ci,
+            "duties": duties_out,
+        }
+
+    # Exactly 1 run
+    if reference is not None:
+        ref_cells = reference.get("throughput", reference if isinstance(reference, list) else [])
+        ref_paced = _extract_sync32_paced_cells(ref_cells)
+        ref_prov = reference.get("provenance", {}) if isinstance(reference, dict) else {}
+        ref_commit = ref_prov.get("commit") or "unknown"
+        ref_host = ref_prov.get("host", {}) or {}
+        ref_gov = ref_host.get("governor") or ref_prov.get("governor") or "unknown"
+        run_paced = per_run_paced[0]
+
+        duties_out = []
+        k = 0
+        n_total = 0
+        for rate in present_rates:
+            if rate not in ref_paced or rate not in run_paced:
+                continue
+            duty_label = labels[rate]
+            ref_mean = ref_paced[rate]["read_ops_s_mean"]
+            floor = SYNC32_STEP_THRESHOLD_FACTOR * ref_mean
+            run_mean = run_paced[rate]["read_ops_s_mean"]
+            stepped = run_mean < floor
+            if stepped:
+                k += 1
+            n_total += 1
+            duties_out.append({
+                "rate": rate,
+                "duty": duty_label,
+                "ref_mean": ref_mean,
+                "floor": floor,
+                "read_ops_s_mean": run_mean,
+                "stepped": stepped,
+            })
+        ci = wilson_interval(k, n_total)
+        return {
+            "mode": "reference-fallback",
+            "runs_count": 1,
+            "reference_commit": ref_commit,
+            "reference_governor": ref_gov,
+            "stepped_count": k,
+            "total_duties": n_total,
+            "wilson_ci": ci,
+            "duties": duties_out,
+        }
+
+    return {
+        "mode": "single-run-unreferenced",
+        "runs_count": 1,
+        "stepped_count": 0,
+        "total_duties": 0,
+        "wilson_ci": (0.0, 0.0),
+        "duties": [],
+    }
+
+
+def format_sync32_step_checks(report: dict[str, Any]) -> str:
+    """Renders sync32 step checks as human-readable text (#1292)."""
+    mode = report.get("mode")
+    if mode == "empty":
+        return "sync32 step check (#1292): no paced duties present"
+    if mode == "single-run-unreferenced":
+        return ("sync32 step check (#1292): single run provided without --reference-artifact; "
+                "supply multiple runs for batch-relative evaluation or provide --reference-artifact <path>")
+    lo, hi = report.get("wilson_ci", (0.0, 0.0))
+    k = report.get("stepped_count", 0)
+    n = report.get("total_duties", 0)
+
+    if mode == "batch-relative":
+        lines = [f"sync32 step check (#1292, batch-relative over {report.get('runs_count', 0)} runs):"]
+        for d in report.get("duties", []):
+            lines.append(
+                f"  {d['duty']}: batch median {d['median'] / 1e6:.1f} M ops/s, "
+                f"floor {d['floor'] / 1e6:.1f} M ops/s ({SYNC32_STEP_THRESHOLD_FACTOR:.2f}x median)"
+            )
+        lines.append(f"  {k} of {n} paced duties stepped, Wilson 95% [{lo:.3f}, {hi:.3f}]")
+        stepped_runs = []
+        for d in report.get("duties", []):
+            for r in d.get("runs", []):
+                if r["stepped"]:
+                    stepped_runs.append(
+                        f"    run {r['run_index'] + 1} {d['duty']}: STEPPED "
+                        f"(T=1 read mean {r['read_ops_s_mean'] / 1e6:.1f} M ops/s < floor {r['floor'] / 1e6:.1f} M ops/s)"
+                    )
+        if stepped_runs:
+            lines.append("  Stepped duties:")
+            lines.extend(stepped_runs)
+        return "\n".join(lines)
+
+    if mode == "reference-fallback":
+        ref_commit = report.get("reference_commit", "unknown")
+        ref_gov = report.get("reference_governor", "unknown")
+        lines = [f"sync32 step check (#1292, reference fallback: commit {ref_commit}, governor {ref_gov}):"]
+        for d in report.get("duties", []):
+            status = "STEPPED" if d["stepped"] else "NOT STEPPED"
+            cmp = "<" if d["stepped"] else ">="
+            lines.append(
+                f"  {d['duty']}: {status} "
+                f"(T=1 read mean {d['read_ops_s_mean'] / 1e6:.1f} M ops/s {cmp} "
+                f"floor {d['floor'] / 1e6:.1f} M ops/s, "
+                f"{SYNC32_STEP_THRESHOLD_FACTOR:.2f}x reference {d['ref_mean'] / 1e6:.1f} M ops/s "
+                f"[commit {ref_commit}, governor {ref_gov}])"
+            )
+        lines.append(
+            f"  {k} of {n} paced duties stepped, Wilson 95% [{lo:.3f}, {hi:.3f}] "
+            f"(reference commit {ref_commit}, governor {ref_gov})"
+        )
+        return "\n".join(lines)
+
+    return f"sync32 step check (#1292): unknown mode {mode!r}"
 
 
 def workload_problems(rows: list[dict[str, Any]]) -> list[str]:
@@ -556,6 +795,19 @@ def run(args: argparse.Namespace) -> int:
                 load = end_cell(start)
                 cells.extend(summarize_group(read_samples(samples), threads, rounds, load))
     add_load(prov, "end")
+    if getattr(args, "reference_artifact", None) and SYNC32 not in engines:
+        raise InstrumentError("--reference-artifact applies only to sync32 runs or --check-sync32-steps")
+    if SYNC32 in engines:
+        ref = None
+        if getattr(args, "reference_artifact", None):
+            rp = Path(args.reference_artifact)
+            if not rp.is_file():
+                raise InstrumentError(f"--reference-artifact does not exist: {rp}")
+            ref = json.loads(rp.read_text())
+        step_report = check_sync32_steps([cells], reference=ref)
+        print("\n" + format_sync32_step_checks(step_report))
+        if step_report.get("stepped_count", 0) > 0:
+            sys.stderr.write("mixed_concurrency.py: WARNING (#1292): stepped sync32 duty detected\n")
     artifact = {"provenance": prov, "throughput": cells}
     problems = artifact_problems(out, artifact)
     if problems:
@@ -1333,13 +1585,21 @@ def publish_assets(run_ids: tuple[str, str] | None) -> list[str]:
 def _synthetic_rows(key: str, workload: str, read_pct: int | None, threads: list[int],
                     rounds: int) -> list[dict[str, Any]]:
     rows = []
+    write_rate = None
+    if key == SYNC32:
+        if "1M/s" in workload:
+            write_rate = 1_000_000
+        elif "100k/s" in workload:
+            write_rate = 100_000
+        elif "10k/s" in workload:
+            write_rate = 10_000
     for round_idx in range(rounds):
         for position, idx in enumerate(williams_order(len(threads), round_idx)):
             t = threads[idx]
             jitter = 1.0 + 0.01 * ((round_idx * 7 + position * 3) % 5)
             rows.append({
                 "workload_id": WORKLOAD_ID, "engine_key": key, "engine": key.upper(),
-                "workload": workload, "read_pct": read_pct, "write_rate": None,
+                "workload": workload, "read_pct": read_pct, "write_rate": write_rate,
                 "threads": t, "round": round_idx, "position": position,
                 "elapsed_s": 0.5 + 0.001 * position,
                 "read_ops": int(1_000_000 * t ** 0.8 * jitter),
@@ -1359,6 +1619,10 @@ def _synthetic_rows(key: str, workload: str, read_pct: int | None, threads: list
                     [2 * (i + 1), i + 1, 2 * (i + 1) + 1, 0 if round_idx == 0 and i == 0 else i + 1]
                     for i in range(t)]
                 rows[-1]["writer_placement"] = [0, 0, 0, 0]
+                rows[-1]["reader_cpu_samples"] = [
+                    [2 * (i + 1) + (round_idx % 2)] * 10
+                    for i in range(t)]
+                rows[-1]["writer_cpu_samples"] = [0] * 10
     return rows
 
 
@@ -1415,18 +1679,129 @@ def self_test() -> int:
            + _synthetic_rows(SYNC32, "writer 10k/s / N readers try_get", None, threads, rounds))
     s32_cells = summarize_group(s32, threads, rounds, load)
     assert len(s32_cells) == 2 * len(threads) and all("busy_pct" in c for c in s32_cells)
-    # Placement (#1292): carried into sync32 rounds_raw, summarised per cell
-    # (one synthetic round in 18 puts a reader on the writer's core), absent
-    # from every other arm, and no summary from windows that lack it.
+    # Placement and CPU samples (#1292): carried into sync32 rounds_raw,
+    # summarised per cell (one synthetic round in 18 puts a reader on the
+    # writer's core), absent from every other arm, and no summary from windows
+    # that lack it.
     for c in s32_cells:
-        assert set(c["rounds_raw"][0]) == set(RAW_KEYS + PLACEMENT_KEYS), c["rounds_raw"][0]
+        assert set(c["rounds_raw"][0]) == set(RAW_KEYS + PLACEMENT_KEYS + CPU_SAMPLE_KEYS), c["rounds_raw"][0]
         assert len(c["rounds_raw"][0]["reader_placement"]) == c["threads"]
+        assert len(c["rounds_raw"][0]["reader_cpu_samples"]) == c["threads"]
+        assert len(c["rounds_raw"][0]["writer_cpu_samples"]) == 10
         assert abs(c["writer_core_shared_share"] - 1 / rounds) < 1e-12, c["writer_core_shared_share"]
     assert all("writer_core_shared_share" not in c and set(c["rounds_raw"][0]) == set(RAW_KEYS)
                for c in cells)
-    bare = [{k: v for k, v in r.items() if k not in PLACEMENT_KEYS} for r in s32]
+    bare = [{k: v for k, v in r.items() if k not in PLACEMENT_KEYS + CPU_SAMPLE_KEYS} for r in s32]
     assert all("writer_core_shared_share" not in c and set(c["rounds_raw"][0]) == set(RAW_KEYS)
                for c in summarize_group(bare, threads, rounds, load))
+
+    # Wilson confidence interval for binomial proportion (#1292):
+    assert wilson_interval(0, 0) == (0.0, 0.0)
+    w0_30 = wilson_interval(0, 30)
+    assert w0_30[0] == 0.0 and abs(w0_30[1] - 0.114) < 0.001, w0_30
+    w6_18 = wilson_interval(6, 18)
+    assert abs(w6_18[0] - 0.163) < 0.001 and abs(w6_18[1] - 0.562) < 0.001, w6_18
+
+    # Stepped checks (#1292): batch-relative mode and reference fallback.
+    s32_all_duties = (
+        _synthetic_rows(SYNC32, "writer full duty / N readers try_get", None, threads, rounds)
+        + _synthetic_rows(SYNC32, "writer 1M/s / N readers try_get", None, threads, rounds)
+        + _synthetic_rows(SYNC32, "writer 100k/s / N readers try_get", None, threads, rounds)
+        + _synthetic_rows(SYNC32, "writer 10k/s / N readers try_get", None, threads, rounds)
+    )
+    s32_all_cells = summarize_group(s32_all_duties, threads, rounds, load)
+
+    # Empty / non-paced runs:
+    assert check_sync32_steps([])["mode"] == "empty"
+    assert format_sync32_step_checks(check_sync32_steps([])) == "sync32 step check (#1292): no paced duties present"
+
+    # Single run unreferenced:
+    unref = check_sync32_steps([s32_all_cells])
+    assert unref["mode"] == "single-run-unreferenced"
+    assert "single run provided without --reference-artifact" in format_sync32_step_checks(unref)
+
+    # Single run reference fallback:
+    ref_artifact = {
+        "provenance": {
+            "commit": "abc1234",
+            "host": {"governor": "performance"},
+        },
+        "throughput": [
+            dict(c, read_ops_s_mean=c["read_ops_s_mean"])
+            for c in s32_all_cells
+        ],
+    }
+    ref_eval_same = check_sync32_steps([s32_all_cells], reference=ref_artifact)
+    assert ref_eval_same["mode"] == "reference-fallback"
+    assert ref_eval_same["stepped_count"] == 0
+    assert ref_eval_same["total_duties"] == 3
+    assert ref_eval_same["reference_commit"] == "abc1234"
+    assert ref_eval_same["reference_governor"] == "performance"
+    assert "NOT STEPPED" in format_sync32_step_checks(ref_eval_same)
+
+    # Against higher reference throughput (so run throughput < 0.85 * ref): stepped!
+    ref_high = {
+        "provenance": {"commit": "refhigh1", "host": {"governor": "performance"}},
+        "throughput": [
+            dict(c, read_ops_s_mean=c["read_ops_s_mean"] * 2.0)
+            for c in s32_all_cells
+        ],
+    }
+    ref_eval_stepped = check_sync32_steps([s32_all_cells], reference=ref_high)
+    assert ref_eval_stepped["stepped_count"] == 3
+    assert ref_eval_stepped["total_duties"] == 3
+    assert "STEPPED" in format_sync32_step_checks(ref_eval_stepped)
+    assert "refhigh1" in format_sync32_step_checks(ref_eval_stepped)
+
+    # Batch-relative mode over 10 runs:
+    clean_runs = []
+    for i in range(10):
+        factor = 1.0 + (i - 4.5) * 0.004  # 0.982 to 1.018
+        run_cells = [
+            dict(c, read_ops_s_mean=c["read_ops_s_mean"] * factor)
+            for c in s32_all_cells
+        ]
+        clean_runs.append(run_cells)
+
+    batch_clean = check_sync32_steps(clean_runs)
+    assert batch_clean["mode"] == "batch-relative"
+    assert batch_clean["runs_count"] == 10
+    assert batch_clean["stepped_count"] == 0
+    assert batch_clean["total_duties"] == 30
+    assert batch_clean["wilson_ci"][0] == 0.0
+    assert abs(batch_clean["wilson_ci"][1] - 0.114) < 0.001
+    fmt_batch = format_sync32_step_checks(batch_clean)
+    assert "batch-relative over 10 runs" in fmt_batch
+    assert "0 of 30 paced duties stepped" in fmt_batch
+
+    # Uniform -20% shift invariance:
+    # When all runs shift by -20%, the batch median drops by -20%. Each run's
+    # throughput remains >= 0.85x median, so exactly 0 duties step.
+    shifted_runs = [
+        [dict(c, read_ops_s_mean=c["read_ops_s_mean"] * 0.80) for c in r]
+        for r in clean_runs
+    ]
+    batch_shifted = check_sync32_steps(shifted_runs)
+    assert batch_shifted["mode"] == "batch-relative"
+    assert batch_shifted["stepped_count"] == 0, "uniform -20% shift must report 0 stepped duties"
+    assert batch_shifted["total_duties"] == 30
+
+    # Stepped run in batch: run 10 has 10k/s duty stepped to 0.5x
+    runs_with_step = [list(r) for r in clean_runs[:9]]
+    stepped_run_cells = []
+    for c in clean_runs[9]:
+        if c.get("write_rate") == 10_000:
+            stepped_run_cells.append(dict(c, read_ops_s_mean=c["read_ops_s_mean"] * 0.50))
+        else:
+            stepped_run_cells.append(dict(c))
+    runs_with_step.append(stepped_run_cells)
+    batch_with_step = check_sync32_steps(runs_with_step)
+    assert batch_with_step["mode"] == "batch-relative"
+    assert batch_with_step["stepped_count"] == 1
+    assert batch_with_step["total_duties"] == 30
+    fmt_with_step = format_sync32_step_checks(batch_with_step)
+    assert "1 of 30 paced duties stepped" in fmt_with_step
+    assert "run 10 10k/s: STEPPED" in fmt_with_step
 
     # Negative controls: a dropped thread count, a swapped order, a zero window.
     expect_error(summarize_group, [r for r in rows if r["threads"] != 4], threads, rounds, load,
@@ -1771,10 +2146,36 @@ def main() -> int:
                          "1edfa952, one process per window, map and set at 1 and 16 threads")
     ap.add_argument("--run2", action="store_true",
                     help="with --step2-gate: write the second run's committed artifact")
+    ap.add_argument("--check-sync32-steps", nargs="+", metavar="ARTIFACT",
+                    help="check sync32 step behavior across one or more artifact JSON files (#1292) and exit")
+    ap.add_argument("--reference-artifact", default=None,
+                    help="reference artifact JSON for single-run sync32 step check (#1292)")
+    ap.add_argument("--sample-cpus", action="store_true",
+                    help="opt-in CPU sampling (sets EXPANSE_BENCH_CPU_SAMPLES=1) (#1292)")
     args = ap.parse_args()
+    if args.sample_cpus:
+        os.environ["EXPANSE_BENCH_CPU_SAMPLES"] = "1"
     if args.self_test:
         return self_test()
     try:
+        if args.check_sync32_steps:
+            if args.step2_gate or args.write_assets or args.check_assets:
+                raise InstrumentError("--check-sync32-steps cannot be combined with --step2-gate or asset flags")
+            artifacts = []
+            for p in args.check_sync32_steps:
+                path = Path(p)
+                if not path.is_file():
+                    raise InstrumentError(f"artifact file not found: {path}")
+                artifacts.append(json.loads(path.read_text()))
+            ref = None
+            if args.reference_artifact:
+                rp = Path(args.reference_artifact)
+                if not rp.is_file():
+                    raise InstrumentError(f"--reference-artifact does not exist: {rp}")
+                ref = json.loads(rp.read_text())
+            report = check_sync32_steps(artifacts, reference=ref)
+            print(format_sync32_step_checks(report))
+            return 1 if report.get("stepped_count", 0) > 0 else 0
         if args.step2_gate:
             if args.write_assets or args.check_assets:
                 raise InstrumentError("--step2-gate is a measurement run; --write-assets and "
