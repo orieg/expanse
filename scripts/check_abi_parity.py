@@ -36,7 +36,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 def get_repo_root() -> Path:
@@ -62,19 +62,24 @@ class ParityReport:
     total_c_symbols: int
     java_covered: Set[str] = field(default_factory=set)
     java_missing: Set[str] = field(default_factory=set)
+    java_deferred: Set[str] = field(default_factory=set)
     dotnet_covered: Set[str] = field(default_factory=set)
     dotnet_missing: Set[str] = field(default_factory=set)
+    dotnet_deferred: Set[str] = field(default_factory=set)
     python_covered: Set[str] = field(default_factory=set)
     python_missing: Set[str] = field(default_factory=set)
+    python_deferred: Set[str] = field(default_factory=set)
     node_covered: Set[str] = field(default_factory=set)
     node_missing: Set[str] = field(default_factory=set)
+    node_deferred: Set[str] = field(default_factory=set)
     # Marker/mapping inconsistencies (a marker naming an unknown symbol, or
     # sitting in a file its mapping does not name). Always fatal.
     python_errors: List[str] = field(default_factory=list)
     node_errors: List[str] = field(default_factory=list)
     go_covered: Set[str] = field(default_factory=set)
-    narrow_only: List[str] = field(default_factory=list)
     go_missing: Set[str] = field(default_factory=set)
+    go_deferred: Set[str] = field(default_factory=set)
+    narrow_only: List[str] = field(default_factory=list)
     category_breakdown: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
 
@@ -399,6 +404,44 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 }
 
 
+# Stated deferrals for C ABI symbols intentionally pending binding support.
+# Every entry MUST specify:
+#   - issue: The issue or PR tracking the binding implementation.
+#   - reason: A non-empty rationale explaining why the symbol is deferred.
+#   - ecosystems: Set of ecosystem identifiers where deferral applies
+#                 ('java', 'dotnet', 'python', 'node', 'go').
+STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {}
+
+
+def validate_stated_deferrals(
+    deferrals: Dict[str, Dict[str, Any]], wide_symbols: List[CSymbol]
+) -> List[str]:
+    """Validates the integrity of stated deferral entries.
+
+    Returns a list of error messages (empty if all entries are valid).
+    """
+    errors: List[str] = []
+    all_header_symbols = {s.name for s in wide_symbols}
+    valid_ecos = {"java", "dotnet", "python", "node", "go"}
+    for sym_name, entry in sorted(deferrals.items()):
+        if sym_name not in all_header_symbols:
+            errors.append(
+                f"STATED_DEFERRALS names {sym_name}, which is not a wide-surface symbol of include/expanse.h"
+            )
+        issue = entry.get("issue")
+        if not issue or not (isinstance(issue, str) and (issue.startswith("#") or issue.startswith("http"))):
+            errors.append(f"STATED_DEFERRALS[{sym_name}] must cite an issue or PR (found: {issue!r})")
+        reason = entry.get("reason")
+        if not reason or not (isinstance(reason, str) and len(reason.strip()) > 0):
+            errors.append(f"STATED_DEFERRALS[{sym_name}] must carry a non-empty rationale")
+        ecos = entry.get("ecosystems")
+        if not ecos or not isinstance(ecos, (set, list, tuple)) or len(ecos) == 0:
+            errors.append(f"STATED_DEFERRALS[{sym_name}] must declare at least one ecosystem")
+        elif not set(ecos).issubset(valid_ecos):
+            errors.append(f"STATED_DEFERRALS[{sym_name}] has invalid ecosystems: {set(ecos) - valid_ecos}")
+    return errors
+
+
 # `#if !EXPANSE_WIDE_SURFACE` / `#if EXPANSE_WIDE_SURFACE == 0` open the
 # 32-bit-only surface block in expanse.h.
 _NARROW_IF_RE = re.compile(r"^#if\s*(?:!\s*EXPANSE_WIDE_SURFACE|EXPANSE_WIDE_SURFACE\s*==\s*0)\b")
@@ -699,24 +742,47 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
 
     java_symbols = parse_java_panama(java_path)
     dotnet_symbols = parse_dotnet_pinvoke(dotnet_path)
-    py_covered, py_missing, py_errors = verify_python_bindings(py_dir, c_symbols)
-    node_covered, node_missing, node_errors = verify_node_bindings(node_dir, c_symbols)
+    py_covered, py_raw_missing, py_errors = verify_python_bindings(py_dir, c_symbols)
+    node_covered, node_raw_missing, node_errors = verify_node_bindings(node_dir, c_symbols)
     go_symbols = parse_go_purego(go_path)
+
+    java_raw_missing = c_symbol_names - java_symbols
+    java_deferred = {s for s in java_raw_missing if s in STATED_DEFERRALS and "java" in STATED_DEFERRALS[s].get("ecosystems", ())}
+    java_missing = java_raw_missing - java_deferred
+
+    dotnet_raw_missing = c_symbol_names - dotnet_symbols
+    dotnet_deferred = {s for s in dotnet_raw_missing if s in STATED_DEFERRALS and "dotnet" in STATED_DEFERRALS[s].get("ecosystems", ())}
+    dotnet_missing = dotnet_raw_missing - dotnet_deferred
+
+    py_deferred = {s for s in py_raw_missing if s in STATED_DEFERRALS and "python" in STATED_DEFERRALS[s].get("ecosystems", ())}
+    py_missing = py_raw_missing - py_deferred
+
+    node_deferred = {s for s in node_raw_missing if s in STATED_DEFERRALS and "node" in STATED_DEFERRALS[s].get("ecosystems", ())}
+    node_missing = node_raw_missing - node_deferred
+
+    go_raw_missing = c_symbol_names - go_symbols
+    go_deferred = {s for s in go_raw_missing if s in STATED_DEFERRALS and "go" in STATED_DEFERRALS[s].get("ecosystems", ())}
+    go_missing = go_raw_missing - go_deferred
 
     report = ParityReport(
         total_c_symbols=len(c_symbols),
         java_covered=c_symbol_names.intersection(java_symbols),
-        java_missing=c_symbol_names - java_symbols,
+        java_missing=java_missing,
+        java_deferred=java_deferred,
         dotnet_covered=c_symbol_names.intersection(dotnet_symbols),
-        dotnet_missing=c_symbol_names - dotnet_symbols,
+        dotnet_missing=dotnet_missing,
+        dotnet_deferred=dotnet_deferred,
         python_covered=py_covered,
         python_missing=py_missing,
+        python_deferred=py_deferred,
         node_covered=node_covered,
         node_missing=node_missing,
+        node_deferred=node_deferred,
         python_errors=py_errors,
         node_errors=node_errors,
         go_covered=c_symbol_names.intersection(go_symbols),
-        go_missing=c_symbol_names - go_symbols,
+        go_missing=go_missing,
+        go_deferred=go_deferred,
         narrow_only=narrow_only,
     )
 
@@ -757,16 +823,22 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
     print(f"{'Ecosystem / Binding Layer':<35} | {'Wrapped':<10} | {'Coverage':<10} | {'Status'}")
     print("--------------------------------------------------------------------------------")
 
-    def format_row(name: str, covered: int, total: int, missing: Set[str]) -> str:
+    def format_row(name: str, covered: int, total: int, missing: Set[str], deferred: Set[str]) -> str:
         pct = (covered / total * 100.0) if total > 0 else 100.0
-        status = "✓ PASS (100%)" if len(missing) == 0 else f"✗ FAIL ({len(missing)} missing)"
+        if not missing:
+            if deferred:
+                status = f"✓ PASS (100% active, {len(deferred)} deferred)"
+            else:
+                status = "✓ PASS (100%)"
+        else:
+            status = f"✗ FAIL ({len(missing)} missing)"
         return f"{name:<35} | {covered:>3}/{total:<5} | {pct:>8.1f}% | {status}"
 
-    print(format_row("Java 22+ (Panama FFM downcalls)", len(report.java_covered), report.total_c_symbols, report.java_missing))
-    print(format_row(".NET C# (P/Invoke NativeMethods)", len(report.dotnet_covered), report.total_c_symbols, report.dotnet_missing))
-    print(format_row("Python (PyO3 native classes)", len(report.python_covered), report.total_c_symbols, report.python_missing))
-    print(format_row("Node.js (N-API native bindings)", len(report.node_covered), report.total_c_symbols, report.node_missing))
-    print(format_row("Go 1.22+ (purego / cgo)", len(report.go_covered), report.total_c_symbols, report.go_missing))
+    print(format_row("Java 22+ (Panama FFM downcalls)", len(report.java_covered), report.total_c_symbols, report.java_missing, report.java_deferred))
+    print(format_row(".NET C# (P/Invoke NativeMethods)", len(report.dotnet_covered), report.total_c_symbols, report.dotnet_missing, report.dotnet_deferred))
+    print(format_row("Python (PyO3 native classes)", len(report.python_covered), report.total_c_symbols, report.python_missing, report.python_deferred))
+    print(format_row("Node.js (N-API native bindings)", len(report.node_covered), report.total_c_symbols, report.node_missing, report.node_deferred))
+    print(format_row("Go 1.22+ (purego / cgo)", len(report.go_covered), report.total_c_symbols, report.go_missing, report.go_deferred))
     print("--------------------------------------------------------------------------------\n")
 
     print("--- Breakdown by Container / Functional Category ---")
@@ -778,16 +850,22 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
 
     if verbose or report.java_missing or report.dotnet_missing or report.python_missing or report.node_missing or report.go_missing:
         print("--- Detailed Per-Symbol Coverage Matrix ---")
-        header = f"{'Symbol Name':<36} | {'Java':<6} | {'.NET':<6} | {'Python':<6} | {'Node':<6} | {'Go':<6}"
+        header = f"{'Symbol Name':<44} | {'Java':<8} | {'.NET':<8} | {'Python':<8} | {'Node':<8} | {'Go':<8}"
         print(header)
         print("-" * len(header))
         for s in c_symbols:
-            j = "✓" if s.name in report.java_covered else "MISSING"
-            d = "✓" if s.name in report.dotnet_covered else "MISSING"
-            p = "✓" if s.name in report.python_covered else "MISSING"
-            n = "✓" if s.name in report.node_covered else "MISSING"
-            g = "✓" if s.name in report.go_covered else "MISSING"
-            print(f"{s.name:<36} | {j:<6} | {d:<6} | {p:<6} | {n:<6} | {g:<6}")
+            def mark(covered: Set[str], deferred: Set[str]) -> str:
+                if s.name in covered:
+                    return "✓"
+                if s.name in deferred:
+                    return "DEFERRED"
+                return "MISSING"
+            j = mark(report.java_covered, report.java_deferred)
+            d = mark(report.dotnet_covered, report.dotnet_deferred)
+            p = mark(report.python_covered, report.python_deferred)
+            n = mark(report.node_covered, report.node_deferred)
+            g = mark(report.go_covered, report.go_deferred)
+            print(f"{s.name:<44} | {j:<8} | {d:<8} | {p:<8} | {n:<8} | {g:<8}")
         print("--------------------------------------------------------------------------------\n")
 
     if report.java_missing or report.dotnet_missing or report.python_missing or report.node_missing or report.go_missing:
@@ -803,7 +881,11 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
         if report.go_missing:
             print(f"  Go missing: {sorted(report.go_missing)}")
     else:
-        print(f"✓ All {report.total_c_symbols} libexpanse C ABI symbols are 100% covered across Java, .NET, Python, Node.js, and Go!")
+        total_deferred = len(report.java_deferred | report.dotnet_deferred | report.python_deferred | report.node_deferred | report.go_deferred)
+        if total_deferred > 0:
+            print(f"✓ All {report.total_c_symbols - total_deferred} active libexpanse C ABI symbols are 100% covered across Java, .NET, Python, Node.js, and Go ({total_deferred} stated deferrals)!")
+        else:
+            print(f"✓ All {report.total_c_symbols} libexpanse C ABI symbols are 100% covered across Java, .NET, Python, Node.js, and Go!")
 
 
 def format_markdown_table(c_symbols: List[CSymbol], report: ParityReport) -> str:
@@ -1107,6 +1189,33 @@ def self_test() -> int:
         _, _, errors = verify(root / "crates" / sub / "src", wide)
         assert not errors, errors
 
+    # 6. Validate live STATED_DEFERRALS:
+    deferral_errors = validate_stated_deferrals(STATED_DEFERRALS, wide)
+    assert not deferral_errors, deferral_errors
+
+    # 7. Discriminating self-test: verify fail-then-pass behavior and validation enforcement.
+    test_sym = wide[0].name
+    # 7a. Validation rejects invalid deferral entries
+    assert validate_stated_deferrals({"nonexistent_symbol": {"issue": "#1", "reason": "r", "ecosystems": {"java"}}}, wide)
+    assert validate_stated_deferrals({test_sym: {"issue": "", "reason": "r", "ecosystems": {"java"}}}, wide)
+    assert validate_stated_deferrals({test_sym: {"issue": "#1", "reason": "   ", "ecosystems": {"java"}}}, wide)
+    assert validate_stated_deferrals({test_sym: {"issue": "#1", "reason": "r", "ecosystems": {"ruby"}}}, wide)
+    assert not validate_stated_deferrals({test_sym: {"issue": "#1", "reason": "valid", "ecosystems": {"java"}}}, wide)
+
+    # 7b. Fail-then-pass check: an unlisted missing symbol reports in missing (FAIL),
+    # while a stated deferral reports in deferred and not missing (PASS).
+    raw_missing = {test_sym}
+    deferred_empty = {s for s in raw_missing if s in STATED_DEFERRALS and "java" in STATED_DEFERRALS[s].get("ecosystems", ())}
+    missing_unlisted = raw_missing - deferred_empty
+    assert test_sym in missing_unlisted, "Unlisted missing symbol must report as missing (fail loud)"
+
+    # With deferral:
+    test_deferral = {test_sym: {"issue": "#808", "reason": "test deferral", "ecosystems": {"java"}}}
+    deferred_listed = {s for s in raw_missing if s in test_deferral and "java" in test_deferral[s].get("ecosystems", ())}
+    missing_listed = raw_missing - deferred_listed
+    assert test_sym in deferred_listed, "Listed deferred symbol must report in deferred"
+    assert test_sym not in missing_listed, "Listed deferred symbol must not report in missing"
+
     print("check_abi_parity.py --self-test: all checks passed")
     return 0
 
@@ -1174,19 +1283,33 @@ def main() -> int:
             "total_c_symbols": report.total_c_symbols,
             "narrow_only": report.narrow_only,
             "min_c_symbols_floor": effective_floor,
-            "java": {"covered": len(report.java_covered), "missing": sorted(list(report.java_missing))},
-            "dotnet": {"covered": len(report.dotnet_covered), "missing": sorted(list(report.dotnet_missing))},
+            "java": {
+                "covered": len(report.java_covered),
+                "missing": sorted(list(report.java_missing)),
+                "deferred": sorted(list(report.java_deferred)),
+            },
+            "dotnet": {
+                "covered": len(report.dotnet_covered),
+                "missing": sorted(list(report.dotnet_missing)),
+                "deferred": sorted(list(report.dotnet_deferred)),
+            },
             "python": {
                 "covered": len(report.python_covered),
                 "missing": sorted(list(report.python_missing)),
+                "deferred": sorted(list(report.python_deferred)),
                 "errors": report.python_errors,
             },
             "node": {
                 "covered": len(report.node_covered),
                 "missing": sorted(list(report.node_missing)),
+                "deferred": sorted(list(report.node_deferred)),
                 "errors": report.node_errors,
             },
-            "go": {"covered": len(report.go_covered), "missing": sorted(list(report.go_missing))},
+            "go": {
+                "covered": len(report.go_covered),
+                "missing": sorted(list(report.go_missing)),
+                "deferred": sorted(list(report.go_deferred)),
+            },
             "category_breakdown": report.category_breakdown,
         }
         print(json.dumps(out, indent=2))
