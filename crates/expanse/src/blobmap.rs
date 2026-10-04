@@ -556,7 +556,7 @@ impl ArenaChunk {
         }
     }
 
-    #[inline(always)]
+    #[inline(always)] #[allow(dead_code)]
     pub(crate) fn set_cursor(&mut self, cursor: usize) {
         self.cursor = cursor;
         let p = self
@@ -568,7 +568,7 @@ impl ArenaChunk {
     }
 
     #[cold]
-    #[inline(never)]
+    #[inline(never)] #[allow(dead_code)]
     fn sync_set_cursor(&self, p: *mut ChunkCounters, cursor: usize) {
         // SAFETY: p is non-null and points to valid ChunkCounters for the chunk's lifetime.
         unsafe { &*p }
@@ -1006,7 +1006,7 @@ pub(crate) unsafe fn resolve_meta_in_table(table: *const ChunkTable, locator: u3
 }
 
 /// Atomically charges dead bytes to a chunk through the published chunk table.
-#[cfg(feature = "std")]
+#[cfg(feature = "std")] #[allow(dead_code)]
 pub(crate) unsafe fn charge_chunk_dead(
     table: *const ChunkTable,
     chunk_idx: usize,
