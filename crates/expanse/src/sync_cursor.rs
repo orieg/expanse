@@ -787,18 +787,11 @@ impl SyncMapCursor<'_, '_> {
                     let mark = rs.len;
                     // SAFETY: child copy validated against this branch.
                     unsafe {
-                        Self::drain_batch_in(
-                            drain,
-                            &child,
-                            rem,
-                            bl - 1,
-                            child_prefix,
-                            here,
-                            rs,
-                        )?;
+                        Self::drain_batch_in(drain, &child, rem, bl - 1, child_prefix, here, rs)?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key {
+                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key
+                        {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
@@ -852,18 +845,11 @@ impl SyncMapCursor<'_, '_> {
                     let mark = rs.len;
                     // SAFETY: child copy validated against this branch.
                     unsafe {
-                        Self::drain_batch_in(
-                            drain,
-                            &child,
-                            rem,
-                            bl - 1,
-                            child_prefix,
-                            here,
-                            rs,
-                        )?;
+                        Self::drain_batch_in(drain, &child, rem, bl - 1, child_prefix, here, rs)?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key {
+                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key
+                        {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
@@ -937,7 +923,8 @@ impl SyncMapCursor<'_, '_> {
                         )?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key {
+                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key
+                        {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
