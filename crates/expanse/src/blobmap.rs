@@ -394,11 +394,12 @@ pub(crate) fn atomic_sub_saturating(atomic: &core::sync::atomic::AtomicUsize, va
 }
 
 /// A single contiguous 16-byte aligned bump-allocated slab chunk.
+#[repr(C)]
 pub struct ArenaChunk {
     ptr: NonNull<u8>,
     capacity: usize,
-    generation: u32,
     cursor: usize,
+    generation: u32,
     live_bytes: usize,
     live_records: usize,
     pub(crate) sync_counters: core::sync::atomic::AtomicPtr<ChunkCounters>,
@@ -414,8 +415,8 @@ impl ArenaChunk {
         Self {
             ptr: NonNull::dangling(),
             capacity: 0,
-            generation: 0,
             cursor: 0,
+            generation: 0,
             live_bytes: 0,
             live_records: 0,
             sync_counters: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
@@ -443,8 +444,8 @@ impl ArenaChunk {
         Ok(Self {
             ptr,
             capacity,
-            generation,
             cursor: 0,
+            generation,
             live_bytes: 0,
             live_records: 0,
             sync_counters: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
@@ -3290,6 +3291,44 @@ mod tests {
     use core_alloc::format;
     use core_alloc::vec;
     use core_alloc::vec::Vec;
+
+    #[test]
+    fn test_arena_chunk_layout() {
+        use core::mem::{align_of, offset_of, size_of};
+
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert_eq!(
+                size_of::<ArenaChunk>(),
+                56,
+                "ArenaChunk must be exactly 56 bytes on 64-bit targets (was 32 bytes on main)"
+            );
+            assert_eq!(align_of::<ArenaChunk>(), 8);
+            assert_eq!(offset_of!(ArenaChunk, ptr), 0);
+            assert_eq!(offset_of!(ArenaChunk, capacity), 8);
+            assert_eq!(offset_of!(ArenaChunk, cursor), 16);
+            assert_eq!(offset_of!(ArenaChunk, generation), 24);
+            assert_eq!(offset_of!(ArenaChunk, live_bytes), 32);
+            assert_eq!(offset_of!(ArenaChunk, live_records), 40);
+            assert_eq!(offset_of!(ArenaChunk, sync_counters), 48);
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            assert_eq!(
+                size_of::<ArenaChunk>(),
+                28,
+                "ArenaChunk must be exactly 28 bytes on 32-bit targets"
+            );
+            assert_eq!(align_of::<ArenaChunk>(), 4);
+            assert_eq!(offset_of!(ArenaChunk, ptr), 0);
+            assert_eq!(offset_of!(ArenaChunk, capacity), 4);
+            assert_eq!(offset_of!(ArenaChunk, cursor), 8);
+            assert_eq!(offset_of!(ArenaChunk, generation), 12);
+            assert_eq!(offset_of!(ArenaChunk, live_bytes), 16);
+            assert_eq!(offset_of!(ArenaChunk, live_records), 20);
+            assert_eq!(offset_of!(ArenaChunk, sync_counters), 24);
+        }
+    }
 
     /// The #1290 reclaim tests' arena (METHODOLOGY §28.3): 4 KiB chunks
     /// under a 64 KiB cap, so 16 chunks, and `hot_meta = 1` on every insert
