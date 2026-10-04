@@ -26,6 +26,7 @@ from writer_scaling import (  # noqa: E402
     SCAN_CELLS_PROBES,
     SCAN_CELLS_WORKLOAD_ID,
     build_scan_cells_artifact,
+    check_reader_counters_row,
     combine_scan_cells_verdict,
     p323_paired_ratio,
     p323_report,
@@ -79,6 +80,7 @@ def make_synthetic_rows(
             "writer_elapsed_s": None if w == 0 else 0.01,
             "writer_mops": None if w == 0 else 1.0,
             "reader_ops": 4096,
+            "reader_wraps": 0,
             "reader_elapsed_s": 0.001,
             "reader_thread_elapsed_s": [0.001] * r,
             "reader_mops": mops,
@@ -105,6 +107,7 @@ def make_synthetic_rows(
             "write_ops": 0 if w == 0 else 1000,
             "inserts": 0 if w == 0 else 1000,
             "reader_ops": 4096,
+            "reader_wraps": 0,
             "cpu_pin": SCAN_CELLS_PIN,
             "tsc_hz": 24000000,
             "lock_fallbacks": 0,
@@ -407,6 +410,75 @@ class ScanCellsArtifactTests(unittest.TestCase):
         self.assertIn("p32_3", sc)
         self.assertEqual(sc["p32_3"]["verdict"], "LB_AT_OR_ABOVE_FLOOR")
         self.assertTrue(any("--quick" in v for v in sc["void"]))
+
+
+class NextAfterScanReaderIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.base_row = {
+            "workload_id": SCAN_CELLS_WORKLOAD_ID,
+            "role": "counters",
+            "arm": "expanse",
+            "cell": "map_w1_r4_next_after_scan_uniform",
+            "keyspace_bits": 64,
+            "prefill": 4096,
+            "hotspot_prefill": 256,
+            "hotspot_base": 0,
+            "fresh_keys": 1000,
+            "writers": 1,
+            "readers": 4,
+            "read_op": "next_after_scan",
+            "probe": "uniform",
+            "round": 0,
+            "position": 0,
+            "write_ops": 1000,
+            "inserts": 1000,
+            "reader_ops": 31277057,
+            "reader_wraps": 20,
+            "cpu_pin": SCAN_CELLS_PIN,
+            "tsc_hz": 24000000,
+            "lock_fallbacks": 0,
+            "quiesce_calls": 0,
+            "read_ops": 31277077,
+            "read_attempts": 31277077,
+            "read_fallbacks": 0,
+            "locked_reads": 0,
+            "fallback_causes": {cause: 0 for cause in CAUSE_NAMES},
+            "population_after": 5096,
+        }
+
+    def test_exact_identity_passes(self):
+        # Exact mathematical identity: 31277057 + 20 == 31277077
+        check_reader_counters_row(self.base_row)
+        self.assertEqual(
+            self.base_row["read_ops"],
+            self.base_row["reader_ops"] + self.base_row["reader_wraps"],
+        )
+
+    def test_off_by_one_read_ops_fails(self):
+        # Off-by-one above
+        row = dict(self.base_row, read_ops=31277078)
+        with self.assertRaises(ValueError) as ctx:
+            check_reader_counters_row(row)
+        self.assertIn("a next_after_scan reader cell needs read_ops == reader_ops + reader_wraps", str(ctx.exception))
+
+        # Off-by-one below
+        row_under = dict(self.base_row, read_ops=31277076)
+        with self.assertRaises(ValueError) as ctx:
+            check_reader_counters_row(row_under)
+        self.assertIn("a next_after_scan reader cell needs read_ops == reader_ops + reader_wraps", str(ctx.exception))
+
+    def test_missing_reader_wraps_fails(self):
+        row = dict(self.base_row)
+        del row["reader_wraps"]
+        with self.assertRaises(ValueError) as ctx:
+            check_reader_counters_row(row)
+        self.assertIn("lacks 'reader_wraps'", str(ctx.exception))
+
+    def test_locked_reads_mismatch_fails(self):
+        row = dict(self.base_row, locked_reads=1, quiesce_calls=1)
+        with self.assertRaises(ValueError) as ctx:
+            check_reader_counters_row(row)
+        self.assertIn("locked_reads == read_fallbacks", str(ctx.exception))
 
 
 if __name__ == "__main__":
