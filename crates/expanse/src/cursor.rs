@@ -138,10 +138,12 @@ impl<'a> SetCursor<'a> {
 /// A stateful, forward-only ordered cursor over an [`crate::map::ExpanseMap`],
 /// yielding `(key, value)`. See [`SetCursor`] for the skip-scan contract.
 ///
-/// Construct with [`ExpanseMap::cursor`](crate::map::ExpanseMap::cursor) or
-/// [`cursor_from`](crate::map::ExpanseMap::cursor_from).
+/// Construct with [`ExpanseMap::cursor`](crate::map::ExpanseMap::cursor),
+/// [`cursor_from`](crate::map::ExpanseMap::cursor_from), or
+/// [`range_cursor`](crate::map::ExpanseMap::range_cursor).
 pub struct MapCursor<'a> {
     inner: RawCursor<true>,
+    end: Key,
     _map: core::marker::PhantomData<&'a crate::map::ExpanseMap>,
 }
 
@@ -150,8 +152,39 @@ impl<'a> MapCursor<'a> {
     pub(crate) fn new(raw: RawIter<true>, top: Edge) -> Self {
         Self {
             inner: RawCursor::new(raw, top),
+            end: Key::MAX,
             _map: core::marker::PhantomData,
         }
+    }
+
+    #[inline]
+    pub(crate) fn new_range(raw: RawIter<true>, top: Edge, end: Key) -> Self {
+        Self {
+            inner: RawCursor::new(raw, top),
+            end,
+            _map: core::marker::PhantomData,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn empty() -> Self {
+        Self::empty_range(0)
+    }
+
+    #[inline]
+    pub(crate) fn empty_range(end: Key) -> Self {
+        Self {
+            inner: RawCursor::empty(),
+            end,
+            _map: core::marker::PhantomData,
+        }
+    }
+
+    /// The upper inclusive bound for this cursor.
+    #[inline]
+    #[must_use]
+    pub fn end_bound(&self) -> Key {
+        self.end
     }
 
     /// The `(key, value)` at the cursor's current position, or `None` past the
@@ -159,21 +192,40 @@ impl<'a> MapCursor<'a> {
     #[inline]
     #[must_use]
     pub fn current(&self) -> Option<(Key, Value)> {
-        self.inner.current()
+        match self.inner.current() {
+            Some((k, _)) if k <= self.end => self.inner.current(),
+            _ => None,
+        }
     }
 
     /// Advances to and returns the entry with the smallest key `>= target` that
-    /// is `>=` the cursor's current position; `None` once the map is exhausted.
+    /// is `>=` the cursor's current position and `<= end_bound()`; `None` once
+    /// the map or range is exhausted.
     #[inline]
     pub fn advance_to(&mut self, target: Key) -> Option<(Key, Value)> {
-        self.inner.advance_to(target)
+        match self.inner.advance_to(target) {
+            Some((k, v)) if k <= self.end => Some((k, v)),
+            _ => None,
+        }
     }
 
     /// Returns the current entry and advances one step; `None` past the end.
     #[inline]
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<(Key, Value)> {
-        self.inner.next()
+        match self.inner.current() {
+            Some((k, _)) if k <= self.end => self.inner.next(),
+            _ => None,
+        }
+    }
+}
+
+impl<'a> Iterator for MapCursor<'a> {
+    type Item = (Key, Value);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        MapCursor::next(self)
     }
 }
 
@@ -518,5 +570,305 @@ mod tests {
                 assert_eq!(mc.advance_to(t).map(|(k, _)| k), e);
             }
         }
+    }
+
+    #[test]
+    fn test_map_range_cursor_boundary_empty_map() {
+        let map = ExpanseMap::new();
+        // Unbounded
+        let mut cur = map.range_cursor(..);
+        assert_eq!(cur.end_bound(), u64::MAX);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(cur.advance_to(10), None);
+        assert_eq!(map.range_cursor(..).collect::<Vec<_>>(), vec![]);
+
+        // Inclusive range
+        let mut cur = map.range_cursor(10..=20);
+        assert_eq!(cur.end_bound(), 20);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(cur.advance_to(15), None);
+
+        // Extremal
+        assert_eq!(map.range_cursor(0..=0).collect::<Vec<_>>(), vec![]);
+        assert_eq!(
+            map.range_cursor(u64::MAX..=u64::MAX).collect::<Vec<_>>(),
+            vec![]
+        );
+        assert_eq!(map.range_cursor(0..=u64::MAX).collect::<Vec<_>>(), vec![]);
+
+        // Inverted
+        let (lo, hi) = (50, 10);
+        assert_eq!(map.range_cursor(lo..=hi).collect::<Vec<_>>(), vec![]);
+    }
+
+    #[test]
+    fn test_map_range_cursor_boundary_lo_greater_than_hi() {
+        let mut map = ExpanseMap::new();
+        for k in [10u64, 20, 30, 40, 50] {
+            map.insert(k, k * 10);
+        }
+
+        let (lo, hi) = (50, 10);
+        let mut cur = map.range_cursor(lo..=hi);
+        assert_eq!(cur.end_bound(), 10);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(cur.advance_to(10), None);
+        assert_eq!(cur.advance_to(30), None);
+        assert_eq!(map.range_cursor(lo..=hi).collect::<Vec<_>>(), vec![]);
+
+        let (lo, hi) = (100, 50);
+        let mut cur = map.range_cursor(lo..hi);
+        assert_eq!(cur.end_bound(), 49);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(map.range_cursor(lo..hi).collect::<Vec<_>>(), vec![]);
+    }
+
+    #[test]
+    fn test_map_range_cursor_boundary_lo_equals_hi_present() {
+        let mut map = ExpanseMap::new();
+        for k in [10u64, 20, 30, 40, 50] {
+            map.insert(k, k * 10);
+        }
+
+        // Test lo == hi present (20..=20)
+        let mut cur = map.range_cursor(20..=20);
+        assert_eq!(cur.end_bound(), 20);
+        assert_eq!(cur.current(), Some((20, 200)));
+        assert_eq!(cur.next(), Some((20, 200)));
+        assert_eq!(cur.next(), None);
+        assert_eq!(cur.current(), None);
+
+        // Multiple iterates via collect
+        assert_eq!(
+            map.range_cursor(20..=20).collect::<Vec<_>>(),
+            vec![(20, 200)]
+        );
+        assert_eq!(
+            map.range_cursor(10..=10).collect::<Vec<_>>(),
+            vec![(10, 100)]
+        );
+        assert_eq!(
+            map.range_cursor(50..=50).collect::<Vec<_>>(),
+            vec![(50, 500)]
+        );
+    }
+
+    #[test]
+    fn test_map_range_cursor_boundary_lo_equals_hi_absent() {
+        let mut map = ExpanseMap::new();
+        for k in [10u64, 20, 30, 40, 50] {
+            map.insert(k, k * 10);
+        }
+
+        // Absent key: 15..=15
+        let mut cur = map.range_cursor(15..=15);
+        assert_eq!(cur.end_bound(), 15);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(cur.advance_to(15), None);
+        assert_eq!(map.range_cursor(15..=15).collect::<Vec<_>>(), vec![]);
+
+        // Absent key before first: 5..=5
+        assert_eq!(map.range_cursor(5..=5).collect::<Vec<_>>(), vec![]);
+
+        // Absent key after last: 55..=55
+        assert_eq!(map.range_cursor(55..=55).collect::<Vec<_>>(), vec![]);
+    }
+
+    #[test]
+    fn test_map_range_cursor_boundary_between_keys() {
+        let mut map = ExpanseMap::new();
+        for k in [10u64, 20, 30, 40, 50] {
+            map.insert(k, k * 10);
+        }
+
+        // Between keys with nothing present in range
+        let mut cur = map.range_cursor(12..=18);
+        assert_eq!(cur.end_bound(), 18);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(map.range_cursor(12..=18).collect::<Vec<_>>(), vec![]);
+
+        // Between keys with keys in range: 15..=35 -> [20, 30]
+        let mut cur = map.range_cursor(15..=35);
+        assert_eq!(cur.end_bound(), 35);
+        assert_eq!(cur.current(), Some((20, 200)));
+        assert_eq!(cur.next(), Some((20, 200)));
+        assert_eq!(cur.current(), Some((30, 300)));
+        assert_eq!(cur.next(), Some((30, 300)));
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(
+            map.range_cursor(15..=35).collect::<Vec<_>>(),
+            vec![(20, 200), (30, 300)]
+        );
+
+        // Half-open: 15..30 -> only [20]
+        assert_eq!(
+            map.range_cursor(15..30).collect::<Vec<_>>(),
+            vec![(20, 200)]
+        );
+    }
+
+    #[test]
+    fn test_map_range_cursor_boundary_extremal_keys() {
+        let mut map = ExpanseMap::new();
+        map.insert(0, 100);
+        map.insert(1, 101);
+        map.insert(u64::MAX - 1, 998);
+        map.insert(u64::MAX, 999);
+
+        // 0..=0
+        assert_eq!(map.range_cursor(0..=0).collect::<Vec<_>>(), vec![(0, 100)]);
+
+        // MAX..=MAX
+        assert_eq!(
+            map.range_cursor(u64::MAX..=u64::MAX).collect::<Vec<_>>(),
+            vec![(u64::MAX, 999)]
+        );
+
+        // 0..=MAX
+        assert_eq!(
+            map.range_cursor(0..=u64::MAX).collect::<Vec<_>>(),
+            vec![(0, 100), (1, 101), (u64::MAX - 1, 998), (u64::MAX, 999)]
+        );
+
+        // Bound::Excluded(0) at end
+        use core::ops::Bound;
+        assert_eq!(
+            map.range_cursor((Bound::Unbounded, Bound::Excluded(0)))
+                .collect::<Vec<_>>(),
+            vec![]
+        );
+
+        // Bound::Excluded(u64::MAX) at start
+        assert_eq!(
+            map.range_cursor((Bound::Excluded(u64::MAX), Bound::Unbounded))
+                .collect::<Vec<_>>(),
+            vec![]
+        );
+
+        // Advance to MAX from middle
+        let mut cur = map.range_cursor(0..=u64::MAX);
+        assert_eq!(cur.advance_to(u64::MAX), Some((u64::MAX, 999)));
+        assert_eq!(cur.next(), Some((u64::MAX, 999)));
+        assert_eq!(cur.next(), None);
+    }
+
+    #[test]
+    fn test_map_range_cursor_differential_btreemap() {
+        use std::collections::BTreeMap;
+        let mut map = ExpanseMap::new();
+        let mut btree = BTreeMap::new();
+
+        // Populate varied distributions:
+        // 1. Small cluster
+        for i in 0..30u64 {
+            map.insert(i, i * 3);
+            btree.insert(i, i * 3);
+        }
+        // 2. Dense byte run (LeafB1)
+        for i in 0..256u64 {
+            let k = 0xAABB_0000 | i;
+            map.insert(k, k ^ 0x55);
+            btree.insert(k, k ^ 0x55);
+        }
+        // 3. Sparse deep branches
+        for &k in &[
+            1u64 << 40,
+            3u64 << 40,
+            0x1234_5678_9ABC_DEF0,
+            u64::MAX - 10,
+            u64::MAX,
+        ] {
+            map.insert(k, k ^ 0xAA);
+            btree.insert(k, k ^ 0xAA);
+        }
+
+        // Test various ranges
+        let test_ranges: Vec<(core::ops::Bound<u64>, core::ops::Bound<u64>)> = vec![
+            (core::ops::Bound::Unbounded, core::ops::Bound::Unbounded),
+            (
+                core::ops::Bound::Included(0),
+                core::ops::Bound::Included(10),
+            ),
+            (
+                core::ops::Bound::Included(5),
+                core::ops::Bound::Excluded(25),
+            ),
+            (
+                core::ops::Bound::Included(0xAABB_0010),
+                core::ops::Bound::Included(0xAABB_0080),
+            ),
+            (
+                core::ops::Bound::Excluded(0xAABB_0010),
+                core::ops::Bound::Excluded(0xAABB_0080),
+            ),
+            (
+                core::ops::Bound::Included(1u64 << 40),
+                core::ops::Bound::Included(u64::MAX),
+            ),
+            (
+                core::ops::Bound::Included(500),
+                core::ops::Bound::Included(600),
+            ), // gap
+            (
+                core::ops::Bound::Included(100),
+                core::ops::Bound::Included(50),
+            ), // inverted
+            (
+                core::ops::Bound::Included(u64::MAX),
+                core::ops::Bound::Included(u64::MAX),
+            ),
+        ];
+
+        for bounds in test_ranges {
+            let exp: Vec<(u64, u64)> = map.range_cursor(bounds).collect();
+            let bt: Vec<(u64, u64)> = match (bounds.0, bounds.1) {
+                (core::ops::Bound::Included(lo), core::ops::Bound::Included(hi)) if lo > hi => {
+                    vec![]
+                }
+                (core::ops::Bound::Included(lo), core::ops::Bound::Excluded(hi)) if lo >= hi => {
+                    vec![]
+                }
+                (core::ops::Bound::Excluded(lo), core::ops::Bound::Included(hi)) if lo >= hi => {
+                    vec![]
+                }
+                (core::ops::Bound::Excluded(lo), core::ops::Bound::Excluded(hi))
+                    if lo >= hi.saturating_sub(1) =>
+                {
+                    vec![]
+                }
+                _ => btree.range(bounds).map(|(&k, &v)| (k, v)).collect(),
+            };
+            assert_eq!(exp, bt, "Mismatch for bounds {:?}", bounds);
+        }
+    }
+
+    #[test]
+    fn test_map_cursor_iterator_trait() {
+        let mut map = ExpanseMap::new();
+        map.insert(1, 10);
+        map.insert(2, 20);
+        map.insert(3, 30);
+
+        // Test standard Iterator methods: map, filter, fold
+        let sum: u64 = map.cursor().map(|(_, v)| v).sum();
+        assert_eq!(sum, 60);
+
+        let keys: Vec<u64> = map.range_cursor(2..=3).map(|(k, _)| k).collect();
+        assert_eq!(keys, vec![2, 3]);
+
+        // for-in loop consumption
+        let mut count = 0;
+        for (k, v) in map.range_cursor(1..=2) {
+            assert_eq!(v, k * 10);
+            count += 1;
+        }
+        assert_eq!(count, 2);
     }
 }
