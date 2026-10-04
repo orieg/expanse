@@ -107,7 +107,6 @@ impl<'a> SetCursor32<'a> {
 pub struct MapCursor32<'a> {
     map: &'a ExpanseMap32,
     front: Option<(Key32, Value32)>,
-    end: Key32,
     /// The held descent path, positioned to yield the entry after `front`.
     /// Built on the first step and dropped by a skip, which re-seeks.
     walk: Option<crate::trie32::RawIter32<'a>>,
@@ -116,38 +115,9 @@ pub struct MapCursor32<'a> {
 impl<'a> MapCursor32<'a> {
     #[inline]
     pub(crate) fn new(map: &'a ExpanseMap32, front: Option<(Key32, Value32)>) -> Self {
-        Self::new_range(map, front, Key32::MAX)
-    }
-
-    #[inline]
-    pub(crate) fn new_range(
-        map: &'a ExpanseMap32,
-        front: Option<(Key32, Value32)>,
-        end: Key32,
-    ) -> Self {
-        let front = match front {
-            Some((k, _)) if k <= end => front,
-            _ => None,
-        };
         Self {
             map,
             front,
-            end,
-            walk: None,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn empty(map: &'a ExpanseMap32) -> Self {
-        Self::empty_range(map, 0)
-    }
-
-    #[inline]
-    pub(crate) fn empty_range(map: &'a ExpanseMap32, end: Key32) -> Self {
-        Self {
-            map,
-            front: None,
-            end,
             walk: None,
         }
     }
@@ -158,6 +128,72 @@ impl<'a> MapCursor32<'a> {
             Some(b) => map.next(b),
             None => map.first(),
         }
+    }
+
+    /// The `(key, value)` at the cursor's current position, or `None`.
+    #[inline]
+    #[must_use]
+    pub fn current(&self) -> Option<(Key32, Value32)> {
+        self.front
+    }
+
+    /// Advances to and returns the entry with the smallest key `>= target` that
+    /// is `>=` the cursor's current position; `None` once exhausted.
+    #[inline]
+    pub fn advance_to(&mut self, target: Key32) -> Option<(Key32, Value32)> {
+        match self.front {
+            Some((k, _)) if k >= target => self.front,
+            Some(_) => {
+                // A skip abandons the held path: it may land anywhere at or
+                // after the target, so the path is re-seeked from the root.
+                self.walk = None;
+                self.front = Self::seek(self.map, target);
+                self.front
+            }
+            None => None,
+        }
+    }
+
+    /// Returns the current entry and advances one step; `None` past the end.
+    #[inline]
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Option<(Key32, Value32)> {
+        let cur = self.front?;
+        let Some(from) = cur.0.checked_add(1) else {
+            self.front = None;
+            self.walk = None;
+            return Some(cur);
+        };
+        let map = self.map;
+        let walk = self.walk.get_or_insert_with(|| {
+            crate::trie32::RawIter32::new(map.arena(), map.root_edge(), 4, from)
+        });
+        self.front = walk.next();
+        Some(cur)
+    }
+}
+
+/// A stateful, forward-only ordered cursor over a bounded range of an [`ExpanseMap32`],
+/// yielding `(key, value)`. See [`SetCursor32`] and the [module docs](self).
+///
+/// Construct with [`ExpanseMap32::range_cursor`](ExpanseMap32::range_cursor).
+pub struct MapRangeCursor32<'a> {
+    cur: Option<MapCursor32<'a>>,
+    end: Key32,
+}
+
+impl<'a> MapRangeCursor32<'a> {
+    #[inline]
+    pub(crate) fn new(cur: MapCursor32<'a>, end: Key32) -> Self {
+        Self {
+            cur: Some(cur),
+            end,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn empty(end: Key32) -> Self {
+        Self { cur: None, end }
     }
 
     /// The upper inclusive bound for this cursor.
@@ -171,80 +207,44 @@ impl<'a> MapCursor32<'a> {
     #[inline]
     #[must_use]
     pub fn current(&self) -> Option<(Key32, Value32)> {
-        match self.front {
-            Some((k, _)) if k <= self.end => self.front,
+        match self.cur.as_ref()?.current() {
+            Some((k, v)) if k <= self.end => Some((k, v)),
             _ => None,
         }
     }
 
     /// Advances to and returns the entry with the smallest key `>= target` that
-    /// is `>=` the cursor's current position and `<= end_bound()`; `None` once
-    /// exhausted.
+    /// is `>=` the cursor's current position and `<= end_bound()`; `None` once exhausted.
     #[inline]
     pub fn advance_to(&mut self, target: Key32) -> Option<(Key32, Value32)> {
-        match self.front {
-            Some((k, _)) if k >= target => {
-                if k <= self.end {
-                    self.front
-                } else {
-                    None
-                }
-            }
-            Some(_) => {
-                // A skip abandons the held path: it may land anywhere at or
-                // after the target, so the path is re-seeked from the root.
-                self.walk = None;
-                self.front = Self::seek(self.map, target);
-                match self.front {
-                    Some((k, _)) if k <= self.end => self.front,
-                    _ => {
-                        self.front = None;
-                        None
-                    }
-                }
-            }
-            None => None,
+        if target > self.end {
+            return None;
+        }
+        let cur = self.cur.as_mut()?;
+        match cur.advance_to(target) {
+            Some((k, v)) if k <= self.end => Some((k, v)),
+            _ => None,
         }
     }
 
     /// Returns the current entry and advances one step; `None` past the end.
     #[inline]
-    #[allow(clippy::should_implement_trait)]
+    #[allow(clippy::should_implement_trait)] // discipline:allow(suppression-delta): clippy::should_implement_trait inherent cursor next
     pub fn next(&mut self) -> Option<(Key32, Value32)> {
-        let cur = self.front?;
-        if cur.0 > self.end {
-            self.front = None;
-            self.walk = None;
-            return None;
-        }
-        let Some(from) = cur.0.checked_add(1) else {
-            self.front = None;
-            self.walk = None;
-            return Some(cur);
-        };
-        if from > self.end {
-            self.front = None;
-            self.walk = None;
-            return Some(cur);
-        }
-        let map = self.map;
-        let walk = self.walk.get_or_insert_with(|| {
-            crate::trie32::RawIter32::new(map.arena(), map.root_edge(), 4, from)
-        });
-        self.front = match walk.next() {
-            Some((k, v)) if k <= self.end => Some((k, v)),
+        let cur = self.cur.as_mut()?;
+        match cur.current() {
+            Some((k, _)) if k <= self.end => cur.next(),
             _ => None,
-        };
-        Some(cur)
+        }
     }
 }
 
-impl<'a> Iterator for MapCursor32<'a> {
+impl<'a> Iterator for MapRangeCursor32<'a> {
     type Item = (Key32, Value32);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        MapCursor32::next(self)
+        MapRangeCursor32::next(self)
     }
 }
 
@@ -284,15 +284,15 @@ impl ExpanseMap32 {
         MapCursor32::new(self, front)
     }
 
-    /// Creates a forward [`MapCursor32`] scanning entries matching `range`.
+    /// Creates a forward [`MapRangeCursor32`](crate::cursor32::MapRangeCursor32) scanning entries matching `range`.
     #[inline]
     #[must_use]
-    pub fn range_cursor<R: core::ops::RangeBounds<Key32>>(&self, range: R) -> MapCursor32<'_> {
+    pub fn range_cursor<R: core::ops::RangeBounds<Key32>>(&self, range: R) -> MapRangeCursor32<'_> {
         let end = match range.end_bound() {
             core::ops::Bound::Included(&e) => e,
             core::ops::Bound::Excluded(&e) => match e.checked_sub(1) {
                 Some(prev) => prev,
-                None => return MapCursor32::empty(self),
+                None => return MapRangeCursor32::empty(0),
             },
             core::ops::Bound::Unbounded => Key32::MAX,
         };
@@ -300,15 +300,15 @@ impl ExpanseMap32 {
             core::ops::Bound::Included(&s) => s,
             core::ops::Bound::Excluded(&s) => match s.checked_add(1) {
                 Some(next) => next,
-                None => return MapCursor32::empty_range(self, end),
+                None => return MapRangeCursor32::empty(end),
             },
             core::ops::Bound::Unbounded => 0,
         };
         if start > end {
-            MapCursor32::empty_range(self, end)
+            MapRangeCursor32::empty(end)
         } else {
-            let front = MapCursor32::seek(self, start);
-            MapCursor32::new_range(self, front, end)
+            let cur = self.cursor_from(start);
+            MapRangeCursor32::new(cur, end)
         }
     }
 }

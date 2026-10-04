@@ -495,11 +495,7 @@ pub struct expanse_trie::cursor::MapCursor<'a>
 impl<'a> expanse_trie::cursor::MapCursor<'a>
 pub fn expanse_trie::cursor::MapCursor<'a>::advance_to(&mut self, expanse_trie::types::Key) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
 pub fn expanse_trie::cursor::MapCursor<'a>::current(&self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
-pub fn expanse_trie::cursor::MapCursor<'a>::end_bound(&self) -> expanse_trie::types::Key
 pub fn expanse_trie::cursor::MapCursor<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
-impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor::MapCursor<'a>
-pub type expanse_trie::cursor::MapCursor<'a>::Item = (u64, u64)
-pub fn expanse_trie::cursor::MapCursor<'a>::next(&mut self) -> core::option::Option<Self::Item>
 impl<'a> core::marker::Freeze for expanse_trie::cursor::MapCursor<'a>
 impl<'a> !core::marker::Send for expanse_trie::cursor::MapCursor<'a>
 impl<'a> !core::marker::Sync for expanse_trie::cursor::MapCursor<'a>
@@ -507,6 +503,22 @@ impl<'a> core::marker::Unpin for expanse_trie::cursor::MapCursor<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::cursor::MapCursor<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::cursor::MapCursor<'a>
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::cursor::MapCursor<'a>
+pub struct expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> expanse_trie::cursor::MapRangeCursor<'a>
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::advance_to(&mut self, expanse_trie::types::Key) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::current(&self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::end_bound(&self) -> expanse_trie::types::Key
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
+impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor::MapRangeCursor<'a>
+pub type expanse_trie::cursor::MapRangeCursor<'a>::Item = (u64, u64)
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::next(&mut self) -> core::option::Option<Self::Item>
+impl<'a> core::marker::Freeze for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::marker::Send for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::marker::Sync for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> core::marker::Unpin for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::cursor::MapRangeCursor<'a>
 pub struct expanse_trie::cursor::SetCursor<'a>
 impl<'a> expanse_trie::cursor::SetCursor<'a>
 pub fn expanse_trie::cursor::SetCursor<'a>::advance_to(&mut self, expanse_trie::types::Key) -> core::option::Option<expanse_trie::types::Key>
@@ -524,11 +536,7 @@ pub struct expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> expanse_trie::cursor32::MapCursor32<'a>
 pub fn expanse_trie::cursor32::MapCursor32<'a>::advance_to(&mut self, expanse_trie::types32::Key32) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
 pub fn expanse_trie::cursor32::MapCursor32<'a>::current(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
-pub fn expanse_trie::cursor32::MapCursor32<'a>::end_bound(&self) -> expanse_trie::types32::Key32
 pub fn expanse_trie::cursor32::MapCursor32<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
-impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor32::MapCursor32<'a>
-pub type expanse_trie::cursor32::MapCursor32<'a>::Item = (u32, u32)
-pub fn expanse_trie::cursor32::MapCursor32<'a>::next(&mut self) -> core::option::Option<Self::Item>
 impl<'a> core::marker::Freeze for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::marker::Send for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::marker::Sync for expanse_trie::cursor32::MapCursor32<'a>
@@ -536,6 +544,22 @@ impl<'a> core::marker::Unpin for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::cursor32::MapCursor32<'a>
+pub struct expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> expanse_trie::cursor32::MapRangeCursor32<'a>
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::advance_to(&mut self, expanse_trie::types32::Key32) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::current(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::end_bound(&self) -> expanse_trie::types32::Key32
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor32::MapRangeCursor32<'a>
+pub type expanse_trie::cursor32::MapRangeCursor32<'a>::Item = (u32, u32)
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::next(&mut self) -> core::option::Option<Self::Item>
+impl<'a> core::marker::Freeze for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::Send for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::Sync for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::Unpin for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::cursor32::MapRangeCursor32<'a>
 pub struct expanse_trie::cursor32::SetCursor32<'a>
 impl<'a> expanse_trie::cursor32::SetCursor32<'a>
 pub fn expanse_trie::cursor32::SetCursor32<'a>::advance_to(&mut self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Key32>
@@ -766,7 +790,7 @@ pub fn expanse_trie::map::ExpanseMap::next_at_or_after(&self, expanse_trie::type
 pub fn expanse_trie::map::ExpanseMap::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::range(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRange<'_>
-pub fn expanse_trie::map::ExpanseMap::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types::Key>>(&self, R) -> expanse_trie::cursor::MapCursor<'_>
+pub fn expanse_trie::map::ExpanseMap::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types::Key>>(&self, R) -> expanse_trie::cursor::MapRangeCursor<'_>
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
@@ -878,7 +902,7 @@ pub fn expanse_trie::map32::ExpanseMap32::try_for_each_range<F>(&self, expanse_t
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::cursor(&self) -> expanse_trie::cursor32::MapCursor32<'_>
 pub fn expanse_trie::map32::ExpanseMap32::cursor_from(&self, expanse_trie::types32::Key32) -> expanse_trie::cursor32::MapCursor32<'_>
-pub fn expanse_trie::map32::ExpanseMap32::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types32::Key32>>(&self, R) -> expanse_trie::cursor32::MapCursor32<'_>
+pub fn expanse_trie::map32::ExpanseMap32::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types32::Key32>>(&self, R) -> expanse_trie::cursor32::MapRangeCursor32<'_>
 impl core::clone::Clone for expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::clone(&self) -> Self
 impl core::default::Default for expanse_trie::map32::ExpanseMap32
@@ -3337,7 +3361,7 @@ pub fn expanse_trie::map::ExpanseMap::next_at_or_after(&self, expanse_trie::type
 pub fn expanse_trie::map::ExpanseMap::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::map::ExpanseMap::range(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRange<'_>
-pub fn expanse_trie::map::ExpanseMap::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types::Key>>(&self, R) -> expanse_trie::cursor::MapCursor<'_>
+pub fn expanse_trie::map::ExpanseMap::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types::Key>>(&self, R) -> expanse_trie::cursor::MapRangeCursor<'_>
 pub fn expanse_trie::map::ExpanseMap::range_rev(&self, core::ops::range::RangeInclusive<expanse_trie::types::Key>) -> expanse_trie::map::MapRangeRev<'_>
 pub fn expanse_trie::map::ExpanseMap::remove(&mut self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::map::ExpanseMap::shrink_to_fit(&mut self) -> usize
@@ -3400,7 +3424,7 @@ pub fn expanse_trie::map32::ExpanseMap32::try_for_each_range<F>(&self, expanse_t
 impl expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::cursor(&self) -> expanse_trie::cursor32::MapCursor32<'_>
 pub fn expanse_trie::map32::ExpanseMap32::cursor_from(&self, expanse_trie::types32::Key32) -> expanse_trie::cursor32::MapCursor32<'_>
-pub fn expanse_trie::map32::ExpanseMap32::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types32::Key32>>(&self, R) -> expanse_trie::cursor32::MapCursor32<'_>
+pub fn expanse_trie::map32::ExpanseMap32::range_cursor<R: core::ops::range::RangeBounds<expanse_trie::types32::Key32>>(&self, R) -> expanse_trie::cursor32::MapRangeCursor32<'_>
 impl core::clone::Clone for expanse_trie::map32::ExpanseMap32
 pub fn expanse_trie::map32::ExpanseMap32::clone(&self) -> Self
 impl core::default::Default for expanse_trie::map32::ExpanseMap32
@@ -3589,11 +3613,7 @@ pub struct expanse_trie::MapCursor<'a>
 impl<'a> expanse_trie::cursor::MapCursor<'a>
 pub fn expanse_trie::cursor::MapCursor<'a>::advance_to(&mut self, expanse_trie::types::Key) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
 pub fn expanse_trie::cursor::MapCursor<'a>::current(&self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
-pub fn expanse_trie::cursor::MapCursor<'a>::end_bound(&self) -> expanse_trie::types::Key
 pub fn expanse_trie::cursor::MapCursor<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
-impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor::MapCursor<'a>
-pub type expanse_trie::cursor::MapCursor<'a>::Item = (u64, u64)
-pub fn expanse_trie::cursor::MapCursor<'a>::next(&mut self) -> core::option::Option<Self::Item>
 impl<'a> core::marker::Freeze for expanse_trie::cursor::MapCursor<'a>
 impl<'a> !core::marker::Send for expanse_trie::cursor::MapCursor<'a>
 impl<'a> !core::marker::Sync for expanse_trie::cursor::MapCursor<'a>
@@ -3605,11 +3625,7 @@ pub struct expanse_trie::MapCursor32<'a>
 impl<'a> expanse_trie::cursor32::MapCursor32<'a>
 pub fn expanse_trie::cursor32::MapCursor32<'a>::advance_to(&mut self, expanse_trie::types32::Key32) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
 pub fn expanse_trie::cursor32::MapCursor32<'a>::current(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
-pub fn expanse_trie::cursor32::MapCursor32<'a>::end_bound(&self) -> expanse_trie::types32::Key32
 pub fn expanse_trie::cursor32::MapCursor32<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
-impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor32::MapCursor32<'a>
-pub type expanse_trie::cursor32::MapCursor32<'a>::Item = (u32, u32)
-pub fn expanse_trie::cursor32::MapCursor32<'a>::next(&mut self) -> core::option::Option<Self::Item>
 impl<'a> core::marker::Freeze for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::marker::Send for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::marker::Sync for expanse_trie::cursor32::MapCursor32<'a>
@@ -3617,6 +3633,38 @@ impl<'a> core::marker::Unpin for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::cursor32::MapCursor32<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::cursor32::MapCursor32<'a>
+pub struct expanse_trie::MapRangeCursor<'a>
+impl<'a> expanse_trie::cursor::MapRangeCursor<'a>
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::advance_to(&mut self, expanse_trie::types::Key) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::current(&self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::end_bound(&self) -> expanse_trie::types::Key
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types::Key, expanse_trie::types::Value)>
+impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor::MapRangeCursor<'a>
+pub type expanse_trie::cursor::MapRangeCursor<'a>::Item = (u64, u64)
+pub fn expanse_trie::cursor::MapRangeCursor<'a>::next(&mut self) -> core::option::Option<Self::Item>
+impl<'a> core::marker::Freeze for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::marker::Send for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::marker::Sync for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> core::marker::Unpin for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::cursor::MapRangeCursor<'a>
+impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::cursor::MapRangeCursor<'a>
+pub struct expanse_trie::MapRangeCursor32<'a>
+impl<'a> expanse_trie::cursor32::MapRangeCursor32<'a>
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::advance_to(&mut self, expanse_trie::types32::Key32) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::current(&self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::end_bound(&self) -> expanse_trie::types32::Key32
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::next(&mut self) -> core::option::Option<(expanse_trie::types32::Key32, expanse_trie::types32::Value32)>
+impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::cursor32::MapRangeCursor32<'a>
+pub type expanse_trie::cursor32::MapRangeCursor32<'a>::Item = (u32, u32)
+pub fn expanse_trie::cursor32::MapRangeCursor32<'a>::next(&mut self) -> core::option::Option<Self::Item>
+impl<'a> core::marker::Freeze for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::Send for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::Sync for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::Unpin for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::marker::UnsafeUnpin for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::cursor32::MapRangeCursor32<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::cursor32::MapRangeCursor32<'a>
 pub struct expanse_trie::ResolveIter<'a>
 impl<'a> core::iter::traits::iterator::Iterator for expanse_trie::domain::ResolveIter<'a>
 pub type expanse_trie::domain::ResolveIter<'a>::Item = &'a [u8]

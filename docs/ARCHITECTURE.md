@@ -1011,7 +1011,7 @@ byte 4 .. 6   aux      3 B, decode digits / population / more payload
 byte 7        tag      1 B tag discriminant
 ```
 
-`Edge32` is declared at `crates/expanse/src/types32.rs:167`; `size_of` = 8, `align_of` = 4, const-asserted (`size_of::<Edge32>`, `crates/expanse/src/types32.rs:176`–`177`). `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally on every target; on a 32-bit target the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, and so on, `crates/expanse/src/lib.rs:162`–`170`).
+`Edge32` is declared at `crates/expanse/src/types32.rs:167`; `size_of` = 8, `align_of` = 4, const-asserted (`size_of::<Edge32>`, `crates/expanse/src/types32.rs:176`–`177`). `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally on every target; on a 32-bit target the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, and so on, `crates/expanse/src/lib.rs:162`–`176`).
 
 Three divergences from the 64-bit `Edge` matter:
 

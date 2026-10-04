@@ -1656,6 +1656,7 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `sync_map_prev_locked/*` | `prev_before` on `SyncExpanseMap` through `with_locked` | The only ordered route on the concurrent map before #900; the optimistic reads are compared against it. |
 | `sync_map_prev/*` | `prev_before` through a `SyncExpanseMap` reader handle, by the validated ordered walk | The optimistic ordered read (#900); prediction P12.3 compares it with `sync_map_prev_locked` on the same head. |
 | `map_cursor_scan/*` | Full forward scan of a prebuilt map through `MapCursor::next` | The single-threaded reference for a concurrent batch cursor (#1142); asserts every entry is visited once. |
+| `map_range_cursor_scan/*` | Full forward scan of a prebuilt map through `MapRangeCursor::next` | The bounded reference for `MapRangeCursor` (#1142); asserts every entry is visited once under range bounds. |
 | `sync_map_next_after_scan/*` | Full ascending scan of a `SyncExpanseMap` by `first` then `next_after` on a reader handle | One pin, version sample and root descent per entry: the per-element baseline a concurrent batch cursor is predicted against (#1142). |
 | `sync_map_scan/*` | Full ascending scan of a `SyncExpanseMap` through the validated batch cursor | The batch cursor (#1142); in Stage 1 baseline, falls back to ordered reads. |
 | `map_count_below/*` · `set_count_below/*` | `count_below` (rank) from each present key | `nav::count_below`, summing sibling `pop0` down the descent; the plain-engine control for the concurrent count arms (#1144). |
@@ -1763,6 +1764,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `map_nav` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `map_oscillate` | `random` | 50,000 |
 | `cost` | `map_prev` | `random`, `sequential`, `clustered` | 50,000 |
+| `cost` | `map_range_cursor_scan` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `map_rebuild_drained` | `random60` | 62,500 |
 | `cost` | `map_refill` | `random` | 100,000 |
 | `cost` | `map_remove` | `random` | 50,000 |

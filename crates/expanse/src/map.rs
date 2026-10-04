@@ -3786,19 +3786,19 @@ impl MapCore {
         crate::cursor::MapCursor::new(self.range_fwd_raw(start), self.cursor_top())
     }
 
-    /// Creates a forward [`MapCursor`](crate::cursor::MapCursor) scanning
+    /// Creates a forward [`MapRangeCursor`](crate::cursor::MapRangeCursor) scanning
     /// entries matching `range`.
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub(crate) fn range_cursor<R: core::ops::RangeBounds<Key>>(
         &self,
         range: R,
-    ) -> crate::cursor::MapCursor<'_> {
+    ) -> crate::cursor::MapRangeCursor<'_> {
         let end = match range.end_bound() {
             core::ops::Bound::Included(&e) => e,
             core::ops::Bound::Excluded(&e) => match e.checked_sub(1) {
                 Some(prev) => prev,
-                None => return crate::cursor::MapCursor::empty(),
+                None => return crate::cursor::MapRangeCursor::empty(0),
             },
             core::ops::Bound::Unbounded => Key::MAX,
         };
@@ -3806,14 +3806,15 @@ impl MapCore {
             core::ops::Bound::Included(&s) => s,
             core::ops::Bound::Excluded(&s) => match s.checked_add(1) {
                 Some(next) => next,
-                None => return crate::cursor::MapCursor::empty_range(end),
+                None => return crate::cursor::MapRangeCursor::empty(end),
             },
             core::ops::Bound::Unbounded => 0,
         };
         if start > end {
-            crate::cursor::MapCursor::empty_range(end)
+            crate::cursor::MapRangeCursor::empty(end)
         } else {
-            crate::cursor::MapCursor::new_range(self.range_fwd_raw(start), self.cursor_top(), end)
+            let cur = self.cursor_from(start);
+            crate::cursor::MapRangeCursor::new(cur, end)
         }
     }
 
@@ -4901,13 +4902,13 @@ impl ExpanseMap {
         self.core.cursor_from(start)
     }
 
-    /// Creates a forward [`MapCursor`](crate::cursor::MapCursor) scanning
+    /// Creates a forward [`MapRangeCursor`](crate::cursor::MapRangeCursor) scanning
     /// entries matching `range`.
     #[must_use]
     pub fn range_cursor<R: core::ops::RangeBounds<Key>>(
         &self,
         range: R,
-    ) -> crate::cursor::MapCursor<'_> {
+    ) -> crate::cursor::MapRangeCursor<'_> {
         self.core.range_cursor(range)
     }
 

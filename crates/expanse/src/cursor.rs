@@ -138,12 +138,10 @@ impl<'a> SetCursor<'a> {
 /// A stateful, forward-only ordered cursor over an [`crate::map::ExpanseMap`],
 /// yielding `(key, value)`. See [`SetCursor`] for the skip-scan contract.
 ///
-/// Construct with [`ExpanseMap::cursor`](crate::map::ExpanseMap::cursor),
-/// [`cursor_from`](crate::map::ExpanseMap::cursor_from), or
-/// [`range_cursor`](crate::map::ExpanseMap::range_cursor).
+/// Construct with [`ExpanseMap::cursor`](crate::map::ExpanseMap::cursor) or
+/// [`cursor_from`](crate::map::ExpanseMap::cursor_from).
 pub struct MapCursor<'a> {
     inner: RawCursor<true>,
-    end: Key,
     _map: core::marker::PhantomData<&'a crate::map::ExpanseMap>,
 }
 
@@ -152,32 +150,54 @@ impl<'a> MapCursor<'a> {
     pub(crate) fn new(raw: RawIter<true>, top: Edge) -> Self {
         Self {
             inner: RawCursor::new(raw, top),
-            end: Key::MAX,
             _map: core::marker::PhantomData,
         }
     }
 
+    /// The `(key, value)` at the cursor's current position, or `None` past the
+    /// end.
     #[inline]
-    pub(crate) fn new_range(raw: RawIter<true>, top: Edge, end: Key) -> Self {
+    #[must_use]
+    pub fn current(&self) -> Option<(Key, Value)> {
+        self.inner.current()
+    }
+
+    /// Advances to and returns the entry with the smallest key `>= target` that
+    /// is `>=` the cursor's current position; `None` once the map is exhausted.
+    #[inline]
+    pub fn advance_to(&mut self, target: Key) -> Option<(Key, Value)> {
+        self.inner.advance_to(target)
+    }
+
+    /// Returns the current entry and advances one step; `None` past the end.
+    #[inline]
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Option<(Key, Value)> {
+        self.inner.next()
+    }
+}
+
+/// A stateful, forward-only ordered cursor over a bounded range of an [`crate::map::ExpanseMap`],
+/// yielding `(key, value)`. See [`SetCursor`] for the skip-scan contract.
+///
+/// Construct with [`ExpanseMap::range_cursor`](crate::map::ExpanseMap::range_cursor).
+pub struct MapRangeCursor<'a> {
+    cur: Option<MapCursor<'a>>,
+    end: Key,
+}
+
+impl<'a> MapRangeCursor<'a> {
+    #[inline]
+    pub(crate) fn new(cur: MapCursor<'a>, end: Key) -> Self {
         Self {
-            inner: RawCursor::new(raw, top),
+            cur: Some(cur),
             end,
-            _map: core::marker::PhantomData,
         }
     }
 
     #[inline]
-    pub(crate) fn empty() -> Self {
-        Self::empty_range(0)
-    }
-
-    #[inline]
-    pub(crate) fn empty_range(end: Key) -> Self {
-        Self {
-            inner: RawCursor::empty(),
-            end,
-            _map: core::marker::PhantomData,
-        }
+    pub(crate) fn empty(end: Key) -> Self {
+        Self { cur: None, end }
     }
 
     /// The upper inclusive bound for this cursor.
@@ -192,13 +212,9 @@ impl<'a> MapCursor<'a> {
     #[inline]
     #[must_use]
     pub fn current(&self) -> Option<(Key, Value)> {
-        if self.end == Key::MAX {
-            self.inner.current()
-        } else {
-            match self.inner.current() {
-                Some((k, _)) if k <= self.end => self.inner.current(),
-                _ => None,
-            }
+        match self.cur.as_ref()?.current() {
+            Some((k, v)) if k <= self.end => Some((k, v)),
+            _ => None,
         }
     }
 
@@ -207,39 +223,34 @@ impl<'a> MapCursor<'a> {
     /// the map or range is exhausted.
     #[inline]
     pub fn advance_to(&mut self, target: Key) -> Option<(Key, Value)> {
-        if self.end == Key::MAX {
-            self.inner.advance_to(target)
-        } else if target > self.end {
-            None
-        } else {
-            match self.inner.advance_to(target) {
-                Some((k, v)) if k <= self.end => Some((k, v)),
-                _ => None,
-            }
+        if target > self.end {
+            return None;
+        }
+        let cur = self.cur.as_mut()?;
+        match cur.advance_to(target) {
+            Some((k, v)) if k <= self.end => Some((k, v)),
+            _ => None,
         }
     }
 
     /// Returns the current entry and advances one step; `None` past the end.
     #[inline]
-    #[allow(clippy::should_implement_trait)]
+    #[allow(clippy::should_implement_trait)] // discipline:allow(suppression-delta): clippy::should_implement_trait inherent cursor next
     pub fn next(&mut self) -> Option<(Key, Value)> {
-        if self.end == Key::MAX {
-            self.inner.next()
-        } else {
-            match self.inner.current() {
-                Some((k, _)) if k <= self.end => self.inner.next(),
-                _ => None,
-            }
+        let cur = self.cur.as_mut()?;
+        match cur.current() {
+            Some((k, _)) if k <= self.end => cur.next(),
+            _ => None,
         }
     }
 }
 
-impl<'a> Iterator for MapCursor<'a> {
+impl<'a> Iterator for MapRangeCursor<'a> {
     type Item = (Key, Value);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        MapCursor::next(self)
+        MapRangeCursor::next(self)
     }
 }
 
@@ -864,14 +875,14 @@ mod tests {
     }
 
     #[test]
-    fn test_map_cursor_iterator_trait() {
+    fn test_map_range_cursor_iterator_trait() {
         let mut map = ExpanseMap::new();
         map.insert(1, 10);
         map.insert(2, 20);
         map.insert(3, 30);
 
         // Test standard Iterator methods: map, filter, fold
-        let sum: u64 = map.cursor().map(|(_, v)| v).sum();
+        let sum: u64 = map.range_cursor(..).map(|(_, v)| v).sum();
         assert_eq!(sum, 60);
 
         let keys: Vec<u64> = map.range_cursor(2..=3).map(|(k, _)| k).collect();
