@@ -192,9 +192,13 @@ impl<'a> MapCursor<'a> {
     #[inline]
     #[must_use]
     pub fn current(&self) -> Option<(Key, Value)> {
-        match self.inner.current() {
-            Some((k, _)) if k <= self.end => self.inner.current(),
-            _ => None,
+        if self.end == Key::MAX {
+            self.inner.current()
+        } else {
+            match self.inner.current() {
+                Some((k, _)) if k <= self.end => self.inner.current(),
+                _ => None,
+            }
         }
     }
 
@@ -203,9 +207,15 @@ impl<'a> MapCursor<'a> {
     /// the map or range is exhausted.
     #[inline]
     pub fn advance_to(&mut self, target: Key) -> Option<(Key, Value)> {
-        match self.inner.advance_to(target) {
-            Some((k, v)) if k <= self.end => Some((k, v)),
-            _ => None,
+        if self.end == Key::MAX {
+            self.inner.advance_to(target)
+        } else if target > self.end {
+            None
+        } else {
+            match self.inner.advance_to(target) {
+                Some((k, v)) if k <= self.end => Some((k, v)),
+                _ => None,
+            }
         }
     }
 
@@ -213,9 +223,13 @@ impl<'a> MapCursor<'a> {
     #[inline]
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<(Key, Value)> {
-        match self.inner.current() {
-            Some((k, _)) if k <= self.end => self.inner.next(),
-            _ => None,
+        if self.end == Key::MAX {
+            self.inner.next()
+        } else {
+            match self.inner.current() {
+                Some((k, _)) if k <= self.end => self.inner.next(),
+                _ => None,
+            }
         }
     }
 }
