@@ -443,7 +443,13 @@ impl Counters {
     /// bumps `ReadFallbacks` and then `LockedReads` inside `read_locked`. A
     /// `prev_locked` reader never enters the optimistic protocol and bumps
     /// `LockedReads` once per call inside `with_locked`.
-    fn check_reader(&self, op: ReadOp, reader_ops: u64, cell: &str) -> Result<(), String> {
+    fn check_reader(
+        &self,
+        op: ReadOp,
+        reader_ops: u64,
+        reader_wraps: u64,
+        cell: &str,
+    ) -> Result<(), String> {
         match op {
             ReadOp::Prev | ReadOp::Get => {
                 if self.read_ops != reader_ops {
@@ -474,7 +480,7 @@ impl Counters {
                     ));
                 }
             }
-            ReadOp::Scan | ReadOp::NextAfterScan => {
+            ReadOp::Scan => {
                 if self.locked_reads != self.read_fallbacks {
                     return Err(format!(
                         "{cell}: locked_reads = {}, read_fallbacks = {} (an optimistic reader \
@@ -485,6 +491,21 @@ impl Counters {
                 if reader_ops > 0 && self.read_ops == 0 {
                     return Err(format!(
                         "{cell}: read_ops = 0, readers made {reader_ops} probes",
+                    ));
+                }
+            }
+            ReadOp::NextAfterScan => {
+                if self.read_ops != reader_ops + reader_wraps {
+                    return Err(format!(
+                        "{cell}: read_ops = {}, readers made {reader_ops} calls + {reader_wraps} wraps",
+                        self.read_ops
+                    ));
+                }
+                if self.locked_reads != self.read_fallbacks {
+                    return Err(format!(
+                        "{cell}: locked_reads = {}, read_fallbacks = {} (an optimistic reader \
+                         reaches the writer mutex only by falling back)",
+                        self.locked_reads, self.read_fallbacks
                     ));
                 }
             }
@@ -2135,6 +2156,7 @@ struct ReaderOutcome {
     /// the slowest reader plus the join; these give the mean beside it.
     thread_elapsed_s: Vec<f64>,
     reader_ops: u64,
+    reader_wraps: u64,
     fresh_keys: u64,
     final_pop: u64,
     counters: Counters,
@@ -2250,14 +2272,16 @@ fn scan_loop(rd: &MapReader<'_>, limit: Option<u64>, stop: &AtomicBool) -> u64 {
 /// Unbatched `next_after` scan loop: the single-key ordered baseline against which
 /// the batch cursor is compared (#1142, `METHODOLOGY.md` §32.4).
 #[inline(always)]
-fn next_after_scan_loop(rd: &MapReader<'_>, limit: Option<u64>, stop: &AtomicBool) -> u64 {
+fn next_after_scan_loop(rd: &MapReader<'_>, limit: Option<u64>, stop: &AtomicBool) -> (u64, u64) {
     let mut sink = 0u64;
     let mut ops = 0u64;
+    let mut wraps = 0u64;
     match limit {
         Some(n) => {
             while ops < n {
                 let mut at = rd.first();
                 if at.is_none() {
+                    wraps += 1;
                     break;
                 }
                 while let Some((k, v)) = at {
@@ -2268,12 +2292,16 @@ fn next_after_scan_loop(rd: &MapReader<'_>, limit: Option<u64>, stop: &AtomicBoo
                     }
                     at = rd.next_after(black_box(k));
                 }
+                if at.is_none() {
+                    wraps += 1;
+                }
             }
         }
         None => {
             while !stop.load(Ordering::Relaxed) {
                 let mut at = rd.first();
                 if at.is_none() {
+                    wraps += 1;
                     break;
                 }
                 while let Some((k, v)) = at {
@@ -2284,11 +2312,14 @@ fn next_after_scan_loop(rd: &MapReader<'_>, limit: Option<u64>, stop: &AtomicBoo
                     }
                     at = rd.next_after(black_box(k));
                 }
+                if at.is_none() {
+                    wraps += 1;
+                }
             }
         }
     }
     black_box(sink);
-    ops
+    (ops, wraps)
 }
 
 /// Verifies that a full scan of the map produces the prefilled entries in strictly
@@ -2415,7 +2446,7 @@ fn run_reader_cell(
         occ_stats::reset();
     }
 
-    let (writer_elapsed_s, reader_elapsed_s, reader_ops, thread_elapsed_s) =
+    let (writer_elapsed_s, reader_elapsed_s, reader_ops, reader_wraps, thread_elapsed_s) =
         std::thread::scope(|s| {
             let writer_handles: Vec<_> = (0..cell.writers)
                 .map(|w| {
@@ -2451,14 +2482,14 @@ fn run_reader_cell(
                             let t0 = Instant::now();
                             let n =
                                 probe_loop(probes, limit, stop, |k| fold_entry(rd.prev_before(k)));
-                            (n, t0.elapsed().as_secs_f64())
+                            (n, 0u64, t0.elapsed().as_secs_f64())
                         }
                         ReadOp::Get => {
                             let rd = m.reader();
                             b.wait();
                             let t0 = Instant::now();
                             let n = probe_loop(probes, limit, stop, |k| rd.get(k).unwrap_or(0));
-                            (n, t0.elapsed().as_secs_f64())
+                            (n, 0u64, t0.elapsed().as_secs_f64())
                         }
                         ReadOp::PrevLocked => {
                             b.wait();
@@ -2466,7 +2497,7 @@ fn run_reader_cell(
                             let n = probe_loop(probes, limit, stop, |k| {
                                 fold_entry(m.with_locked(|t| t.prev_before(k)))
                             });
-                            (n, t0.elapsed().as_secs_f64())
+                            (n, 0u64, t0.elapsed().as_secs_f64())
                         }
                         ReadOp::CountLocked => {
                             b.wait();
@@ -2474,21 +2505,21 @@ fn run_reader_cell(
                             let n = probe_loop(probes, limit, stop, |k| {
                                 m.with_locked(|t| t.count_below(k))
                             });
-                            (n, t0.elapsed().as_secs_f64())
+                            (n, 0u64, t0.elapsed().as_secs_f64())
                         }
                         ReadOp::Scan => {
                             let rd = m.reader();
                             b.wait();
                             let t0 = Instant::now();
                             let n = scan_loop(&rd, limit, stop);
-                            (n, t0.elapsed().as_secs_f64())
+                            (n, 0u64, t0.elapsed().as_secs_f64())
                         }
                         ReadOp::NextAfterScan => {
                             let rd = m.reader();
                             b.wait();
                             let t0 = Instant::now();
-                            let n = next_after_scan_loop(&rd, limit, stop);
-                            (n, t0.elapsed().as_secs_f64())
+                            let (n, wraps) = next_after_scan_loop(&rd, limit, stop);
+                            (n, wraps, t0.elapsed().as_secs_f64())
                         }
                     })
                 })
@@ -2507,16 +2538,19 @@ fn run_reader_cell(
             }
             drop(guard);
             let mut ops = 0u64;
+            let mut wraps = 0u64;
             let mut per_thread = Vec::with_capacity(cell.readers);
             for h in reader_handles {
-                let (n, secs) = h.join().expect("reader thread panicked");
+                let (n, w, secs) = h.join().expect("reader thread panicked");
                 ops += n;
+                wraps += w;
                 per_thread.push(secs);
             }
             (
                 writer_elapsed,
                 start.elapsed().as_secs_f64(),
                 ops,
+                wraps,
                 per_thread,
             )
         });
@@ -2566,6 +2600,7 @@ fn run_reader_cell(
         reader_elapsed_s,
         thread_elapsed_s,
         reader_ops,
+        reader_wraps,
         fresh_keys: fresh.len() as u64,
         final_pop,
         counters,
@@ -2679,6 +2714,7 @@ fn run_set_readers_cell(
         reader_elapsed_s,
         thread_elapsed_s,
         reader_ops,
+        reader_wraps: 0,
         fresh_keys: 0,
         final_pop,
         counters,
@@ -2739,6 +2775,7 @@ fn run_str_readers_cell(
         reader_elapsed_s,
         thread_elapsed_s,
         reader_ops,
+        reader_wraps: 0,
         fresh_keys: 0,
         final_pop,
         counters,
@@ -3314,18 +3351,21 @@ fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(),
         let out = run_reader_cell(&wl, cell, round, is_counters, &mut perf_ctl)?;
         let fresh = out.fresh_keys;
         let reader_ops = out.reader_ops;
+        let reader_wraps = out.reader_wraps;
         let final_pop = out.final_pop;
         if is_counters {
             let ctx = format!("{label} round {round}");
             out.counters.check(fresh, out.counters.locked_reads, &ctx)?;
-            out.counters.check_reader(op, reader_ops, &ctx)?;
+            out.counters
+                .check_reader(op, reader_ops, reader_wraps, &ctx)?;
             println!(
                 "{{\"workload_id\":\"concurrency_ordered_readers_map_64bit\",\"role\":\"counters\",\
                  \"arm\":\"expanse\",\"cell\":\"{label}\",\"keyspace_bits\":64,\
                  \"prefill\":{n0},\"hotspot_prefill\":{hotspot_prefill},\"hotspot_base\":{hotspot_base},\
                  \"fresh_keys\":{fresh},\"writers\":{writers},\"readers\":{readers},\
                  \"read_op\":\"{op_name}\",\"probe\":\"{probe_name}\",\
-                 \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\"reader_ops\":{reader_ops},\
+                 \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\
+                 \"reader_ops\":{reader_ops},\"reader_wraps\":{reader_wraps},\
                  \"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
                  \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},{reads},\
                  \"fallback_causes\":{causes},\"population_after\":{final_pop}}}",
@@ -3347,7 +3387,7 @@ fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(),
                  \"read_op\":\"{op_name}\",\"probe\":\"{probe_name}\",\
                  \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\
                  \"writer_elapsed_s\":{we},\"writer_mops\":{wm},\
-                 \"reader_ops\":{reader_ops},\"reader_elapsed_s\":{reader_elapsed_s:.6},\
+                 \"reader_ops\":{reader_ops},\"reader_wraps\":{reader_wraps},\"reader_elapsed_s\":{reader_elapsed_s:.6},\
                  \"reader_thread_elapsed_s\":{te},\
                  \"reader_mops\":{reader_mops:.6},\"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
                  \"population_after\":{final_pop}}}",
@@ -3446,7 +3486,8 @@ fn readers_only_main(
         if is_counters {
             let ctx = format!("{label} round {round}");
             out.counters.check(0, out.counters.locked_reads, &ctx)?;
-            out.counters.check_reader(ReadOp::Get, reader_ops, &ctx)?;
+            out.counters
+                .check_reader(ReadOp::Get, reader_ops, 0, &ctx)?;
             println!(
                 "{{\"workload_id\":\"{workload_id}\",\"role\":\"counters\",\
                  \"arm\":\"expanse\",\"cell\":\"{label}\",{shape_field},\
@@ -3568,7 +3609,7 @@ fn band_main(args: &[String], is_counters: bool) -> Result<(), String> {
             )?;
             out.counters.check_band_removes(out.owner_removes, &ctx)?;
             out.counters
-                .check_reader(ReadOp::Get, out.reader_ops, &ctx)?;
+                .check_reader(ReadOp::Get, out.reader_ops, 0, &ctx)?;
             println!(
                 "{{{common},\"role\":\"counters\",\"stat_write_ops\":{wo},\
                  \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},{reads},\
@@ -4090,17 +4131,26 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         ..Counters::default()
     };
     if probe_counters
-        .check_reader(ReadOp::Prev, 10, "probe")
+        .check_reader(ReadOp::Prev, 10, 0, "probe")
         .is_err()
         || probe_counters
-            .check_reader(ReadOp::Prev, 11, "probe")
+            .check_reader(ReadOp::Prev, 11, 0, "probe")
             .is_ok()
         || probe_counters
-            .check_reader(ReadOp::PrevLocked, 1, "probe")
+            .check_reader(ReadOp::PrevLocked, 1, 0, "probe")
             .is_ok()
         || probe_counters
-            .check_reader(ReadOp::CountLocked, 1, "probe")
+            .check_reader(ReadOp::CountLocked, 1, 0, "probe")
             .is_ok()
+        || probe_counters
+            .check_reader(ReadOp::NextAfterScan, 8, 2, "probe")
+            .is_err()
+        || probe_counters
+            .check_reader(ReadOp::NextAfterScan, 8, 3, "probe")
+            .is_ok()
+        || probe_counters
+            .check_reader(ReadOp::Scan, 100, 0, "probe")
+            .is_err()
     {
         return Err("check_reader accepted a mismatched count or refused a matching one".into());
     }
@@ -4151,7 +4201,8 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
                 if is_counters {
                     out.counters
                         .check(expected_fresh, out.counters.locked_reads, &ctx)?;
-                    out.counters.check_reader(op, out.reader_ops, &ctx)?;
+                    out.counters
+                        .check_reader(op, out.reader_ops, out.reader_wraps, &ctx)?;
                 } else if out.reader_elapsed_s <= 0.0
                     || (writers > 0) != out.writer_elapsed_s.is_some()
                 {
@@ -4203,7 +4254,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         if is_counters {
             out.counters
                 .check(out.fresh_keys, out.counters.locked_reads, &ctx)?;
-            out.counters.check_reader(ReadOp::CountLocked, 0, &ctx)?;
+            out.counters.check_reader(ReadOp::CountLocked, 0, 0, &ctx)?;
         }
     }
 
@@ -4235,7 +4286,7 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
         if is_counters {
             out.counters.check(0, out.counters.locked_reads, &ctx)?;
             out.counters
-                .check_reader(ReadOp::Get, out.reader_ops, &ctx)?;
+                .check_reader(ReadOp::Get, out.reader_ops, 0, &ctx)?;
         } else if out.reader_elapsed_s <= 0.0 || out.thread_elapsed_s.iter().any(|&t| t <= 0.0) {
             return Err(format!(
                 "{ctx}: invalid elapsed (readers {}, threads {:?})",
@@ -4380,7 +4431,7 @@ fn band_self_test(is_counters: bool, ctl: &mut PerfControl) -> Result<(), String
             )?;
             out.counters.check_band_removes(out.owner_removes, &ctx)?;
             out.counters
-                .check_reader(ReadOp::Get, out.reader_ops, &ctx)?;
+                .check_reader(ReadOp::Get, out.reader_ops, 0, &ctx)?;
             let (dmu, upg) = (
                 out.counters.branch_split_demote_u,
                 out.counters.branch_split_upgrade,

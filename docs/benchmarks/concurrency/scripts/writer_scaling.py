@@ -2657,6 +2657,16 @@ def check_reader_counters_row(row: dict[str, Any]) -> None:
                 f"read_fallbacks, got read_ops {ops}, reader_ops {reader_ops}, locked_reads "
                 f"{row['locked_reads']}, read_fallbacks {row['read_fallbacks']}"
             )
+    elif row["read_op"] == "next_after_scan":
+        if "reader_wraps" not in row:
+            raise ValueError(f"{ctx}: next_after_scan counters row lacks 'reader_wraps'")
+        wraps = int(row["reader_wraps"])
+        if ops != reader_ops + wraps or int(row["locked_reads"]) != int(row["read_fallbacks"]):
+            raise ValueError(
+                f"{ctx}: a next_after_scan reader cell needs read_ops == reader_ops + reader_wraps and locked_reads == "
+                f"read_fallbacks, got read_ops {ops}, reader_ops {reader_ops}, reader_wraps {wraps}, "
+                f"locked_reads {row['locked_reads']}, read_fallbacks {row['read_fallbacks']}"
+            )
     elif ops != reader_ops or int(row["locked_reads"]) != int(row["read_fallbacks"]):
         raise ValueError(
             f"{ctx}: an optimistic reader cell needs read_ops == reader_ops and locked_reads == "
@@ -2732,14 +2742,14 @@ def summarize_ordered_readers(
                 },
                 "rounds_raw": [
                     {k: x.get(k) for k in (
-                        "round", "block", "position", "reader_ops", "reader_elapsed_s", "reader_mops",
+                        "round", "block", "position", "reader_ops", "reader_wraps", "reader_elapsed_s", "reader_mops",
                         "write_ops", "writer_elapsed_s", "writer_mops", "population_after", "cpu_pin", "tsc_hz",
                     )}
                     for x in t
                 ],
                 "counters_raw": [
                     {k: x.get(k) for k in (
-                        "round", "block", "position", "reader_ops", "write_ops", "inserts",
+                        "round", "block", "position", "reader_ops", "reader_wraps", "write_ops", "inserts",
                         *READER_COUNTER_FIELDS, "lock_fallbacks", "quiesce_calls", "fallback_causes",
                         "population_after", "cpu_pin",
                     )}
@@ -3131,14 +3141,14 @@ def summarize_scan_cells(
                 },
                 "rounds_raw": [
                     {k: x.get(k) for k in (
-                        "round", "block", "position", "reader_mops", "reader_elapsed_s",
+                        "round", "block", "position", "reader_ops", "reader_wraps", "reader_mops", "reader_elapsed_s",
                         "reader_thread_elapsed_s", "writer_elapsed_s", "writer_mops",
                     )}
                     for x in t
                 ],
                 "counters_raw": [
                     {k: x.get(k) for k in (
-                        "round", "block", "position", "reader_ops", "write_ops", "inserts",
+                        "round", "block", "position", "reader_ops", "reader_wraps", "write_ops", "inserts",
                         *READER_COUNTER_FIELDS, "lock_fallbacks", "quiesce_calls", "fallback_causes",
                         "population_after", "cpu_pin",
                     )}
@@ -6025,7 +6035,7 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
             "writers": w, "readers": r, "read_op": op, "probe": probe, "round": rnd,
             "position": run["position"], "write_ops": 0 if w == 0 else 1000,
             "writer_elapsed_s": None if w == 0 else 0.01, "writer_mops": None if w == 0 else 1.0,
-            "reader_ops": 4096, "reader_elapsed_s": 0.001, "reader_thread_elapsed_s": [0.001] * r,
+            "reader_ops": 4096, "reader_wraps": 0, "reader_elapsed_s": 0.001, "reader_thread_elapsed_s": [0.001] * r,
             "reader_mops": mops, "cpu_pin": pin, "tsc_hz": 24000000, "population_after": 4096,
         }
         c_row = {
@@ -6035,7 +6045,7 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
             "writers": w, "readers": r, "read_op": op, "probe": probe, "round": rnd,
             "position": run["position"], "write_ops": 0 if w == 0 else 1000,
             "inserts": 0 if w == 0 else 1000,
-            "reader_ops": 4096, "cpu_pin": pin, "tsc_hz": 24000000, "lock_fallbacks": 0,
+            "reader_ops": 4096, "reader_wraps": 0, "cpu_pin": pin, "tsc_hz": 24000000, "lock_fallbacks": 0,
             "quiesce_calls": 0, "read_ops": 16 if op == "scan" else 4096, "read_attempts": 16 if op == "scan" else 4096,
             "read_fallbacks": 0, "locked_reads": 0,
             "fallback_causes": {cause: 0 for cause in CAUSE_NAMES}, "population_after": 4096,
