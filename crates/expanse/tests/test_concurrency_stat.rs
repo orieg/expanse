@@ -6,7 +6,7 @@
 mod concurrency_stat;
 
 use concurrency_stat::{
-    get_thread_id, parse_stat_cpu, read_proc_stat_cpu, read_proc_stat_file, STAT_SAMPLE_CADENCE,
+    STAT_SAMPLE_CADENCE, get_thread_id, parse_stat_cpu, read_proc_stat_cpu, read_proc_stat_file,
 };
 
 #[test]
