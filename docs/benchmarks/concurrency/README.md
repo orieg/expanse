@@ -5755,3 +5755,92 @@ separated.
     compaction still waits for all of it; changing that is outside §30's
     scope.
 - **Writers' wait is unchanged.** P3's ratios are 0.996–1.028.
+
+## 32. Validated batch cursor on concurrent map readers — METHODOLOGY §32's evaluation (Refs #1142)
+
+METHODOLOGY §32 registered the validated batch cursor on `SyncExpanseMap` readers
+(`MapReader`, `OwnedMapReader`, `DetachedMapReader`) and its concurrent wall-clock
+throughput scaling gate P32.3 across eight probe × concurrency cells.
+
+The P32.3 gate is evaluated across two independent, sequential bare-metal runs
+dispatched on `main` at commit `b7cba7ad6`. Both runs are admissible: each
+measured its own commit under the applied core pin `0,2,4,6,8,10,12,14` (one
+thread per physical P-core (pin), SMT siblings unused), each host
+guard recorded `verdict: "quiet"` with foreign load on the pinned CPUs below 0.1
+busy CPUs and no foreign process above 50% CPU, the CPU scaling governor was
+applied as `performance` across all pinned cores, and all eight rounds of every
+probe block completed with zero unhandled fallbacks *(measured: 12th Gen
+Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic),
+b7cba7ad6; bare-metal runs [37192446375](https://github.com/orieg/expanse/actions/runs/37192446375)
+and [37192706570](https://github.com/orieg/expanse/actions/runs/37192706570); core
+pin `0,2,4,6,8,10,12,14`; artifacts
+`docs/benchmarks/concurrency/results/scan_cells_writer_scaling.json` and
+`docs/benchmarks/concurrency/results/scan_cells_writer_scaling_run2.json`;
+workload: `writer_scaling_scan`)*.
+
+Load snapshots:
+- Run 1 ([37192446375](https://github.com/orieg/expanse/actions/runs/37192446375)): `host-guard.json` verdict `quiet`, loadavg `0.07`, `0.02`, `0.00`; start load `1.91`, `0.56`, `0.19` (at 2026-10-04T09:33:38Z).
+- Run 2 ([37192706570](https://github.com/orieg/expanse/actions/runs/37192706570)): `host-guard.json` verdict `quiet`, loadavg `0.09`, `0.45`, `0.26`; start load `1.81`, `0.88`, `0.43` (at 2026-10-04T09:39:34Z).
+
+An initial dispatch, run [37184051599](https://github.com/orieg/expanse/actions/runs/37184051599),
+was recorded as VOID due to an instrument defect in the harness verification
+logic: `verify_scan_answers` required exact arithmetic equality between `read_ops`
+and `reader_ops`, which rejected valid runs whenever an optimistic reader was
+preempted mid-probe between counter increment and loop exit. That defect was
+corrected in #1364 (`b7cba7ad6`), and the two sequential runs above were executed
+on the corrected tree.
+
+### 32.1 Per-cell reader throughput and diagnostic counters
+
+Throughput (mean Mops/s over 8 rounds with BCa 95% bootstrap intervals), OCC
+attempts per op, and fallback read rates for `scan` (batch cursor) versus
+`next_after_scan` (unbatched point descent):
+
+| probe | cell | op | Run 1 Mops/s [95% CI] | Run 1 attempts | Run 1 fallbacks | Run 2 Mops/s [95% CI] | Run 2 attempts | Run 2 fallbacks |
+|---|---|---|--:|--:|--:|--:|--:|--:|
+| uniform | W=0 R=1 | next_after_scan | 43.24 [42.98, 43.40] | 1.000 | 0.0000% | 43.11 [42.65, 43.28] | 1.000 | 0.0000% |
+| uniform | W=0 R=1 | scan | 234.52 [228.17, 241.92] | 1.000 | 0.0000% | 236.17 [230.57, 243.01] | 1.000 | 0.0000% |
+| uniform | W=0 R=4 | next_after_scan | 167.90 [166.97, 168.76] | 1.000 | 0.0000% | 167.72 [166.56, 168.42] | 1.000 | 0.0000% |
+| uniform | W=0 R=4 | scan | 907.06 [863.97, 925.53] | 1.000 | 0.0000% | 924.40 [887.25, 944.26] | 1.000 | 0.0000% |
+| uniform | W=1 R=4 | next_after_scan | 134.84 [134.67, 134.98] | 1.001 | 0.0000% | 134.99 [134.79, 135.22] | 1.001 | 0.0000% |
+| uniform | W=1 R=4 | scan | 604.84 [604.11, 605.58] | 1.022 | 0.0000% | 604.64 [601.22, 606.67] | 1.022 | 0.0000% |
+| uniform | W=4 R=4 | next_after_scan | 119.05 [106.02, 122.54] | 1.003 | 0.0000% | 122.36 [121.65, 122.98] | 1.003 | 0.0000% |
+| uniform | W=4 R=4 | scan | 539.15 [536.49, 541.31] | 1.060 | 0.0001% | 542.53 [539.51, 543.82] | 1.060 | 0.0003% |
+| hotspot | W=0 R=1 | next_after_scan | 43.50 [43.23, 43.73] | 1.000 | 0.0000% | 43.12 [42.86, 43.40] | 1.000 | 0.0000% |
+| hotspot | W=0 R=1 | scan | 233.18 [227.08, 241.68] | 1.000 | 0.0000% | 229.21 [222.51, 235.34] | 1.000 | 0.0000% |
+| hotspot | W=0 R=4 | next_after_scan | 167.49 [167.01, 168.20] | 1.000 | 0.0000% | 168.04 [167.46, 168.56] | 1.000 | 0.0000% |
+| hotspot | W=0 R=4 | scan | 920.36 [905.57, 937.90] | 1.000 | 0.0000% | 934.43 [914.98, 950.79] | 1.000 | 0.0000% |
+| hotspot | W=1 R=4 | next_after_scan | 152.84 [149.38, 154.92] | 1.001 | 0.0000% | 151.93 [148.82, 154.16] | 1.001 | 0.0000% |
+| hotspot | W=1 R=4 | scan | 870.64 [855.81, 882.22] | 1.258 | 0.1383% | 881.66 [866.86, 895.82] | 1.250 | 0.1256% |
+| hotspot | W=4 R=4 | next_after_scan | 150.51 [145.59, 152.35] | 1.000 | 0.0000% | 152.92 [149.17, 154.94] | 1.000 | 0.0000% |
+| hotspot | W=4 R=4 | scan | 733.10 [687.28, 770.50] | 1.444 | 0.2464% | 718.56 [688.18, 752.84] | 1.718 | 0.5821% |
+
+### 32.2 P32.3 Gate evaluation — paired scan throughput ratios
+
+Per-round paired ratios `reader_mops(scan) / reader_mops(next_after_scan)`,
+evaluated with BCa 95% bootstrap intervals against locked pre-registered floors:
+
+| Cell | Floor | Run 1 Mean [95% CI] | Run 1 Status | Run 2 Mean [95% CI] | Run 2 Status | Outcome |
+|---|---|---|---|---|---|:---:|
+| `uniform W=0 R=1` | 3.0× | 5.4231 [5.2812, 5.5870] | `LB_AT_OR_ABOVE_FLOOR` | 5.4798 [5.3332, 5.6604] | `LB_AT_OR_ABOVE_FLOOR` | holds |
+| `uniform W=0 R=4` | 3.0× | 5.4019 [5.1936, 5.5174] | `LB_AT_OR_ABOVE_FLOOR` | 5.5118 [5.2677, 5.6231] | `LB_AT_OR_ABOVE_FLOOR` | holds |
+| `uniform W=1 R=4` | 2.0× | 4.4856 [4.4778, 4.4920] | `LB_AT_OR_ABOVE_FLOOR` | 4.4792 [4.4525, 4.4979] | `LB_AT_OR_ABOVE_FLOOR` | holds |
+| `hotspot W=0 R=1` | 3.0× | 5.3598 [5.2336, 5.5233] | `LB_AT_OR_ABOVE_FLOOR` | 5.3150 [5.1562, 5.4317] | `LB_AT_OR_ABOVE_FLOOR` | holds |
+| `hotspot W=0 R=4` | 3.0× | 5.4952 [5.4044, 5.5946] | `LB_AT_OR_ABOVE_FLOOR` | 5.5604 [5.4576, 5.6434] | `LB_AT_OR_ABOVE_FLOOR` | holds |
+| `hotspot W=1 R=4` | 2.0× | 5.6973 [5.6380, 5.7443] | `LB_AT_OR_ABOVE_FLOOR` | 5.8050 [5.7146, 5.9168] | `LB_AT_OR_ABOVE_FLOOR` | holds |
+| `uniform W=4 R=4` | reference | 4.5583 [4.3925, 5.0407] | `REPORT_ONLY` | 4.4341 [4.4155, 4.4508] | `REPORT_ONLY` | reference |
+| `hotspot W=4 R=4` | reference | 4.8771 [4.5261, 5.1501] | `REPORT_ONLY` | 4.7066 [4.4720, 5.0069] | `REPORT_ONLY` | reference |
+
+The combiner (`python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --scan-cells-verdict docs/benchmarks/concurrency/results/scan_cells_writer_scaling.json docs/benchmarks/concurrency/results/scan_cells_writer_scaling_run2.json`) evaluates:
+- **Decision:** PASS iff every gated cell has LB $\ge$ floor in **BOTH** runs; otherwise REFUTED.
+- **Failing Cells:** `[]`
+- **P32.3 Verdict:** **`PASS`** on the pre-registered P32.3 gate at its locked thresholds.
+
+### 32.3 Observations
+
+- **Quiescent and multi-reader scaling (W = 0):** Across both uniform and hotspot distributions, the batch cursor delivers paired throughput ratios against unbatched `next_after` point descent with means spanning 5.31×–5.56× and BCa 95% confidence interval lower bounds spanning 5.16×–5.46×, holding above the 3.0× floor across all cells in both runs.
+- **Scaling under concurrent writers (W = 1, R = 4):** Under active concurrent mutation, paired throughput ratio means span 4.48×–5.81× and BCa 95% confidence interval lower bounds span 4.45×–5.71×, holding above the 2.0× floor across all cells in both runs. Across the four cells, measured optimistic completion requires 1.001–1.258 attempts per op and fallback rates stay at or below 0.14% (`scan_cells_writer_scaling.json` and `scan_cells_writer_scaling_run2.json`).
+- **Mechanism hypothesis (untested by ablation):** As derived in `scripts/batch_cursor_bounds.py`, copying entries under a single epoch pin and parent OCC validation bracket is hypothesized to reduce per-entry traversal cost; this gate confirms the engineering throughput targets (Engineering tier) without an interventional ablation of the batching mechanisms.
+- **Discipline note:** This verdict confirms the pre-registered P32.3 gate at its locked thresholds under the measured harness, workload, and core pinning on the reference host. It represents a measured throughput ratio under these explicit conditions; do not extrapolate to other hosts or unmeasured operational regimes.
+
+
