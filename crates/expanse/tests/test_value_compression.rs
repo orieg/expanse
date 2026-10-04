@@ -210,6 +210,18 @@ fn test_binary_image_format_version_2_roundtrip() {
     assert_eq!(v4.as_bytes(), b"meta_blob");
     assert_eq!(m4, 0xABCDEF);
     assert!(v4.is_arena());
+
+    // Explicitly verify that format version 2 images are rejected with UnsupportedFormatVersion
+    let mut v2_buf = buf.clone();
+    v2_buf[8..12].copy_from_slice(&2u32.to_le_bytes());
+    match ExpanseBlobMap::from_bytes_slice(&v2_buf) {
+        Err(expanse_trie::blobmap::ArenaError::UnsupportedFormatVersion { found, supported }) => {
+            assert_eq!(found, 2);
+            assert_eq!(supported, 3);
+        }
+        Err(other) => panic!("expected UnsupportedFormatVersion(2, 3), got {other:?}"),
+        Ok(_) => panic!("expected UnsupportedFormatVersion(2, 3), got Ok"),
+    }
 }
 
 #[test]

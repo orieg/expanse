@@ -14766,6 +14766,61 @@ mod miri_ub_sites {
         }
         assert_eq!(map.len(), BLOB_FILLER + KEYS);
     }
+
+    /// #1320 (METHODOLOGY §31, Stage 3B): Bounded victim chunk evacuation beside
+    /// concurrent reader workload in Miri UB sites suite.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn blob_evacuation_reader_writer() {
+        let map = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 20 * 1024);
+        let payload = |k: u64| -> Vec<u8> { (0..128).map(|i| (k ^ i) as u8).collect() };
+
+        for k in 0..35 {
+            map.insert(k, &payload(k), 1).expect("insert");
+        }
+        for k in 0..18 {
+            assert!(map.remove(k));
+        }
+
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            let evacuator = s.spawn(|| {
+                let evacuated = map.evacuate_victim().expect("evacuate");
+                assert!(evacuated, "victim chunk with u < 0.5 must be evacuated");
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                read_until(&done, || {
+                    let mut rd = map.reader();
+                    let guard = rd.pin();
+                    for k in 18..35 {
+                        match guard.get(k) {
+                            Some((view, meta)) => {
+                                assert_eq!(view.as_bytes(), &payload(k)[..]);
+                                assert_eq!(meta, 1);
+                            }
+                            None => {
+                                panic!(
+                                    "reader saw false None for present key {k} during evacuation"
+                                );
+                            }
+                        }
+                    }
+                });
+            });
+            evacuator.join().expect("evacuator");
+        });
+
+        for k in 18..35 {
+            let (view, meta) = map.get(k).expect("present key");
+            assert_eq!(view, payload(k));
+            assert_eq!(meta, 1);
+        }
+        for k in 0..18 {
+            assert!(map.get(k).is_none());
+        }
+        map.validate_invariants().expect("invariants valid");
+    }
 }
 
 #[cfg(all(test, not(miri)))]

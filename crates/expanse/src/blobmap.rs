@@ -398,7 +398,10 @@ pub struct ArenaChunk {
     ptr: NonNull<u8>,
     capacity: usize,
     generation: u32,
-    pub(crate) counters: NonNull<ChunkCounters>,
+    cursor: usize,
+    live_bytes: usize,
+    live_records: usize,
+    pub(crate) sync_counters: core::sync::atomic::AtomicPtr<ChunkCounters>,
 }
 
 impl ArenaChunk {
@@ -412,7 +415,10 @@ impl ArenaChunk {
             ptr: NonNull::dangling(),
             capacity: 0,
             generation: 0,
-            counters: NonNull::dangling(),
+            cursor: 0,
+            live_bytes: 0,
+            live_records: 0,
+            sync_counters: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 
@@ -434,23 +440,61 @@ impl ArenaChunk {
         let raw = unsafe { alloc_zeroed(layout) };
         let ptr = NonNull::new(raw).ok_or(ArenaError::AllocationFailed)?;
 
-        let counters_layout = Layout::new::<ChunkCounters>();
-        // SAFETY: Allocating zeroed memory for ChunkCounters with valid non-zero layout.
-        let counters_raw = unsafe { alloc_zeroed(counters_layout) };
-        let counters = NonNull::new(counters_raw.cast::<ChunkCounters>()).ok_or_else(|| {
-            // SAFETY: Layout matches allocation of ptr.
-            unsafe {
-                dealloc(ptr.as_ptr(), layout);
-            }
-            ArenaError::AllocationFailed
-        })?;
-
         Ok(Self {
             ptr,
             capacity,
             generation,
-            counters,
+            cursor: 0,
+            live_bytes: 0,
+            live_records: 0,
+            sync_counters: core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()),
         })
+    }
+
+    /// Ensures that the chunk's atomic `ChunkCounters` are instantiated for concurrent access.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn ensure_sync_counters(&self) -> Result<*mut ChunkCounters, ArenaError> {
+        let cur = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Acquire);
+        if !cur.is_null() {
+            return Ok(cur);
+        }
+        if self.capacity == 0 {
+            return Ok(core::ptr::null_mut());
+        }
+        let counters_layout = Layout::new::<ChunkCounters>();
+        // SAFETY: Allocating zeroed memory for ChunkCounters with valid non-zero layout.
+        let counters_raw = unsafe { alloc_zeroed(counters_layout) };
+        let counters = NonNull::new(counters_raw.cast::<ChunkCounters>())
+            .ok_or(ArenaError::AllocationFailed)?;
+        // SAFETY: counters is non-null and points to newly allocated ChunkCounters.
+        unsafe {
+            let c = counters.as_ref();
+            c.cursor
+                .store(self.cursor, core::sync::atomic::Ordering::Relaxed);
+            c.live_bytes
+                .store(self.live_bytes, core::sync::atomic::Ordering::Relaxed);
+            c.live_records
+                .store(self.live_records, core::sync::atomic::Ordering::Relaxed);
+        }
+        match self.sync_counters.compare_exchange(
+            core::ptr::null_mut(),
+            counters.as_ptr(),
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Acquire,
+        ) {
+            Ok(_) => Ok(counters.as_ptr()),
+            Err(actual) => {
+                // Another thread initialized it concurrently; deallocate ours.
+                // SAFETY: counters is non-null and was allocated with counters_layout.
+                unsafe {
+                    dealloc(counters.as_ptr().cast(), counters_layout);
+                }
+                Ok(actual)
+            }
+        }
     }
 
     /// Returns the capacity of this chunk in bytes.
@@ -464,13 +508,16 @@ impl ArenaChunk {
     #[inline(always)]
     #[must_use]
     pub fn cursor(&self) -> usize {
-        if self.capacity == 0 {
-            0
-        } else {
-            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-            unsafe { self.counters.as_ref() }
+        let p = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if !p.is_null() {
+            // SAFETY: p points to valid ChunkCounters for the lifetime of this chunk.
+            unsafe { &*p }
                 .cursor
                 .load(core::sync::atomic::Ordering::Acquire)
+        } else {
+            self.cursor
         }
     }
 
@@ -478,13 +525,16 @@ impl ArenaChunk {
     #[inline(always)]
     #[must_use]
     pub fn live_bytes(&self) -> usize {
-        if self.capacity == 0 {
-            0
-        } else {
-            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-            unsafe { self.counters.as_ref() }
+        let p = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if !p.is_null() {
+            // SAFETY: p points to valid ChunkCounters for the lifetime of this chunk.
+            unsafe { &*p }
                 .live_bytes
                 .load(core::sync::atomic::Ordering::Acquire)
+        } else {
+            self.live_bytes
         }
     }
 
@@ -492,56 +542,60 @@ impl ArenaChunk {
     #[inline(always)]
     #[must_use]
     pub fn live_records(&self) -> usize {
-        if self.capacity == 0 {
-            0
-        } else {
-            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-            unsafe { self.counters.as_ref() }
+        let p = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if !p.is_null() {
+            // SAFETY: p points to valid ChunkCounters for the lifetime of this chunk.
+            unsafe { &*p }
                 .live_records
                 .load(core::sync::atomic::Ordering::Acquire)
+        } else {
+            self.live_records
         }
     }
 
     #[inline(always)]
     pub(crate) fn set_cursor(&mut self, cursor: usize) {
-        if self.capacity != 0 {
-            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-            unsafe { self.counters.as_ref() }
-                .cursor
-                .store(cursor, core::sync::atomic::Ordering::Release);
+        self.cursor = cursor;
+        let p = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if !p.is_null() {
+            self.sync_set_cursor(p, cursor);
         }
     }
 
-    #[inline(always)]
-    pub(crate) fn set_live_bytes(&mut self, live_bytes: usize) {
-        if self.capacity != 0 {
-            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-            unsafe { self.counters.as_ref() }
-                .live_bytes
-                .store(live_bytes, core::sync::atomic::Ordering::Release);
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn set_live_records(&mut self, live_records: usize) {
-        if self.capacity != 0 {
-            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-            unsafe { self.counters.as_ref() }
-                .live_records
-                .store(live_records, core::sync::atomic::Ordering::Release);
-        }
+    #[cold]
+    #[inline(never)]
+    fn sync_set_cursor(&self, p: *mut ChunkCounters, cursor: usize) {
+        // SAFETY: p is non-null and points to valid ChunkCounters for the chunk's lifetime.
+        unsafe { &*p }
+            .cursor
+            .store(cursor, core::sync::atomic::Ordering::Release);
     }
 
     #[inline(always)]
     pub(crate) fn add_live_record(&mut self, rec_bytes: usize) {
-        if self.capacity != 0 {
-            // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-            let c = unsafe { self.counters.as_ref() };
-            c.live_bytes
-                .fetch_add(rec_bytes, core::sync::atomic::Ordering::Relaxed);
-            c.live_records
-                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.live_bytes += rec_bytes;
+        self.live_records += 1;
+        let p = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if !p.is_null() {
+            self.sync_add_live_record(p, rec_bytes);
         }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn sync_add_live_record(&self, p: *mut ChunkCounters, rec_bytes: usize) {
+        // SAFETY: p is non-null and points to valid ChunkCounters for the chunk's lifetime.
+        let c = unsafe { &*p };
+        c.live_bytes
+            .fetch_add(rec_bytes, core::sync::atomic::Ordering::Relaxed);
+        c.live_records
+            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// Returns remaining unused bytes in this chunk.
@@ -556,7 +610,7 @@ impl ArenaChunk {
     #[must_use]
     pub fn can_fit(&self, data_len: usize) -> bool {
         let needed = 16 + data_len;
-        self.cursor() + needed <= self.capacity
+        self.cursor + needed <= self.capacity
     }
 
     /// Allocates a record with key in this chunk, returning the byte offset of the header.
@@ -565,7 +619,7 @@ impl ArenaChunk {
         if !self.can_fit(data.len()) {
             return Err(ArenaError::AllocationFailed);
         }
-        let record_offset = self.cursor();
+        let record_offset = self.cursor;
         let header = BlobRecordHeader {
             key,
             len: data.len() as u32,
@@ -580,15 +634,29 @@ impl ArenaChunk {
             }
         }
         let next_cursor = (record_offset + needed + 15) & !15;
-        // SAFETY: self.counters is non-null and valid for the lifetime of this chunk.
-        let c = unsafe { self.counters.as_ref() };
+        self.cursor = next_cursor;
+        self.live_bytes += needed;
+        self.live_records += 1;
+        let p = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if !p.is_null() {
+            self.sync_alloc_update(p, next_cursor, needed);
+        }
+        Ok(record_offset)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn sync_alloc_update(&self, p: *mut ChunkCounters, next_cursor: usize, needed: usize) {
+        // SAFETY: p is non-null and points to valid ChunkCounters for the chunk's lifetime.
+        let c = unsafe { &*p };
         c.cursor
             .store(next_cursor, core::sync::atomic::Ordering::Release);
         c.live_bytes
             .fetch_add(needed, core::sync::atomic::Ordering::Relaxed);
         c.live_records
             .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        Ok(record_offset)
     }
 
     /// Allocates a record in this chunk, returning the byte offset of the header.
@@ -670,9 +738,9 @@ impl ArenaChunk {
                 );
             }
         }
-        chunk.set_cursor(cursor);
-        chunk.set_live_bytes(0);
-        chunk.set_live_records(0);
+        chunk.cursor = cursor;
+        chunk.live_bytes = 0;
+        chunk.live_records = 0;
         Ok(chunk)
     }
 
@@ -687,18 +755,22 @@ impl ArenaChunk {
         }
         let ptr = self.ptr;
         let capacity = self.capacity;
-        let counters = self.counters;
+        let sync_counters = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
         core::mem::forget(self);
         // SAFETY: `ptr` is this chunk's own allocation, made by the global
         // allocator with `(capacity, 16)`; `forget` gave up the only owner, so
         // it is retired once. The caller unlinked the chunk from the published
         // table, so only readers pinned before that can still hold it.
         unsafe {
-            collector.retire(
-                counters.cast::<u8>(),
-                core::mem::size_of::<ChunkCounters>(),
-                core::mem::align_of::<ChunkCounters>(),
-            );
+            if let Some(counters) = NonNull::new(sync_counters) {
+                collector.retire(
+                    counters.cast::<u8>(),
+                    core::mem::size_of::<ChunkCounters>(),
+                    core::mem::align_of::<ChunkCounters>(),
+                );
+            }
             collector.retire(ptr, capacity, 16);
         }
     }
@@ -710,11 +782,19 @@ impl Drop for ArenaChunk {
             return;
         }
         let layout = Layout::from_size_align(self.capacity, 16).unwrap();
-        let counters_layout = Layout::new::<ChunkCounters>();
-        // SAFETY: self.ptr and self.counters were allocated with these exact layouts.
+        // SAFETY: self.ptr was allocated with this exact layout.
         unsafe {
             dealloc(self.ptr.as_ptr(), layout);
-            dealloc(self.counters.as_ptr().cast(), counters_layout);
+        }
+        let sync_counters = self
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if let Some(counters) = NonNull::new(sync_counters) {
+            let counters_layout = Layout::new::<ChunkCounters>();
+            // SAFETY: counters was allocated with ChunkCounters layout.
+            unsafe {
+                dealloc(counters.as_ptr().cast(), counters_layout);
+            }
         }
     }
 }
@@ -1241,10 +1321,11 @@ impl BlobArena {
                         let (ptr, counters) = if chunk.capacity == 0 {
                             (core::ptr::null(), core::ptr::null())
                         } else {
-                            (
-                                chunk.ptr.as_ptr() as *const u8,
-                                chunk.counters.as_ptr() as *const ChunkCounters,
-                            )
+                            let sync_c = chunk
+                                .ensure_sync_counters()
+                                .map(|c| c as *const ChunkCounters)
+                                .unwrap_or(core::ptr::null());
+                            (chunk.ptr.as_ptr() as *const u8, sync_c)
                         };
                         entries.add(i).write(ChunkRef {
                             ptr,
@@ -1480,12 +1561,23 @@ impl BlobArena {
         let len = header.len as usize;
         let rec_bytes = 16 + len;
         self.live_bytes = self.live_bytes.saturating_sub(rec_bytes);
-        // SAFETY: chunk.counters points to valid ChunkCounters for this chunk.
-        unsafe {
-            let c = chunk.counters.as_ref();
-            atomic_sub_saturating(&c.live_bytes, rec_bytes);
-            atomic_sub_saturating(&c.live_records, 1);
+        chunk.live_bytes = chunk.live_bytes.saturating_sub(rec_bytes);
+        chunk.live_records = chunk.live_records.saturating_sub(1);
+        let p = chunk
+            .sync_counters
+            .load(core::sync::atomic::Ordering::Relaxed);
+        if !p.is_null() {
+            Self::sync_record_deleted(p, rec_bytes);
         }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn sync_record_deleted(p: *mut ChunkCounters, rec_bytes: usize) {
+        // SAFETY: p is non-null and points to valid ChunkCounters for the chunk's lifetime.
+        let c = unsafe { &*p };
+        atomic_sub_saturating(&c.live_bytes, rec_bytes);
+        atomic_sub_saturating(&c.live_records, 1);
     }
 
     /// Records deletion for an arena-backed `slot` (no-op for inline / non-arena
@@ -1763,12 +1855,14 @@ impl BlobArena {
             return Err(ArenaError::OffsetOverflow);
         }
         let chunk = ArenaChunk::new(self.chunk_size, self.generation)?;
+        let counters_ptr = chunk.ensure_sync_counters()?;
+        let counters = NonNull::new(counters_ptr).ok_or(ArenaError::AllocationFailed)?;
         let grant = PrivateChunk {
             base: chunk.ptr,
             index,
             capacity: chunk.capacity,
             generation: chunk.generation,
-            counters: chunk.counters,
+            counters,
         };
         self.chunks.push(chunk);
         self.total_allocated += self.chunk_size;
@@ -1849,8 +1943,32 @@ impl BlobArena {
     /// - Waste guard: `chunk.live_bytes * 2 < chunk.capacity` (utilization < 50%).
     ///
     /// Returns the chunk index with the minimum `live_bytes` (lowest live fraction / highest waste).
+    pub(crate) fn sync_chunk_counters_from_atomics(&mut self) {
+        for chunk in &mut self.chunks {
+            let p = chunk
+                .sync_counters
+                .load(core::sync::atomic::Ordering::Relaxed);
+            if !p.is_null() {
+                // SAFETY: p is non-null and points to valid ChunkCounters for the chunk's lifetime.
+                let c = unsafe { &*p };
+                chunk.cursor = c.cursor.load(core::sync::atomic::Ordering::Acquire);
+                chunk.live_bytes = c.live_bytes.load(core::sync::atomic::Ordering::Acquire);
+                chunk.live_records = c.live_records.load(core::sync::atomic::Ordering::Acquire);
+            }
+        }
+    }
+
+    /// Selects a victim chunk for bounded incremental evacuation (#1320).
+    ///
+    /// Requirements:
+    /// - Chunk is not empty (`capacity > 0`).
+    /// - Chunk is not the active chunk being allocated into (`Some(idx) != self.active_chunk`).
+    /// - Waste guard: `chunk.live_bytes * 2 < chunk.capacity` (utilization < 50%).
+    ///
+    /// Returns the chunk index with the minimum `live_bytes` (lowest live fraction / highest waste).
     #[must_use]
-    pub(crate) fn select_victim_chunk(&self) -> Option<usize> {
+    pub(crate) fn select_victim_chunk(&mut self) -> Option<usize> {
+        self.sync_chunk_counters_from_atomics();
         let mut best_idx = None;
         let mut min_live = usize::MAX;
 

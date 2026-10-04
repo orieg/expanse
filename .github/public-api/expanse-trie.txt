@@ -176,7 +176,7 @@ impl core::marker::Send for expanse_trie::blobmap::ArenaChunk
 impl core::marker::Sync for expanse_trie::blobmap::ArenaChunk
 impl core::ops::drop::Drop for expanse_trie::blobmap::ArenaChunk
 pub fn expanse_trie::blobmap::ArenaChunk::drop(&mut self)
-impl core::marker::Freeze for expanse_trie::blobmap::ArenaChunk
+impl !core::marker::Freeze for expanse_trie::blobmap::ArenaChunk
 impl core::marker::Unpin for expanse_trie::blobmap::ArenaChunk
 impl core::marker::UnsafeUnpin for expanse_trie::blobmap::ArenaChunk
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::blobmap::ArenaChunk
