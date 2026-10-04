@@ -320,6 +320,15 @@ In Rust the *Use* row is enforced by the type system: `occ::Reader` and every `s
 
 The cross-thread free rests on the handle types being `Send`. That bound is auto-derived from their fields, so it is asserted at compile time on the C handle types (`crates/expanse-capi/src/modern_sync.rs`), on `MapReader`, `OwnedMapReader`, `DetachedMapReader` and `SetReader` (`crates/expanse/src/sync.rs`) and on `occ::Reader` (`crates/expanse/src/occ.rs`): a future `!Send` field fails the build. `test_sync_reader_handles_freed_on_another_thread` (`crates/expanse-capi/tests/test_modern_capi.rs`) creates handles on worker threads, reads through them, and frees them on the main thread before the containers. The 32-bit `expanse_sync32_*` family has its own, index-addressed reader contract (see the 32-bit concurrent story above).
 
+### Slot pointer invalidation contract (`_slot`, `_ins_slot`)
+
+Direct value slot accessors — `expanse_map_slot`, `expanse_map_ins_slot`, `expanse_strmap_slot`, `expanse_strmap_ins_slot`, `expanse_ordered_bytesmap_slot`, and `expanse_ordered_bytesmap_ins_slot` — return a direct writable pointer to the machine-word `ValueSlot` within the trie leaf array (classic JudyL convention).
+
+The contract across all three containers:
+- **Lifetime**: Pointers remain valid **only until the next structural mutation of that map** (any insert, remove, clear, or free call on that container).
+- **In-place updates**: Reading and writing through the returned slot pointer (`*slot = val`) in-place does not invalidate other slot pointers and does not require re-traversing the trie.
+- **Zero rotating ring buffers**: Pointers borrow directly from the leaf slot word; no thread-local scratch buffers or rotating ring buffers are used, upholding `AGENTS.md` §2.4.
+
 ## Acceptance gates ("in-place replacement" is proven, not claimed)
 
 | Gate | Check |

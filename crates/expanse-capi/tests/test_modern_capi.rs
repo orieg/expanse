@@ -1666,3 +1666,141 @@ fn test_modern_capi_ordered_bytesmap_navigation_caller_buffers() {
         expanse_ordered_bytesmap_free(map);
     }
 }
+
+#[test]
+fn test_modern_capi_ordered_bytesmap_slot_pointer_lifetime() {
+    use expanse::modern::{
+        ExpanseOrderedBytesNavStatus, expanse_ordered_bytesmap_contains,
+        expanse_ordered_bytesmap_first, expanse_ordered_bytesmap_free,
+        expanse_ordered_bytesmap_get, expanse_ordered_bytesmap_ins_slot,
+        expanse_ordered_bytesmap_insert, expanse_ordered_bytesmap_len,
+        expanse_ordered_bytesmap_mem_used, expanse_ordered_bytesmap_new,
+        expanse_ordered_bytesmap_remove, expanse_ordered_bytesmap_slot,
+    };
+
+    // SAFETY: Exercising C ABI with valid handles and raw slot pointers.
+    unsafe {
+        let map = expanse_ordered_bytesmap_new();
+        assert!(!map.is_null());
+
+        // 1. Generate 64 binary keys with embedded NULs to thoroughly exceed
+        // any putative 16- or 32-element rotating ring buffer (AGENTS §2.4).
+        let keys: Vec<Vec<u8>> = (0..64)
+            .map(|i: usize| {
+                let mut k = Vec::new();
+                k.extend_from_slice(b"prefix\0byte\0key_");
+                k.extend_from_slice(&(i as u32).to_be_bytes());
+                k
+            })
+            .collect();
+
+        // 2. Insert half via expanse_ordered_bytesmap_insert and half via expanse_ordered_bytesmap_ins_slot.
+        for (i, key) in keys.iter().enumerate() {
+            if i % 2 == 0 {
+                let mut old = 0;
+                assert!(expanse_ordered_bytesmap_insert(
+                    map,
+                    key.as_ptr().cast(),
+                    key.len(),
+                    (i as u64) * 10,
+                    &mut old
+                ));
+            } else {
+                let p = expanse_ordered_bytesmap_ins_slot(map, key.as_ptr().cast(), key.len());
+                assert!(!p.is_null());
+                assert_eq!(*p, 0); // default initialized to 0
+                *p = (i as u64) * 10;
+            }
+        }
+
+        assert_eq!(expanse_ordered_bytesmap_len(map), 64);
+
+        // 3. Obtain slot pointers for all 64 keys. Without any intervening structural mutations,
+        // all 64 slot pointers must be valid, live, and point to distinct leaf slot locations.
+        let mut slots: Vec<*mut u64> = Vec::with_capacity(64);
+        for key in &keys {
+            let p = expanse_ordered_bytesmap_slot(map, key.as_ptr().cast(), key.len());
+            assert!(!p.is_null());
+            slots.push(p);
+        }
+        assert_eq!(slots.len(), 64);
+
+        // Verify all 64 slot pointers are distinct (no aliasing through a rotating buffer)
+        let ptr_set: std::collections::HashSet<usize> = slots.iter().map(|&p| p as usize).collect();
+        assert_eq!(
+            ptr_set.len(),
+            64,
+            "All 64 slot pointers must be distinct memory locations"
+        );
+
+        // 3. Mutate values directly in-place through raw slot pointers
+        for (i, &p) in slots.iter().enumerate() {
+            *p = (i as u64) * 1000 + 42;
+        }
+
+        // 4. Interleave non-structural read operations:
+        // - Point queries (get, contains)
+        // - Navigation (first)
+        // - Accounting (len, mem_used)
+        for (i, key) in keys.iter().enumerate() {
+            let mut val = 0;
+            assert!(expanse_ordered_bytesmap_get(
+                map,
+                key.as_ptr().cast(),
+                key.len(),
+                &mut val
+            ));
+            assert_eq!(val, (i as u64) * 1000 + 42);
+            assert!(expanse_ordered_bytesmap_contains(
+                map,
+                key.as_ptr().cast(),
+                key.len()
+            ));
+        }
+
+        let mut buf = [0u8; 64];
+        let mut req = 0;
+        let mut nav_val = 0;
+        let st = expanse_ordered_bytesmap_first(
+            map,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut req,
+            &mut nav_val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+
+        assert_eq!(expanse_ordered_bytesmap_len(map), 64);
+        assert!(expanse_ordered_bytesmap_mem_used(map) > 0);
+
+        // 5. Verify that despite all intermediate reads and navigation,
+        // every single slot pointer remains valid and holds its expected in-place value!
+        for (i, &p) in slots.iter().enumerate() {
+            assert_eq!(
+                *p,
+                (i as u64) * 1000 + 42,
+                "Slot pointer for key {} must remain valid across reads and in-place writes",
+                i
+            );
+        }
+
+        // 6. Demonstrate invalidation boundary: structural mutation (removal)
+        let mut old = 0;
+        let removed_key = &keys[0];
+        assert!(expanse_ordered_bytesmap_remove(
+            map,
+            removed_key.as_ptr().cast(),
+            removed_key.len(),
+            &mut old
+        ));
+        assert_eq!(old, 42);
+        assert_eq!(expanse_ordered_bytesmap_len(map), 63);
+
+        // Subsequent lookup for removed key returns false and NULL slot
+        let null_slot =
+            expanse_ordered_bytesmap_slot(map, removed_key.as_ptr().cast(), removed_key.len());
+        assert!(null_slot.is_null());
+
+        expanse_ordered_bytesmap_free(map);
+    }
+}

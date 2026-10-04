@@ -123,6 +123,12 @@ is NULL). No bytes are written to \fBkey_out\fR and \fBvalue_out\fR is
 untouched. If non-null, \fB*required_len\fR is populated with the exact
 buffer size needed to hold the key. Passing \fBkey_out == NULL\fR and
 \fBbuf_len == 0\fR allows probing the required length.
+.SS Slot Pointer Invalidation Contract
+Pointers returned by \fBexpanse_ordered_bytesmap_slot\fR and
+\fBexpanse_ordered_bytesmap_ins_slot\fR remain valid \fBONLY until the next
+structural mutation\fR of the map (\fIinsert\fR, \fIremove\fR, \fIclear\fR,
+or \fIfree\fR). Zero rotating ring buffers are used; pointers refer directly to
+the stored value slot.
 .SS Held Memory
 .TP
 .BI "size_t expanse_ordered_bytesmap_mem_held("

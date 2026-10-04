@@ -599,14 +599,14 @@ bool     expanse_ordered_bytesmap_contains(const expanse_ordered_bytesmap_t *map
 bool     expanse_ordered_bytesmap_remove(expanse_ordered_bytesmap_t *map, const void *key, size_t len,
                                          uint64_t *old_out);
 /*
- * Pointer to the value slot for the given key, or NULL if absent.
- * Valid until the next structural mutation of the map.
+ * Value slots (classic JudyL convention): _slot returns a writable pointer
+ * to the stored value, NULL if the key is absent; _ins_slot inserts the
+ * key with value 0 if absent (an existing value is kept) and always returns
+ * its slot. Valid until the next structural mutation of that map.
+ * Zero rotating ring buffers are used; pointers refer directly to the stored
+ * value slot.
  */
 uint64_t *expanse_ordered_bytesmap_slot(const expanse_ordered_bytesmap_t *map, const void *key, size_t len);
-/*
- * Inserts the key with value 0 if absent and returns a pointer to its value slot.
- * Valid until the next structural mutation of the map.
- */
 uint64_t *expanse_ordered_bytesmap_ins_slot(expanse_ordered_bytesmap_t *map, const void *key, size_t len);
 uint64_t expanse_ordered_bytesmap_len(const expanse_ordered_bytesmap_t *map);
 size_t   expanse_ordered_bytesmap_mem_used(const expanse_ordered_bytesmap_t *map);
