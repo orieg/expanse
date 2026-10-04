@@ -1114,6 +1114,10 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
     /// `None` removes the key. Returns the value that was replaced (or `None`
     /// if the key was absent).
+    ///
+    /// Performs two tree descents: one [`Self::get`] to read the current value,
+    /// followed by [`Self::insert`] or [`Self::remove`] depending on the closure's
+    /// result.
     pub fn update(
         &mut self,
         key: &[u8],

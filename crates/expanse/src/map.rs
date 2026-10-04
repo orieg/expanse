@@ -4900,6 +4900,10 @@ impl ExpanseMap {
     /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
     /// `None` removes the key. Returns the value that was replaced (or `None`
     /// if the key was absent).
+    ///
+    /// Performs two tree descents: one [`Self::get`] to read the current value,
+    /// followed by [`Self::insert`] or [`Self::remove`] depending on the closure's
+    /// result.
     pub fn update(&mut self, key: Key, f: impl FnOnce(Option<u64>) -> Option<u64>) -> Option<u64> {
         let old = self.get(key);
         match f(old) {

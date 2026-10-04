@@ -6550,6 +6550,10 @@ impl SyncExpanseMap {
     /// `None` removes the key. Retried over [`Self::compare_exchange`] until
     /// the exchange succeeds. Returns the value that was replaced (or `None`
     /// if the key was absent).
+    ///
+    /// Because `compare_exchange` may fail under concurrent writes, `f` is an
+    /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
+    /// be side-effect free or idempotent.
     pub fn update(&self, key: Key, mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
         let mut expected = self.get(key);
         loop {
@@ -12573,6 +12577,10 @@ impl SyncExpanseStrMap {
     /// `None` removes the key. Retried over [`Self::compare_exchange`] until
     /// the exchange succeeds. Returns the value that was replaced (or `None`
     /// if the key was absent).
+    ///
+    /// Because `compare_exchange` may fail under concurrent writes, `f` is an
+    /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
+    /// be side-effect free or idempotent.
     pub fn update(
         &self,
         key: &NulFreeStr,
@@ -13645,6 +13653,10 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// `None` removes the key. Retried over [`Self::compare_exchange`] until
     /// the exchange succeeds. Returns the value that was replaced (or `None`
     /// if the key was absent).
+    ///
+    /// Because `compare_exchange` may fail under concurrent writes, `f` is an
+    /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
+    /// be side-effect free or idempotent.
     pub fn update(&self, key: &[u8], mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
         let mut expected = self.get(key);
         loop {

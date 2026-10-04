@@ -1554,8 +1554,8 @@ fn test_sync_map_update_linearizability() {
     let map = Arc::new(SyncExpanseMap::new());
     let history = Arc::new(Mutex::new(Vec::new()));
 
-    let num_threads = 4;
-    let ops_per_thread = 50;
+    let num_threads = 8;
+    let ops_per_thread = 200;
 
     let mut handles = vec![];
 
@@ -1565,9 +1565,10 @@ fn test_sync_map_update_linearizability() {
 
         handles.push(thread::spawn(move || {
             let mut local_events = Vec::with_capacity(ops_per_thread);
+            let keys = [1u64, 2];
 
             for i in 0..ops_per_thread {
-                let key = ((t_id * 7 + i * 5) % 6) as u64;
+                let key = keys[(t_id + i) % keys.len()];
 
                 let op = match (t_id + i) % 5 {
                     0 => Op::Insert(key, (t_id * 1000 + i) as u64),
@@ -1651,8 +1652,8 @@ fn test_sync_strmap_update_linearizability() {
     let map = Arc::new(SyncExpanseStrMap::new());
     let history = Arc::new(Mutex::new(Vec::new()));
 
-    let num_threads = 4;
-    let ops_per_thread = 50;
+    let num_threads = 8;
+    let ops_per_thread = 200;
 
     let mut handles = vec![];
 
@@ -1663,9 +1664,10 @@ fn test_sync_strmap_update_linearizability() {
         handles.push(thread::spawn(move || {
             let mut local_events = Vec::with_capacity(ops_per_thread);
             let reader = map_clone.reader();
+            let keys = [1u64, 2];
 
             for i in 0..ops_per_thread {
-                let key = ((t_id * 7 + i * 5) % 6) as u64;
+                let key = keys[(t_id + i) % keys.len()];
 
                 let op = match (t_id + i) % 5 {
                     0 => Op::Insert(key, (t_id * 1000 + i) as u64),
@@ -1749,8 +1751,8 @@ fn test_sync_bytesmap_update_linearizability() {
     let map = Arc::new(SyncExpanseBytesMap::new());
     let history = Arc::new(Mutex::new(Vec::new()));
 
-    let num_threads = 4;
-    let ops_per_thread = 50;
+    let num_threads = 8;
+    let ops_per_thread = 200;
 
     let mut handles = vec![];
 
@@ -1761,9 +1763,10 @@ fn test_sync_bytesmap_update_linearizability() {
         handles.push(thread::spawn(move || {
             let mut local_events = Vec::with_capacity(ops_per_thread);
             let reader = map_clone.reader();
+            let keys = [1u64, 2];
 
             for i in 0..ops_per_thread {
-                let key = ((t_id * 7 + i * 5) % 6) as u64;
+                let key = keys[(t_id + i) % keys.len()];
 
                 let op = match (t_id + i) % 5 {
                     0 => Op::Insert(key, (t_id * 1000 + i) as u64),

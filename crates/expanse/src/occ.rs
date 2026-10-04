@@ -5020,6 +5020,52 @@ mod loom_tests {
         });
     }
 
+    /// Update (RMW retried over CAS) races a concurrent removal on the same key:
+    /// either update commits before remove (and remove fails because word changed),
+    /// or remove commits before update's CAS (and update retries, observing removal
+    /// and applying `f(0)`), with zero lost updates.
+    #[test]
+    fn loom_update_vs_concurrent_remove() {
+        loom::model(|| {
+            let node_v = Arc::new(VersionCell::new(0));
+            let word = Arc::new(AtomicU64::new(7));
+            let (v1, w1) = (Arc::clone(&node_v), Arc::clone(&word));
+            let t = loom::thread::spawn(move || cas_remove(&v1, &w1, 7));
+
+            let mut expected = word.load(Ordering::Relaxed);
+            let update_ret = loop {
+                let new = if expected != 0 { expected + 100 } else { 0 };
+                let cas_res = if new == 0 {
+                    if expected == 0 {
+                        break 0;
+                    }
+                    cas_remove(&node_v, &word, expected)
+                } else {
+                    cas_publish(&node_v, &word, expected, new, CasCompare::UnderLock)
+                };
+                match cas_res {
+                    Ok(prev) => break prev,
+                    Err(seen) => {
+                        expected = seen;
+                        loom::thread::yield_now();
+                    }
+                }
+            };
+
+            let rem_res = t.join().unwrap();
+            match (update_ret, rem_res) {
+                (7, Err(seen)) => {
+                    assert_eq!(seen, 107, "removal must observe update's new word");
+                    assert_eq!(word.load(Ordering::Relaxed), 107);
+                }
+                (0, Ok(7)) => {
+                    assert_eq!(word.load(Ordering::Relaxed), 0);
+                }
+                other => panic!("update vs concurrent remove lost an update: {other:?}"),
+            }
+        });
+    }
+
     /// `sync::null_branch_u_slot` reduced to its words (Refs #1079): a
     /// `BranchU`'s slots, each 0 (null) or non-zero, and the branch's
     /// version. [`FLOOR`] stands in for `BRANCHU_TO_B_DOWN`.
