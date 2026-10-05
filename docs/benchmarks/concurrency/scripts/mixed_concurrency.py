@@ -819,6 +819,85 @@ def run(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# #1280 §34: blob peak instrument (METHODOLOGY.md §34 / Amendment A1)
+# --------------------------------------------------------------------------
+
+def run_blob_peak(args: argparse.Namespace) -> int:
+    pin = bench_pin.apply("mixed_concurrency.py --blob-peak")
+    quick = bool(args.quick)
+    is_physical = pin in ("0,2,4,6,8,10,12,14", "percore")
+    is_smt = pin in ("0-15",)
+    if not quick and not (is_physical or is_smt):
+        raise InstrumentError(
+            f"core pin {pin!r} is neither '0,2,4,6,8,10,12,14' nor '0-15'; "
+            f"METHODOLOGY.md §34 / Amendment A1 voids any other pin"
+        )
+    if quick and not (is_physical or is_smt):
+        try:
+            expanded = bench_pin.expand(pin)
+            is_physical = len(expanded) <= 8
+            is_smt = not is_physical
+        except Exception:
+            is_physical = True
+
+    if is_physical:
+        groups: list[tuple[str, int, list[int]]] = [
+            ("blob", 50, [1, 2, 3, 4, 5, 6, 7, 8]),
+            ("blob_mutex", 50, [1, 4]),
+            ("blob", 100, [1]),
+            ("map", 50, [8]),
+            ("str", 50, [8]),
+        ]
+        default_out = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_concurrency_blob_peak_percore.json"
+    else:
+        groups = [
+            ("blob", 50, [1, 2, 4, 8, 16]),
+            ("blob_mutex", 50, [1, 4, 16]),
+            ("blob", 100, [1, 16]),
+            ("map", 50, [16]),
+            ("str", 50, [16]),
+        ]
+        default_out = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_concurrency_blob_peak_pin0-15.json"
+
+    out = resolve_out(args.out, quick) if args.out else (QUICK_OUT if quick else default_out)
+    exe = build_bench()
+    all_threads = sorted(set(t for _, _, ts in groups for t in ts))
+    prov = new_provenance(
+        suite="concurrency",
+        issue=1280,
+        ratio=RATIO,
+        repo_root=REPO_ROOT,
+        core_pin=pin,
+        harness=HARNESS,
+        window_ms=WINDOW_MS,
+        rounds=18 if args.rounds is None else args.rounds,
+        threads=all_threads,
+    )
+    prov["mode"] = "blob_peak"
+    prov["methodology"] = "docs/benchmarks/concurrency/METHODOLOGY.md section 34"
+
+    cells: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for key, read_pct, threads in groups:
+            rounds = resolve_rounds(args.rounds, len(threads), quick)
+            label = f"group:{key}:R{read_pct}"
+            samples = Path(tmp) / (label.replace(":", "_") + ".jsonl")
+            start = begin_cell(prov, label)
+            run_group(exe, key, read_pct, threads, rounds, samples)
+            load = end_cell(start)
+            cells.extend(summarize_group(read_samples(samples), threads, rounds, load))
+    add_load(prov, "end")
+    artifact = {"provenance": prov, "throughput": cells}
+    problems = artifact_problems(out, artifact)
+    if problems:
+        raise InstrumentError("artifact would fail check_bench_provenance.py:\n  " + "\n  ".join(problems))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"Wrote artifact to {out.relative_to(REPO_ROOT) if REPO_ROOT in out.parents else out}")
+    return 0
+
+
+# --------------------------------------------------------------------------
 # #568 Step 2: the two-build single-writer gate (METHODOLOGY.md §13)
 # --------------------------------------------------------------------------
 
@@ -2152,12 +2231,19 @@ def main() -> int:
                     help="reference artifact JSON for single-run sync32 step check (#1292)")
     ap.add_argument("--sample-cpus", action="store_true",
                     help="opt-in CPU sampling (sets EXPANSE_BENCH_CPU_SAMPLES=1) (#1292)")
+    ap.add_argument("--blob-peak", action="store_true",
+                    help="§34 blob peak instrument (METHODOLOGY.md §34 / Amendment A1): maps "
+                         "physical (0,2,4,6,8,10,12,14) or SMT (0-15) pin to declared cells")
     args = ap.parse_args()
     if args.sample_cpus:
         os.environ["EXPANSE_BENCH_CPU_SAMPLES"] = "1"
     if args.self_test:
         return self_test()
     try:
+        if args.blob_peak:
+            if args.step2_gate or args.write_assets or args.check_assets or args.check_sync32_steps:
+                raise InstrumentError("--blob-peak cannot be combined with other modes")
+            return run_blob_peak(args)
         if args.check_sync32_steps:
             if args.step2_gate or args.write_assets or args.check_assets:
                 raise InstrumentError("--check-sync32-steps cannot be combined with --step2-gate or asset flags")

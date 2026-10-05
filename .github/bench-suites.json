@@ -146,6 +146,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "concurrency_blob_peak",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "§34 cause of the four-thread peak in SyncExpanseBlobMap through `mixed_concurrency.py --blob-peak`: primary blob 50% read sweep and control cells mapped per pin (physical 0,2,4,6,8,10,12,14 with N=1..8 and controls at N<=8, or standard SMT 0-15 with N in {1,2,4,8,16} and controls); outputs baseline_concurrency_blob_peak_percore.json or baseline_concurrency_blob_peak_pin0-15.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling",
       "available": true,
       "kind": "wallclock",

@@ -61,6 +61,7 @@ on:
           - ycsb
           - concurrency
           - mixed_concurrency_step2_gate
+          - concurrency_blob_peak
           - writer_scaling
           - writer_scaling_diagnostic
           - writer_scaling_ablation_unpadded_lock
@@ -1321,6 +1322,23 @@ jobs:
                 python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate \
                   --out docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json | tee concurrency.txt
                 ;;
+              "concurrency_blob_peak")
+                # §34 / §34 Amendment A1: Cause of the four-thread peak in SyncExpanseBlobMap.
+                # Physical pin (0,2,4,6,8,10,12,14): blob 50% at N=1..8, plus controls at N<=8.
+                # Standard SMT pin (0-15): blob 50% at N in {1,2,4,8,16}, plus controls.
+                if [ "${EXPANSE_BENCH_PIN:-}" = "0,2,4,6,8,10,12,14" ]; then
+                  python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \
+                    --blob-peak \
+                    --out docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json | tee concurrency.txt
+                elif [ "${EXPANSE_BENCH_PIN:-}" = "0-15" ] || [ -z "${EXPANSE_BENCH_PIN:-}" ]; then
+                  python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \
+                    --blob-peak \
+                    --out docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json | tee concurrency.txt
+                else
+                  echo "concurrency_blob_peak: invalid EXPANSE_BENCH_PIN='$EXPANSE_BENCH_PIN' (expected '0,2,4,6,8,10,12,14' or '0-15')" >&2
+                  exit 1
+                fi
+                ;;
               "writer_scaling")
                 # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568).
                 # `--rounds` is added only when the `rounds` input is set
@@ -2200,6 +2218,8 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json \
+            docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json \
+            docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json \
             ycsb.txt \
             hashbrown-ycsb.txt \
             allocator-overhead.txt \

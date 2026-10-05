@@ -4947,6 +4947,58 @@ All named candidates are currently unmeasured; causality requires interventional
 - Control cells moving outside $`\pm 5\%`$ in the same direction across runs (`DRIFT` per BENCHMARKING rule 18).
 - Zero in-window compactions across 16-thread blob windows (verifying compaction trigger executed).
 
+### 34.5 §34 Amendment A1 (pre-data instrument correction)
+
+*(appended 2026-10-04, locked before any §34 run produced data)*
+
+1. **Prior Dispatches Voided:**
+   - The initial workflow dispatches under §34.3 (`37261662824` and `37261672017`) invoked `benchmark_suite=concurrency`, which hardcodes `--threads 1,4,16 --engines all --workloads 100,50`. That suite could not produce the cells §34.3 declared ($N=1..8$ on physical pin, $`N \in \{1, 2, 4, 8, 16\}`$ on SMT pin), and would oversubscribe the 8-CPU pin at 16 threads. Both runs were cancelled before execution; no data was read or recorded.
+   - Per AGENTS.md §8.20 and B-12 discipline, this pre-data instrument correction amends the dispatch harness without altering any hypothesis, cells, thresholds, or decision rules.
+
+2. **Replacement Suite (`concurrency_blob_peak`):**
+   - Implemented as dedicated suite `concurrency_blob_peak` in `.github/bench-suites.json` and `.github/workflows/bench_baremetal.yml`, driven by `docs/benchmarks/concurrency/scripts/mixed_concurrency.py --blob-peak`.
+   - The suite maps the applied core pin directly to the declared cells:
+     - **Physical Core Exclusion (`cpu_pin="0,2,4,6,8,10,12,14"`):**
+       - Primary sweep: `engine=blob`, `workload=50% read`, $`N \in \{1, 2, 3, 4, 5, 6, 7, 8\}`$.
+       - Control cells restricted to $`N \le 8`$: `engine=blob_mutex`, 50% read, $`N \in \{1, 4\}`$; `engine=blob`, 100% read, $`N \in \{1\}`$; `engine=map`, 50% read, $`N \in \{8\}`$; `engine=str`, 50% read, $`N \in \{8\}`$.
+       - Artifact: `docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json`.
+     - **Standard SMT Baseline (`cpu_pin="0-15"`):**
+       - Primary sweep: `engine=blob`, `workload=50% read`, $`N \in \{1, 2, 4, 8, 16\}`$.
+       - Control cells: `engine=blob_mutex`, 50% read, $`N \in \{1, 4, 16\}`$; `engine=blob`, 100% read, $`N \in \{1, 16\}`$; `engine=map`, 50% read, $`N \in \{16\}`$; `engine=str`, 50% read, $`N \in \{16\}`$.
+       - Artifact: `docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json`.
+
+3. **Exact Workflow Dispatch:**
+   ```bash
+   # Physical core exclusion run:
+   gh workflow run bench_baremetal.yml \
+     -f ref=<commit> \
+     -f benchmark_suite=concurrency_blob_peak \
+     -f cpu_pin="0,2,4,6,8,10,12,14"
+
+   # Standard SMT baseline run:
+   gh workflow run bench_baremetal.yml \
+     -f ref=<commit> \
+     -f benchmark_suite=concurrency_blob_peak \
+     -f cpu_pin="0-15"
+   ```
+
+4. **Sizing Derivation:**
+   - Window duration: 500 ms per window.
+   - Physical core exclusion dispatch:
+     - `blob` 50%: 8 thread levels $\times$ 16 rounds (2 Williams cycles) = 128 windows (64.0 s).
+     - `blob_mutex` 50%: 2 thread levels $\times$ 16 rounds (8 Williams cycles) = 32 windows (16.0 s).
+     - `blob` 100%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
+     - `map` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
+     - `str` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
+     - Total windows: 208 windows $\times$ 500 ms = 104.0 s timed measurement.
+   - Standard SMT baseline dispatch:
+     - `blob` 50%: 5 thread levels $\times$ 20 rounds (2 Williams cycles) = 100 windows (50.0 s).
+     - `blob_mutex` 50%: 3 thread levels $\times$ 18 rounds (3 Williams cycles) = 54 windows (27.0 s).
+     - `blob` 100%: 2 thread levels $\times$ 16 rounds (8 Williams cycles) = 32 windows (16.0 s).
+     - `map` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
+     - `str` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
+     - Total windows: 218 windows $\times$ 500 ms = 109.0 s timed measurement.
+
 ---
 
 ## 35. Pre-registration for #1280 Item 2 — `Shared::enter_writer` hot/cold split and Callgrind ceilings (appended 2026-10-04, locked before any engine code; renumbers on rebase if #1373 merges first)
