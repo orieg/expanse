@@ -226,14 +226,17 @@ In D1 stalls (`counters_prefix_scan_d1_stalls.json` at commit `c3e54ec2`), L3 mi
 accounted for 52.50 cycles per entry of the 85.94 cycle gap (61.1%).
 
 ### §3.4.1 Precedent from #782 (Masstree Comparison) & Why D2 is Distinct
-Workstream C3 (#724/#725, PR #782, commit `ee6b4290`) evaluated transparent huge pages
-for random string point lookup (`strmap_get` vs integer `map_get` at N = 10⁶):
-> *"Translation misses go to zero on both arms (`strmap_get` dTLB misses: 3.878 → 0.002, −99.9%)
-> and the gap does not close: string ÷ u64 cycles moved 3.44× → 3.29× (−4.3%).
-> They were real, removing them is worth about 11% of the string arm, and 96% of the
-> gap survives their complete elimination... the remaining target is the string
-> tree's descent and node layout, neither the leaf nor the allocator."*
-> (`docs/benchmarks/masstree_comparison/README.md:499-535`)
+In #782 (commit `ee6b4290`), transparent huge pages were evaluated for random string point lookup (`strmap_get` vs integer `map_get` at N = 10⁶):
+> "Translation misses go to **zero** on both arms and the gap does not close:
+> 3.44× → 3.29×. The misses were real and removing them is worth about 11% of
+> the string arm, but **they were not the cost** — 96% of the gap survives their
+> complete elimination. An `madvise(MADV_HUGEPAGE)` change to the engine's
+> arenas would buy a real, small win and would not address what #724 is about. [...]
+> With translation eliminated as a variable, the surviving memory signal is unambiguous:
+> `LLC-load-misses` 2.899 against `map_get`'s 0.107, and `L1-dcache-load-misses` 8.556 against 3.918,
+> both under huge pages. Read with `strmap_get_counter` — no suffix leaf, still 1.156 `LLC-load-misses`
+> — the remaining target is the **string tree's descent and node layout**, neither the leaf nor the allocator."
+> (`docs/benchmarks/masstree_comparison/README.md:644-658`)
 
 Diagnostic D2 is not a repetition of #782 for four structural reasons:
 1. **Workload Traversal Structure**: #782 evaluated single-key random point lookup (`strmap_get`),
@@ -259,17 +262,20 @@ Diagnostic D2 is not a repetition of #782 for four structural reasons:
   and fragmentation. The run must record `/sys/kernel/mm/transparent_hugepage/{enabled,defrag}` and non-zero
   `AnonHugePages` (from `smaps_rollup`) or positive `thp_fault_alloc` deltas (from `/proc/vmstat`).
   Any 2m arm without verified huge-page allocation is **VOID**, not a measurement.
-- **Pin**: `taskset -c 0-15` (Intel Core i9-12900F performance cores, `cpu_core` logical siblings 0–15).
+- **Pin & Protocol (quoted from D1 section & artifact provenance)**:
+  - From `METHODOLOGY.md` §3 Amendment A3: *"the P-core PMU, the driver's default event set. Counts are `probe − build` per run, divided by the entries the passes yield (200 × 249,670). Each order's per-entry figure carries a BCa 95% interval over the 10 runs."* (`METHODOLOGY.md:192-195`)
+  - From `counters_prefix_scan_d1.json` provenance: `cpu_core_cpus: "0-15"`, `scaling_governor_pin_set: "0-15"`, `scaling_governor_pin_source: "EXPANSE_BENCH_PIN_APPLIED"`, `columns: "mean over paired runs of (probe phase - build phase) counts, BCa 95% interval over those per-run differences"`.
+  - The driver (`scripts/perf_counters.py`) selects the performance-core PMU (`cpu_core`) and applies `pin_for("cpu_core")` (`taskset -c 0-15`, confining the workload to the P-core PMU's CPU set as recorded in D1).
 - **Two-Run Protocol**: Two independent sequential runs on the quiet reference host (`loadavg <= 1.0`,
   `foreign_busy_cpus == 0`), evaluated over BCa 95% bootstrap confidence intervals (2,000 resamples).
-- **Harness**: `scripts/perf_counters.py --hugetlb`, arms `strmap_prefix_scan` and `strmap_prefix_scan_sorted`
-  of `crates/expanse/examples/perf_point_lookup.rs` (the suite's path keys, 64 prefixes, `cursor_prefix`),
-  `--pops 1000000 --hit-pcts 100 --passes 200 --runs 10`. Counts are `probe − build` per run divided by
-  yielded entries (200 × 249,670 = 49,934,000 ops).
+- **Harness**: `scripts/perf_counters.py`, running 4 cells (baseline and `--hugetlb` for both `strmap_prefix_scan`
+  and `strmap_prefix_scan_sorted`) of `crates/expanse/examples/perf_point_lookup.rs` (the suite's path keys,
+  64 prefixes, `cursor_prefix`), `--pops 1000000 --hit-pcts 100 --passes 200 --runs 10`. Counts are `probe − build`
+  per run divided by yielded entries (200 × 249,670 = 49,934,000 ops).
 - **Maintainer Dispatch**:
-  `/benchmark patricia_comparison`
+  `/benchmark patricia_d2_paging` (runs on `main` after merge)
   or
-  `gh workflow run bench_baremetal.yml --ref bench/1096-strmap-placement-investigation -f suite=patricia_comparison`
+  `gh workflow run bench_baremetal.yml --ref main -f suite=patricia_d2_paging`
 
 ### §3.4.3 Pre-Registered Thresholds (Derived in `scripts/patricia_d2_bounds.py`)
 All thresholds are derived mathematically in committed Python (`scripts/patricia_d2_bounds.py`) from D1 baseline
@@ -285,12 +291,12 @@ with pinned unit tests (Rule 12 / §1.3). Every clause is evaluated strictly on 
 ### §3.4.4 Decision Criteria & Scope Boundary
 - **If D2 PASS (D2a + D2b + D2c)**: Translation misses are confirmed as an orthogonal overlay. 2 MiB pages
   successfully eliminate dTLB misses, but spatial cache-line dispersal across 45 MB of memory persists and
-  accounts for $\ge 52.50$ cycles of the gap. This demonstrates that an OS/allocator paging configuration
+  accounts for $\ge 52.50$ cycles of the gap. This indicates that an OS/allocator paging configuration
   cannot resolve the performance gap. Co-allocation of child nodes with leaves remains a candidate
   architectural remedy for v0.12 (alongside software prefetching or packed suffixes), which will require its
   own pre-registered gate and ablated evaluation prior to any implementation in v0.12.
-- **If D2c is falsified**: 2 MiB huge-page backing eliminates the bulk of the cycle gap, indicating that
-  engine-level layout changes are not warranted for this workload.
+- **If D2c is falsified**: 2 MiB huge-page backing eliminates the bulk of the cycle gap: huge-page backing
+  is the documented remedy for this workload; layout work is deprioritised.
 
 **No directional prediction:**
 - Any `fast_radix_trie` or `qp-trie` timing. The envelope gives them 3–8

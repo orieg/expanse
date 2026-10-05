@@ -797,6 +797,14 @@
       "suite": "patricia_comparison"
     },
     {
+      "name": "patricia_d2_paging",
+      "available": true,
+      "kind": "counters",
+      "runner": "builtin",
+      "summary": "Diagnostic D2 hardware PMU counters over 1M prefix scan (strmap_prefix_scan and strmap_prefix_scan_sorted) under normal 4 KiB vs 2 MiB transparent huge pages (GLIBC_TUNABLES=glibc.malloc.hugetlb=1) on the P-core PMU; evaluates dTLB elimination, L3 miss retention and surviving cycle gap (Refs #1096).",
+      "suite": "patricia_comparison"
+    },
+    {
       "name": "wasm_fuel",
       "available": false,
       "kind": "fuel",
