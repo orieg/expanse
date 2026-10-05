@@ -8,6 +8,7 @@ P32.3 per-run decision logic, two-run combiner, and artifact schema.
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import sys
 import unittest
@@ -32,6 +33,7 @@ from writer_scaling import (  # noqa: E402
     build_scan_cells_artifact,
     check_reader_counters_row,
     combine_scan_cells_verdict,
+    get_binaries,
     p323_paired_ratio,
     p323_report,
     p333_paired_ratio,
@@ -857,6 +859,31 @@ class StrScanCellsArtifactTests(unittest.TestCase):
         self.assertIn("p33_3", sc)
         self.assertEqual(sc["p33_3"]["verdict"], "LB_AT_OR_ABOVE_FLOOR")
         self.assertTrue(any("--quick" in v for v in sc["void"]))
+
+
+class StrScanCellsRefusalTests(unittest.TestCase):
+    def test_str_scan_fails_closed_until_pr2(self):
+        """Verify that --arm str with --read-op scan fails closed with non-zero exit code
+        and descriptive refusal message until SyncStrMapCursor is implemented in PR 2.
+        """
+        tp_bin, _ = get_binaries()
+        if not tp_bin.exists():
+            from writer_scaling import build_binaries
+            tp_bin, _ = build_binaries(verbose=False)
+
+        cmd = [
+            str(tp_bin),
+            "--role", "throughput",
+            "--arm", "str",
+            "--read-op", "scan",
+            "--writers", "0",
+            "--readers", "1",
+            "--probe", "paths",
+            "--quick",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("SyncStrMapCursor not yet implemented (#1143 PR 2)", proc.stderr)
 
 
 if __name__ == "__main__":

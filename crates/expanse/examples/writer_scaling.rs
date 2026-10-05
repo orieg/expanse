@@ -2938,10 +2938,8 @@ fn scan_locked_loop_str(map: &SyncExpanseStrMap, limit: Option<u64>, stop: &Atom
 /// With W >= 1, readers scan from writers' start barrier until writers complete.
 /// With W = 0, readers scan until completing a fixed probe quota.
 #[inline(always)]
-fn scan_loop_str(map: &SyncExpanseStrMap, limit: Option<u64>, stop: &AtomicBool) -> u64 {
-    // In this Stage 2 harness baseline stage, executes the with_locked scan.
-    // When SyncStrMapCursor lands, this will call `rd.cursor()`.
-    scan_locked_loop_str(map, limit, stop)
+fn scan_loop_str(_map: &SyncExpanseStrMap, _limit: Option<u64>, _stop: &AtomicBool) -> u64 {
+    panic!("SyncStrMapCursor not yet implemented (#1143 PR 2)");
 }
 
 /// Verifies that a full scan of the string map produces the prefilled entries in strictly
@@ -2987,6 +2985,9 @@ fn run_str_scan_cell(
     is_counters: bool,
     perf_ctl: &mut PerfControl,
 ) -> Result<ReaderOutcome, String> {
+    if op == ReadOp::Scan {
+        return Err("SyncStrMapCursor not yet implemented (#1143 PR 2)".to_string());
+    }
     let map = SyncExpanseStrMap::new();
     for k in &wl.prefill {
         let nk = NulFreeStr::new(k).expect("paths bytes are NUL-free");
@@ -3749,6 +3750,9 @@ fn str_reader_scan_main(
     readers: usize,
     op: ReadOp,
 ) -> Result<(), String> {
+    if op == ReadOp::Scan {
+        return Err("SyncStrMapCursor not yet implemented (#1143 PR 2)".to_string());
+    }
     let writers: usize = parse_flag(args, "--writers")?
         .ok_or_else(|| "reader mode needs --writers <W>, a single count (0 allowed)".to_string())?;
     let probe = Probe::parse(flag_value(args, "--probe")?.unwrap_or("paths"))?;
@@ -4736,46 +4740,65 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
 
     band_self_test(is_counters, &mut dummy_ctl)?;
 
-    // String scan cells (#1143, METHODOLOGY §33.5): test scan and scan_locked
-    // under paths and paths_dense with W=0 and W=1.
+    // String scan cells (#1143, METHODOLOGY §33.5): test scan_locked
+    // under paths and paths_dense with W=0 and W=1, and verify scan fails closed.
     for dense in [false, true] {
         let wl_scan = WriterStrWorkload::generate_paths(n0, m, dense);
-        for op in [ReadOp::Scan, ReadOp::ScanLocked] {
-            for writers in [0, 1] {
-                let ctx = format!(
-                    "self-test str_scan W={writers} op={} dense={dense}",
-                    op.name()
-                );
-                let out =
-                    run_str_scan_cell(&wl_scan, writers, 2, op, 0, is_counters, &mut dummy_ctl)
-                        .map_err(|e| format!("{ctx}: {e}"))?;
-                let expected_fresh = if writers == 0 { 0 } else { m as u64 };
-                if out.fresh_keys != expected_fresh {
-                    return Err(format!(
-                        "{ctx}: {} fresh keys, expected {expected_fresh}",
-                        out.fresh_keys
-                    ));
-                }
-                if writers == 0 && out.reader_ops != 2 * n0 as u64 {
-                    return Err(format!(
-                        "{ctx}: {} reader ops at W = 0, expected exactly {}",
-                        out.reader_ops,
-                        2 * n0
-                    ));
-                }
-                if is_counters {
-                    out.counters
-                        .check(expected_fresh, out.counters.locked_reads, &ctx)?;
-                    out.counters
-                        .check_reader(op, out.reader_ops, out.reader_wraps, &ctx)?;
-                } else if out.reader_elapsed_s <= 0.0
-                    || (writers > 0) != out.writer_elapsed_s.is_some()
-                {
-                    return Err(format!(
-                        "{ctx}: invalid elapsed (readers {}, writers {:?})",
-                        out.reader_elapsed_s, out.writer_elapsed_s
-                    ));
-                }
+        for writers in [0, 1] {
+            let ctx = format!("self-test str_scan W={writers} op=scan_locked dense={dense}");
+            let out = run_str_scan_cell(
+                &wl_scan,
+                writers,
+                2,
+                ReadOp::ScanLocked,
+                0,
+                is_counters,
+                &mut dummy_ctl,
+            )
+            .map_err(|e| format!("{ctx}: {e}"))?;
+            let expected_fresh = if writers == 0 { 0 } else { m as u64 };
+            if out.fresh_keys != expected_fresh {
+                return Err(format!(
+                    "{ctx}: {} fresh keys, expected {expected_fresh}",
+                    out.fresh_keys
+                ));
+            }
+            if writers == 0 && out.reader_ops != 2 * n0 as u64 {
+                return Err(format!(
+                    "{ctx}: {} reader ops at W = 0, expected exactly {}",
+                    out.reader_ops,
+                    2 * n0
+                ));
+            }
+            if is_counters {
+                out.counters
+                    .check(expected_fresh, out.counters.locked_reads, &ctx)?;
+                out.counters.check_reader(
+                    ReadOp::ScanLocked,
+                    out.reader_ops,
+                    out.reader_wraps,
+                    &ctx,
+                )?;
+            } else if out.reader_elapsed_s <= 0.0 || (writers > 0) != out.writer_elapsed_s.is_some()
+            {
+                return Err(format!(
+                    "{ctx}: invalid elapsed (readers {}, writers {:?})",
+                    out.reader_elapsed_s, out.writer_elapsed_s
+                ));
+            }
+        }
+        // Fail-closed verification: op=Scan must exit non-zero until PR 2 lands SyncStrMapCursor.
+        match run_str_scan_cell(&wl_scan, 0, 2, ReadOp::Scan, 0, is_counters, &mut dummy_ctl) {
+            Err(ref e) if e.contains("SyncStrMapCursor not yet implemented (#1143 PR 2)") => {}
+            Err(e) => {
+                return Err(format!(
+                    "self-test str_scan dense={dense} op=scan: expected refusal, got Err({e})"
+                ));
+            }
+            Ok(_) => {
+                return Err(format!(
+                    "self-test str_scan dense={dense} op=scan: expected refusal, got Ok"
+                ));
             }
         }
     }
