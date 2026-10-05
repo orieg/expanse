@@ -240,7 +240,7 @@
 //! |---|---|
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
-//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_bytes_overwrite`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str`, `concurrency_branchu_band_map_64bit` |
+//! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_bytes_overwrite`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str`, `concurrency_branchu_band_map_64bit`, `concurrency_scan_str` |
 //! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing; a `one_top_byte` cell (#1144) prefills 2^20 keys under one top byte and inserts 2^20 fresh keys of that shape, with no hotspot keys. Band mode (#1208) holds one branch of 193 (duty 1) or 194 + band-span (duty 0) one-key digits under one top byte and inserts nothing it does not remove. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key |
 //! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled; blob overwrite targets in per-writer stream draw order over a Fisher–Yates rank table; band mode prefills its digits ascending and the owner removes them descending and reinserts them ascending |
 //! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` or `count_below` under `with_locked`, over the identical stream; a `one_top_byte` cell's readers cycle permutations of its own prefill; a `count_locked` cell may run with R = 0 as its writers-only control. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle. Band mode: one owner writer cycles its band (or twin) digits `--cycles` times, W − 1 writers overwrite fixed-digit values and R readers `get` fixed-digit keys, each in its own Fisher–Yates order, cycled until the owner joins |
@@ -481,14 +481,16 @@ impl Counters {
                 }
             }
             ReadOp::Scan => {
-                if self.locked_reads != self.read_fallbacks {
+                // On map, an optimistic batch cursor reaches writer mutex only on fallback.
+                // On str, before SyncStrMapCursor lands, scan runs under with_locked baseline.
+                if !cell.contains("str") && self.locked_reads != self.read_fallbacks {
                     return Err(format!(
                         "{cell}: locked_reads = {}, read_fallbacks = {} (an optimistic reader \
                          reaches the writer mutex only by falling back)",
                         self.locked_reads, self.read_fallbacks
                     ));
                 }
-                if reader_ops > 0 && self.read_ops == 0 {
+                if reader_ops > 0 && !cell.contains("str") && self.read_ops == 0 {
                     return Err(format!(
                         "{cell}: read_ops = 0, readers made {reader_ops} probes",
                     ));
@@ -506,6 +508,14 @@ impl Counters {
                         "{cell}: locked_reads = {}, read_fallbacks = {} (an optimistic reader \
                          reaches the writer mutex only by falling back)",
                         self.locked_reads, self.read_fallbacks
+                    ));
+                }
+            }
+            ReadOp::ScanLocked => {
+                if self.read_fallbacks != 0 {
+                    return Err(format!(
+                        "{cell}: read_fallbacks = {} (a locked scan never falls back from an optimistic walk)",
+                        self.read_fallbacks
                     ));
                 }
             }
@@ -845,6 +855,46 @@ impl WriterStrWorkload {
             fill_alnum(&mut fresh_rng, &mut buf, n);
             if prefill.binary_search(&buf).is_err() && seen.insert(buf.clone()) {
                 fresh_keys.push(buf.clone());
+            }
+        }
+
+        Self {
+            prefill,
+            fresh_keys,
+        }
+    }
+
+    /// Generates URL path keys matching `path_keys` distribution for string scan (#1143).
+    fn generate_paths(n_prefill: usize, m_fresh: usize, dense: bool) -> Self {
+        let mut rng = XorShift::new(0x5A71_C1A0_0000_0001);
+        let mut seen = HashSet::with_capacity(n_prefill + m_fresh);
+        let mut prefill = Vec::with_capacity(n_prefill);
+        while prefill.len() < n_prefill {
+            let r = rng.next();
+            let id = if dense {
+                let bucket = (r >> 28) % 52_428 * 20;
+                (bucket << 28) | (r & 0xFFF_FFFF)
+            } else {
+                r & 0xFFFF_FFFF_FFFF
+            };
+            if seen.insert(id) {
+                prefill.push(format!("https://example.com/api/v2/objects/{id:012x}").into_bytes());
+            }
+        }
+        prefill.sort_unstable();
+
+        let mut fresh_keys = Vec::with_capacity(m_fresh);
+        while fresh_keys.len() < m_fresh {
+            let r = rng.next();
+            let id = if dense {
+                let bucket = (r >> 28) % 52_428 * 20;
+                (bucket << 28) | (r & 0xFFF_FFFF)
+            } else {
+                r & 0xFFFF_FFFF_FFFF
+            };
+            if seen.insert(id) {
+                fresh_keys
+                    .push(format!("https://example.com/api/v2/objects/{id:012x}").into_bytes());
             }
         }
 
@@ -1865,10 +1915,12 @@ enum ReadOp {
     /// `ExpanseMap::count_below` under `SyncExpanseMap::with_locked`, which
     /// folds the ancestor `pop0` the writers left stale (#1144).
     CountLocked,
-    /// `MapReader::cursor` batch scan (#1142, `METHODOLOGY.md` §32.5).
+    /// `MapReader::cursor` batch scan (#1142, `METHODOLOGY.md` §32.5), or string batch scan (#1143, `METHODOLOGY.md` §33.5).
     Scan,
     /// `MapReader::first` + `MapReader::next_after` unbatched scan (#1142, `METHODOLOGY.md` §32.4).
     NextAfterScan,
+    /// `SyncExpanseStrMap::with_locked` cursor scan (#1143, `METHODOLOGY.md` §33.5).
+    ScanLocked,
 }
 
 impl ReadOp {
@@ -1880,8 +1932,9 @@ impl ReadOp {
             "count_locked" => Ok(Self::CountLocked),
             "scan" => Ok(Self::Scan),
             "next_after_scan" => Ok(Self::NextAfterScan),
+            "scan_locked" => Ok(Self::ScanLocked),
             other => Err(format!(
-                "unknown --read-op {other:?} (expected get, prev_locked, prev, count_locked, scan or next_after_scan)"
+                "unknown --read-op {other:?} (expected get, prev_locked, prev, count_locked, scan, next_after_scan or scan_locked)"
             )),
         }
     }
@@ -1894,6 +1947,7 @@ impl ReadOp {
             Self::CountLocked => "count_locked",
             Self::Scan => "scan",
             Self::NextAfterScan => "next_after_scan",
+            Self::ScanLocked => "scan_locked",
         }
     }
 }
@@ -1909,6 +1963,10 @@ enum Probe {
     /// fresh keys of the same shape (#1144). The tree holds these keys only:
     /// neither the uniform prefill nor the hotspot keys.
     OneTopByte,
+    /// Paths key distribution with URL prefixes (#1143, `METHODOLOGY.md` §33.5).
+    Paths,
+    /// Paths dense distribution with high bucket sharing (#1143, `METHODOLOGY.md` §33.5).
+    PathsDense,
 }
 
 impl Probe {
@@ -1917,8 +1975,10 @@ impl Probe {
             "uniform" => Ok(Self::Uniform),
             "hotspot" => Ok(Self::Hotspot),
             "one_top_byte" => Ok(Self::OneTopByte),
+            "paths" => Ok(Self::Paths),
+            "paths_dense" => Ok(Self::PathsDense),
             other => Err(format!(
-                "unknown --probe {other:?} (expected uniform, hotspot or one_top_byte)"
+                "unknown --probe {other:?} (expected uniform, hotspot, one_top_byte, paths or paths_dense)"
             )),
         }
     }
@@ -1928,6 +1988,8 @@ impl Probe {
             Self::Uniform => "uniform",
             Self::Hotspot => "hotspot",
             Self::OneTopByte => "one_top_byte",
+            Self::Paths => "paths",
+            Self::PathsDense => "paths_dense",
         }
     }
 }
@@ -2112,6 +2174,12 @@ impl ReaderWorkload {
         let source = match probe {
             Probe::Uniform | Probe::OneTopByte => &uniform.prefill,
             Probe::Hotspot => &hotspot.probes,
+            Probe::Paths | Probe::PathsDense => {
+                return Err(format!(
+                    "probe `{}` is only valid on string workloads",
+                    probe.name()
+                ));
+            }
         };
         let probes = (0..readers)
             .map(|r| {
@@ -2133,6 +2201,7 @@ impl ReaderWorkload {
         match probe {
             Probe::Uniform | Probe::OneTopByte => &self.uniform.fresh_keys,
             Probe::Hotspot => &self.hotspot.fresh,
+            Probe::Paths | Probe::PathsDense => unreachable!("paths probes are on string workload"),
         }
     }
 }
@@ -2521,6 +2590,40 @@ fn run_reader_cell(
                             let (n, wraps) = next_after_scan_loop(&rd, limit, stop);
                             (n, wraps, t0.elapsed().as_secs_f64())
                         }
+                        ReadOp::ScanLocked => {
+                            b.wait();
+                            let t0 = Instant::now();
+                            let mut ops = 0u64;
+                            match limit {
+                                Some(n) => {
+                                    while ops < n {
+                                        m.with_locked(|inner| {
+                                            let mut cur = inner.cursor();
+                                            while cur.next().is_some() {
+                                                ops += 1;
+                                                if ops == n {
+                                                    break;
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                                None => {
+                                    while !stop.load(Ordering::Relaxed) {
+                                        m.with_locked(|inner| {
+                                            let mut cur = inner.cursor();
+                                            while cur.next().is_some() {
+                                                ops += 1;
+                                                if stop.load(Ordering::Relaxed) {
+                                                    break;
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                            (ops, 0u64, t0.elapsed().as_secs_f64())
+                        }
                     })
                 })
                 .collect();
@@ -2777,6 +2880,234 @@ fn run_str_readers_cell(
         reader_ops,
         reader_wraps: 0,
         fresh_keys: 0,
+        final_pop,
+        counters,
+    })
+}
+
+/// Single-threaded `with_locked` cursor scan loop on string maps (#1143, `METHODOLOGY.md` §33.5).
+#[inline(always)]
+fn scan_locked_loop_str(map: &SyncExpanseStrMap, limit: Option<u64>, stop: &AtomicBool) -> u64 {
+    let mut sink = 0u64;
+    let mut ops = 0u64;
+    match limit {
+        Some(n) => {
+            while ops < n {
+                let mut empty = true;
+                map.with_locked(|inner| {
+                    let mut cur = inner.cursor();
+                    while let Some((_k, v)) = cur.next_entry() {
+                        empty = false;
+                        sink = sink.wrapping_add(v);
+                        ops += 1;
+                        if ops == n {
+                            break;
+                        }
+                    }
+                });
+                if empty {
+                    break;
+                }
+            }
+        }
+        None => {
+            while !stop.load(Ordering::Relaxed) {
+                let mut empty = true;
+                map.with_locked(|inner| {
+                    let mut cur = inner.cursor();
+                    while let Some((_k, v)) = cur.next_entry() {
+                        empty = false;
+                        sink = sink.wrapping_add(v);
+                        ops += 1;
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                });
+                if empty {
+                    break;
+                }
+            }
+        }
+    }
+    black_box(sink);
+    ops
+}
+
+/// Readers scan the string map (#1143, `METHODOLOGY.md` §33.5).
+/// With W >= 1, readers scan from writers' start barrier until writers complete.
+/// With W = 0, readers scan until completing a fixed probe quota.
+#[inline(always)]
+fn scan_loop_str(map: &SyncExpanseStrMap, limit: Option<u64>, stop: &AtomicBool) -> u64 {
+    // In this Stage 2 harness baseline stage, executes the with_locked scan.
+    // When SyncStrMapCursor lands, this will call `rd.cursor()`.
+    scan_locked_loop_str(map, limit, stop)
+}
+
+/// Verifies that a full scan of the string map produces the prefilled entries in strictly
+/// ascending order without omission or duplication. Untimed, and only meaningful at W = 0.
+fn verify_scan_answers_str(
+    map: &SyncExpanseStrMap,
+    sorted: &[Vec<u8>],
+    round: usize,
+) -> Result<(), String> {
+    map.with_locked(|inner| {
+        let mut cur = inner.cursor();
+        let mut count = 0;
+        while let Some((k, v)) = cur.next_entry() {
+            if count >= sorted.len() {
+                return Err(format!(
+                    "round {round}: str scan emitted more keys than prefill"
+                ));
+            }
+            if k != sorted[count].as_slice() || v != str_value_of(&sorted[count]) {
+                return Err(format!(
+                    "round {round}: str scan emitted mismatch at index {count}"
+                ));
+            }
+            count += 1;
+        }
+        if count != sorted.len() {
+            return Err(format!(
+                "round {round}: str scan emitted {count} keys, expected {}",
+                sorted.len()
+            ));
+        }
+        Ok(())
+    })
+}
+
+/// A reader/writer scan cell on [`SyncExpanseStrMap`] (#1143, `METHODOLOGY.md` §33.5).
+fn run_str_scan_cell(
+    wl: &WriterStrWorkload,
+    writers: usize,
+    readers: usize,
+    op: ReadOp,
+    round: usize,
+    is_counters: bool,
+    perf_ctl: &mut PerfControl,
+) -> Result<ReaderOutcome, String> {
+    let map = SyncExpanseStrMap::new();
+    for k in &wl.prefill {
+        let nk = NulFreeStr::new(k).expect("paths bytes are NUL-free");
+        map.insert(nk, str_value_of(k));
+    }
+
+    let fresh = if writers == 0 {
+        &[][..]
+    } else {
+        &wl.fresh_keys[..]
+    };
+    let per = fresh.len() / writers.max(1);
+    let limit = (writers == 0).then_some(wl.prefill.len() as u64);
+    let stop = AtomicBool::new(false);
+    let barrier = Barrier::new(writers + readers + 1);
+
+    if is_counters {
+        occ_stats::reset();
+    }
+
+    let (writer_elapsed_s, reader_elapsed_s, reader_ops, reader_wraps, thread_elapsed_s) =
+        std::thread::scope(|s| {
+            let writer_handles: Vec<_> = (0..writers)
+                .map(|w| {
+                    let lo = w * per;
+                    let hi = if w + 1 == writers {
+                        fresh.len()
+                    } else {
+                        lo + per
+                    };
+                    let slice = &fresh[lo..hi];
+                    let b = &barrier;
+                    let m = &map;
+                    s.spawn(move || {
+                        b.wait();
+                        for k in slice {
+                            let nk = NulFreeStr::new(k).expect("paths bytes are NUL-free");
+                            m.insert(nk, str_value_of(k));
+                        }
+                    })
+                })
+                .collect();
+            let reader_handles: Vec<_> = (0..readers)
+                .map(|_| {
+                    let b = &barrier;
+                    let m = &map;
+                    let stop = &stop;
+                    s.spawn(move || {
+                        b.wait();
+                        let t0 = Instant::now();
+                        let n = match op {
+                            ReadOp::Scan => scan_loop_str(m, limit, stop),
+                            ReadOp::ScanLocked => scan_locked_loop_str(m, limit, stop),
+                            _ => unreachable!("str scan cell only runs Scan or ScanLocked"),
+                        };
+                        (n, 0u64, t0.elapsed().as_secs_f64())
+                    })
+                })
+                .collect();
+
+            perf_ctl.enable();
+            barrier.wait();
+            let start = Instant::now();
+            let guard = StopOnDrop(&stop);
+            let mut writer_elapsed = None;
+            if !writer_handles.is_empty() {
+                for h in writer_handles {
+                    h.join().expect("writer thread panicked");
+                }
+                writer_elapsed = Some(start.elapsed().as_secs_f64());
+            }
+            drop(guard);
+            let mut ops = 0u64;
+            let mut per_thread = Vec::with_capacity(readers);
+            for h in reader_handles {
+                let (n, _w, secs) = h.join().expect("reader thread panicked");
+                ops += n;
+                per_thread.push(secs);
+            }
+            (
+                writer_elapsed,
+                start.elapsed().as_secs_f64(),
+                ops,
+                0u64,
+                per_thread,
+            )
+        });
+    perf_ctl.disable();
+
+    let counters = Counters::read(is_counters);
+    let final_pop = map.len();
+    let expected_pop = (wl.prefill.len() + fresh.len()) as u64;
+    if final_pop != expected_pop {
+        return Err(format!(
+            "round {round}: string map population {final_pop}, expected {expected_pop}"
+        ));
+    }
+    if readers > 0 && reader_ops == 0 {
+        return Err(format!(
+            "round {round}: readers made no probes, so cell has no reader throughput"
+        ));
+    }
+
+    let reader = map.reader();
+    for k in fresh.iter().step_by(10_000) {
+        let nk = NulFreeStr::new(k).expect("paths bytes are NUL-free");
+        if reader.get(nk) != Some(str_value_of(k)) {
+            return Err(format!("round {round}: string map missing fresh key"));
+        }
+    }
+    if writers == 0 {
+        verify_scan_answers_str(&map, &wl.prefill, round)?;
+    }
+
+    Ok(ReaderOutcome {
+        writer_elapsed_s,
+        reader_elapsed_s,
+        thread_elapsed_s,
+        reader_ops,
+        reader_wraps,
+        fresh_keys: fresh.len() as u64,
         final_pop,
         counters,
     })
@@ -3288,9 +3619,19 @@ fn bytes_flags(args: &[String], readers: usize) -> Result<(BytesOp, KeyDist), St
 
 /// Reader mode: one (W, R, read op, probe) cell over `--round` or `--rounds`.
 fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(), String> {
-    match flag_value(args, "--arm")?.unwrap_or("map") {
+    let arm = flag_value(args, "--arm")?.unwrap_or("map");
+    match arm {
         "map" => {}
-        arm @ ("set" | "str") => return readers_only_main(args, is_counters, readers, arm),
+        "set" => return readers_only_main(args, is_counters, readers, arm),
+        "str" => {
+            if let Some(op_name) = flag_value(args, "--read-op")? {
+                let op = ReadOp::parse(op_name)?;
+                if op == ReadOp::Scan || op == ReadOp::ScanLocked {
+                    return str_reader_scan_main(args, is_counters, readers, op);
+                }
+            }
+            return readers_only_main(args, is_counters, readers, arm);
+        }
         other => {
             return Err(format!(
                 "--readers {readers} runs the map, set and str arms, got --arm {other}"
@@ -3386,6 +3727,104 @@ fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(),
                  \"fresh_keys\":{fresh},\"writers\":{writers},\"readers\":{readers},\
                  \"read_op\":\"{op_name}\",\"probe\":\"{probe_name}\",\
                  \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\
+                 \"writer_elapsed_s\":{we},\"writer_mops\":{wm},\
+                 \"reader_ops\":{reader_ops},\"reader_wraps\":{reader_wraps},\"reader_elapsed_s\":{reader_elapsed_s:.6},\
+                 \"reader_thread_elapsed_s\":{te},\
+                 \"reader_mops\":{reader_mops:.6},\"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
+                 \"population_after\":{final_pop}}}",
+                we = opt_f64_json(out.writer_elapsed_s),
+                wm = opt_f64_json(writer_mops),
+                te = f64_array_json(&out.thread_elapsed_s),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// String scan mode (#1143, `METHODOLOGY.md` §33.5): probe x (W, R) cells of
+/// string batch scan vs scan_locked under `paths` and `paths_dense`.
+fn str_reader_scan_main(
+    args: &[String],
+    is_counters: bool,
+    readers: usize,
+    op: ReadOp,
+) -> Result<(), String> {
+    let writers: usize = parse_flag(args, "--writers")?
+        .ok_or_else(|| "reader mode needs --writers <W>, a single count (0 allowed)".to_string())?;
+    let probe = Probe::parse(flag_value(args, "--probe")?.unwrap_or("paths"))?;
+    if probe != Probe::Paths && probe != Probe::PathsDense {
+        return Err(format!(
+            "--arm str in scan mode takes --probe paths or paths_dense, got --probe {}",
+            probe.name()
+        ));
+    }
+    let position: usize = parse_flag(args, "--position")?.unwrap_or(0);
+    let rounds: usize = parse_flag(args, "--rounds")?.unwrap_or(8);
+    let (round_start, round_end) = match parse_flag::<usize>(args, "--round")? {
+        Some(r) => (r, r + 1),
+        None => (0, rounds),
+    };
+    let is_quick = args.iter().any(|a| a == "--quick");
+    let (n0, m) = if is_quick {
+        (4096, 4096)
+    } else {
+        (N_PREFILL, M_FRESH)
+    };
+
+    let tsc_hz = occ_stats::cycles_hz(std::time::Duration::from_millis(200));
+    let mut perf_ctl = PerfControl::new(
+        flag_value(args, "--perf-ctl-fifo")?,
+        flag_value(args, "--perf-ack-fifo")?,
+    );
+
+    eprintln!(
+        "generating str scan workload (prefill={n0}, fresh={m}, probe={}, writers={writers}, readers={readers})...",
+        probe.name()
+    );
+    let wl = WriterStrWorkload::generate_paths(n0, m, probe == Probe::PathsDense);
+    let label = format!("str_w{writers}_r{readers}_{}_{}", op.name(), probe.name());
+    let pin = cpu_pin_json();
+    let (op_name, probe_name) = (op.name(), probe.name());
+
+    for round in round_start..round_end {
+        let out = run_str_scan_cell(&wl, writers, readers, op, round, is_counters, &mut perf_ctl)?;
+        let fresh = out.fresh_keys;
+        let reader_ops = out.reader_ops;
+        let reader_wraps = out.reader_wraps;
+        let final_pop = out.final_pop;
+        if is_counters {
+            let ctx = format!("{label} round {round}");
+            out.counters.check(fresh, out.counters.locked_reads, &ctx)?;
+            out.counters
+                .check_reader(op, reader_ops, reader_wraps, &ctx)?;
+            let fb = out.counters.lock_fallbacks;
+            let ins = out.counters.inserts;
+            let extra = out.counters.extra_counters_json();
+            let reads = out.counters.reader_counters_json();
+            let causes = out.counters.causes_json();
+            println!(
+                "{{\"workload_id\":\"concurrency_scan_str\",\"role\":\"counters\",\
+                 \"arm\":\"str\",\"cell\":\"{label}\",\"keyspace_bits\":64,\
+                 \"prefill\":{n0},\"hotspot_prefill\":0,\"hotspot_base\":0,\
+                 \"fresh_keys\":{fresh},\"writers\":{writers},\"readers\":{readers},\
+                 \"read_op\":\"{op_name}\",\"probe\":\"{probe_name}\",\
+                 \"round\":{round},\"position\":{position},\"write_ops\":{fresh},\
+                 \"reader_ops\":{reader_ops},\"reader_wraps\":{reader_wraps},\
+                 \"cpu_pin\":{pin},\"tsc_hz\":{tsc_hz},\
+                 \"lock_fallbacks\":{fb},\"inserts\":{ins},{extra},{reads},\
+                 \"fallback_causes\":{causes},\"population_after\":{final_pop}}}"
+            );
+        } else {
+            let reader_elapsed_s = out.reader_elapsed_s;
+            let writer_mops = out.writer_elapsed_s.map(|s| (fresh as f64) / (s * 1e6));
+            let reader_mops = (reader_ops as f64) / (reader_elapsed_s * 1e6);
+            println!(
+                "{{\"workload_id\":\"concurrency_scan_str\",\"role\":\"throughput\",\
+                 \"arm\":\"str\",\"cell\":\"{label}\",\"keyspace_bits\":64,\
+                 \"prefill\":{n0},\"hotspot_prefill\":0,\"hotspot_base\":0,\
+                 \"fresh_keys\":{fresh},\"writers\":{writers},\"readers\":{readers},\
+                 \"read_op\":\"{op_name}\",\"probe\":\"{probe_name}\",\
+                 \"round\":{round},\"position\":{position},\
                  \"writer_elapsed_s\":{we},\"writer_mops\":{wm},\
                  \"reader_ops\":{reader_ops},\"reader_wraps\":{reader_wraps},\"reader_elapsed_s\":{reader_elapsed_s:.6},\
                  \"reader_thread_elapsed_s\":{te},\
@@ -4296,6 +4735,50 @@ fn self_test(role_opt: Option<&str>) -> Result<(), String> {
     }
 
     band_self_test(is_counters, &mut dummy_ctl)?;
+
+    // String scan cells (#1143, METHODOLOGY §33.5): test scan and scan_locked
+    // under paths and paths_dense with W=0 and W=1.
+    for dense in [false, true] {
+        let wl_scan = WriterStrWorkload::generate_paths(n0, m, dense);
+        for op in [ReadOp::Scan, ReadOp::ScanLocked] {
+            for writers in [0, 1] {
+                let ctx = format!(
+                    "self-test str_scan W={writers} op={} dense={dense}",
+                    op.name()
+                );
+                let out =
+                    run_str_scan_cell(&wl_scan, writers, 2, op, 0, is_counters, &mut dummy_ctl)
+                        .map_err(|e| format!("{ctx}: {e}"))?;
+                let expected_fresh = if writers == 0 { 0 } else { m as u64 };
+                if out.fresh_keys != expected_fresh {
+                    return Err(format!(
+                        "{ctx}: {} fresh keys, expected {expected_fresh}",
+                        out.fresh_keys
+                    ));
+                }
+                if writers == 0 && out.reader_ops != 2 * n0 as u64 {
+                    return Err(format!(
+                        "{ctx}: {} reader ops at W = 0, expected exactly {}",
+                        out.reader_ops,
+                        2 * n0
+                    ));
+                }
+                if is_counters {
+                    out.counters
+                        .check(expected_fresh, out.counters.locked_reads, &ctx)?;
+                    out.counters
+                        .check_reader(op, out.reader_ops, out.reader_wraps, &ctx)?;
+                } else if out.reader_elapsed_s <= 0.0
+                    || (writers > 0) != out.writer_elapsed_s.is_some()
+                {
+                    return Err(format!(
+                        "{ctx}: invalid elapsed (readers {}, writers {:?})",
+                        out.reader_elapsed_s, out.writer_elapsed_s
+                    ));
+                }
+            }
+        }
+    }
 
     let mode_str = if is_counters {
         "counters"
