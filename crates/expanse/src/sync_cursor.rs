@@ -77,6 +77,8 @@ impl ReadSet {
     unsafe fn sample(&mut self, vp: *const u32) -> Result<u32, Retry> {
         // SAFETY: live version field, per this function's contract.
         let snap = node_sample(unsafe { version_cell(vp) }).ok_or(Retry)?;
+        #[cfg(test)]
+        test_hooks::count_sample();
         if self.len == READ_SET_CAP {
             return Err(Retry);
         }
@@ -374,8 +376,13 @@ impl<'m, 'r> SyncMapCursor<'m, 'r> {
 
     /// Advances to and returns the entry with the smallest key `>= target`
     /// that is `>=` the cursor's current position; `None` once exhausted.
+    ///
+    /// The cursor never moves backwards: a `target` below the current
+    /// position, or below the range's start, returns the current entry. A
+    /// `target` above the range's end exhausts the cursor.
     pub fn advance_to(&mut self, target: u64) -> Option<(u64, u64)> {
         if target > self.end_key {
+            self.pos = self.len;
             self.exhausted = true;
             return None;
         }
@@ -391,12 +398,30 @@ impl<'m, 'r> SyncMapCursor<'m, 'r> {
                 self.pos += offset;
                 return Some(self.buf[self.pos]);
             }
-        } else if self.exhausted {
+            // `target` is past every buffered key, so it is past the position.
+            return if self.refill(target) {
+                Some(self.buf[0])
+            } else {
+                None
+            };
+        }
+        if self.exhausted {
             return None;
         }
 
-        // Target is past current buffer: refill starting at target.
-        if self.refill(target) {
+        // The buffer is empty: the position is the key after the last one
+        // returned, or the range's start. A refill below it would rewind.
+        let floor = match self.last_emitted {
+            None => self.start_key,
+            Some(k) => match k.checked_add(1) {
+                Some(next) => next,
+                None => {
+                    self.exhausted = true;
+                    return None;
+                }
+            },
+        };
+        if self.refill(target.max(floor)) {
             Some(self.buf[0])
         } else {
             None
@@ -480,6 +505,9 @@ struct BatchDrain<'b> {
     buf: &'b mut [(u64, u64); BATCH_CAP],
     end_key: u64,
     count: usize,
+    /// A terminal met a key above `end_key`. Every later key in key order is
+    /// above it too, so the branch loops stop walking siblings.
+    past_end: bool,
 }
 
 impl BatchDrain<'_> {
@@ -515,6 +543,7 @@ impl SyncMapCursor<'_, '_> {
                     buf,
                     end_key,
                     count: 0,
+                    past_end: false,
                 };
                 // SAFETY: `ptr` points to a validated, EBR-live root leaf of `pop` keys.
                 unsafe {
@@ -533,6 +562,7 @@ impl SyncMapCursor<'_, '_> {
                     buf,
                     end_key,
                     count: 0,
+                    past_end: false,
                 };
                 // SAFETY: `top` is validated against root version and caller holds the epoch pin.
                 unsafe {
@@ -625,7 +655,11 @@ impl SyncMapCursor<'_, '_> {
                         continue;
                     }
                     let full_k = prefix | k;
-                    if full_k > drain.end_key || drain.count == BATCH_CAP {
+                    if full_k > drain.end_key {
+                        drain.past_end = true;
+                        break;
+                    }
+                    if drain.count == BATCH_CAP {
                         break;
                     }
                     // SAFETY: validated immediate edge copy and slot is within key count.
@@ -669,7 +703,11 @@ impl SyncMapCursor<'_, '_> {
                     // SAFETY: `slot <= i < pop`.
                     let k = unsafe { leaf::shared_keys::read(keys, i, kb as usize, pop) };
                     let full_k = leaf_prefix | k;
-                    if full_k > drain.end_key || drain.count == BATCH_CAP {
+                    if full_k > drain.end_key {
+                        drain.past_end = true;
+                        break;
+                    }
+                    if drain.count == BATCH_CAP {
                         break;
                     }
                     // SAFETY: map leaves hold `pop` values at the base.
@@ -698,7 +736,11 @@ impl SyncMapCursor<'_, '_> {
                 };
                 while let Some(d) = cur {
                     let full_k = leaf_prefix | u64::from(d);
-                    if full_k > drain.end_key || drain.count == BATCH_CAP {
+                    if full_k > drain.end_key {
+                        drain.past_end = true;
+                        break;
+                    }
+                    if drain.count == BATCH_CAP {
                         break;
                     }
                     // SAFETY: live node; rank calculation within bitmap.
@@ -790,13 +832,20 @@ impl SyncMapCursor<'_, '_> {
                         Self::drain_batch_in(drain, &child, rem, bl - 1, child_prefix, here, rs)?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key
+                        if drain.count >= BATCH_CAP
+                            || drain.past_end
+                            || drain.buf[drain.count - 1].0 >= drain.end_key
                         {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
                             return Ok(());
                         }
+                    } else if drain.past_end {
+                        // The child held only keys above `end_key`, and so does
+                        // every sibling after it. Walking them would sample a
+                        // branch per subtree until the read set is full.
+                        return Ok(());
                     } else {
                         #[cfg(test)]
                         test_hooks::at(test_hooks::Site::SkippedSibling);
@@ -848,13 +897,20 @@ impl SyncMapCursor<'_, '_> {
                         Self::drain_batch_in(drain, &child, rem, bl - 1, child_prefix, here, rs)?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key
+                        if drain.count >= BATCH_CAP
+                            || drain.past_end
+                            || drain.buf[drain.count - 1].0 >= drain.end_key
                         {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
                             return Ok(());
                         }
+                    } else if drain.past_end {
+                        // The child held only keys above `end_key`, and so does
+                        // every sibling after it. Walking them would sample a
+                        // branch per subtree until the read set is full.
+                        return Ok(());
                     } else {
                         #[cfg(test)]
                         test_hooks::at(test_hooks::Site::SkippedSibling);
@@ -923,13 +979,20 @@ impl SyncMapCursor<'_, '_> {
                         )?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP || drain.buf[drain.count - 1].0 >= drain.end_key
+                        if drain.count >= BATCH_CAP
+                            || drain.past_end
+                            || drain.buf[drain.count - 1].0 >= drain.end_key
                         {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
                             return Ok(());
                         }
+                    } else if drain.past_end {
+                        // The child held only keys above `end_key`, and so does
+                        // every sibling after it. Walking them would sample a
+                        // branch per subtree until the read set is full.
+                        return Ok(());
                     } else {
                         #[cfg(test)]
                         test_hooks::at(test_hooks::Site::SkippedSibling);
@@ -971,9 +1034,20 @@ pub(crate) mod test_hooks {
 
     thread_local! {
         static ARMED_SITE: RefCell<Option<(Site, HookFn)>> = const { RefCell::new(None) };
+        static SAMPLES: Cell<usize> = const { Cell::new(0) };
         static NEG_SKIP_PARENT_VALIDATION: Cell<bool> = const { Cell::new(false) };
         static NEG_SKIP_BRANCH_VALIDATION: Cell<bool> = const { Cell::new(false) };
         static NEG_SKIP_FINAL_VALIDATION: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Counts one branch version sampled into a read set on this thread.
+    pub(crate) fn count_sample() {
+        SAMPLES.with(|c| c.set(c.get() + 1));
+    }
+
+    /// Branch versions sampled on this thread since the last call.
+    pub(crate) fn take_samples() -> usize {
+        SAMPLES.with(|c| c.replace(0))
     }
 
     pub(crate) fn arm_site(site: Site, f: impl FnMut() + 'static) {
@@ -1519,5 +1593,100 @@ mod tests {
             34,
             "negative control: without final validation, cursor emits stale pre-demotion keys"
         );
+    }
+
+    // --- Bounded scans stop at the end bound; `advance_to` never rewinds ----
+
+    /// 200,000 uniform keys: every top digit holds a subtree of branches.
+    fn wide_map() -> (SyncExpanseMap, BTreeMap<u64, u64>) {
+        let map = SyncExpanseMap::new();
+        let mut model = BTreeMap::new();
+        let mut rng = XorShift64(0x9E37_79B9_7F4A_7C15);
+        for _ in 0..200_000 {
+            let k = rng.next();
+            map.insert(k, k ^ 1);
+            model.insert(k, k ^ 1);
+        }
+        (map, model)
+    }
+
+    #[test]
+    fn test_bounded_scan_does_not_walk_past_end() {
+        let (map, model) = wide_map();
+        let rd = map.reader();
+        // One key deep in the low half, and the gap up to its successor.
+        let (&k, &v) = model.range(1u64 << 60..).next().unwrap();
+        let (&succ, _) = model.range(k + 1..).next().unwrap();
+        assert!(succ - k > 2, "the fixture needs a gap after {k:#x}");
+
+        // An empty range with the whole upper tree to its right.
+        test_hooks::take_samples();
+        let mut cur = rd.range_cursor(k + 1, succ - 1);
+        assert_eq!(cur.next(), None);
+        let empty = test_hooks::take_samples();
+        assert!(
+            empty <= 8,
+            "an empty range sampled {empty} branches: the walk went past the end bound"
+        );
+
+        // A range holding one key, ending below the next key.
+        let mut cur = rd.range_cursor(k, succ - 1);
+        assert_eq!(cur.next(), Some((k, v)));
+        assert_eq!(cur.next(), None);
+        let one = test_hooks::take_samples();
+        assert!(
+            one <= 16,
+            "a one-key range sampled {one} branches: the walk went past the end bound"
+        );
+
+        // The bounded scan still returns exactly the model's range.
+        let (lo, hi) = (1u64 << 60, (1u64 << 60) + (1u64 << 56));
+        let got: Vec<_> = rd.range_cursor(lo, hi).collect();
+        let want: Vec<_> = model.range(lo..=hi).map(|(&k, &v)| (k, v)).collect();
+        assert!(
+            want.len() > BATCH_CAP,
+            "the range must span several batches"
+        );
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_advance_to_never_rewinds() {
+        let map = SyncExpanseMap::new();
+        let keys: Vec<u64> = (1..=2000u64).map(|i| i * 10).collect();
+        for &k in &keys {
+            map.insert(k, k + 1);
+        }
+        let rd = map.reader();
+
+        // A target below the position is a no-op at every position, batch
+        // boundaries included.
+        let mut cur = rd.cursor();
+        for (i, &k) in keys.iter().enumerate() {
+            assert_eq!(cur.next(), Some((k, k + 1)));
+            let want = keys.get(i + 1).map(|&n| (n, n + 1));
+            assert_eq!(cur.advance_to(0), want, "advance_to(0) after {k}");
+            assert_eq!(cur.advance_to(k), want, "advance_to({k}) after {k}");
+        }
+
+        // A target below the range's start does not leave the range.
+        let mut cur = rd.range_cursor(100, 200);
+        assert_eq!(cur.advance_to(50), Some((100, 101)));
+        assert_eq!(cur.next(), Some((100, 101)));
+    }
+
+    #[test]
+    fn test_advance_to_past_end_exhausts() {
+        let map = SyncExpanseMap::new();
+        for k in 1..=100u64 {
+            map.insert(k, k);
+        }
+        let rd = map.reader();
+        let mut cur = rd.range_cursor(1, 50);
+        assert_eq!(cur.next(), Some((1, 1)));
+        assert_eq!(cur.advance_to(51), None);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(cur.advance_to(10), None);
     }
 }
