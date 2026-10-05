@@ -4036,6 +4036,8 @@ fn sync_blobmap_insert_reclaiming(input: (SyncExpanseBlobMap, u32)) -> u64 {
         "expected exactly 10 reclaims triggered"
     );
     let n = map.len();
+    // Leaked like every other arm's map, so its drop is not measured.
+    core::mem::forget(map);
     black_box(n)
 }
 

@@ -767,6 +767,7 @@ pub struct ProbeVisits {
     /// Number of BranchB subarray loads incurred.
     pub branch_b_subarrays: usize,
     /// Number of leaf loads (root leaf, linear leaf, bitmap leaf, or multi-key immediate value array).
+    /// A hit in a map's bitmap leaf counts two: the leaf, then its value subarray.
     pub leaf_loads: usize,
     /// Whether the key was found in the container.
     pub found: bool,
@@ -971,6 +972,9 @@ pub unsafe fn walk_map_probe_visits(edge: &Edge, key: u64, level: u8) -> ProbeVi
                         value: None,
                     };
                 };
+                // The values live in a subarray allocated apart from the leaf:
+                // a hit loads it after the leaf, a second dependent load.
+                leaf_loads += 1;
                 // SAFETY: `sub < 8` accesses a valid values subarray pointer.
                 let vals = unsafe { *l.values.as_ptr().add(sub) };
                 // SAFETY: `slot` is verified rank inside the values subarray.
@@ -1362,7 +1366,8 @@ pub unsafe fn walk_map_probe_visits_census(
             ProbeVisitsCensus {
                 sum_edges_followed: pop * branches_above,
                 sum_branch_b_subarrays: pop * branch_b_above,
-                sum_leaf_loads: pop,
+                // The leaf, then its value subarray: two loads per present key.
+                sum_leaf_loads: 2 * pop,
                 total_keys: pop,
             }
         }

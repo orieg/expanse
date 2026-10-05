@@ -569,6 +569,13 @@ uuid            60.86     66.81     66.24     78.50     86.93     87.12     87.1
     assert eval_missing_head["verdict"] == "FAIL", "Missing shape in head must produce FAIL"
     assert any("missing shape 'uuid'" in r for r in eval_missing_head["failure_reasons"])
 
+    # 2b. Fail-closed: no base runs at all. This is the state a base ref that
+    # failed to build leaves behind (the build failure is only a warning), so
+    # the gate must not pass on head runs alone.
+    eval_no_base = evaluate_gate([], [head_data_pass, head_data_pass])
+    assert eval_no_base["verdict"] == "FAIL", "No base runs must produce FAIL"
+    assert any("No base runs provided" in r for r in eval_no_base["failure_reasons"])
+
     # 3. Fail-closed: missing shape in base run
     base_missing = copy.deepcopy(base_data)
     del base_missing["prefix"]
