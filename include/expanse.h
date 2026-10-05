@@ -627,7 +627,12 @@ void     expanse_ordered_bytesmap_clear(expanse_ordered_bytesmap_t *map);
  * On EXPANSE_ORDERED_BYTES_NAV_NOT_FOUND, no matching key was found.
  *
  * Passing `key_out == NULL` and `buf_len == 0` is valid to probe the required
- * buffer length for the matching key without writing.
+ * buffer length for the matching key without writing. A matching key of zero
+ * length needs no buffer, so that probe returns EXPANSE_ORDERED_BYTES_NAV_OK
+ * with `*required_len == 0`.
+ *
+ * In the functions that take a search `key`, `key` and `key_out` may be the
+ * same buffer: the search key is read before `key_out` is written.
  */
 expanse_ordered_bytes_nav_status expanse_ordered_bytesmap_first(
     const expanse_ordered_bytesmap_t *map,
