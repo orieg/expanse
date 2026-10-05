@@ -99,22 +99,38 @@ fn is_valid_transition(state: &Option<u64>, op: &Op, ret: &Ret) -> (bool, Option
 }
 
 fn check_linearizability_for_key(events: &[Event]) -> bool {
-    // Check using a backtracking search
+    // A backtracking search over the orders real time allows, remembering
+    // every configuration it has already failed from.
+    //
+    // A configuration is the set of events placed so far and the key's state
+    // after them; whether the rest can be placed depends on nothing else, so
+    // a configuration that failed once fails again. Without that memory the
+    // search revisits the same configurations through every interleaving that
+    // reaches them: with 8 threads on one key it ran past a CI job's limit on
+    // a history that is linearizable.
     fn search(
         events: &[Event],
         used: &mut Vec<bool>,
         state: Option<u64>,
         completed: usize,
+        failed: &mut HashSet<(Vec<u64>, Option<u64>)>,
     ) -> bool {
         if completed == events.len() {
             return true;
         }
+        let mut placed = vec![0u64; events.len().div_ceil(64)];
+        for (i, &u) in used.iter().enumerate() {
+            if u {
+                placed[i / 64] |= 1 << (i % 64);
+            }
+        }
+        let config = (placed, state);
+        if failed.contains(&config) {
+            return false;
+        }
 
-        // Find the earliest end time of an unused event.
-        // If an unused event ended BEFORE some other event started,
-        // the other event CANNOT be ordered before it in a valid linearization.
-        // Actually, we must process an event if its end time is <= the start time
-        // of all other unused events.
+        // The earliest end among the events not yet placed: an event that
+        // started after it cannot be placed before the one that ended.
         let mut min_end = None;
         for (i, e) in events.iter().enumerate() {
             if !used[i] && min_end.is_none_or(|me| e.end < me) {
@@ -125,9 +141,6 @@ fn check_linearizability_for_key(events: &[Event]) -> bool {
         for i in 0..events.len() {
             if !used[i] {
                 let e = &events[i];
-
-                // Real-time order violation: if an unused event ended before `e` started,
-                // `e` cannot be executed before it.
                 if let Some(me) = min_end
                     && me < e.start
                 {
@@ -137,18 +150,51 @@ fn check_linearizability_for_key(events: &[Event]) -> bool {
                 let (valid, next_state) = is_valid_transition(&state, &e.op, &e.ret);
                 if valid {
                     used[i] = true;
-                    if search(events, used, next_state, completed + 1) {
+                    if search(events, used, next_state, completed + 1, failed) {
                         return true;
                     }
                     used[i] = false;
                 }
             }
         }
+        failed.insert(config);
         false
     }
 
     let mut used = vec![false; events.len()];
-    search(events, &mut used, None, 0)
+    search(events, &mut used, None, 0, &mut HashSet::new())
+}
+
+/// The checker terminates on a history built to make an unmemoised search
+/// explode: many concurrent operations that leave the state unchanged, so
+/// every order of them reaches the same configuration, followed by one
+/// operation no order can satisfy.
+#[test]
+fn test_linearizability_checker_rejects_without_exhausting_orders() {
+    let t0 = Instant::now();
+    let at = |ms: u64| t0 + std::time::Duration::from_millis(ms);
+    // 12 overlapping reads of an absent key: 12! (479,001,600) orders, and
+    // 4,096 configurations once failed ones are remembered.
+    let mut events: Vec<Event> = (0..12)
+        .map(|_| Event {
+            op: Op::Get(1),
+            ret: Ret::Get(None),
+            start: at(0),
+            end: at(10),
+        })
+        .collect();
+    // Then a read that saw a value nobody wrote.
+    events.push(Event {
+        op: Op::Get(1),
+        ret: Ret::Get(Some(7)),
+        start: at(20),
+        end: at(30),
+    });
+    assert!(!check_linearizability_for_key(&events));
+
+    // The same reads with nothing impossible after them are accepted.
+    events.pop();
+    assert!(check_linearizability_for_key(&events));
 }
 
 #[test]
