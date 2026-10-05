@@ -537,6 +537,29 @@ def validate_stated_deferrals(
     return errors
 
 
+def stale_deferrals(
+    deferred_by_ecosystem: Dict[str, Set[str]],
+    deferrals: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> List[str]:
+    """Deferral entries that excuse nothing: the ecosystem already binds the symbol.
+
+    `split_deferred` consults an entry only for a symbol that is missing, so
+    an entry left behind after its binding lands is never read. It would then
+    excuse that symbol silently if the binding later lost it. An entry is live
+    only while every ecosystem it names is actually missing the symbol.
+    """
+    if deferrals is None:
+        deferrals = STATED_DEFERRALS
+    errors: List[str] = []
+    for sym_name, entry in sorted(deferrals.items()):
+        for eco in sorted(entry.get("ecosystems", ())):
+            if sym_name not in deferred_by_ecosystem.get(eco, set()):
+                errors.append(
+                    f"STATED_DEFERRALS[{sym_name}] lists {eco}, which already binds it; remove the entry"
+                )
+    return errors
+
+
 def split_deferred(
     raw_missing: Set[str],
     ecosystem: str,
@@ -1326,6 +1349,14 @@ def self_test() -> int:
     assert test_sym in deferred_listed, "Listed deferred symbol must report in deferred"
     assert test_sym not in missing_listed, "Listed deferred symbol must not report in missing"
 
+    # 7c. A deferral naming an ecosystem that binds the symbol is stale; one
+    # naming only ecosystems that miss it is live.
+    live = {"java": {test_sym}}
+    assert not stale_deferrals(live, test_deferral)
+    assert stale_deferrals({"java": set()}, test_deferral), "a bound symbol's deferral must be reported"
+    two = {test_sym: {"issue": "#808", "reason": "r", "ecosystems": {"java", "go"}}}
+    assert len(stale_deferrals(live, two)) == 1, "each stale ecosystem is reported on its own"
+
     print("check_abi_parity.py --self-test: all checks passed")
     return 0
 
@@ -1387,6 +1418,22 @@ def main() -> int:
             return 1
 
     c_symbols, report = build_parity_report(root)
+
+    # A deferral is an exemption from this gate, so its entries are checked on
+    # every run, not only by --self-test.
+    deferral_errors = validate_stated_deferrals(STATED_DEFERRALS, c_symbols) + stale_deferrals(
+        {
+            "java": report.java_deferred,
+            "dotnet": report.dotnet_deferred,
+            "python": report.python_deferred,
+            "node": report.node_deferred,
+            "go": report.go_deferred,
+        }
+    )
+    if deferral_errors:
+        for e in deferral_errors:
+            print(f"::error::{e}", file=sys.stderr)
+        return 1
 
     if args.json:
         out = {

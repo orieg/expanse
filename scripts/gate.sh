@@ -200,6 +200,10 @@ python3 scripts/blob_reclaim_bounds.py --self-test
 python3 scripts/batch_cursor_bounds.py --self-test
 python3 scripts/str_cursor_bounds.py --self-test
 python3 scripts/blob_peak_bounds.py --self-test
+python3 scripts/shrink_rss_bounds.py
+(cd scripts && python3 -m unittest patricia_d2_bounds)
+python3 scripts/allocator_overhead_bench.py --self-test
+python3 tests/test_scan_cells_driver.py
 python3 scripts/c2c_ranking.py --self-test
 python3 scripts/callgrind_wrapper_ranking.py --self-test
 python3 scripts/fit_usl.py --self-test
