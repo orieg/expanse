@@ -1533,6 +1533,29 @@ STR_SCAN_OPS = ("scan_locked", "scan")
 STR_SCAN_BLOCK = tuple(
     (op, w, r) for (w, r) in STR_SCAN_CELLS_WR for op in STR_SCAN_OPS
 )
+# Per-cell wall-clock cap for scan cells (target: 120.0s).
+# Rationale: The ScanLocked arm runs with_locked, which is the same quiesce +
+# writer-lock path whose one_top_byte reader cells used up §23's whole 180-minute
+# window (concurrency README §31, #1376). The reference-host duration of this suite
+# is therefore unknown. A per-cell wall-clock cap of 120.0s (target) fails fast
+# on writer-lock/quiesce stalls well under the 10,800s (180-min) workflow timeout,
+# while providing ample headroom (>100x) over un-stalled cell execution (<1s).
+SCAN_CELL_TIMEOUT_S: float = 120.0  # (target)
+
+
+class CellTimeoutError(RuntimeError):
+    """Raised when a single reader cell breaches the per-cell wall-clock cap."""
+
+    def __init__(self, role: str, run: dict[str, Any], cap_s: float):
+        self.role = role
+        self.run = run
+        self.cap_s = cap_s
+        super().__init__(
+            f"reader cell ({role}, {run}) breached per-cell wall-clock cap "
+            f"of {cap_s:.1f}s (target); killed to fail fast (AGENTS.md §8.1)"
+        )
+
+
 # P12.4's ceiling as an exact fraction: read_fallbacks / read_ops < 1 / 1000.
 P124_CEILING = (1, 1000)
 P125_GATE = ("uniform", 1, 4)
@@ -2582,7 +2605,12 @@ def check_row_pins(rows: list[dict[str, Any]], applied: str) -> None:
 
 
 def run_reader_invocation(
-    binary: Path, role: str, run: dict[str, Any], quick: bool, arm: str = "map"
+    binary: Path,
+    role: str,
+    run: dict[str, Any],
+    quick: bool,
+    arm: str = "map",
+    timeout_s: float | None = None,
 ) -> dict[str, Any]:
     """One reader-mode cell from the harness, checked against the schedule that asked for it."""
     cmd = [
@@ -2593,7 +2621,10 @@ def run_reader_invocation(
     ]
     if quick:
         cmd.append("--quick")
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        raise CellTimeoutError(role, run, timeout_s or 0.0) from exc
     if proc.returncode != 0:
         raise RuntimeError(
             f"writer_scaling reader cell ({role}, {run}) failed "
@@ -3397,6 +3428,7 @@ def build_scan_cells_artifact(
     applied_pin: str,
     quick: bool,
     arm: str = "map",
+    extra_voids: list[str] | None = None,
 ) -> dict[str, Any]:
     """The committed shape: provenance, the cells, and the P32.3 / P33.3 prediction verdicts."""
     conforms = pins_equal(applied_pin, SCAN_CELLS_PIN)
@@ -3405,6 +3437,8 @@ def build_scan_cells_artifact(
         void.append(f"applied pin {applied_pin!r} is not {SCAN_CELLS_PIN} (METHODOLOGY.md §32.6/§33.6)")
     if quick:
         void.append("--quick population: a smoke run of the instrument, not the §32.5/§33.5 cells")
+    if extra_voids:
+        void.extend(extra_voids)
     if arm == "str":
         return {
             "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
@@ -3442,6 +3476,48 @@ def build_scan_cells_artifact(
             "soundness_gates": "not evaluated by this driver: a cell read before every §32.2 gate passed on "
                                "the measured head is void (§32.6)",
             "p32_3": p323_report(throughput_rows, rounds),
+        },
+    }
+
+
+def build_void_scan_cells_artifact(
+    prov: dict[str, Any],
+    rounds: int,
+    applied_pin: str,
+    quick: bool,
+    arm: str,
+    void_reasons: list[str],
+) -> dict[str, Any]:
+    """The committed shape when a run is aborted early by a void condition (AGENTS.md §8.1)."""
+    conforms = pins_equal(applied_pin, SCAN_CELLS_PIN)
+    void = list(void_reasons)
+    if not conforms:
+        void.append(f"applied pin {applied_pin!r} is not {SCAN_CELLS_PIN} (METHODOLOGY.md §32.6/§33.6)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §32.5/§33.5 cells")
+    verdict_key = "p33_3" if arm == "str" else "p32_3"
+    issue = 1143 if arm == "str" else 1142
+    prereg = (
+        "docs/benchmarks/concurrency/METHODOLOGY.md §33.4-§33.6"
+        if arm == "str"
+        else "docs/benchmarks/concurrency/METHODOLOGY.md §32.4-§32.6"
+    )
+    return {
+        "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
+        "throughput": [],
+        "scan_cells": {
+            "issue": issue,
+            "arm": arm,
+            "preregistration": prereg,
+            "pin": {"required": SCAN_CELLS_PIN, "applied": applied_pin, "conforms": conforms},
+            "rounds": rounds,
+            "quick": quick,
+            "void": void,
+            verdict_key: {
+                "verdict": "VOID",
+                "cells": [],
+                "reason": "; ".join(void_reasons),
+            },
         },
     }
 
@@ -3648,18 +3724,33 @@ def run_scan_cells(args: argparse.Namespace) -> int:
         start = begin_cell(prov, f"scan_cells_{arm}:throughput")
         t_rows = []
         for i, run in enumerate(schedule):
-            t_rows.append(run_reader_invocation(throughput_bin, "throughput", run, args.quick, arm=arm))
+            t_rows.append(run_reader_invocation(throughput_bin, "throughput", run, args.quick, arm=arm, timeout_s=SCAN_CELL_TIMEOUT_S))
             if (i + 1) % block_len == 0:
                 print(f"  [throughput] {i + 1}/{len(schedule)} cells")
         load = end_cell(start)
         c_rows = []
         for i, run in enumerate(schedule):
-            c_rows.append(run_reader_invocation(counters_bin, "counters", run, args.quick, arm=arm))
+            c_rows.append(run_reader_invocation(counters_bin, "counters", run, args.quick, arm=arm, timeout_s=SCAN_CELL_TIMEOUT_S))
             if (i + 1) % block_len == 0:
                 print(f"  [counters] {i + 1}/{len(schedule)} cells")
         check_row_pins(t_rows + c_rows, applied)
         cells = summarize_scan_cells(t_rows, c_rows, args.rounds, load, arm=arm)
         artifact = build_scan_cells_artifact(prov, cells, t_rows, args.rounds, applied, bool(args.quick), arm=arm)
+    except CellTimeoutError as exc:
+        void_reason = (
+            f"cell ({exc.role}, {exc.run.get('probe')}, W={exc.run.get('writers')}, "
+            f"R={exc.run.get('readers')}, op={exc.run.get('read_op')}, "
+            f"round={exc.run.get('round')}) breached per-cell wall-clock cap "
+            f"of {exc.cap_s:.1f}s (target); killed to fail fast (AGENTS.md §8.1)"
+        )
+        void_art = build_void_scan_cells_artifact(
+            prov, args.rounds, applied, bool(args.quick), arm, [void_reason]
+        )
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(void_art, indent=2) + "\n")
+        sys.stderr.write(f"::warning:: this run is void: {void_reason}\n")
+        sys.stderr.write(f"scan cells breached timeout cap: {void_reason}\n")
+        return 1
     except (RuntimeError, ValueError) as exc:
         sys.stderr.write(f"scan cells failed: {exc} (AGENTS.md §8.1)\n")
         return 1
@@ -6420,6 +6511,33 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
         )
         assert proc_refuse.returncode != 0, proc_refuse.returncode
         assert "SyncStrMapCursor not yet implemented (#1143 PR 2)" in proc_refuse.stderr, proc_refuse.stderr
+
+        # 7. Fail-fast wall-clock cap: a cell exceeding the cap raises CellTimeoutError and marks run VOID
+        fake_sleep_script = tmp / "fake_sleep_cell.py"
+        fake_sleep_script.write_text("import time\ntime.sleep(0.5)\n")
+        fake_cell_bin = tmp / "fake_cell.sh"
+        fake_cell_bin.write_text(f"#!/bin/sh\nexec {sys.executable} {fake_sleep_script} \"$@\"\n")
+        fake_cell_bin.chmod(0o755)
+        fake_run = {"round": 0, "position": 0, "read_op": "scan", "probe": "paths", "writers": 0, "readers": 1}
+        try:
+            run_reader_invocation(fake_cell_bin, "throughput", fake_run, quick=True, arm="str", timeout_s=0.05)
+            assert False, "expected CellTimeoutError on cell exceeding cap"
+        except CellTimeoutError as exc:
+            assert exc.cap_s == 0.05, exc.cap_s
+            assert "breached per-cell wall-clock cap" in str(exc), str(exc)
+
+        # Confirm void artifact is rejected by combiner
+        void_art = build_void_scan_cells_artifact(
+            prov_str, rounds, STR_SCAN_CELLS_PIN, quick=False, arm="str",
+            void_reasons=["cell breached per-cell wall-clock cap of 120.0s (target)"]
+        )
+        p_void = tmp / "void_scan_cells.json"
+        p_void.write_text(json.dumps(void_art))
+        try:
+            combine_scan_cells_verdict(p_void, p_pass1_str)
+            assert False, "expected combiner to reject void artifact"
+        except ValueError as exc:
+            assert "is void" in str(exc), str(exc)
 
     sys.stderr.write("Batch cursor scan instrument PASSED\n")
 
