@@ -15,6 +15,12 @@
 //! - `0x01 -> [0x01, 0x02]`
 //! - `b    -> [b]` for `b in 0x02..=0xFF`
 //!
+//! "Prefix-free" is a property of the byte code, as §3.7.2 defines it: no
+//! byte's encoding is a prefix of another's, so an encoded key decodes one
+//! way. It is not a property of whole keys. The encoding of `a` is a prefix
+//! of the encoding of `ab`, exactly as `a` is a prefix of `ab`, which is what
+//! keeps a key ordered before its extensions.
+//!
 //! # Mathematical and Structural Properties
 //!
 //! 1. **Order preservation**: For all byte sequences $A$ and $B$,

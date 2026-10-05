@@ -361,6 +361,10 @@ impl ExpanseSet32 {
     /// **Cost.** O(n) in the population: one ordered walk of the old tree,
     /// one bottom-up build of the new one, and the old tree's drop.
     ///
+    /// **Peak memory.** While it runs, the old tree, the new tree and a
+    /// buffer of the set's contents (4 bytes per key) are all live. The buffer
+    /// is outside [`Self::mem_held`], which counts the arena only.
+    ///
     /// A no-op on a set shared through a concurrent wrapper ([`crate::sync32`]),
     /// whose readers may hold the old nodes.
     pub fn compact(&mut self) {
