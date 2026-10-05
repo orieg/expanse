@@ -1371,8 +1371,8 @@ fn cas_mix_op(t_id: usize, i: usize, key: u64) -> Op {
         2 => Op::CompareExchange(key, Some(((t_id + 2 * i) % 3 + 1) as u64), Some(v)),
         3 => Op::CompareExchange(
             key,
-            (i % 3 != 0).then_some(v),
-            (i % 2 != 0).then_some(((i / 2) % 3 + 1) as u64),
+            (!i.is_multiple_of(3)).then_some(v),
+            (!i.is_multiple_of(2)).then_some(((i / 2) % 3 + 1) as u64),
         ),
         _ => Op::Get(key),
     }
