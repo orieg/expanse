@@ -246,6 +246,35 @@ def paranoid_level() -> str:
         return "unreadable"
 
 
+def read_thp_sysfs() -> dict[str, str]:
+    """Reads transparent hugepage enabled and defrag modes from sysfs."""
+    out = {}
+    for item in ("enabled", "defrag"):
+        p = Path(f"/sys/kernel/mm/transparent_hugepage/{item}")
+        try:
+            out[item] = p.read_text().strip()
+        except OSError:  # discipline:allow(error-swallowing): sysfs knob absent off-Linux or restricted
+            out[item] = "unreadable"
+    return out
+
+
+def read_thp_vmstat() -> dict[str, int]:
+    """Reads system-wide THP allocation metrics from /proc/vmstat."""
+    p = Path("/proc/vmstat")
+    if not p.exists():
+        return {}
+    try:
+        text = p.read_text()
+    except OSError:  # discipline:allow(error-swallowing): /proc/vmstat absent off-Linux or unreadable
+        return {}
+    out = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] in ("thp_fault_alloc", "thp_fault_fallback", "thp_collapse_alloc"):
+            out[parts[0]] = int(parts[1])
+    return out
+
+
 def classify_probe(rc: int, probed: dict[str, dict], err: str, paranoid: str) -> str | None:
     """`None` if the capability probe counted; otherwise the fatal message.
 
@@ -371,7 +400,7 @@ def pmu_cpus(pmu: str | None) -> str | None:
         return None
     try:
         return (SYS_PMU_ROOT / pmu / "cpus").read_text().strip() or None
-    except OSError:
+    except OSError:  # discipline:allow(error-swallowing): sysfs CPU list absent off-Linux or for non-existent PMU
         return None
 
 
@@ -663,13 +692,14 @@ def run_cell(
     pmu: str | None = None,
     pin: list[str] | None = None,
     hugetlb: bool = False,
-) -> dict:
+) -> tuple[dict[str, list[dict]], dict[str, int]]:
     """Both phases, `runs` times each, interleaved.
 
     Interleaved per methodology rule 1: build and probe alternate rather than
     running as two blocks, so thermal or frequency drift lands on both and
     cancels in the difference instead of being attributed to the probe loop.
     """
+    thp_pre = read_thp_vmstat()
     phases: dict[str, list[dict]] = {"build": [], "probe": []}
     for _ in range(runs):
         for phase in ("build", "probe"):
@@ -696,7 +726,9 @@ def run_cell(
                 if bad:
                     raise _pin_failed(pin, pmu, bad)
             phases[phase].append({"counters": parsed, "shape": out.strip()})
-    return phases
+    thp_post = read_thp_vmstat()
+    thp_delta = {k: thp_post.get(k, 0) - thp_pre.get(k, 0) for k in thp_post}
+    return phases, thp_delta
 
 
 def echoed_ops(shape: str, default: int) -> int:
@@ -878,6 +910,7 @@ def build_doc(
             "commit": args.commit or _git_commit(root),
             "run_id": args.run_id,
             "hugetlb": getattr(args, "hugetlb", False),
+            "thp": read_thp_sysfs(),
             "kernel_perf_event_paranoid": paranoid_level(),
             # What `scripts/check_bench_provenance.py` requires of a committed
             # comparative artifact (AGENTS.md section 8.17): the host, what
@@ -1134,7 +1167,7 @@ def main() -> int:
             for pop in pops:
                 for hit_pct in hit_pcts:
                     add_load(prov, f"before {cell_id(arm, pop, hit_pct)}")
-                    phases = run_cell(
+                    phases, thp_delta = run_cell(
                         workload,
                         available,
                         arm,
@@ -1168,6 +1201,7 @@ def main() -> int:
                             "passes": args.passes,
                             "reuse_factor": args.passes,
                             "workload_echo": phases["probe"][0]["shape"],
+                            "thp_delta": thp_delta,
                             "counters": counters,
                         }
                     )
@@ -1408,9 +1442,13 @@ def self_test() -> int:
 
     # --hugetlb flag handling and provenance
     assert _workload_env({}, hugetlb=True).get("GLIBC_TUNABLES") == "glibc.malloc.hugetlb=1"
+    thp_sysfs = read_thp_sysfs()
+    assert "enabled" in thp_sysfs and "defrag" in thp_sysfs
+    assert isinstance(read_thp_vmstat(), dict)
     ns_ht = argparse.Namespace(host_desc="x", commit="c", run_id="", hugetlb=True, pmu="auto", events=[])
     doc_ht = build_doc(ns_ht, Path("."), None, "", [], [], [], [])
     assert doc_ht["provenance"]["hugetlb"] is True, doc_ht["provenance"]
+    assert "thp" in doc_ht["provenance"] and "enabled" in doc_ht["provenance"]["thp"]
     ns_no_ht = argparse.Namespace(host_desc="x", commit="c", run_id="", hugetlb=False, pmu="auto", events=[])
     doc_no_ht = build_doc(ns_no_ht, Path("."), None, "", [], [], [], [])
     assert doc_no_ht["provenance"]["hugetlb"] is False, doc_no_ht["provenance"]

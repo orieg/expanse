@@ -222,40 +222,75 @@ build-order gap (41.4 vs 14.7 ns per entry; workload: patricia_scan) is driven b
 rather than instruction path disparity: `instructions` agreed to 0.06% (D1a PASS),
 while `dTLB-load-misses` showed 0.8203 vs 0.0097 misses per entry (85× difference)
 and `mem_load_retired.l3_miss` showed 0.2360 vs −0.0000 misses per entry (D1b PASS).
-In addition, Workstream C3 (#724/#725, PR #1340) established paging sensitivity
-tooling using `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` (2 MiB transparent huge-page
-arenas).
+In D1 stalls (`counters_prefix_scan_d1_stalls.json` at commit `c3e54ec2`), L3 miss stalls
+accounted for 52.50 cycles per entry of the 85.94 cycle gap (61.1%).
 
-D2 asks whether physical paging under 2 MiB huge pages eliminates the virtual address
-translation penalty (`dTLB-load-misses`), and what fraction of the 85.7 cycle/entry
-gap survives. Specifically: does huge-page backing resolve the generator-order
-penalty (an OS/allocator paging effect), or is the deficit dominated by intra-tree
-cache-line dispersal across the 45 MB tree (an architectural layout invariant
-requiring engine-level node/leaf co-allocation in v0.12)?
+### §3.4.1 Precedent from #782 (Masstree Comparison) & Why D2 is Distinct
+Workstream C3 (#724/#725, PR #782, commit `ee6b4290`) evaluated transparent huge pages
+for random string point lookup (`strmap_get` vs integer `map_get` at N = 10⁶):
+> *"Translation misses go to zero on both arms (`strmap_get` dTLB misses: 3.878 → 0.002, −99.9%)
+> and the gap does not close: string ÷ u64 cycles moved 3.44× → 3.29× (−4.3%).
+> They were real, removing them is worth about 11% of the string arm, and 96% of the
+> gap survives their complete elimination... the remaining target is the string
+> tree's descent and node layout, neither the leaf nor the allocator."*
+> (`docs/benchmarks/masstree_comparison/README.md:499-535`)
 
-*Instrument.* `scripts/perf_counters.py --hugetlb`, arms `strmap_prefix_scan` and
-`strmap_prefix_scan_sorted` of `examples/perf_point_lookup.rs` (the suite's path
-keys, its 64 prefixes, `cursor_prefix`), `--pops 1000000 --hit-pcts 100 --passes 200
---runs 10`, P-core PMU, default event set. Counts are `probe − build` per run
-divided by yielded entries (200 × 249,670), reported with BCa 95% bootstrap CIs
-(2,000 resamples).
+Diagnostic D2 is not a repetition of #782 for four structural reasons:
+1. **Workload Traversal Structure**: #782 evaluated single-key random point lookup (`strmap_get`),
+   where each probe traverses arbitrary tree depth across disparate nodes globally across the trie.
+   D2 evaluates sequential prefix range iteration (`strmap_prefix_scan`), where a single initial
+   seek descends to the prefix root and subsequent iterations walk horizontally across adjacent sibling
+   leaves and child branches within a localized subtree.
+2. **Comparison Arms**: #782 compared string keys (`strmap_get`) against u64 integer keys (`map_get`).
+   D2 evaluates generator draw order (`strmap_prefix_scan`) against sorted build order
+   (`strmap_prefix_scan_sorted`) within the identical string map structure holding the identical 1M path keys.
+3. **Spatial Locality Hypothesis**: In D1, generator-order build exhibited 0.8203 dTLB load misses per
+   yielded entry (vs 0.0097 sorted). A sequential prefix walk touching adjacent entries might have
+   suffered from virtual page dispersal across 4 KiB boundaries that 2 MiB contiguous physical pages
+   resolve; alternatively, dispersal across disparate 64-byte cache lines might persist. #782 did not
+   and could not answer whether prefix-scan range traversal's build-order gap survives 2 MiB page backing.
+4. **Treatment Verification Precondition**: #782 established the mandatory verification requirement:
+   verifying that `AnonHugePages` / `thp_fault_alloc` actually increased before interpreting the result.
+   D2 adopts this exact protocol as a required precondition.
 
-*Predictions*, evaluated under `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`:
+### §3.4.2 Instrument Preconditions & Protocol
+- **Instrument Precondition**: `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` only invokes `madvise(MADV_HUGEPAGE)`.
+  Whether 2 MiB pages actually back the tree depends on host THP mode (`/sys/kernel/mm/transparent_hugepage/enabled`)
+  and fragmentation. The run must record `/sys/kernel/mm/transparent_hugepage/{enabled,defrag}` and non-zero
+  `AnonHugePages` (from `smaps_rollup`) or positive `thp_fault_alloc` deltas (from `/proc/vmstat`).
+  Any 2m arm without verified huge-page allocation is **VOID**, not a measurement.
+- **Pin**: `taskset -c 0-15` (Intel Core i9-12900F performance cores, `cpu_core` logical siblings 0–15).
+- **Two-Run Protocol**: Two independent sequential runs on the quiet reference host (`loadavg <= 1.0`,
+  `foreign_busy_cpus == 0`), evaluated over BCa 95% bootstrap confidence intervals (2,000 resamples).
+- **Harness**: `scripts/perf_counters.py --hugetlb`, arms `strmap_prefix_scan` and `strmap_prefix_scan_sorted`
+  of `crates/expanse/examples/perf_point_lookup.rs` (the suite's path keys, 64 prefixes, `cursor_prefix`),
+  `--pops 1000000 --hit-pcts 100 --passes 200 --runs 10`. Counts are `probe − build` per run divided by
+  yielded entries (200 × 249,670 = 49,934,000 ops).
+- **Maintainer Dispatch**:
+  `/benchmark patricia_comparison`
+  or
+  `gh workflow run bench_baremetal.yml --ref bench/1096-strmap-placement-investigation -f suite=patricia_comparison`
 
-| # | Counter per entry | Prediction | Falsified if |
-|---|---|---|---|
-| D2a | `dTLB-load-misses` (generator) | drops to ≤ 0.05 per entry (≥ 90% reduction from baseline 0.8203) | point estimate > 0.05: 2 MiB paging failed to eliminate address translation |
-| D2b | `mem_load_retired.l3_miss` | generator interval disjointly above sorted (BCa lower bound ≥ 0.15) | generator BCa lower bound < 0.15 or overlaps sorted: huge pages eliminated LLC line misses |
-| D2c | `cycles` gap | (cycles_gen − cycles_sorted)_hugetlb ≥ 0.60 × (Δ cycles)_baseline | surviving cycle gap < 60% of baseline (51.4 cycles): paging alone resolved the gap |
+### §3.4.3 Pre-Registered Thresholds (Derived in `scripts/patricia_d2_bounds.py`)
+All thresholds are derived mathematically in committed Python (`scripts/patricia_d2_bounds.py`) from D1 baseline
+artifacts (`counters_prefix_scan_d1.json` and `counters_prefix_scan_d1_stalls.json` at commit `c3e54ec2`),
+with pinned unit tests (Rule 12 / §1.3). Every clause is evaluated strictly on BCa 95% bootstrap confidence interval bounds (Rule 1 / §1.1):
 
-*Decision criteria.*
-If D2a and D2b PASS, translation misses are confirmed as an orthogonal overlay:
-2 MiB pages eliminate dTLB misses, but cache-line dispersal across 45 MB of heap
-persists and drives the majority of the cycle stall. This formally proves that
-an OS/allocator paging remedy is insufficient, justifying an engine-level node
-placement remedy in v0.12 (co-allocating child nodes with leaves, or packed suffixes).
-If D2c is falsified, huge-page backing closes the bulk of the gap without engine
-changes.
+| # | Clause | Metric | Evaluated On | Condition | Derivation Source | Falsified if |
+|---|---|---|---|---|---|---|
+| D2a | dTLB Elimination | `dTLB-load-misses` | generator_2m | $\text{BCa}_{\text{upper}} \le 0.0410$ | ≥ 95% reduction from D1 baseline 0.8203 | $\text{BCa}_{\text{upper}} > 0.0410$: 2 MiB paging failed to eliminate address translation |
+| D2b | L3 Miss Invariance | `mem_load_retired.l3_miss` delta | generator_2m − sorted_2m | $\text{BCa}_{\text{lower}} \ge 0.1416$ | ≥ 60% retention of D1 delta 0.2360 | $\text{BCa}_{\text{lower}} < 0.1416$: huge pages eliminated LLC cache-line misses |
+| D2c | Surviving Cycle Gap | `cycles` delta | generator_2m − sorted_2m | $\text{BCa}_{\text{lower}} \ge 52.50$ | Pins D1 L3 stalls delta 52.50 cycles (61.1% of cycle gap, target) | $\text{BCa}_{\text{lower}} < 52.50$: paging alone resolved the majority of the cycle gap |
+
+### §3.4.4 Decision Criteria & Scope Boundary
+- **If D2 PASS (D2a + D2b + D2c)**: Translation misses are confirmed as an orthogonal overlay. 2 MiB pages
+  successfully eliminate dTLB misses, but spatial cache-line dispersal across 45 MB of memory persists and
+  accounts for $\ge 52.50$ cycles of the gap. This demonstrates that an OS/allocator paging configuration
+  cannot resolve the performance gap. Co-allocation of child nodes with leaves remains a candidate
+  architectural remedy for v0.12 (alongside software prefetching or packed suffixes), which will require its
+  own pre-registered gate and ablated evaluation prior to any implementation in v0.12.
+- **If D2c is falsified**: 2 MiB huge-page backing eliminates the bulk of the cycle gap, indicating that
+  engine-level layout changes are not warranted for this workload.
 
 **No directional prediction:**
 - Any `fast_radix_trie` or `qp-trie` timing. The envelope gives them 3–8

@@ -497,6 +497,7 @@ def host_facts(pin: str | None = None) -> dict:
         "scaling_governor_pin_set": cpus,
         "scaling_governor_pin_source": source,
         "transparent_hugepage": _read("/sys/kernel/mm/transparent_hugepage/enabled"),
+        "transparent_hugepage_defrag": _read("/sys/kernel/mm/transparent_hugepage/defrag"),
         "platform": platform.platform(),
     }
 
