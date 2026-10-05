@@ -1357,6 +1357,44 @@ fn test_sync_strmap_linearizability() {
     }
 }
 
+/// One operation of the compare-exchange mixes below.
+///
+/// Values come from `1..=3`, so an exchange's `expected` is a value some
+/// thread does store: with a value unique to each operation no exchange
+/// could ever succeed, and the history would hold failures only. Both
+/// `Some -> Some` and the remove and insert-if-absent forms appear.
+fn cas_mix_op(t_id: usize, i: usize, key: u64) -> Op {
+    let v = ((t_id + i) % 3 + 1) as u64;
+    match (t_id * 3 + i) % 5 {
+        0 => Op::Insert(key, v),
+        1 => Op::Remove(key),
+        2 => Op::CompareExchange(key, Some(((t_id + 2 * i) % 3 + 1) as u64), Some(v)),
+        3 => Op::CompareExchange(
+            key,
+            (!i.is_multiple_of(3)).then_some(v),
+            (!i.is_multiple_of(2)).then_some(((i / 2) % 3 + 1) as u64),
+        ),
+        _ => Op::Get(key),
+    }
+}
+
+/// A compare-exchange mix that recorded no success, or no failure, checked
+/// one side of the operation only.
+fn assert_cas_mix_exercised(history: &[Event]) {
+    let (mut ok, mut err) = (0, 0);
+    for e in history {
+        match e.ret {
+            Ret::CompareExchange(Ok(_)) => ok += 1,
+            Ret::CompareExchange(Err(_)) => err += 1,
+            _ => {}
+        }
+    }
+    assert!(
+        ok > 0 && err > 0,
+        "compare-exchange outcomes: {ok} ok, {err} err"
+    );
+}
+
 /// Linearizability verification of `SyncExpanseStrMap::compare_exchange`
 /// across concurrent writers and readers mixing inserts, removes, gets, and CAS.
 #[test]
@@ -1384,20 +1422,7 @@ fn test_sync_strmap_compare_exchange_linearizability() {
             for i in 0..ops_per_thread {
                 let key = ((t_id * 7 + i * 5) % 6) as u64;
 
-                let op = match (t_id + i) % 4 {
-                    0 => Op::Insert(key, (t_id * 1000 + i) as u64),
-                    1 => Op::Remove(key),
-                    2 => {
-                        let expected = if (t_id + i) % 2 == 0 {
-                            Some((t_id * 1000 + i.saturating_sub(1)) as u64)
-                        } else {
-                            None
-                        };
-                        let new = Some((t_id * 1000 + i) as u64);
-                        Op::CompareExchange(key, expected, new)
-                    }
-                    _ => Op::Get(key),
-                };
+                let op = cas_mix_op(t_id, i, key);
 
                 let start = Instant::now();
                 let ret = match &op {
@@ -1429,6 +1454,7 @@ fn test_sync_strmap_compare_exchange_linearizability() {
     }
 
     let history = history.lock().unwrap().clone();
+    assert_cas_mix_exercised(&history);
 
     let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
     for e in history {
@@ -1465,6 +1491,11 @@ fn bytes_key(idx: u64) -> &'static [u8] {
 )]
 fn test_sync_bytesmap_compare_exchange_linearizability() {
     let map = Arc::new(SyncExpanseBytesMap::new());
+    // More hashes than a root leaf holds, so the mix runs on the optimistic
+    // tree paths and not on the serialised root-leaf one.
+    for i in 0..64u64 {
+        map.insert(format!("filler/{i}").as_bytes(), i);
+    }
     let history = Arc::new(Mutex::new(Vec::new()));
 
     let num_threads = 4;
@@ -1483,20 +1514,7 @@ fn test_sync_bytesmap_compare_exchange_linearizability() {
             for i in 0..ops_per_thread {
                 let key = ((t_id * 7 + i * 5) % 6) as u64;
 
-                let op = match (t_id + i) % 4 {
-                    0 => Op::Insert(key, (t_id * 1000 + i) as u64),
-                    1 => Op::Remove(key),
-                    2 => {
-                        let expected = if (t_id + i) % 2 == 0 {
-                            Some((t_id * 1000 + i.saturating_sub(1)) as u64)
-                        } else {
-                            None
-                        };
-                        let new = Some((t_id * 1000 + i) as u64);
-                        Op::CompareExchange(key, expected, new)
-                    }
-                    _ => Op::Get(key),
-                };
+                let op = cas_mix_op(t_id, i, key);
 
                 let start = Instant::now();
                 let ret = match &op {
@@ -1528,6 +1546,7 @@ fn test_sync_bytesmap_compare_exchange_linearizability() {
     }
 
     let history = history.lock().unwrap().clone();
+    assert_cas_mix_exercised(&history);
 
     let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
     for e in history {
