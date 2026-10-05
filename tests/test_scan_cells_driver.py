@@ -26,11 +26,14 @@ from writer_scaling import (  # noqa: E402
     SCAN_CELLS_PIN,
     SCAN_CELLS_PROBES,
     SCAN_CELLS_WORKLOAD_ID,
+    SCAN_CELL_TIMEOUT_S,
     STR_SCAN_BLOCK,
     STR_SCAN_CELLS_PIN,
     STR_SCAN_CELLS_PROBES,
     STR_SCAN_CELLS_WORKLOAD_ID,
+    CellTimeoutError,
     build_scan_cells_artifact,
+    build_void_scan_cells_artifact,
     check_reader_counters_row,
     combine_scan_cells_verdict,
     get_binaries,
@@ -39,6 +42,7 @@ from writer_scaling import (  # noqa: E402
     p333_paired_ratio,
     p333_report,
     resolve_scan_cells_pin,
+    run_reader_invocation,
     scan_cells_schedule,
     summarize_scan_cells,
 )
@@ -884,6 +888,86 @@ class StrScanCellsRefusalTests(unittest.TestCase):
         proc = subprocess.run(cmd, capture_output=True, text=True)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("SyncStrMapCursor not yet implemented (#1143 PR 2)", proc.stderr)
+
+
+class ScanCellsTimeoutCapTests(unittest.TestCase):
+    def test_timeout_cap_constant_defined(self):
+        """Pin the target per-cell wall-clock cap constant."""
+        self.assertEqual(SCAN_CELL_TIMEOUT_S, 120.0)
+
+    def test_fake_cell_breaching_cap_is_killed_and_fails_fast(self):
+        """Negative control (d): A cell stalling past the per-cell wall-clock cap
+        is killed, raises CellTimeoutError, and fails fast (AGENTS.md §8.1).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            fake_sleep = tmp / "fake_sleep.py"
+            fake_sleep.write_text("import time\ntime.sleep(0.5)\n")
+            fake_bin = tmp / "fake_cell.sh"
+            fake_bin.write_text(f"#!/bin/sh\nexec {sys.executable} {fake_sleep} \"$@\"\n")
+            fake_bin.chmod(0o755)
+            fake_run = {
+                "round": 0,
+                "position": 0,
+                "read_op": "scan",
+                "probe": "paths",
+                "writers": 0,
+                "readers": 1,
+            }
+            with self.assertRaises(CellTimeoutError) as ctx:
+                run_reader_invocation(
+                    fake_bin,
+                    "throughput",
+                    fake_run,
+                    quick=True,
+                    arm="str",
+                    timeout_s=0.05,
+                )
+            self.assertEqual(ctx.exception.cap_s, 0.05)
+            self.assertIn("breached per-cell wall-clock cap", str(ctx.exception))
+            self.assertIn("(target)", str(ctx.exception))
+
+    def test_void_artifact_rejected_by_combiner(self):
+        """A timeout-voided artifact is rejected by combine_scan_cells_verdict."""
+        rounds = 8
+        prov = new_provenance(
+            suite="concurrency",
+            issue=1143,
+            ratio="Batch cursor scan over scan_locked",
+            repo_root=REPO_ROOT,
+            core_pin=STR_SCAN_CELLS_PIN,
+            estimators=estimators("test"),
+        )
+        void_reason = "cell breached per-cell wall-clock cap of 120.0s (target)"
+        void_art = build_void_scan_cells_artifact(
+            prov, rounds, STR_SCAN_CELLS_PIN, quick=False, arm="str", void_reasons=[void_reason]
+        )
+        self.assertIn(void_reason, void_art["scan_cells"]["void"])
+        self.assertEqual(void_art["scan_cells"]["p33_3"]["verdict"], "VOID")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            f_void, f_pass = tmp / "void.json", tmp / "pass.json"
+            f_void.write_text(json.dumps(void_art))
+
+            sched = scan_cells_schedule(rounds, arm="str")
+            load = {
+                "since": "test",
+                "wall_s": 1.0,
+                "busy_cpus_since_prev": 1.0,
+                "own_busy_cpus": 1.0,
+                "foreign_busy_cpus": 0.0,
+            }
+            t_pass, c_pass = make_synthetic_str_rows(sched)
+            cells_pass = summarize_scan_cells(t_pass, c_pass, rounds, load, arm="str")
+            art_pass = build_scan_cells_artifact(
+                prov, cells_pass, t_pass, rounds, STR_SCAN_CELLS_PIN, quick=False, arm="str"
+            )
+            f_pass.write_text(json.dumps(art_pass))
+
+            with self.assertRaises(ValueError) as ctx:
+                combine_scan_cells_verdict(f_void, f_pass)
+            self.assertIn("is void", str(ctx.exception))
 
 
 if __name__ == "__main__":
