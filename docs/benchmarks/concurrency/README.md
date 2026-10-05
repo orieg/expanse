@@ -5756,6 +5756,44 @@ separated.
     scope.
 - **Writers' wait is unchanged.** P3's ratios are 0.996–1.028.
 
+## 31. The cost of a concurrent count under a writer — METHODOLOGY §23 evaluation (Refs #1144)
+
+METHODOLOGY §23 registered two non-void runs of 10 cells across 8 rounds on the reference host (12th Gen Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, governor `powersave` on every pinned CPU, transparent huge pages `madvise`; pinned `0,2,4,6,8,10,12,14`, one thread per physical P-core).
+
+Run 1 was dispatched at `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813` (bare-metal run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924)). Host guard recorded `verdict: "quiet"` (foreign busy CPUs on pinned cores $\le 0.148$, load average `0.00`, `0.01`, `0.00`).
+
+**The §23 gate is UNMET / INCOMPLETE.** Run 1 was cancelled by GitHub Actions' job execution timeout (`timeout-minutes: 180` in `.github/workflows/bench_baremetal.yml:510`) at 3h 1m 22s during Round 3. Run 2 was not dispatched because the 8-round suite cannot complete within the 180-minute workflow execution window.
+
+### 31.1 Sizing and execution timeline
+
+The captured execution timeline (`suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`, 5,365 2-second windows) reveals the exact per-cell scaling on the reference host *(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, powersave, THP madvise; commit `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813`; run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924); artifact `suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`)*:
+
+- **`uniform` key distribution:**
+  - W = 0, R = 1 control: completed in < 1 s.
+  - W = 1, R = 0 and W = 4, R = 0 (writers-only controls): completed in < 1 s.
+  - W = 1, R = 1 and W = 4, R = 1 (writers beside counting reader): completed in ~5 s each.
+- **`one_top_byte` key distribution:**
+  - W = 0, R = 1 (control): completed in < 1 s.
+  - W = 1, R = 0 and W = 4, R = 0 (writers-only controls): completed in < 1 s.
+  - W = 4, R = 1 (4 writers beside 1 counting reader): Round 0 ran for 1,066 s (17.7 min), Round 1 for 1,052 s (17.5 min), Round 2 for 726 s (12.1 min) — mean duration 948 s (15.8 min).
+  - W = 1, R = 1 (1 writer beside 1 counting reader): Round 0 ran for 1,969 s (32.8 min), Round 1 for 1,660 s (27.6 min), Round 2 for 1,891 s (31.5 min) — mean duration 1,840 s (30.7 min).
+  - Combined `one_top_byte` counting reader cells take ~2,788 s (~46.5 min) per round.
+
+**Projected total execution time:**
+- Throughput pass (8 rounds): 8 × 46.5 min = 372 min (6.2 hours).
+- Counters pass (`--features occ-stats`, 8 rounds): 8 × 46.5 min = 372 min (6.2 hours).
+- Total runtime for a single §23 run: ~744 min (12.4 hours) — exceeding the 180-minute workflow limit by 4.1×.
+
+### 31.2 Root cause mechanism
+
+The observed 15–33 minute cell durations under `one_top_byte` reflect the exact architectural mechanism #1144 was opened to characterize:
+1. Under `one_top_byte`, all 1,048,576 fresh keys share top byte `0xA5`. Every write marks the one top digit dirty in `DirtyDigits` (`crates/expanse/src/sync.rs`).
+2. An unthrottled concurrent counting reader loops executing `m.with_locked(|t| t.count_below(k))`.
+3. `with_locked` executes `quiesce_writers()` (closing the writer gate and draining active writer slots) and acquires `write.lock()`.
+4. Because the top digit is dirty, `with_locked` calls `fold_branch_pop0_selective`, recursively traversing and refolding the entire 1M-key subtree under `0xA5`.
+5. Writers spinning in `enter_writer_blocking` or falling back to `write_root_covered` are continuously starved and quiesced. Writer insertion throughput collapses from ~20 Mops/s (R = 0) to ~500 ops/s (R = 1) — a ~40,000× slowdown.
+6. The pre-registered §23 protocol locked 8 rounds of 1M keys before bare-metal sizing was available (§23.5 noted only a 4,096-key `--quick` smoke and 50k laptop test). Completing §23 on bare metal requires either an amended round/population schedule or an extended job timeout.
+
 ## 32. Validated batch cursor on concurrent map readers — METHODOLOGY §32's evaluation (Refs #1142)
 
 METHODOLOGY §32 registered the validated batch cursor on `SyncExpanseMap` readers
