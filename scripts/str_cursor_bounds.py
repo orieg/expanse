@@ -46,9 +46,12 @@ Concrete trie structure & descent model (`crates/expanse/src/strmap.rs`):
        (N = 1), validate under cover, and resume from root by key on the next batch. Normal keys <= 4 KiB
        pay zero allocations.
   5. Callgrind prediction derivation:
-     Single-threaded `sync_strmap_scan_locked` baseline takes ~38-42 ins/key. The batch cursor pays
-     amortized epoch pinning, version validation (~90 ins/batch over ~64 entries = ~1.4 ins/key),
+     Measured `sync_strmap_scan_locked` baseline in CI (run 37249211829, commit dce444783437):
+       - `paths`: 9,199,722 ins / 50k = 183.99444 ins/key (measured: CI 37249211829, dce444783437).
+       - `paths_dense`: 13,661,632 ins / 50k = 273.23264 ins/key (measured: CI 37249211829, dce444783437).
+     The batch cursor pays amortized epoch pinning, version validation (~90 ins/batch over ~64 entries = ~1.4 ins/key),
      and cursor buffer copy/iteration overhead (~3.0 ins/key), resulting in ~4.4 ins/key overhead.
+     Predicted ratios: ~1.024 on `paths`, ~1.016 on `paths_dense`.
      Target ratio ceiling: <= 1.15 (target) on both `paths` and `paths_dense`.
 
 Sources:
@@ -90,6 +93,28 @@ BATCH_CAP: int = 256  # crates/expanse/src/sync_cursor.rs:51
 KEY_BUFFER_BUDGET_BYTES: int = 4096  # 4 KiB key byte arena
 ENTRY_DESCRIPTOR_BYTES: int = 16  # 8 bytes value + 4 bytes offset + 4 bytes length
 TOTAL_CURSOR_BUFFER_BYTES: int = KEY_BUFFER_BUDGET_BYTES + BATCH_CAP * ENTRY_DESCRIPTOR_BYTES  # 8 KiB
+
+# Measured baseline instruction counts from Callgrind runner:
+# CI Run ID: 37249211829, commit dce4447834374b562fc8923e19d60a091a5d923b (PR #1373)
+# N = 50,000 ops (keys)
+STRMAP_BASELINE_MEASURED: dict[str, dict[str, float | int | str]] = {
+    "paths": {
+        "total_instructions": 9_199_722,
+        "ops": 50_000,
+        "instructions_per_key": 9_199_722 / 50_000,  # 183.99444
+        "est_cycles": 14_320_176,
+        "run_id": 37249211829,
+        "commit": "dce4447834374b562fc8923e19d60a091a5d923b",
+    },
+    "paths_dense": {
+        "total_instructions": 13_661_632,
+        "ops": 50_000,
+        "instructions_per_key": 13_661_632 / 50_000,  # 273.23264
+        "est_cycles": 20_429_261,
+        "run_id": 37249211829,
+        "commit": "dce4447834374b562fc8923e19d60a091a5d923b",
+    },
+}
 
 # Pre-registered Callgrind target ceilings (target) for P33.1 relative to sync_strmap_scan_locked
 TARGET_CALLGRIND_RATIOS: dict[str, float] = {
@@ -250,11 +275,11 @@ def str_oversized_key_policy() -> dict[str, int | str]:
 
 
 def strmap_baseline_instructions_per_key(workload: str) -> float:
-    """Estimated baseline instruction count per key for single-threaded in-place walk.
+    """Measured baseline instruction count per key for single-threaded in-place walk.
 
-    Matches `strmap_cursor_scan` inside `sync_strmap_scan_locked`:
-      - `paths`: ~42.0 instructions/key.
-      - `paths_dense`: ~38.0 instructions/key.
+    Matches `sync_strmap_scan_locked` (50,000 keys) measured in CI Callgrind run:
+      - `paths`: 9,199,722 total ins / 50,000 = 183.99444 ins/key (measured: CI 37249211829, dce444783437).
+      - `paths_dense`: 13,661,632 total ins / 50,000 = 273.23264 ins/key (measured: CI 37249211829, dce444783437).
 
     Args:
         workload: 'paths' or 'paths_dense'.
@@ -265,10 +290,8 @@ def strmap_baseline_instructions_per_key(workload: str) -> float:
     Raises:
         ValueError: If unknown workload.
     """
-    if workload == "paths":
-        return 42.0
-    if workload == "paths_dense":
-        return 38.0
+    if workload in STRMAP_BASELINE_MEASURED:
+        return float(STRMAP_BASELINE_MEASURED[workload]["instructions_per_key"])
     raise ValueError(f"Unknown workload: {workload}")
 
 
@@ -392,17 +415,43 @@ class TestStrCursorBounds(unittest.TestCase):
         self.assertIn("dedicated spill buffer", str(p["oversized_key_rule"]))
         self.assertIn("Zero heap allocations", str(p["heap_allocation_guarantee"]))
 
+    def test_strmap_baseline_measured_pinned(self) -> None:
+        """Pin measured Callgrind baseline instruction counts from CI.
+
+        Cites CI run ID 37249211829 on commit dce4447834374b562fc8923e19d60a091a5d923b (PR #1373):
+          - paths: 9,199,722 instructions over 50,000 keys = 183.99444 ins/key.
+          - paths_dense: 13,661,632 instructions over 50,000 keys = 273.23264 ins/key.
+        """
+        paths_meta = STRMAP_BASELINE_MEASURED["paths"]
+        self.assertEqual(paths_meta["total_instructions"], 9_199_722)
+        self.assertEqual(paths_meta["ops"], 50_000)
+        self.assertEqual(paths_meta["run_id"], 37249211829)
+        self.assertEqual(paths_meta["commit"], "dce4447834374b562fc8923e19d60a091a5d923b")
+        self.assertAlmostEqual(strmap_baseline_instructions_per_key("paths"), 183.99444, places=4)
+
+        dense_meta = STRMAP_BASELINE_MEASURED["paths_dense"]
+        self.assertEqual(dense_meta["total_instructions"], 13_661_632)
+        self.assertEqual(dense_meta["ops"], 50_000)
+        self.assertEqual(dense_meta["run_id"], 37249211829)
+        self.assertEqual(dense_meta["commit"], "dce4447834374b562fc8923e19d60a091a5d923b")
+        self.assertAlmostEqual(strmap_baseline_instructions_per_key("paths_dense"), 273.23264, places=4)
+
     def test_callgrind_predicted_ratios(self) -> None:
         """Confirm derived Callgrind ratios sit strictly below the 1.15 ceiling."""
         ratio_paths = strmap_predicted_callgrind_ratio("paths", avg_batch_size=64)
         ratio_dense = strmap_predicted_callgrind_ratio("paths_dense", avg_batch_size=64)
 
+        # Overhead: 90 / 64 + 3.0 = 4.40625 ins/key
+        # paths: (183.99444 + 4.40625) / 183.99444 ~= 1.0240
         self.assertGreater(ratio_paths, 1.0)
         self.assertLess(ratio_paths, TARGET_CALLGRIND_RATIOS["paths"])
+        self.assertAlmostEqual(ratio_paths, (183.99444 + 4.40625) / 183.99444, places=3)
         self.assertEqual(TARGET_CALLGRIND_RATIOS["paths"], 1.15)
 
+        # paths_dense: (273.23264 + 4.40625) / 273.23264 ~= 1.0161
         self.assertGreater(ratio_dense, 1.0)
         self.assertLess(ratio_dense, TARGET_CALLGRIND_RATIOS["paths_dense"])
+        self.assertAlmostEqual(ratio_dense, (273.23264 + 4.40625) / 273.23264, places=3)
         self.assertEqual(TARGET_CALLGRIND_RATIOS["paths_dense"], 1.15)
 
         with self.assertRaises(ValueError):
@@ -447,7 +496,11 @@ def report() -> None:
         base = strmap_baseline_instructions_per_key(wl)
         ovh = strmap_batch_amortized_overhead_per_key(wl, 64)
         pred = strmap_predicted_callgrind_ratio(wl, 64)
-        print(f"   {wl:<12}: baseline ~{base:.1f} ins/key + ~{ovh:.1f} ins/key ovh -> pred {pred:.3f} <= ceiling {ceiling:.2f} (target)")
+        meta = STRMAP_BASELINE_MEASURED[wl]
+        print(
+            f"   {wl:<12}: measured {base:.1f} ins/key (CI run {meta['run_id']}, {meta['commit'][:12]}) "
+            f"+ ~{ovh:.1f} ins/key ovh -> pred {pred:.3f} <= ceiling {ceiling:.2f} (target)"
+        )
     print("=" * 76)
 
 

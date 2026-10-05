@@ -4785,9 +4785,9 @@ No performance claim is evaluated until every gate below passes:
   - **REFUTED** on any single-threaded plain string arm regressing by > 0.1%.
 - **P33.2 — Callgrind instruction ratio against `sync_strmap_scan_locked`:**
   - Evaluated on CI `instruction-counts` job when `sync_strmap_scan` lands in Stage 2.
-  - Pre-registered target ceilings derived in `scripts/str_cursor_bounds.py::TARGET_CALLGRIND_RATIOS` from baseline in-place walk (~38-42 ins/key) + amortized sync/buffering overhead (~4.4 ins/key):
-    - `sync_strmap_scan/paths`: instruction count ratio $\le 1.15$ vs `sync_strmap_scan_locked/paths` (target).
-    - `sync_strmap_scan/paths_dense`: instruction count ratio $\le 1.15$ vs `sync_strmap_scan_locked/paths_dense` (target).
+  - Pre-registered target ceilings derived in `scripts/str_cursor_bounds.py::TARGET_CALLGRIND_RATIOS` from measured baseline `sync_strmap_scan_locked` (184.0 ins/key on `paths`, 273.2 ins/key on `paths_dense`, CI run 37249211829, commit dce4447834374b562fc8923e19d60a091a5d923b) + amortized sync/buffering overhead (~4.4 ins/key):
+    - `sync_strmap_scan/paths`: instruction count ratio $\le 1.15$ vs `sync_strmap_scan_locked/paths` (target; predicted ~1.024).
+    - `sync_strmap_scan/paths_dense`: instruction count ratio $\le 1.15$ vs `sync_strmap_scan_locked/paths_dense` (target; predicted ~1.016).
   - **REFUTED** if any ratio exceeds its pre-registered target ceiling 1.15.
 - **P33.3 — Concurrent wall-clock throughput scaling:**
   - Evaluated on the reference host via `writer_scaling --read-op scan` on string maps.
@@ -4806,7 +4806,7 @@ No performance claim is evaluated until every gate below passes:
 ### 33.5 Instruments and cells specification
 
 - **Arms:**
-  - `sync_strmap_scan_locked`: `paths` and `paths_dense` (50,000 ops), measuring the `with_locked` single-threaded cursor walk baseline. Registered in Stage 1.
+  - `sync_strmap_scan_locked`: `paths` and `paths_dense` (50,000 ops), measuring the `with_locked` single-threaded cursor walk baseline. Registered and measured in Stage 1 (9,199,722 ins / 184.0 ins/key on `paths`; 13,661,632 ins / 273.2 ins/key on `paths_dense`; CI run 37249211829, commit dce444783437).
   - `sync_strmap_scan`: `paths` and `paths_dense` (50,000 ops), measuring the concurrent validated batch cursor walk. Added in Stage 2 together with engine implementation.
 - **Harness:** `crates/expanse/examples/writer_scaling.rs` extended to support `--arm str --read-op scan` with $W \ge 1$.
 - **Probes:** `paths` and `paths_dense` key generators (`path_keys`).
