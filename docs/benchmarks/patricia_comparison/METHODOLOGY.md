@@ -400,3 +400,13 @@ On the host directly:
 docs/benchmarks/patricia_comparison/run.sh           # full run
 docs/benchmarks/patricia_comparison/run.sh --quick   # smoke, writes results/quick/ (gitignored)
 ```
+
+---
+
+## Errata to Amendment A4 (appended 2026-10-05; the amendment above is not edited)
+
+| Where | As written | Correction |
+|---|---|---|
+| §3.4.2, maintainer dispatch | `gh workflow run bench_baremetal.yml --ref main -f suite=patricia_d2_paging` | The workflow input is `benchmark_suite`: `gh workflow run bench_baremetal.yml --ref main -f benchmark_suite=patricia_d2_paging`. |
+| §3.4.3 | "(Rule 12 / §1.3)" and "(Rule 1 / §1.1)" | `AGENTS.md` §8.8 commit 1 (bounds as committed, unit-tested code) and `AGENTS.md` §8.4 (a claim passes on its BCa bound, not its point). |
+| §3.4.3, clause D2c | bound 52.50 "Derived in `scripts/patricia_d2_bounds.py`" | The registered value is unchanged. In the script it was computed in `main()`, outside any tested function; `registered_bounds()` now returns all three bounds and is pinned by a test. The same script's `evaluate_d2()` is the evaluator for a run artifact. |

@@ -2,7 +2,7 @@
 """scripts/set_domain_bounds.py — Mathematical bounds and memory derivations
 for the interned set domain (Issue #611).
 
-Enforces Rule 12 / GEMINI.md §1.3 (Math-first validation in committed Python
+Enforces AGENTS.md §8.8 commit 1 (Math-first validation in committed Python
 with reference-pinned unit tests) and AGENTS.md §8.8 (Commit 1 Step 0).
 """
 

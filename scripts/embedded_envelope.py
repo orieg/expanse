@@ -4,7 +4,7 @@ scripts/embedded_envelope.py
 
 Derives the exact memory footprint envelopes for Expanse 32-bit digital trie
 vs competitive baselines on 32-bit microcontrollers (ESP32-C3 / ESP32-C6).
-Per Rule 12 / GEMINI.md §1.3 (math-first derivation in Python with tests).
+Per AGENTS.md §8.8 commit 1 (math-first derivation in Python with tests).
 
 Base density constants sourced from `bytes_per_key_32.rs` (measured, commit f48dcc6e):
 - Clustered sensor timestamps (10k consecutive, ~1 kHz): 4.424 B/key
