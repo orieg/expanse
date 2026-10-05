@@ -844,6 +844,7 @@ jobs:
           python3 docs/benchmarks/set_algebra/scripts/harvest_domain.py --self-test
           python3 scripts/discipline_replay.py --self-test
           python3 scripts/release_ci_gate.py --self-test
+          python3 scripts/tag_release.py --self-test
           python3 scripts/ci_supersede.py --self-test
           python3 scripts/push_tree_verified.py --self-test
           python3 scripts/bench_windowed.py --self-test

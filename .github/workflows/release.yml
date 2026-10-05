@@ -52,10 +52,13 @@ jobs:
           # GITHUB_TOKEN does start a run. A tag pushed moments after its
           # commit lands races the still-running CI; the script waits for it
           # rather than failing (the v0.4.0 incident, #313).
+          # --require-ancestor-of: the tagged commit must be on main, checked
+          # before any wait. A tag cut from a stale checkout is refused here.
           python3 scripts/release_ci_gate.py \
             --repo "${GITHUB_REPOSITORY}" \
             --sha "${GITHUB_SHA}" \
             --dispatch-ref "${GITHUB_REF_NAME}" \
+            --require-ancestor-of main \
             --deadline-minutes 220
 
       - name: Assert manifests are in version lockstep with the tag

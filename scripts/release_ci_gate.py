@@ -21,8 +21,13 @@ dispatches `ci.yml` on the release ref once and waits for that run, so a
 release needs no manual full run first. It fails closed: an API error, a
 missing ref to dispatch on, or the deadline is a failure, never a pass.
 
+With `--require-ancestor-of BRANCH` it first fails unless the commit is on
+that branch: a tag cut from a stale checkout or a side branch is refused
+before anything waits on CI.
+
 Run:  release_ci_gate.py --repo OWNER/NAME --sha SHA [--dispatch-ref REF]
                          [--deadline-minutes N] [--poll-seconds N]
+                         [--require-ancestor-of BRANCH]
       release_ci_gate.py --self-test
 """
 
@@ -112,6 +117,32 @@ def fetch(repo: str, sha: str) -> list[tuple[dict, str]]:
     return classified
 
 
+def reached_from(compare_status: str) -> bool:
+    """Whether `sha` is on the branch, from the status of `compare/{sha}...{branch}`.
+
+    The compare API reports the branch relative to `sha`: `identical` (the
+    branch head is `sha`) and `ahead` (the branch contains `sha` and more) mean
+    `sha` is an ancestor of the branch head. `behind` and `diverged` mean it is
+    not, and anything else is not an answer.
+    """
+    return compare_status in ("identical", "ahead")
+
+
+def on_branch(repo: str, sha: str, branch: str) -> int:
+    """Fails unless `sha` is an ancestor of `branch`'s head. Fails closed on an API error."""
+    try:
+        status = json.loads(_gh(["api", f"repos/{repo}/compare/{sha}...{branch}"])).get("status")
+    except (RuntimeError, json.JSONDecodeError) as exc:
+        print(f"::error::cannot compare {sha} with {branch} ({exc}) -- failing closed")
+        return 1
+    if not reached_from(status):
+        print(f"::error::{sha} is not on {branch} (compare status {status!r}): a release is cut "
+              f"from a commit of {branch}, never from a side branch or a stale checkout")
+        return 1
+    print(f"release gate for {sha}: on {branch} ({status})")
+    return 0
+
+
 def gate(repo: str, sha: str, dispatch_ref: str | None, deadline_s: float, poll_s: float) -> int:
     deadline = time.monotonic() + deadline_s
     dispatched = False
@@ -193,6 +224,14 @@ def self_test() -> int:
     check("a newer pending run is waited for", decide([full_ok, full_bad, pending])[0], "wait")
     check("no runs at all dispatches", decide([])[0], "dispatch")
 
+    # The released commit must be on the branch. The compare API describes the
+    # branch relative to the commit, so "behind" is the off-branch answer.
+    check("branch head is the commit", reached_from("identical"), True)
+    check("branch moved past the commit", reached_from("ahead"), True)
+    check("commit is ahead of the branch (not merged)", reached_from("behind"), False)
+    check("commit on a side branch", reached_from("diverged"), False)
+    check("no status is not a pass", reached_from(None), False)
+
     if failures:
         for f in failures:
             print(f"::error::release_ci_gate self-test: {f}")
@@ -209,12 +248,18 @@ def main() -> int:
     ap.add_argument("--dispatch-ref", help="branch or tag to dispatch ci.yml on when no full run exists")
     ap.add_argument("--deadline-minutes", type=float, default=180)
     ap.add_argument("--poll-seconds", type=float, default=60)
+    ap.add_argument("--require-ancestor-of", metavar="BRANCH",
+                    help="fail unless --sha is an ancestor of this branch's head")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
     if not args.repo or not args.sha:
         print("::error::--repo and --sha are required", file=sys.stderr)
         return 1
+    if args.require_ancestor_of:
+        rc = on_branch(args.repo, args.sha, args.require_ancestor_of)
+        if rc:
+            return rc
     return gate(args.repo, args.sha, args.dispatch_ref, args.deadline_minutes * 60, args.poll_seconds)
 
 
