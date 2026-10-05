@@ -4726,4 +4726,103 @@ No performance claim is evaluated until every gate below passes:
 - Inconsistent counters or uncompleted rounds.
 - Runs compared across different commits.
 
+## 33. Pre-registration for #1143 — validated ordered reads and batch cursor on StrReader (appended 2026-10-04, locked before any engine code; next free section, may be renumbered at merge per work plan §0 rule 11)
+
+> **Section numbering note:** Next free section on `main` following §32 (#1142). Will be renumbered if needed upon merge per work plan §0 rule 11.
+
+### 33.1 The problem and architectural shape
+
+`StrReader` exposes only point lookup `get` and `contains` (`crates/expanse/src/sync.rs:13030-13095`). An ordered string scan on a shared map today must go through `SyncExpanseStrMap::with_locked` (`sync.rs:12808`) — every ordered operation on `ExpanseStrMap` takes `&self` on the single-threaded map (`cursor` `strmap.rs:2498`, `cursor_at_or_after` `:2509`, `next_*` / `prev_*` `:2560-2610`), but on a shared map `with_locked` acquires the writer mutex and holds the tree word for the whole closure, quiescing optimistic writers and blocking concurrent readers that fall back. A scan therefore serialises against writers and concurrent readers.
+
+The scope of #1143:
+1. Validated ordered point operations on `StrReader` (`first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before`, `prev_before`), the string twin of #900.
+2. A validated concurrent batch cursor `SyncStrMapCursor` on `StrReader` with prefix and `[lo, hi)` bounds, following the u64 cursor's design (#1142).
+
+What differs from the u64 map (`scripts/str_cursor_bounds.py`):
+- **Holder generalization:** `sync_nav` assumes a `SeqVersion` tree word (`Holder::Tree(&'a SeqVersion, u64)`); a `StrNode`'s cover is a 32-bit OCC version word (`cover: u32`) standing where the tree word stands (`docs/ARCHITECTURE.md` §4.2; `crates/expanse/src/strmap.rs:387`), addressed through `version_cell` and bracketed by `version_begin` / `version_end`. `Holder` must generalise to cover node-level words standing as the root cover of each sub-trie.
+- **Real trie descent & depth bounds:** Keys are partitioned into 8-byte chunks (`CHUNK_BYTES = 8`, `crates/expanse/src/strmap.rs:117-122`). A key of length $K$ spans $C(K) = \lfloor K / 8 \rfloor + 1$ chunk stages (`chunk_at`, `strmap.rs:591-598`). Each chunk is looked up in a `StrNode`'s `MapCore` trie (`strmap.rs:384-392, 2309-2327`), descending through up to 7 branch levels (levels 8 down to 2; level 1 is leaf) plus the `StrNode.cover`. Total versioned node depth from root to leaf is bounded by $D(K) \le 8 C(K) = 8 (\lfloor K / 8 \rfloor + 1)$. For $K \in [0, 7]$, $D \le 8$; for $K = 8$, $D \le 16$; for $K = 64$, $D \le 72$.
+- **Read set scaling & reconciliation with `READ_SET_CAP = 16` (`sync_cursor.rs:54`):**
+  - Within a single `StrNode`'s `MapCore`, an ordered step or backtrack retains at most 13 branch nodes (`scripts/olc_bounds.py`) plus the 1 `StrNode` cover, totalling at most 14 versions. This strictly fits within `READ_SET_CAP = 16` ($14 \le 16$).
+  - Across multiple `StrNode` levels ($K \ge 8, C(K) \ge 2$), unconstrained backtracking would require $14 + 8(C(K) - 1) \ge 22$ versions, exceeding `READ_SET_CAP = 16`.
+  - **Scoped terminal drains & resume-by-key policy:** Batches drain terminal chunks/leaves within the active `StrNode` under its cover. Across `StrNode`s and across batches, the cursor validates the retained versions, unpins, and resumes from root by key (`next_at_or_after`), ensuring no raw node pointers are held across unpins and memory stays strictly $O(1)$. If any descent path ever exceeds `READ_SET_CAP = 16`, `ReadSet::sample` returns `Err(Retry)` (`sync_cursor.rs:80-82`), triggering validation, unpin, and root re-descent by key.
+- **Variable-length key buffering & byte budget:**
+  - `BATCH_CAP = 256` entries (matching `sync_cursor.rs:51` and `LeafB1` maximum population).
+  - `KEY_BUFFER_BUDGET_BYTES = 4096` bytes (4 KiB arena for variable-length key bytes).
+  - `ENTRY_DESCRIPTOR_BYTES = 16` (8 bytes value + 4 bytes offset + 4 bytes length).
+  - Total cursor buffer footprint: $4096 + 256 \times 16 = 8192$ bytes (8 KiB, residing entirely within L1 data cache).
+  - **Oversized key policy ($K > 4096$ bytes):** If the buffer is non-empty, close and validate the current batch. When the buffer is empty and the next key exceeds 4096 bytes, allocate a dedicated spill buffer sized to $K$, validate under the node cover, and emit as a 1-item batch ($N = 1$). Subsequent batches resume from root by key. Zero heap allocations occur for all keys $\le 4096$ bytes during cursor scanning.
+- **Sub-map in leaf state:** covered by the `cover` word used as a lock (transitions T1/T7).
+- **Suffix byte copying and atomicity:** suffix bytes in `StrSuffix` are write-once upon publication, but an unlinked suffix can be retired by an optimistic writer (T4 split, T8 removal). Suffix bytes must be copied into the cursor buffer under the node's `cover` word and then validated, never borrowed across brackets or unpins.
+- **Keys:** keys are `NulFreeStr` (issue #808), byte-lexicographically ordered with NUL padding for terminal chunks.
+
+### 33.2 Scan semantics
+
+The string batch cursor provides a **weakly consistent, strictly ascending scan** (identical to #1142 / §32.2 contract):
+1. **Strictly ascending:** keys are yielded in strictly increasing byte-lexicographic order ($k_1 < k_2 < \dots < k_m$).
+2. **Atomic terminal chunks:** each copied terminal chunk or suffix leaf is read and validated atomically under its parent `StrNode`'s OCC version bracket.
+3. **Present throughout:** every key that exists in the map continuously from the start of the scan until the scan passes its key value is guaranteed to be emitted exactly once.
+4. **Not a snapshot (#1103):** keys inserted or removed concurrently during the scan may or may not be observed; keys inserted in regions already passed are not seen; keys inserted ahead of the cursor before it reaches that node may be seen. No key is ever emitted more than once.
+
+### 33.3 Soundness gates, before any measurement
+
+No performance claim is evaluated until every gate below passes:
+- **G33.1 — Deterministic park-point tests with negative controls:** thread-armed `cfg(test)` park points at key string transitions with negative controls (AGENTS.md §2.3):
+  - `test_park_insert_into_just_copied_terminal_before_validation`: Writer inserts into terminal chunk/leaf after cursor copies entries but before `cover` validation; negative control skips `cover` validation and must fail; positive test detects version change, retries and passes.
+  - `test_park_insert_into_skipped_sibling`: Writer inserts into empty branch slot in `MapCore` skipped by cursor; negative control skips parent version validation and must fail; positive test detects parent version bump, retries and passes.
+  - `test_park_remove_from_next_leaf`: Writer removes/condenses next leaf while cursor steps; negative control yields stale/torn entry and must fail; positive test retries and passes.
+  - `test_park_split_obsolete_parent`: Writer splits `StrSuffix` (transition T4) or parent branch while cursor holds snapshot; negative control uses retired pointer and must fail; positive test catches obsolete/dirty mark, retries, and passes.
+  - `test_park_node_demote_prune`: Writer demotes/prunes `StrNode` (transitions T8/T9); negative control reads unlinked node and must fail; positive test detects cover lock/version mismatch, retries and passes.
+- **G33.2 — Loom model:** model in `crates/expanse/src/sync.rs` / `occ.rs` verifying `Holder` generalization with 32-bit `cover` roots and suffix copy under concurrent writer preemptions.
+- **G33.3 — Scan linearizability checker:** whole-scan checker in `tests/linearizability.rs` verifying string scan semantics over concurrent execution histories.
+- **G33.4 — Miri UB-site workload:** concurrent reader/writer string batch cursor scan workload registered in `.github/miri-ub-sites.json`.
+- **G33.5 — Differential testing:** differential testing against single-threaded `StrCursor` on quiescent maps across `paths` and `routes` key distributions.
+- **G33.6 — String boundary tests:** verification of empty prefix, a prefix equal to a whole key, a prefix with no keys, prefix lengths 7, 8 and 9 at the 8-byte chunk edge, and NUL-terminal ordering against a continuation byte.
+
+### 33.4 Predictions, each with its refuter
+
+- **P33.1 — Single-threaded scalar paths do not move (AGENTS.md §2.1.5):**
+  - In each PR that adds string batch-cursor code, against that PR's base, `strmap_cursor_scan/*`, `strmap_prefix_scan/*`, `strmap_get/*`, and `strmap_insert/*` change by at most 0.1%, the §6 review threshold.
+  - **REFUTED** on any single-threaded plain string arm regressing by > 0.1%.
+- **P33.2 — Callgrind instruction ratio against `sync_strmap_scan_locked`:**
+  - Evaluated on CI `instruction-counts` job when `sync_strmap_scan` lands in Stage 2.
+  - Pre-registered target ceilings derived in `scripts/str_cursor_bounds.py::TARGET_CALLGRIND_RATIOS` from baseline in-place walk (~38-42 ins/key) + amortized sync/buffering overhead (~4.4 ins/key):
+    - `sync_strmap_scan/paths`: instruction count ratio $\le 1.15$ vs `sync_strmap_scan_locked/paths` (target).
+    - `sync_strmap_scan/paths_dense`: instruction count ratio $\le 1.15$ vs `sync_strmap_scan_locked/paths_dense` (target).
+  - **REFUTED** if any ratio exceeds its pre-registered target ceiling 1.15.
+- **P33.3 — Concurrent wall-clock throughput scaling:**
+  - Evaluated on the reference host via `writer_scaling --read-op scan` on string maps.
+  - Harness prerequisites: `crates/expanse/examples/writer_scaling.rs` currently supports only `--writers 0 --read-op get` on `--arm str` (`:3413-3426`). It must be extended to support `--arm str` with `--read-op scan` and $W \ge 1$ concurrent writers (using `WriterStrWorkload`).
+  - Cells: $`(W, R) \in \{(0, 1), (0, 4), (1, 4), (4, 4)\} \times \text{probe} \in \{\text{paths}, \text{paths\_dense}\}`$ (8 cells total).
+  - Driver: `writer_scaling.py --scan-cells --arm str`, 8 rounds per cell, Williams permutation ordering.
+  - Pin: `0,2,4,6,8,10,12,14`, one thread per physical P-core on the reference host.
+  - Protocol: Two independent runs, BCa 95% bootstrap confidence intervals, pre/post system load snapshots.
+  - Floors judged on BCa 95% CI lower bound:
+    - At $(W=0, R=4)$: Reader scan throughput scaling floor CI lower bound $\ge 2.5\times$ over single reader ($W=0, R=1$).
+    - At $(W=1, R=4)$: Throughput ratio of `SyncStrMapCursor` over `with_locked` baseline has CI lower bound $\ge 3.0\times$ (target).
+      *Derivation:* Under `with_locked`, 4 readers and 1 writer serialize on a single mutex, causing an $O(R)$ collapse in reader throughput ($\approx 0.25\times$ single-reader throughput). Optimistic lock coupling allows readers to scan in parallel without acquiring the writer mutex, paying only OLC validation retries when writers mutate in-place, achieving $> 3.0\times$ speedup.
+    - At $(W=4, R=4)$: Throughput ratio over `with_locked` CI lower bound $\ge 2.0\times$ (target).
+  - **REFUTED** if BCa 95% confidence interval lower bound falls below these floors across two independent runs.
+
+### 33.5 Instruments and cells specification
+
+- **Arms:**
+  - `sync_strmap_scan_locked`: `paths` and `paths_dense` (50,000 ops), measuring the `with_locked` single-threaded cursor walk baseline. Registered in Stage 1.
+  - `sync_strmap_scan`: `paths` and `paths_dense` (50,000 ops), measuring the concurrent validated batch cursor walk. Added in Stage 2 together with engine implementation.
+- **Harness:** `crates/expanse/examples/writer_scaling.rs` extended to support `--arm str --read-op scan` with $W \ge 1$.
+- **Probes:** `paths` and `paths_dense` key generators (`path_keys`).
+- **Cells:** $`(W, R) \in \{(0, 1), (0, 4), (1, 4), (4, 4)\} \times \text{probe} \in \{\text{paths}, \text{paths\_dense}\}`$: 8 cells total.
+- **Driver:** `writer_scaling.py --scan-cells --arm str`, 8 rounds per cell.
+- **Pin:** `0,2,4,6,8,10,12,14`, one thread per physical P-core on the reference host.
+- **Protocol:** Two independent runs, BCa 95% confidence intervals, pre/post system load snapshots.
+- **Execution status:** Specified in this pre-registration; execution deferred to reference host evaluation.
+
+### 33.6 What voids a cell or a run
+
+- An applied pin other than `0,2,4,6,8,10,12,14`.
+- Host contention per AGENTS.md §8.17 (non-target CPU > 100%, load average > cores / 2, or load shift > 2).
+- Inconsistent counters or uncompleted rounds.
+- Runs compared across different commits.
+
+
+
 
