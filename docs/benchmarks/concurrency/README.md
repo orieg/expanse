@@ -5756,6 +5756,35 @@ separated.
     scope.
 - **Writers' wait is unchanged.** P3's ratios are 0.996–1.028.
 
+## 31. The cost of a concurrent count under a writer — METHODOLOGY §23 evaluation (Refs #1144)
+
+METHODOLOGY §23 registered two non-void runs of 10 cells across 8 rounds on the reference host (12th Gen Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, governor `powersave` on every pinned CPU, transparent huge pages `madvise`; pinned `0,2,4,6,8,10,12,14`, one thread per physical P-core).
+
+Run 1 was dispatched at `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813` (bare-metal run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924)). Host guard recorded `verdict: "quiet"` (foreign busy CPUs on pinned cores $\le 0.148$, load average `0.00`, `0.01`, `0.00`).
+
+**INCOMPLETE — run 1 aborted by the job timeout; no §23 gate verdict.** Run 1 was cancelled by GitHub Actions' job execution timeout (`timeout-minutes: 180` in `.github/workflows/bench_baremetal.yml:510`) at 3h 1m 22s during Round 3. Run 2 was not dispatched.
+
+### 31.1 Sizing and execution timeline
+
+The captured execution timeline (`suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`, 5,365 2-second windows) reveals the exact per-cell scaling on the reference host *(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, powersave, THP madvise; commit `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813`; run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924); artifact `suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`)*:
+
+- **`uniform` key distribution:**
+  - W = 0, R = 1 control: completed in < 1 s.
+  - W = 1, R = 0 and W = 4, R = 0 (writers-only controls): completed in < 1 s.
+  - W = 1, R = 1 and W = 4, R = 1 (writers beside counting reader): completed in ~5 s each.
+- **`one_top_byte` key distribution:**
+  - W = 0, R = 1 (control): completed in < 1 s.
+  - W = 1, R = 0 and W = 4, R = 0 (writers-only controls): completed in < 1 s.
+  - W = 4, R = 1 (4 writers beside 1 counting reader): Round 0 ran for 1,066 s, Round 1 for 1,052 s, Round 2 for 726 s — mean duration 948 s.
+  - W = 1, R = 1 (1 writer beside 1 counting reader): Round 0 ran for 1,969 s, Round 1 for 1,660 s, Round 2 for 1,891 s — mean duration 1,840 s.
+  - Combined `one_top_byte` counting reader cells take ~2,788 s per round.
+
+The three completed rounds' `one_top_byte` reader cells consumed the 180-minute window before round 3 finished, so the 8-round schedule cannot complete under the current job limit.
+
+### 31.2 Cause not measured
+
+Cause not measured: no `occ-stats` counters and no throughput rows were captured. Candidate (READ, from `crates/expanse/src/sync.rs`): `with_locked` (`sync.rs:3005-3047`) → `quiesce_writers` (`sync.rs:2435-2455`) + `write.lock()` (`sync.rs:3011`) + `fold_branch_pop0_selective` (`sync.rs:3026`) over the single dirty top digit (`sync.rs:3021`), while writers enter via `enter_writer_blocking` (`sync.rs:2500-2522`) or fall back to `write_root_covered` (`sync.rs:2734-2798`).
+
 ## 32. Validated batch cursor on concurrent map readers — METHODOLOGY §32's evaluation (Refs #1142)
 
 METHODOLOGY §32 registered the validated batch cursor on `SyncExpanseMap` readers
