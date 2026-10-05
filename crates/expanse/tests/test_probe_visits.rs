@@ -296,7 +296,7 @@ fn test_analytical_node_forms_and_ladders() {
     // Pop = 40 > 31. Level 1 leaf has 40 keys >= 32 -> LeafBitmapL.
     // Top edge has narrow pointer for levels 8..2, pointing to BranchL3 / leaf.
     // Memory loads:
-    // Probing present key loads LeafBitmapL (leaf_loads = 1).
+    // Probing a present key loads LeafBitmapL and then its value subarray (leaf_loads = 2).
     {
         let mut map = ExpanseMap::new();
         let prefix = 0x0102_0304_0506_0700u64;
@@ -311,7 +311,7 @@ fn test_analytical_node_forms_and_ladders() {
             let k = prefix | j;
             let v = map.probe_visits(k);
             assert_eq!(v.branch_b_subarrays, 0, "no BranchB");
-            assert_eq!(v.leaf_loads, 1, "LeafBitmapL loaded");
+            assert_eq!(v.leaf_loads, 2, "LeafBitmapL, then its value subarray");
             assert!(v.found);
             assert_eq!(v.value, Some(j * 3));
         }
