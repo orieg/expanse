@@ -4821,7 +4821,293 @@ No performance claim is evaluated until every gate below passes:
 - An applied pin other than `0,2,4,6,8,10,12,14`.
 - Host contention per AGENTS.md §8.17 (non-target CPU > 100%, load average > cores / 2, or load shift > 2).
 - Inconsistent counters or uncompleted rounds.
-- Runs compared across different commits.
+
+## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
+
+> **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).
+
+### 34.1 Context and problem statement
+
+With optimistic removal landed (#1289, METHODOLOGY §26, README §26), `SyncExpanseBlobMap` at 50% read on the stationary mixed harness (`benches/concurrency.rs`) runs:
+- 11.9 M total ops/s at 1 thread ($C(1) = 1.00$)
+- 20.7 M total ops/s at 4 threads ($C(4) \approx 1.74$)
+- 13.4 M total ops/s at 16 threads ($C(16) \approx 1.13$)
+
+The curve exhibits a retrograde turnover at 4 threads, dropping by 35% at 16 threads ($`(20.7 - 13.4)/20.7 = 35.26\% \approx 35\%`$, observed on the reference host in #1288/#1293: README §26 line 5379 and README §27). In #1293 (METHODOLOGY §27), build K tested whether in-window compaction (which quiesces all writers) caused this peak by firing 4× less frequently (`BLOB_COMPACT_APPENDS = 4 * BLOB_POP`); while K raised throughput by 1.19× at 16 threads and 1.27× at 4 threads, K still fell from 4 to 16 threads (26.4 M at 4 threads vs 15.9 M at 16 threads). In-window compaction was refuted as the cause of the four-thread peak, and the remaining deficit remains unmeasured.
+
+This pre-registration locks the disciplined investigation sequence per AGENTS.md §8.20.5: running the cheap diagnostic checks first, evaluating Gunther's USL model in committed Python, profiling PMU event shapes, analyzing cache line layouts via `perf c2c` and `perf report`, and testing named candidate hypotheses.
+
+### 34.2 Diagnostic sequence per AGENTS.md §8.20.5
+
+The investigation proceeds strictly through Steps 0–6 in order:
+
+#### Step 0 & Step 1: Exclude the host core topology first
+- **Problem & Topology:**
+  The reference benchmark host (Intel Core i9-12900F) features an asymmetric hybrid architecture:
+  - 8 Golden Cove Performance cores (P-cores) with Hyper-Threading / SMT, presenting CPUs 0–15 (2 virtual threads per physical P-core).
+  - 8 Gracemont Efficient cores (E-cores) without SMT, presenting CPUs 16–23 (1 thread per core).
+  Total host capacity is 24 hardware threads.
+
+  The original 4-vs-16-thread figures in #1288 and #1293 were recorded with pin `0-15`:
+  *(measured: reference host — Intel Core i9-12900F, pin `0-15`, 18 rounds per cell; runs D 36658309874 / 36661955960, K 36659602446 / 36660784014; README §27 line 5431, README §26 line 5312)*.
+
+  What `cpu_pin=0-15` isolates: it pins execution exclusively to the 8 P-cores (16 hardware threads across 8 physical cores), completely excluding the 8 E-cores (16–23). This successfully eliminates E-core frequency asymmetry and heterogeneous scheduler migrations. However, within `0-15`, for thread counts $T \le 8$, the OS scheduler can co-schedule worker threads onto SMT sibling threads of already active physical cores while other physical cores remain idle.
+
+  What dedicated physical core pin `cpu_pin=0,2,4,6,8,10,12,14` isolates: it pins each worker thread to an independent physical P-core (even logical CPU numbers 0, 2, 4, 6, 8, 10, 12, 14), structurally denying SMT sibling co-scheduling and completely eliminating hyperthreading crosstalk.
+
+- **Instrument & Cells:**
+  - Dedicated physical core pin: `cpu_pin=0,2,4,6,8,10,12,14` (one thread per physical P-core).
+  - Swept physical thread counts: $`N \in \{1, 2, 3, 4, 5, 6, 7, 8\}`$ (all 8 physical P-cores, providing 8 points for USL fitting).
+  - SMT baseline pin (`cpu_pin=0-15`): swept across $`N \in \{1, 2, 4, 8, 16\}`$, reproducing the original $T=16$ condition of #1288/#1293 to verify whether the peak and retrograde turnover survive.
+  - Workloads: 50% read (primary) and 100% read (control).
+  - Engines: `blob` (primary), `blob_mutex` (control), `map` (control), `str` (control).
+- **Decision rule:** Compare the physical core sweep ($N=1..8$) against the SMT baseline ($N=1..16$). If the peak remains at $N=4$ and throughput degrades at $N=8$ under dedicated physical core placement, host SMT co-scheduling is **refuted** as the cause of the peak.
+
+#### Step 2: Fit Gunther's Universal Scalability Law (USL) and read $\alpha$ against $\beta$
+- **Model:** Gunther's USL defines modeled throughput $X(N)$ as:
+
+  $`X(N) = \frac{\gamma N}{1 + \alpha (N - 1) + \beta N (N - 1)}`$
+
+  with retrograde peak concurrency $`N_{\max} = \sqrt{\frac{1 - \alpha}{\beta}}`$.
+- **Committed implementation:**
+  - Executed via committed Python module `scripts/blob_peak_bounds.py` (and `scripts/fit_usl.py`), carrying unit tests pinning reference values.
+  - Data points: 8 points ($`N \in \{1, 2, 3, 4, 5, 6, 7, 8\}`$) on the physical-core pin `cpu_pin=0,2,4,6,8,10,12,14`, with 18 Williams-ordered replicate rounds per cell (144 total measurements).
+  - Degrees of freedom: with 8 data points, fitting the 3-parameter model provides 5 degrees of freedom (avoiding trivial over-fitting).
+  - Parameter estimation: Gunther's linear transformation (OLS) and non-linear least squares (NLLS), with BCa 95% bootstrap confidence intervals for $\alpha$ and $\beta$.
+- **Decision reading & classification rules:**
+  - Goodness-of-fit thresholds: $`R^2 \ge 0.95`$ (target), $`\text{NRMSE} \le 5.0\%`$ (target), confirming the model accurately captures the empirical curvature.
+  - Report $\alpha$ and $\beta$ with their BCa 95% bootstrap confidence intervals. Classification requires the interval to exclude 0:
+    - If $\beta$'s 95% BCa CI excludes 0 (lower bound $> 0$) and modeled $N_{\max} \in [3, 5]$: contention is classified as **pairwise coherency crosstalk** ($\beta$, scaling as $N(N-1)$). The retrograde turnover is driven by cache-line invalidation traffic.
+    - If $\beta$'s 95% BCa CI overlaps 0, while $\alpha$'s 95% BCa CI excludes 0 (lower bound $> 0$): contention is classified as **serial** ($\alpha$, e.g. writer gate, lock serialization). Cache-line coherence remedies will not move it.
+    - If both intervals overlap zero or fit fails: classification is **inconclusive**.
+
+#### Step 3: PMU event profiling for shape, not just magnitude
+- **Events captured per operation:**
+  - `cycles`, `instructions`: IPC and instruction count scaling across $`N \in \{1, 2, 3, 4, 5, 6, 7, 8\}`$ (physical pin) and $`N \in \{1, 2, 4, 8, 16\}`$ (SMT pin).
+  - `ref-cycles`: frequency droop computation ($`f(N) / f(1) = (\text{cycles}/\text{ref-cycles})_N / (\text{cycles}/\text{ref-cycles})_1`$). Must be verified against the 35% throughput deficit ($`(20.7 - 13.4)/20.7 = 35.26\%`$); a frequency droop of 2–5% cannot explain a 35% fall, refuting clock throttling.
+  - `LLC-load-misses`, `LLC-loads`: cache hierarchy eviction rate.
+  - `page-faults`: kernel minor page fault rate.
+  - `dTLB-load-misses`: data translation lookaside buffer miss rate.
+- **Shape classification:**
+  - $\alpha$-shaped: cost steps at $N=2$ writers and remains flat or sublinear per operation.
+  - $\beta$-shaped: cost grows quadratically ($N^2$) per operation.
+
+#### Step 4 & Step 5: `perf c2c` layout analysis and symbol resolution
+- **Layout analysis:** Contended cache lines are classified before symbol attribution:
+  - Compact 64-byte-aligned run inside a sub-page span ($< 4$ KiB): identifies a padded per-slot array or wrapper struct (e.g. `BlobWriterArenas`). Indicates false or true sharing on struct fields.
+  - Dispersed lines across heap pages: identifies per-node or per-record heap allocations (e.g. tree version words, record headers).
+- **Symbol resolution:** `perf c2c report` truncates mangled Rust v0 symbols in fixed-width columns. Full symbol resolution is performed using `perf report --stdio --sort symbol,dso` over the identical `perf.data` recording.
+
+#### Step 6: Evaluation of named candidate hypotheses
+All named candidates are currently unmeasured; causality requires interventional verification:
+1. **Candidate A — `has_writer_deltas` line sharing:**
+   - In `BlobWriterArenas` (`crates/expanse/src/sync.rs:10280`), `has_writer_deltas: AtomicBool` is unconditionally release-stored by every writer on every insert (`sync.rs:10582`) and removal (`sync.rs:10647`).
+   - Line sharing: `has_writer_deltas` resides on the same 64-byte cache line as `unowned_live_delta` and `arena_epoch`.
+   - Coherency impact: $W$ writers continuously invalidate this line across all cores. Modeled by `candidate_a_line_sharing_traffic` in `scripts/blob_peak_bounds.py`.
+2. **Candidate B — Page faults on fresh 2 MiB chunks:**
+   - Private chunks allocated via `grant_private_chunk_raw` (`crates/expanse/src/blobmap.rs:1724`) use 2 MiB anonymous virtual memory chunks.
+   - Touching uncommitted virtual memory triggers 512 minor page faults per chunk (under 4 KiB pages).
+   - Under 16 concurrent writers rapidly appending, concurrent page faults serialize on kernel memory management structures (`mmap_lock` / page table locks). Modeled by `candidate_b_chunk_page_faults` in `scripts/blob_peak_bounds.py`.
+3. **Candidate C — `charge_dead` header reads:**
+   - `charge_dead` (`crates/expanse/src/sync.rs:10615`) resolves overwritten or removed record lengths via `resolve_meta_in_table` (`sync.rs:10631`), reading the 8-byte record header.
+   - For records distributed across older chunks, header dereferencing incurs LLC misses and memory bus contention. Modeled by `candidate_c_header_reads` in `scripts/blob_peak_bounds.py`.
+4. **No residual-by-subtraction (AGENTS.md §8.20.4):**
+   - Never attribute an unexplained remainder to a hypothesis by subtracting measured shares from 100%.
+   - If Candidates A, B, and C fail to account for the measured scaling deficit under interventional testing, the remaining deficit MUST be explicitly reported as **unexplained**.
+
+### 34.3 Instruments, cells, and dispatch specification
+
+- **Harness:** `benches/concurrency.rs` executed via `docs/benchmarks/concurrency/scripts/mixed_concurrency.py`.
+- **Workload:** `core_concurrency`, 18 rounds per cell, Williams construction order, 500 ms window duration.
+- **Cells:**
+  - Primary physical sweep: `engine=blob`, `workload=50% read`, $`N \in \{1, 2, 3, 4, 5, 6, 7, 8\}`$, `cpu_pin=0,2,4,6,8,10,12,14`.
+  - Primary SMT baseline sweep: `engine=blob`, `workload=50% read`, $`N \in \{1, 2, 4, 8, 16\}`$, `cpu_pin=0-15`.
+  - Control cells: `engine=blob_mutex`, `workload=50% read`, $`N \in \{1, 4, 16\}`$; `engine=blob`, `workload=100% read`, $`N \in \{1, 16\}`$; `engine=map`, `workload=50% read`, $`N \in \{16\}`$; `engine=str`, `workload=50% read`, $`N \in \{16\}`$.
+- **Exact workflow dispatch:**
+  Dispatched on the reference host via `.github/workflows/bench_baremetal.yml`:
+  1. Physical core exclusion run:
+     ```bash
+     gh workflow run bench_baremetal.yml \
+       -f ref=<commit> \
+       -f benchmark_suite=concurrency \
+       -f cpu_pin="0,2,4,6,8,10,12,14"
+     ```
+  2. Standard SMT baseline run:
+     ```bash
+     gh workflow run bench_baremetal.yml \
+       -f ref=<commit> \
+       -f benchmark_suite=concurrency \
+       -f cpu_pin="0-15"
+     ```
+
+### 34.4 What voids a run or comparison
+
+- An applied CPU pin differing from the declared dispatch specification.
+- Co-resident host contention per AGENTS.md §8.17 (foreign CPU $`> 100\%`$, load average $`> \text{cores} / 2`$, or load shift $> 2$).
+- Control cells moving outside $`\pm 5\%`$ in the same direction across runs (`DRIFT` per BENCHMARKING rule 18).
+- Zero in-window compactions across 16-thread blob windows (verifying compaction trigger executed).
+
+---
+
+## 35. Pre-registration for #1280 Item 2 — `Shared::enter_writer` hot/cold split and Callgrind ceilings (appended 2026-10-04, locked before any engine code; renumbers on rebase if #1373 merges first)
+
+### 35.1 Context and problem identification
+
+In PR #1289 (`1813cc1c4`), `SyncExpanseBlobMap::remove` was converted to optimistic lock coupling (`olc_remove_map`). Prior to #1289, `SyncExpanseBlobMap::insert` was the sole caller of `Shared::enter_writer_blocking` in `SyncExpanseBlobMap`. The compiler had inlined `enter_writer` directly into `insert`.
+
+Adding `remove` introduced a second caller within the generic instantiation `Shared<ExpanseBlobMap>`. Because `enter_writer` (`crates/expanse/src/sync.rs:2372`) contains both the fast thread-local cache check and the cold slot allocation fallback (`CACHED_SLOTS.with(...)`, vector iteration, slot allocation), the compiler outlined `Shared<ExpanseBlobMap>::enter_writer` as a non-inlined function call.
+
+Attribution measured on `rust:1.98` / Valgrind 3.24.0 (README §26):
+- `Shared<ExpanseBlobMap>::enter_writer` (now out of line): +2,350,000 Ir
+- `SyncExpanseBlobMap::insert`: −1,399,996 Ir
+- Net delta on `sync_blobmap_overwrite/random`: +950,004 Ir (+2.84%).
+
+**Consequence for Build A:**
+Build A (`has_writer_deltas` stored only when reading `false`) delivers a measured 1.23–1.25× wall-clock throughput improvement at 16 threads (README §26.4). However, because `sync_blobmap_overwrite/random` had already absorbed +950,004 Ir from the outlining of `enter_writer`, Build A's additional flag check added 149,996 Ir, pushing `sync_blobmap_overwrite` to +3.28% against the locked +3% ceiling in §26.6 (CI run 36639227281). Build A was consequently rejected from landing in #1289.
+
+**Multiplying call sites:**
+Subsequent PRs #1355 (`compare_exchange`) and #1361 (`update`) added additional call sites to `enter_writer_blocking` across all five `Sync*` wrappers (`SyncExpanseSet`, `SyncExpanseMap`, `SyncExpanseStrMap`, `SyncExpanseBytesMap`, `SyncExpanseBlobMap`). Resolving this unforced overhead requires an architectural hot/cold split of `enter_writer`.
+
+### 35.2 Architectural design of the hot/cold split
+
+1. **Inlined fast path (`enter_writer`):**
+   Marked `#[inline(always)]`. Performs only the thread-local cache check:
+   ```rust
+   #[inline(always)]
+   pub(crate) fn enter_writer(&self) -> Option<crate::occ::WriterGuard<'_>> {
+       let key = self.gate.id();
+       let slot_id = if LAST_KEY.get() == key && LAST_SLOT.get() != usize::MAX {
+           LAST_SLOT.get()
+       } else {
+           self.enter_writer_slow(key)?
+       };
+       self.gate.enter_writer(&self.writers.slots[slot_id], slot_id)
+   }
+   ```
+2. **Outlined cold path (`enter_writer_slow`):**
+   Marked `#[cold] #[inline(never)]`. Handles cache misses, slot allocation, and vector maintenance:
+   ```rust
+   #[cold]
+   #[inline(never)]
+   fn enter_writer_slow(&self, key: u64) -> Option<usize> {
+       // CACHED_SLOTS lookup, allocate_slot(), updates LAST_KEY and LAST_SLOT
+   }
+   ```
+3. **Concurrency discipline (AGENTS.md §2.1 invariant 5):**
+   - Concurrency-only code stays out of shared inlined paths. Non-concurrent plain-tree mutation paths (`map_insert`, `set_insert`, `blobmap_insert`, etc.) never touch `enter_writer` and must gain 0 thread-local reads (`%fs:`) and 0 branch instructions.
+   - Hot struct layout: if any struct definition is touched, it must use explicit `#[repr(C)]` with cold fields last, pinned by `core::mem::offset_of!` in a layout test.
+
+### 35.3 Baseline instruction counts for context (CI run 37218971129)
+
+Reference baseline: CI run **37218971129** (commit `5ee1e8e399b78ed5fb42d62547f3529eee331b3f`, push to main for PR #1361).
+Measured on GitHub Actions runner (`ubuntu-24.04`, Valgrind 3.27.1).
+
+All 63 `sync_*` arms recorded on main at commit `5ee1e8e399`:
+
+| Benchmark Arm | Parameter | Measured Instructions (Ir) |
+|---|---|--:|
+| `sync_blobmap_churn` | `random:built_sync_blobmap("random")` | 143,334,832 |
+| `sync_blobmap_compact` | `random:built_sync_blobmap_garbage("random")` | 19,436,930 |
+| `sync_blobmap_compare_exchange` | `random:built_sync_blobmap("random")` | 52,661,355 |
+| `sync_blobmap_get` | `random:built_sync_blobmap("random")` | 19,682,875 |
+| `sync_blobmap_insert` | `random:keys("random")` | 58,997,021 |
+| `sync_blobmap_insert_reclaiming` | `random:built_sync_blobmap_reclaiming("random")` | 812,952 |
+| `sync_blobmap_overwrite` | `random:built_sync_blobmap("random")` | 34,411,863 |
+| `sync_blobmap_remove` | `random:built_sync_blobmap("random")` | 67,503,310 |
+| `sync_blobmap_remove_miss` | `random:built_sync_blobmap_misses("random")` | 19,221,107 |
+| `sync_bytesmap_churn` | `routes:built_sync_bytesmap("routes")` | 304,005,440 |
+| `sync_bytesmap_compare_exchange` | `routes:built_sync_bytesmap_rmw("routes")` | 130,533,586 |
+| `sync_bytesmap_get` | `routes:built_sync_bytesmap("routes")` | 32,270,096 |
+| `sync_bytesmap_insert` | `routes:str_keys("routes")` | 114,150,712 |
+| `sync_bytesmap_overwrite` | `routes:built_sync_bytesmap("routes")` | 58,672,690 |
+| `sync_bytesmap_remove` | `routes:built_sync_bytesmap("routes")` | 185,224,369 |
+| `sync_bytesmap_update` | `routes:built_sync_bytesmap_rmw("routes")` | 102,419,586 |
+| `sync_map_branchu_band` | `top:built_sync_map_band("top")` | 10,065,997 |
+| `sync_map_churn` | `leaf:built_sync_map_leaf("leaf")` | 124,997,852 |
+| `sync_map_churn` | `random:built_sync_map("random")` | 123,607,195 |
+| `sync_map_compact_baseline` | `random60:drained_partial_sync_map("random60")` | 46,094,675 |
+| `sync_map_compact_drained` | `random60:drained_partial_sync_map("random60")` | 20,549,879 |
+| `sync_map_compare_exchange` | `random:built_sync_map("random")` | 41,764,777 |
+| `sync_map_count_after_write` | `one_top_byte:built_sync_map_count("one_top_byte")` | 1,709,974,464 |
+| `sync_map_count_after_write` | `random:built_sync_map_count("random")` | 32,139,090 |
+| `sync_map_count_after_write` | `sequential:built_sync_map_count("sequential")` | 14,501,811 |
+| `sync_map_count_locked` | `one_top_byte:built_sync_map_count("one_top_byte")` | 11,110,655 |
+| `sync_map_count_locked` | `random:built_sync_map_count("random")` | 11,050,125 |
+| `sync_map_count_locked` | `sequential:built_sync_map_count("sequential")` | 4,426,901 |
+| `sync_map_drain_floor` | `top:built_sync_map_floor("top")` | 248,231 |
+| `sync_map_get` | `leaf:built_sync_map_leaf("leaf")` | 7,554,521 |
+| `sync_map_get` | `random:built_sync_map("random")` | 14,970,295 |
+| `sync_map_insert` | `random:keys("random")` | 51,129,429 |
+| `sync_map_next_after_scan` | `clustered:built_sync_map("clustered")` | 26,221,848 |
+| `sync_map_next_after_scan` | `random:built_sync_map("random")` | 33,051,471 |
+| `sync_map_next_after_scan` | `sequential:built_sync_map("sequential")` | 35,051,479 |
+| `sync_map_prev` | `random:built_sync_map("random")` | 34,114,722 |
+| `sync_map_prev_locked` | `random:built_sync_map("random")` | 57,226,942 |
+| `sync_map_remove` | `random:built_sync_map("random")` | 64,379,580 |
+| `sync_map_scan` | `clustered:built_sync_map("clustered")` | 4,595,253 |
+| `sync_map_scan` | `random:built_sync_map("random")` | 10,331,730 |
+| `sync_map_scan` | `sequential:built_sync_map("sequential")` | 4,593,400 |
+| `sync_map_update` | `random:built_sync_map("random")` | 41,764,777 |
+| `sync_map_write_twin` | `one_top_byte:built_sync_map_count("one_top_byte")` | 2,163,979 |
+| `sync_map_write_twin` | `random:built_sync_map_count("random")` | 1,926,727 |
+| `sync_map_write_twin` | `sequential:built_sync_map_count("sequential")` | 2,179,054 |
+| `sync_set_churn` | `leaf:built_sync_set_leaf("leaf")` | 97,839,488 |
+| `sync_set_churn` | `random:built_sync_set("random")` | 98,495,626 |
+| `sync_set_compact_baseline` | `random60:drained_partial_sync_set("random60")` | 22,884,629 |
+| `sync_set_compact_drained` | `random60:drained_partial_sync_set("random60")` | 19,101,885 |
+| `sync_set_contains` | `leaf:built_sync_set_leaf("leaf")` | 7,104,526 |
+| `sync_set_contains` | `random:built_sync_set("random")` | 14,804,794 |
+| `sync_set_drain_floor` | `top:built_sync_set_floor("top")` | 251,841 |
+| `sync_set_insert` | `random:keys("random")` | 47,271,375 |
+| `sync_set_remove` | `random:built_sync_set("random")` | 55,982,089 |
+| `sync_strmap_churn` | `routes:built_sync_strmap("routes")` | 192,580,541 |
+| `sync_strmap_churn_short` | `short:built_sync_strmap_short("short")` | 237,502,750 |
+| `sync_strmap_compare_exchange` | `routes:built_sync_strmap("routes")` | 123,741,610 |
+| `sync_strmap_get_short` | `short:built_sync_strmap_short("short")` | 29,832,322 |
+| `sync_strmap_insert` | `routes:str_keys("routes")` | 79,106,223 |
+| `sync_strmap_insert_short` | `short:short_keys("short")` | 99,490,464 |
+| `sync_strmap_insert_sorted` | `uuid:uuid_keys_sorted("uuid")` | 46,912,663 |
+| `sync_strmap_remove` | `routes:built_sync_strmap("routes")` | 89,281,391 |
+| `sync_strmap_update` | `routes:built_sync_strmap("routes")` | 74,308,922 |
+
+### 35.4 Pre-registered Callgrind ceilings against PR merge base
+
+Per AGENTS.md §6 and review discipline, all ceilings are expressed as **Δ% against the merge base** in the stage-2 PR's own `instruction-counts` CI run (the dual-pass comparison already run by CI), keeping the baseline figures above as historical context:
+
+| Arm | Context Ir (`37218971129`) | Pre-Registered Ceiling vs Merge Base | Expected Delta | Rationale |
+|---|--:|---|---|---|
+| `sync_blobmap_overwrite/random` | 34,411,863 | **≤ +0.0%** | −6.8% (projected) (−2.35M Ir context) | Hot path inlining eliminates out-of-line call overhead |
+| `sync_blobmap_insert/random` | 58,997,021 | **≤ +0.0%** | ≤ 0.0% | Fast path inlined; no regression permitted |
+| `sync_blobmap_remove/random` | 67,503,310 | **≤ +0.0%** | ≤ 0.0% | Fast path inlined; no regression permitted |
+| `sync_blobmap_compare_exchange/random` | 52,661,355 | **≤ +0.0%** | ≤ 0.0% | Fast path inlined; no regression permitted |
+| All other 59 `sync_*` arms | — | **≤ +0.1%** | ≈ 0.0% | Review threshold per AGENTS.md §6 |
+| Single-threaded plain-tree arms | — | **≤ +0.1%** | 0.0% | Control; non-concurrent paths must not move (AGENTS.md §2.1 invariant 5) |
+
+**Falsifier:** Any regression exceeding +0.0% vs merge base on `sync_blobmap_overwrite`, `sync_blobmap_insert`, `sync_blobmap_remove`, or `sync_blobmap_compare_exchange`, or exceeding +0.1% on any plain-tree arm, marks the split **REFUTED** (no `allow-regression:` overrides permitted per work plan §0 rule 4). The expected −6.8% on overwrite is a (projected) figure, not an acceptance floor.
+
+### 35.5 Soundness gates before measurement
+
+1. **Gate G35.1 — Unwind safety:** `tests/test_serialised_section_unwind.rs` passes.
+2. **Gate G35.2 — Loom race verification:** `loom_shared_enter_writer_quiescence` in `crates/expanse/src/sync.rs` passes under `cargo test --test ... --features loom`.
+3. **Gate G35.3 — Concurrency isolation (AGENTS.md §2.1.5):** Plain-tree disassembly check in CI x86 job verifies strictly 0 `%fs:` thread-local reads in `mutate::insert_with_path_flat` and `mutate_map::insert_with_path_flat`.
+
+### 35.6 What is measured if Build A returns
+
+In README §26 (line 5400), Build A added a branch checking `has_writer_deltas` only when clear (`has_writer_deltas.load(Relaxed) == false`), adding 149,996 Ir (+0.44%) to `sync_blobmap_overwrite`. Build A was rejected in #1289 because the out-of-line `enter_writer` call had already pushed overwrite by +2.84%, causing Build A (+3.28%) to breach the +3% ceiling.
+
+Once the hot/cold split inlines `enter_writer` and recovers the 2,350,000 Ir overhead, Build A may be evaluated under a follow-on pre-registration:
+1. **Callgrind instruction counts:** With `enter_writer` inlined, Build A's +149,996 Ir is offset by the −2,350,000 Ir recovery, yielding a projected net delta of −2,200,004 Ir (≈ −6.4% (projected)) vs pre-#1289 baseline, easily satisfying the ≤ +0.0% ceiling.
+2. **Wall-clock mixed scaling:** Build A is evaluated against Build C on the named cell: `SyncExpanseBlobMap`, 50% read mixed workload (`core_concurrency`), 16 threads, pin `0-15`, two independent runs (18 rounds per cell).
+   - **Metric & Interval:** Ratio of mean total ops/s ($\text{Build A} \div \text{Build C}$), computed with a two-sample BCa 95% confidence interval (`bca_bootstrap_ratio_ci_with_method`) over the 18 paired window iterations in each run.
+   - **Pre-registered Floor:** BCa 95% CI lower bound $\ge 1.15$ `(target)`.
+     - *Derivation & context:* README §26 R2 (quoted as historical context only) measured $\text{A} \div \text{C}$ at $1.232$ [1.217, 1.247] in run 1 and $1.246$ [1.234, 1.260] in run 2 on this cell. Per BENCHMARKING rule 18, within-run intervals do not bound between-run spread, so the exact level ($1.23\times - 1.25\times$) cannot be assumed to replicate. The floor of $1.15$ `(target)` is derived by applying an operational dispersion margin of $0.067$ below the historical lowest BCa lower bound ($1.217 - 0.067 = 1.150$), requiring a statistically bounded win $`> 15\%`$ that sits $> 3\times$ above the $`\pm 5\%`$ control drift threshold (`scripts/blob_peak_bounds.py::derive_build_a_speedup_floor`).
+   - **Pass Rule:**
+     - `PASS`: the BCa 95% CI lower bound exceeds $1.15$ `(target)` in **both** run 1 and run 2 ($L_1 \ge 1.15$ and $L_2 \ge 1.15$).
+     - `REFUTED`: the BCa 95% CI upper bound is below $1.15$ in both runs ($U_1 < 1.15$ and $U_2 < 1.15$).
+     - `INCONCLUSIVE`: either run has its CI spanning the floor ($L_k < 1.15 \le U_k$), or the two runs disagree.
+   - **Cross-Run Rule (`docs/BENCHMARKING.md` rule 18):**
+     - A speedup claim is licensed **only when both runs move the same way** (both runs show positive effect with BCa lower bounds $L_k \ge 1.15$ in the same direction). If one run passes while the other is flat or inverted, or if any control cell (`blob` 100% read at $T=16$, `map` 50% read at $T=16$) drifts outside $`\pm 5\%`$ in both runs, no speedup is claimed and the outcome is marked `INCONCLUSIVE` or `DRIFT`.
+
 
 
 
