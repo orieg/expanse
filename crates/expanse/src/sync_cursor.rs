@@ -506,7 +506,9 @@ struct BatchDrain<'b> {
     end_key: u64,
     count: usize,
     /// A terminal met a key above `end_key`. Every later key in key order is
-    /// above it too, so the branch loops stop walking siblings.
+    /// above it too, so the branch loops stop walking siblings. A batch whose
+    /// last key equals `end_key` does not set it: the walk then visits one
+    /// more terminal, which does.
     past_end: bool,
 }
 
@@ -832,10 +834,7 @@ impl SyncMapCursor<'_, '_> {
                         Self::drain_batch_in(drain, &child, rem, bl - 1, child_prefix, here, rs)?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP
-                            || drain.past_end
-                            || drain.buf[drain.count - 1].0 >= drain.end_key
-                        {
+                        if drain.count >= BATCH_CAP || drain.past_end {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
@@ -897,10 +896,7 @@ impl SyncMapCursor<'_, '_> {
                         Self::drain_batch_in(drain, &child, rem, bl - 1, child_prefix, here, rs)?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP
-                            || drain.past_end
-                            || drain.buf[drain.count - 1].0 >= drain.end_key
-                        {
+                        if drain.count >= BATCH_CAP || drain.past_end {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
@@ -979,10 +975,7 @@ impl SyncMapCursor<'_, '_> {
                         )?;
                     }
                     if drain.count > prev_count {
-                        if drain.count >= BATCH_CAP
-                            || drain.past_end
-                            || drain.buf[drain.count - 1].0 >= drain.end_key
-                        {
+                        if drain.count >= BATCH_CAP || drain.past_end {
                             return Ok(());
                         }
                         if is_branch_edge(&child) {
@@ -1611,6 +1604,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "200,000 inserts: too slow under Miri, which timed out the nightly shard on it"
+    )]
     fn test_bounded_scan_does_not_walk_past_end() {
         let (map, model) = wide_map();
         let rd = map.reader();
@@ -1650,10 +1647,34 @@ mod tests {
         assert_eq!(got, want);
     }
 
+    /// A range ending exactly on a present key stops within the same sample
+    /// budget as one ending between keys.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "200,000 inserts: too slow under Miri, which timed out the nightly shard on it"
+    )]
+    fn test_bounded_scan_ending_on_a_key_stops_there() {
+        let (map, model) = wide_map();
+        let rd = map.reader();
+        let (&k, &v) = model.range(1u64 << 60..).next().unwrap();
+        test_hooks::take_samples();
+        let mut cur = rd.range_cursor(k, k);
+        assert_eq!(cur.next(), Some((k, v)));
+        assert_eq!(cur.next(), None);
+        let samples = test_hooks::take_samples();
+        assert!(
+            samples <= 16,
+            "a range ending on its only key sampled {samples} branches"
+        );
+    }
+
     #[test]
     fn test_advance_to_never_rewinds() {
         let map = SyncExpanseMap::new();
-        let keys: Vec<u64> = (1..=2000u64).map(|i| i * 10).collect();
+        // Several batches either way; Miri runs a shorter scan.
+        let n = if cfg!(miri) { 600 } else { 2000u64 };
+        let keys: Vec<u64> = (1..=n).map(|i| i * 10).collect();
         for &k in &keys {
             map.insert(k, k + 1);
         }
