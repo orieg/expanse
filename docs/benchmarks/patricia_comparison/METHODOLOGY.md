@@ -216,6 +216,47 @@ remedy (co-allocation, prefetch, a packed-suffix default) is proposed on its
 strength. If D1b and D1c hold, placement is the measured cause, and a remedy
 is a separate, ablated change.
 
+**Amendment A4 — diagnostic D2 (2026-10-04, registered before any huge-page counter
+data; refs #1096).** Diagnostic D1 established that the 1M prefix scan's
+build-order gap (41.4 vs 14.7 ns per entry; workload: patricia_scan) is driven by memory placement
+rather than instruction path disparity: `instructions` agreed to 0.06% (D1a PASS),
+while `dTLB-load-misses` showed 0.8203 vs 0.0097 misses per entry (85× difference)
+and `mem_load_retired.l3_miss` showed 0.2360 vs −0.0000 misses per entry (D1b PASS).
+In addition, Workstream C3 (#724/#725, PR #1340) established paging sensitivity
+tooling using `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` (2 MiB transparent huge-page
+arenas).
+
+D2 asks whether physical paging under 2 MiB huge pages eliminates the virtual address
+translation penalty (`dTLB-load-misses`), and what fraction of the 85.7 cycle/entry
+gap survives. Specifically: does huge-page backing resolve the generator-order
+penalty (an OS/allocator paging effect), or is the deficit dominated by intra-tree
+cache-line dispersal across the 45 MB tree (an architectural layout invariant
+requiring engine-level node/leaf co-allocation in v0.12)?
+
+*Instrument.* `scripts/perf_counters.py --hugetlb`, arms `strmap_prefix_scan` and
+`strmap_prefix_scan_sorted` of `examples/perf_point_lookup.rs` (the suite's path
+keys, its 64 prefixes, `cursor_prefix`), `--pops 1000000 --hit-pcts 100 --passes 200
+--runs 10`, P-core PMU, default event set. Counts are `probe − build` per run
+divided by yielded entries (200 × 249,670), reported with BCa 95% bootstrap CIs
+(2,000 resamples).
+
+*Predictions*, evaluated under `GLIBC_TUNABLES=glibc.malloc.hugetlb=1`:
+
+| # | Counter per entry | Prediction | Falsified if |
+|---|---|---|---|
+| D2a | `dTLB-load-misses` (generator) | drops to ≤ 0.05 per entry (≥ 90% reduction from baseline 0.8203) | point estimate > 0.05: 2 MiB paging failed to eliminate address translation |
+| D2b | `mem_load_retired.l3_miss` | generator interval disjointly above sorted (BCa lower bound ≥ 0.15) | generator BCa lower bound < 0.15 or overlaps sorted: huge pages eliminated LLC line misses |
+| D2c | `cycles` gap | (cycles_gen − cycles_sorted)_hugetlb ≥ 0.60 × (Δ cycles)_baseline | surviving cycle gap < 60% of baseline (51.4 cycles): paging alone resolved the gap |
+
+*Decision criteria.*
+If D2a and D2b PASS, translation misses are confirmed as an orthogonal overlay:
+2 MiB pages eliminate dTLB misses, but cache-line dispersal across 45 MB of heap
+persists and drives the majority of the cycle stall. This formally proves that
+an OS/allocator paging remedy is insufficient, justifying an engine-level node
+placement remedy in v0.12 (co-allocating child nodes with leaves, or packed suffixes).
+If D2c is falsified, huge-page backing closes the bulk of the gap without engine
+changes.
+
 **No directional prediction:**
 - Any `fast_radix_trie` or `qp-trie` timing. The envelope gives them 3–8
   dependent node loads, the same range as Expanse, so nothing derived separates

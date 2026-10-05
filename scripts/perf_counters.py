@@ -637,8 +637,10 @@ def preflight(
     return pmu, why, pin, available, unavailable
 
 
-def _workload_env(extra: dict[str, str]) -> dict[str, str]:
+def _workload_env(extra: dict[str, str], hugetlb: bool = False) -> dict[str, str]:
     env = dict(os.environ)
+    if hugetlb:
+        env["GLIBC_TUNABLES"] = "glibc.malloc.hugetlb=1"
     env.update(extra)
     return env
 
@@ -660,6 +662,7 @@ def run_cell(
     runs: int,
     pmu: str | None = None,
     pin: list[str] | None = None,
+    hugetlb: bool = False,
 ) -> dict:
     """Both phases, `runs` times each, interleaved.
 
@@ -677,7 +680,8 @@ def run_cell(
                     "EXPANSE_PERF_POP": str(pop),
                     "EXPANSE_PERF_HIT_PCT": str(hit_pct),
                     "EXPANSE_PERF_PASSES": str(passes),
-                }
+                },
+                hugetlb=hugetlb,
             )
             rc, csv_text, out, err = run_perf(events, [str(workload)], env, pin=pin)
             if rc != 0:
@@ -873,6 +877,7 @@ def build_doc(
             "host_description": args.host_desc,
             "commit": args.commit or _git_commit(root),
             "run_id": args.run_id,
+            "hugetlb": getattr(args, "hugetlb", False),
             "kernel_perf_event_paranoid": paranoid_level(),
             # What `scripts/check_bench_provenance.py` requires of a committed
             # comparative artifact (AGENTS.md section 8.17): the host, what
@@ -1057,6 +1062,11 @@ def main() -> int:
         help="core PMU to count on, for a host that exposes several "
         "(e.g. cpu_core, cpu_atom). `auto` prefers the performance-core PMU.",
     )
+    ap.add_argument(
+        "--hugetlb",
+        action="store_true",
+        help="run with GLIBC_TUNABLES=glibc.malloc.hugetlb=1 (Linux huge-page arenas)",
+    )
     ap.add_argument("--preflight-only", action="store_true")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
@@ -1134,6 +1144,7 @@ def main() -> int:
                         args.runs,
                         pmu=pmu,
                         pin=pin,
+                        hugetlb=args.hugetlb,
                     )
                     counters = {}
                     for event in available:
@@ -1394,6 +1405,15 @@ def self_test() -> int:
 
     _self_test_coscheduled_zero()
     _self_test_zero_in_every_run()
+
+    # --hugetlb flag handling and provenance
+    assert _workload_env({}, hugetlb=True).get("GLIBC_TUNABLES") == "glibc.malloc.hugetlb=1"
+    ns_ht = argparse.Namespace(host_desc="x", commit="c", run_id="", hugetlb=True, pmu="auto", events=[])
+    doc_ht = build_doc(ns_ht, Path("."), None, "", [], [], [], [])
+    assert doc_ht["provenance"]["hugetlb"] is True, doc_ht["provenance"]
+    ns_no_ht = argparse.Namespace(host_desc="x", commit="c", run_id="", hugetlb=False, pmu="auto", events=[])
+    doc_no_ht = build_doc(ns_no_ht, Path("."), None, "", [], [], [], [])
+    assert doc_no_ht["provenance"]["hugetlb"] is False, doc_no_ht["provenance"]
 
     assert MIN_RUNS >= 3, "BCa needs a jackknife"
     assert set(VENDOR_EVENTS) <= set(DEFAULT_EVENTS)
