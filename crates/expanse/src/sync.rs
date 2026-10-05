@@ -2557,7 +2557,7 @@ impl<T: SharedTree> Shared<T> {
     /// with the gate entry inlined into it. `SyncExpanseStrMap::remove` is
     /// one: its body is large enough that the inlined entry costs it more in
     /// spilled registers than the call does (METHODOLOGY §35).
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(feature = "ablation-str-serial-writers")))]
     #[inline(never)]
     pub(crate) fn enter_writer_blocking_outlined(&self) -> crate::occ::WriterGuard<'_> {
         self.enter_writer_blocking()
