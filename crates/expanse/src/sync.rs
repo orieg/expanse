@@ -2268,6 +2268,31 @@ impl<T: SharedTree> Shared<T> {
     }
 }
 
+// The per-thread slot cache for `Shared::enter_writer`, in the thread-local flavour
+// the build needs. Under `--cfg loom` these are loom's, which it gives each model
+// thread its own copy of and resets between model iterations;
+// `std::thread_local!` would hand every writer in a model the slot the
+// first one allocated and keep it across iterations, so from the second
+// iteration on nothing would call `allocate_slot` and `quiesce_writers`
+// would walk an empty mask. The `const` initialisers stay on the
+// non-loom path — they are what makes this a const-initialised TLS
+// access — and `LoomCellKey` supplies the `Cell` accessors loom's
+// `LocalKey` lacks, so the body below is one text in both builds.
+#[cfg(feature = "std")]
+#[cfg(not(loom))]
+std::thread_local! {
+    static WRITER_LAST_KEY: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    static WRITER_LAST_SLOT: core::cell::Cell<usize> = const { core::cell::Cell::new(usize::MAX) };
+    static WRITER_CACHED_SLOTS: std::cell::RefCell<Vec<(u64, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+#[cfg(feature = "std")]
+#[cfg(loom)]
+loom::thread_local! {
+    static WRITER_LAST_KEY: core::cell::Cell<u64> = core::cell::Cell::new(0);
+    static WRITER_LAST_SLOT: core::cell::Cell<usize> = core::cell::Cell::new(usize::MAX);
+    static WRITER_CACHED_SLOTS: std::cell::RefCell<Vec<(u64, usize)>> = std::cell::RefCell::new(Vec::new());
+}
+
 impl<T: SharedTree> Shared<T> {
     /// Sets up an empty staged tree with the wrapper's deferred allocator,
     /// bound tree version word, and covered root state in preparation for
@@ -2368,55 +2393,54 @@ impl<T: SharedTree> Shared<T> {
         self.with_locked(|_| {});
     }
 
+    /// Admits the calling thread as an optimistic writer, returning the guard
+    /// that marks this slot in-flight.
+    ///
+    /// Fast path: checks the thread-local 1-item cache (`WRITER_LAST_KEY`,
+    /// `WRITER_LAST_SLOT`). If matched and the gate is open, enters in O(1)
+    /// with zero allocations, zero vector searches, and zero lock acquisitions.
+    /// Marked `#[inline(always)]` so every `Sync*` wrapper inlines the cache check
+    /// directly without function call overhead (METHODOLOGY §35, Refs #1280).
     #[cfg(feature = "std")]
+    #[inline(always)]
     pub(crate) fn enter_writer(&self) -> Option<crate::occ::WriterGuard<'_>> {
-        use std::cell::Cell;
-        use std::cell::RefCell;
-        // The per-thread slot cache, in the thread-local flavour the build
-        // needs. Under `--cfg loom` these are loom's, which it gives each model
-        // thread its own copy of and resets between model iterations;
-        // `std::thread_local!` would hand every writer in a model the slot the
-        // first one allocated and keep it across iterations, so from the second
-        // iteration on nothing would call `allocate_slot` and `quiesce_writers`
-        // would walk an empty mask. The `const` initialisers stay on the
-        // non-loom path — they are what makes this a const-initialised TLS
-        // access — and `LoomCellKey` supplies the `Cell` accessors loom's
-        // `LocalKey` lacks, so the body below is one text in both builds.
-        #[cfg(not(loom))]
-        std::thread_local! {
-            static LAST_KEY: Cell<u64> = const { Cell::new(0) };
-            static LAST_SLOT: Cell<usize> = const { Cell::new(usize::MAX) };
-            static CACHED_SLOTS: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
-        }
-        #[cfg(loom)]
-        loom::thread_local! {
-            static LAST_KEY: Cell<u64> = Cell::new(0);
-            static LAST_SLOT: Cell<usize> = Cell::new(usize::MAX);
-            static CACHED_SLOTS: RefCell<Vec<(u64, usize)>> = RefCell::new(Vec::new());
-        }
         let key = self.gate.id();
-        let slot_id = if LAST_KEY.get() == key && LAST_SLOT.get() != usize::MAX {
-            LAST_SLOT.get()
+        let slot_id = if WRITER_LAST_KEY.get() == key && WRITER_LAST_SLOT.get() != usize::MAX {
+            WRITER_LAST_SLOT.get()
         } else {
-            let s = CACHED_SLOTS.with(|cell| {
-                let mut vec = cell.borrow_mut();
-                if let Some((_, slot)) = vec.iter().find(|(k, _)| *k == key) {
-                    *slot
-                } else {
-                    if vec.len() >= 128 {
-                        vec.remove(0);
-                    }
-                    let slot = self.writers.allocate_slot();
-                    vec.push((key, slot));
-                    slot
-                }
-            });
-            LAST_KEY.set(key);
-            LAST_SLOT.set(s);
-            s
+            self.enter_writer_slow(key)
         };
         self.gate
             .enter_writer(&self.writers.slots[slot_id], slot_id)
+    }
+
+    /// Outlined cold path for [`Self::enter_writer`].
+    ///
+    /// Handles cache misses on `WRITER_LAST_KEY`: looks up `key` in the thread's
+    /// `WRITER_CACHED_SLOTS` vector, allocates a new writer slot via
+    /// `self.writers.allocate_slot()` if unseen, and updates the thread-local cache.
+    /// Marked `#[cold] #[inline(never)]` to prevent outlining of `enter_writer` in
+    /// generic instantiations with multiple mutation call sites (Refs #1280).
+    #[cfg(feature = "std")]
+    #[cold]
+    #[inline(never)]
+    fn enter_writer_slow(&self, key: u64) -> usize {
+        let s = WRITER_CACHED_SLOTS.with(|cell| {
+            let mut vec = cell.borrow_mut();
+            if let Some((_, slot)) = vec.iter().find(|(k, _)| *k == key) {
+                *slot
+            } else {
+                if vec.len() >= 128 {
+                    vec.remove(0);
+                }
+                let slot = self.writers.allocate_slot();
+                vec.push((key, slot));
+                slot
+            }
+        });
+        WRITER_LAST_KEY.set(key);
+        WRITER_LAST_SLOT.set(s);
+        s
     }
 
     /// Closes the writer gate and drains every allocated writer slot,
@@ -21127,6 +21151,61 @@ mod tests {
             std::thread::yield_now();
         }
         q.join().unwrap();
+    }
+
+    #[test]
+    fn test_enter_writer_hot_cold_split_cache_and_reuse() {
+        let set_a = SyncExpanseSet::new();
+        let set_b = SyncExpanseSet::new();
+        let key_a = set_a.shared.gate.id();
+        let key_b = set_b.shared.gate.id();
+        assert_ne!(
+            key_a, key_b,
+            "distinct instances must have distinct gate IDs"
+        );
+
+        // 1. Initial entry on set_a: cold path runs and caches slot
+        let g_a1 = set_a.shared.enter_writer().expect("gate is open");
+        let slot_a1 = g_a1.slot_id();
+        drop(g_a1);
+
+        // 2. Immediate second entry on set_a: fast-path hit
+        assert_eq!(WRITER_LAST_KEY.get(), key_a);
+        assert_eq!(WRITER_LAST_SLOT.get(), slot_a1);
+        let g_a2 = set_a.shared.enter_writer().expect("gate is open");
+        assert_eq!(
+            g_a2.slot_id(),
+            slot_a1,
+            "second entry on set_a must hit fast path"
+        );
+        drop(g_a2);
+
+        // 3. Switch to set_b: fast-path miss on key_a, cold path runs for set_b
+        let g_b1 = set_b.shared.enter_writer().expect("gate is open");
+        let slot_b1 = g_b1.slot_id();
+        drop(g_b1);
+        assert_eq!(WRITER_LAST_KEY.get(), key_b);
+        assert_eq!(WRITER_LAST_SLOT.get(), slot_b1);
+
+        // 4. Switch back to set_a: fast-path miss (LAST_KEY == key_b), cold path finds key_a in CACHED_SLOTS
+        let g_a3 = set_a.shared.enter_writer().expect("gate is open");
+        assert_eq!(
+            g_a3.slot_id(),
+            slot_a1,
+            "cold path must reuse cached slot for set_a"
+        );
+        drop(g_a3);
+
+        // 5. Subsequent entry on set_a: fast path hits again because LAST_KEY is now key_a
+        assert_eq!(WRITER_LAST_KEY.get(), key_a);
+        assert_eq!(WRITER_LAST_SLOT.get(), slot_a1);
+        let g_a4 = set_a.shared.enter_writer().expect("gate is open");
+        assert_eq!(
+            g_a4.slot_id(),
+            slot_a1,
+            "fast path must hit after cold cache restoration"
+        );
+        drop(g_a4);
     }
 
     /// What one collector's reclamation looked like at the end of a run.
