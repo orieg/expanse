@@ -9589,6 +9589,106 @@ pub(crate) fn olc_bucket_value_inplace_map<H: OlcHost>(
     )
 }
 
+/// The compare-and-store of one entry's value in the published bucket:
+/// [`olc_bucket_value_inplace_map`] with the value compare made **under the
+/// terminal's parent version lock**.
+///
+/// The bucket word alone does not cover the compare. An in-place overwrite
+/// stores into the same bucket and unlocks the terminal clean, so a value
+/// read before this call can be stale while `old == expected` still holds.
+/// The lock excludes every other in-place store, so the value read here is
+/// the one the store replaces.
+///
+/// `Done(seen)` with `seen == Some(expected)`: `prev` holds the entry's
+/// value, and the store happened iff `prev == expected_val`.
+///
+/// SAFETY (for the calls inside `$keep`): as [`olc_bucket_value_inplace_map`].
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+pub(crate) fn olc_bucket_value_cas_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+    at: usize,
+    expected_val: u64,
+    val: u64,
+    prev: &mut u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(
+        host,
+        old => {
+            if old == expected {
+                *prev = crate::bytesmap::read_entry_value(old, at);
+                if *prev == expected_val {
+                    crate::bytesmap::publish_entry_value(old, at, val);
+                }
+            }
+            // As the in-place store: the bucket does not move.
+            true
+        },
+        false,
+        key,
+        val
+    )
+}
+
+/// [`olc_cas_publish_shorter_bucket_map`] for a compare-and-remove: the
+/// shorter bucket is published only while entry `at` of the published
+/// bucket still holds `expected_val`, compared under the terminal's parent
+/// version lock for the reason [`olc_bucket_value_cas_map`] gives.
+///
+/// `Done(seen)` with `seen == Some(expected)`: `prev` holds the entry's
+/// value, and the store happened iff `prev == expected_val`.
+///
+/// SAFETY (for the calls inside `$keep`): as
+/// [`olc_cas_publish_shorter_bucket_map`].
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn olc_cas_publish_shorter_bucket_cas_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+    len: usize,
+    at: usize,
+    expected_val: u64,
+    val: u64,
+    prev: &mut u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_insert_map_body!(
+        host,
+        old => {
+            if old == expected {
+                *prev = crate::bytesmap::read_entry_value(old, at);
+                if *prev == expected_val {
+                    crate::bytesmap::refresh_replacement_values_removing(
+                        old,
+                        val as *mut Bucket,
+                        len,
+                        at,
+                    );
+                    false
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        },
+        false,
+        key,
+        val
+    )
+}
+
 /// The bucket-replacement publish: the conditional store of a new
 /// bucket word over `expected`, with the replacement's value words
 /// refreshed from the published bucket under the lock, immediately
@@ -13896,23 +13996,34 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                     // SAFETY: `word` is a valid Bucket pointer and `at` was found within bounds.
                                     let current_val =
                                         unsafe { crate::bytesmap::read_entry_value(word, at) };
-                                    if expected != Some(current_val) {
+                                    // An early exit only: a mismatch seen here is a value the
+                                    // key held. A match is not yet the compare — an in-place
+                                    // overwrite leaves `word` unchanged — so each arm below
+                                    // compares again where no such store can run.
+                                    let Some(expected_val) = expected else {
+                                        crate::occ_stats::op_end();
+                                        return Ok(Some(current_val));
+                                    };
+                                    if expected_val != current_val {
                                         crate::occ_stats::op_end();
                                         return Ok(Some(current_val));
                                     }
                                     match new {
                                         Some(val) => {
                                             let mut prev = 0u64;
-                                            match olc_bucket_value_inplace_map(
+                                            match olc_bucket_value_cas_map(
                                                 &*self.shared,
                                                 h,
                                                 word,
                                                 at,
+                                                expected_val,
                                                 val,
                                                 &mut prev,
                                             ) {
                                                 OlcOutcome::Done(Some(seen)) if seen == word => {
-                                                    guard.tick_advance(&self.shared.collector);
+                                                    if prev == expected_val {
+                                                        guard.tick_advance(&self.shared.collector);
+                                                    }
                                                     crate::occ_stats::op_end();
                                                     return Ok(Some(prev));
                                                 }
@@ -13926,94 +14037,68 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                                 }
                                             }
                                         }
+                                        None if len == 1 => {
+                                            // Removing the last entry removes the terminal, and
+                                            // the remove body compares the bucket word between
+                                            // two validations, not under the lock: it cannot
+                                            // carry a value compare. The serialised path below
+                                            // compares and removes with every writer excluded.
+                                            break;
+                                        }
                                         None => {
-                                            if len == 1 {
-                                                match olc_cas_remove_bucket_map(
-                                                    &*self.shared,
-                                                    h,
-                                                    word,
-                                                ) {
-                                                    OlcOutcome::Done(Some(seen))
-                                                        if seen == word =>
-                                                    {
-                                                        // SAFETY: `word` is an unlinked Bucket pointer; value frozen.
-                                                        let prev = unsafe {
-                                                            crate::bytesmap::read_entry_value(
-                                                                word, 0,
-                                                            )
-                                                        };
-                                                        self.shared
-                                                            .tree_pop
-                                                            .add(guard.slot_id(), -1);
-                                                        self.entry_pop.add(guard.slot_id(), -1);
-                                                        dispose_bucket(
-                                                            word as *mut Bucket,
-                                                            true,
-                                                            Some(&self.shared.collector),
-                                                        );
-                                                        guard.tick_advance(&self.shared.collector);
-                                                        crate::occ_stats::op_end();
-                                                        return Ok(Some(prev));
-                                                    }
-                                                    OlcOutcome::Fallback(c) => {
-                                                        cause = c;
-                                                        break;
-                                                    }
-                                                    OlcOutcome::Done(_) | OlcOutcome::Retry => {
-                                                        stall!();
-                                                        continue;
-                                                    }
+                                            // SAFETY: `word` is a valid Bucket pointer and `at` was found within bounds.
+                                            let new_raw = unsafe {
+                                                crate::bytesmap::clone_bucket_without(word, len, at)
+                                            }
+                                                as u64;
+                                            let mut prev = 0u64;
+                                            match olc_cas_publish_shorter_bucket_cas_map(
+                                                &*self.shared,
+                                                h,
+                                                word,
+                                                len,
+                                                at,
+                                                expected_val,
+                                                new_raw,
+                                                &mut prev,
+                                            ) {
+                                                OlcOutcome::Done(Some(seen))
+                                                    if seen == word && prev == expected_val =>
+                                                {
+                                                    self.entry_pop.add(guard.slot_id(), -1);
+                                                    dispose_bucket(
+                                                        word as *mut Bucket,
+                                                        true,
+                                                        Some(&self.shared.collector),
+                                                    );
+                                                    guard.tick_advance(&self.shared.collector);
+                                                    crate::occ_stats::op_end();
+                                                    return Ok(Some(prev));
                                                 }
-                                            } else {
-                                                // SAFETY: `word` is a valid Bucket pointer and `at` was found within bounds.
-                                                let new_raw = unsafe {
-                                                    crate::bytesmap::clone_bucket_without(
-                                                        word, len, at,
-                                                    )
+                                                OlcOutcome::Done(Some(seen)) if seen == word => {
+                                                    // The value moved under the lock: nothing
+                                                    // was published.
+                                                    // SAFETY: `new_raw` was allocated above and never published.
+                                                    drop(unsafe {
+                                                        Box::from_raw(new_raw as *mut Bucket)
+                                                    });
+                                                    crate::occ_stats::op_end();
+                                                    return Ok(Some(prev));
                                                 }
-                                                    as u64;
-                                                match olc_cas_publish_shorter_bucket_map(
-                                                    &*self.shared,
-                                                    h,
-                                                    word,
-                                                    len,
-                                                    at,
-                                                    new_raw,
-                                                ) {
-                                                    OlcOutcome::Done(Some(seen))
-                                                        if seen == word =>
-                                                    {
-                                                        // SAFETY: `word` is an unlinked Bucket pointer; value frozen.
-                                                        let prev = unsafe {
-                                                            crate::bytesmap::read_entry_value(
-                                                                word, at,
-                                                            )
-                                                        };
-                                                        self.entry_pop.add(guard.slot_id(), -1);
-                                                        dispose_bucket(
-                                                            word as *mut Bucket,
-                                                            true,
-                                                            Some(&self.shared.collector),
-                                                        );
-                                                        guard.tick_advance(&self.shared.collector);
-                                                        crate::occ_stats::op_end();
-                                                        return Ok(Some(prev));
-                                                    }
-                                                    OlcOutcome::Done(_) | OlcOutcome::Retry => {
-                                                        // SAFETY: `new_raw` was allocated above and publish failed; never published.
-                                                        drop(unsafe {
-                                                            Box::from_raw(new_raw as *mut Bucket)
-                                                        });
-                                                        stall!();
-                                                    }
-                                                    OlcOutcome::Fallback(c) => {
-                                                        // SAFETY: `new_raw` was allocated above and publish failed; never published.
-                                                        drop(unsafe {
-                                                            Box::from_raw(new_raw as *mut Bucket)
-                                                        });
-                                                        cause = c;
-                                                        break;
-                                                    }
+                                                OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                    // SAFETY: `new_raw` was allocated above and publish failed; never published.
+                                                    drop(unsafe {
+                                                        Box::from_raw(new_raw as *mut Bucket)
+                                                    });
+                                                    stall!();
+                                                }
+                                                OlcOutcome::Fallback(c) => {
+                                                    // SAFETY: `new_raw` was allocated above and publish failed; never published.
+                                                    drop(unsafe {
+                                                        Box::from_raw(new_raw as *mut Bucket)
+                                                    });
+                                                    cause = c;
+                                                    break;
                                                 }
                                             }
                                         }
@@ -19994,6 +20079,110 @@ mod tests {
         type Hasher = FewBuckets;
         fn build_hasher(&self) -> FewBuckets {
             FewBuckets(0)
+        }
+    }
+
+    /// Fills `map` past `ROOT_LEAF_CAP` hashes, so writers take the optimistic
+    /// paths, and sets `hot` to 1.
+    #[cfg(not(miri))]
+    fn fill_with_hot_key<S: BuildHasher + Send + Sync + Clone>(
+        map: &SyncExpanseBytesMap<S>,
+        hot: &[u8],
+    ) {
+        for i in 0..1024u64 {
+            map.insert(&i.to_le_bytes(), i);
+        }
+        map.insert(hot, 1);
+    }
+
+    /// Every `update` on one key is one increment: a compare that passes on a
+    /// value read before a concurrent in-place overwrite loses increments.
+    #[test]
+    #[cfg(not(miri))]
+    fn bytes_update_same_key_loses_no_increment() {
+        const THREADS: u64 = 4;
+        const ROUNDS: u64 = 50_000;
+        let hot = b"hot-key";
+        let map = SyncExpanseBytesMap::new();
+        fill_with_hot_key(&map, hot);
+        std::thread::scope(|s| {
+            for _ in 0..THREADS {
+                let map = &map;
+                s.spawn(move || {
+                    for _ in 0..ROUNDS {
+                        map.update(hot, |cur| Some(cur.expect("the key is never removed") + 1));
+                    }
+                });
+            }
+        });
+        assert_eq!(map.get(hot), Some(1 + THREADS * ROUNDS));
+    }
+
+    /// One thread overwrites `hot` in place with odd values while another
+    /// exchanges the value it read for an even one (or for nothing, when
+    /// `remove`), undoing each success. A compare-exchange that reports `Err`
+    /// stored and removed nothing, so the exchanger never reads an even value
+    /// or an absent key.
+    #[cfg(not(miri))]
+    fn bytes_failed_exchange_changes_nothing<S: BuildHasher + Send + Sync + Clone>(
+        map: &SyncExpanseBytesMap<S>,
+        remove: bool,
+    ) {
+        const ROUNDS: u64 = 50_000;
+        let hot = b"hot-key";
+        fill_with_hot_key(map, hot);
+        std::thread::scope(|s| {
+            s.spawn(move || {
+                for i in 0..ROUNDS {
+                    map.insert(hot, 2 * i + 3);
+                }
+            });
+            s.spawn(move || {
+                for round in 0..ROUNDS {
+                    let seen = map.get(hot).unwrap_or_else(|| {
+                        panic!("round {round}: a failed exchange removed the key")
+                    });
+                    assert_eq!(
+                        seen & 1,
+                        1,
+                        "round {round}: a failed exchange stored {seen}"
+                    );
+                    let new = if remove { None } else { Some(seen + 1) };
+                    if map.compare_exchange(hot, Some(seen), new).is_ok() {
+                        // Ours to undo. The only other writer stores odd values.
+                        match map.compare_exchange(hot, new, Some(seen)) {
+                            Ok(_) => {}
+                            Err(Some(v)) if v & 1 == 1 => {}
+                            other => panic!("round {round}: undoing {new:?} saw {other:?}"),
+                        }
+                    }
+                }
+            });
+        });
+        let last = map.get(hot).expect("a failed exchange removed the key");
+        assert_eq!(last & 1, 1, "a failed exchange stored {last}");
+    }
+
+    #[test]
+    #[cfg(not(miri))]
+    fn bytes_compare_exchange_failure_stores_nothing() {
+        bytes_failed_exchange_changes_nothing(&SyncExpanseBytesMap::new(), false);
+    }
+
+    #[test]
+    #[cfg(not(miri))]
+    fn bytes_compare_exchange_failure_removes_nothing() {
+        bytes_failed_exchange_changes_nothing(&SyncExpanseBytesMap::new(), true);
+    }
+
+    /// The same two properties where every key shares its bucket with
+    /// others, so a removal publishes a shorter bucket.
+    #[test]
+    #[cfg(not(miri))]
+    fn bytes_compare_exchange_failure_changes_nothing_in_shared_buckets() {
+        for remove in [false, true] {
+            let map = SyncExpanseBytesMap::with_hasher(FewBuckets::default());
+            bytes_failed_exchange_changes_nothing(&map, remove);
         }
     }
 

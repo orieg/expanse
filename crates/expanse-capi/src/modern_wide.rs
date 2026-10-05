@@ -849,16 +849,17 @@ macro_rules! ordered_bytesmap_nav_extreme {
             unsafe {
                 put(required_len, needed);
             }
-            if key_out.is_null() || buf_len < needed {
-                return ExpanseOrderedBytesNavStatus::BufferTooSmall;
-            }
             if needed == 0 {
-                // Key is empty (0 bytes): nothing to write to key_out.
+                // The key is empty: nothing to write, so any `key_out`
+                // (null included) holds it.
                 // SAFETY: writable value_out out-pointer forwarded per contract; slot pointer is valid.
                 unsafe {
                     put(value_out, *slot.as_ptr());
                 }
                 return ExpanseOrderedBytesNavStatus::Ok;
+            }
+            if key_out.is_null() || buf_len < needed {
+                return ExpanseOrderedBytesNavStatus::BufferTooSmall;
             }
             // buf_len >= needed > 0: decode into caller's buffer.
             // SAFETY: key_out is non-null and valid for writes up to buf_len bytes.
@@ -932,19 +933,27 @@ macro_rules! ordered_bytesmap_nav_by_key {
             unsafe {
                 put(required_len, needed);
             }
-            if key_out.is_null() || buf_len < needed {
-                return ExpanseOrderedBytesNavStatus::BufferTooSmall;
-            }
             if needed == 0 {
+                // The key is empty: nothing to write, so any `key_out`
+                // (null included) holds it.
                 // SAFETY: writable value_out out-pointer forwarded per contract; slot pointer is valid.
                 unsafe {
                     put(value_out, *slot.as_ptr());
                 }
                 return ExpanseOrderedBytesNavStatus::Ok;
             }
-            // SAFETY: key_out is non-null and valid for writes up to buf_len bytes.
+            if key_out.is_null() || buf_len < needed {
+                return ExpanseOrderedBytesNavStatus::BufferTooSmall;
+            }
+            // A cursor loop passes its previous key back as `key` in the
+            // buffer it receives the next one in. The search key is copied
+            // out first, so no shared view of the buffer is live while the
+            // result is written into it.
+            let search = k.to_vec();
+            // SAFETY: key_out is non-null and valid for writes up to buf_len
+            // bytes, and nothing else borrows it: `k` is not used again.
             let dest = unsafe { core::slice::from_raw_parts_mut(key_out.cast::<u8>(), buf_len) };
-            match m.$method(k, dest) {
+            match m.$method(&search, dest) {
                 Ok(Some((decoded_len, slot))) => {
                     debug_assert_eq!(decoded_len, needed);
                     // SAFETY: writable value_out out-pointer forwarded per contract; slot pointer is valid.

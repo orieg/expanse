@@ -1668,6 +1668,80 @@ fn test_modern_capi_ordered_bytesmap_navigation_caller_buffers() {
 }
 
 #[test]
+fn test_modern_capi_ordered_bytesmap_empty_key_and_in_place_cursor() {
+    use expanse::modern::{
+        ExpanseOrderedBytesNavStatus, expanse_ordered_bytesmap_first,
+        expanse_ordered_bytesmap_free, expanse_ordered_bytesmap_insert,
+        expanse_ordered_bytesmap_new, expanse_ordered_bytesmap_next_after,
+        expanse_ordered_bytesmap_prev_at_or_before,
+    };
+
+    let keys: [&[u8]; 5] = [b"", b"\0", b"a", b"a\0b", b"b"];
+    // SAFETY: exercising the C ABI with live handles and in-bounds buffers.
+    unsafe {
+        let map = expanse_ordered_bytesmap_new();
+        for (i, k) in keys.iter().enumerate() {
+            assert!(expanse_ordered_bytesmap_insert(
+                map,
+                k.as_ptr().cast(),
+                k.len(),
+                i as u64 + 10,
+                core::ptr::null_mut()
+            ));
+        }
+
+        // The smallest key is empty: the documented size probe (null buffer,
+        // zero length) is already the whole answer, not a request to retry.
+        let (mut req, mut val) = (usize::MAX, 0u64);
+        let st = expanse_ordered_bytesmap_first(map, core::ptr::null_mut(), 0, &mut req, &mut val);
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!((req, val), (0, 10));
+        let (mut req, mut val) = (usize::MAX, 0u64);
+        let st = expanse_ordered_bytesmap_prev_at_or_before(
+            map,
+            core::ptr::null(),
+            0,
+            core::ptr::null_mut(),
+            0,
+            &mut req,
+            &mut val,
+        );
+        assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+        assert_eq!((req, val), (0, 10));
+
+        // The cursor loop: the previous key is the search key, in the buffer
+        // the next key is written to.
+        let mut buf = [0u8; 8];
+        let mut len = 0usize;
+        let mut seen: Vec<(Vec<u8>, u64)> = vec![(Vec::new(), 10)];
+        loop {
+            let st = expanse_ordered_bytesmap_next_after(
+                map,
+                buf.as_ptr().cast(),
+                len,
+                buf.as_mut_ptr().cast(),
+                buf.len(),
+                &mut len,
+                &mut val,
+            );
+            if st == ExpanseOrderedBytesNavStatus::NotFound {
+                break;
+            }
+            assert_eq!(st, ExpanseOrderedBytesNavStatus::Ok);
+            seen.push((buf[..len].to_vec(), val));
+        }
+        let want: Vec<(Vec<u8>, u64)> = keys
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.to_vec(), i as u64 + 10))
+            .collect();
+        assert_eq!(seen, want);
+
+        expanse_ordered_bytesmap_free(map);
+    }
+}
+
+#[test]
 fn test_modern_capi_ordered_bytesmap_slot_pointer_lifetime() {
     use expanse::modern::{
         ExpanseOrderedBytesNavStatus, expanse_ordered_bytesmap_contains,

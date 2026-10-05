@@ -224,6 +224,8 @@ impl<'a> MapRangeCursor<'a> {
     #[inline]
     pub fn advance_to(&mut self, target: Key) -> Option<(Key, Value)> {
         if target > self.end {
+            // Nothing at or after `target` is in range: the cursor is done.
+            self.cur = None;
             return None;
         }
         let cur = self.cur.as_mut()?;
@@ -895,5 +897,25 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_map_range_cursor_advance_to_past_end_exhausts() {
+        let mut map = crate::map::ExpanseMap::new();
+        for k in 1..=100u64 {
+            map.insert(k, k as _);
+        }
+        let mut cur = map.range_cursor(1..=50);
+        assert_eq!(cur.next().map(|e| e.0), Some(1));
+        assert_eq!(cur.advance_to(51), None);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
+        assert_eq!(cur.advance_to(10), None);
+
+        // A seek that lands past the end agrees with one that starts past it.
+        let mut cur = map.range_cursor(1..50);
+        assert_eq!(cur.advance_to(50), None);
+        assert_eq!(cur.current(), None);
+        assert_eq!(cur.next(), None);
     }
 }
