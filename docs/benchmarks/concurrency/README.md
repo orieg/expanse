@@ -4722,7 +4722,7 @@ The single-writer tripwire (`lock_restarts == 0` at W = 1) held strictly across 
   The single-writer price ratio $P = X_{\text{head}}(1) / X_{\text{serial}}(1)$ is 0.857–0.859 across all 4 runs (BCa 95% intervals within [0.845, 0.863]), falling below the pre-registered floor $F = 0.90$.
   **Mechanism**: Multi-writer OLC allocates an immutable replacement `Bucket` on the heap for every insert/overwrite, publishing it via atomic CAS (`olc_cas_publish_map`) and retiring the superseded bucket under epoch protection. In contrast, the serial build (`ablation-bytes-serial-writers`) mutates existing bucket entries in place under the writer mutex without heap allocation or epoch retirement when matching keys are updated. At $W=1$, where mutex contention is zero, the allocator and epoch-tracking overhead imposes a $`\approx 14.1\%-14.3\%`$ throughput price vs in-place mutation.
   **Superseded in place (2026-09-20, §21.3): this paragraph describes the overwrite path, not G3's cell.** G3's cell inserts keys absent from the prefill, where a fresh hash allocates a bucket and retires nothing in either build. Profiled, the allocator delta is +801 Ir and the epoch-advance delta +12,486 Ir, together 0.12% of the gap; the price is the validated walk (58.6%) and the descent difference (35.0%). The verdict, the ratio and the intervals above are unchanged — only the stated cause is corrected.
-  Per GEMINI.md §1.6 and METHODOLOGY.md §22.7, the locked floor $F = 0.90$ does NOT move post-hoc; the outcome is recorded honestly as `REFUTED` on G3.
+  Per `AGENTS.md` §8.19 and METHODOLOGY.md §22.7, the locked floor $F = 0.90$ does NOT move post-hoc; the outcome is recorded honestly as `REFUTED` on G3.
 - **Scope limitations**: Evaluated on the reference host (Intel Core i9-12900F). Nothing is claimed regarding concurrent removals, key churn outside the registered distributions, alternate hash algorithms, 32-bit targets, or alternate hosts.
 
 ### 21.3 Where that price sits, measured (2026-09-20, Refs #929)
@@ -5758,15 +5758,15 @@ separated.
 
 ## 31. The cost of a concurrent count under a writer — METHODOLOGY §23 evaluation (Refs #1144)
 
-METHODOLOGY §23 registered two non-void runs of 10 cells across 8 rounds on the reference host (12th Gen Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, governor `powersave` on every pinned CPU, transparent huge pages `madvise`; pinned `0,2,4,6,8,10,12,14`, one thread per physical P-core).
+METHODOLOGY §23 registered two non-void runs of 10 cells across 8 rounds on the reference host (12th Gen Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, governor `performance` on every pinned CPU for the duration of the run and `powersave` before and after it (the run's `host-governor.json`), transparent huge pages `madvise`; pinned `0,2,4,6,8,10,12,14`, one thread per physical P-core).
 
-Run 1 was dispatched at `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813` (bare-metal run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924)). Host guard recorded `verdict: "quiet"` (foreign busy CPUs on pinned cores $\le 0.148$, load average `0.00`, `0.01`, `0.00`).
+Run 1 was dispatched at `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813` (bare-metal run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924)). An earlier dispatch at the same commit (run [37245674912](https://github.com/orieg/expanse/actions/runs/37245674912)) failed in its benchmark step and produced no cell. Host guard recorded `verdict: "quiet"` (foreign busy CPUs on pinned cores $\le 0.148$, load average `0.00`, `0.01`, `0.00`).
 
 **INCOMPLETE — run 1 aborted by the job timeout; no §23 gate verdict.** Run 1 was cancelled by GitHub Actions' job execution timeout (`timeout-minutes: 180` in `.github/workflows/bench_baremetal.yml:510`) at 3h 1m 22s during Round 3. Run 2 was not dispatched.
 
 ### 31.1 Sizing and execution timeline
 
-The captured execution timeline (`suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`, 5,365 2-second windows) reveals the exact per-cell scaling on the reference host *(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, powersave, THP madvise; commit `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813`; run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924); artifact `suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`)*:
+The captured execution timeline (`suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`, 5,365 2-second windows) reveals the exact per-cell scaling on the reference host *(measured: reference host — Intel Core i9-12900F, 8P+8E / 24 threads, kernel 6.8, governor `performance` during the run, THP madvise; commit `1c394e5abae759f1ac7ffed2bb21a4fc34eb3813`; run [37245853924](https://github.com/orieg/expanse/actions/runs/37245853924); artifact `suite-tables-writer_scaling_count_cells-37245853924`, `host-activity.jsonl`)*:
 
 - **`uniform` key distribution:**
   - W = 0, R = 1 control: completed in < 1 s.

@@ -5171,7 +5171,19 @@ Once the hot/cold split inlines `enter_writer` and recovers the 2,350,000 Ir ove
    - **Cross-Run Rule (`docs/BENCHMARKING.md` rule 18):**
      - A speedup claim is licensed **only when both runs move the same way** (both runs show positive effect with BCa lower bounds $L_k \ge 1.15$ in the same direction). If one run passes while the other is flat or inverted, or if any control cell (`blob` 100% read at $T=16$, `map` 50% read at $T=16$) drifts outside $`\pm 5\%`$ in both runs, no speedup is claimed and the outcome is marked `INCONCLUSIVE` or `DRIFT`.
 
+---
 
+## Errata to locked sections (appended 2026-10-05; the sections above are not edited)
 
+Each row corrects a reference or a statement of fact in a locked section. None changes a hypothesis, a threshold, a cell, a decision rule or a void condition.
 
-
+| Section | As written | Correction |
+|---|---|---|
+| §31.2 | "Rule 12 / §8.8 commit 1" | `AGENTS.md` §8.8, commit 1. There is no "Rule 12" in this repository. |
+| §31.7 | "rule B-12 and AGENTS §1.6 (no post-hoc threshold redesigns to force a pass)" | `AGENTS.md` §8.19. Neither "B-12" nor an `AGENTS.md` §1.6 exists. |
+| §31 header | "locked before any engine code of the change below" | The G2 ceilings of §31.5 were amended once after the first lock and before any engine commit: commit `5f2776ac2` on the branch of #1344 replaced "within 0.1%" on four arms with tiered ceilings. The disclosure was in the PR body only. |
+| §32 header | "locked before any batch-cursor engine code" | §32 was first written in commit `ab5cba7ef` and amended in `9e161661f` (the buffer sizing, the scan-semantics wording and the prediction text, reconciled with `scripts/olc_bounds.py`), both before any engine code. The disclosure was in the body of #1351 only. |
+| §32, §33 numbering notes | "per work plan §0 rule 11" | Section numbers were assigned at merge. The work plan is not a document of this repository. |
+| §34 numbering note | "#1373 (A6, thread-local freelist allocation stripe)" | #1373 pre-registered validated ordered reads and a batch cursor on `StrReader` (§33). It has nothing to do with freelists. |
+| §35.5, G35.2 | "passes under `cargo test --test ... --features loom`" | There is no `loom` feature. The model runs under `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`, the `Loom Concurrency Race Model` CI job. |
+| §35.4 | "All other 59 `sync_*` arms" against a falsifier naming only the four blob arms and the plain-tree arms | The table and the falsifier sentence disagree on whether another `sync_*` arm above +0.1% refutes the split. #1378 was held to the table: it merged with no arm above +0.1% (CI run 37281909211). |

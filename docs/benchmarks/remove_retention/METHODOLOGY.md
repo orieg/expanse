@@ -781,3 +781,9 @@ Locked on 2026-10-04, **before any candidate Gate G1 evaluation data exists**
   probabilities, region header overhead, and expected RSS recovery fraction
   S_min = 61.93%).
 
+
+### 15.4 Erratum to §15.3 (appended 2026-10-05; §15.3 is not edited)
+
+§15.3 cites "GEMINI.md §1.6, D203, B-12 pre-registration discipline". None of the three resolves to anything in this repository. The rule it relies on is `AGENTS.md` §8.19: a threshold, method or sample size changed after results exist forces an `INTERMEDIATE` relabel and fresh runs.
+
+§15.3 changes the denominator of Gate G1's first clause from the `mem_held` released (the form issue #1108 states) to the bytes handed back to the operating system. It was written before any candidate measurement of G1, and after the baseline in `results/allocator_overhead_a4b03ad5.txt` had shown the original form at 1.48 / 4.31 = 34% on the random shape at 10,000,000 keys. A PASS on the amended clause is therefore a PASS on the amended gate, not on the gate as #1108 states it, and any report of it says so.

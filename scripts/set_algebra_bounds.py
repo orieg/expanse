@@ -3,7 +3,7 @@
 scripts/set_algebra_bounds.py — Mathematical bounds and complexity derivations
 for k-way aggregate set algebra (issue #610).
 
-Enforces Rule 12 / GEMINI.md §1.3 (Math-first validation in committed Python
+Enforces AGENTS.md §8.8 commit 1 (Math-first validation in committed Python
 with reference-pinned unit tests).
 """
 
