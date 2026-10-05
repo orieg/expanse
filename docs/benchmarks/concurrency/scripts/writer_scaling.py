@@ -6412,6 +6412,15 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
         assert comb_fail_str["verdict"] == "REFUTED", comb_fail_str
         assert len(comb_fail_str["evaluation"]["failing_cells"]) > 0
 
+        # 6. Fail-closed refusal: --arm str with --read-op scan must exit non-zero until PR 2
+        proc_refuse = subprocess.run(
+            [str(throughput_bin), "--role", "throughput", "--arm", "str", "--read-op", "scan",
+             "--writers", "0", "--readers", "1", "--probe", "paths", "--quick"],
+            capture_output=True, text=True, check=False,
+        )
+        assert proc_refuse.returncode != 0, proc_refuse.returncode
+        assert "SyncStrMapCursor not yet implemented (#1143 PR 2)" in proc_refuse.stderr, proc_refuse.stderr
+
     sys.stderr.write("Batch cursor scan instrument PASSED\n")
 
 
