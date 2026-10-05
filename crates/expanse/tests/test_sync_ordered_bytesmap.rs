@@ -555,3 +555,32 @@ fn test_from_conversions_and_into_inner() {
     let inner_str = sync_map.into_inner();
     assert_eq!(inner_str.len(), 3);
 }
+
+/// A key that is not an escaped key, put in through `inner()`: the
+/// `*_decode_into` navigation reports the decode error and does not panic, and
+/// the allocating form panics, as `inner()`'s rustdoc states.
+#[test]
+fn test_unescaped_key_through_inner_is_an_error_not_a_wrong_answer() {
+    use expanse_trie::strmap::NulFreeStr;
+
+    let map = SyncExpanseOrderedBytesMap::new();
+    // 0x01 opens an escape; 0x05 is not a byte that may follow it.
+    let raw = NulFreeStr::new(b"\x01\x05").expect("NUL-free");
+    map.inner().insert(raw, 7);
+
+    let mut buf = [0u8; 16];
+    assert!(matches!(
+        map.first_decode_into(&mut buf),
+        Err(EscapeDecodeError::InvalidEscapeByte { byte: 0x05, .. })
+    ));
+    assert!(matches!(
+        map.last_decode_into(&mut buf),
+        Err(EscapeDecodeError::InvalidEscapeByte { byte: 0x05, .. })
+    ));
+
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| map.first()));
+    assert!(
+        panicked.is_err(),
+        "first() decoded a key that is not escaped"
+    );
+}

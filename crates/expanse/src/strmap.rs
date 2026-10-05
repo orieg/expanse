@@ -3292,6 +3292,17 @@ mod olc {
             }
         }
 
+        /// The compare-and-store of `key`'s value on the optimistic path: the
+        /// compare runs under the lock that covers the entry (the cover lock
+        /// for a suffix or leaf-state entry, the terminal's parent version
+        /// lock for a tree terminal), so no other writer's store falls
+        /// between it and the store.
+        ///
+        /// `Done(seen)`: the store happened iff `seen == expected`.
+        ///
+        /// # Safety
+        ///
+        /// As [`Self::olc_insert`].
         pub(crate) unsafe fn olc_compare_exchange(
             &self,
             key: &NulFreeStr,
