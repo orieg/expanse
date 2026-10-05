@@ -473,6 +473,95 @@ mod tests {
         }
     }
 
+    /// Every combination of start and end bound kinds, at bounds on, between
+    /// and outside the keys, against `BTreeMap::range`; then `advance_to`
+    /// interleaved with `next` inside a bounded range.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "576 ranges over 3,000 keys: too slow under Miri; the bound logic has no unsafe"
+    )]
+    fn test_map32_range_cursor_bound_kinds_and_advance_to() {
+        use core::ops::Bound::{self, Excluded, Included, Unbounded};
+
+        let mut map = ExpanseMap32::new();
+        let mut model = BTreeMap::new();
+        let mut x = 0x2545_F491u32;
+        for _ in 0..3_000 {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            // Dense low region, sparse high region, and both extremes.
+            let k = if x & 1 == 0 { x >> 20 } else { x };
+            map.insert(k, k ^ 7);
+            model.insert(k, k ^ 7);
+        }
+        for k in [0, Key32::MAX] {
+            map.insert(k, k ^ 7);
+            model.insert(k, k ^ 7);
+        }
+        let present: Vec<Key32> = model.keys().copied().collect();
+        let points = [
+            0,
+            1,
+            present[10],
+            present[10] + 1,
+            present[present.len() / 2],
+            present[present.len() - 2],
+            Key32::MAX - 1,
+            Key32::MAX,
+        ];
+        let kinds = |p: Key32| [Included(p), Excluded(p), Unbounded];
+        for &lo in &points {
+            for &hi in &points {
+                for start in kinds(lo) {
+                    for end in kinds(hi) {
+                        // `BTreeMap::range` panics on these; the cursor must be empty.
+                        let inverted = match (start, end) {
+                            (Included(a) | Excluded(a), Included(b) | Excluded(b)) if a > b => true,
+                            (Excluded(a), Excluded(b)) if a == b => true,
+                            _ => false,
+                        };
+                        let got: Vec<_> = map.range_cursor((start, end)).collect();
+                        let want: Vec<_> = if inverted {
+                            Vec::new()
+                        } else {
+                            model
+                                .range::<Key32, (Bound<Key32>, Bound<Key32>)>((start, end))
+                                .map(|(&k, &v)| (k, v))
+                                .collect()
+                        };
+                        assert_eq!(got, want, "range ({start:?}, {end:?})");
+                    }
+                }
+            }
+        }
+
+        // `advance_to` inside a bounded range: never before the start, never
+        // past the end, never backwards.
+        let (lo, hi) = (present[100], present[present.len() - 100]);
+        let in_range: Vec<(Key32, u32)> = model.range(lo..=hi).map(|(&k, &v)| (k, v)).collect();
+        let mut cur = map.range_cursor(lo..=hi);
+        let mut at = 0usize;
+        let mut step = 0u32;
+        while at < in_range.len() {
+            step += 1;
+            if step.is_multiple_of(3) {
+                assert_eq!(cur.next(), Some(in_range[at]));
+                at += 1;
+            } else {
+                // A target a few entries ahead, and one behind the position.
+                let ahead = (at + (step as usize % 5)).min(in_range.len() - 1);
+                assert_eq!(cur.advance_to(in_range[ahead].0), Some(in_range[ahead]));
+                at = ahead;
+                assert_eq!(cur.advance_to(lo.saturating_sub(1)), Some(in_range[at]));
+                assert_eq!(cur.next(), Some(in_range[at]));
+                at += 1;
+            }
+        }
+        assert_eq!(cur.next(), None);
+    }
+
     #[test]
     fn test_map_range_cursor_advance_to_past_end_exhausts() {
         let mut map = crate::map32::ExpanseMap32::new();

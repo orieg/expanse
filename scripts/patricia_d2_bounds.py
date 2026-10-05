@@ -24,6 +24,7 @@ Reference values are pinned to committed D1 artifacts:
 Usage:
   python3 scripts/patricia_d2_bounds.py            # run the pinned tests and print derived bounds
   python3 scripts/patricia_d2_bounds.py --self-test
+  python3 scripts/patricia_d2_bounds.py --evaluate <counters_prefix_scan_d2_2m.json>
 """
 
 from __future__ import annotations
@@ -32,6 +33,9 @@ import json
 import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 
 # Pinned baseline figures from D1 artifact counters_prefix_scan_d1.json
 # (49,934,000 total ops = 249,670 entries * 200 passes)
@@ -89,6 +93,85 @@ def surviving_cycle_gap_lower_bound(baseline_delta_cycles: float, stall_fraction
     if not (0 < stall_fraction <= 1):
         raise ValueError(f"stall_fraction must be between 0 and 1, got {stall_fraction}")
     return round(baseline_delta_cycles * stall_fraction, 2)
+
+
+def registered_bounds() -> dict[str, float]:
+    """The three bounds METHODOLOGY.md §3.4.3 registers for D2a, D2b and D2c.
+
+    D2c pins the D1 L3-stall delta directly (52.50 cycles/entry), not the
+    product `surviving_cycle_gap_lower_bound` computes from the cycle gap and
+    the stall fraction (52.37): the registered table states 52.50.
+    """
+    return {
+        "dtlb_upper": dtlb_elimination_upper_bound(D1_GEN_DTLB_POINT, 0.95),
+        "l3_delta_lower": l3_invariance_lower_bound(D1_GEN_L3_POINT - D1_SORTED_L3_POINT, 0.60),
+        "cycle_delta_lower": round(D1_STALLS_DELTA_L3_CYCLES, 2),
+    }
+
+
+GENERATOR_ARM = "strmap_prefix_scan"
+SORTED_ARM = "strmap_prefix_scan_sorted"
+
+
+def evaluate_d2(artifact_2m: dict) -> dict:
+    """Evaluates D2a, D2b and D2c on one `counters_prefix_scan_d2_2m.json` artifact.
+
+    Counts are per entry: each run's `probe - build` count divided by
+    `distinct_probes * passes`. D2a reads the generator arm alone. D2b and D2c
+    read the difference of the two arms, taken run by run in the order the
+    artifact records them, since the arms are measured by separate processes
+    and a per-arm interval does not bound a difference. Every clause is decided
+    on a BCa 95% bound (2,000 resamples, seed 42), never on the point.
+
+    The run is VOID, with no clause evaluated, unless the artifact records
+    `hugetlb` and both arms faulted in huge pages (`thp_fault_alloc > 0`):
+    Amendment A4 makes a 2 MiB arm without verified huge pages no measurement.
+
+    One artifact is one run. A4 registers two runs; a verdict needs both.
+    """
+    cells = {c["arm"]: c for c in artifact_2m["cells"]}
+    missing = [a for a in (GENERATOR_ARM, SORTED_ARM) if a not in cells]
+    if missing:
+        raise ValueError(f"artifact has no cell for arm(s) {missing}")
+    voids = []
+    if artifact_2m.get("provenance", {}).get("hugetlb") is not True:
+        voids.append("provenance.hugetlb is not true")
+    for arm in (GENERATOR_ARM, SORTED_ARM):
+        if cells[arm].get("thp_delta", {}).get("thp_fault_alloc", 0) <= 0:
+            voids.append(f"{arm}: thp_fault_alloc did not increase")
+    if voids:
+        return {"verdict": "VOID", "voids": voids, "clauses": {}}
+
+    def per_entry(arm: str, counter: str) -> list[float]:
+        cell = cells[arm]
+        entries = cell["distinct_probes"] * cell["passes"]
+        c = cell["counters"][counter]
+        if c.get("status") != "ok":
+            raise ValueError(f"{arm}: counter {counter} status is {c.get('status')!r}")
+        return [x / entries for x in c["samples"]]
+
+    def diff(counter: str) -> list[float]:
+        g, s_ = per_entry(GENERATOR_ARM, counter), per_entry(SORTED_ARM, counter)
+        if len(g) != len(s_):
+            raise ValueError(f"{counter}: arms have {len(g)} and {len(s_)} runs")
+        return [a - b for a, b in zip(g, s_)]
+
+    bounds = registered_bounds()
+    clauses = {}
+    for name, data, key, side in (
+        ("D2a", per_entry(GENERATOR_ARM, "dTLB-load-misses"), "dtlb_upper", "upper"),
+        ("D2b", diff("mem_load_retired.l3_miss"), "l3_delta_lower", "lower"),
+        ("D2c", diff("cycles"), "cycle_delta_lower", "lower"),
+    ):
+        point, lo, hi, method = bca_bootstrap_ci_with_method(data, confidence=0.95)
+        bound = bounds[key]
+        met = hi <= bound if side == "upper" else lo >= bound
+        clauses[name] = {
+            "n": len(data), "point": point, "ci": [lo, hi], "ci_method": method,
+            "bound": bound, "decided_on": side, "met": met,
+        }
+    verdict = "PASS" if all(c["met"] for c in clauses.values()) else "FAIL"
+    return {"verdict": verdict, "voids": [], "clauses": clauses}
 
 
 def load_d1_reference_values(repo_root: Path) -> dict[str, float]:
@@ -149,9 +232,11 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         # D2c: cycle gap lower bound matching L3 stalls attribution
         cycle_bound = surviving_cycle_gap_lower_bound(D1_BASELINE_DELTA_CYCLES, D1_STALLS_L3_FRACTION)
         self.assertEqual(cycle_bound, 52.37)
-        # Direct stall pinning bound
-        direct_stall_bound = round(D1_STALLS_DELTA_L3_CYCLES, 2)
-        self.assertEqual(direct_stall_bound, 52.50)
+        # The registered D2c bound is the direct stall delta, not that product.
+        self.assertEqual(
+            registered_bounds(),
+            {"dtlb_upper": 0.0410, "l3_delta_lower": 0.1416, "cycle_delta_lower": 52.50},
+        )
 
     def test_invalid_inputs(self):
         with self.assertRaises(ValueError):
@@ -175,19 +260,92 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         self.assertAlmostEqual(d["sorted_dtlb"], D1_SORTED_DTLB_POINT, places=5)
         self.assertAlmostEqual(d["gen_l3"], D1_GEN_L3_POINT, places=5)
         self.assertAlmostEqual(d["sorted_l3"], D1_SORTED_L3_POINT, places=5)
+        self.assertAlmostEqual(d["gen_cycles"], D1_GEN_CYCLES_POINT, places=3)
+        self.assertAlmostEqual(d["sorted_cycles"], D1_SORTED_CYCLES_POINT, places=3)
+        self.assertAlmostEqual(d["stalls_delta_l3"], D1_STALLS_DELTA_L3_CYCLES, places=3)
+        self.assertAlmostEqual(d["stalls_delta_cycles"], D1_STALLS_TOTAL_DELTA_CYCLES, places=3)
+
+    @staticmethod
+    def _artifact(gen: dict, srt: dict, hugetlb=True, thp=(100, 100)) -> dict:
+        def cell(arm, counters, faults):
+            return {
+                "arm": arm, "distinct_probes": 10, "passes": 10,
+                "thp_delta": {"thp_fault_alloc": faults},
+                "counters": {k: {"status": "ok", "samples": v} for k, v in counters.items()},
+            }
+        return {"provenance": {"hugetlb": hugetlb},
+                "cells": [cell(GENERATOR_ARM, gen, thp[0]), cell(SORTED_ARM, srt, thp[1])]}
+
+    def test_evaluate_d2(self):
+        # Per entry (100 entries): dTLB 0.02, L3 delta 0.20, cycle delta 60.
+        jitter = [0.0, 1.0, -1.0, 2.0, -2.0, 0.5, -0.5, 1.5]
+        gen = {"dTLB-load-misses": [2.0 + j / 10 for j in jitter],
+               "mem_load_retired.l3_miss": [21.0 + j / 10 for j in jitter],
+               "cycles": [13000.0 + 10 * j for j in jitter]}
+        srt = {"dTLB-load-misses": [1.0] * 8,
+               "mem_load_retired.l3_miss": [1.0] * 8,
+               "cycles": [7000.0] * 8}
+        r = evaluate_d2(self._artifact(gen, srt))
+        self.assertEqual(r["verdict"], "PASS")
+        self.assertEqual({k: v["met"] for k, v in r["clauses"].items()},
+                         {"D2a": True, "D2b": True, "D2c": True})
+        self.assertAlmostEqual(r["clauses"]["D2c"]["point"], 60.01875, places=4)
+        for c in r["clauses"].values():
+            self.assertLessEqual(c["ci"][0], c["point"])
+            self.assertLessEqual(c["point"], c["ci"][1])
+            self.assertTrue(c["ci_method"])
+
+        # Each clause fails alone: one counter moved across its bound.
+        for clause, counter, values in (
+            ("D2a", "dTLB-load-misses", [5.0 + j / 10 for j in jitter]),       # 0.05 > 0.0410
+            ("D2b", "mem_load_retired.l3_miss", [11.0 + j / 10 for j in jitter]),  # 0.10 < 0.1416
+            ("D2c", "cycles", [12000.0 + 10 * j for j in jitter]),             # 50 < 52.50
+        ):
+            bad = dict(gen)
+            bad[counter] = values
+            r = evaluate_d2(self._artifact(bad, srt))
+            self.assertEqual(r["verdict"], "FAIL", clause)
+            self.assertEqual([k for k, v in r["clauses"].items() if not v["met"]], [clause])
+
+        # A point on the right side of its bound with an interval across it fails:
+        # the clause is decided on the bound.
+        wide = dict(gen)
+        wide["cycles"] = [12600.0, 12600.0, 12600.0, 12600.0, 12600.0, 12600.0, 11000.0, 14200.0]
+        r = evaluate_d2(self._artifact(wide, srt))
+        self.assertGreater(r["clauses"]["D2c"]["point"], 52.50)
+        self.assertFalse(r["clauses"]["D2c"]["met"])
+
+    def test_evaluate_d2_void(self):
+        ok = {"dTLB-load-misses": [2.0] * 4, "mem_load_retired.l3_miss": [21.0] * 4,
+              "cycles": [13000.0] * 4}
+        for kwargs in ({"hugetlb": False}, {"thp": (0, 100)}, {"thp": (100, 0)}):
+            r = evaluate_d2(self._artifact(ok, ok, **kwargs))
+            self.assertEqual(r["verdict"], "VOID", kwargs)
+            self.assertEqual(r["clauses"], {})
+            self.assertTrue(r["voids"])
+        with self.assertRaises(ValueError):
+            evaluate_d2({"provenance": {"hugetlb": True}, "cells": []})
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["--evaluate"]:
+        if len(sys.argv) != 3:
+            print("usage: patricia_d2_bounds.py --evaluate <counters_prefix_scan_d2_2m.json>", file=sys.stderr)
+            return 2
+        with open(sys.argv[2], "r", encoding="utf-8") as fh:
+            print(json.dumps(evaluate_d2(json.load(fh)), indent=2))
+        return 0
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPatriciaD2Bounds)
     runner = unittest.TextTestRunner(stream=sys.stdout, verbosity=2)
     result = runner.run(suite)
     if not result.wasSuccessful():
         return 1
 
-    dtlb_bound = dtlb_elimination_upper_bound(D1_GEN_DTLB_POINT, 0.95)
+    bounds = registered_bounds()
+    dtlb_bound = bounds["dtlb_upper"]
     delta_l3 = D1_GEN_L3_POINT - D1_SORTED_L3_POINT
-    l3_bound = l3_invariance_lower_bound(delta_l3, 0.60)
-    cycle_bound = round(D1_STALLS_DELTA_L3_CYCLES, 2) # 52.50 cycles
+    l3_bound = bounds["l3_delta_lower"]
+    cycle_bound = bounds["cycle_delta_lower"]
 
     print("\n--- Diagnostic D2 Pre-Registered Bounds ---")
     print(f"Clause D2a (dTLB Elimination): BCa_upper(generator_2m.dtlb) <= {dtlb_bound} misses/entry (95% reduction from {D1_GEN_DTLB_POINT:.4f})")

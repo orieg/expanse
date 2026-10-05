@@ -148,6 +148,9 @@ CI_METHOD_ROOTS = ("scripts", "docs/benchmarks", "bindings", "integrations", "cr
 # shared estimator through `*_with_method`, keep the fourth value, and name
 # `ci_method` in what it writes.
 CI_METHOD_PRODUCERS = {
+    # The #1096 D2 evaluator: each clause's interval is recorded with its
+    # `ci_method`.
+    "scripts/patricia_d2_bounds.py",
     # The #1257 W3 encoding timing: per-arm intervals and paired per-round
     # ratios, each recorded with its `ci_method`.
     "scripts/leaf_layout_timing.py",

@@ -283,10 +283,25 @@ class TestShrinkRssBounds(unittest.TestCase):
         # shape: random, N = 10,000,000 keys
         # mem_held = 32.70 B/key, held/shr = 28.39 B/key -> released_held = 4.31 B/key
         # trimmed RSS = 33.72 B/key, RSS/shr = 32.24 B/key -> delta_rss = 1.48 B/key
-        released_held = 32.70 - 28.39  # 4.31 B/key
+        # Read from the committed artifact, so the pins fail if it changes:
+        # the random row of the N = 10,000,000 table.
+        from pathlib import Path
+
+        artifact = Path(__file__).resolve().parent.parent / "results" / "allocator_overhead_a4b03ad5.txt"
+        lines = artifact.read_text(encoding="utf-8").splitlines()
+        start = next(i for i, line in enumerate(lines) if "N = 10000000 keys" in line)
+        header = lines[start + 1].split()
+        row = next(line.split() for line in lines[start + 2:] if line.startswith("random "))
+        col = dict(zip(header[1:], (float(x) for x in row[1:])))
+        self.assertEqual(
+            (col["mem_held"], col["held/shr"], col["trimmed"], col["RSS/shr"]),
+            (32.70, 28.39, 33.72, 32.24),
+        )
+
+        released_held = col["mem_held"] - col["held/shr"]  # 4.31 B/key
         self.assertAlmostEqual(released_held, 4.31, places=2)
 
-        actual_old_drop = 33.72 - 32.24  # 1.48 B/key
+        actual_old_drop = col["trimmed"] - col["RSS/shr"]  # 1.48 B/key
         self.assertAlmostEqual(actual_old_drop, 1.48, places=2)
         old_return_ratio = actual_old_drop / released_held  # 1.48 / 4.31 = 0.343387...
         self.assertAlmostEqual(old_return_ratio, 0.3434, places=3)

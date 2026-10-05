@@ -20912,47 +20912,60 @@ mod tests {
         }
     }
 
+    /// Losers of a publish race charge the record they allocated as dead.
+    ///
+    /// The map is filled past `ROOT_LEAF_CAP` first: in root-leaf state every
+    /// exchange is serialised and a loser fails its compare before it
+    /// allocates, so there is no conflict to charge. In tree state the record
+    /// is allocated before the locked compare, and several threads inserting
+    /// one absent key race to publish. One round rarely races; many do.
     #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
     fn sync_blob_compare_exchange_publish_conflict_charges_dead() {
         use std::sync::Barrier;
-        let m = Arc::new(SyncExpanseBlobMap::new());
-        let k = 9999u64;
         const T: usize = 4;
-        let barrier = Arc::new(Barrier::new(T));
-        let handles: Vec<_> = (0..T)
-            .map(|i| {
-                let m = Arc::clone(&m);
-                let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
-                    let payload = format!("concurrent-arena-payload-for-thread-{i}");
-                    barrier.wait();
-                    m.compare_exchange(k, None, Some((payload.as_bytes(), i as u32)))
-                })
-            })
-            .collect();
-
-        let mut successes = 0;
-        for h in handles {
-            if h.join().unwrap().is_ok() {
-                successes += 1;
-            }
+        const ROUNDS: usize = 300;
+        const FILL: u64 = 64;
+        let m = SyncExpanseBlobMap::new();
+        let filler = [0xA5u8; 24];
+        for i in 0..FILL {
+            m.insert(1_000 + i, &filler, 0).unwrap();
         }
-        assert_eq!(
-            successes, 1,
-            "Exactly one thread must succeed inserting the key"
-        );
-        assert_eq!(m.len(), 1);
+        let filler_live = FILL as usize * (8 + filler.len());
+        let k = 9999u64;
+        for round in 0..ROUNDS {
+            let barrier = Barrier::new(T);
+            let successes: usize = std::thread::scope(|s| {
+                let handles: Vec<_> = (0..T)
+                    .map(|i| {
+                        let (m, barrier) = (&m, &barrier);
+                        s.spawn(move || {
+                            let payload = format!("concurrent-arena-payload-{round}-thread-{i}");
+                            barrier.wait();
+                            m.compare_exchange(k, None, Some((payload.as_bytes(), i as u32)))
+                                .is_ok()
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| usize::from(h.join().unwrap()))
+                    .sum()
+            });
+            assert_eq!(successes, 1, "round {round}: one thread inserts the key");
 
-        // Crucial verification: the 3 losers had publish conflicts and allocated arena
-        // bytes, but must have charged their allocated records dead via charge_dead.
-        // Therefore, the total arena live_bytes must equal ONLY the 1 winning record's bytes!
-        let (winning_bytes, _) = m.get(k).unwrap();
-        let expected_live = 8 + winning_bytes.len();
-        let actual_live = m.with_locked(|m| m.arena().live_bytes());
-        assert_eq!(
-            actual_live, expected_live,
-            "Publish conflicts must charge uncommitted arena allocations dead"
-        );
+            // Live bytes are the fillers and the winner's record, and nothing
+            // a loser allocated.
+            let (winning_bytes, _) = m.get(k).unwrap();
+            let expected_live = filler_live + 8 + winning_bytes.len();
+            let actual_live = m.with_locked(|m| m.arena().live_bytes());
+            assert_eq!(
+                actual_live, expected_live,
+                "round {round}: a loser's record was not charged dead"
+            );
+            assert!(m.remove(k));
+        }
+        assert_eq!(m.len(), FILL);
     }
 
     /// The optimistic **colliding** removal (Refs #1047): `FewBuckets`
