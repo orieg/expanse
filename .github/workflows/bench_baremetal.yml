@@ -117,6 +117,7 @@ on:
           - art_memory
           - art_small_payload
           - patricia_comparison
+          - patricia_d2_paging
           - allocator_overhead
           # END GENERATED: bench-suites
   issue_comment:
@@ -1271,6 +1272,35 @@ jobs:
                   --run-id "$RUN_URL" \
                   | tee bench-output.txt
                 ;;
+              "patricia_d2_paging")
+                # Diagnostic D2 hardware PMU counters over 1M prefix scan under 4 KiB vs 2 MiB THP (#1096).
+                # Runs four cells: strmap_prefix_scan and strmap_prefix_scan_sorted, baseline and --hugetlb.
+                cargo build --release -p expanse-trie --example perf_point_lookup
+                python3 scripts/perf_counters.py \
+                  --arms strmap_prefix_scan,strmap_prefix_scan_sorted \
+                  --pops 1000000 \
+                  --hit-pcts 100 \
+                  --passes 200 \
+                  --runs 10 \
+                  --host-desc "$HOST_DESC" \
+                  --commit "$(git rev-parse HEAD)" \
+                  --run-id "$RUN_URL" \
+                  --out docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_4k.json \
+                  | tee patricia-d2-4k.md
+                python3 scripts/perf_counters.py \
+                  --arms strmap_prefix_scan,strmap_prefix_scan_sorted \
+                  --pops 1000000 \
+                  --hit-pcts 100 \
+                  --passes 200 \
+                  --runs 10 \
+                  --hugetlb \
+                  --host-desc "$HOST_DESC" \
+                  --commit "$(git rev-parse HEAD)" \
+                  --run-id "$RUN_URL" \
+                  --out docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_2m.json \
+                  | tee patricia-d2-2m.md
+                cat patricia-d2-4k.md patricia-d2-2m.md > bench-output.txt
+                ;;
               "concurrency")
                 # Mixed read/write Sync* instrument: benches/concurrency.rs run
                 # through mixed_concurrency.py, which pins, interleaves the
@@ -2174,6 +2204,9 @@ jobs:
             hashbrown-ycsb.txt \
             allocator-overhead.txt \
             docs/benchmarks/patricia_comparison/results/baseline_*.json \
+            docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_*.json \
+            patricia-d2-4k.md \
+            patricia-d2-2m.md \
             comparative.txt \
             bytes-per-key.txt \
             bench-output.txt \
@@ -2230,6 +2263,8 @@ jobs:
           path: |
             perf-counters-*.json
             counters_*.json
+            docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_*.json
+            patricia-d2-*.md
             c2c_*.txt
             profile_*.json
             profile_*.txt

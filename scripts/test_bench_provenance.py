@@ -257,7 +257,7 @@ class HostFacts(unittest.TestCase):
         f = bp.host_facts()
         for k in ("cpu_model", "cpus_online", "cpu_core_cpus", "cpu_atom_cpus",
                   "cpu0_thread_siblings", "scaling_driver", "scaling_governor",
-                  "transparent_hugepage", "platform"):
+                  "transparent_hugepage", "transparent_hugepage_defrag", "platform"):
             self.assertIn(k, f, f"host_facts() dropped {k}")
         self.assertTrue(f["cpu_model"])
 

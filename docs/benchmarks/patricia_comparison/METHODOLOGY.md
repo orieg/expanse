@@ -216,6 +216,88 @@ remedy (co-allocation, prefetch, a packed-suffix default) is proposed on its
 strength. If D1b and D1c hold, placement is the measured cause, and a remedy
 is a separate, ablated change.
 
+**Amendment A4 — diagnostic D2 (2026-10-04, registered before any huge-page counter
+data; refs #1096).** Diagnostic D1 established that the 1M prefix scan's
+build-order gap (41.4 vs 14.7 ns per entry; workload: patricia_scan) is driven by memory placement
+rather than instruction path disparity: `instructions` agreed to 0.06% (D1a PASS),
+while `dTLB-load-misses` showed 0.8203 vs 0.0097 misses per entry (85× difference)
+and `mem_load_retired.l3_miss` showed 0.2360 vs −0.0000 misses per entry (D1b PASS).
+In D1 stalls (`counters_prefix_scan_d1_stalls.json` at commit `c3e54ec2`), L3 miss stalls
+accounted for 52.50 cycles per entry of the 85.94 cycle gap (61.1%).
+
+### §3.4.1 Precedent from #782 (Masstree Comparison) & Why D2 is Distinct
+In #782 (commit `ee6b4290`), transparent huge pages were evaluated for random string point lookup (`strmap_get` vs integer `map_get` at N = 10⁶):
+> "Translation misses go to **zero** on both arms and the gap does not close:
+> 3.44× → 3.29×. The misses were real and removing them is worth about 11% of
+> the string arm, but **they were not the cost** — 96% of the gap survives their
+> complete elimination. An `madvise(MADV_HUGEPAGE)` change to the engine's
+> arenas would buy a real, small win and would not address what #724 is about. [...]
+> With translation eliminated as a variable, the surviving memory signal is unambiguous:
+> `LLC-load-misses` 2.899 against `map_get`'s 0.107, and `L1-dcache-load-misses` 8.556 against 3.918,
+> both under huge pages. Read with `strmap_get_counter` — no suffix leaf, still 1.156 `LLC-load-misses`
+> — the remaining target is the **string tree's descent and node layout**, neither the leaf nor the allocator."
+> (`docs/benchmarks/masstree_comparison/README.md:644-658`)
+
+Diagnostic D2 is not a repetition of #782 for four structural reasons:
+1. **Workload Traversal Structure**: #782 evaluated single-key random point lookup (`strmap_get`),
+   where each probe traverses arbitrary tree depth across disparate nodes globally across the trie.
+   D2 evaluates sequential prefix range iteration (`strmap_prefix_scan`), where a single initial
+   seek descends to the prefix root and subsequent iterations walk horizontally across adjacent sibling
+   leaves and child branches within a localized subtree.
+2. **Comparison Arms**: #782 compared string keys (`strmap_get`) against u64 integer keys (`map_get`).
+   D2 evaluates generator draw order (`strmap_prefix_scan`) against sorted build order
+   (`strmap_prefix_scan_sorted`) within the identical string map structure holding the identical 1M path keys.
+3. **Spatial Locality Hypothesis**: In D1, generator-order build exhibited 0.8203 dTLB load misses per
+   yielded entry (vs 0.0097 sorted). A sequential prefix walk touching adjacent entries might have
+   suffered from virtual page dispersal across 4 KiB boundaries that 2 MiB contiguous physical pages
+   resolve; alternatively, dispersal across disparate 64-byte cache lines might persist. #782 did not
+   and could not answer whether prefix-scan range traversal's build-order gap survives 2 MiB page backing.
+4. **Treatment Verification Precondition**: #782 established the mandatory verification requirement:
+   verifying that `AnonHugePages` / `thp_fault_alloc` actually increased before interpreting the result.
+   D2 adopts this exact protocol as a required precondition.
+
+### §3.4.2 Instrument Preconditions & Protocol
+- **Instrument Precondition**: `GLIBC_TUNABLES=glibc.malloc.hugetlb=1` only invokes `madvise(MADV_HUGEPAGE)`.
+  Whether 2 MiB pages actually back the tree depends on host THP mode (`/sys/kernel/mm/transparent_hugepage/enabled`)
+  and fragmentation. The run must record `/sys/kernel/mm/transparent_hugepage/{enabled,defrag}` and non-zero
+  `AnonHugePages` (from `smaps_rollup`) or positive `thp_fault_alloc` deltas (from `/proc/vmstat`).
+  Any 2m arm without verified huge-page allocation is **VOID**, not a measurement.
+- **Pin & Protocol (quoted from D1 section & artifact provenance)**:
+  - From `METHODOLOGY.md` §3 Amendment A3: *"the P-core PMU, the driver's default event set. Counts are `probe − build` per run, divided by the entries the passes yield (200 × 249,670). Each order's per-entry figure carries a BCa 95% interval over the 10 runs."* (`METHODOLOGY.md:192-195`)
+  - From `counters_prefix_scan_d1.json` provenance: `cpu_core_cpus: "0-15"`, `scaling_governor_pin_set: "0-15"`, `scaling_governor_pin_source: "EXPANSE_BENCH_PIN_APPLIED"`, `columns: "mean over paired runs of (probe phase - build phase) counts, BCa 95% interval over those per-run differences"`.
+  - The driver (`scripts/perf_counters.py`) selects the performance-core PMU (`cpu_core`) and applies `pin_for("cpu_core")` (`taskset -c 0-15`, confining the workload to the P-core PMU's CPU set as recorded in D1).
+- **Two-Run Protocol**: Two independent sequential runs on the quiet reference host (`loadavg <= 1.0`,
+  `foreign_busy_cpus == 0`), evaluated over BCa 95% bootstrap confidence intervals (2,000 resamples).
+- **Harness**: `scripts/perf_counters.py`, running 4 cells (baseline and `--hugetlb` for both `strmap_prefix_scan`
+  and `strmap_prefix_scan_sorted`) of `crates/expanse/examples/perf_point_lookup.rs` (the suite's path keys,
+  64 prefixes, `cursor_prefix`), `--pops 1000000 --hit-pcts 100 --passes 200 --runs 10`. Counts are `probe − build`
+  per run divided by yielded entries (200 × 249,670 = 49,934,000 ops).
+- **Maintainer Dispatch**:
+  `/benchmark patricia_d2_paging` (runs on `main` after merge)
+  or
+  `gh workflow run bench_baremetal.yml --ref main -f suite=patricia_d2_paging`
+
+### §3.4.3 Pre-Registered Thresholds (Derived in `scripts/patricia_d2_bounds.py`)
+All thresholds are derived mathematically in committed Python (`scripts/patricia_d2_bounds.py`) from D1 baseline
+artifacts (`counters_prefix_scan_d1.json` and `counters_prefix_scan_d1_stalls.json` at commit `c3e54ec2`),
+with pinned unit tests (Rule 12 / §1.3). Every clause is evaluated strictly on BCa 95% bootstrap confidence interval bounds (Rule 1 / §1.1):
+
+| # | Clause | Metric | Evaluated On | Condition | Derivation Source | Falsified if |
+|---|---|---|---|---|---|---|
+| D2a | dTLB Elimination | `dTLB-load-misses` | generator_2m | $\text{BCa}_{\text{upper}} \le 0.0410$ | ≥ 95% reduction from D1 baseline 0.8203 | $\text{BCa}_{\text{upper}} > 0.0410$: 2 MiB paging failed to eliminate address translation |
+| D2b | L3 Miss Invariance | `mem_load_retired.l3_miss` delta | generator_2m − sorted_2m | $\text{BCa}_{\text{lower}} \ge 0.1416$ | ≥ 60% retention of D1 delta 0.2360 | $\text{BCa}_{\text{lower}} < 0.1416$: huge pages eliminated LLC cache-line misses |
+| D2c | Surviving Cycle Gap | `cycles` delta | generator_2m − sorted_2m | $\text{BCa}_{\text{lower}} \ge 52.50$ | Pins D1 L3 stalls delta 52.50 cycles (61.1% of cycle gap, target) | $\text{BCa}_{\text{lower}} < 52.50$: paging alone resolved the majority of the cycle gap |
+
+### §3.4.4 Decision Criteria & Scope Boundary
+- **If D2 PASS (D2a + D2b + D2c)**: Translation misses are confirmed as an orthogonal overlay. 2 MiB pages
+  successfully eliminate dTLB misses, but spatial cache-line dispersal across 45 MB of memory persists and
+  accounts for $\ge 52.50$ cycles of the gap. This indicates that an OS/allocator paging configuration
+  cannot resolve the performance gap. Co-allocation of child nodes with leaves remains a candidate
+  architectural remedy for v0.12 (alongside software prefetching or packed suffixes), which will require its
+  own pre-registered gate and ablated evaluation prior to any implementation in v0.12.
+- **If D2c is falsified**: 2 MiB huge-page backing eliminates the bulk of the cycle gap: huge-page backing
+  is the documented remedy for this workload; layout work is deprioritised.
+
 **No directional prediction:**
 - Any `fast_radix_trie` or `qp-trie` timing. The envelope gives them 3–8
   dependent node loads, the same range as Expanse, so nothing derived separates
