@@ -45,12 +45,15 @@ graph TD
    - Verify lockstep sync: `python3 scripts/bump_version.py --check`.
 2. **Release Notes** (automatic — no CHANGELOG file is maintained):
    - The GitHub Release generates its notes from merged PR titles, grouped by the label categories in [`.github/release.yml`](../.github/release.yml). Conventional-commit PR titles keep them readable; label PRs (`enhancement`, `bug`, `performance`, `documentation`, `ci`, …) for correct grouping.
-3. **Commit & Tag**:
-   ```bash
-   git commit -am "chore(release): prepare v0.4.0"
-   git tag -a v0.4.0 -m "Release v0.4.0"
-   git push origin main --tags
-   ```
+3. **Merge, then tag**:
+   - Merge the `chore(release): X.Y.Z` pull request.
+   - Create the signed tag with `scripts/tag_release.py`, which refuses a commit that is not on `main`, a version the manifests at that commit do not carry, a tag that already exists, and a commit with no successful full CI run:
+     ```bash
+     python3 scripts/tag_release.py X.Y.Z
+     git push origin refs/tags/vX.Y.Z
+     ```
+   - The script tags `origin/main`'s head by default, never the working copy's `HEAD`; pass `--commit <sha>` when `main` has moved past the release commit. It signs with the maintainer's key (`git tag -s`), reads the tag back, and prints the push command without running it.
+   - Push that one ref. `git push --tags` pushes every local tag, stale ones included.
 4. **Automated Pipeline Execution**:
    - GitHub Actions executes `.github/workflows/release.yml`: the gate requires a full `ci.yml` run on the tagged commit — one whose `fast-lane` job succeeded, since a push to `main` that lands an already-verified tree runs the fast lane only (`docs/CI.md` §3) — and when none exists it dispatches `ci.yml` on the tag and waits for it (`scripts/release_ci_gate.py`); core artifacts then build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, Maven Central, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**.
 

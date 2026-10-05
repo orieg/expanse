@@ -180,6 +180,8 @@ python3 scripts/check_deletion_rationale.py --self-test
 python3 scripts/check_test_floors.py --self-test
 python3 scripts/esp32_bench_harvest.py --self-test
 python3 scripts/verify_release_registries.py --self-test
+python3 scripts/release_ci_gate.py --self-test
+python3 scripts/tag_release.py --self-test
 python3 scripts/embedded_envelope.py
 python3 scripts/density_poisson.py --self-test
 python3 scripts/leaf_layout_model.py --self-test
