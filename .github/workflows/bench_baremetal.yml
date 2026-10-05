@@ -61,6 +61,7 @@ on:
           - ycsb
           - concurrency
           - mixed_concurrency_step2_gate
+          - concurrency_blob_peak
           - writer_scaling
           - writer_scaling_diagnostic
           - writer_scaling_ablation_unpadded_lock
@@ -1321,6 +1322,21 @@ jobs:
                 python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate \
                   --out docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json | tee concurrency.txt
                 ;;
+              "concurrency_blob_peak")
+                # #1280, concurrency METHODOLOGY.md §34 and its Amendment A1. The
+                # driver maps the applied pin to its cells and its artifact:
+                # 0,2,4,6,8,10,12,14 runs blob 50% at N=1..8 with controls at
+                # N<=8; 0-15 runs N in {1,2,4,8,16} with the §34.3 controls. It
+                # refuses any other pin, so the cpu_pin input is required here:
+                # an empty one would leave the choice of cells to the auto pin.
+                # It exits non-zero after writing the artifact when §34.4 voids
+                # the run.
+                if [ -z "${EXPANSE_BENCH_PIN:-}" ]; then
+                  echo "concurrency_blob_peak: set cpu_pin to 0,2,4,6,8,10,12,14 or 0-15 (METHODOLOGY.md §34 Amendment A1)" >&2
+                  exit 1
+                fi
+                python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --blob-peak | tee concurrency.txt
+                ;;
               "writer_scaling")
                 # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568).
                 # `--rounds` is added only when the `rounds` input is set
@@ -2200,6 +2216,8 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json \
+            docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json \
+            docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json \
             ycsb.txt \
             hashbrown-ycsb.txt \
             allocator-overhead.txt \

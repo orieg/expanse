@@ -146,6 +146,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "concurrency_blob_peak",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "#1280 four-thread peak of `SyncExpanseBlobMap` (`METHODOLOGY.md` §34, Amendment A1) through `mixed_concurrency.py --blob-peak`: `blob` at 50% read with `blob_mutex`, `blob` 100% read, `map` and `str` controls. The `cpu_pin` input is required and selects the cells: `0,2,4,6,8,10,12,14` runs 1 to 8 threads and writes `baseline_concurrency_blob_peak_percore.json`; `0-15` runs 1, 2, 4, 8 and 16 threads and writes `baseline_concurrency_blob_peak_pin0-15.json`.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling",
       "available": true,
       "kind": "wallclock",
