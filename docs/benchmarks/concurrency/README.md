@@ -5775,9 +5775,9 @@ The captured execution timeline (`suite-tables-writer_scaling_count_cells-372458
 - **`one_top_byte` key distribution:**
   - W = 0, R = 1 (control): completed in < 1 s.
   - W = 1, R = 0 and W = 4, R = 0 (writers-only controls): completed in < 1 s.
-  - W = 4, R = 1 (4 writers beside 1 counting reader): Round 0 ran for 1,066 s (17.7 min), Round 1 for 1,052 s (17.5 min), Round 2 for 726 s (12.1 min) — mean duration 948 s (15.8 min).
-  - W = 1, R = 1 (1 writer beside 1 counting reader): Round 0 ran for 1,969 s (32.8 min), Round 1 for 1,660 s (27.6 min), Round 2 for 1,891 s (31.5 min) — mean duration 1,840 s (30.7 min).
-  - Combined `one_top_byte` counting reader cells take ~2,788 s (~46.5 min) per round.
+  - W = 4, R = 1 (4 writers beside 1 counting reader): Round 0 ran for 1,066 s, Round 1 for 1,052 s, Round 2 for 726 s — mean duration 948 s.
+  - W = 1, R = 1 (1 writer beside 1 counting reader): Round 0 ran for 1,969 s, Round 1 for 1,660 s, Round 2 for 1,891 s — mean duration 1,840 s.
+  - Combined `one_top_byte` counting reader cells take ~2,788 s per round.
 
 The three completed rounds' `one_top_byte` reader cells consumed the 180-minute window before round 3 finished, so the 8-round schedule cannot complete under the current job limit.
 
