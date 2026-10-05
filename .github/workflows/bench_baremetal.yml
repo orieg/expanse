@@ -1323,21 +1323,19 @@ jobs:
                   --out docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json | tee concurrency.txt
                 ;;
               "concurrency_blob_peak")
-                # §34 / §34 Amendment A1: Cause of the four-thread peak in SyncExpanseBlobMap.
-                # Physical pin (0,2,4,6,8,10,12,14): blob 50% at N=1..8, plus controls at N<=8.
-                # Standard SMT pin (0-15): blob 50% at N in {1,2,4,8,16}, plus controls.
-                if [ "${EXPANSE_BENCH_PIN:-}" = "0,2,4,6,8,10,12,14" ]; then
-                  python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \
-                    --blob-peak \
-                    --out docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json | tee concurrency.txt
-                elif [ "${EXPANSE_BENCH_PIN:-}" = "0-15" ] || [ -z "${EXPANSE_BENCH_PIN:-}" ]; then
-                  python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \
-                    --blob-peak \
-                    --out docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json | tee concurrency.txt
-                else
-                  echo "concurrency_blob_peak: invalid EXPANSE_BENCH_PIN='$EXPANSE_BENCH_PIN' (expected '0,2,4,6,8,10,12,14' or '0-15')" >&2
+                # #1280, concurrency METHODOLOGY.md §34 and its Amendment A1. The
+                # driver maps the applied pin to its cells and its artifact:
+                # 0,2,4,6,8,10,12,14 runs blob 50% at N=1..8 with controls at
+                # N<=8; 0-15 runs N in {1,2,4,8,16} with the §34.3 controls. It
+                # refuses any other pin, so the cpu_pin input is required here:
+                # an empty one would leave the choice of cells to the auto pin.
+                # It exits non-zero after writing the artifact when §34.4 voids
+                # the run.
+                if [ -z "${EXPANSE_BENCH_PIN:-}" ]; then
+                  echo "concurrency_blob_peak: set cpu_pin to 0,2,4,6,8,10,12,14 or 0-15 (METHODOLOGY.md §34 Amendment A1)" >&2
                   exit 1
                 fi
+                python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --blob-peak | tee concurrency.txt
                 ;;
               "writer_scaling")
                 # Expanse-native multi-writer scaling sweep (Phase 1.5D, Refs #568).

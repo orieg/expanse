@@ -822,46 +822,71 @@ def run(args: argparse.Namespace) -> int:
 # #1280 §34: blob peak instrument (METHODOLOGY.md §34 / Amendment A1)
 # --------------------------------------------------------------------------
 
-def run_blob_peak(args: argparse.Namespace) -> int:
-    pin = bench_pin.apply("mixed_concurrency.py --blob-peak")
-    quick = bool(args.quick)
-    is_physical = pin in ("0,2,4,6,8,10,12,14", "percore")
-    is_smt = pin in ("0-15",)
-    if not quick and not (is_physical or is_smt):
-        raise InstrumentError(
-            f"core pin {pin!r} is neither '0,2,4,6,8,10,12,14' nor '0-15'; "
-            f"METHODOLOGY.md §34 / Amendment A1 voids any other pin"
-        )
-    if quick and not (is_physical or is_smt):
-        try:
-            expanded = bench_pin.expand(pin)
-            is_physical = len(expanded) <= 8
-            is_smt = not is_physical
-        except Exception:
-            is_physical = True
+BLOB_PEAK_PHYSICAL_PIN = "0,2,4,6,8,10,12,14"
+BLOB_PEAK_SMT_PIN = "0-15"
+# §34.3 locks 18 windows per cell. A Williams design needs a whole number of
+# cycles, so each group runs the smallest whole-cycle count that is not below it.
+BLOB_PEAK_MIN_ROUNDS = 18
+BLOB_PEAK_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
 
-    if is_physical:
-        groups: list[tuple[str, int, list[int]]] = [
+
+def blob_peak_plan(pin: str) -> tuple[list[tuple[str, int, list[int]]], Path]:
+    """The §34 cells and artifact for `pin`; any other pin is refused (§34.4)."""
+    if pin == BLOB_PEAK_PHYSICAL_PIN:
+        # One thread per physical core: no cell may exceed the pin's 8 CPUs, so
+        # every §34.3 control at 16 threads runs at 8 (Amendment A1).
+        return ([
             ("blob", 50, [1, 2, 3, 4, 5, 6, 7, 8]),
-            ("blob_mutex", 50, [1, 4]),
-            ("blob", 100, [1]),
+            ("blob_mutex", 50, [1, 4, 8]),
+            ("blob", 100, [1, 8]),
             ("map", 50, [8]),
             ("str", 50, [8]),
-        ]
-        default_out = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_concurrency_blob_peak_percore.json"
-    else:
-        groups = [
+        ], BLOB_PEAK_RESULTS / "baseline_concurrency_blob_peak_percore.json")
+    if pin == BLOB_PEAK_SMT_PIN:
+        return ([
             ("blob", 50, [1, 2, 4, 8, 16]),
             ("blob_mutex", 50, [1, 4, 16]),
             ("blob", 100, [1, 16]),
             ("map", 50, [16]),
             ("str", 50, [16]),
-        ]
-        default_out = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "baseline_concurrency_blob_peak_pin0-15.json"
+        ], BLOB_PEAK_RESULTS / "baseline_concurrency_blob_peak_pin0-15.json")
+    raise InstrumentError(
+        f"core pin {pin!r} is neither {BLOB_PEAK_PHYSICAL_PIN!r} nor {BLOB_PEAK_SMT_PIN!r}; "
+        f"METHODOLOGY.md §34.4 voids a run under any other pin"
+    )
 
+
+def blob_peak_rounds(n_levels: int, requested: int | None, quick: bool) -> int:
+    """Rounds for one §34 group: whole Williams cycles, never fewer than §34.3's 18."""
+    if requested is not None or quick:
+        return resolve_rounds(requested, n_levels, quick)
+    period = williams_period(n_levels)
+    return period * -(-BLOB_PEAK_MIN_ROUNDS // period)
+
+
+def blob_peak_voids(cells: list[dict[str, Any]]) -> list[str]:
+    """§34.4: a 16-thread blob 50% cell with no in-window compaction voids the run."""
+    return [
+        f"blob 50% read at {c['threads']} threads recorded 0 in-window compactions"
+        for c in cells
+        if c["engine_key"] == "blob" and c["read_pct"] == 50 and c["threads"] == 16
+        and c.get("compactions", 0) == 0
+    ]
+
+
+def run_blob_peak(args: argparse.Namespace) -> int:
+    pin = bench_pin.apply("mixed_concurrency.py --blob-peak")
+    quick = bool(args.quick)
+    groups, default_out = blob_peak_plan(pin)
     out = resolve_out(args.out, quick) if args.out else (QUICK_OUT if quick else default_out)
+    if not quick and out.resolve() != default_out.resolve():
+        raise InstrumentError(
+            f"--out {out} is not the artifact Amendment A1 names for pin {pin!r} ({default_out.name})"
+        )
     exe = build_bench()
     all_threads = sorted(set(t for _, _, ts in groups for t in ts))
+    plan = [(key, read_pct, threads, blob_peak_rounds(len(threads), args.rounds, quick))
+            for key, read_pct, threads in groups]
     prov = new_provenance(
         suite="concurrency",
         issue=1280,
@@ -870,7 +895,7 @@ def run_blob_peak(args: argparse.Namespace) -> int:
         core_pin=pin,
         harness=HARNESS,
         window_ms=WINDOW_MS,
-        rounds=18 if args.rounds is None else args.rounds,
+        rounds={f"{key}:R{read_pct}": rounds for key, read_pct, _, rounds in plan},
         threads=all_threads,
     )
     prov["mode"] = "blob_peak"
@@ -878,8 +903,7 @@ def run_blob_peak(args: argparse.Namespace) -> int:
 
     cells: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp:
-        for key, read_pct, threads in groups:
-            rounds = resolve_rounds(args.rounds, len(threads), quick)
+        for key, read_pct, threads, rounds in plan:
             label = f"group:{key}:R{read_pct}"
             samples = Path(tmp) / (label.replace(":", "_") + ".jsonl")
             start = begin_cell(prov, label)
@@ -887,6 +911,9 @@ def run_blob_peak(args: argparse.Namespace) -> int:
             load = end_cell(start)
             cells.extend(summarize_group(read_samples(samples), threads, rounds, load))
     add_load(prov, "end")
+    voids = blob_peak_voids(cells)
+    prov["verdict"] = "VOID" if voids else "ADMISSIBLE"
+    prov["voids"] = voids
     artifact = {"provenance": prov, "throughput": cells}
     problems = artifact_problems(out, artifact)
     if problems:
@@ -894,7 +921,9 @@ def run_blob_peak(args: argparse.Namespace) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(artifact, indent=2) + "\n")
     print(f"Wrote artifact to {out.relative_to(REPO_ROOT) if REPO_ROOT in out.parents else out}")
-    return 0
+    for v in voids:
+        print(f"VOID (METHODOLOGY.md §34.4): {v}", file=sys.stderr)
+    return 1 if voids else 0
 
 
 # --------------------------------------------------------------------------
@@ -1726,6 +1755,31 @@ def self_test() -> int:
     expect_error(resolve_rounds, 12, 3, False, what="12 rounds below the §10.3 floor")
     expect_error(resolve_rounds, 20, 3, False, what="20 rounds is not whole cycles of 6")
     expect_error(resolve_out, str(DEFAULT_OUT), True, what="quick run writing a committed artifact")
+
+    # §34 blob peak (Amendment A1): each pin maps to its cells and artifact, no
+    # cell exceeds the pin's CPUs, no group runs fewer than §34.3's 18 windows,
+    # and any other pin is refused.
+    for pin, cpus, name in ((BLOB_PEAK_PHYSICAL_PIN, 8, "baseline_concurrency_blob_peak_percore.json"),
+                            (BLOB_PEAK_SMT_PIN, 16, "baseline_concurrency_blob_peak_pin0-15.json")):
+        groups, out = blob_peak_plan(pin)
+        assert out.name == name, out
+        assert len(bench_pin.expand(pin)) == cpus
+        assert max(t for _, _, ts in groups for t in ts) == cpus, groups
+        assert [(k, r) for k, r, _ in groups] == [
+            ("blob", 50), ("blob_mutex", 50), ("blob", 100), ("map", 50), ("str", 50)]
+        for _, _, ts in groups:
+            n = blob_peak_rounds(len(ts), None, False)
+            assert n >= BLOB_PEAK_MIN_ROUNDS and n % williams_period(len(ts)) == 0, (ts, n)
+    assert blob_peak_plan(BLOB_PEAK_PHYSICAL_PIN)[0][0][2] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert blob_peak_plan(BLOB_PEAK_SMT_PIN)[0][0][2] == [1, 2, 4, 8, 16]
+    assert [blob_peak_rounds(n, None, False) for n in (8, 5, 3, 2, 1)] == [24, 20, 18, 18, 18]
+    for bad in ("", "off", "none", "0-23", "0-7", "percore"):
+        expect_error(blob_peak_plan, bad, what=f"blob peak under pin {bad!r}")
+    peak = {"engine_key": "blob", "read_pct": 50, "threads": 16, "compactions": 0}
+    assert len(blob_peak_voids([peak])) == 1
+    assert blob_peak_voids([dict(peak, compactions=3)]) == []
+    assert blob_peak_voids([dict(peak, threads=8), dict(peak, read_pct=100),
+                            dict(peak, engine_key="blob_mutex")]) == []
 
     threads = [1, 2, 4]
     rounds = 18

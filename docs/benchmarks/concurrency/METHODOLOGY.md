@@ -4947,57 +4947,68 @@ All named candidates are currently unmeasured; causality requires interventional
 - Control cells moving outside $`\pm 5\%`$ in the same direction across runs (`DRIFT` per BENCHMARKING rule 18).
 - Zero in-window compactions across 16-thread blob windows (verifying compaction trigger executed).
 
-### 34.5 §34 Amendment A1 (pre-data instrument correction)
+---
 
-*(appended 2026-10-04, locked before any §34 run produced data)*
+## 34a. Amendment A1 to §34 — the dispatch suite, the round counts and the controls on the physical-core pin (appended and locked 2026-10-04, before any §34 run produced data; §34 above is not edited)
 
-1. **Prior Dispatches Voided:**
-   - The initial workflow dispatches under §34.3 (`37261662824` and `37261672017`) invoked `benchmark_suite=concurrency`, which hardcodes `--threads 1,4,16 --engines all --workloads 100,50`. That suite could not produce the cells §34.3 declared ($N=1..8$ on physical pin, $`N \in \{1, 2, 4, 8, 16\}`$ on SMT pin), and would oversubscribe the 8-CPU pin at 16 threads. Both runs were cancelled before execution; no data was read or recorded.
-   - Per AGENTS.md §8.20 and B-12 discipline, this pre-data instrument correction amends the dispatch harness without altering any hypothesis, cells, thresholds, or decision rules.
+### 34a.1 Why §34.3 cannot run as written
 
-2. **Replacement Suite (`concurrency_blob_peak`):**
-   - Implemented as dedicated suite `concurrency_blob_peak` in `.github/bench-suites.json` and `.github/workflows/bench_baremetal.yml`, driven by `docs/benchmarks/concurrency/scripts/mixed_concurrency.py --blob-peak`.
-   - The suite maps the applied core pin directly to the declared cells:
-     - **Physical Core Exclusion (`cpu_pin="0,2,4,6,8,10,12,14"`):**
-       - Primary sweep: `engine=blob`, `workload=50% read`, $`N \in \{1, 2, 3, 4, 5, 6, 7, 8\}`$.
-       - Control cells restricted to $`N \le 8`$: `engine=blob_mutex`, 50% read, $`N \in \{1, 4\}`$; `engine=blob`, 100% read, $`N \in \{1\}`$; `engine=map`, 50% read, $`N \in \{8\}`$; `engine=str`, 50% read, $`N \in \{8\}`$.
-       - Artifact: `docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json`.
-     - **Standard SMT Baseline (`cpu_pin="0-15"`):**
-       - Primary sweep: `engine=blob`, `workload=50% read`, $`N \in \{1, 2, 4, 8, 16\}`$.
-       - Control cells: `engine=blob_mutex`, 50% read, $`N \in \{1, 4, 16\}`$; `engine=blob`, 100% read, $`N \in \{1, 16\}`$; `engine=map`, 50% read, $`N \in \{16\}`$; `engine=str`, 50% read, $`N \in \{16\}`$.
-       - Artifact: `docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json`.
+Three statements of §34.3 cannot hold together on the instrument it names:
 
-3. **Exact Workflow Dispatch:**
-   ```bash
-   # Physical core exclusion run:
-   gh workflow run bench_baremetal.yml \
-     -f ref=<commit> \
-     -f benchmark_suite=concurrency_blob_peak \
-     -f cpu_pin="0,2,4,6,8,10,12,14"
+1. **The dispatch.** §34.3 dispatches `benchmark_suite=concurrency`. That suite runs a fixed `--threads 1,4,16 --engines all --workloads 100,50`, so it cannot produce the §34.3 cells, and on the eight-CPU pin it asks for 16 threads. Two dispatches were made under it (runs 37261662824 and 37261672017). Run 37261672017 was cancelled before any step ran. Run 37261662824 was cancelled 61 s into its benchmark step: its uploaded bundle holds an empty `concurrency.txt` and the host guard files, and no results artifact. No throughput figure was produced or read.
+2. **The round count.** §34.2 and §34.3 fix 18 rounds per cell in Williams order. A Williams design over $n$ thread counts is balanced only over whole cycles of $n$ rounds ($2n$ for odd $n$), and 18 is a whole number of cycles for neither the eight-level sweep (cycle 8) nor the five-level sweep (cycle 10).
+3. **The controls on the physical-core pin.** §34.3 lists controls at 16 threads without naming a pin. The pin `0,2,4,6,8,10,12,14` has eight CPUs, and `benches/concurrency.rs` drops any thread count above the CPUs it may use.
 
-   # Standard SMT baseline run:
-   gh workflow run bench_baremetal.yml \
-     -f ref=<commit> \
-     -f benchmark_suite=concurrency_blob_peak \
-     -f cpu_pin="0-15"
-   ```
+### 34a.2 What changes
 
-4. **Sizing Derivation:**
-   - Window duration: 500 ms per window.
-   - Physical core exclusion dispatch:
-     - `blob` 50%: 8 thread levels $\times$ 16 rounds (2 Williams cycles) = 128 windows (64.0 s).
-     - `blob_mutex` 50%: 2 thread levels $\times$ 16 rounds (8 Williams cycles) = 32 windows (16.0 s).
-     - `blob` 100%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
-     - `map` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
-     - `str` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
-     - Total windows: 208 windows $\times$ 500 ms = 104.0 s timed measurement.
-   - Standard SMT baseline dispatch:
-     - `blob` 50%: 5 thread levels $\times$ 20 rounds (2 Williams cycles) = 100 windows (50.0 s).
-     - `blob_mutex` 50%: 3 thread levels $\times$ 18 rounds (3 Williams cycles) = 54 windows (27.0 s).
-     - `blob` 100%: 2 thread levels $\times$ 16 rounds (8 Williams cycles) = 32 windows (16.0 s).
-     - `map` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
-     - `str` 50%: 1 thread level $\times$ 16 rounds = 16 windows (8.0 s).
-     - Total windows: 218 windows $\times$ 500 ms = 109.0 s timed measurement.
+No hypothesis, threshold, decision rule or void condition of §34 changes. The three corrections are:
+
+1. **Suite.** Both runs dispatch `benchmark_suite=concurrency_blob_peak`, which runs `docs/benchmarks/concurrency/scripts/mixed_concurrency.py --blob-peak`. The driver maps the applied pin to the cells below and refuses any other pin. The `cpu_pin` input is required.
+2. **Rounds.** Each group runs the smallest whole number of Williams cycles that is not below 18. No cell has fewer windows than §34.3 fixed.
+3. **Controls on the physical-core pin.** Every §34.3 control at 16 threads runs at 8, the pin's CPU count. The controls on pin `0-15` are those of §34.3.
+
+| Pin | Group | Thread counts | Rounds per cell | Windows |
+|---|---|---|--:|--:|
+| `0,2,4,6,8,10,12,14` | `blob`, 50% read | 1, 2, 3, 4, 5, 6, 7, 8 | 24 | 192 |
+| | `blob_mutex`, 50% read | 1, 4, 8 | 18 | 54 |
+| | `blob`, 100% read | 1, 8 | 18 | 36 |
+| | `map`, 50% read | 8 | 18 | 18 |
+| | `str`, 50% read | 8 | 18 | 18 |
+| `0-15` | `blob`, 50% read | 1, 2, 4, 8, 16 | 20 | 100 |
+| | `blob_mutex`, 50% read | 1, 4, 16 | 18 | 54 |
+| | `blob`, 100% read | 1, 16 | 18 | 36 |
+| | `map`, 50% read | 16 | 18 | 18 |
+| | `str`, 50% read | 16 | 18 | 18 |
+
+The USL fit of §34.2 Step 2 therefore reads $8 \times 24 = 192$ windows, where §34.2 stated 144. The model, its estimators, the goodness-of-fit thresholds and the classification rules are unchanged.
+
+Artifacts: `docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json` for the physical-core pin and `baseline_concurrency_blob_peak_pin0-15.json` for pin `0-15`. Each records its round count per group under `provenance.rounds`.
+
+### 34a.3 Runs and dispatch
+
+Two runs per pin, the second dispatched after the first completes, so that the `DRIFT` rule of §34.4 and `docs/BENCHMARKING.md` rule 18 can be evaluated:
+
+```bash
+gh workflow run bench_baremetal.yml \
+  -f ref=<commit> \
+  -f benchmark_suite=concurrency_blob_peak \
+  -f cpu_pin="0,2,4,6,8,10,12,14"
+
+gh workflow run bench_baremetal.yml \
+  -f ref=<commit> \
+  -f benchmark_suite=concurrency_blob_peak \
+  -f cpu_pin="0-15"
+```
+
+The second run of a pin writes the same path, so each run's artifact is committed under a run-suffixed name.
+
+### 34a.4 The §34.4 compaction condition is checked by the driver
+
+§34.4 voids a run whose 16-thread `blob` windows at 50% read saw no in-window compaction. The driver sums `compactions` over those windows, records `provenance.verdict` (`ADMISSIBLE` or `VOID`) with the reason under `provenance.voids`, and exits non-zero on `VOID` after writing the artifact. The condition names 16 threads, so it applies to pin `0-15` only. The other three §34.4 conditions (the applied pin, host contention, control drift across runs) are read from the artifact's `core_pin`, its load snapshots and the pair of runs.
+
+### 34a.5 Sizing against the job limit
+
+The timed windows are 500 ms each: 318 windows (159.0 s) on the physical-core pin and 226 windows (113.0 s) on pin `0-15` (derived from the table above). Build and population time is outside the windows and is not measured here. The job limit is `timeout-minutes: 180` (`.github/workflows/bench_baremetal.yml`), that is 10,800 s.
 
 ---
 
