@@ -2553,6 +2553,16 @@ impl<T: SharedTree> Shared<T> {
         }
     }
 
+    /// [`Self::enter_writer_blocking`] as a call, for a caller that is slower
+    /// with the gate entry inlined into it. `SyncExpanseStrMap::remove` is
+    /// one: its body is large enough that the inlined entry costs it more in
+    /// spilled registers than the call does (METHODOLOGY §35).
+    #[cfg(feature = "std")]
+    #[inline(never)]
+    pub(crate) fn enter_writer_blocking_outlined(&self) -> crate::occ::WriterGuard<'_> {
+        self.enter_writer_blocking()
+    }
+
     /// Executes `f` while holding a thread-local EBR reader pin registered with this
     /// tree's collector. Hoists `Collector::register()` so subsequent mutations on this
     /// thread take zero mutexes and perform zero heap allocations.
@@ -6476,61 +6486,70 @@ impl SyncExpanseMap {
                 return self.shared.remove_root_covered(|m| m.remove_shared(key));
             }
 
-            let _guard = self.shared.enter_writer_blocking();
-            let res = self.shared.with_writer_pin(|| {
-                crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
-                crate::occ_stats::op_begin();
-
-                let mut cause = FallbackCause::Contention;
-                #[cfg(feature = "occ-stats")]
-                let mut closed = false;
-                for _ in 0..MAX_RETRIES {
-                    if self.shared.gate.is_closed() {
-                        #[cfg(feature = "occ-stats")]
-                        {
-                            closed = true;
-                        }
-                        break;
-                    }
-                    match self.olc_remove_map(key) {
-                        OlcOutcome::Done(prev) => {
-                            if prev.is_some() {
-                                self.shared.tree_pop.add(_guard.slot_id(), -1);
-                            }
-                            _guard.tick_advance(&self.shared.collector);
-                            crate::occ_stats::op_end();
-                            return Ok(prev);
-                        }
-                        OlcOutcome::Retry => {
-                            crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
-                            core::hint::spin_loop();
-                            #[cfg(loom)]
-                            loom::thread::yield_now();
-                        }
-                        OlcOutcome::Fallback(c) => {
-                            cause = c;
-                            break;
-                        }
-                    }
-                }
-                crate::occ_stats::op_end();
-                crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
-                crate::occ_stats::bump(cause.stat());
-                #[cfg(feature = "occ-stats")]
-                if cause == FallbackCause::Contention {
-                    crate::occ_stats::bump(contention_stat(closed));
-                }
-                Err(cause)
-            });
-            drop(_guard);
-            match res {
-                Ok(prev) => prev,
-                Err(_) => self.shared.remove_root_covered(|m| m.remove_shared(key)),
-            }
+            self.remove_tree(key)
         }
         #[cfg(not(feature = "std"))]
         {
             self.shared.remove_root_covered(|m| m.remove_shared(key))
+        }
+    }
+
+    /// The tree-state half of [`Self::remove`], out of line so that a removal
+    /// from a root-leaf map, which returns before the writer gate, does not
+    /// pay for this body's frame (METHODOLOGY §35).
+    #[cfg(feature = "std")]
+    #[inline(never)]
+    fn remove_tree(&self, key: Key) -> Option<u64> {
+        let _guard = self.shared.enter_writer_blocking();
+        let res = self.shared.with_writer_pin(|| {
+            crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
+            crate::occ_stats::op_begin();
+
+            let mut cause = FallbackCause::Contention;
+            #[cfg(feature = "occ-stats")]
+            let mut closed = false;
+            for _ in 0..MAX_RETRIES {
+                if self.shared.gate.is_closed() {
+                    #[cfg(feature = "occ-stats")]
+                    {
+                        closed = true;
+                    }
+                    break;
+                }
+                match self.olc_remove_map(key) {
+                    OlcOutcome::Done(prev) => {
+                        if prev.is_some() {
+                            self.shared.tree_pop.add(_guard.slot_id(), -1);
+                        }
+                        _guard.tick_advance(&self.shared.collector);
+                        crate::occ_stats::op_end();
+                        return Ok(prev);
+                    }
+                    OlcOutcome::Retry => {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::LockRestarts);
+                        core::hint::spin_loop();
+                        #[cfg(loom)]
+                        loom::thread::yield_now();
+                    }
+                    OlcOutcome::Fallback(c) => {
+                        cause = c;
+                        break;
+                    }
+                }
+            }
+            crate::occ_stats::op_end();
+            crate::occ_stats::bump(crate::occ_stats::Stat::LockFallbacks);
+            crate::occ_stats::bump(cause.stat());
+            #[cfg(feature = "occ-stats")]
+            if cause == FallbackCause::Contention {
+                crate::occ_stats::bump(contention_stat(closed));
+            }
+            Err(cause)
+        });
+        drop(_guard);
+        match res {
+            Ok(prev) => prev,
+            Err(_) => self.shared.remove_root_covered(|m| m.remove_shared(key)),
         }
     }
 
@@ -12616,7 +12635,7 @@ impl SyncExpanseStrMap {
         }
         #[cfg(not(feature = "ablation-str-serial-writers"))]
         {
-            let guard = self.shared.enter_writer_blocking();
+            let guard = self.shared.enter_writer_blocking_outlined();
             let slot = guard.slot_id();
             let res = self.shared.with_writer_pin(|| {
                 self.shared.str_optimistic(&guard, || {
