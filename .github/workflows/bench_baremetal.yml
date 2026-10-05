@@ -73,6 +73,7 @@ on:
           - writer_scaling_count_cells
           - writer_scaling_readers_only
           - writer_scaling_scan
+          - writer_scaling_scan_str
           - writer_scaling_929_str_gate
           - writer_scaling_929_str_gate_v2
           - writer_scaling_929_blob_gate
@@ -1431,6 +1432,18 @@ jobs:
                   --scan-cells \
                   --out docs/benchmarks/concurrency/results/scan_cells_writer_scaling.json | tee writer_scaling.txt
                 ;;
+              "writer_scaling_scan_str")
+                # Batch cursor scan on SyncExpanseStrMap (#1143, concurrency METHODOLOGY.md
+                # §33.5). Re-pinned as the ordered readers are: §33.5 fixes one thread
+                # per physical P-core under 0,2,4,6,8,10,12,14, the driver refuses any other
+                # pin, and the inherited marker is dropped so it applies this one.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0,2,4,6,8,10,12,14}" \
+                  python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --scan-cells \
+                  --arm str \
+                  --out docs/benchmarks/concurrency/results/scan_cells_str_writer_scaling.json | tee writer_scaling.txt
+                ;;
               "writer_scaling_929_str_gate")
                 # The #929 str multi-writer gate (concurrency METHODOLOGY.md
                 # §17.3): one interleaved two-build comparison of the str arm
@@ -2209,6 +2222,8 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json \
             docs/benchmarks/concurrency/results/scan_cells_writer_scaling.json \
             docs/benchmarks/concurrency/results/scan_cells_writer_scaling_run2.json \
+            docs/benchmarks/concurrency/results/scan_cells_str_writer_scaling.json \
+            docs/benchmarks/concurrency/results/scan_cells_str_writer_scaling_run2.json \
             docs/benchmarks/concurrency/results/gate_929_str_writer_scaling.json \
             docs/benchmarks/concurrency/results/gate_929_str_v2_writer_scaling.json \
             docs/benchmarks/concurrency/results/gate_929_blob_writer_scaling.json \
