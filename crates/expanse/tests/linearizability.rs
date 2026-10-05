@@ -2709,7 +2709,7 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
                 i += 1;
                 prng = prng.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let key = 50 + (prng % 50) * 100;
-                let is_ins = (i % 2) == 0;
+                let is_ins = i.is_multiple_of(2);
                 let start = Instant::now();
                 let op = if is_ins {
                     map.insert(key, key * 10);
