@@ -1867,6 +1867,11 @@ fn test_sync_bytesmap_update_linearizability() {
 )]
 fn test_sync_blobmap_compare_exchange_linearizability() {
     let map = Arc::new(SyncExpanseBlobMap::new());
+    // More keys than a root leaf holds, so the mix runs on the optimistic
+    // tree paths and not on the serialised root-leaf one.
+    for k in 0..64u64 {
+        map.insert(1_000 + k, &k.to_le_bytes(), 0).unwrap();
+    }
     let history = Arc::new(Mutex::new(Vec::new()));
 
     let num_threads = 4;
@@ -1885,20 +1890,13 @@ fn test_sync_blobmap_compare_exchange_linearizability() {
             for i in 0..ops_per_thread {
                 let key = ((t_id * 7 + i * 5) % 6) as u64;
 
-                let op = match (t_id + i) % 3 {
-                    0 => {
-                        let expected = if (t_id + i) % 2 == 0 {
-                            Some((t_id * 1000 + i.saturating_sub(1)) as u64)
-                        } else {
-                            None
-                        };
-                        let new = Some((t_id * 1000 + i) as u64);
-                        Op::CompareExchange(key, expected, new)
-                    }
-                    1 => {
-                        let expected = Some((t_id * 1000 + i) as u64);
-                        Op::CompareExchange(key, expected, None)
-                    }
+                // Values from `1..=3`, so an exchange's `expected` is a value
+                // some thread stores; see `cas_mix_op`.
+                let v = ((t_id + i) % 3 + 1) as u64;
+                let op = match (t_id * 3 + i) % 4 {
+                    0 => Op::CompareExchange(key, None, Some(v)),
+                    1 => Op::CompareExchange(key, Some(((t_id + 2 * i) % 3 + 1) as u64), Some(v)),
+                    2 => Op::CompareExchange(key, Some(v), None),
                     _ => Op::Get(key),
                 };
 
@@ -1949,6 +1947,7 @@ fn test_sync_blobmap_compare_exchange_linearizability() {
     }
 
     let history = history.lock().unwrap().clone();
+    assert_cas_mix_exercised(&history);
 
     let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
     for e in history {
@@ -2669,8 +2668,12 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     const INITIAL_KEYS: u64 = 64;
-    const WRITER_OPS: usize = 100;
+    // The writer runs until the reader has finished. The reader scans until
+    // it has `SCAN_ROUNDS` scans of which `MIN_OVERLAPPED` had a write
+    // complete during them, so the history is concurrent on any schedule.
     const SCAN_ROUNDS: usize = 20;
+    const MIN_OVERLAPPED: u64 = 5;
+    const SCAN_ROUNDS_CAP: usize = 200_000;
 
     let map = Arc::new(SyncExpanseMap::new());
     let mut initial = BTreeMap::new();
@@ -2683,7 +2686,10 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
 
     let writes = Arc::new(Mutex::new(Vec::new()));
     let scans = Arc::new(Mutex::new(Vec::new()));
-    let done = Arc::new(AtomicBool::new(false));
+    let scans_done = Arc::new(AtomicBool::new(false));
+    let write_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let overlapped = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let start_line = Arc::new(std::sync::Barrier::new(2));
 
     let mut handles = vec![];
 
@@ -2691,14 +2697,19 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
     {
         let map = Arc::clone(&map);
         let writes = Arc::clone(&writes);
-        let done = Arc::clone(&done);
+        let scans_done = Arc::clone(&scans_done);
+        let write_count = Arc::clone(&write_count);
+        let start_line = Arc::clone(&start_line);
         handles.push(thread::spawn(move || {
-            let mut local = Vec::with_capacity(WRITER_OPS);
+            let mut local = Vec::new();
             let mut prng = 0x1234_5678u64;
-            for i in 0..WRITER_OPS {
+            start_line.wait();
+            let mut i = 0usize;
+            while !scans_done.load(Ordering::Acquire) {
+                i += 1;
                 prng = prng.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let key = 50 + (prng % 50) * 100;
-                let is_ins = (i % 2) == 0;
+                let is_ins = i.is_multiple_of(2);
                 let start = Instant::now();
                 let op = if is_ins {
                     map.insert(key, key * 10);
@@ -2709,9 +2720,9 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
                 };
                 let end = Instant::now();
                 local.push(MapWriteEvent { op, start, end });
+                write_count.fetch_add(1, Ordering::Release);
             }
             writes.lock().unwrap().extend(local);
-            done.store(true, Ordering::Release);
         }));
     }
 
@@ -2719,11 +2730,20 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
     {
         let map = Arc::clone(&map);
         let scans = Arc::clone(&scans);
-        let done = Arc::clone(&done);
+        let scans_done = Arc::clone(&scans_done);
+        let write_count = Arc::clone(&write_count);
+        let overlapped = Arc::clone(&overlapped);
+        let start_line = Arc::clone(&start_line);
         handles.push(thread::spawn(move || {
             let rd = map.reader();
             let mut local = Vec::with_capacity(SCAN_ROUNDS);
-            for _ in 0..SCAN_ROUNDS {
+            start_line.wait();
+            let mut seen_overlap = 0u64;
+            for round in 0..SCAN_ROUNDS_CAP {
+                if round >= SCAN_ROUNDS && seen_overlap >= MIN_OVERLAPPED {
+                    break;
+                }
+                let writes_before = write_count.load(Ordering::Acquire);
                 let start = Instant::now();
                 let cur = rd.cursor();
                 let mut results = Vec::new();
@@ -2736,10 +2756,12 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
                     end,
                     results,
                 });
-                if done.load(Ordering::Acquire) {
-                    break;
+                if write_count.load(Ordering::Acquire) != writes_before {
+                    seen_overlap += 1;
+                    overlapped.fetch_add(1, Ordering::Relaxed);
                 }
             }
+            scans_done.store(true, Ordering::Release);
             scans.lock().unwrap().extend(local);
         }));
     }
@@ -2751,7 +2773,17 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
     let all_writes = writes.lock().unwrap().clone();
     let all_scans = scans.lock().unwrap().clone();
 
-    assert!(!all_scans.is_empty(), "recorded at least one scan");
+    assert!(all_scans.len() >= SCAN_ROUNDS);
+    // A history in which no write completed during any scan checks nothing
+    // about concurrency.
+    assert!(
+        overlapped.load(Ordering::Relaxed) >= MIN_OVERLAPPED,
+        "{} of {} scans had a write complete during them ({} writes in all)",
+        overlapped.load(Ordering::Relaxed),
+        all_scans.len(),
+        all_writes.len()
+    );
+
     for (i, scan) in all_scans.iter().enumerate() {
         assert!(
             check_scan_linearizability(scan, &all_writes, &initial),
