@@ -11249,6 +11249,22 @@ impl SyncExpanseBlobMap {
         }
     }
 
+    /// Charges the record behind `slot` as dead when `slot` is an arena
+    /// locator; an inline slot holds no record and is ignored.
+    ///
+    /// The compare-exchange paths' form of the charge an overwrite or a
+    /// removal makes: they hold a `ValueSlot` they replaced or prepared and
+    /// did not publish, where those paths hold the word an OLC body returned.
+    ///
+    /// # Safety
+    ///
+    /// The caller must hold an epoch pin and `guard`, the writer-gate guard
+    /// the exchange ran under. `slot` must name a record no reader can reach
+    /// through the index any more and that no other writer charges: either
+    /// the word this caller's own publish replaced under `guard`, or a
+    /// locator this caller allocated under `guard` and never published. On
+    /// the shared-arena ablation the arena lock is taken here, so the caller
+    /// must not hold it.
     #[cfg(all(not(feature = "ablation-blob-serial-writers"), feature = "std"))]
     unsafe fn charge_slot_dead(
         &self,
@@ -11318,6 +11334,16 @@ impl SyncExpanseBlobMap {
     /// - If the current metadata does not match `expected`:
     ///   - Leaves the map unchanged.
     ///   - Returns `Err(current_meta)`.
+    ///
+    /// # Errors
+    ///
+    /// `Err(current_meta)` when the current metadata is not `expected`.
+    ///
+    /// A `new` above [`ValueSlot::ARENA_META_MAX`] cannot be stored. The map is
+    /// left unchanged and `Err(current_meta)` is returned whatever the current
+    /// metadata is, so the value in the `Err` can equal `expected`. A loop that
+    /// retries with the value it was handed must check for that case, or it
+    /// never ends.
     pub fn compare_exchange_meta(
         &self,
         key: Key,
@@ -11540,6 +11566,16 @@ impl SyncExpanseBlobMap {
     ///
     /// - Returns `Ok(expected)` if the current value matched and the update succeeded.
     /// - Returns `Err(current_value)` if the current value did not match.
+    ///
+    /// # Errors
+    ///
+    /// `Err(current_value)` when the current value is not `expected`.
+    ///
+    /// A `new` that cannot be stored is reported the same way: a payload longer
+    /// than 7 bytes with metadata above [`ValueSlot::ARENA_META_MAX`], or one the
+    /// arena refuses. The map is left unchanged and the value in the `Err` can
+    /// equal `expected`. A loop that retries with the value it was handed must
+    /// check for that case, or it never ends.
     ///
     /// # Allocation Note on Failure
     /// On mismatch, returning `Err(Some((Vec<u8>, u32)))` allocates a fresh `Vec<u8>`
@@ -14725,6 +14761,14 @@ impl SyncExpanseOrderedBytesMap {
     }
 
     /// Returns a reference to the underlying [`SyncExpanseStrMap`].
+    ///
+    /// The underlying map holds **escaped** keys. Every key reached through
+    /// this map must be one its escape encoding produces; a key inserted
+    /// through the returned reference bypasses that. With such a key present,
+    /// the allocating navigation methods ([`Self::first`], [`Self::last`] and
+    /// the `next_*` / `prev_*` forms) panic when they reach it, and the
+    /// `*_decode_into` forms return the decode error. Use the reference to
+    /// read, or to call methods that do not take a key.
     #[must_use]
     pub fn inner(&self) -> &SyncExpanseStrMap {
         &self.inner
@@ -14922,6 +14966,10 @@ impl From<ExpanseOrderedBytesMap> for SyncExpanseOrderedBytesMap {
 }
 
 /// Wraps an existing [`SyncExpanseStrMap`] as an ordered bytes map.
+///
+/// Every key of `inner` must be an escaped key, as
+/// [`SyncExpanseOrderedBytesMap::into_inner`] returns them; see
+/// [`SyncExpanseOrderedBytesMap::inner`] for what a key that is not does.
 impl From<SyncExpanseStrMap> for SyncExpanseOrderedBytesMap {
     fn from(inner: SyncExpanseStrMap) -> Self {
         Self { inner }
@@ -20832,6 +20880,36 @@ mod tests {
             Ok(Some((arena_p2.to_vec(), 20)))
         );
         assert_eq!(m.get(k_arena), None);
+    }
+
+    /// A `new` that cannot be stored comes back as `Err(current)` with the map
+    /// unchanged, even when `current` is the `expected` the caller passed. The
+    /// rustdoc of both methods states it; this pins it.
+    #[test]
+    fn sync_blob_compare_exchange_unstorable_new_reports_the_current_value() {
+        let over = ValueSlot::ARENA_META_MAX + 1;
+        let long = [7u8; 16];
+        for fill in [0u64, 64] {
+            // Root-leaf state, then tree state.
+            let map = SyncExpanseBlobMap::new();
+            for k in 0..fill {
+                map.insert(1_000 + k, &long, 1).unwrap();
+            }
+            map.insert(5, &long, 3).unwrap();
+            assert_eq!(
+                map.compare_exchange_meta(5, Some(3), Some(over)),
+                Err(Some(3))
+            );
+            assert_eq!(map.get_meta(5), Some(3));
+            assert_eq!(
+                map.compare_exchange(5, Some((&long, 3)), Some((&long, over))),
+                Err(Some((long.to_vec(), 3)))
+            );
+            assert_eq!(map.get(5), Some((long.to_vec(), 3)));
+            // The same exchange with storable metadata goes through.
+            assert_eq!(map.compare_exchange_meta(5, Some(3), Some(4)), Ok(Some(3)));
+            assert_eq!(map.get_meta(5), Some(4));
+        }
     }
 
     #[test]
