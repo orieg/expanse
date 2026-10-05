@@ -3695,6 +3695,39 @@ fn sync_strmap_insert_sorted(ks: Vec<Vec<u8>>) -> u64 {
     black_box(n)
 }
 
+fn built_sync_path_strmap(dist: &str) -> (SyncExpanseStrMap, Vec<Vec<u8>>) {
+    let map = SyncExpanseStrMap::new();
+    for (i, k) in path_keys(dist).iter().enumerate() {
+        map.insert(tk(k), i as u64);
+    }
+    let prefixes = scan_prefixes();
+    (map, prefixes)
+}
+
+// Full ascending scan through a shared string map via with_locked (#1143).
+// Today's only route for an ordered scan on SyncExpanseStrMap: acquires the writer lock,
+// quiesces optimistic writers, and walks the single-threaded StrCursor.
+// Baseline for #1143; the optimistic batch cursor arm sync_strmap_scan will be added
+// in Stage 2 together with the code it measures.
+#[library_benchmark]
+#[bench::paths(args = ("paths",), setup = built_sync_path_strmap)]
+#[bench::paths_dense(args = ("paths_dense",), setup = built_sync_path_strmap)]
+fn sync_strmap_scan_locked(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    map.with_locked(|m| {
+        let mut cur = m.cursor();
+        while let Some((k, slot)) = cur.next() {
+            // SAFETY: as in strmap_cursor_scan.
+            sink ^= k.len() as u64 ^ unsafe { slot.as_ptr().read() };
+            n += 1;
+        }
+    });
+    assert_eq!(n, POP as u64, "cursor walk lost keys");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = str_keys)]
 fn sync_bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
@@ -4180,6 +4213,7 @@ library_benchmark_group!(
         sync_strmap_update,
         sync_strmap_compare_exchange,
         sync_strmap_insert_sorted,
+        sync_strmap_scan_locked,
         sync_bytesmap_insert,
         sync_bytesmap_remove,
         sync_bytesmap_churn,

@@ -1662,6 +1662,7 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `map_range_cursor_scan/*` | Full forward scan of a prebuilt map through `MapRangeCursor::next` | The bounded reference for `MapRangeCursor` (#1142); asserts every entry is visited once under range bounds. |
 | `sync_map_next_after_scan/*` | Full ascending scan of a `SyncExpanseMap` by `first` then `next_after` on a reader handle | One pin, version sample and root descent per entry: the per-element baseline a concurrent batch cursor is predicted against (#1142). |
 | `sync_map_scan/*` | Full ascending scan of a `SyncExpanseMap` through the validated batch cursor | The batch cursor (#1142); in Stage 1 baseline, falls back to ordered reads. |
+| `sync_strmap_scan_locked/*` | Full ascending scan of a `SyncExpanseStrMap` through `with_locked` and `StrCursor::next` | Today's only route for an ordered string scan on a shared map (#1143); acquires the writer lock and quiesces writers. |
 | `map_count_below/*` · `set_count_below/*` | `count_below` (rank) from each present key | `nav::count_below`, summing sibling `pop0` down the descent; the plain-engine control for the concurrent count arms (#1144). |
 | `sync_map_count_locked/*` | `count_below` through `with_locked`, no writes | The lock, the writer quiesce and the count, with the dirty mask clean after setup's fold (#1144). |
 | `sync_map_write_twin/*` | Insert an absent key and remove it | The writes of `sync_map_count_after_write` without its count (#1144). |
@@ -1877,6 +1878,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_strmap_insert_short` | `short` | 50,000 |
 | `cost` | `sync_strmap_insert_sorted` | `uuid` | 20,000 |
 | `cost` | `sync_strmap_remove` | `routes` | 50,000 |
+| `cost` | `sync_strmap_scan_locked` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `sync_strmap_update` | `routes` | 50,000 |
 | `range_cost` | `map_range` | `random`, `sequential`, `clustered` | 10,000 |
 | `range_cost` | `set_range` | `random`, `sequential`, `clustered` | 10,000 |
