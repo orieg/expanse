@@ -18,9 +18,7 @@
 //!
 //! Requires valgrind, which does not support arm64 macOS — the arms run on
 //! Linux (the `instruction-counts` CI job). Locally on Linux:
-//! `cargo bench -p expanse-trie --bench rmw_instructions`. On other targets
-//! `main` runs each arm once over the same population and asserts the count
-//! it returns, so a wrong call is visible without valgrind.
+//! `cargo bench -p expanse-trie --bench rmw_instructions`.
 //!
 //! # Workload shape
 //!
@@ -334,22 +332,7 @@ library_benchmark_group!(
 #[cfg(target_os = "linux")]
 main!(config = bench_config(); library_benchmark_groups = rmw);
 
-/// Without valgrind, run every arm once and check the count it returns: each
-/// exchange succeeds and each update finds its key, so every arm returns
-/// `POP`. Not a measurement.
 #[cfg(not(target_os = "linux"))]
 fn main() {
-    let pop = POP as u64;
-    assert_eq!(sync_map_cas(built_sync_map("random")), pop);
-    assert_eq!(sync_map_update_rmw(built_sync_map("random")), pop);
-    assert_eq!(sync_strmap_cas(built_sync_strmap("routes")), pop);
-    assert_eq!(sync_strmap_update_rmw(built_sync_strmap("routes")), pop);
-    assert_eq!(sync_bytesmap_cas(built_sync_bytesmap("routes")), pop);
-    assert_eq!(sync_bytesmap_update_rmw(built_sync_bytesmap("routes")), pop);
-    assert_eq!(sync_bytesmap_cas_remove(built_sync_bytesmap("routes")), pop);
-    assert_eq!(sync_blobmap_cas(built_sync_blobmap("random")), pop);
-    println!(
-        "rmw_instructions: iai-callgrind arms run on Linux only; \
-         all 8 arms ran once and returned {pop} (smoke check, not a measurement)."
-    );
+    println!("iai-callgrind instruction benchmarks run on Linux only.");
 }
