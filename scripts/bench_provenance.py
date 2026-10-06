@@ -115,7 +115,9 @@ MIN_WINDOW_S = MIN_WINDOW_JIFFIES / USER_HZ
 # Host-contention thresholds (AGENTS.md section 8.17, docs/BENCHMARKING.md rule
 # 8), in one place for every consumer. Values are core-equivalents (1.0 = one
 # CPU busy for the whole window) or a single process's percent of one CPU.
-# "Foreign" is host CPU the run's own process tree did not use. "On-pin" is the
+# "Foreign", for the host guard, is the CPU of every task outside the run's own
+# process tree plus interrupt time (`bench_host_guard.py`); for a load
+# snapshot below it is host busy time less the run's own. "On-pin" is the
 # part of it spent on the CPUs the run is pinned to, where it takes time or an
 # SMT sibling from the benchmark directly; off-pin load contends only for
 # shared cache, memory bandwidth and package power.
@@ -128,7 +130,8 @@ RUN_PROCESS_VOID_PCT = 100.0
 # the injected-load experiment meant to set it was INCONCLUSIVE and left it
 # here (docs/benchmarks/concurrency/METHODOLOGY.md section 25, README section
 # 25). In that run's uninjected arms the guard read -0.054 to +0.178 over 2 s
-# windows, and at most 0.078 over 1 s windows on an idle host.
+# windows, and at most 0.078 over 1 s windows on an idle host. Those readings
+# were the CPU counters less the own tree, which the guard no longer judges.
 RUN_ON_PIN_VOID = 0.25
 # The start gate is stricter than the void boundary, so a run does not begin
 # on a host already close to it.
