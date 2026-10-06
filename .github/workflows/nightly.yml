@@ -603,6 +603,20 @@ jobs:
           name: bench-report
           path: bench-report.txt
 
+  # Every release tag vX.Y.Z needs bindings/go/vX.Y.Z on the same commit, or
+  # `go get` cannot resolve that version. release.yml pushes the Go tag after
+  # the GitHub Release exists, and that push can be refused once the release
+  # is already out; this job is what notices (#1372 item 7).
+  go-tag-drift:
+    if: inputs.only != 'bench'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Go module tags match the release tags
+        run: python3 scripts/check_go_tags.py
+
   fuzz-long:
     if: inputs.only != 'bench'
     runs-on: ubuntu-latest

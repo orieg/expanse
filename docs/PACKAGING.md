@@ -464,7 +464,7 @@ The Go binding is consumed directly from the monorepo as a **nested Go module**:
 go get github.com/orieg/expanse/bindings/go@v0.11.1
 ```
 
-Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `github-release` job on every release tag.
+Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `github-release` job on every release tag. The nightly `go-tag-drift` job (`scripts/check_go_tags.py`) fails when a release tag has no Go tag, or the two point at different commits; if it does, push the missing tag by hand: `git push origin <release commit>:refs/tags/bindings/go/vX.Y.Z`.
 
 The module supports two interchangeable build configurations:
 - **CGO Mode** (`CGO_ENABLED=1` default): Links `libexpanse.a` statically or `libexpanse.so` dynamically via standard CGO.
