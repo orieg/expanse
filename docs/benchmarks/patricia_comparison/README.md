@@ -273,6 +273,21 @@ Pre-registered in `METHODOLOGY.md` Amendment A3. Counts per yielded entry, `prob
 - **D1c** **NOT EVALUABLE** in the pre-registered run: `cycle_activity.stalls_l3_miss` read 0 in both builds inside the driver's default event set, while `mem_load_retired.l3_miss` counted in the same runs.
 - *Post hoc, not the pre-registered verdict:* counting only `cycles`, `instructions` and `cycle_activity.stalls_l3_miss`, same arms and parameters (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), c3e54ec2): L3-miss stalls 52.5390 [52.1232, 53.0671] vs 0.0359 [0.0102, 0.0705] cycles per entry, 61.1% of the cycle gap. `INTERMEDIATE`: the event set was changed after the pre-registered run read zero.
 
+### Diagnostic D2: the build-order gap under 2 MiB pages (workload: example_perf_point_lookup)
+
+Pre-registered in `METHODOLOGY.md` Amendment A4. Same arms and counters as D1, with the heap backed by 2 MiB transparent huge pages; both arms of both runs faulted in huge pages, which A4 makes a precondition. Counts per yielded entry over 10 paired runs on the `cpu_core` PMU, pinned `0-15`, BCa 95% interval. D2b and D2c are the generator-build count minus the sorted-build count, taken run by run. Evaluated by `scripts/patricia_d2_bounds.py --evaluate` on `results/counters_prefix_scan_d2_2m_run1.json` and `_run2.json`; the 4 KiB control arms of the same dispatches are `counters_prefix_scan_d2_4k_run1.json` and `_run2.json`.
+
+| Clause | Bound | Run 1 (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), 7243adab) | Run 2 (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), 052b0a2a) |
+|---|---|---|---|
+| **D2a** `dTLB-load-misses`, generator build | upper ≤ 0.0410 | 0.0004 [0.0001, 0.0008] | 0.0001 [0.0001, 0.0002] |
+| **D2b** `mem_load_retired.l3_miss` difference | lower ≥ 0.1416 | 0.1670 [0.1585, 0.1775] | 0.1797 [0.1631, 0.2031] |
+| **D2c** `cycles` difference | lower ≥ 52.50 | 67.4421 [65.2845, 70.2814] | 70.5295 [66.1044, 76.8436] |
+
+- **D2a PASS**, **D2b PASS**, **D2c PASS** in both runs: **D2 PASS**. With 2 MiB pages the generator build's dTLB misses fall from D1's 0.8203 per entry to at most 0.0008, while the L3-miss difference and at least 65 cycles per entry of the build-order gap remain. Huge-page backing does not close the gap.
+- Run 2's D2a interval is the bias-corrected construction, not BCa: the evaluator reports `ci_method: bc` for it, and `bca` for the other five. Its upper bound, 0.0002, is more than 200 times below the clause's bound.
+- The two runs are at different commits. Between them `strmap.rs` changed by one documentation comment, and no other file on the plain string map's scan path changed.
+- D2 measures what remains under huge pages. It does not test any remedy: child and leaf co-allocation, prefetching and packed suffixes are each unmeasured.
+
 ### Live heap (workload: patricia_memory)
 
 Requested / usable bytes per key (`malloc_usable_size`); exact counts. Usable size excludes the allocator's per-chunk header, so neither column is the full resident footprint of small nodes. Orders: `u64` generator / shuffled, paths generator / sorted.
