@@ -94,7 +94,8 @@ def self_test() -> int:
     if found:
         failures.append(f"the real release.yml has problems: {found}")
 
-    def expect(label: str, mutate, needle: str) -> None:
+    def check(label: str, mutate, needle: str) -> None:
+        """Requires that `mutate`, applied to the real job graph, is reported."""
         wf = copy.deepcopy(real)
         mutate(wf["jobs"])
         got = problems(wf)
@@ -108,22 +109,22 @@ def self_test() -> int:
 
     # THE FALSIFIERS OF THE ISSUE: a registry job whose needs do not include
     # the smoke path, and a registry that could receive a pre-release.
-    expect("a registry job that does not wait for promote", drop_need("publish-crates", "promote"),
+    check("a registry job that does not wait for promote", drop_need("publish-crates", "promote"),
            "`publish-crates` does not need `promote`")
-    expect("promote without smoke", drop_need("promote", "smoke"), "`promote` does not need `smoke`")
-    expect("smoke without the release job", drop_need("smoke", "github-release"), "`smoke` does not need")
-    expect("a registry job with no pre-release guard", lambda j: j["publish-npm"].pop("if"),
+    check("promote without smoke", drop_need("promote", "smoke"), "`promote` does not need `smoke`")
+    check("smoke without the release job", drop_need("smoke", "github-release"), "`smoke` does not need")
+    check("a registry job with no pre-release guard", lambda j: j["publish-npm"].pop("if"),
            "`publish-npm` has no job-level condition")
-    expect("a guard that does not mention pre-releases",
+    check("a guard that does not mention pre-releases",
            lambda j: j["publish-gem"].__setitem__("if", "github.event_name == 'push'"),
            "`publish-gem` has no job-level condition")
-    expect("verify-registries on a pre-release",
+    check("verify-registries on a pre-release",
            lambda j: j["verify-registries"].__setitem__("if", "github.event_name == 'push'"),
            "`verify-registries` has no condition")
-    expect("a new publishing job outside the list",
+    check("a new publishing job outside the list",
            lambda j: j.__setitem__("publish-conda", {"needs": ["promote"], "runs-on": "ubuntu-latest", "steps": []}),
            "`publish-conda` looks like a publishing job")
-    expect("a new job in the release environment",
+    check("a new job in the release environment",
            lambda j: j.__setitem__("upload-somewhere", {"environment": "release", "steps": []}),
            "`upload-somewhere` looks like a publishing job")
 
@@ -135,8 +136,8 @@ def self_test() -> int:
         return f
 
     for step in PROMOTE_STEPS:
-        expect(f"promote step `{step}` on a pre-release", unguard_step(step), f"`promote` step `{step}` would run")
-    expect("a removed publishing job", lambda j: j.pop("publish-wasm"), "publishing job `publish-wasm` is missing")
+        check(f"promote step `{step}` on a pre-release", unguard_step(step), f"`promote` step `{step}` would run")
+    check("a removed publishing job", lambda j: j.pop("publish-wasm"), "publishing job `publish-wasm` is missing")
 
     if failures:
         for f in failures:
