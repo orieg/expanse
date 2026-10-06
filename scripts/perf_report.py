@@ -346,6 +346,19 @@ HARNESS_BENCH_N_MAP: Dict[str, Dict[str, int]] = {
         "bytesmap_get": 10_000,
         "bytesmap_churn": 10_000,
     },
+    # `crates/expanse/benches/rmw_instructions.rs` (#1395): `POP = 50_000`, one
+    # `compare_exchange` or `update` per key of a shuffled probe stream per arm.
+    # The target alone scopes it: every arm sits in the one `rmw` group.
+    "rmw_instructions": {
+        "sync_map_cas": 50_000,
+        "sync_map_update_rmw": 50_000,
+        "sync_strmap_cas": 50_000,
+        "sync_strmap_update_rmw": 50_000,
+        "sync_bytesmap_cas": 50_000,
+        "sync_bytesmap_update_rmw": 50_000,
+        "sync_bytesmap_cas_remove": 50_000,
+        "sync_blobmap_cas": 50_000,
+    },
     # `crates/expanse-capi/benches/smoke_instructions.rs`: `POP = 10_000`, one
     # pass over `keys(dist)`, `str_keys` or the shuffled probe stream per arm.
     "smoke_instructions::smoke_capi_cost": {
@@ -3181,6 +3194,7 @@ def self_test() -> int:
         "bytes/key table (32-bit embedded)",
         "libexpanse vs stock libjudy (instructions)",
         "Search suite instruction counts (search_instructions)",
+        "RMW instruction counts (rmw_instructions)",
         "Head-to-Head Comparative Benchmark (Expanse vs hashbrown vs BTreeMap)",
         "Generate Report and Enforce Regression Guard",
         "Post or Update Benchmark PR Comment",
