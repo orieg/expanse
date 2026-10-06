@@ -52,13 +52,20 @@ jobs:
           # GITHUB_TOKEN does start a run. A tag pushed moments after its
           # commit lands races the still-running CI; the script waits for it
           # rather than failing (the v0.4.0 incident, #313).
-          # --require-ancestor-of: the tagged commit must be on main, checked
+          # --require-ancestor-of: a tagged commit must be on main, checked
           # before any wait. A tag cut from a stale checkout is refused here.
+          # A workflow_dispatch canary publishes nothing, and is how a change
+          # to this workflow is exercised on its branch before it merges, so
+          # the assertion applies to tag pushes only.
+          on_main=()
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            on_main=(--require-ancestor-of main)
+          fi
           python3 scripts/release_ci_gate.py \
             --repo "${GITHUB_REPOSITORY}" \
             --sha "${GITHUB_SHA}" \
             --dispatch-ref "${GITHUB_REF_NAME}" \
-            --require-ancestor-of main \
+            "${on_main[@]}" \
             --deadline-minutes 220
 
       - name: Assert the tag is signed by a committed release key
@@ -671,6 +678,11 @@ jobs:
           set -euo pipefail
           [ -s "${BUNDLE}" ] || { echo "::error::no attestation bundle at '${BUNDLE}'"; exit 1; }
           cp "${BUNDLE}" artifacts/expanse.intoto.jsonl
+      # Every build leg produced its archive, the fixed files are present, and
+      # each file has the digest SHA256SUMS records. Runs in the canary too,
+      # so a leg that uploads nothing is caught before a tag is pushed.
+      - name: Check the collected assets
+        run: python3 scripts/release_assets.py check-local --dir artifacts
       # The curated notes are the signed tag's message (scripts/tag_release.py
       # --notes-file / --notes-from-pr). They lead the release body; the list
       # generated from pull-request titles follows. A stable tag without notes
@@ -682,6 +694,7 @@ jobs:
           git fetch --no-tags --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           python3 scripts/release_notes.py --tag "${GITHUB_REF_NAME}" --out curated-notes.md
       - name: Create Release
+        id: release
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
@@ -689,6 +702,31 @@ jobs:
           # With both set, the action puts the generated notes after this body.
           body_path: ${{ github.event_name == 'push' && 'curated-notes.md' || '' }}
           generate_release_notes: true
+          # Created as a draft: nothing is public, and nothing downstream runs,
+          # until the uploaded assets have been read back and checked below.
+          draft: true
+      # What is on the release must be what was built: the assets are
+      # downloaded again and compared with the uploaded set by name and by
+      # digest. A truncated or missing upload stops here, with the release
+      # still a draft and no registry touched.
+      - name: Read the draft's assets back and verify them
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          set -euo pipefail
+          # By release id, not by tag: the tag lookup does not return a draft.
+          [ -n "${RELEASE_ID}" ] || { echo "::error::the release step reported no release id"; exit 1; }
+          mkdir readback
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" \
+            --jq '.[] | "\(.id)\t\(.name)"' > assets.tsv
+          while IFS=$'\t' read -r asset_id name; do
+            gh api -H "Accept: application/octet-stream" \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" > "readback/${name}"
+          done < assets.tsv
+          python3 scripts/release_assets.py check-readback --dir readback --local artifacts
       - name: Verify provenance attestations
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         shell: bash
@@ -705,6 +743,18 @@ jobs:
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
           done
           echo "All release archive attestations verified successfully."
+      # Publishing the draft is what makes the release public and lets every
+      # job that `needs` this one run. It comes after the read-back and the
+      # attestation check, and before the Go tag and the PyPI dispatch.
+      - name: Publish the release
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          set -euo pipefail
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false \
+            --jq '"published \(.tag_name): draft=\(.draft) \(.html_url)"'
       # Nested Go module versioning (#322): `go get .../bindings/go@vX.Y.Z`
       # only resolves a pinned release if a `bindings/go/vX.Y.Z` tag exists.
       - name: Push Go nested-module tag
