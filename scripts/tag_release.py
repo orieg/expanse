@@ -150,7 +150,9 @@ def tag_release(repo: Path, version: str, commit: str | None, notes: Path | None
     sha = resolve_commit(repo, commit)
     require_on_main(repo, sha)
     require_tag_absent(repo, tag)
-    version_check(repo, sha, version)
+    # A pre-release (X.Y.Z-rc.N) rehearses X.Y.Z from the commit that carries
+    # X.Y.Z, so the manifests are checked against the base version.
+    version_check(repo, sha, version.split("-", 1)[0])
     ci_check(repo, sha, repo_slug, deadline_minutes)
     create_and_read_back(repo, tag, sha, notes, sign=sign)
     return sha
@@ -234,9 +236,14 @@ def self_test() -> int:
             failures.append("the notes file is not the tag message")
         if "## Fixed" not in message:
             failures.append("a Markdown heading of the notes was dropped from the tag message")
-        # A pre-release may be tagged without notes.
-        if run(version="1.3.0-rc.1", notes=None) != second:
+        # A pre-release may be tagged without notes, and its manifests are
+        # checked against the base version.
+        checked: list[str] = []
+        if run(version="1.3.0-rc.1", notes=None,
+               version_check=lambda _r, _s, v: checked.append(v)) != second:
             failures.append("a pre-release could not be tagged without notes")
+        if checked != ["1.3.0"]:
+            failures.append(f"a pre-release checked the manifests against {checked}, want ['1.3.0']")
         refused("tag exists locally", lambda: run(), "already exists locally")
 
         # An ancestor of main may be tagged explicitly; a tag on the remote blocks it.

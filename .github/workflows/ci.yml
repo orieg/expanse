@@ -849,6 +849,8 @@ jobs:
           python3 scripts/verify_tag_signature.py --self-test
           python3 scripts/release_notes.py --self-test
           python3 scripts/release_assets.py --self-test
+          python3 scripts/check_release_workflow.py --self-test
+          python3 scripts/check_release_workflow.py
           python3 scripts/ci_supersede.py --self-test
           python3 scripts/push_tree_verified.py --self-test
           python3 scripts/bench_windowed.py --self-test
