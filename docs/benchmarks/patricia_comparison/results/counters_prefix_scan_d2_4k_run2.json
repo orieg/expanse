@@ -1,0 +1,747 @@
+{
+  "schema": "expanse.perfcounters.v1",
+  "generated_by": "scripts/perf_counters.py",
+  "gates": false,
+  "provenance": {
+    "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-138-generic)",
+    "commit": "052b0a2a03d0206bf89f03f20308190bffb508a9",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/37476779161",
+    "hugetlb": false,
+    "thp": {
+      "enabled": "always [madvise] never",
+      "defrag": "always defer defer+madvise [madvise] never"
+    },
+    "kernel_perf_event_paranoid": "1",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "performance",
+      "scaling_governor_by_cpu": {
+        "0": "performance",
+        "1": "performance",
+        "2": "performance",
+        "3": "performance",
+        "4": "performance",
+        "5": "performance",
+        "6": "performance",
+        "7": "performance",
+        "8": "performance",
+        "9": "performance",
+        "10": "performance",
+        "11": "performance",
+        "12": "performance",
+        "13": "performance",
+        "14": "performance",
+        "15": "performance"
+      },
+      "scaling_governor_pin_set": "0-15",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "none: counts per cell, not ratios",
+      "columns": "mean over paired runs of (probe phase - build phase) counts, BCa 95% interval over those per-run differences (scripts/bca_bootstrap.py; construction label in each counter's ci_method)",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "loads": [
+      {
+        "label": "before strmap_prefix_scan/pop=1000000/hit=100",
+        "since": null,
+        "load1": 2.02,
+        "load5": 0.52,
+        "load15": 0.17,
+        "at": "2026-10-06T14:12:01Z",
+        "stat_busy_jiffies": 13830808,
+        "stat_total_jiffies": 783577483,
+        "child_cpu_s": 0.053,
+        "monotonic_s": 326668.133,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "before strmap_prefix_scan_sorted/pop=1000000/hit=100",
+        "since": "before strmap_prefix_scan/pop=1000000/hit=100",
+        "load1": 1.67,
+        "load5": 0.56,
+        "load15": 0.19,
+        "at": "2026-10-06T14:12:23Z",
+        "stat_busy_jiffies": 13833109,
+        "stat_total_jiffies": 783631750,
+        "child_cpu_s": 22.611,
+        "monotonic_s": 326690.754,
+        "busy_cpus_since_prev": 1.02,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "end",
+        "since": "before strmap_prefix_scan_sorted/pop=1000000/hit=100",
+        "load1": 1.52,
+        "load5": 0.58,
+        "load15": 0.21,
+        "at": "2026-10-06T14:12:40Z",
+        "stat_busy_jiffies": 13834827,
+        "stat_total_jiffies": 783672377,
+        "child_cpu_s": 39.482,
+        "monotonic_s": 326707.688,
+        "busy_cpus_since_prev": 1.01,
+        "own_busy_cpus_since_prev": 1.0,
+        "foreign_busy_cpus_since_prev": 0.01
+      }
+    ]
+  },
+  "rounds_raw": {
+    "strmap_prefix_scan/pop=1000000/hit=100": {
+      "cycles": [
+        8153779506.0,
+        8115361660.0,
+        8191600682.0,
+        8164045434.0,
+        8165643479.0,
+        8099332123.0,
+        8139359219.0,
+        8177203036.0,
+        8188147619.0,
+        8160692730.0
+      ],
+      "instructions": [
+        14233966381.0,
+        14235816425.0,
+        14235624063.0,
+        14237344863.0,
+        14235661093.0,
+        14235993485.0,
+        14235783270.0,
+        14235603832.0,
+        14235966051.0,
+        14235471193.0
+      ],
+      "L1-dcache-load-misses": [
+        95577580.0,
+        95688893.0,
+        95791852.0,
+        95597466.0,
+        95693285.0,
+        95717863.0,
+        95929596.0,
+        95402990.0,
+        96009668.0,
+        95499969.0
+      ],
+      "LLC-load-misses": [
+        13706093.0,
+        13375211.0,
+        13838354.0,
+        13685507.0,
+        13691217.0,
+        13470577.0,
+        13665424.0,
+        13793447.0,
+        13811006.0,
+        13491014.0
+      ],
+      "dTLB-load-misses": [
+        40797002.0,
+        41080339.0,
+        41108180.0,
+        41091500.0,
+        40877288.0,
+        40963675.0,
+        41054438.0,
+        40970906.0,
+        41033116.0,
+        40821721.0
+      ],
+      "branch-misses": [
+        24310107.0,
+        24343403.0,
+        24324565.0,
+        24335653.0,
+        24295129.0,
+        24387842.0,
+        24390463.0,
+        24369003.0,
+        24453265.0,
+        24327150.0
+      ],
+      "mem_load_retired.l3_miss": [
+        12907018.0,
+        12589731.0,
+        13028900.0,
+        12878042.0,
+        12870042.0,
+        12664498.0,
+        12867137.0,
+        12978822.0,
+        13001246.0,
+        12685445.0
+      ],
+      "br_misp_retired.all_branches": [
+        24310107.0,
+        24343403.0,
+        24324565.0,
+        24335653.0,
+        24295129.0,
+        24387842.0,
+        24390463.0,
+        24369003.0,
+        24453265.0,
+        24327150.0
+      ]
+    },
+    "strmap_prefix_scan_sorted/pop=1000000/hit=100": {
+      "cycles": [
+        3629595858.0,
+        3598286676.0,
+        3595506149.0,
+        3604206977.0,
+        3604278774.0,
+        3643166520.0,
+        3611180535.0,
+        3618093907.0,
+        3610162197.0,
+        3601784348.0
+      ],
+      "instructions": [
+        14226614224.0,
+        14225794741.0,
+        14225926781.0,
+        14226044440.0,
+        14226461046.0,
+        14226471656.0,
+        14226318609.0,
+        14226134040.0,
+        14226143104.0,
+        14225974186.0
+      ],
+      "L1-dcache-load-misses": [
+        12078911.0,
+        11957580.0,
+        11876516.0,
+        16379044.0,
+        12021897.0,
+        11795125.0,
+        11818861.0,
+        12146931.0,
+        11920451.0,
+        12032010.0
+      ],
+      "LLC-load-misses": [
+        24167.0,
+        -24255.0,
+        8579.0,
+        -30526.0,
+        23928.0,
+        9755.0,
+        3383.0,
+        83294.0,
+        19629.0,
+        -48508.0
+      ],
+      "dTLB-load-misses": [
+        558035.0,
+        473444.0,
+        470991.0,
+        516811.0,
+        533776.0,
+        453255.0,
+        461138.0,
+        434984.0,
+        487616.0,
+        500437.0
+      ],
+      "branch-misses": [
+        24535590.0,
+        24487815.0,
+        24434644.0,
+        24423562.0,
+        24515487.0,
+        24470476.0,
+        24579143.0,
+        24552589.0,
+        24546879.0,
+        24497659.0
+      ],
+      "mem_load_retired.l3_miss": [
+        16317.0,
+        -11010.0,
+        5507.0,
+        -21470.0,
+        17084.0,
+        14072.0,
+        3196.0,
+        57830.0,
+        10151.0,
+        -28285.0
+      ],
+      "br_misp_retired.all_branches": [
+        24535590.0,
+        24487815.0,
+        24434644.0,
+        24423562.0,
+        24515487.0,
+        24470476.0,
+        24579143.0,
+        24552589.0,
+        24546879.0,
+        24497659.0
+      ]
+    }
+  },
+  "pmu": {
+    "selected": "cpu_core",
+    "selection_reason": "`cpu_core` is the performance-core PMU among the 2 this host exposes (cpu_atom, cpu_core)",
+    "requested": "auto",
+    "cpus": "0-15",
+    "pin_command": "taskset -c 0-15",
+    "merge_policy": "one core PMU per run; rows from any other core PMU are never summed into these counts"
+  },
+  "statistics": {
+    "estimator": "mean of per-run (probe - build)",
+    "method": "BCa bootstrap",
+    "confidence": 0.95,
+    "num_resamples": 2000,
+    "seed": 42,
+    "min_n": 3
+  },
+  "counters_requested": [
+    "cycles",
+    "instructions",
+    "L1-dcache-load-misses",
+    "LLC-load-misses",
+    "dTLB-load-misses",
+    "branch-misses",
+    "cycle_activity.stalls_l3_miss",
+    "mem_load_retired.l3_miss",
+    "br_misp_retired.all_branches"
+  ],
+  "counters_available": [
+    "cycles",
+    "instructions",
+    "L1-dcache-load-misses",
+    "LLC-load-misses",
+    "dTLB-load-misses",
+    "branch-misses",
+    "mem_load_retired.l3_miss",
+    "br_misp_retired.all_branches"
+  ],
+  "counters_unavailable": [
+    {
+      "event": "cycle_activity.stalls_l3_miss",
+      "pmu": "cpu_core",
+      "reason": "reads 0 when counted together with the rest of this event set on `cpu_core`, although counted alone over the same probe it read 3,329; perf reports that 0 as a count, so it is withheld rather than published. Count it in a smaller `--events` set",
+      "perf_stderr": ""
+    }
+  ],
+  "cells": [
+    {
+      "id": "strmap_prefix_scan/pop=1000000/hit=100",
+      "arm": "strmap_prefix_scan",
+      "population": 1000000,
+      "distinct_probes": 249670,
+      "hit_pct": 100,
+      "passes": 200,
+      "reuse_factor": 200,
+      "workload_echo": "arm=strmap_prefix_scan phase=probe pop=1000000 hit_pct=100 passes=200 ops=249670 checksum=14467083891976989787",
+      "thp_delta": {
+        "thp_fault_alloc": 0,
+        "thp_fault_fallback": 0,
+        "thp_collapse_alloc": 0
+      },
+      "counters": {
+        "cycles": {
+          "n": 10,
+          "point": 8155516548.8,
+          "ci_lower": 8135412516.3,
+          "ci_upper": 8169689683.5,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/cycles/",
+          "samples": [
+            8153779506.0,
+            8115361660.0,
+            8191600682.0,
+            8164045434.0,
+            8165643479.0,
+            8099332123.0,
+            8139359219.0,
+            8177203036.0,
+            8188147619.0,
+            8160692730.0
+          ]
+        },
+        "instructions": {
+          "n": 10,
+          "point": 14235723065.6,
+          "ci_lower": 14235189525.5,
+          "ci_upper": 14236155168.6,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/instructions/",
+          "samples": [
+            14233966381.0,
+            14235816425.0,
+            14235624063.0,
+            14237344863.0,
+            14235661093.0,
+            14235993485.0,
+            14235783270.0,
+            14235603832.0,
+            14235966051.0,
+            14235471193.0
+          ]
+        },
+        "L1-dcache-load-misses": {
+          "n": 10,
+          "point": 95690916.2,
+          "ci_lower": 95592386.6,
+          "ci_upper": 95813731.4,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/L1-dcache-load-misses/",
+          "samples": [
+            95577580.0,
+            95688893.0,
+            95791852.0,
+            95597466.0,
+            95693285.0,
+            95717863.0,
+            95929596.0,
+            95402990.0,
+            96009668.0,
+            95499969.0
+          ]
+        },
+        "LLC-load-misses": {
+          "n": 10,
+          "point": 13652785.0,
+          "ci_lower": 13550632.1,
+          "ci_upper": 13727178.8,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/LLC-load-misses/",
+          "samples": [
+            13706093.0,
+            13375211.0,
+            13838354.0,
+            13685507.0,
+            13691217.0,
+            13470577.0,
+            13665424.0,
+            13793447.0,
+            13811006.0,
+            13491014.0
+          ]
+        },
+        "dTLB-load-misses": {
+          "n": 10,
+          "point": 40979816.5,
+          "ci_lower": 40906359.5,
+          "ci_upper": 41036416.6,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/dTLB-load-misses/",
+          "samples": [
+            40797002.0,
+            41080339.0,
+            41108180.0,
+            41091500.0,
+            40877288.0,
+            40963675.0,
+            41054438.0,
+            40970906.0,
+            41033116.0,
+            40821721.0
+          ]
+        },
+        "branch-misses": {
+          "n": 10,
+          "point": 24353658.0,
+          "ci_lower": 24330061.9,
+          "ci_upper": 24387489.3,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/branch-misses/",
+          "samples": [
+            24310107.0,
+            24343403.0,
+            24324565.0,
+            24335653.0,
+            24295129.0,
+            24387842.0,
+            24390463.0,
+            24369003.0,
+            24453265.0,
+            24327150.0
+          ]
+        },
+        "mem_load_retired.l3_miss": {
+          "n": 10,
+          "point": 12847088.1,
+          "ci_lower": 12749291.0,
+          "ci_upper": 12920671.3,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/mem_load_retired.l3_miss/",
+          "samples": [
+            12907018.0,
+            12589731.0,
+            13028900.0,
+            12878042.0,
+            12870042.0,
+            12664498.0,
+            12867137.0,
+            12978822.0,
+            13001246.0,
+            12685445.0
+          ]
+        },
+        "br_misp_retired.all_branches": {
+          "n": 10,
+          "point": 24353658.0,
+          "ci_lower": 24330061.9,
+          "ci_upper": 24387489.3,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/br_misp_retired.all_branches/",
+          "samples": [
+            24310107.0,
+            24343403.0,
+            24324565.0,
+            24335653.0,
+            24295129.0,
+            24387842.0,
+            24390463.0,
+            24369003.0,
+            24453265.0,
+            24327150.0
+          ]
+        }
+      }
+    },
+    {
+      "id": "strmap_prefix_scan_sorted/pop=1000000/hit=100",
+      "arm": "strmap_prefix_scan_sorted",
+      "population": 1000000,
+      "distinct_probes": 249670,
+      "hit_pct": 100,
+      "passes": 200,
+      "reuse_factor": 200,
+      "workload_echo": "arm=strmap_prefix_scan_sorted phase=probe pop=1000000 hit_pct=100 passes=200 ops=249670 checksum=14467083891976989787",
+      "thp_delta": {
+        "thp_fault_alloc": 0,
+        "thp_fault_fallback": 0,
+        "thp_collapse_alloc": 0
+      },
+      "counters": {
+        "cycles": {
+          "n": 10,
+          "point": 3611626194.1,
+          "ci_lower": 3604569083.3,
+          "ci_upper": 3623001656.2,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/cycles/",
+          "samples": [
+            3629595858.0,
+            3598286676.0,
+            3595506149.0,
+            3604206977.0,
+            3604278774.0,
+            3643166520.0,
+            3611180535.0,
+            3618093907.0,
+            3610162197.0,
+            3601784348.0
+          ]
+        },
+        "instructions": {
+          "n": 10,
+          "point": 14226188282.7,
+          "ci_lower": 14226038841.4,
+          "ci_upper": 14226358485.8,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/instructions/",
+          "samples": [
+            14226614224.0,
+            14225794741.0,
+            14225926781.0,
+            14226044440.0,
+            14226461046.0,
+            14226471656.0,
+            14226318609.0,
+            14226134040.0,
+            14226143104.0,
+            14225974186.0
+          ]
+        },
+        "L1-dcache-load-misses": {
+          "n": 10,
+          "point": 12402732.6,
+          "ci_lower": 11937546.9,
+          "ci_upper": 14183507.8,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/L1-dcache-load-misses/",
+          "samples": [
+            12078911.0,
+            11957580.0,
+            11876516.0,
+            16379044.0,
+            12021897.0,
+            11795125.0,
+            11818861.0,
+            12146931.0,
+            11920451.0,
+            12032010.0
+          ]
+        },
+        "LLC-load-misses": {
+          "n": 10,
+          "point": 6944.6,
+          "ci_lower": -13361.6,
+          "ci_upper": 30774.9,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/LLC-load-misses/",
+          "samples": [
+            24167.0,
+            -24255.0,
+            8579.0,
+            -30526.0,
+            23928.0,
+            9755.0,
+            3383.0,
+            83294.0,
+            19629.0,
+            -48508.0
+          ]
+        },
+        "dTLB-load-misses": {
+          "n": 10,
+          "point": 489048.7,
+          "ci_lower": 469377.6,
+          "ci_upper": 514096.2,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/dTLB-load-misses/",
+          "samples": [
+            558035.0,
+            473444.0,
+            470991.0,
+            516811.0,
+            533776.0,
+            453255.0,
+            461138.0,
+            434984.0,
+            487616.0,
+            500437.0
+          ]
+        },
+        "branch-misses": {
+          "n": 10,
+          "point": 24504384.4,
+          "ci_lower": 24473362.5,
+          "ci_upper": 24532976.3,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/branch-misses/",
+          "samples": [
+            24535590.0,
+            24487815.0,
+            24434644.0,
+            24423562.0,
+            24515487.0,
+            24470476.0,
+            24579143.0,
+            24552589.0,
+            24546879.0,
+            24497659.0
+          ]
+        },
+        "mem_load_retired.l3_miss": {
+          "n": 10,
+          "point": 6339.2,
+          "ci_lower": -6417.1,
+          "ci_upper": 22688.0,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/mem_load_retired.l3_miss/",
+          "samples": [
+            16317.0,
+            -11010.0,
+            5507.0,
+            -21470.0,
+            17084.0,
+            14072.0,
+            3196.0,
+            57830.0,
+            10151.0,
+            -28285.0
+          ]
+        },
+        "br_misp_retired.all_branches": {
+          "n": 10,
+          "point": 24504384.4,
+          "ci_lower": 24473362.5,
+          "ci_upper": 24532976.3,
+          "ci_method": "bca",
+          "status": "ok",
+          "min_pct_running": 100.0,
+          "pmu": "cpu_core",
+          "perf_event_name": "cpu_core/br_misp_retired.all_branches/",
+          "samples": [
+            24535590.0,
+            24487815.0,
+            24434644.0,
+            24423562.0,
+            24515487.0,
+            24470476.0,
+            24579143.0,
+            24552589.0,
+            24546879.0,
+            24497659.0
+          ]
+        }
+      }
+    }
+  ]
+}
