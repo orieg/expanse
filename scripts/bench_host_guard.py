@@ -19,26 +19,35 @@ benchmark started.
 
 Everything comes from two readings of `/proc` a window apart:
 
-- **Foreign load**: host CPU the run's own process tree did not use, in
-  core-equivalents. The own tree is `--own-root` and its descendants. Their
-  CPU is their `utime+stime`, plus the root's `cutime+cstime` for descendants
-  already reaped. (`RUSAGE_CHILDREN` alone would miss a benchmark still running.)
-- **On-pin foreign load**: the pinned CPUs' busy time, from the per-CPU
-  `/proc/stat` lines, minus the own tree's. The own tree is pinned there, so
-  whatever else ran on those CPUs took time or an SMT sibling from the
+- **Foreign load**: the CPU of every task outside the run's own process
+  tree, plus interrupt, softirq and steal time, in core-equivalents. The own
+  tree is `--own-root` and its descendants. A task's CPU is its
+  `utime+stime`, plus its `cutime+cstime` for the children it reaped.
+- **On-pin foreign load**: the part of it on the pinned CPUs: the foreign
+  tasks that last ran there at either end of the window, and those CPUs'
+  interrupt time. Whatever ran there took time or an SMT sibling from the
   benchmark directly. Load elsewhere contends only for shared cache, memory
   bandwidth and package power, and is counted as foreign but not on-pin.
-  The own tree is read immediately after `/proc/stat`, not with the process
-  scan before it, so the two operands of that subtraction describe the same
-  instant (`sample`, #1270).
+- **Counters minus own tree**: the busy time of the `/proc/stat` CPU lines
+  less the own tree's CPU. It is recorded and not judged. The two operands
+  are different clocks: the CPU lines are sampled at the scheduler tick, and
+  a process's `utime+stime` sum to its exact run time. They disagree by an
+  amount that follows the own tree's wakeups and takes either sign: with no
+  foreign task or interrupt time recorded, bench_baremetal runs 37480277219
+  and 37481727076 read it between -0.20 and +0.44 core-equivalents across
+  the cells of one sweep. The first version judged the run on this figure:
+  it voided those runs on the benchmark's own wakeups, and a negative
+  disagreement can hide a foreign task of the same size (self-test case
+  12a). The own tree is read immediately after `/proc/stat`, so the
+  operands describe the same instant (`sample`, #1270).
 - **Attribution** (#1270): the foreign load split into task classes —
   kernel threads (by kind: kworker, ksoftirqd, rcu, migration, other), the
   runner's own processes (its cgroup, outside the run's tree), the guard
   itself, and user processes — each with its sum, host-wide and on the pinned
-  CPUs (by the CPU a task last ran on); interrupt, softirq and steal time from
-  the per-CPU counters; and what none of those accounts for on the pinned
-  CPUs. The void rule does not read the attribution: every class counts as
-  foreign (`docs/BENCHMARKING.md` rule 8).
+  CPUs; interrupt, softirq and steal time from the per-CPU counters; and what
+  the pinned CPUs' counters hold beyond the own tree and all of those
+  (`unattributed_on_pin`, the clock disagreement above). The void rule reads
+  the sums: every class counts as foreign (`docs/BENCHMARKING.md` rule 8).
 - **Offenders**: each foreign process's CPU over the window, from its own
   `/proc/<pid>/stat` delta, named by `comm`, PID, elapsed time and short cgroup
   id (a container's id). No command line or user is recorded: this output is
@@ -343,8 +352,6 @@ def assess(a: Sample, b: Sample, pin: list[int], own_root: int, self_pids: set[i
         b.procs[p].ticks - a.procs[p].ticks for p in self_pids if p in a.procs and p in b.procs
     )
     scale = hz * dt
-    on_pin_foreign = (on_busy - own) / scale
-    foreign = (on_busy + off_busy - own - self_ticks) / scale
 
     offenders = []
     own_all = own_a | own_b | set(self_pids)
@@ -360,17 +367,23 @@ def assess(a: Sample, b: Sample, pin: list[int], own_root: int, self_pids: set[i
                 "etime_s": int(b.uptime - pb.start_ticks / hz),
             })
     offenders.sort(key=lambda o: -o["cpu_pct"])
+    at, foreign_ticks, on_pin_foreign_ticks = attribute(
+        a, b, pin_set, own_all, set(self_pids), on_busy - own, intr, scale, run_cgroup, cgroup_of)
     return {
         "window_s": round(dt, 3),
-        "foreign_busy_cpus": round(foreign, 3),
-        "on_pin_foreign_busy_cpus": round(on_pin_foreign, 3),
+        # Judged: tasks outside the own tree, and interrupt time.
+        "foreign_busy_cpus": round(foreign_ticks / scale, 3),
+        "on_pin_foreign_busy_cpus": round(on_pin_foreign_ticks / scale, 3),
+        # Recorded, not judged: tick-sampled CPU counters less the own tree's
+        # exact CPU time. What the two fields above were before #1280's runs.
+        "busy_minus_own_cpus": round((on_busy + off_busy - own - self_ticks) / scale, 3),
+        "on_pin_busy_minus_own_cpus": round((on_busy - own) / scale, 3),
         "own_busy_cpus": round(own / scale, 3),
         "self_busy_cpus": round(self_ticks / scale, 3),
         "offenders": offenders[:10],
         "own_read_lag_s": b.own_read_lag_s,
         "own_read_passes": b.own_read_passes,
-        "attribution": attribute(a, b, pin_set, own_all, set(self_pids), on_busy - own, intr, scale,
-                                 run_cgroup, cgroup_of),
+        "attribution": at,
     }
 
 
@@ -408,24 +421,31 @@ def task_class(p: Proc, self_pids: set[int], run_cgroup: str | None, cgroup_of) 
 
 
 def attribute(a: Sample, b: Sample, pin_set: set[int], own_all: set[int], self_pids: set[int],
-              on_pin_foreign_ticks: float, intr: dict, scale: float, run_cgroup: str | None,
-              cgroup_of=None) -> dict:
-    """Split the foreign load into task classes and interrupt time.
+              on_pin_residual_ticks: float, intr: dict, scale: float, run_cgroup: str | None,
+              cgroup_of=None) -> tuple[dict, int, int]:
+    """The foreign load, by task class and interrupt time.
+
+    Returns the breakdown, and the two sums the void rule is judged on, in
+    ticks: host-wide (without the guard's own CPU) and on the pinned CPUs.
 
     A task's CPU over the window is `(utime + stime + cutime + cstime)` at the
     end less at the start, so a short-lived child that a foreign process
     reaped inside the window is counted in its reaper's class; a process that
     exited and was reaped is dropped from both ends and so appears only there.
-    It is put on the pinned CPUs or off them by the CPU it last ran on, which
-    for a process that moved in the window is an approximation, said so in
-    the record.
+    It is put on the pinned CPUs when it last ran there at either end of the
+    window, and off them otherwise. For a process that moved inside the
+    window that is an approximation, and it errs toward on-pin.
 
     Interrupt, softirq and steal time come from the per-CPU counters, which
     the kernel charges to no task under IRQ time accounting.
 
-    Whatever the tasks and interrupts on the pinned CPUs do not account for is
-    `unattributed_on_pin`. It is not dropped: the void rule reads the pinned
-    CPUs' busy time less the own tree's, and the attribution only explains it.
+    `on_pin_residual_ticks` is the pinned CPUs' counters less the own tree.
+    What the tasks and interrupts there do not account for of it is
+    `unattributed_on_pin`. It is recorded and not judged: it is the
+    disagreement between the tick-sampled CPU counters and the own tree's
+    exact run time, which the own tree's wakeups move in either direction
+    (module docstring). Every foreign task and all interrupt time is in the
+    sums regardless of it.
     """
     cgroup_of = cgroup_of or (lambda _pid: "")
     cg_cache: dict[int, str] = {}
@@ -454,7 +474,7 @@ def attribute(a: Sample, b: Sample, pin_set: set[int], own_all: set[int], self_p
             continue
         cls = task_class(pb, self_pids, run_cgroup, cg)
         host[cls] += d
-        if pb.processor in pin_set:
+        if pb.processor in pin_set or (pa is not None and pa.processor in pin_set):
             on_pin[cls] += d
         if cls == "kernel":
             k = kernel_kind(pb.comm)
@@ -465,15 +485,16 @@ def attribute(a: Sample, b: Sample, pin_set: set[int], own_all: set[int], self_p
 
     intr_on = sum(intr["on"].values())
     tasks_on = sum(on_pin.values())
+    foreign_ticks = sum(v for k, v in host.items() if k != "sampler") + intr_on + sum(intr["off"].values())
     return {
         "classes": {k: ce(v) for k, v in host.items()},
         "classes_on_pin": {k: ce(v) for k, v in on_pin.items()},
         "kernel_kinds": {k: ce(v) for k, v in sorted(kinds.items())},
         "interrupts_on_pin": {k: ce(v) for k, v in intr["on"].items()},
         "interrupts_off_pin": {k: ce(v) for k, v in intr["off"].items()},
-        "unattributed_on_pin": ce(on_pin_foreign_ticks - tasks_on - intr_on),
-        "placement": "a task's CPU is placed on or off the pinned CPUs by the CPU it last ran on",
-    }
+        "unattributed_on_pin": ce(on_pin_residual_ticks - tasks_on - intr_on),
+        "placement": "a task's CPU is placed on the pinned CPUs when it last ran there at either end of the window",
+    }, foreign_ticks, tasks_on + intr_on
 
 
 def verdict(a: dict, foreign_max: float, on_pin_max: float, proc_max: float) -> list[str]:
@@ -502,9 +523,10 @@ def attribution_lines(a: dict) -> list[str]:
     tasks_on = sum(on.values())
     intr_sum = sum(intr_on.values())
     lines = [
-        f"  on the pinned CPUs {a['on_pin_foreign_busy_cpus']:.2f} = tasks {tasks_on:.2f} "
+        f"  on the pinned CPUs: tasks {tasks_on:.2f} "
         f"({', '.join(f'{k} {v:.2f}' for k, v in on.items())}) + interrupts {intr_sum:.2f} "
-        f"({', '.join(f'{k} {v:.2f}' for k, v in intr_on.items())}) + unattributed {at['unattributed_on_pin']:.2f}",
+        f"({', '.join(f'{k} {v:.2f}' for k, v in intr_on.items())}); unattributed {at['unattributed_on_pin']:.2f}"
+        + ("" if "on_pin_busy_minus_own_cpus" in a else " (judged: this record predates the task-sum rule)"),
         f"  host-wide foreign tasks: {', '.join(f'{k} {v:.2f}' for k, v in at['classes'].items())}"
         + (f"; kernel threads: {', '.join(f'{k} {v:.2f}' for k, v in at['kernel_kinds'].items())}" if at["kernel_kinds"] else ""),
     ]
@@ -513,7 +535,10 @@ def attribution_lines(a: dict) -> list[str]:
         bound = a["own_busy_cpus"] * lag / a["window_s"] if a.get("window_s") else 0.0
         lines.append(f"  own tree read {lag * 1e3:.2f} ms after the CPU counters "
                      f"({a.get('own_read_passes', 0)} pass(es)); at its load that moves the reading by at most {bound:.3f}")
-    if at["unattributed_on_pin"] > tasks_on + intr_sum:
+    if "on_pin_busy_minus_own_cpus" in a:
+        lines.append(f"  CPU counters less the own tree on the pinned CPUs: {a['on_pin_busy_minus_own_cpus']:.2f} "
+                     f"(recorded, not judged: the two are different clocks)")
+    elif at["unattributed_on_pin"] > tasks_on + intr_sum:
         lines.append("  no task or interrupt time accounts for most of it")
     return lines
 
@@ -782,8 +807,8 @@ def self_test() -> int:
         # 2. The motivating defect: a container process that has run for
         # hours (low lifetime %CPU, what `ps` showed) is now at 100% of an
         # E-core. Foreign, off-pin, and named with its container id.
-        procs_a = base + [(50, 1, "kvbench", 360_000 * hz // 100, 0, 1_000)]
-        procs_b = base[:2] + [(11, root, "bench", hz, 0, 600), (50, 1, "kvbench", 360_000 * hz // 100 + hz, 0, 1_000)]
+        procs_a = base + [(50, 1, "kvbench", 360_000 * hz // 100, 0, 1_000, 0, 2)]
+        procs_b = base[:2] + [(11, root, "bench", hz, 0, 600), (50, 1, "kvbench", 360_000 * hz // 100 + hz, 0, 1_000, 0, 2)]
         a = samp(t, 0.0, {0: 0, 1: 0, 2: 0, 3: 0}, procs_a, uptime=10_000_000.0)
         b = samp(t, 1.0, {0: hz, 1: 0, 2: hz, 3: 0}, procs_b, uptime=10_000_001.0)
         lifetime_pct = 100.0 * (360_000 * hz // 100) / hz / (10_000_000.0 - 1_000 / hz)
@@ -799,7 +824,7 @@ def self_test() -> int:
 
         # 3. ...but the same process on a pinned CPU (an SMT sibling of the
         # benchmark) is, at a far lower level.
-        procs_b3 = base[:2] + [(11, root, "bench", hz, 0, 600), (50, 1, "kvbench", 360_000 * hz // 100 + hz // 4, 0, 1_000)]
+        procs_b3 = base[:2] + [(11, root, "bench", hz, 0, 600), (50, 1, "kvbench", 360_000 * hz // 100 + hz // 4, 0, 1_000, 0, 1)]
         b = samp(t, 1.0, {0: hz, 1: hz // 4, 2: 0, 3: 0}, procs_b3, uptime=10_000_001.0)
         r = assess(a, b, pin, root)
         assert abs(r["on_pin_foreign_busy_cpus"] - 0.25) < 0.02, r
@@ -893,8 +918,9 @@ def self_test() -> int:
         r = assess(a, b, pin, root)
         assert abs(r["on_pin_foreign_busy_cpus"]) < 1e-6 and abs(r["own_busy_cpus"] - 1.0) < 1e-6, r
 
-        # 11. Attribution: every class is summed, and whatever tasks and
-        # interrupts do not explain on the pinned CPUs is `unattributed`.
+        # 11. Attribution: every class is summed and judged, and what the
+        # pinned CPUs' counters hold beyond the own tree, the tasks and the
+        # interrupts is `unattributed`: recorded, not judged.
         run_cg = "/system.slice/expanse-bench-runner.service"
         kw, us = hz // 10, hz // 20
         before = [(1, 0, "systemd", 0, 0, 1), (2, 0, "kthreadd", 0, 0, 1, PF_KTHREAD),
@@ -928,24 +954,76 @@ def self_test() -> int:
         assert at["kernel_kinds"] == {"ksoftirqd": ce(kw), "kworker": ce(kw)}, at
         assert at["interrupts_on_pin"] == {"irq": ce(1), "softirq": ce(1), "steal": 0.0}, at
         assert at["unattributed_on_pin"] == ce(extra), at
-        assert abs(r["on_pin_foreign_busy_cpus"] - ce(kw + us + 2 + extra)) < 1e-6, r
+        assert abs(r["on_pin_foreign_busy_cpus"] - ce(kw + us + 2)) < 1e-6, r
+        assert abs(r["on_pin_busy_minus_own_cpus"] - ce(kw + us + 2 + extra)) < 1e-6, r
+        # Host-wide: both kernel threads, the runner, the sshd and the two
+        # interrupt ticks.
+        assert abs(r["foreign_busy_cpus"] - ce(2 * kw + hz // 5 + us + 2)) < 1e-6, r
         text = "\n".join(attribution_lines(r))
         assert f"unattributed {ce(extra):.2f}" in text and "kernel threads: ksoftirqd" in text, text
-        assert "no task or interrupt time accounts for most of it" not in text, text
+        assert "recorded, not judged" in text, text
 
-        # 12. Fail closed: load on the pinned CPUs that no task explains still
-        # voids, and the report says so in task-class terms.
-        _write_proc(t, {0: 0, 1: 0, 2: 0, 3: 0}, before)
+        # 12. THE MOTIVATING DEFECT (runs 37480277219 and 37481727076): a
+        # 16-thread cell on a 16-CPU pin, 12.7 CPUs busy, its threads waking
+        # each other. The CPU counters read 0.41 core-equivalents more than
+        # the own tree's CPU time, with no foreign task and no interrupt time.
+        # The two are different clocks, and the first version voided the run
+        # on their difference. Nothing foreign ran: the window is quiet.
+        pin16 = list(range(16))
+        own16 = (127 * hz) // 10
+        proc_a = [(1, 0, "systemd", 0, 0, 1, 0, 20), (root, 1, "bash", 0, 0, 500, 0, 20), (11, root, "bench", 0, 0, 600, 0, 0)]
+        proc_b = proc_a[:2] + [(11, root, "bench", own16, 0, 600, 0, 0)]
+        cpus_a = dict.fromkeys(range(24), 0)
+        skew = (41 * hz) // 100
+        cpus_b = {c: (own16 + skew) // 16 for c in range(16)} | dict.fromkeys(range(16, 24), 0)
+        cpus_b[0] += (own16 + skew) - sum(cpus_b[c] for c in range(16))
+        _write_proc(t, cpus_a, proc_a)
         a = sample(t, root)
         a.mono = 0.0
-        _write_proc(t, {0: hz, 1: hz // 2, 2: 0, 3: 0},
-                    before[:4] + [(11, root, "bench", hz, 0, 600, 0, 0, run_cg)] + before[5:])
+        _write_proc(t, cpus_b, proc_b)
         b = sample(t, root)
         b.mono = 1.0
-        r = assess(a, b, pin, root, frozenset(), run_cg, lambda pid: cgroup_path(t, pid))
-        assert r["attribution"]["unattributed_on_pin"] == 0.5, r
-        assert any(f"pinned CPUs 0.500 > {bp.RUN_ON_PIN_VOID:g}" in w for w in verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)), r
-        assert "no task or interrupt time accounts for most of it" in "\n".join(attribution_lines(r))
+        r = assess(a, b, pin16, root)
+        assert abs(r["own_busy_cpus"] - 12.7) < 0.01 and abs(r["on_pin_busy_minus_own_cpus"] - 0.41) < 0.01, r
+        assert r["on_pin_busy_minus_own_cpus"] > bp.RUN_ON_PIN_VOID, r  # what the first version voided on
+        assert r["on_pin_foreign_busy_cpus"] == 0.0 and r["foreign_busy_cpus"] == 0.0, r
+        assert verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT) == [], r
+        assert abs(r["attribution"]["unattributed_on_pin"] - 0.41) < 0.01, r
+
+        # 12a. The other direction, which the first version passed: the
+        # counters under-read the own tree by 0.2 while a foreign task takes
+        # 0.3 of a pinned CPU. The difference reads 0.1, under the boundary;
+        # the task is there all the same, and it voids.
+        intr = (3 * hz) // 10
+        under = (2 * hz) // 10
+        proc_a2 = proc_a + [(70, 1, "intruder", 0, 0, 900, 0, 5)]
+        proc_b2 = proc_b + [(70, 1, "intruder", intr, 0, 900, 0, 5)]
+        cpus_b2 = {c: (own16 - under + intr) // 16 for c in range(16)} | dict.fromkeys(range(16, 24), 0)
+        cpus_b2[0] += (own16 - under + intr) - sum(cpus_b2[c] for c in range(16))
+        _write_proc(t, cpus_a, proc_a2)
+        a = sample(t, root)
+        a.mono = 0.0
+        _write_proc(t, cpus_b2, proc_b2)
+        b = sample(t, root)
+        b.mono = 1.0
+        r = assess(a, b, pin16, root)
+        assert abs(r["on_pin_busy_minus_own_cpus"] - 0.1) < 0.01 and r["on_pin_busy_minus_own_cpus"] < bp.RUN_ON_PIN_VOID, r
+        assert abs(r["on_pin_foreign_busy_cpus"] - 0.3) < 0.01, r
+        why = verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)
+        assert any(f"pinned CPUs 0.300 > {bp.RUN_ON_PIN_VOID:g}" in w for w in why), why
+        assert r["offenders"] and r["offenders"][0]["comm"] == "intruder", r
+
+        # 12c. A task that left the pinned CPUs inside the window is still
+        # counted there: it is placed by where it ran at either end.
+        proc_b3 = proc_b + [(70, 1, "intruder", intr, 0, 900, 0, 20)]
+        _write_proc(t, cpus_a, proc_a2)
+        a = sample(t, root)
+        a.mono = 0.0
+        _write_proc(t, cpus_b2, proc_b3)
+        b = sample(t, root)
+        b.mono = 1.0
+        r = assess(a, b, pin16, root)
+        assert abs(r["on_pin_foreign_busy_cpus"] - 0.3) < 0.01, r
 
         # 12b. A crossing prints the value it was judged on. Run 36466620921
         # voided on 0.252 and printed "0.25 > 0.25": the reading is stored at
@@ -954,11 +1032,17 @@ def self_test() -> int:
         assert verdict(edge, 1.0, 0.25, 100.0) == ["foreign load on the pinned CPUs 0.252 > 0.25"], verdict(edge, 1.0, 0.25, 100.0)
         assert verdict(dict(edge, on_pin_foreign_busy_cpus=0.25), 1.0, 0.25, 100.0) == []
 
-        # 13. summarize prints the breakdown under a void, for a record with
-        # the attribution and for one from before it.
+        # 13. summarize prints the breakdown under a void: for a record of
+        # this rule, for one judged on the counters-less-own-tree figure
+        # (it says which rule judged it), and for one from before the
+        # attribution existed.
         rec = dict(r, t=0, governor=["performance"])
-        old_rec = {k: v for k, v in rec.items() if k not in ("attribution", "own_read_lag_s", "own_read_passes")}
-        for record, needle in ((rec, "unattributed 0.50"), (old_rec, "no task-class breakdown")):
+        counters_rule = {k: v for k, v in rec.items() if k not in ("busy_minus_own_cpus", "on_pin_busy_minus_own_cpus")}
+        old_rec = {k: v for k, v in counters_rule.items() if k not in ("attribution", "own_read_lag_s", "own_read_passes")}
+        for record, needle in ((rec, "tasks 0.30 (kernel 0.00, runner 0.00, user 0.30"),
+                               (rec, "recorded, not judged"),
+                               (counters_rule, "this record predates the task-sum rule"),
+                               (old_rec, "no task-class breakdown")):
             jl.write_text(json.dumps(record) + "\n")
             buf = Path(td, "sum.md")
             with open(os.devnull, "w") as dn:

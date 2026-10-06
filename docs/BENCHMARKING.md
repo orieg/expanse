@@ -605,8 +605,12 @@ Bench targets deliberately **not** reachable from a slash command:
      campaign's contaminants — a kvbench container, `cc1plus`, `rustc` — took
      none. [`scripts/bench_host_guard.py`](../scripts/bench_host_guard.py)
      reads `/proc` live (never `ps`, whose %CPU is a lifetime average) and
-     splits foreign load — CPU the run's own process tree did not use — into
-     the part on the pinned CPUs and the rest. Before anything is built,
+     splits foreign load — the CPU of every task outside the run's own
+     process tree, plus interrupt, softirq and steal time — into the part on
+     the pinned CPUs and the rest. It is a sum of what ran, not the CPU
+     counters less the run's own time: those are a tick-sampled clock and an
+     exact one, and their difference follows the benchmark's own wakeup rate
+     in either direction, so it is recorded and not judged. Before anything is built,
      `check` requires `START_QUIET_WINDOWS` = 3 consecutive 1 s windows with
      foreign load ≤ `START_FOREIGN_MAX` = 0.5 and on-pin foreign load ≤
      `START_ON_PIN_MAX` = 0.1 core-equivalents, and no foreign process at or
