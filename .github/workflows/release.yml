@@ -94,7 +94,7 @@ jobs:
     # Anchor-first (#313): every registry publish waits for the canonical
     # GitHub Release, so a registry can never carry a version the release
     # page does not.
-    needs: [release-gate, github-release]
+    needs: [release-gate, github-release, promote]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -379,7 +379,7 @@ jobs:
 
   package-nuget:
     name: Package & Publish .NET NuGet
-    needs: [release-gate, build-release-artifacts, github-release] # anchor-first (#313)
+    needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: write # attach the nupkg to the GitHub Release
@@ -453,7 +453,7 @@ jobs:
 
   package-maven:
     name: Package & Publish Java (Maven Central)
-    needs: [release-gate, build-release-artifacts, github-release] # anchor-first (#313)
+    needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -545,7 +545,7 @@ jobs:
 
   publish-npm:
     name: Publish Node.js (npm)
-    needs: [release-gate, build-npm, github-release] # anchor-first (#313)
+    needs: [release-gate, build-npm, github-release, promote] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -622,9 +622,10 @@ jobs:
     # artifacts. Downstream registries depend on THIS job — never the reverse.
     needs: [release-gate, build-release-artifacts]
     runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
     permissions:
-      contents: write # create the release and upload assets
-      actions: write # dispatch python.yml for the PyPI publish
+      contents: write # create the draft release and upload assets
       id-token: write # Sigstore OIDC token for build provenance
       attestations: write # create GitHub artifact attestations
     steps:
@@ -683,6 +684,13 @@ jobs:
       # so a leg that uploads nothing is caught before a tag is pushed.
       - name: Check the collected assets
         run: python3 scripts/release_assets.py check-local --dir artifacts
+      # The smoke job checks the archive it tests against this list.
+      - name: Hand the checksum list to the smoke job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-checksums
+          path: artifacts/SHA256SUMS
+          if-no-files-found: error
       # The curated notes are the signed tag's message (scripts/tag_release.py
       # --notes-file / --notes-from-pr). They lead the release body; the list
       # generated from pull-request titles follows. A stable tag without notes
@@ -743,16 +751,111 @@ jobs:
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
           done
           echo "All release archive attestations verified successfully."
-      # Publishing the draft is what makes the release public and lets every
-      # job that `needs` this one run. It comes after the read-back and the
-      # attestation check, and before the Go tag and the PyPI dispatch.
+
+  # Consumer-level proof before anything irreversible: each archive is
+  # unpacked and used the way a user would, on the platform it is for. It reads
+  # the build's own artifacts, which the release job has shown to be
+  # byte-identical to the draft's assets (read-back), so the same job runs
+  # unchanged in the dry-run canary, where no draft exists.
+  smoke:
+    name: Smoke / ${{ matrix.target }}
+    needs: [release-gate, build-release-artifacts, github-release]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download this target's archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-artifacts-${{ matrix.target }}
+          path: artifacts
+      - name: Download the checksum list
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-checksums
+          path: checksums
+      - name: Locate the archive and check its digest
+        id: archive
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep -m1 '^version' crates/expanse-capi/Cargo.toml | cut -d'"' -f2)"
+          fi
+          shopt -s nullglob
+          found=(artifacts/expanse-*"${TARGET}".tar.gz artifacts/expanse-*"${TARGET}".zip)
+          [ "${#found[@]}" -eq 1 ] || { echo "::error::expected one archive for ${TARGET}, found ${#found[@]}"; exit 1; }
+          python3 scripts/release_assets.py check-file --file "${found[0]}" --sums checksums/SHA256SUMS
+          echo "path=${found[0]}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+      # Compiles and runs the C programs of the Homebrew formula's `test do`
+      # against the archive's headers and static library, and checks the
+      # version the library reports.
+      - name: Compile and run C programs against the archive
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          ARCHIVE: ${{ steps.archive.outputs.path }}
+          VERSION: ${{ steps.archive.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The success line is checked as well as the exit status: under
+          # bash 3.2 a dead script can exit 0 through its cleanup trap.
+          bash scripts/test_homebrew_archive.sh "${ARCHIVE}" "${VERSION}" | tee smoke.log
+          grep -q -e "homebrew archive smoke: ok" smoke.log || { echo "::error::smoke script printed no success line"; exit 1; }
+      # No C toolchain is assumed on Windows: the DLL is loaded and asked for
+      # its version, which proves it loads and exports the modern API.
+      - name: Load the DLL and read its version
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ARCHIVE: ${{ steps.archive.outputs.path }}
+          VERSION: ${{ steps.archive.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir unpacked
+          unzip -q "${ARCHIVE}" -d unpacked
+          for f in expanse.dll expanse.lib expanse.h Judy.h; do
+            [ -f "unpacked/${f}" ] || { echo "::error::archive lacks ${f}"; exit 1; }
+          done
+          python scripts/smoke_windows_dll.py unpacked/expanse.dll "${VERSION}"
+
+  # The point of no return. Publishing the draft makes the release public;
+  # the Go tag, the PyPI dispatch and every registry job follow it. It runs
+  # only after the draft's assets were read back and the smoke job passed.
+  promote:
+    name: Promote / Publish the Release
+    needs: [release-gate, github-release, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publish the draft; push the Go module tag
+      actions: write # dispatch python.yml for the PyPI publish
+    steps:
+      - uses: actions/checkout@v7
       - name: Publish the release
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_ID: ${{ steps.release.outputs.id }}
+          RELEASE_ID: ${{ needs.github-release.outputs.release_id }}
         run: |
           set -euo pipefail
+          [ -n "${RELEASE_ID}" ] || { echo "::error::no release id from the release job"; exit 1; }
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false \
             --jq '"published \(.tag_name): draft=\(.draft) \(.html_url)"'
       # Nested Go module versioning (#322): `go get .../bindings/go@vX.Y.Z`
@@ -776,7 +879,7 @@ jobs:
     name: Publish Homebrew Formula & MacPorts Portfile
     # Renders both from the release archives' own checksums, attaches them to
     # the release, and pushes the formula to orieg/homebrew-tap.
-    needs: [release-gate, build-release-artifacts, github-release] # anchor-first (#313)
+    needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
     runs-on: macos-latest # the smoke step needs cc against a darwin archive
     environment: release
     permissions:
@@ -841,7 +944,7 @@ jobs:
 
   publish-pages:
     name: Publish Portal & Repositories (GitHub Pages)
-    needs: [build-release-artifacts, github-release] # anchor-first (#313)
+    needs: [build-release-artifacts, github-release, promote] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -859,7 +962,7 @@ jobs:
 
   publish-gem:
     name: Publish Ruby Gem (rubygems.org)
-    needs: [release-gate, github-release] # anchor-first (#313)
+    needs: [release-gate, github-release, promote] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -891,7 +994,7 @@ jobs:
 
   publish-wasm:
     name: Publish WebAssembly (npm)
-    needs: [release-gate, github-release] # anchor-first (#313)
+    needs: [release-gate, github-release, promote] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -941,6 +1044,7 @@ jobs:
       - package-nuget
       - package-maven
       - github-release
+      - promote
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # The shared budget below waits 30+60+120+240+240 s; Maven Central's four
