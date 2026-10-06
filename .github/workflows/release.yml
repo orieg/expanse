@@ -86,8 +86,11 @@ jobs:
         run: |
           set -euo pipefail
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "Verifying all manifests match tag version ${TAG_VERSION}..."
-          python3 scripts/bump_version.py --check "${TAG_VERSION}"
+          # A pre-release tag (X.Y.Z-rc.N) rehearses X.Y.Z from the commit
+          # that carries X.Y.Z, so the manifests are checked against the base.
+          BASE_VERSION="${TAG_VERSION%%-*}"
+          echo "Verifying all manifests match version ${BASE_VERSION} (tag ${TAG_VERSION})..."
+          python3 scripts/bump_version.py --check "${BASE_VERSION}"
 
   publish-crates:
     name: Publish to Crates.io
@@ -95,6 +98,9 @@ jobs:
     # GitHub Release, so a registry can never carry a version the release
     # page does not.
     needs: [release-gate, github-release, promote]
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -380,6 +386,9 @@ jobs:
   package-nuget:
     name: Package & Publish .NET NuGet
     needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # attach the nupkg to the GitHub Release
@@ -454,6 +463,9 @@ jobs:
   package-maven:
     name: Package & Publish Java (Maven Central)
     needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -546,6 +558,9 @@ jobs:
   publish-npm:
     name: Publish Node.js (npm)
     needs: [release-gate, build-npm, github-release, promote] # anchor-first (#313)
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -712,7 +727,9 @@ jobs:
           generate_release_notes: true
           # Created as a draft: nothing is public, and nothing downstream runs,
           # until the uploaded assets have been read back and checked below.
+          # A pre-release tag's draft is never published (see `promote`).
           draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
       # What is on the release must be what was built: the assets are
       # downloaded again and compared with the uploaded set by name and by
       # digest. A truncated or missing upload stops here, with the release
@@ -798,6 +815,9 @@ jobs:
           else
             VERSION="$(grep -m1 '^version' crates/expanse-capi/Cargo.toml | cut -d'"' -f2)"
           fi
+          # A pre-release tag (X.Y.Z-rc.N) is built from the commit that carries
+          # X.Y.Z, so that is the version the library reports.
+          VERSION="${VERSION%%-*}"
           shopt -s nullglob
           found=(artifacts/expanse-*"${TARGET}".tar.gz artifacts/expanse-*"${TARGET}".zip)
           [ "${#found[@]}" -eq 1 ] || { echo "::error::expected one archive for ${TARGET}, found ${#found[@]}"; exit 1; }
@@ -848,8 +868,10 @@ jobs:
       actions: write # dispatch python.yml for the PyPI publish
     steps:
       - uses: actions/checkout@v7
+      # A pre-release stays a draft: a published release is archived by Zenodo
+      # and announced to watchers, pre-releases included; a draft is neither.
       - name: Publish the release
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) && !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ needs.github-release.outputs.release_id }}
@@ -861,7 +883,7 @@ jobs:
       # Nested Go module versioning (#322): `go get .../bindings/go@vX.Y.Z`
       # only resolves a pinned release if a `bindings/go/vX.Y.Z` tag exists.
       - name: Push Go nested-module tag
-        if: github.event_name == 'push' # tag releases only
+        if: github.event_name == 'push' && !contains(github.ref_name, '-') # stable tag releases only
         run: |
           git push -f origin "${GITHUB_SHA}:refs/tags/bindings/go/${GITHUB_REF_NAME}"
       # PyPI (#313): a release created with GITHUB_TOKEN emits no `release`
@@ -869,7 +891,7 @@ jobs:
       # workflow_dispatch/repository_dispatch), so python.yml is dispatched
       # explicitly — v0.4.1 shipped without PyPI because of this.
       - name: Dispatch PyPI publish (python.yml)
-        if: github.event_name == 'push' # tag releases only
+        if: github.event_name == 'push' && !contains(github.ref_name, '-') # stable tag releases only
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -880,6 +902,9 @@ jobs:
     # Renders both from the release archives' own checksums, attaches them to
     # the release, and pushes the formula to orieg/homebrew-tap.
     needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: macos-latest # the smoke step needs cc against a darwin archive
     environment: release
     permissions:
@@ -945,6 +970,9 @@ jobs:
   publish-pages:
     name: Publish Portal & Repositories (GitHub Pages)
     needs: [build-release-artifacts, github-release, promote] # anchor-first (#313)
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -963,6 +991,9 @@ jobs:
   publish-gem:
     name: Publish Ruby Gem (rubygems.org)
     needs: [release-gate, github-release, promote] # anchor-first (#313)
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -995,6 +1026,9 @@ jobs:
   publish-wasm:
     name: Publish WebAssembly (npm)
     needs: [release-gate, github-release, promote] # anchor-first (#313)
+    # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
+    # stops there: nothing is published from it.
+    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1045,7 +1079,8 @@ jobs:
       - package-maven
       - github-release
       - promote
-    if: github.event_name == 'push'
+    # Nothing to verify for a pre-release tag: no registry receives it.
+    if: ${{ github.event_name == 'push' && !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     # The shared budget below waits 30+60+120+240+240 s; Maven Central's four
     # extra attempts (EXTRA_ATTEMPTS in the script) add 4 x 240 s, 1,650 s of
