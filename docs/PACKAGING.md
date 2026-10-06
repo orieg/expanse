@@ -43,13 +43,15 @@ graph TD
 1. **Multi-Ecosystem Version Bump**:
    - Run `python3 scripts/bump_version.py <NEW_VERSION>` to synchronize every version pin (`Cargo.toml`, `pyproject.toml`, `package.json`, `.csproj`, `pom.xml`, `build.gradle`, and the version strings embedded in READMEs and `CITATION.cff`) and regenerate `Cargo.lock`. The tool prints the count it checked; a number repeated here would be a second place to drift, and it already had — this line said 10 and §12 said 16 while the tool checked 26.
    - Verify lockstep sync: `python3 scripts/bump_version.py --check`.
-2. **Release Notes** (automatic — no CHANGELOG file is maintained):
-   - The GitHub Release generates its notes from merged PR titles, grouped by the label categories in [`.github/release.yml`](../.github/release.yml). Conventional-commit PR titles keep them readable; label PRs (`enhancement`, `bug`, `performance`, `documentation`, `ci`, …) for correct grouping.
+2. **Release Notes** (no CHANGELOG file is maintained):
+   - Write the curated notes (added, changed, fixed, breaking, deferred) in the body of the `chore(release): X.Y.Z` pull request.
+   - They reach the GitHub Release through the tag: `scripts/tag_release.py --notes-from-pr <number>` (or `--notes-file <file>`) makes them the message of the signed tag, and `release.yml` reads them back with `scripts/release_notes.py` and puts them at the top of the release body. A stable tag without notes fails the release before it is created; a pre-release tag may have none.
+   - Below them, the GitHub Release lists merged PR titles, grouped by the label categories in [`.github/release.yml`](../.github/release.yml). Conventional-commit PR titles keep that list readable; label PRs (`enhancement`, `bug`, `performance`, `documentation`, `ci`, …) for correct grouping.
 3. **Merge, then tag**:
    - Merge the `chore(release): X.Y.Z` pull request.
    - Create the signed tag with `scripts/tag_release.py`, which refuses a commit that is not on `main`, a version the manifests at that commit do not carry, a tag that already exists, and a commit with no successful full CI run:
      ```bash
-     python3 scripts/tag_release.py X.Y.Z
+     python3 scripts/tag_release.py X.Y.Z --notes-from-pr <release PR number>
      git push origin refs/tags/vX.Y.Z
      ```
    - The script tags `origin/main`'s head by default, never the working copy's `HEAD`; pass `--commit <sha>` when `main` has moved past the release commit. It signs with the maintainer's key (`git tag -s`), reads the tag back, and prints the push command without running it.
