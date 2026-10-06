@@ -61,6 +61,19 @@ jobs:
             --require-ancestor-of main \
             --deadline-minutes 220
 
+      - name: Assert the tag is signed by a committed release key
+        if: github.event_name == 'push'  # a canary dispatch has no tag
+        run: |
+          set -euo pipefail
+          # The release tag is the maintainer's (scripts/tag_release.py). Only
+          # the keys in .github/release-signing-keys.asc are trusted: the
+          # script verifies in an empty GnuPG home holding that one file, so
+          # an unsigned tag, a lightweight tag, or one signed by any other
+          # key stops the release here, before anything is built or published.
+          # The checkout may hold the tag's commit without the tag object.
+          git fetch --no-tags --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          python3 scripts/verify_tag_signature.py --tag "${GITHUB_REF_NAME}"
+
       - name: Assert manifests are in version lockstep with the tag
         if: github.event_name == 'push'  # no tag to compare on a canary dispatch
         run: |
