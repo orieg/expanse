@@ -1538,8 +1538,9 @@ STR_SCAN_BLOCK = tuple(
 # writer-lock path whose one_top_byte reader cells used up §23's whole 180-minute
 # window (concurrency README §31, #1376). The reference-host duration of this suite
 # is therefore unknown. A per-cell wall-clock cap of 120.0s (target) fails fast
-# on writer-lock/quiesce stalls well under the 10,800s (180-min) workflow timeout,
-# while providing ample headroom (>100x) over un-stalled cell execution (<1s).
+# on writer-lock/quiesce stalls well under the 10,800s (180-min) workflow timeout.
+# The duration of an un-stalled full-population cell is unmeasured; a cap that voids a
+# legitimately slow cell is re-set by an erratum, never by editing it after the fact.
 SCAN_CELL_TIMEOUT_S: float = 120.0  # (target)
 
 
@@ -2702,10 +2703,14 @@ def check_reader_counters_row(row: dict[str, Any]) -> None:
                 f"got read_ops {ops}, locked_reads {row['locked_reads']}, reader_ops {reader_ops}"
             )
     elif row["read_op"] == "scan_locked":
-        if int(row["read_fallbacks"]) != 0:
+        # `with_locked` bumps `locked_reads` once per call and each call walks at
+        # least one entry; it never enters the optimistic protocol.
+        locked = int(row["locked_reads"])
+        if ops != 0 or int(row["read_fallbacks"]) != 0 or (reader_ops > 0 and not 1 <= locked <= reader_ops):
             raise ValueError(
-                f"{ctx}: a scan_locked reader cell needs read_fallbacks == 0, "
-                f"got read_fallbacks {row['read_fallbacks']}"
+                f"{ctx}: a scan_locked reader cell needs read_ops == 0, read_fallbacks == 0 and "
+                f"1 <= locked_reads <= reader_ops, got read_ops {ops}, read_fallbacks "
+                f"{row['read_fallbacks']}, locked_reads {locked}, reader_ops {reader_ops}"
             )
     elif row["read_op"] == "scan":
         if row.get("arm") == "str":
@@ -6457,8 +6462,8 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
                 "position": run["position"], "write_ops": 0 if w == 0 else 1000,
                 "inserts": 0 if w == 0 else 1000,
                 "reader_ops": 4096, "reader_wraps": 0, "cpu_pin": pin, "tsc_hz": 24000000, "lock_fallbacks": 0,
-                "quiesce_calls": 0, "read_ops": 0, "read_attempts": 0,
-                "read_fallbacks": 0, "locked_reads": 0,
+                "quiesce_calls": 1 if op == "scan_locked" else 0, "read_ops": 0, "read_attempts": 0,
+                "read_fallbacks": 0, "locked_reads": 1 if op == "scan_locked" else 0,
                 "fallback_causes": {cause: 0 for cause in CAUSE_NAMES}, "population_after": 4096,
             }
             t_rows_pass_str.append(t_row)
@@ -6466,6 +6471,18 @@ def _self_test_scan_cells(throughput_bin: Path, counters_bin: Path, pin: str) ->
 
         cells_pass_str = summarize_scan_cells(t_rows_pass_str, c_rows_pass_str, rounds, load, arm="str")
         assert len(cells_pass_str) == len(STR_SCAN_CELLS_PROBES) * len(STR_SCAN_BLOCK), len(cells_pass_str)
+        # A scan_locked counters row must show its with_locked calls; one that shows none, or
+        # one that shows optimistic reads, is refused.
+        locked_row = next(r for r in c_rows_pass_str if r["read_op"] == "scan_locked")
+        check_reader_counters_row(locked_row)
+        _expect_value_error(
+            lambda: check_reader_counters_row({**locked_row, "locked_reads": 0, "quiesce_calls": 0}),
+            "scan_locked reader cell",
+        )
+        _expect_value_error(
+            lambda: check_reader_counters_row({**locked_row, "read_ops": 5}),
+            "scan_locked reader cell",
+        )
         report_pass_str = p333_report(t_rows_pass_str, rounds)
         assert report_pass_str["verdict"] == "LB_AT_OR_ABOVE_FLOOR", report_pass_str
 

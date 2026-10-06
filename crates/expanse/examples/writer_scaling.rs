@@ -241,14 +241,14 @@
 //! | `workload_id` | `concurrency_writer_scaling` |
 //! | `group` | 5 |
 //! | `emits` | `concurrency_writer_map_64bit`, `concurrency_writer_set_63bit`, `concurrency_writer_str`, `concurrency_writer_bytes`, `concurrency_writer_bytes_overwrite`, `concurrency_writer_blob_64bit`, `concurrency_writer_blob_overwrite_64bit`, `concurrency_ordered_readers_map_64bit`, `concurrency_readers_set_63bit`, `concurrency_readers_str`, `concurrency_branchu_band_map_64bit`, `concurrency_scan_str` |
-//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing; a `one_top_byte` cell (#1144) prefills 2^20 keys under one top byte and inserts 2^20 fresh keys of that shape, with no hotspot keys. Band mode (#1208) holds one branch of 193 (duty 1) or 194 + band-span (duty 0) one-key digits under one top byte and inserts nothing it does not remove. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key |
+//! | `population` | prefill 2^20 keys (1M), plus 2^20 fresh keys inserted concurrently by W writers; reader mode (map only) adds 256 hotspot keys, one at offset 1 of every terminal byte of a 2^16-wide expanse, to every cell's prefill, and a hotspot cell's writers insert that expanse's other 65,280 keys instead of the 2^20 fresh keys; readers-only mode (set, str) prefills the arm's 2^20-key writer-sweep prefill and inserts nothing; a `one_top_byte` cell (#1144) prefills 2^20 keys under one top byte and inserts 2^20 fresh keys of that shape, with no hotspot keys. Band mode (#1208) holds one branch of 193 (duty 1) or 194 + band-span (duty 0) one-key digits under one top byte and inserts nothing it does not remove. Writer mode's `bytes` arm uses the `str` arm's `short` keys under a fixed-key SipHash hasher; its `blob` arm uses the map arm's 64-bit keys with a 32-byte key-derived arena payload and non-zero 24-bit metadata; the blob and bytes overwrite cells prefill the same 2^20 keys and perform 2^20 overwrites of them, inserting no fresh key String scan mode (#1143, `--arm str --read-op scan_locked`): the `path_keys` generator of `benches/instructions.rs` (URL-path keys, `paths` uniform ids or `paths_dense` with every 20th top-20-bit bucket), 2^20 prefill keys sorted plus 2^20 fresh keys in generator draw order, the two sets disjoint; W writers insert the fresh keys, W = 0 inserts none. |
 //! | `insertion_order` | sorted — prefill ascending (reader mode: the sorted union with the hotspot keys), matching expanse-hot-bench; fresh stream in generator draw order; hotspot fresh keys Fisher–Yates shuffled; blob overwrite targets in per-writer stream draw order over a Fisher–Yates rank table; band mode prefills its digits ascending and the owner removes them descending and reinserts them ascending |
-//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` or `count_below` under `with_locked`, over the identical stream; a `one_top_byte` cell's readers cycle permutations of its own prefill; a `count_locked` cell may run with R = 0 as its writers-only control. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle. Band mode: one owner writer cycles its band (or twin) digits `--cycles` times, W − 1 writers overwrite fixed-digit values and R readers `get` fixed-digit keys, each in its own Fisher–Yates order, cycled until the owner joins |
-//! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100%. Band mode: 100% — owner removals and overwrites target present keys, owner insertions absent ones, readers fixed keys; every answer is checked |
+//! | `probes_and_reuse` | writer mode: none (R = 0), insert-only; the blob overwrite cell re-targets prefilled keys, uniformly or Zipfian θ = 0.99 over the rank table, each writer on its own stream. Reader mode: R readers, each cycling its own Fisher–Yates permutation of the present uniform prefill (`uniform`) or of the 255 hotspot keys above the expanse's first terminal byte (`hotspot`); `get` or `prev_before` on a reader handle, or `prev_before` or `count_below` under `with_locked`, over the identical stream; a `one_top_byte` cell's readers cycle permutations of its own prefill; a `count_locked` cell may run with R = 0 as its writers-only control. Readers-only mode (set, str): R readers, each walking its own Fisher–Yates permutation of the prefill once, `contains` or `get` on a reader handle. Band mode: one owner writer cycles its band (or twin) digits `--cycles` times, W − 1 writers overwrite fixed-digit values and R readers `get` fixed-digit keys, each in its own Fisher–Yates order, cycled until the owner joins String scan mode: R readers each walk the whole map by cursor under `with_locked`, repeatedly until the writers join (W >= 1) or for a quota of R walks of the prefill (W = 0); there is no probe stream, since a scan has none. |
+//! | `hit_rate` | writer mode: n/a. Reader mode: 100% — every probe is a present key; a hotspot `prev_before` fails in its own terminal byte and answers from the sibling below, until a writer inserts that byte's offset-0 key. Readers-only mode: 100%. Band mode: 100% — owner removals and overwrites target present keys, owner insertions absent ones, readers fixed keys; every answer is checked String scan mode: n/a, a scan visits every present key and probes none. |
 //! | `miss_gen_method` | same-generator rejection sampling against prefill; reader probes draw no misses |
 //! | `value_dereference` | map arms check stored values against key-derived expectation; the blob arm checks payload bytes and metadata, and its overwrite cell that each read-back key holds its prefill or exactly one overwrite that targeted it; reader results fold key and value into a `black_box` accumulator |
-//! | `measured_region` | writer mode: barrier release to last-writer join; the blob overwrite cell's prefill, Zipfian table, rank draws and read-back check are outside. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time. Band mode: barrier release to the owner's join; prefill, node-form checks, answer checks and teardown outside |
-//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver; band mode: duty 1 and its duty-0 twin at the same owner operation count, both builds, interleaved within each round by the driver |
+//! | `measured_region` | writer mode: barrier release to last-writer join; the blob overwrite cell's prefill, Zipfian table, rank draws and read-back check are outside. Reader mode: barrier release to the last writer join (writers) and to the last reader join (readers); with W ≥ 1 readers stop once the writers have joined, with W = 0 each makes 2^20 probes; prefill, workload generation, reader registration, answer checks and teardown outside; every reader-mode throughput row also records each reader's own loop time. Band mode: barrier release to the owner's join; prefill, node-form checks, answer checks and teardown outside String scan mode: barrier release to the last writer join (writers) and to the last reader join (readers); map construction, prefill, the post-run population check, the sampled fresh-key read-back, the W = 0 full-scan answer check and teardown are outside. |
+//! | `arm_symmetry` | symmetric across thread counts; W in {1, 2, 4, 8} on physical P-cores; reader mode: `prev` and `prev_locked` run the same per-reader probe stream over the same tree, interleaved within each round by the driver; readers-only mode: the map (reader mode W = 0 `get`), set and str arms at R in {1, 2, 4, 8}, the R cells of each arm interleaved within each round by the driver; band mode: duty 1 and its duty-0 twin at the same owner operation count, both builds, interleaved within each round by the driver String scan mode: `scan_locked` (the baseline) runs the same prefill, fresh stream and writer split as the batch-cursor `scan` arm, which is refused until it exists (exit non-zero, never substituted). |
 //! | `statistics` | throughput ops/sec emitted raw, paired bootstrap BCa 95% CI for C(N); lock fallbacks and their six causes (partition-checked per row) from the occ-stats counters pass; reader mode: reader Mops/s with a BCa 95% CI per cell, the P12.5 per-round paired `prev` / `prev_locked` ratio with a BCa 95% CI, the #1144 per-round paired writer Mops/s with and without a counting reader with a BCa 95% CI, and P12.4's summed `read_fallbacks ÷ read_ops` from the counters pass; readers-only mode: reader Mops/s with a BCa 95% CI per (arm, R), S(R) = T(R) / T(1) paired within each round with a BCa 95% CI, slowest-over-mean reader loop time per round, and summed read counters; band mode: the per-round paired band excess per crossing `(t_band - t_twin) / crossings` and `t_band / t_twin` with BCa 95% CIs, and DemoteU / Upgrade per owner cycle from the counters pass |
 //! | `verdict` | pending measurement |
 
@@ -481,16 +481,14 @@ impl Counters {
                 }
             }
             ReadOp::Scan => {
-                // On map, an optimistic batch cursor reaches writer mutex only on fallback.
-                // On str, before SyncStrMapCursor lands, scan runs under with_locked baseline.
-                if !cell.contains("str") && self.locked_reads != self.read_fallbacks {
+                if self.locked_reads != self.read_fallbacks {
                     return Err(format!(
                         "{cell}: locked_reads = {}, read_fallbacks = {} (an optimistic reader \
                          reaches the writer mutex only by falling back)",
                         self.locked_reads, self.read_fallbacks
                     ));
                 }
-                if reader_ops > 0 && !cell.contains("str") && self.read_ops == 0 {
+                if reader_ops > 0 && self.read_ops == 0 {
                     return Err(format!(
                         "{cell}: read_ops = 0, readers made {reader_ops} probes",
                     ));
@@ -512,10 +510,20 @@ impl Counters {
                 }
             }
             ReadOp::ScanLocked => {
-                if self.read_fallbacks != 0 {
+                // A locked scan never enters the optimistic protocol, and `with_locked`
+                // bumps `LockedReads` once per call, each call walking at least one entry.
+                if self.read_ops != 0 || self.read_fallbacks != 0 {
                     return Err(format!(
-                        "{cell}: read_fallbacks = {} (a locked scan never falls back from an optimistic walk)",
-                        self.read_fallbacks
+                        "{cell}: read_ops = {}, read_fallbacks = {} on a with_locked scan cell, \
+                         expected 0",
+                        self.read_ops, self.read_fallbacks
+                    ));
+                }
+                if reader_ops > 0 && !(1..=reader_ops).contains(&self.locked_reads) {
+                    return Err(format!(
+                        "{cell}: locked_reads = {}, readers made {reader_ops} entries over \
+                         with_locked calls (expected 1..={reader_ops})",
+                        self.locked_reads
                     ));
                 }
             }
@@ -2591,38 +2599,7 @@ fn run_reader_cell(
                             (n, wraps, t0.elapsed().as_secs_f64())
                         }
                         ReadOp::ScanLocked => {
-                            b.wait();
-                            let t0 = Instant::now();
-                            let mut ops = 0u64;
-                            match limit {
-                                Some(n) => {
-                                    while ops < n {
-                                        m.with_locked(|inner| {
-                                            let mut cur = inner.cursor();
-                                            while cur.next().is_some() {
-                                                ops += 1;
-                                                if ops == n {
-                                                    break;
-                                                }
-                                            }
-                                        });
-                                    }
-                                }
-                                None => {
-                                    while !stop.load(Ordering::Relaxed) {
-                                        m.with_locked(|inner| {
-                                            let mut cur = inner.cursor();
-                                            while cur.next().is_some() {
-                                                ops += 1;
-                                                if stop.load(Ordering::Relaxed) {
-                                                    break;
-                                                }
-                                            }
-                                        });
-                                    }
-                                }
-                            }
-                            (ops, 0u64, t0.elapsed().as_secs_f64())
+                            unreachable!("scan_locked is refused on the map arm in reader_main")
                         }
                     })
                 })
@@ -3642,6 +3619,13 @@ fn reader_main(args: &[String], is_counters: bool, readers: usize) -> Result<(),
     let writers: usize = parse_flag(args, "--writers")?
         .ok_or_else(|| "reader mode needs --writers <W>, a single count (0 allowed)".to_string())?;
     let op = ReadOp::parse(flag_value(args, "--read-op")?.unwrap_or("prev"))?;
+    if op == ReadOp::ScanLocked {
+        return Err(
+            "--read-op scan_locked is defined only on --arm str (#1143); the map arm's \
+             baseline is next_after_scan"
+                .to_string(),
+        );
+    }
     let probe = Probe::parse(flag_value(args, "--probe")?.unwrap_or("uniform"))?;
     if readers == 0 && (op != ReadOp::CountLocked || writers == 0) {
         return Err(
@@ -3752,6 +3736,9 @@ fn str_reader_scan_main(
 ) -> Result<(), String> {
     if op == ReadOp::Scan {
         return Err("SyncStrMapCursor not yet implemented (#1143 PR 2)".to_string());
+    }
+    if readers == 0 {
+        return Err("--arm str scan cells need --readers >= 1".to_string());
     }
     let writers: usize = parse_flag(args, "--writers")?
         .ok_or_else(|| "reader mode needs --writers <W>, a single count (0 allowed)".to_string())?;

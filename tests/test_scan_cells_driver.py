@@ -572,11 +572,11 @@ def make_synthetic_str_rows(
             "cpu_pin": STR_SCAN_CELLS_PIN,
             "tsc_hz": 24000000,
             "lock_fallbacks": 0,
-            "quiesce_calls": 0,
+            "quiesce_calls": 1 if op == "scan_locked" else 0,
             "read_ops": 0,
             "read_attempts": 0,
             "read_fallbacks": 0,
-            "locked_reads": 0,
+            "locked_reads": 1 if op == "scan_locked" else 0,
             "fallback_causes": {cause: 0 for cause in CAUSE_NAMES},
             "population_after": 4096,
         }
@@ -888,6 +888,47 @@ class StrScanCellsRefusalTests(unittest.TestCase):
         proc = subprocess.run(cmd, capture_output=True, text=True)
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("SyncStrMapCursor not yet implemented (#1143 PR 2)", proc.stderr)
+
+    def _refused(self, *extra, needle):
+        tp_bin, _ = get_binaries()
+        if not tp_bin.exists():
+            from writer_scaling import build_binaries
+            tp_bin, _ = build_binaries(verbose=False)
+        cmd = [str(tp_bin), "--role", "throughput", "--writers", "1", "--readers", "1", "--quick", *extra]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn(needle, proc.stderr)
+
+    def test_scan_locked_refused_on_map_arm(self):
+        self._refused("--arm", "map", "--read-op", "scan_locked", needle="defined only on --arm str")
+
+    def test_str_scan_refuses_a_non_path_probe(self):
+        self._refused("--arm", "str", "--read-op", "scan_locked", "--probe", "uniform",
+                      needle="takes --probe paths or paths_dense")
+
+
+class ScanLockedCountersRowTests(unittest.TestCase):
+    """The driver-side counters identity of a scan_locked row must be able to fail."""
+
+    def setUp(self):
+        _, c_rows = make_synthetic_str_rows(scan_cells_schedule(8, arm="str"))
+        self.row = next(r for r in c_rows if r["read_op"] == "scan_locked")
+
+    def test_matching_row_passes(self):
+        check_reader_counters_row(self.row)
+
+    def test_no_with_locked_calls_fails(self):
+        with self.assertRaises(ValueError):
+            check_reader_counters_row({**self.row, "locked_reads": 0, "quiesce_calls": 0})
+
+    def test_more_calls_than_entries_fails(self):
+        n = self.row["reader_ops"] + 1
+        with self.assertRaises(ValueError):
+            check_reader_counters_row({**self.row, "locked_reads": n, "quiesce_calls": n})
+
+    def test_optimistic_reads_on_a_locked_scan_fail(self):
+        with self.assertRaises(ValueError):
+            check_reader_counters_row({**self.row, "read_ops": 5})
 
 
 class ScanCellsTimeoutCapTests(unittest.TestCase):
