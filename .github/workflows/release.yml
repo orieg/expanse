@@ -671,11 +671,23 @@ jobs:
           set -euo pipefail
           [ -s "${BUNDLE}" ] || { echo "::error::no attestation bundle at '${BUNDLE}'"; exit 1; }
           cp "${BUNDLE}" artifacts/expanse.intoto.jsonl
+      # The curated notes are the signed tag's message (scripts/tag_release.py
+      # --notes-file / --notes-from-pr). They lead the release body; the list
+      # generated from pull-request titles follows. A stable tag without notes
+      # fails here, before the release is created.
+      - name: Read the curated notes from the tag
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          python3 scripts/release_notes.py --tag "${GITHUB_REF_NAME}" --out curated-notes.md
       - name: Create Release
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: artifacts/*
+          # With both set, the action puts the generated notes after this body.
+          body_path: ${{ github.event_name == 'push' && 'curated-notes.md' || '' }}
           generate_release_notes: true
       - name: Verify provenance attestations
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}

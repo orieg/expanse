@@ -20,12 +20,14 @@ In order:
      head and no full CI run exists for it, the gate dispatches one on `main`
      and waits; when `main` has moved on, nothing is dispatched (a run on `main`
      would test another commit) and a missing full run is a refusal;
-  7. `git tag -s`, with `--notes-file` as the message when given;
+  7. `git tag -s`, with the release notes as the message: `--notes-file`, or
+     the release pull request's body with `--notes-from-pr`. A stable release
+     needs notes; `release.yml` puts them at the top of the GitHub Release;
   8. read the tag back: it must be annotated, verify, and point at the commit;
   9. print `git push origin refs/tags/vX.Y.Z`. One ref, never `--tags`, which
      pushes every local tag, stale ones included.
 
-Run:  tag_release.py X.Y.Z [--commit SHA] [--notes-file FILE]
+Run:  tag_release.py X.Y.Z [--commit SHA] [--notes-file FILE | --notes-from-pr N]
                            [--repo OWNER/NAME] [--ci-deadline-minutes N]
       tag_release.py --self-test
 """
@@ -111,7 +113,9 @@ def check_ci(repo: Path, sha: str, repo_slug: str, deadline_minutes: float) -> N
 
 
 def create_and_read_back(repo: Path, tag: str, sha: str, notes: Path | None, sign: bool = True) -> None:
-    message = ["-F", str(notes)] if notes is not None else ["-m", f"Release {tag}"]
+    # `--cleanup=whitespace`: git's default cleanup for a tag message drops
+    # every line starting with `#`, which is every Markdown heading of the notes.
+    message = ["--cleanup=whitespace", "-F", str(notes)] if notes is not None else ["-m", f"Release {tag}"]
     git(["tag", "-s" if sign else "-a", tag, *message, sha], repo)
     try:
         if git(["cat-file", "-t", f"refs/tags/{tag}"], repo).stdout.strip() != "tag":
@@ -133,6 +137,13 @@ def tag_release(repo: Path, version: str, commit: str | None, notes: Path | None
         raise Refused(f"{version!r} is not a version (X.Y.Z or X.Y.Z-pre)")
     if notes is not None and not (notes.is_file() and notes.read_text().strip()):
         raise Refused(f"--notes-file {notes} is missing or empty")
+    if notes is None and "-" not in version:
+        raise Refused(f"{version} is a stable release and needs its notes: pass --notes-file or "
+                      f"--notes-from-pr (release.yml refuses a stable tag whose message has none)")
+    if notes is not None:
+        lines = notes.read_text().splitlines()
+        if len([ln for ln in lines[1:] if ln.strip()]) == 0:
+            raise Refused(f"--notes-file {notes} has a subject line and nothing after it")
     tag = f"v{version}"
     if fetch:
         git(["fetch", "--quiet", REMOTE, BRANCH], repo)
@@ -186,9 +197,13 @@ def self_test() -> int:
         git(["checkout", "--quiet", "-b", "side"], work)
         side = commit("c")  # never pushed to main; HEAD now sits here
 
-        def run(version="1.2.3", commit_=None, notes=None, version_check=ok, ci_check=ok):
-            return tag_release(work, version, commit_, notes, "o/r", 0, sign=False,
-                               version_check=version_check, ci_check=ci_check)
+        default_notes = Path(tmp) / "default-notes.md"
+        default_notes.write_text("Release\n\n## Fixed\n\n- a thing\n")
+        unset = object()
+
+        def run(version="1.2.3", commit_=None, notes=unset, version_check=ok, ci_check=ok):
+            return tag_release(work, version, commit_, default_notes if notes is unset else notes,
+                               "o/r", 0, sign=False, version_check=version_check, ci_check=ci_check)
 
         refused("not a version", lambda: run(version="1.2"), "is not a version")
         refused("empty --commit", lambda: run(commit_=""), "refusing to fall back to HEAD")
@@ -199,19 +214,29 @@ def self_test() -> int:
         empty = Path(tmp) / "empty.md"
         empty.write_text("\n")
         refused("empty notes file", lambda: run(notes=empty), "missing or empty")
+        refused("stable release without notes", lambda: run(notes=None), "needs its notes")
+        subject_only = Path(tmp) / "subject.md"
+        subject_only.write_text("Release v1.2.3\n")
+        refused("notes with a subject and no body", lambda: run(notes=subject_only), "nothing after it")
         if git(["tag", "--list"], work).stdout.strip():
             failures.append("a refused run left a tag behind")
 
         # The default is origin/main's head, not HEAD, which is on the side branch.
         notes = Path(tmp) / "notes.md"
-        notes.write_text("Release notes\n\nfixed: a thing\n")
+        notes.write_text("Release v1.2.3\n\n## Fixed\n\nfixed: a thing\n")
         tagged = run(notes=notes)
         if tagged != second:
             failures.append(f"default commit: tagged {tagged}, want origin/main's head {second}")
         if git(["rev-parse", "v1.2.3^{commit}"], work).stdout.strip() != second:
             failures.append("the tag does not point at origin/main's head")
-        if "fixed: a thing" not in git(["tag", "-l", "--format=%(contents)", "v1.2.3"], work).stdout:
+        message = git(["tag", "-l", "--format=%(contents)", "v1.2.3"], work).stdout
+        if "fixed: a thing" not in message:
             failures.append("the notes file is not the tag message")
+        if "## Fixed" not in message:
+            failures.append("a Markdown heading of the notes was dropped from the tag message")
+        # A pre-release may be tagged without notes.
+        if run(version="1.3.0-rc.1", notes=None) != second:
+            failures.append("a pre-release could not be tagged without notes")
         refused("tag exists locally", lambda: run(), "already exists locally")
 
         # An ancestor of main may be tagged explicitly; a tag on the remote blocks it.
@@ -234,6 +259,8 @@ def main() -> int:
     ap.add_argument("version", nargs="?")
     ap.add_argument("--commit", help="commit to tag (default: origin/main's head)")
     ap.add_argument("--notes-file", type=Path, help="file whose contents become the tag message")
+    ap.add_argument("--notes-from-pr", type=int, metavar="N",
+                    help="use the body of pull request N (the release PR) as the notes")
     ap.add_argument("--repo", default="orieg/expanse", help="OWNER/NAME for the CI gate")
     ap.add_argument("--ci-deadline-minutes", type=float, default=220)
     ap.add_argument("--self-test", action="store_true")
@@ -243,12 +270,25 @@ def main() -> int:
     if not args.version:
         ap.error("a version is required")
     repo = Path(__file__).resolve().parent.parent
-    try:
-        sha = tag_release(repo, args.version, args.commit, args.notes_file, args.repo,
-                          args.ci_deadline_minutes)
-    except Refused as exc:
-        print(f"refused: {exc}", file=sys.stderr)
-        return 1
+    if args.notes_file and args.notes_from_pr:
+        ap.error("--notes-file and --notes-from-pr are alternatives")
+    with tempfile.TemporaryDirectory(prefix="tag-release-notes-") as tmp:
+        notes_file = args.notes_file
+        try:
+            if args.notes_from_pr:
+                proc = subprocess.run(
+                    ["gh", "pr", "view", str(args.notes_from_pr), "--repo", args.repo, "--json", "body", "--jq", ".body"],
+                    capture_output=True, text=True,
+                )
+                if proc.returncode != 0 or not proc.stdout.strip():
+                    raise Refused(f"cannot read the body of pull request {args.notes_from_pr}: {proc.stderr.strip()}")
+                notes_file = Path(tmp) / "notes.md"
+                notes_file.write_text(f"Release v{args.version}\n\n{proc.stdout.strip()}\n")
+            sha = tag_release(repo, args.version, args.commit, notes_file, args.repo,
+                              args.ci_deadline_minutes)
+        except Refused as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
     tag = f"v{args.version}"
     print(f"created signed tag {tag} on {sha}")
     print(f"push it with:\n  git push {REMOTE} refs/tags/{tag}")
