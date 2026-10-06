@@ -412,98 +412,98 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 #                 ('java', 'dotnet', 'python', 'node', 'go').
 STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
     "expanse_ordered_bytesmap_new": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_free": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_insert": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_get": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_contains": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_remove": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_slot": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_ins_slot": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_len": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_mem_used": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_mem_held": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_shrink_to_fit": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_clear": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_first": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_last": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_next_at_or_after": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_next_after": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_prev_at_or_before": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
     "expanse_ordered_bytesmap_prev_before": {
-        "issue": "#808",
-        "reason": "Stage 5(b) C ABI landed; language bindings scheduled for Stage 5(c) / #808",
+        "issue": "#1397",
+        "reason": "the C ABI landed in v0.11.0 (#808); the language bindings are tracked in #1397",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     },
 }
@@ -558,6 +558,53 @@ def stale_deferrals(
                     f"STATED_DEFERRALS[{sym_name}] lists {eco}, which already binds it; remove the entry"
                 )
     return errors
+
+
+def issue_state(issue: str) -> str:
+    """`OPEN`, `CLOSED` or `UNKNOWN` for a `#N` reference, read through `gh`."""
+    m = re.fullmatch(r"#(\d+)", issue or "")
+    if not m:
+        return "UNKNOWN"
+    try:
+        res = subprocess.run(
+            ["gh", "issue", "view", m.group(1), "--json", "state", "--jq", ".state"],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError:
+        return "UNKNOWN"
+    state = res.stdout.strip().upper() if res.returncode == 0 else ""
+    return state if state in ("OPEN", "CLOSED") else "UNKNOWN"
+
+
+def deferral_issue_problems(
+    deferrals: Dict[str, Dict[str, Any]], state_of=issue_state
+) -> Tuple[List[str], List[str]]:
+    """Checks that every deferral's tracking issue is still open.
+
+    A deferral is an exemption granted against a promise to do the work, and
+    the cited issue is that promise. Once it is closed nothing tracks the
+    missing binding, so the exemption no longer stands.
+
+    Returns `(errors, unverified)`: an error per closed issue, naming the
+    symbols it was excusing, and the issues whose state could not be read (no
+    `gh`, no token, offline). The caller reports the second list and does not
+    fail on it (AGENTS.md section 8.11.5).
+    """
+    by_issue: Dict[str, List[str]] = {}
+    for sym_name, entry in sorted(deferrals.items()):
+        by_issue.setdefault(str(entry.get("issue")), []).append(sym_name)
+    errors: List[str] = []
+    unverified: List[str] = []
+    for issue, symbols in sorted(by_issue.items()):
+        state = state_of(issue)
+        if state == "CLOSED":
+            errors.append(
+                f"STATED_DEFERRALS cites {issue}, which is closed, for {len(symbols)} symbol(s) "
+                f"({symbols[0]}{', ...' if len(symbols) > 1 else ''}): bind them or cite an open issue"
+            )
+        elif state != "OPEN":
+            unverified.append(issue)
+    return errors, unverified
 
 
 def split_deferred(
@@ -1344,7 +1391,7 @@ def self_test() -> int:
     assert test_sym not in deferred_empty
 
     # With deferral:
-    test_deferral = {test_sym: {"issue": "#808", "reason": "test deferral", "ecosystems": {"java"}}}
+    test_deferral = {test_sym: {"issue": "#1397", "reason": "test deferral", "ecosystems": {"java"}}}
     deferred_listed, missing_listed = split_deferred(raw_missing, "java", test_deferral)
     assert test_sym in deferred_listed, "Listed deferred symbol must report in deferred"
     assert test_sym not in missing_listed, "Listed deferred symbol must not report in missing"
@@ -1354,8 +1401,26 @@ def self_test() -> int:
     live = {"java": {test_sym}}
     assert not stale_deferrals(live, test_deferral)
     assert stale_deferrals({"java": set()}, test_deferral), "a bound symbol's deferral must be reported"
-    two = {test_sym: {"issue": "#808", "reason": "r", "ecosystems": {"java", "go"}}}
+    two = {test_sym: {"issue": "#1397", "reason": "r", "ecosystems": {"java", "go"}}}
     assert len(stale_deferrals(live, two)) == 1, "each stale ecosystem is reported on its own"
+
+    # 7d. A deferral stands only while its tracking issue is open. Closed is
+    # an error naming the symbols; an unreadable state is reported, not failed.
+    two_issues = {
+        test_sym: {"issue": "#1", "reason": "r", "ecosystems": {"java"}},
+        "other_symbol": {"issue": "#2", "reason": "r", "ecosystems": {"go"}},
+    }
+    errs, unknown = deferral_issue_problems(two_issues, state_of=lambda i: "OPEN")
+    assert (errs, unknown) == ([], []), (errs, unknown)
+    errs, unknown = deferral_issue_problems(two_issues, state_of=lambda i: "CLOSED" if i == "#2" else "OPEN")
+    assert len(errs) == 1 and "#2" in errs[0] and "other_symbol" in errs[0] and unknown == [], (errs, unknown)
+    errs, unknown = deferral_issue_problems(two_issues, state_of=lambda i: "UNKNOWN")
+    assert errs == [] and unknown == ["#1", "#2"], (errs, unknown)
+    # THE MOTIVATING STATE: all 19 ordered-bytes-map symbols cited #808 after it closed.
+    was = {f"sym{i}": {"issue": "#808", "reason": "r", "ecosystems": {"java"}} for i in range(19)}
+    errs, _ = deferral_issue_problems(was, state_of=lambda i: "CLOSED")
+    assert len(errs) == 1 and "19 symbol(s)" in errs[0], errs
+    assert issue_state("not-an-issue") == "UNKNOWN"
 
     print("check_abi_parity.py --self-test: all checks passed")
     return 0
@@ -1430,6 +1495,11 @@ def main() -> int:
             "go": report.go_deferred,
         }
     )
+    issue_errors, unverified = deferral_issue_problems(STATED_DEFERRALS)
+    deferral_errors += issue_errors
+    if unverified:
+        print(f"::notice::GitHub API unavailable (or GH_TOKEN unset) — open/closed state not "
+              f"checked for the deferral issue(s): {', '.join(unverified)}")
     if deferral_errors:
         for e in deferral_errors:
             print(f"::error::{e}", file=sys.stderr)
