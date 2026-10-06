@@ -16,6 +16,18 @@ A publishing job is one declared in `PUBLISH_JOBS`. So that a new one cannot
 be added outside the list, any job that enters the `release` environment, or
 whose id starts with `publish-` or `package-`, must be in it.
 
+Three further properties are about what a job can leak or pull in:
+
+  3. **Every action is pinned by commit.** A `uses:` names a 40-hex commit,
+     never a tag or a branch, which their owner can move.
+  4. **No checkout leaves the token behind.** Every `actions/checkout` sets
+     `persist-credentials: false`, except the one in `promote`, which pushes
+     the Go module tag with it.
+  5. **The compiler is pinned, and write jobs are observed.** No step asks for
+     a toolchain channel (`stable`); each takes `env.RELEASE_TOOLCHAIN`, which
+     is an exact version. Every job with a `write` permission or the `release`
+     environment starts with `step-security/harden-runner`.
+
 Run:  check_release_workflow.py [--workflow FILE]
       check_release_workflow.py --self-test
 """
@@ -24,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import re
 import sys
 from pathlib import Path
 
@@ -36,6 +49,11 @@ PUBLISH_JOBS = frozenset({
 PROMOTE_STEPS = ("Publish the release", "Push Go nested-module tag", "Dispatch PyPI publish (python.yml)")
 # What a condition must contain to be false on a pre-release tag.
 PRERELEASE_GUARD = "contains(github.ref_name, '-')"
+SHA_PINNED_RE = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
+EXACT_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+TOOLCHAIN_REF = "${{ env.RELEASE_TOOLCHAIN }}"
+# The one job whose checkout keeps the token: it pushes the Go module tag.
+KEEPS_CREDENTIALS = frozenset({"promote"})
 
 
 def needs(job: dict) -> set[str]:
@@ -49,14 +67,49 @@ def guarded(condition) -> bool:
     return f"!{PRERELEASE_GUARD}" in text or f"!(startsWith(github.ref, 'refs/tags/v') && {PRERELEASE_GUARD})" in text
 
 
+def holds_credentials(job: dict) -> bool:
+    """True for a job with a `write` permission or the `release` environment."""
+    perms = job.get("permissions") or {}
+    writes = perms == "write-all" or (isinstance(perms, dict) and "write" in perms.values())
+    return writes or job.get("environment") == "release"
+
+
+def supply_chain_problems(workflow: dict) -> list[str]:
+    out: list[str] = []
+    pinned = str((workflow.get("env") or {}).get("RELEASE_TOOLCHAIN", ""))
+    if not EXACT_VERSION_RE.match(pinned):
+        out.append(f"`env.RELEASE_TOOLCHAIN` is {pinned!r}, not an exact version (X.Y.Z)")
+    for name, job in sorted(workflow.get("jobs", {}).items()):
+        steps = job.get("steps", [])
+        for step in steps:
+            uses = step.get("uses", "")
+            label = step.get("name") or uses
+            if uses and not uses.startswith("./") and not SHA_PINNED_RE.match(uses):
+                out.append(f"`{name}`: `{uses}` is not pinned by commit")
+            if uses.startswith("actions/checkout@"):
+                persist = (step.get("with") or {}).get("persist-credentials")
+                if name in KEEPS_CREDENTIALS:
+                    if persist is not True:
+                        out.append(f"`{name}`: its checkout must state `persist-credentials: true`")
+                elif persist is not False:
+                    out.append(f"`{name}`: a checkout without `persist-credentials: false`")
+            toolchain = (step.get("with") or {}).get("toolchain")
+            if toolchain is not None and toolchain != TOOLCHAIN_REF:
+                out.append(f"`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
+        if holds_credentials(job):
+            first = steps[0].get("uses", "") if steps else ""
+            if not first.startswith("step-security/harden-runner@"):
+                out.append(f"`{name}` holds a write permission or the release environment "
+                           f"and does not start with harden-runner")
+    return out
+
+
 def problems(workflow: dict) -> list[str]:
     jobs = workflow.get("jobs", {})
-    out: list[str] = []
-    for required in ("github-release", "smoke", "promote", "verify-registries"):
-        if required not in jobs:
-            out.append(f"job `{required}` is missing")
-    if out:
-        return out
+    out: list[str] = supply_chain_problems(workflow)
+    missing = [r for r in ("github-release", "smoke", "promote", "verify-registries") if r not in jobs]
+    if missing:
+        return out + [f"job `{r}` is missing" for r in missing]
     if "github-release" not in needs(jobs["smoke"]):
         out.append("`smoke` does not need `github-release`")
     if "smoke" not in needs(jobs["promote"]):
@@ -94,9 +147,12 @@ def self_test() -> int:
     if found:
         failures.append(f"the real release.yml has problems: {found}")
 
+    wf_box: list = [None]  # the copy `check` is mutating, for `check_wf`
+
     def check(label: str, mutate, needle: str) -> None:
         """Requires that `mutate`, applied to the real job graph, is reported."""
         wf = copy.deepcopy(real)
+        wf_box[0] = wf
         mutate(wf["jobs"])
         got = problems(wf)
         if not any(needle in p for p in got):
@@ -139,6 +195,38 @@ def self_test() -> int:
         check(f"promote step `{step}` on a pre-release", unguard_step(step), f"`promote` step `{step}` would run")
     check("a removed publishing job", lambda j: j.pop("publish-wasm"), "publishing job `publish-wasm` is missing")
 
+    def check_wf(label: str, mutate, needle: str) -> None:
+        """As `check`, with `mutate` applied to the whole workflow."""
+        check(label, lambda _jobs: mutate(wf_box[0]), needle)
+
+    def step_of(wf, job: str, prefix: str) -> dict:
+        return next(s for s in wf["jobs"][job]["steps"] if s.get("uses", "").startswith(prefix))
+
+    check_wf("an action pinned by tag",
+              lambda w: step_of(w, "smoke", "actions/checkout@").__setitem__("uses", "actions/checkout@v7"),
+              "`actions/checkout@v7` is not pinned by commit")
+    check_wf("an action pinned by a short commit",
+              lambda w: step_of(w, "smoke", "actions/checkout@").__setitem__("uses", "actions/checkout@3d3c42e"),
+              "is not pinned by commit")
+    check_wf("a checkout that keeps the token",
+              lambda w: step_of(w, "publish-npm", "actions/checkout@").pop("with"),
+              "`publish-npm`: a checkout without `persist-credentials: false`")
+    check_wf("promote's checkout no longer stating that it keeps the token",
+              lambda w: step_of(w, "promote", "actions/checkout@").pop("with"),
+              "`promote`: its checkout must state")
+    check_wf("a toolchain channel",
+              lambda w: step_of(w, "publish-crates", "dtolnay/rust-toolchain@")["with"].__setitem__("toolchain", "stable"),
+              "installs toolchain 'stable'")
+    check_wf("RELEASE_TOOLCHAIN set to a channel",
+              lambda w: w["env"].__setitem__("RELEASE_TOOLCHAIN", "stable"), "not an exact version")
+    check_wf("a write job without harden-runner",
+              lambda w: w["jobs"]["github-release"]["steps"].pop(0), "`github-release` holds a write permission")
+    check_wf("harden-runner not first",
+              lambda w: w["jobs"]["promote"]["steps"].reverse(), "`promote` holds a write permission")
+    check_wf("a read-only job gaining a write permission",
+              lambda w: w["jobs"]["smoke"]["permissions"].__setitem__("contents", "write"),
+              "`smoke` holds a write permission")
+
     if failures:
         for f in failures:
             print(f"::error::check_release_workflow self-test: {f}")
@@ -160,7 +248,8 @@ def main() -> int:
         print(f"::error::{p}")
     if found:
         return 1
-    print(f"check_release_workflow: {len(PUBLISH_JOBS)} publishing jobs wait for promote and skip a pre-release tag")
+    print(f"check_release_workflow: {len(PUBLISH_JOBS)} publishing jobs wait for promote and skip a pre-release tag; "
+          f"actions are pinned by commit, checkouts drop the token, the toolchain is exact")
     return 0
 
 
