@@ -20,6 +20,7 @@ and every downloaded file has the digest `SHA256SUMS` records.
 
 Run:  release_assets.py check-local --dir artifacts [--workflow FILE]
       release_assets.py check-readback --dir readback --local artifacts
+      release_assets.py check-file --file ARCHIVE --sums SHA256SUMS
       release_assets.py --self-test
 """
 
@@ -117,6 +118,22 @@ def readback_problems(readback: Path, local: Path) -> list[str]:
     return out + checksum_problems(readback)
 
 
+def file_problems(path: Path, sums_path: Path) -> list[str]:
+    """One file against a `SHA256SUMS` kept elsewhere (the smoke job's case)."""
+    try:
+        sums = read_sums(sums_path)
+    except (OSError, ValueError) as exc:
+        return [f"cannot read {sums_path}: {exc}"]
+    if not path.is_file():
+        return [f"{path} does not exist"]
+    if path.name not in sums:
+        return [f"{path.name} is not listed in {sums_path.name}"]
+    got = digest(path)
+    if got != sums[path.name]:
+        return [f"{path.name}: digest {got[:16]}… does not match {sums_path.name} ({sums[path.name][:16]}…)"]
+    return []
+
+
 def self_test() -> int:
     failures: list[str] = []
 
@@ -192,6 +209,14 @@ def self_test() -> int:
         check("an asset this run did not upload", readback_problems(foreign, good)[0],
               "old.zip is on the release but was not uploaded by this run")
 
+        # One file against a checksum list kept elsewhere.
+        archive = good / "expanse-1.0.0-x86_64-unknown-linux-gnu.tar.gz"
+        check("a file that matches its listed digest", file_problems(archive, good / SUMS), [])
+        check("a file that does not", len(file_problems(truncated / "libexpanse1_1.0.0_amd64.deb", good / SUMS)), 1)
+        check("a file the list does not name", file_problems(good / "expanse.intoto.jsonl", good / SUMS),
+              [f"expanse.intoto.jsonl is not listed in {SUMS}"])
+        check("a file that is not there", file_problems(root / "nope.zip", good / SUMS)[0].endswith("does not exist"), True)
+
         bad_sums = make("bad-sums")
         (bad_sums / SUMS).write_text("not a checksum line\n")
         check("a malformed SHA256SUMS", "not a sha256sum line" in checksum_problems(bad_sums)[0], True)
@@ -215,7 +240,9 @@ def self_test() -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", nargs="?", choices=["check-local", "check-readback"])
+    ap.add_argument("command", nargs="?", choices=["check-local", "check-readback", "check-file"])
+    ap.add_argument("--file", type=Path, help="check-file: the file to check")
+    ap.add_argument("--sums", type=Path, help="check-file: the SHA256SUMS that lists it")
     ap.add_argument("--dir", type=Path)
     ap.add_argument("--local", type=Path)
     ap.add_argument("--workflow", type=Path,
@@ -224,6 +251,17 @@ def main() -> int:
     args = ap.parse_args()
     if args.self_test:
         return self_test()
+    if args.command == "check-file":
+        if not args.file or not args.sums:
+            print("::error::check-file needs --file and --sums", file=sys.stderr)
+            return 1
+        found = file_problems(args.file, args.sums)
+        for p in found:
+            print(f"::error::{p}")
+        if found:
+            return 1
+        print(f"release_assets check-file: {args.file.name} matches {args.sums.name}")
+        return 0
     if not args.command or not args.dir or not args.dir.is_dir():
         print("::error::a command and an existing --dir are required", file=sys.stderr)
         return 1

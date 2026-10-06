@@ -38,6 +38,7 @@ graph TD
 - **Forward-only versions**: once *any* registry publish succeeds, that version is spent — registries are immutable. Never re-push or move a tag; fix forward (`vX.Y.Z+1`).
 - **Independent recovery**: a failed Phase-3 channel is re-run individually; the anchor and sibling channels are unaffected.
 - **Draft first**: the GitHub Release is created as a draft. Its assets are downloaded again and compared with what was built, by name and by SHA-256 (`scripts/release_assets.py`), and only then is it published. Every registry job waits on that publish, so a missing or truncated upload stops the release with nothing public. The same script checks before upload that each build target produced exactly one archive; that check runs in the canary too.
+- **Smoke before promote**: the `smoke` job unpacks the Linux, macOS and Windows archives on their own platforms, checks each against `SHA256SUMS`, compiles and runs C programs against the Unix archives and loads the Windows DLL, and checks the version each reports. The `promote` job, which publishes the draft, pushes the Go module tag and dispatches PyPI, `needs: smoke`, and every registry job `needs: promote`. Nothing irreversible runs before an archive has been used as a consumer would use it. The canary runs `smoke` in full.
 - **Canary first**: run the release workflow via `workflow_dispatch` (`dry_run: true`) to exercise the gate, builds, packaging, and page generation with every outward publish skipped — before pushing a real tag.
 
 ### Release Steps:
