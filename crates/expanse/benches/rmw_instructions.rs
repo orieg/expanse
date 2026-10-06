@@ -18,7 +18,10 @@
 //!
 //! Requires valgrind, which does not support arm64 macOS — the arms run on
 //! Linux (the `instruction-counts` CI job). Locally on Linux:
-//! `cargo bench -p expanse-trie --bench rmw_instructions`.
+//! `cargo bench -p expanse-trie --bench rmw_instructions`. On other targets
+//! `main` runs each arm's body once over the same population. Every arm
+//! asserts that all of its operations succeeded, on every target, so an arm
+//! that took a different path fails instead of reporting that path's cost.
 //!
 //! # Workload shape
 //!
@@ -164,9 +167,8 @@ fn built_sync_bytesmap(_dist: &str) -> (SyncExpanseBytesMap<DetHasher>, Vec<(Vec
 // `SyncExpanseMap::compare_exchange` (sync.rs:6573), success path: the
 // expected word is the one the key holds, so one optimistic descent stores in
 // place.
-#[library_benchmark]
-#[bench::random(args = ("random",), setup = built_sync_map)]
-fn sync_map_cas(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+#[inline(always)]
+fn sync_map_cas_body(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut won = 0u64;
     for &k in &probes {
@@ -177,14 +179,22 @@ fn sync_map_cas(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(won, POP as u64);
     black_box(won)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_cas(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    sync_map_cas_body(built)
 }
 
 // `SyncExpanseMap::update` (sync.rs:6602): a validated read, then
 // `compare_exchange` over the word it returned.
-#[library_benchmark]
-#[bench::random(args = ("random",), setup = built_sync_map)]
-fn sync_map_update_rmw(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+#[inline(always)]
+fn sync_map_update_rmw_body(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut hits = 0u64;
     for &k in &probes {
@@ -194,13 +204,21 @@ fn sync_map_update_rmw(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(hits, POP as u64);
     black_box(hits)
 }
 
-// `SyncExpanseStrMap::compare_exchange` (sync.rs:12737), success path.
 #[library_benchmark]
-#[bench::routes(args = ("routes",), setup = built_sync_strmap)]
-fn sync_strmap_cas(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 {
+#[bench::random(args = ("random",), setup = built_sync_map)]
+fn sync_map_update_rmw(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    sync_map_update_rmw_body(built)
+}
+
+// `SyncExpanseStrMap::compare_exchange` (sync.rs:12737), success path.
+#[inline(always)]
+fn sync_strmap_cas_body(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 {
     let (map, probes) = built;
     let mut won = 0u64;
     for (k, v) in &probes {
@@ -211,13 +229,21 @@ fn sync_strmap_cas(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 {
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(won, POP as u64);
     black_box(won)
 }
 
-// `SyncExpanseStrMap::update` (sync.rs:12765).
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = built_sync_strmap)]
-fn sync_strmap_update_rmw(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 {
+fn sync_strmap_cas(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 {
+    sync_strmap_cas_body(built)
+}
+
+// `SyncExpanseStrMap::update` (sync.rs:12765).
+#[inline(always)]
+fn sync_strmap_update_rmw_body(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 {
     let (map, probes) = built;
     let mut hits = 0u64;
     for (k, _) in &probes {
@@ -227,13 +253,21 @@ fn sync_strmap_update_rmw(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u6
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(hits, POP as u64);
     black_box(hits)
 }
 
-// `SyncExpanseBytesMap::compare_exchange` (sync.rs:13813), value to value.
 #[library_benchmark]
-#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
-fn sync_bytesmap_cas(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>)) -> u64 {
+#[bench::routes(args = ("routes",), setup = built_sync_strmap)]
+fn sync_strmap_update_rmw(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 {
+    sync_strmap_update_rmw_body(built)
+}
+
+// `SyncExpanseBytesMap::compare_exchange` (sync.rs:13813), value to value.
+#[inline(always)]
+fn sync_bytesmap_cas_body(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>)) -> u64 {
     let (map, probes) = built;
     let mut won = 0u64;
     for (k, v) in &probes {
@@ -244,13 +278,23 @@ fn sync_bytesmap_cas(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(won, POP as u64);
     black_box(won)
 }
 
-// `SyncExpanseBytesMap::update` (sync.rs:13841).
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
-fn sync_bytesmap_update_rmw(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>)) -> u64 {
+fn sync_bytesmap_cas(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>)) -> u64 {
+    sync_bytesmap_cas_body(built)
+}
+
+// `SyncExpanseBytesMap::update` (sync.rs:13841).
+#[inline(always)]
+fn sync_bytesmap_update_rmw_body(
+    built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>),
+) -> u64 {
     let (map, probes) = built;
     let mut hits = 0u64;
     for (k, _) in &probes {
@@ -260,16 +304,26 @@ fn sync_bytesmap_update_rmw(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(hits, POP as u64);
     black_box(hits)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
+fn sync_bytesmap_update_rmw(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>)) -> u64 {
+    sync_bytesmap_update_rmw_body(built)
 }
 
 // `SyncExpanseBytesMap::compare_exchange` (sync.rs:13813), value to absent:
 // the key is the last (here, only) entry of its bucket, so the exchange
 // removes the bucket, the serialised path #1381 introduced. The 50k keys hash
 // to distinct 64-bit values, so every bucket holds one entry.
-#[library_benchmark]
-#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
-fn sync_bytesmap_cas_remove(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>)) -> u64 {
+#[inline(always)]
+fn sync_bytesmap_cas_remove_body(
+    built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>),
+) -> u64 {
     let (map, probes) = built;
     let mut won = 0u64;
     for (k, v) in &probes {
@@ -279,16 +333,24 @@ fn sync_bytesmap_cas_remove(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(won, POP as u64);
     black_box(won)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap)]
+fn sync_bytesmap_cas_remove(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>)) -> u64 {
+    sync_bytesmap_cas_remove_body(built)
 }
 
 // `SyncExpanseBlobMap::compare_exchange` (sync.rs:11590), success path: the
 // expected payload and metadata are the ones the key holds; the new ones are
 // 16 bytes with non-zero metadata, so the store goes through the arena.
 // `SyncExpanseBlobMap` has no `update`.
-#[library_benchmark]
-#[bench::random(args = ("random",), setup = built_sync_blobmap)]
-fn sync_blobmap_cas(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+#[inline(always)]
+fn sync_blobmap_cas_body(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut won = 0u64;
     for &k in &probes {
@@ -304,7 +366,16 @@ fn sync_blobmap_cas(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
         );
     }
     core::mem::forget(map);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(won, POP as u64);
     black_box(won)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap)]
+fn sync_blobmap_cas(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    sync_blobmap_cas_body(built)
 }
 
 /// `--cache-sim=yes`, as `instructions.rs`: the same columns, so the report
@@ -332,7 +403,23 @@ library_benchmark_group!(
 #[cfg(target_os = "linux")]
 main!(config = bench_config(); library_benchmark_groups = rmw);
 
+/// Without valgrind, run every arm once and check the count it returns: each
+/// exchange succeeds and each update finds its key, so every arm returns
+/// `POP`. Not a measurement.
 #[cfg(not(target_os = "linux"))]
 fn main() {
-    println!("iai-callgrind instruction benchmarks run on Linux only.");
+    // `#[library_benchmark]` turns each arm into a module, so the bodies are
+    // called here. Each asserts its own count.
+    sync_map_cas_body(built_sync_map("random"));
+    sync_map_update_rmw_body(built_sync_map("random"));
+    sync_strmap_cas_body(built_sync_strmap("routes"));
+    sync_strmap_update_rmw_body(built_sync_strmap("routes"));
+    sync_bytesmap_cas_body(built_sync_bytesmap("routes"));
+    sync_bytesmap_update_rmw_body(built_sync_bytesmap("routes"));
+    sync_bytesmap_cas_remove_body(built_sync_bytesmap("routes"));
+    sync_blobmap_cas_body(built_sync_blobmap("random"));
+    println!(
+        "rmw_instructions: iai-callgrind arms run on Linux only; \
+         all 8 arms ran once and met their counts (smoke check, not a measurement)."
+    );
 }
