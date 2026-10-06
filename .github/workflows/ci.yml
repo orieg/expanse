@@ -2024,6 +2024,35 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Read-modify-write entry points (#1395): `compare_exchange` and `update`
+      # on the Sync* maps. A second Callgrind binary on purpose — arms added to
+      # `instructions` moved existing arms through shared instantiations. Own
+      # merge-base baseline; gated in the guard step below, in its own
+      # `perf_report.py` pass, so the `instructions` table is never mixed with it.
+      - name: RMW instruction counts (rmw_instructions)
+        # shell: bash implies pipefail, as above. The merge-base pass stays
+        # non-fatal: a base that predates the bench has no `rmw_instructions`
+        # target and falls back to an absolute run (NO BASELINE in the report).
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$PWD"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RMW_MERGE_BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD 2>/dev/null || echo "")
+            if [ -n "$RMW_MERGE_BASE" ]; then
+              echo "Benchmarking merge base $RMW_MERGE_BASE for rmw_instructions..."
+              git checkout "$RMW_MERGE_BASE"
+              if ! cargo bench --bench rmw_instructions -p expanse-trie -- --save-baseline=rmw_main_base | tee rmw-base-counts.txt; then
+                rm -f rmw-base-counts.txt
+              fi
+              git checkout -
+            fi
+          fi
+          if [ -f rmw-base-counts.txt ]; then
+            cargo bench --bench rmw_instructions -p expanse-trie -- --baseline=rmw_main_base | tee rmw-instruction-counts.txt
+          else
+            cargo bench --bench rmw_instructions -p expanse-trie | tee rmw-instruction-counts.txt
+          fi
+
       - name: Head-to-Head Comparative Benchmark (Expanse vs hashbrown vs BTreeMap)
         shell: bash
         run: |
@@ -2040,7 +2069,7 @@ jobs:
           # AGENTS.md §8.1: a missing artifact means the benchmark never ran —
           # that must fail loudly, not skip the guard and exit 0.
           missing=()
-          for f in instruction-counts.txt bytes-per-key.txt vs-stock.txt; do
+          for f in instruction-counts.txt bytes-per-key.txt vs-stock.txt rmw-instruction-counts.txt; do
             [ -f "$f" ] || missing+=("$f")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -2067,10 +2096,30 @@ jobs:
               --v3 v3-counts.txt \
               --pr-body-file pr-body.txt \
               --fail-on-regression \
-              --max-regression-pct 5.0 > pr-report.md
+              --max-regression-pct 5.0 > pr-report.md || status=$?
+            # The `rmw_instructions` binary (#1395) is its own pass: its own
+            # head, its own merge-base baseline, the same gate and override.
+            RMW_BASE_ARGS=""
+            if [ -f rmw-base-counts.txt ]; then
+              RMW_BASE_ARGS="--base rmw-base-counts.txt --base-ref origin/${{ github.base_ref }}"
+            fi
+            python3 scripts/perf_report.py \
+              --head rmw-instruction-counts.txt \
+              $RMW_BASE_ARGS \
+              --pr-body-file pr-body.txt \
+              --fail-on-regression \
+              --max-regression-pct 5.0 > pr-report-rmw.md || status=$?
+            if [ -f pr-report-rmw.md ]; then
+              {
+                echo
+                echo '### rmw_instructions'
+                cat pr-report-rmw.md
+              } >> pr-report.md
+            fi
             if [ -f pr-report.md ]; then
               cat pr-report.md >> "$GITHUB_STEP_SUMMARY"
             fi
+            exit "${status:-0}"
           fi
 
       - name: Post or Update Benchmark PR Comment

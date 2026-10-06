@@ -409,6 +409,29 @@
       "summary": "Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host."
     },
     {
+      "name": "rmw_instructions",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "rmw_instructions",
+      "arms": {
+        "subject_label": "Expanse",
+        "twins": [],
+        "unpaired": [
+          "sync_map_cas",
+          "sync_map_update_rmw",
+          "sync_strmap_cas",
+          "sync_strmap_update_rmw",
+          "sync_bytesmap_cas",
+          "sync_bytesmap_update_rmw",
+          "sync_bytesmap_cas_remove",
+          "sync_blobmap_cas"
+        ]
+      },
+      "summary": "Callgrind counts of the shipped `compare_exchange` and `update` entry points on `SyncExpanseMap`, `SyncExpanseStrMap`, `SyncExpanseBytesMap` and `SyncExpanseBlobMap`, and the bytes map's value-to-absent exchange. A second binary, so its call sites cannot move the arms of `instructions` (Refs #1395); dual-pass against the base ref."
+    },
+    {
       "name": "leaf_cap_cascaded",
       "available": true,
       "kind": "callgrind",
