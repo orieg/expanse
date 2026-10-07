@@ -232,6 +232,59 @@ def self_test() -> int:
     check("commit on a side branch", reached_from("diverged"), False)
     check("no status is not a pass", reached_from(None), False)
 
+    # Stub _gh for integration-level tests below.
+    import sys as _sys
+    _mod = _sys.modules[__name__]
+    _orig_gh = _mod._gh
+
+    # Test: on_branch builds the compare request as compare/{sha}...{branch}.
+    _gh_calls: list[list[str]] = []
+    def _fake_gh(args: list[str]) -> str:
+        _gh_calls.append(args)
+        return '{"status": "ahead"}'
+    try:
+        _mod._gh = _fake_gh
+        on_branch("o/r", "abc123def", "main")
+        check("on_branch builds compare/{sha}...{branch}",
+              _gh_calls, [["api", "repos/o/r/compare/abc123def...main"]])
+    finally:
+        _mod._gh = _orig_gh
+
+    # Test: on_branch returns non-zero when commit is not on branch.
+    def _fake_gh_behind(args: list[str]) -> str:
+        return '{"status": "behind"}'
+    try:
+        _mod._gh = _fake_gh_behind
+        rc = on_branch("o/r", "abc123def", "main")
+        check("on_branch returns non-zero when off-branch", rc != 0, True)
+    finally:
+        _mod._gh = _orig_gh
+
+    # Test: gate returns non-zero on deadline.
+    # Use an old created_at so the 0.01 s deadline fires immediately.
+    _old_created = run(1, "push", status="in_progress", conclusion=None,
+                       created="2020-01-01T00:00:00Z")
+    def _fake_fetch_always_pending(repo: str, sha: str) -> list[tuple[dict, str]]:
+        return [(_old_created, "pending")]
+    _orig_fetch = fetch
+    try:
+        _mod.fetch = _fake_fetch_always_pending
+        rc = gate("o/r", "abc", None, 0.01, 0)
+        check("gate returns non-zero on deadline", rc != 0, True)
+    finally:
+        _mod.fetch = _orig_fetch
+
+    # Test: gate returns non-zero on failed verdict.
+    _old_created_fail = run(1, "push", created="2020-01-01T00:00:00Z")
+    def _fake_fetch_always_fail(repo: str, sha: str) -> list[tuple[dict, str]]:
+        return [(_old_created_fail, classify(run(1, "push"), [job("Core / Linter & Formatting")]),)]
+    try:
+        _mod.fetch = _fake_fetch_always_fail
+        rc = gate("o/r", "abc", None, 0.01, 0)
+        check("gate returns non-zero on failed verdict", rc != 0, True)
+    finally:
+        _mod.fetch = _orig_fetch
+
     if failures:
         for f in failures:
             print(f"::error::release_ci_gate self-test: {f}")
