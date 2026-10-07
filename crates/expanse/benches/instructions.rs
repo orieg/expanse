@@ -3367,7 +3367,15 @@ fn sync_map_branchu_band(map: SyncExpanseMap) -> u64 {
 fn short_keys(_dist: &str) -> Vec<Vec<u8>> {
     const ALNUM: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = XorShift(0x0DDB_1A5E_5EED_0730);
-    let mut seen = std::collections::HashSet::with_capacity(POP);
+    // A fixed hasher, not the default per-process one: the set frees 50,000
+    // small keys in its iteration order when it drops, so a random seed
+    // leaves the allocator's free lists in a different state for every
+    // process, and the arms built after it then count slightly differently
+    // from run to run.
+    let mut seen = std::collections::HashSet::with_capacity_and_hasher(
+        POP,
+        std::hash::BuildHasherDefault::<std::collections::hash_map::DefaultHasher>::default(),
+    );
     let mut out = Vec::with_capacity(POP);
     while out.len() < POP {
         let n = 8 + (rng.next() % 9) as usize;
