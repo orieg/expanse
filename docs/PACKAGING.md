@@ -17,29 +17,35 @@ The pipeline is **anchor-first** (#313): the **GitHub Release is the canonical a
 graph TD
     A[1. Synchronize Versions via scripts/bump_version.py] --> C[2. Commit & Create Git Tag 'vX.Y.Z']
     C --> D[3. Push Tag to GitHub: git push origin vX.Y.Z]
-    D --> E[Phase 1: release-gate - full CI run on the commit + version lockstep]
+    D --> E[Phase 1: release-gate - full CI run on the commit + signed tag bound to it + version lockstep]
 
     E --> F[build-release-artifacts: multi-arch C ABI + .deb/.rpm]
     E --> G[build-npm: platform addons]
-    F --> H[Phase 2: github-release - THE CANONICAL ANCHOR - assets + SHA256SUMS]
+    F --> H[Phase 2: github-release - THE CANONICAL ANCHOR - draft, assets + SHA256SUMS, read back]
+    H --> S[smoke: the archives used on Linux, macOS and Windows]
+    S --> P[promote: Go module tag, then the draft is published, then PyPI is dispatched]
 
-    H --> I[Phase 3: publish-crates - crates.io]
-    H --> J[Phase 3: publish-npm - npm OIDC]
-    H --> K[Phase 3: package-nuget - NuGet.org OIDC]
-    H --> L[Phase 3: publish-pages - apt/rpm portal]
-    H --> M[Phase 3: publish-pypi - python.yml dispatched by github-release]
-    H --> N[Phase 3: publish-homebrew - formula to orieg/homebrew-tap + Portfile]
+    P --> I[Phase 3: publish-crates - crates.io]
+    P --> J[Phase 3: publish-npm - npm OIDC]
+    P --> K[Phase 3: package-nuget - NuGet.org OIDC]
+    P --> L[Phase 3: publish-pages - apt/rpm portal]
+    P --> M[Phase 3: publish-pypi - python.yml dispatched by promote]
+    P --> N[Phase 3: publish-homebrew - formula to orieg/homebrew-tap + Portfile]
     F --> N
     G --> J
 ```
 
 **Release policies** (post-v0.4.0 incident, #313):
-- **Single anchor**: no workflow publishes straight off a tag push; all channels `needs: github-release`, and PyPI (`python.yml`) is **dispatched by `github-release`** with the release tag (a `GITHUB_TOKEN`-created release emits no `release` event to other workflows, so an event trigger alone can never fire from the pipeline).
+- **Single anchor**: no workflow publishes straight off a tag push; all channels `needs: github-release`, and PyPI (`python.yml`) is **dispatched by `promote`** with the release tag (a `GITHUB_TOKEN`-created release emits no `release` event to other workflows, so an event trigger alone can never fire from the pipeline).
 - **Forward-only versions**: once *any* registry publish succeeds, that version is spent — registries are immutable. Never re-push or move a tag; fix forward (`vX.Y.Z+1`).
 - **Independent recovery**: a failed Phase-3 channel is re-run individually; the anchor and sibling channels are unaffected.
 - **Draft first**: the GitHub Release is created as a draft. Its assets are downloaded again and compared with what was built, by name and by SHA-256 (`scripts/release_assets.py`), and only then is it published. Every registry job waits on that publish, so a missing or truncated upload stops the release with nothing public. The same script checks before upload that each build target produced exactly one archive; that check runs in the canary too.
 - **Smoke before promote**: the `smoke` job unpacks the Linux, macOS and Windows archives on their own platforms, checks each against `SHA256SUMS`, compiles and runs C programs against the Unix archives and loads the Windows DLL, and checks the version each reports. The `promote` job, which publishes the draft, pushes the Go module tag and dispatches PyPI, `needs: smoke`, and every registry job `needs: promote`. Nothing irreversible runs before an archive has been used as a consumer would use it. The canary runs `smoke` in full.
 - **Pre-releases publish nothing**: a tag `vX.Y.Z-rc.N`, cut from the commit whose manifests carry `X.Y.Z`, runs the gate, the builds, the attestations, the draft with its read-back, and the smoke job, and stops. The release stays a draft, marked pre-release; no registry job, no Go tag, no PyPI dispatch and no Pages deploy runs. A draft is not archived by Zenodo. `scripts/check_release_workflow.py` fails CI if a publishing job stops waiting for `promote` or loses its pre-release condition. Create the tag with `scripts/tag_release.py X.Y.Z-rc.N`; a pre-release needs no notes.
+- **A release is a pushed, signed tag, and nothing else**: a manual run of `release.yml` is a canary and is refused unless `dry_run` is ticked, because the signature, lockstep and on-main checks run on a tag push. The signature check refuses an expired or revoked key, a signed tag object placed under another name, and a tag that no longer points at the commit the run is building. Runs for one ref are serialised and never cancelled. On the remote, the `release-tags` ruleset (a repository setting, not a file here) refuses deleting, updating or force-pushing any `v*` or `bindings/go/v*` tag, with no bypass; creating one stays allowed. A pre-release tag is covered too, so an `-rc` tag cannot be removed afterwards.
+- **Order inside `promote`**: the Go module tag is pushed first, without force, while the release is still a draft; that push is the step most likely to be refused (the job token cannot push a ref when a workflow file changed on `main` since the tagged commit). If it is, push the tag by hand (`git push origin <release commit>:refs/tags/bindings/go/vX.Y.Z`) and use "Re-run failed jobs".
+- **Never "Re-run all jobs" on a published release**: the release job would rebuild the archives with different bytes and replace the public assets, while the registries, the tap formula and the apt/rpm metadata keep the old digests. The release job refuses to run once the tag's release is published; "Re-run failed jobs" is the way to retry a channel.
+- **A draft published by hand**: publishing a stable draft from the web interface triggers the PyPI publish (`python.yml` runs on `release: published`) and nothing else. A pre-release published by hand is not sent to PyPI.
 - **Pinned inputs**: every action in `release.yml` is referenced by commit, and the release jobs build with the exact compiler version in `env.RELEASE_TOOLCHAIN`, raised only by a pull request that runs the canary. Every checkout sets `persist-credentials: false`, except the one in `promote`, which pushes the Go module tag. Each job with a write permission or the `release` environment starts with `step-security/harden-runner` in audit mode, which records the job's outbound connections and blocks none; an egress allow-list is not enforced. `scripts/check_release_workflow.py` fails CI on a tag-pinned action, a checkout that keeps the token, a toolchain channel, or a write job without the hardening step.
 - **Canary first**: run the release workflow via `workflow_dispatch` (`dry_run: true`) to exercise the gate, builds, packaging, and page generation with every outward publish skipped — before pushing a real tag.
 
@@ -468,7 +474,7 @@ The Go binding is consumed directly from the monorepo as a **nested Go module**:
 go get github.com/orieg/expanse/bindings/go@v0.11.1
 ```
 
-Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `github-release` job on every release tag. The nightly `go-tag-drift` job (`scripts/check_go_tags.py`) fails when a release tag has no Go tag, or the two point at different commits; if it does, push the missing tag by hand: `git push origin <release commit>:refs/tags/bindings/go/vX.Y.Z`.
+Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `promote` job on every stable release tag. The nightly `go-tag-drift` job (`scripts/check_go_tags.py`) fails when a release tag has no Go tag, or the two point at different commits; if it does, push the missing tag by hand: `git push origin <release commit>:refs/tags/bindings/go/vX.Y.Z`.
 
 The module supports two interchangeable build configurations:
 - **CGO Mode** (`CGO_ENABLED=1` default): Links `libexpanse.a` statically or `libexpanse.so` dynamically via standard CGO.
