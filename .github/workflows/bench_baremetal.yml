@@ -1836,14 +1836,29 @@ jobs:
 
           # ====================================================================
           # The benchmarks are done: stop the host watcher and judge its record.
+          # The watcher runs until this shell exits, so one that is already
+          # gone, or that exits non-zero when stopped, crashed mid-run: its
+          # record ends early and cannot show the run undisturbed.
+          HOST_WATCH_OK=1
           if kill -TERM "$HOST_WATCH_PID" 2>/dev/null; then
-            wait "$HOST_WATCH_PID" || echo "::warning::the host watcher exited with status $?"
+            WATCH_EXIT=0
+            wait "$HOST_WATCH_PID" || WATCH_EXIT=$?
+            if [ "$WATCH_EXIT" -ne 0 ]; then
+              echo "::error::the host watcher exited with status $WATCH_EXIT; its record is incomplete"
+              HOST_WATCH_OK=0
+            fi
+          else
+            echo "::error::the host watcher was not running when the benchmarks finished; its record is incomplete"
+            HOST_WATCH_OK=0
           fi
           set +e
           python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" summarize \
             --in host-activity.jsonl --md host-activity.md
           HOST_STATUS=$?
           set -e
+          if [ "$HOST_WATCH_OK" -ne 1 ]; then
+            HOST_STATUS=1
+          fi
           if [ -f host-activity.md ]; then
             cat host-activity.md >> system-load.md
           fi

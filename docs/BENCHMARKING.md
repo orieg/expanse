@@ -609,9 +609,16 @@ Bench targets deliberately **not** reachable from a slash command:
      splits foreign load — the CPU of every task outside the run's own
      process tree, plus interrupt, softirq and steal time — into the part on
      the pinned CPUs and the rest. It is a sum of what ran, not the CPU
-     counters less the run's own time: those are a tick-sampled clock and an
-     exact one, and their difference follows the benchmark's own wakeup rate
-     in either direction, so it is recorded and not judged. Before anything is built,
+     counters less the run's own time: that difference read between -0.20 and
+     +0.44 core-equivalents with no foreign task recorded (cause not
+     established), so it is recorded and not judged. A task's own CPU counts
+     on the pinned CPUs when any of its threads last ran there at a sample;
+     the CPU of processes that exited inside a window counts there always,
+     since nothing records where they ran. A scan that cannot see every
+     process, or a record with a gap of more than three sampling intervals,
+     is refused. The guard measures CPU use only: it does not read run-queue
+     delay or pressure totals, and interrupt time charged to the interrupted
+     task is invisible to it. Before anything is built,
      `check` requires `START_QUIET_WINDOWS` = 3 consecutive 1 s windows with
      foreign load ≤ `START_FOREIGN_MAX` = 0.5 and on-pin foreign load ≤
      `START_ON_PIN_MAX` = 0.1 core-equivalents, and no foreign process at or
