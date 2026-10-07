@@ -196,9 +196,25 @@ def supply_chain_problems(workflow: dict) -> list[str]:
     return out
 
 
+def toolchain_problems(workflow: dict, text: str | None) -> list[str]:
+    out: list[str] = []
+    if text is not None:
+        # No `npm@latest`: every global npm install must use an exact version.
+        for match in re.finditer(r"npm install -g npm@(\S+)", text):
+            ver = match.group(1).strip()
+            if ver == "latest":
+                out.append("npm is installed with `npm@latest` instead of an exact version")
+        # All `cargo build` steps must carry `--locked`.
+        for line in text.splitlines():
+            stripped = line.strip()
+            if "cargo build" in stripped and "--locked" not in stripped:
+                out.append(f"`cargo build` without `--locked`: {stripped}")
+    return out
+
+
 def problems(workflow: dict, text: str | None = None) -> list[str]:
     jobs = workflow.get("jobs", {})
-    out: list[str] = supply_chain_problems(workflow) + gate_problems(workflow, text)
+    out: list[str] = supply_chain_problems(workflow) + gate_problems(workflow, text) + toolchain_problems(workflow, text)
     missing = [r for r in ("github-release", "smoke", "promote", "verify-registries") if r not in jobs]
     if missing:
         return out + [f"job `{r}` is missing" for r in missing]
@@ -406,6 +422,14 @@ def self_test() -> int:
     ):
         check_text(label, old, new, "the workflow no longer contains")
 
+    # --- toolchain pinning --------------------------------------------------
+    check_text("npm@latest instead of an exact version",
+               "npm install -g npm@11.6.4", "npm install -g npm@latest",
+               "npm is installed with `npm@latest`")
+    check_text("cargo build without --locked",
+               "--release --locked --target", "--release --target",
+               "`cargo build` without `--locked`")
+
     if failures:
         for f in failures:
             print(f"::error::check_release_workflow self-test: {f}")
@@ -430,7 +454,8 @@ def main() -> int:
         return 1
     print(f"check_release_workflow: {len(PUBLISH_JOBS)} publishing jobs wait for promote and skip a pre-release tag; "
           f"every job is behind the gate; {len(CALL_SITES)} call sites are as written; "
-          f"actions are pinned by commit, checkouts drop the token, the toolchain is exact")
+          f"actions are pinned by commit, checkouts drop the token, the toolchain is exact; "
+          f"npm uses pinned versions, cargo build carries --locked")
     return 0
 
 
