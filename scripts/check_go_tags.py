@@ -99,6 +99,9 @@ def self_test() -> int:
     two = {"v0.10.0": a, "v0.9.0": a}
     check("numeric order", [p.split()[0] for p in problems(two)], ["v0.9.0", "v0.10.0"])
 
+    # Test: empty tag list produces no problems (nothing to report).
+    check("empty tag list is clean", problems({}), [])
+
     if failures:
         for f in failures:
             print(f"::error::check_go_tags self-test: {f}")

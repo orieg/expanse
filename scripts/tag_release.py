@@ -253,6 +253,41 @@ def self_test() -> int:
         git(["tag", "-d", "v1.2.2"], work)
         refused("tag exists on the remote", lambda: run(version="1.2.2", commit_=first), "already exists on origin")
 
+    # CI check must be called with the tagged commit, not HEAD (which may sit
+    # on a side branch).  The fixture above leaves HEAD on `side`; when we tag
+    # without --commit, resolve_commit returns origin/main's head and that is
+    # what ci_check receives.
+    with tempfile.TemporaryDirectory(prefix="tag-release-ci-sha-") as tmp:
+        origin2, work2 = Path(tmp) / "origin2.git", Path(tmp) / "work2"
+        git(["init", "--quiet", "--bare", "-b", BRANCH, str(origin2)], Path(tmp))
+        git(["clone", "--quiet", str(origin2), str(work2)], Path(tmp))
+        for k, v in (("user.name", "t"), ("user.email", "t@example.invalid"),
+                      ("commit.gpgsign", "false"), ("tag.gpgsign", "false")):
+            git(["config", k, v], work2)
+
+        def commit2(name: str) -> str:
+            (work2 / name).write_text(name)
+            git(["add", name], work2)
+            git(["commit", "--quiet", "-m", name], work2)
+            return git(["rev-parse", "HEAD"], work2).stdout.strip()
+
+        git(["checkout", "--quiet", "-b", BRANCH], work2, check=False)
+        main_head = commit2("main")
+        git(["push", "--quiet", REMOTE, BRANCH], work2)
+        git(["checkout", "--quiet", "-b", "side"], work2)
+        _side_head = commit2("side")  # HEAD now sits here
+
+        ci_shas: list[str] = []
+        def capture_ci_sha(_repo, sha, *_a):
+            ci_shas.append(sha)
+        default_notes2 = Path(tmp) / "notes2.md"
+        default_notes2.write_text("Release\n\n## Fixed\n\n- a thing\n")
+
+        tag_release(work2, "1.0.0", None, default_notes2, "o/r", 0, sign=False,
+                     version_check=ok, ci_check=capture_ci_sha)
+        if ci_shas != [main_head]:
+            failures.append(f"ci_check called with {ci_shas}, want [{main_head}] (must be tagged commit, not HEAD)")
+
     if failures:
         for f in failures:
             print(f"::error::tag_release self-test: {f}")
