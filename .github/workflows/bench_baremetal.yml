@@ -73,7 +73,6 @@ on:
           - writer_scaling_count_cells
           - writer_scaling_readers_only
           - writer_scaling_scan
-          - writer_scaling_scan_str
           - writer_scaling_929_str_gate
           - writer_scaling_929_str_gate_v2
           - writer_scaling_929_blob_gate
