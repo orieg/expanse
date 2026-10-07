@@ -113,22 +113,60 @@ GENERATOR_ARM = "strmap_prefix_scan"
 SORTED_ARM = "strmap_prefix_scan_sorted"
 
 
-def evaluate_d2(artifact_2m: dict) -> dict:
+REGISTERED_RUNS = 10  # A4: `--runs 10` per cell
+# A4's two-run protocol names the host condition: `loadavg <= 1.0`, `foreign_busy_cpus == 0`.
+REGISTERED_LOAD1_MAX = 1.0
+REGISTERED_FOREIGN_MAX = 0.0
+
+
+def host_precondition(artifact: dict) -> dict:
+    """A4's registered host condition, read from the artifact's load snapshots.
+
+    Every snapshot's one-minute load average must be at most 1.0 and every
+    recorded foreign-CPU figure must be 0. An artifact with no snapshot does
+    not meet it.
+    """
+    loads = artifact.get("provenance", {}).get("loads") or []
+    load1 = [float(x["load1"]) for x in loads if x.get("load1") is not None]
+    foreign = [float(x["foreign_busy_cpus_since_prev"]) for x in loads
+               if x.get("foreign_busy_cpus_since_prev") is not None]
+    unmet = []
+    if not load1:
+        unmet.append("no load snapshot is recorded")
+    elif max(load1) > REGISTERED_LOAD1_MAX:
+        unmet.append(f"load1 reached {max(load1):g}, registered `loadavg <= {REGISTERED_LOAD1_MAX:g}`")
+    if foreign and max(foreign) > REGISTERED_FOREIGN_MAX:
+        unmet.append(f"foreign_busy_cpus reached {max(foreign):g}, registered `foreign_busy_cpus == 0`")
+    return {"met": not unmet, "unmet": unmet,
+            "load1_max": max(load1) if load1 else None, "foreign_busy_cpus_max": max(foreign) if foreign else None}
+
+
+def evaluate_d2(artifact_2m: dict, *, expected_runs: int = REGISTERED_RUNS,
+                expected_entries: int = D1_OPS) -> dict:
     """Evaluates D2a, D2b and D2c on one `counters_prefix_scan_d2_2m.json` artifact.
 
     Counts are per entry: each run's `probe - build` count divided by
     `distinct_probes * passes`. D2a reads the generator arm alone. D2b and D2c
     read the difference of the two arms, taken run by run in the order the
-    artifact records them, since the arms are measured by separate processes
-    and a per-arm interval does not bound a difference. Every clause is decided
-    on a BCa 95% bound (2,000 resamples, seed 42), never on the point.
+    artifact records them. The arms are separate processes run as two blocks,
+    so that order pairs nothing: the interval is one of many a re-ordering
+    would give. Every clause is decided on a BCa 95% bound (2,000 resamples,
+    seed 42), never on the point.
 
-    The run is VOID, with no clause evaluated, unless the artifact records
-    `hugetlb` and both arms faulted in huge pages (`thp_fault_alloc > 0`):
-    Amendment A4 makes a 2 MiB arm without verified huge pages no measurement.
+    The run is VOID, with no clause evaluated, when it is not the measurement
+    A4 registered: `hugetlb` not recorded, an arm that faulted in no huge page
+    or fell back from one, an arm recorded twice, an arm without
+    `expected_runs` runs, a per-entry denominator other than
+    `expected_entries`, or a counter a clause reads whose status is not `ok`.
+
+    The verdict is FAIL when a clause is not met. When every clause is met it
+    is PASS only if A4's host condition is met too (`host_precondition`), and
+    INTERMEDIATE otherwise: the clauses hold on a run the registration did
+    not admit as written.
 
     One artifact is one run. A4 registers two runs; a verdict needs both.
     """
+    arms = [c["arm"] for c in artifact_2m["cells"]]
     cells = {c["arm"]: c for c in artifact_2m["cells"]}
     missing = [a for a in (GENERATOR_ARM, SORTED_ARM) if a not in cells]
     if missing:
@@ -136,25 +174,35 @@ def evaluate_d2(artifact_2m: dict) -> dict:
     voids = []
     if artifact_2m.get("provenance", {}).get("hugetlb") is not True:
         voids.append("provenance.hugetlb is not true")
+    read = ("dTLB-load-misses", "mem_load_retired.l3_miss", "cycles")
     for arm in (GENERATOR_ARM, SORTED_ARM):
-        if cells[arm].get("thp_delta", {}).get("thp_fault_alloc", 0) <= 0:
+        cell = cells[arm]
+        if arms.count(arm) != 1:
+            voids.append(f"{arm}: recorded {arms.count(arm)} times")
+        thp = cell.get("thp_delta", {})
+        if thp.get("thp_fault_alloc", 0) <= 0:
             voids.append(f"{arm}: thp_fault_alloc did not increase")
+        if thp.get("thp_fault_fallback", 0) > 0:
+            voids.append(f"{arm}: {thp['thp_fault_fallback']} huge-page fault(s) fell back to small pages")
+        entries = cell["distinct_probes"] * cell["passes"]
+        if entries != expected_entries:
+            voids.append(f"{arm}: {entries} entries per run, registered {expected_entries}")
+        for counter in read:
+            c = cell["counters"].get(counter, {})
+            if c.get("status") != "ok":
+                voids.append(f"{arm}: counter {counter} status is {c.get('status')!r}")
+            elif len(c["samples"]) != expected_runs:
+                voids.append(f"{arm}: {len(c['samples'])} runs of {counter}, registered {expected_runs}")
+    host = host_precondition(artifact_2m)
     if voids:
-        return {"verdict": "VOID", "voids": voids, "clauses": {}}
+        return {"verdict": "VOID", "voids": voids, "clauses": {}, "host_precondition": host}
 
     def per_entry(arm: str, counter: str) -> list[float]:
         cell = cells[arm]
-        entries = cell["distinct_probes"] * cell["passes"]
-        c = cell["counters"][counter]
-        if c.get("status") != "ok":
-            raise ValueError(f"{arm}: counter {counter} status is {c.get('status')!r}")
-        return [x / entries for x in c["samples"]]
+        return [x / expected_entries for x in cell["counters"][counter]["samples"]]
 
     def diff(counter: str) -> list[float]:
-        g, s_ = per_entry(GENERATOR_ARM, counter), per_entry(SORTED_ARM, counter)
-        if len(g) != len(s_):
-            raise ValueError(f"{counter}: arms have {len(g)} and {len(s_)} runs")
-        return [a - b for a, b in zip(g, s_)]
+        return [a - b for a, b in zip(per_entry(GENERATOR_ARM, counter), per_entry(SORTED_ARM, counter), strict=True)]
 
     bounds = registered_bounds()
     clauses = {}
@@ -170,8 +218,11 @@ def evaluate_d2(artifact_2m: dict) -> dict:
             "n": len(data), "point": point, "ci": [lo, hi], "ci_method": method,
             "bound": bound, "decided_on": side, "met": met,
         }
-    verdict = "PASS" if all(c["met"] for c in clauses.values()) else "FAIL"
-    return {"verdict": verdict, "voids": [], "clauses": clauses}
+    if not all(c["met"] for c in clauses.values()):
+        verdict = "FAIL"
+    else:
+        verdict = "PASS" if host["met"] else "INTERMEDIATE"
+    return {"verdict": verdict, "voids": [], "clauses": clauses, "host_precondition": host}
 
 
 def load_d1_reference_values(repo_root: Path) -> dict[str, float]:
@@ -266,31 +317,44 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         self.assertAlmostEqual(d["stalls_delta_cycles"], D1_STALLS_TOTAL_DELTA_CYCLES, places=3)
 
     @staticmethod
-    def _artifact(gen: dict, srt: dict, hugetlb=True, thp=(100, 100)) -> dict:
-        def cell(arm, counters, faults):
+    def _artifact(gen: dict, srt: dict, hugetlb=True, thp=(100, 100), fallback=(0, 0),
+                  loads=((0.4, None), (0.6, 0.0))) -> dict:
+        def cell(arm, counters, faults, fell_back):
             return {
                 "arm": arm, "distinct_probes": 10, "passes": 10,
-                "thp_delta": {"thp_fault_alloc": faults},
+                "thp_delta": {"thp_fault_alloc": faults, "thp_fault_fallback": fell_back},
                 "counters": {k: {"status": "ok", "samples": v} for k, v in counters.items()},
             }
-        return {"provenance": {"hugetlb": hugetlb},
-                "cells": [cell(GENERATOR_ARM, gen, thp[0]), cell(SORTED_ARM, srt, thp[1])]}
+        return {"provenance": {"hugetlb": hugetlb,
+                               "loads": [{"load1": l, "foreign_busy_cpus_since_prev": f} for l, f in loads]},
+                "cells": [cell(GENERATOR_ARM, gen, thp[0], fallback[0]), cell(SORTED_ARM, srt, thp[1], fallback[1])]}
+
+    JITTER = [0.0, 1.0, -1.0, 2.0, -2.0, 0.5, -0.5, 1.5, -1.5, 0.0]
+
+    def _good(self):
+        # Per entry (100 entries): dTLB 0.02, L3 delta 0.20, cycle delta 60.
+        gen = {"dTLB-load-misses": [2.0 + j / 10 for j in self.JITTER],
+               "mem_load_retired.l3_miss": [21.0 + j / 10 for j in self.JITTER],
+               "cycles": [13000.0 + 10 * j for j in self.JITTER]}
+        srt = {"dTLB-load-misses": [1.0] * 10,
+               "mem_load_retired.l3_miss": [1.0] * 10,
+               "cycles": [7000.0] * 10}
+        return gen, srt
+
+    def _eval(self, artifact):
+        return evaluate_d2(artifact, expected_entries=100)
 
     def test_evaluate_d2(self):
-        # Per entry (100 entries): dTLB 0.02, L3 delta 0.20, cycle delta 60.
-        jitter = [0.0, 1.0, -1.0, 2.0, -2.0, 0.5, -0.5, 1.5]
-        gen = {"dTLB-load-misses": [2.0 + j / 10 for j in jitter],
-               "mem_load_retired.l3_miss": [21.0 + j / 10 for j in jitter],
-               "cycles": [13000.0 + 10 * j for j in jitter]}
-        srt = {"dTLB-load-misses": [1.0] * 8,
-               "mem_load_retired.l3_miss": [1.0] * 8,
-               "cycles": [7000.0] * 8}
-        r = evaluate_d2(self._artifact(gen, srt))
+        gen, srt = self._good()
+        jitter = self.JITTER
+        r = self._eval(self._artifact(gen, srt))
         self.assertEqual(r["verdict"], "PASS")
+        self.assertTrue(r["host_precondition"]["met"])
         self.assertEqual({k: v["met"] for k, v in r["clauses"].items()},
                          {"D2a": True, "D2b": True, "D2c": True})
-        self.assertAlmostEqual(r["clauses"]["D2c"]["point"], 60.01875, places=4)
+        self.assertAlmostEqual(r["clauses"]["D2c"]["point"], 60.0, places=4)
         for c in r["clauses"].values():
+            self.assertEqual(c["n"], REGISTERED_RUNS)
             self.assertLessEqual(c["ci"][0], c["point"])
             self.assertLessEqual(c["point"], c["ci"][1])
             self.assertTrue(c["ci_method"])
@@ -303,28 +367,99 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         ):
             bad = dict(gen)
             bad[counter] = values
-            r = evaluate_d2(self._artifact(bad, srt))
+            r = self._eval(self._artifact(bad, srt))
             self.assertEqual(r["verdict"], "FAIL", clause)
             self.assertEqual([k for k, v in r["clauses"].items() if not v["met"]], [clause])
 
         # A point on the right side of its bound with an interval across it fails:
         # the clause is decided on the bound.
         wide = dict(gen)
-        wide["cycles"] = [12600.0, 12600.0, 12600.0, 12600.0, 12600.0, 12600.0, 11000.0, 14200.0]
-        r = evaluate_d2(self._artifact(wide, srt))
+        wide["cycles"] = [12600.0] * 8 + [11000.0, 14200.0]
+        r = self._eval(self._artifact(wide, srt))
         self.assertGreater(r["clauses"]["D2c"]["point"], 52.50)
         self.assertFalse(r["clauses"]["D2c"]["met"])
 
+        # D2a is decided on the UPPER bound: a point under the bound whose
+        # interval reaches over it fails.
+        over = dict(gen)
+        over["dTLB-load-misses"] = [3.0] * 8 + [9.0, 9.0]   # mean 0.042 > 0.0410 at the top
+        r = self._eval(self._artifact(over, srt))
+        self.assertEqual(r["clauses"]["D2a"]["decided_on"], "upper")
+        self.assertFalse(r["clauses"]["D2a"]["met"])
+
     def test_evaluate_d2_void(self):
-        ok = {"dTLB-load-misses": [2.0] * 4, "mem_load_retired.l3_miss": [21.0] * 4,
-              "cycles": [13000.0] * 4}
-        for kwargs in ({"hugetlb": False}, {"thp": (0, 100)}, {"thp": (100, 0)}):
-            r = evaluate_d2(self._artifact(ok, ok, **kwargs))
-            self.assertEqual(r["verdict"], "VOID", kwargs)
+        gen, srt = self._good()
+
+        def void(artifact, needle):
+            r = self._eval(artifact)
+            self.assertEqual(r["verdict"], "VOID", needle)
             self.assertEqual(r["clauses"], {})
-            self.assertTrue(r["voids"])
+            self.assertTrue(any(needle in v for v in r["voids"]), (needle, r["voids"]))
+
+        void(self._artifact(gen, srt, hugetlb=False), "hugetlb is not true")
+        void(self._artifact(gen, srt, thp=(0, 100)), "thp_fault_alloc did not increase")
+        void(self._artifact(gen, srt, thp=(100, 0)), "thp_fault_alloc did not increase")
+        void(self._artifact(gen, srt, fallback=(0, 7)), "fell back to small pages")
+        no_key = self._artifact(gen, srt)
+        del no_key["provenance"]["hugetlb"]
+        void(no_key, "hugetlb is not true")
+        no_thp = self._artifact(gen, srt)
+        del no_thp["cells"][0]["thp_delta"]
+        void(no_thp, "thp_fault_alloc did not increase")
+
+        # Not the registered measurement: too few runs, arms of unequal
+        # length, a different denominator on one arm, an arm recorded twice,
+        # a counter that did not count.
+        few = {k: v[:5] for k, v in gen.items()}
+        void(self._artifact(few, {k: v[:5] for k, v in srt.items()}), "5 runs of")
+        void(self._artifact(few, srt), "5 runs of")
+        halved = self._artifact(gen, srt)
+        halved["cells"][1]["passes"] = 20
+        void(halved, "200 entries per run, registered 100")
+        twice = self._artifact(gen, srt)
+        twice["cells"].append(dict(twice["cells"][1]))
+        void(twice, "recorded 2 times")
+        dead = self._artifact(gen, srt)
+        dead["cells"][1]["counters"]["cycles"]["status"] = "multiplexed"
+        void(dead, "status is 'multiplexed'")
+        # The registered denominator is D1's: the fixture's 100 is not it.
+        self.assertEqual(evaluate_d2(self._artifact(gen, srt))["verdict"], "VOID")
+
         with self.assertRaises(ValueError):
             evaluate_d2({"provenance": {"hugetlb": True}, "cells": []})
+
+    def test_host_precondition(self):
+        gen, srt = self._good()
+        # Clauses met on a host the registration did not admit as written.
+        for loads, needle in (
+            (((1.47, None), (1.37, 0.0)), "load1 reached 1.47"),
+            (((0.5, None), (0.6, 0.02)), "foreign_busy_cpus reached 0.02"),
+            ((), "no load snapshot"),
+        ):
+            r = self._eval(self._artifact(gen, srt, loads=loads))
+            self.assertEqual(r["verdict"], "INTERMEDIATE", needle)
+            self.assertTrue(all(c["met"] for c in r["clauses"].values()))
+            self.assertTrue(any(needle in u for u in r["host_precondition"]["unmet"]), r["host_precondition"])
+        # A failed clause is FAIL whatever the host read.
+        bad = dict(gen)
+        bad["cycles"] = [12000.0 + 10 * j for j in self.JITTER]
+        self.assertEqual(self._eval(self._artifact(bad, srt, loads=((1.9, None),)))["verdict"], "FAIL")
+        # Exactly at the registered values is met.
+        self.assertTrue(self._eval(self._artifact(gen, srt, loads=((1.0, None), (1.0, 0.0))))["host_precondition"]["met"])
+
+    def test_committed_runs(self):
+        # The two runs as committed: every clause met, no void, and A4's host
+        # condition not met as written (load1 above 1.0, foreign above 0).
+        results = Path(__file__).resolve().parent.parent / "docs/benchmarks/patricia_comparison/results"
+        for run, d2c_lower in ((1, 65.28), (2, 66.10)):
+            with open(results / f"counters_prefix_scan_d2_2m_run{run}.json", encoding="utf-8") as fh:
+                r = evaluate_d2(json.load(fh))
+            self.assertEqual(r["verdict"], "INTERMEDIATE", run)
+            self.assertEqual(r["voids"], [])
+            self.assertTrue(all(c["met"] for c in r["clauses"].values()))
+            self.assertAlmostEqual(r["clauses"]["D2c"]["ci"][0], d2c_lower, places=2)
+            self.assertFalse(r["host_precondition"]["met"])
+            self.assertGreater(r["host_precondition"]["load1_max"], 1.0)
 
 
 def main() -> int:
