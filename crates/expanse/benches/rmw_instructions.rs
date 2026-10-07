@@ -35,10 +35,31 @@
 //! | `hit_rate` | 100%: every `compare_exchange` carries the value the key holds, so every exchange succeeds (one thread, no concurrent writer), and every `update` replaces a present key |
 //! | `miss_gen_method` | None: no arm probes an absent key |
 //! | `value_dereference` | `black_box` on every key and expected value passed in, and on the success count returned |
-//! | `measured_region` | Clean (build, shuffle and teardown outside the region; each map is leaked with `mem::forget`) |
+//! | `measured_region` | Build and shuffle outside the region; the map and the probe stream are both leaked with `mem::forget`, so no teardown is counted. One `assert_eq!` on the success count is inside it |
 //! | `arm_symmetry` | Internal trie paths; no competitor arm |
 //! | `statistics` | iai Callgrind exact counts |
-//! | `verdict` | **UNMEASURED** `[unverified: no CI run yet]`: arms written, instruction counts pending the `instruction-counts` job. |
+//! | `verdict` | **MEASURED** by the `instruction-counts` job: instruction counts per arm, exact, one thread. They are a regression tripwire for these entry points, not their cost under contention (see *What the arms do not measure*) |
+//!
+//! # What the arms do not measure
+//!
+//! One thread on an uncontended map. None of the following runs, so none is
+//! in the counts:
+//!
+//! - a retry or backoff loop, a version-lock conflict, a closed writer gate;
+//! - contention on reader registration: `update` reads through `get`, which
+//!   registers and drops a throwaway epoch reader on every call, taking the
+//!   collector's reader mutex twice. An instruction count prices a locked
+//!   instruction as one instruction;
+//! - more than one writer slot in a quiesce drain. `sync_bytesmap_cas_remove`
+//!   takes the serialised path on every operation (a bucket's last entry),
+//!   which stops every writer; here there is only one;
+//! - reclamation: the maps are leaked and nothing drains, and
+//!   `sync_blobmap_cas` appends 50,000 records to an arena that only grows.
+//!
+//! The success assertion shows that every operation returned success. It does
+//! not show which path returned it: each entry point also succeeds through
+//! its serialised fallback. `tests/test_rmw_paths.rs` (feature `occ-stats`)
+//! runs the same operations and asserts the fallback counter.
 #![allow(missing_docs)]
 
 use expanse_trie::sync::{
@@ -178,7 +199,10 @@ fn sync_map_cas_body(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
                 .is_ok(),
         );
     }
+    // Teardown stays out of the region: neither the map nor the probe
+    // stream (50,000 heap keys on the string arms) is dropped here.
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(won, POP as u64);
@@ -204,6 +228,7 @@ fn sync_map_update_rmw_body(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
         );
     }
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(hits, POP as u64);
@@ -229,6 +254,7 @@ fn sync_strmap_cas_body(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) -> u64 
         );
     }
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(won, POP as u64);
@@ -253,6 +279,7 @@ fn sync_strmap_update_rmw_body(built: (SyncExpanseStrMap, Vec<(Vec<u8>, u64)>)) 
         );
     }
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(hits, POP as u64);
@@ -278,6 +305,7 @@ fn sync_bytesmap_cas_body(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, 
         );
     }
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(won, POP as u64);
@@ -304,6 +332,7 @@ fn sync_bytesmap_update_rmw_body(
         );
     }
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(hits, POP as u64);
@@ -333,6 +362,7 @@ fn sync_bytesmap_cas_remove_body(
         );
     }
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(won, POP as u64);
@@ -366,6 +396,7 @@ fn sync_blobmap_cas_body(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
         );
     }
     core::mem::forget(map);
+    core::mem::forget(probes);
     // Every operation must take the path the arm is named for: a failed
     // exchange or a missed update is a different, cheaper path.
     assert_eq!(won, POP as u64);
