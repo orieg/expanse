@@ -275,7 +275,9 @@ Pre-registered in `METHODOLOGY.md` Amendment A3. Counts per yielded entry, `prob
 
 ### Diagnostic D2: the build-order gap under 2 MiB pages (workload: example_perf_point_lookup)
 
-Pre-registered in `METHODOLOGY.md` Amendment A4. Same arms and counters as D1, with the heap backed by 2 MiB transparent huge pages; both arms of both runs faulted in huge pages, which A4 makes a precondition. Counts per yielded entry over 10 paired runs on the `cpu_core` PMU, pinned `0-15`, BCa 95% interval. D2b and D2c are the generator-build count minus the sorted-build count, taken run by run. Evaluated by `scripts/patricia_d2_bounds.py --evaluate` on `results/counters_prefix_scan_d2_2m_run1.json` and `_run2.json`; the 4 KiB control arms of the same dispatches are `counters_prefix_scan_d2_4k_run1.json` and `_run2.json`.
+Pre-registered in `METHODOLOGY.md` Amendment A4. Same arms and counters as D1, with the heap backed by 2 MiB transparent huge pages. Counts per yielded entry over 10 paired runs on the `cpu_core` PMU, pinned `0-15`, BCa 95% interval. D2b and D2c are the generator-build count minus the sorted-build count, taken run by run in recorded order; the two arms are separate blocks of processes, so that order pairs nothing. Evaluated by `scripts/patricia_d2_bounds.py --evaluate` on `results/counters_prefix_scan_d2_2m_run1.json` and `_run2.json`.
+
+**Verdict: `INTERMEDIATE` in both runs.** All three clauses are met in both runs, and A4's registered host condition is not met as written. A4 registers `loadavg <= 1.0` and `foreign_busy_cpus == 0`; the artifacts record a one-minute load average of up to 1.47 and 1.52 and foreign CPU of up to 0.02 core-equivalents. The condition was mis-specified: the measured workload is one thread, which reads a load average near 1 by itself, and the host guard judged both runs quiet. A PASS needs an amended condition and fresh runs (`AGENTS.md` §8.19). This section first recorded the runs as PASS without stating the condition.
 
 | Clause | Bound | Run 1 (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), 7243adab) | Run 2 (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), 052b0a2a) |
 |---|---|---|---|
@@ -283,10 +285,24 @@ Pre-registered in `METHODOLOGY.md` Amendment A4. Same arms and counters as D1, w
 | **D2b** `mem_load_retired.l3_miss` difference | lower ≥ 0.1416 | 0.1670 [0.1585, 0.1775] | 0.1797 [0.1631, 0.2031] |
 | **D2c** `cycles` difference | lower ≥ 52.50 | 67.4421 [65.2845, 70.2814] | 70.5295 [66.1044, 76.8436] |
 
-- **D2a PASS**, **D2b PASS**, **D2c PASS** in both runs: **D2 PASS**. With 2 MiB pages the generator build's dTLB misses fall from D1's 0.8203 per entry to at most 0.0008, while the L3-miss difference and at least 65 cycles per entry of the build-order gap remain. Huge-page backing does not close the gap.
-- Run 2's D2a interval is the bias-corrected construction, not BCa: the evaluator reports `ci_method: bc` for it, and `bca` for the other five. Its upper bound, 0.0002, is more than 200 times below the clause's bound.
+The same two dispatches ran the arms on 4 KiB pages (`counters_prefix_scan_d2_4k_run1.json`, `_run2.json`). Generator minus sorted, per entry:
+
+| Counter | 4 KiB, run 1 | 2 MiB, run 1 | 4 KiB, run 2 | 2 MiB, run 2 |
+|---|---|---|---|---|
+| `cycles` | 90.8862 [90.5005, 91.3881] | 67.4421 [65.2845, 70.2814] | 90.9979 [90.4118, 91.3530] | 70.5295 [66.1044, 76.8436] |
+| `mem_load_retired.l3_miss` | 0.2493 [0.2472, 0.2506] | 0.1670 [0.1585, 0.1775] | 0.2572 [0.2553, 0.2585] | 0.1797 [0.1631, 0.2031] |
+| `LLC-load-misses` | 0.2640 [0.2618, 0.2655] | 0.2384 [0.2265, 0.2530] | 0.2733 [0.2715, 0.2746] | 0.2632 [0.2389, 0.2982] |
+| `dTLB-load-misses` | 0.8092 [0.8074, 0.8113] | -0.0004 [-0.0007, 0.0000] | 0.8109 [0.8089, 0.8122] | -0.0004 [-0.0005, -0.0004] |
+
+What the two runs show:
+
+- **Huge pages remove the dTLB misses and part of the gap, not all of it.** The cycle gap falls from 90.9 and 91.0 per entry on 4 KiB pages to 67.4 and 70.5 on 2 MiB pages: 23.4 and 20.5 cycles per entry, 26% and 22% of it. At least 65 cycles per entry remain in both runs.
+- **The retired-L3-miss count is not invariant under paging.** `mem_load_retired.l3_miss` falls by about 30% (0.249 to 0.167, 0.257 to 0.180) while `LLC-load-misses` falls by about 10% and 4%. Clause D2b's bound is still met. Why the two events diverge is not measured.
+- **Nothing here says what the remaining cycles are spent on.** D2c's bound is D1's L3-stall figure, and meeting it shows the gap is at least that large. The stall counter itself was not counted in these runs (`cycle_activity.stalls_l3_miss` reads 0 in this event set and is withheld), so no share of the remaining gap is attributed to L3 misses.
+- Run 2's D2a interval, and its `dTLB-load-misses` difference, are the bias-corrected construction (`ci_method: bc`); every other interval above is BCa.
 - The two runs are at different commits. Between them `strmap.rs` changed by one documentation comment, and no other file on the plain string map's scan path changed.
-- D2 measures what remains under huge pages. It does not test any remedy: child and leaf co-allocation, prefetching and packed suffixes are each unmeasured.
+- Under 2 MiB pages the generator arm varies more between processes than under 4 KiB pages (cycle-gap interval widths of 5.0 and 10.7 against 0.9). The cause is not measured.
+- D2 tests no remedy: child and leaf co-allocation, prefetching and packed suffixes are each unmeasured.
 
 ### Live heap (workload: patricia_memory)
 
