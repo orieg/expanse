@@ -164,7 +164,9 @@ jobs:
     # release.yml's github-release job (the pipeline's path, since
     # GITHUB_TOKEN-created releases emit no event). Wheels/sdist above are
     # built from the dispatched release_tag.
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    # A pre-release published by hand is not a PyPI release: the manifests of
+    # an `-rc` tag carry the final version, and PyPI cannot take one back.
+    if: (github.event_name == 'release' && !github.event.release.prerelease) || (github.event_name == 'workflow_dispatch' && inputs.publish)
     permissions:
       id-token: write # Required for OIDC trusted publishing
       contents: read

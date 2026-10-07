@@ -18,6 +18,12 @@ on:
 permissions:
   contents: read
 
+# One run per ref at a time, never cancelled: a tag deleted and pushed again
+# must not have two runs writing one release and racing to the registries.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   # The compiler every release job builds with. Pinned so that rebuilding a
   # tag reproduces the toolchain it was released with; `stable` would be
@@ -57,6 +63,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Refuse a dispatch that would publish
+        # A release is a pushed, signed tag. The signature, lockstep and
+        # on-main checks below run on a tag push only, so a manual run with
+        # `dry_run` unticked would skip them and publish all the same.
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}
+        run: |
+          echo "::error::release.yml publishes only from a pushed release tag. A manual run is a canary: leave dry_run ticked. To release, create the tag with scripts/tag_release.py and push it."
+          exit 1
+
       - name: Assert the released commit passed a full CI run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -94,7 +109,9 @@ jobs:
           # key stops the release here, before anything is built or published.
           # The checkout may hold the tag's commit without the tag object.
           git fetch --no-tags --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-          python3 scripts/verify_tag_signature.py --tag "${GITHUB_REF_NAME}"
+          # --sha: the signed tag must name this ref and peel to the commit
+          # this run builds, so a tag moved after the push is refused.
+          python3 scripts/verify_tag_signature.py --tag "${GITHUB_REF_NAME}" --sha "${GITHUB_SHA}"
 
       - name: Assert manifests are in version lockstep with the tag
         if: github.event_name == 'push'  # no tag to compare on a canary dispatch
@@ -704,6 +721,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Refuse to rewrite a published release
+        # Re-running this job after `promote` would delete and re-upload the
+        # public release's assets with rebuilt, different bytes, while the
+        # registries, the tap formula and the apt/rpm metadata keep the old
+        # digests. A draft is not returned by this endpoint, so a re-run
+        # before promotion passes.
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if url=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .html_url 2>lookup.err); then
+            echo "::error::${GITHUB_REF_NAME} is already published (${url}). Its assets are not rebuilt. To retry a registry job, use 'Re-run failed jobs', never 'Re-run all jobs'."
+            exit 1
+          fi
+          # Only "no such release" lets the job go on; any other failure of
+          # the lookup leaves the question open, and the job stops.
+          if ! grep -q 'HTTP 404' lookup.err; then
+            echo "::error::could not tell whether ${GITHUB_REF_NAME} is already published: $(cat lookup.err)"
+            exit 1
+          fi
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -940,6 +978,17 @@ jobs:
           persist-credentials: true
       # A pre-release stays a draft: a published release is archived by Zenodo
       # and announced to watchers, pre-releases included; a draft is neither.
+      # Nested Go module versioning (#322): `go get .../bindings/go@vX.Y.Z`
+      # only resolves a pinned release if a `bindings/go/vX.Y.Z` tag exists.
+      # First, because it is the step most likely to be refused (the token
+      # cannot push a ref when a workflow file changed on main since the
+      # tagged commit) and nothing is public yet: a failure here leaves a
+      # draft. No force: a Go tag that exists on another commit fails loudly;
+      # the same tag on the same commit is a no-op on a re-run.
+      - name: Push Go nested-module tag
+        if: github.event_name == 'push' && !contains(github.ref_name, '-') # stable tag releases only
+        run: |
+          git push origin "${GITHUB_SHA}:refs/tags/bindings/go/${GITHUB_REF_NAME}"
       - name: Publish the release
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) && !contains(github.ref_name, '-') }}
         env:
@@ -950,16 +999,6 @@ jobs:
           [ -n "${RELEASE_ID}" ] || { echo "::error::no release id from the release job"; exit 1; }
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false \
             --jq '"published \(.tag_name): draft=\(.draft) \(.html_url)"'
-      # Nested Go module versioning (#322): `go get .../bindings/go@vX.Y.Z`
-      # only resolves a pinned release if a `bindings/go/vX.Y.Z` tag exists.
-      - name: Push Go nested-module tag
-        if: github.event_name == 'push' && !contains(github.ref_name, '-') # stable tag releases only
-        run: |
-          git push -f origin "${GITHUB_SHA}:refs/tags/bindings/go/${GITHUB_REF_NAME}"
-      # PyPI (#313): a release created with GITHUB_TOKEN emits no `release`
-      # event to other workflows (GitHub suppresses token-caused events except
-      # workflow_dispatch/repository_dispatch), so python.yml is dispatched
-      # explicitly — v0.4.1 shipped without PyPI because of this.
       - name: Dispatch PyPI publish (python.yml)
         if: github.event_name == 'push' && !contains(github.ref_name, '-') # stable tag releases only
         env:

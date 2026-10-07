@@ -6,16 +6,22 @@ take a version back. The tag is the maintainer's: `scripts/tag_release.py`
 creates it with `git tag -s`. This check is the other half. It fails unless
 
   1. the tag is an annotated tag (a lightweight tag carries no signature);
-  2. its signature is good; and
-  3. the signing key's fingerprint is one of the keys in the committed keyring.
+  2. its signature is good, by a key that is neither expired nor revoked;
+  3. the signing key's fingerprint is one of the keys in the committed keyring;
+  4. the signed object names this tag (a signed `v1.0.0` object placed at
+     another ref name is not a signature of that name); and
+  5. with `--sha`, it peels to that commit: the one the run is building. A
+     tag moved after the push is then refused, whatever it was moved to.
 
 Only the committed keyring is trusted. The check runs `git verify-tag` with a
 fresh, empty GnuPG home into which that one file is imported, so a key that
 happens to be on the runner, or one fetched from a key server, cannot make a
-tag pass. The verdict is read from GnuPG's machine-readable status lines
-(`VALIDSIG <fingerprint>`), never from its prose or its exit code alone.
+tag pass. The verdict needs both `git verify-tag` exiting 0 and a
+`VALIDSIG <fingerprint>` status line: GnuPG prints `VALIDSIG` for a
+signature by an expired or revoked key too, and reports those through the
+exit status and `EXPKEYSIG` / `REVKEYSIG`.
 
-Run:  verify_tag_signature.py --tag vX.Y.Z [--keyring FILE] [--repo DIR]
+Run:  verify_tag_signature.py --tag vX.Y.Z [--sha COMMIT] [--keyring FILE] [--repo DIR]
       verify_tag_signature.py --self-test
 """
 
@@ -88,7 +94,15 @@ def valid_signers(status: str) -> set[str]:
     return signers
 
 
-def verify(repo: Path, tag: str, keyring: Path) -> str:
+REFUSING_STATUS = {
+    "EXPKEYSIG": "the signing key has expired",
+    "REVKEYSIG": "the signing key is revoked",
+    "EXPSIG": "the signature has expired",
+    "BADSIG": "the signature does not match the tag",
+}
+
+
+def verify(repo: Path, tag: str, keyring: Path, sha: str | None = None) -> str:
     """Returns the fingerprint that signed `tag`, or raises `Refused`."""
     kind = _run(["git", "cat-file", "-t", f"refs/tags/{tag}"], cwd=repo)
     if kind.returncode != 0:
@@ -101,14 +115,34 @@ def verify(repo: Path, tag: str, keyring: Path) -> str:
         trusted = keyring_fingerprints(keyring, home)
         checked = _run(["git", "verify-tag", "--raw", tag], cwd=repo, env=_gpg_env(home))
     # `--raw` prints GnuPG's status lines on stderr.
+    statuses = {parts[1] for parts in (line.split() for line in checked.stderr.splitlines())
+                if len(parts) >= 2 and parts[0] == "[GNUPG:]"}
+    for status, meaning in REFUSING_STATUS.items():
+        if status in statuses:
+            raise Refused(f"{tag}: {meaning} ({status}). Nothing is published yet: update "
+                          f"{keyring.name} or sign again with a current key, under a new tag")
     signers = valid_signers(checked.stderr)
     if not signers:
         unsigned = "no signature found" in checked.stderr or "NODATA" in checked.stderr
         reason = "is not signed" if unsigned else "has no valid signature from a key in the keyring"
-        raise Refused(f"{tag} {reason}")
+        raise Refused(f"{tag} {reason}. Create the tag with scripts/tag_release.py, which signs it")
+    if checked.returncode != 0:
+        raise Refused(f"{tag}: git verify-tag exited {checked.returncode} although a signature was found: "
+                      f"{' '.join(sorted(statuses)) or checked.stderr.strip()[:200]}")
     accepted = signers & trusted
     if not accepted:
         raise Refused(f"{tag} is signed by {', '.join(sorted(signers))}, which is not in {keyring.name}")
+    # The signature covers the tag object, whose `tag` line is the name it
+    # was signed as; a ref can point at any object.
+    obj = _run(["git", "cat-file", "tag", f"refs/tags/{tag}"], cwd=repo).stdout
+    named = next((line[4:] for line in obj.split("\n\n", 1)[0].splitlines() if line.startswith("tag ")), None)
+    if named != tag:
+        raise Refused(f"the object at refs/tags/{tag} is a signed tag named {named!r}, not {tag!r}")
+    if sha is not None:
+        peeled = _run(["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"], cwd=repo).stdout.strip()
+        if peeled != sha:
+            raise Refused(f"{tag} points at {peeled[:12] or 'no commit'}, and this run builds {sha[:12]}: "
+                          f"the tag moved after it was pushed. A release tag is never re-pushed; bump the version")
     return sorted(accepted)[0]
 
 
@@ -194,6 +228,41 @@ def self_test() -> int:
         refused("lightweight tag", lambda: verify(repo, "v1.0.3", keyring), "lightweight tag")
         refused("missing tag", lambda: verify(repo, "v9.9.9", keyring), "does not exist")
         refused("missing keyring", lambda: verify(repo, "v1.0.0", root / "nope.asc"), "does not exist")
+
+        head = _run(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        (repo / "g").write_text("y")
+        git("add", "g")
+        git("commit", "--quiet", "-m", "d")
+        later = _run(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        # Bound to the commit being built.
+        try:
+            if verify(repo, "v1.0.0", keyring, head) != maintainer:
+                failures.append("the tag on the built commit was not accepted")
+        except Refused as exc:
+            failures.append(f"the tag on the built commit was refused: {exc}")
+        refused("a tag that points at another commit than the one built",
+                lambda: verify(repo, "v1.0.0", keyring, later), "the tag moved after it was pushed")
+        # A signed object under another ref name is not a signature of that name.
+        obj = _run(["git", "rev-parse", "refs/tags/v1.0.0"], cwd=repo).stdout.strip()
+        git("update-ref", "refs/tags/v2.0.0", obj)
+        refused("the signed v1.0.0 object placed at refs/tags/v2.0.0",
+                lambda: verify(repo, "v2.0.0", keyring), "is a signed tag named 'v1.0.0'")
+        # THE DEFECT: an expired key. GnuPG still prints VALIDSIG for it.
+        expiring = make_key("expiring")
+        exp_ring = root / "expiring.asc"
+        git("tag", "-s", "-u", expiring, "-m", "signed before expiry", "v1.1.0")
+        proc = _run(["gpg", "--batch", "--pinentry-mode", "loopback", "--passphrase", "",
+                     "--quick-set-expire", expiring, "seconds=1"], env=env)
+        if proc.returncode != 0:
+            failures.append(f"cannot expire the test key: {proc.stderr.strip()}")
+        import time
+        time.sleep(2.5)
+        exp_ring.write_text(_run(["gpg", "--batch", "--armor", "--export", expiring], env=env).stdout)
+        raw = _run(["git", "verify-tag", "--raw", "v1.1.0"], cwd=repo, env=env).stderr
+        if "VALIDSIG" not in raw or "EXPKEYSIG" not in raw:
+            failures.append(f"the fixture did not produce VALIDSIG with EXPKEYSIG: {raw!r}")
+        refused("signed by a key that has since expired", lambda: verify(repo, "v1.1.0", exp_ring),
+                "the signing key has expired")
         refused("empty keyring", lambda: verify(repo, "v1.0.0", empty), "cannot import")
 
         # The runner's own keys are not consulted: with the signer's key in the
@@ -222,6 +291,7 @@ def self_test() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tag")
+    ap.add_argument("--sha", help="the commit the tag must peel to (the one being built)")
     ap.add_argument("--keyring", type=Path)
     ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
     ap.add_argument("--self-test", action="store_true")
@@ -233,7 +303,7 @@ def main() -> int:
         return 1
     keyring = args.keyring or args.repo / DEFAULT_KEYRING
     try:
-        signer = verify(args.repo, args.tag, keyring)
+        signer = verify(args.repo, args.tag, keyring, args.sha)
     except Refused as exc:
         print(f"::error::{exc}")
         return 1
