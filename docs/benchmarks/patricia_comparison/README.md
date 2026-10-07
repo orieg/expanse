@@ -296,7 +296,7 @@ The same two dispatches ran the arms on 4 KiB pages (`counters_prefix_scan_d2_4k
 
 What the two runs show:
 
-- **Huge pages remove the dTLB misses and part of the gap, not all of it.** The cycle gap falls from 90.9 and 91.0 per entry on 4 KiB pages to 67.4 and 70.5 on 2 MiB pages: 23.4 and 20.5 cycles per entry, about a quarter. At least 65 cycles per entry remain in both runs.
+- **Huge pages remove the dTLB misses and part of the gap, not all of it.** The cycle gap falls from 90.9 and 91.0 per entry on 4 KiB pages to 67.4 and 70.5 on 2 MiB pages: 23.4 and 20.5 cycles per entry, 26% and 22% of it. At least 65 cycles per entry remain in both runs.
 - **The retired-L3-miss count is not invariant under paging.** `mem_load_retired.l3_miss` falls by about 30% (0.249 to 0.167, 0.257 to 0.180) while `LLC-load-misses` falls by about 10% and 4%. Clause D2b's bound is still met. Why the two events diverge is not measured.
 - **Nothing here says what the remaining cycles are spent on.** D2c's bound is D1's L3-stall figure, and meeting it shows the gap is at least that large. The stall counter itself was not counted in these runs (`cycle_activity.stalls_l3_miss` reads 0 in this event set and is withheld), so no share of the remaining gap is attributed to L3 misses.
 - Run 2's D2a interval, and its `dTLB-load-misses` difference, are the bias-corrected construction (`ci_method: bc`); every other interval above is BCa.
