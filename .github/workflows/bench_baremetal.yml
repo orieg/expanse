@@ -61,7 +61,6 @@ on:
           - ycsb
           - concurrency
           - mixed_concurrency_step2_gate
-          - concurrency_blob_peak
           - writer_scaling
           - writer_scaling_diagnostic
           - writer_scaling_ablation_unpadded_lock
