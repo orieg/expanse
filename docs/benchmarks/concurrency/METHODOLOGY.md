@@ -5187,3 +5187,37 @@ Each row corrects a reference or a statement of fact in a locked section. None c
 | §34 numbering note | "#1373 (A6, thread-local freelist allocation stripe)" | #1373 pre-registered validated ordered reads and a batch cursor on `StrReader` (§33). It has nothing to do with freelists. |
 | §35.5, G35.2 | "passes under `cargo test --test ... --features loom`" | There is no `loom` feature. The model runs under `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`, the `Loom Concurrency Race Model` CI job. |
 | §35.4 | "All other 59 `sync_*` arms" against a falsifier naming only the four blob arms and the plain-tree arms | The table and the falsifier sentence disagree on whether another `sync_*` arm above +0.1% refutes the split. #1378 was held to the table: it merged with no arm above +0.1% (CI run 37281909211). |
+
+## 34b. Hold on §34 — what the registered design cannot decide (appended 2026-10-07, before any §34 verdict; §34 and §34a are not edited)
+
+A review of the §34 design, made after four dispatches and before any evaluation, found that the registered cells cannot support the causal reading §34.2 asks of them. No §34 verdict is recorded, and no further §34 run is taken, until an amendment registers a design that can. `concurrency_blob_peak` is declared unavailable in `.github/bench-suites.json` for that reason.
+
+### 34b.1 The runs taken
+
+| Dispatch | Pin | Commit | Outcome |
+|---|---|---|---|
+| 37477330005 | `0,2,4,6,8,10,12,14` | `052b0a2a0` | completed; host guard quiet; artifact `ADMISSIBLE`, not evaluated |
+| 37478793335 | `0,2,4,6,8,10,12,14` | `052b0a2a0` | completed; host guard quiet; artifact `ADMISSIBLE`, not evaluated |
+| 37480277219 | `0-15` | `052b0a2a0` | discarded by the host guard as it then was (§8.17); the guard's rule has since changed |
+| 37481727076 | `0-15` | `052b0a2a0` | discarded, as above |
+
+None of the four artifacts is committed. The two discarded runs stay discarded: the guard's rule was changed after them, not applied to them. The two completed runs are throughput measurements under an uncontrolled placement (34b.2) and are not evidence for or against any §34.2 hypothesis.
+
+### 34b.2 The gaps
+
+1. **Thread placement is neither controlled nor recorded.** The pin is the process's affinity mask (`scripts/bench_pin.py`); the harness spawns plain threads and sets no per-thread affinity, and placement is captured for the `sync32` arm only. §34.2 says the physical pin "pins each worker thread to an independent physical P-core". It does not: it prevents two threads from sharing a core and lets them migrate among the eight. On `0-15`, whether two of the four workers of the four-thread cell share a core varies by window and is not in the artifact. The comparison's independent variable is therefore unobserved.
+2. **No cell separates "more than eight writers" from "two threads on one core".** Sixteen threads exist only with SMT and eight only without it. If throughput rises to eight threads on the physical pin and falls at sixteen on `0-15`, the two explanations coincide and the design cannot tell them apart.
+3. **Steps 3 and 4 have no instrument in the dispatched suite.** `mixed_concurrency.py --blob-peak` runs no `perf` and the harness opens no counters, so frequency droop, memory bandwidth and coherence traffic cannot be read from these runs.
+4. **Compaction is a serial term the decision rules do not carry.** One worker compacts in-window and quiesces every writer. §34.1 shows compaction is not the only cause; its share of each window is recorded (`compaction_time_share`) and no rule uses it, so a serial fraction fitted to these cells includes the harness's own reclamation.
+5. **The §34.4 void rule tests one cell total.** It requires at least one compaction over all windows of the sixteen-thread cell on `0-15`, and nothing on the physical pin, where the four-against-eight comparison depends on compaction in the same way.
+
+### 34b.3 What an amendment must register before another run
+
+- each worker pinned to one CPU, and the placement recorded per window for the `blob` arms;
+- cells that separate thread count from core sharing (for example eight threads on four cores against eight on eight);
+- the counters §34.2's Steps 3 and 4 name, attached to the same windows, in groups the P-core PMU can co-schedule;
+- compaction as a budget line: the fit reported on raw throughput and on throughput over the window less compaction time;
+- a compaction condition on every `blob` 50% cell of both pins.
+
+The thresholds of §34.2 are not changed by this note. Runs taken under the amendment use fresh seeds and are evaluated only against it.
+

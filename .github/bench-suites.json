@@ -147,10 +147,11 @@
     },
     {
       "name": "concurrency_blob_peak",
-      "available": true,
+      "available": false,
       "kind": "wallclock",
       "runner": "builtin",
       "summary": "#1280 four-thread peak of `SyncExpanseBlobMap` (`METHODOLOGY.md` §34, Amendment A1) through `mixed_concurrency.py --blob-peak`: `blob` at 50% read with `blob_mutex`, `blob` 100% read, `map` and `str` controls. The `cpu_pin` input is required and selects the cells: `0,2,4,6,8,10,12,14` runs 1 to 8 threads and writes `baseline_concurrency_blob_peak_percore.json`; `0-15` runs 1, 2, 4, 8 and 16 threads and writes `baseline_concurrency_blob_peak_pin0-15.json`.",
+      "reason": "On hold: the registered cells cannot decide the question (`docs/benchmarks/concurrency/METHODOLOGY.md` section 34b: thread placement is not controlled or recorded, no cell separates thread count from core sharing, no counters are attached). Tracked in #1280; make the suite available in the change that registers the amended design.",
       "suite": "concurrency"
     },
     {
