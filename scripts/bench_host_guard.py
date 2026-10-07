@@ -157,7 +157,7 @@ def _thread_cpus(entry: Path) -> tuple[int, ...]:
     cpus = set()
     try:
         tasks = list((entry / "task").iterdir())
-    except FileNotFoundError:
+    except FileNotFoundError:  # discipline:allow(error-swallowing): the process exited after its stat line was read; its leader's CPU stands
         return ()
     for task in tasks:
         try:
@@ -1138,8 +1138,8 @@ def self_test() -> int:
 
         # 14. A long-lived foreign process that exits inside the window brings
         # its whole lifetime into its reaper's cutime. Only the part after the
-        # first sample belongs to the window: an idle daemon with ten hours of
-        # CPU behind it that exits is not ten hours of load.
+        # first sample belongs to the window: an idle daemon with a large CPU
+        # total behind it that exits is not that much load.
         def window(procs_a, procs_b, cpus_end, pin_cpus=None, self_pids=frozenset()):
             _write_proc(t, cpus_a, procs_a)
             x = sample(t, root)
