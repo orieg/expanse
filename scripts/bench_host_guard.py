@@ -29,24 +29,26 @@ Everything comes from two readings of `/proc` a window apart:
   benchmark directly. Load elsewhere contends only for shared cache, memory
   bandwidth and package power, and is counted as foreign but not on-pin.
 - **Counters minus own tree**: the busy time of the `/proc/stat` CPU lines
-  less the own tree's CPU. It is recorded and not judged. The two operands
-  are different clocks: the CPU lines are sampled at the scheduler tick, and
-  a process's `utime+stime` sum to its exact run time. They disagree by an
-  amount that follows the own tree's wakeups and takes either sign: with no
-  foreign task or interrupt time recorded, bench_baremetal runs 37480277219
-  and 37481727076 read it between -0.20 and +0.44 core-equivalents across
-  the cells of one sweep. The first version judged the run on this figure:
-  it voided those runs on the benchmark's own wakeups, and a negative
-  disagreement can hide a foreign task of the same size (self-test case
-  12a). The own tree is read immediately after `/proc/stat`, so the
-  operands describe the same instant (`sample`, #1270).
+  less the own tree's CPU. It is recorded and not judged. With no foreign
+  task or interrupt time recorded, bench_baremetal runs 37480277219 and
+  37481727076 read it between -0.20 and +0.44 core-equivalents across the
+  cells of one sweep, and the first version of this guard voided those runs
+  on it. A negative reading can also hide a foreign task of the same size
+  (self-test case 12a). Why the two operands disagree is not established.
+  They are different clocks (the CPU lines are accumulated at the scheduler
+  tick; a process's `utime+stime` sum to its exact run time), but unbiased
+  tick sampling over a 2 s window gives an error several times smaller than
+  the readings, so that alone does not explain them. The own tree is read
+  immediately after `/proc/stat`, so the operands describe the same instant
+  (`sample`, #1270).
 - **Attribution** (#1270): the foreign load split into task classes —
   kernel threads (by kind: kworker, ksoftirqd, rcu, migration, other), the
   runner's own processes (its cgroup, outside the run's tree), the guard
   itself, and user processes — each with its sum, host-wide and on the pinned
-  CPUs; interrupt, softirq and steal time from the per-CPU counters; and what
-  the pinned CPUs' counters hold beyond the own tree and all of those
-  (`unattributed_on_pin`, the clock disagreement above). The void rule reads
+  CPUs; the CPU of children that foreign tasks reaped, all counted on the
+  pinned CPUs; interrupt, softirq and steal time from the per-CPU counters;
+  and what the pinned CPUs' counters hold beyond the own tree and all of
+  those (`unattributed_on_pin`). The void rule reads
   the sums: every class counts as foreign (`docs/BENCHMARKING.md` rule 8).
 - **Offenders**: each foreign process's CPU over the window, from its own
   `/proc/<pid>/stat` delta, named by `comm`, PID, elapsed time and short cgroup
@@ -113,7 +115,15 @@ class Proc:
     child_ticks: int  # cutime + cstime (reaped descendants)
     start_ticks: int
     flags: int = 0
-    processor: int = -1  # the CPU it last ran on
+    processor: int = -1  # the CPU its group leader last ran on
+    threads: int = 1
+    # The CPUs its threads last ran on, read for a multi-threaded process:
+    # field 39 of the process line is the leader's alone, while utime+stime
+    # are the whole group's.
+    thread_cpus: tuple[int, ...] = ()
+
+    def last_cpus(self) -> set[int]:
+        return set(self.thread_cpus) | {self.processor}
 
 
 def parse_stat(line: str) -> Proc:
@@ -128,27 +138,61 @@ def parse_stat(line: str) -> Proc:
     if len(f) < 20:
         raise ValueError(f"unparseable /proc stat line: {line[:80]!r}")
     # rest starts at field 3 (state): ppid=4 flags=9 utime=14 stime=15
-    # cutime=16 cstime=17 starttime=22 processor=39, i.e. rest indices 1, 6,
-    # 11, 12, 13, 14, 19 and 36.
+    # cutime=16 cstime=17 num_threads=20 starttime=22 processor=39, i.e. rest
+    # indices 1, 6, 11, 12, 13, 14, 17, 19 and 36.
     return Proc(
         pid=int(pid_s), ppid=int(f[1]), comm=comm,
         ticks=int(f[11]) + int(f[12]), child_ticks=int(f[13]) + int(f[14]),
         start_ticks=int(f[19]), flags=int(f[6]),
         processor=int(f[36]) if len(f) > 36 else -1,
+        threads=int(f[17]),
     )
 
 
+class IncompleteScan(RuntimeError):
+    """`/proc` did not show every process, so foreign load cannot be summed."""
+
+
+def _thread_cpus(entry: Path) -> tuple[int, ...]:
+    cpus = set()
+    try:
+        tasks = list((entry / "task").iterdir())
+    except FileNotFoundError:  # discipline:allow(error-swallowing): the process exited after its stat line was read; its leader's CPU stands
+        return ()
+    for task in tasks:
+        try:
+            cpus.add(parse_stat((task / "stat").read_text()).processor)
+        except (FileNotFoundError, ProcessLookupError):  # discipline:allow(error-swallowing): the thread exited between listing and reading
+            continue
+    return tuple(sorted(cpus))
+
+
 def read_procs(proc: Path) -> dict[int, Proc]:
+    """Every process in `proc`. Raises `IncompleteScan` unless all are visible.
+
+    Foreign load is a sum over the processes listed here, so a process this
+    cannot see is load it reports as absent. A process that exits between the
+    listing and the read is gone and is skipped. One that exists and cannot be
+    read (`hidepid`, a PID namespace, a permission) is not: the scan stops.
+    PID 1 is always present on a host whose processes are all visible.
+    """
     out: dict[int, Proc] = {}
     for entry in proc.iterdir():
         if not entry.name.isdigit():
             continue
         try:
             text = (entry / "stat").read_text()
-        except OSError:  # discipline:allow(error-swallowing): the process exited between listing and reading; it has no load left to count
+        except (FileNotFoundError, ProcessLookupError):  # discipline:allow(error-swallowing): the process exited between listing and reading; it has no load left to count
             continue
+        except OSError as exc:
+            raise IncompleteScan(f"cannot read {entry / 'stat'}: {exc.strerror}; foreign load cannot be summed") from exc
         p = parse_stat(text)
+        if p.threads > 1 and not p.flags & PF_KTHREAD:
+            p.thread_cpus = _thread_cpus(entry)
         out[p.pid] = p
+    if 1 not in out:
+        raise IncompleteScan(f"{proc} lists no PID 1: this process cannot see the host's processes "
+                             f"(a PID namespace, or `hidepid`); foreign load cannot be summed")
     return out
 
 
@@ -429,23 +473,25 @@ def attribute(a: Sample, b: Sample, pin_set: set[int], own_all: set[int], self_p
     ticks: host-wide (without the guard's own CPU) and on the pinned CPUs.
 
     A task's CPU over the window is `(utime + stime + cutime + cstime)` at the
-    end less at the start, so a short-lived child that a foreign process
-    reaped inside the window is counted in its reaper's class; a process that
-    exited and was reaped is dropped from both ends and so appears only there.
-    It is put on the pinned CPUs when it last ran there at either end of the
-    window, and off them otherwise. For a process that moved inside the
-    window that is an approximation, and it errs toward on-pin.
+    end less at the start. A task that exited inside the window is no longer
+    listed: its reaper's `cutime + cstime` rose by its lifetime total, so its
+    total at the start of the window is subtracted, which leaves the CPU it
+    used inside the window and nothing from before it.
 
-    Interrupt, softirq and steal time come from the per-CPU counters, which
-    the kernel charges to no task under IRQ time accounting.
+    A task's own CPU is put on the pinned CPUs when any of its threads last
+    ran there at either end of the window. A task that ran there only between
+    the two samples is missed, so the on-pin sum is a lower bound for tasks
+    still alive. The CPU of reaped children is all put on the pinned CPUs,
+    since nothing records where an exited process ran: that part is an upper
+    bound, chosen so a short-lived process on a pinned CPU cannot pass.
+
+    Interrupt, softirq and steal time come from the per-CPU counters. Without
+    `CONFIG_IRQ_TIME_ACCOUNTING` the kernel charges most hardirq time to the
+    interrupted task, so on a pinned CPU it reads as the run's own.
 
     `on_pin_residual_ticks` is the pinned CPUs' counters less the own tree.
     What the tasks and interrupts there do not account for of it is
-    `unattributed_on_pin`. It is recorded and not judged: it is the
-    disagreement between the tick-sampled CPU counters and the own tree's
-    exact run time, which the own tree's wakeups move in either direction
-    (module docstring). Every foreign task and all interrupt time is in the
-    sums regardless of it.
+    `unattributed_on_pin`. It is recorded and not judged (module docstring).
     """
     cgroup_of = cgroup_of or (lambda _pid: "")
     cg_cache: dict[int, str] = {}
@@ -461,39 +507,60 @@ def attribute(a: Sample, b: Sample, pin_set: set[int], own_all: set[int], self_p
     host = dict.fromkeys(TASK_CLASSES, 0)
     on_pin = dict.fromkeys(TASK_CLASSES, 0)
     kinds: dict[str, int] = {}
+    reaped = 0  # CPU of foreign children reaped in the window, net of what exited tasks brought with them
     for pid in set(a.procs) | set(b.procs):
         if pid in own_all and pid not in self_pids:
             continue
         pa, pb = a.procs.get(pid), b.procs.get(pid)
         if pa and pb and pa.start_ticks != pb.start_ticks:
-            pa = None  # a reused PID: a new process
+            # A reused PID: the old process exited, a new one was born.
+            cls_old = task_class(pa, self_pids, run_cgroup, cg)
+            host[cls_old] -= total(pa)
+            reaped -= total(pa)
+            pa = None
         if pb is None:
-            continue  # exited: its CPU is in its reaper's cutime
-        d = total(pb) - (total(pa) if pa else 0)
-        if d == 0:
+            # Exited and reaped: its reaper's cutime+cstime rose by its whole
+            # lifetime total, of which only the part after sample `a` belongs
+            # to this window. Take the earlier part back out.
+            host[task_class(pa, self_pids, run_cgroup, cg)] -= total(pa)
+            reaped -= total(pa)
+            continue
+        d_own = pb.ticks - (pa.ticks if pa else 0)
+        d_child = pb.child_ticks - (pa.child_ticks if pa else 0)
+        if d_own == 0 and d_child == 0:
             continue
         cls = task_class(pb, self_pids, run_cgroup, cg)
-        host[cls] += d
-        if pb.processor in pin_set or (pa is not None and pa.processor in pin_set):
-            on_pin[cls] += d
+        host[cls] += d_own + d_child
+        reaped += d_child
+        if pb.last_cpus() & pin_set or (pa is not None and pa.last_cpus() & pin_set):
+            on_pin[cls] += d_own
         if cls == "kernel":
             k = kernel_kind(pb.comm)
-            kinds[k] = kinds.get(k, 0) + d
+            kinds[k] = kinds.get(k, 0) + d_own + d_child
+    # An exited task's lifetime total can land in a reaper outside this sum
+    # (the run's own tree), leaving a class negative. Negative foreign CPU
+    # does not exist.
+    host = {k: max(0, v) for k, v in host.items()}
+    reaped = max(0, reaped)
 
     def ce(ticks: float) -> float:
         return round(ticks / scale, 3)
 
     intr_on = sum(intr["on"].values())
-    tasks_on = sum(on_pin.values())
+    # Where a reaped child ran is not recorded anywhere: all of it is counted
+    # on the pinned CPUs, so a short-lived foreign process there cannot pass.
+    tasks_on = sum(on_pin.values()) + reaped
     foreign_ticks = sum(v for k, v in host.items() if k != "sampler") + intr_on + sum(intr["off"].values())
     return {
         "classes": {k: ce(v) for k, v in host.items()},
         "classes_on_pin": {k: ce(v) for k, v in on_pin.items()},
+        "reaped_children_on_pin": ce(reaped),
         "kernel_kinds": {k: ce(v) for k, v in sorted(kinds.items())},
         "interrupts_on_pin": {k: ce(v) for k, v in intr["on"].items()},
         "interrupts_off_pin": {k: ce(v) for k, v in intr["off"].items()},
         "unattributed_on_pin": ce(on_pin_residual_ticks - tasks_on - intr_on),
-        "placement": "a task's CPU is placed on the pinned CPUs when it last ran there at either end of the window",
+        "placement": "a task's own CPU is placed on the pinned CPUs when any of its threads last ran there at "
+                     "either end of the window; the CPU of children it reaped is always placed there",
     }, foreign_ticks, tasks_on + intr_on
 
 
@@ -521,10 +588,12 @@ def attribution_lines(a: dict) -> list[str]:
         return ["  (recorded before the attribution existed, #1270: no task-class breakdown)"]
     on, intr_on = at["classes_on_pin"], at["interrupts_on_pin"]
     tasks_on = sum(on.values())
+    reaped_on = at.get("reaped_children_on_pin", 0.0)
     intr_sum = sum(intr_on.values())
     lines = [
         f"  on the pinned CPUs: tasks {tasks_on:.2f} "
-        f"({', '.join(f'{k} {v:.2f}' for k, v in on.items())}) + interrupts {intr_sum:.2f} "
+        f"({', '.join(f'{k} {v:.2f}' for k, v in on.items())}) + reaped children {reaped_on:.2f} "
+        f"+ interrupts {intr_sum:.2f} "
         f"({', '.join(f'{k} {v:.2f}' for k, v in intr_on.items())}); unattributed {at['unattributed_on_pin']:.2f}"
         + ("" if "on_pin_busy_minus_own_cpus" in a else " (judged: this record predates the task-sum rule)"),
         f"  host-wide foreign tasks: {', '.join(f'{k} {v:.2f}' for k, v in at['classes'].items())}"
@@ -694,6 +763,10 @@ def cmd_watch(args, proc: Path) -> int:
     return 0
 
 
+# The longest stretch a record may go without a sample, in watch intervals.
+WATCH_GAP_FACTOR = 3.0
+
+
 def cmd_summarize(args) -> int:
     samples = []
     try:
@@ -721,6 +794,16 @@ def cmd_summarize(args) -> int:
         lines.append(f"  at {time.strftime('%H:%M:%S', time.gmtime(s['t']))}Z: " + "; ".join(why))
         lines += attribution_lines(s)
         lines += offender_table(s["offenders"][:3])
+    # A record with a hole in it does not show the run undisturbed: a watcher
+    # that stalled or died saw nothing in the gap, and a long window averages
+    # a burst away.
+    max_gap = WATCH_GAP_FACTOR * bp.WATCH_INTERVAL_S
+    for prev, cur in zip([None] + samples[:-1], samples):
+        gap = max(cur.get("window_s", 0.0), (cur["t"] - prev["t"]) if prev and "t" in prev and "t" in cur else 0.0)
+        if gap > max_gap:
+            why = [f"no sample for {gap:.1f} s (more than {max_gap:g} s): the record does not cover the run"]
+            bad.append((cur, why))
+            lines.append(f"  at {time.strftime('%H:%M:%S', time.gmtime(cur.get('t', 0)))}Z: {why[0]}")
     if len(governors) > 1:
         bad.append(({}, ["the governor on the pinned CPUs changed during the run"]))
         lines.append("  the governor on the pinned CPUs changed during the run")
@@ -1052,6 +1135,133 @@ def self_test() -> int:
                 finally:
                     sys.stdout = old
             assert needle in buf.read_text(), buf.read_text()
+
+        # 14. A long-lived foreign process that exits inside the window brings
+        # its whole lifetime into its reaper's cutime. Only the part after the
+        # first sample belongs to the window: an idle daemon with a large CPU
+        # total behind it that exits is not that much load.
+        def window(procs_a, procs_b, cpus_end, pin_cpus=None, self_pids=frozenset()):
+            _write_proc(t, cpus_a, procs_a)
+            x = sample(t, root)
+            x.mono = 0.0
+            _write_proc(t, cpus_end, procs_b)
+            y = sample(t, root)
+            y.mono = 1.0
+            return assess(x, y, pin_cpus or pin16, root, self_pids)
+
+        life = 36_000 * hz
+        quiet_end = {c: own16 // 16 for c in range(16)} | dict.fromkeys(range(16, 24), 0)
+        quiet_end[0] += own16 - sum(quiet_end[c] for c in range(16))
+        r = window(proc_a + [(80, 1, "daemon", life, 0, 300, 0, 20)],
+                   [(1, 0, "systemd", 0, life, 1, 0, 20)] + proc_b[1:], quiet_end)
+        assert r["foreign_busy_cpus"] == 0.0 and r["on_pin_foreign_busy_cpus"] == 0.0, r
+        assert verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT) == [], r
+
+        # 15. THE CASE THE GUARD EXISTS FOR (`cc1plus`, `rustc`): a foreign
+        # process burns a pinned CPU and exits inside the window, and its
+        # reaper sits off the pinned CPUs. Nothing records where it ran, so
+        # its CPU counts on the pinned CPUs. Here it used 0.6 of a core, on
+        # top of 5 s of earlier life that is not this window's.
+        earlier, burst = 5 * hz, (6 * hz) // 10
+        r = window(proc_a + [(81, 1, "cc1plus", earlier, 0, 900, 0, 5)],
+                   [(1, 0, "systemd", 0, earlier + burst, 1, 0, 20)] + proc_b[1:], quiet_end)
+        assert abs(r["foreign_busy_cpus"] - 0.6) < 0.01 and abs(r["on_pin_foreign_busy_cpus"] - 0.6) < 0.01, r
+        assert r["attribution"]["reaped_children_on_pin"] == r["on_pin_foreign_busy_cpus"], r
+        why = verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)
+        assert any("pinned CPUs 0.600" in w for w in why), why
+        assert "reaped children 0.60" in "\n".join(attribution_lines(r))
+
+        # 15a. The same through a build driver that is still running: `make`,
+        # parked off the pinned CPUs, reaps compilers that came and went
+        # wholly inside the window.
+        r = window(proc_a + [(82, 1, "make", 0, 0, 900, 0, 20)],
+                   proc_b + [(82, 1, "make", 0, (9 * hz) // 10, 900, 0, 20)], quiet_end)
+        assert abs(r["on_pin_foreign_busy_cpus"] - 0.9) < 0.01, r
+        assert any("pinned CPUs" in w for w in verdict(r, bp.RUN_FOREIGN_VOID, bp.RUN_ON_PIN_VOID, bp.RUN_PROCESS_VOID_PCT)), r
+
+        # 15b. A PID reused inside the window is an exit and a birth: the old
+        # process's lifetime is not the new one's load.
+        r = window(proc_a + [(83, 1, "old", life, 0, 300, 0, 5)],
+                   [(1, 0, "systemd", 0, life, 1, 0, 20)] + proc_b[1:] + [(83, 1, "new", hz // 10, 0, 99_000, 0, 20)],
+                   quiet_end)
+        assert abs(r["foreign_busy_cpus"] - 0.1) < 0.01 and r["on_pin_foreign_busy_cpus"] == 0.0, r
+
+        # 16. A multi-threaded intruder whose main thread sleeps off the
+        # pinned CPUs while a worker burns one. Field 39 of the process line
+        # is the main thread's CPU; the CPU time is the whole group's.
+        def with_threads(pid, cpus_of_threads):
+            for i, cpu in enumerate(cpus_of_threads):
+                d = t / str(pid) / "task" / str(pid + i)
+                d.mkdir(parents=True)
+                (d / "stat").write_text(_stat_line(pid + i, 1, "worker", 0, 0, 900, 0, cpu))
+            line = (t / str(pid) / "stat").read_text().split()
+            line[19] = str(len(cpus_of_threads))  # num_threads
+            (t / str(pid) / "stat").write_text(" ".join(line) + "\n")
+
+        mt_a = proc_a + [(90, 1, "intruder", 0, 0, 900, 0, 20)]
+        mt_b = proc_b + [(90, 1, "intruder", (4 * hz) // 10, 0, 900, 0, 20)]
+        _write_proc(t, cpus_a, mt_a)
+        with_threads(90, [20, 21])
+        a = sample(t, root)
+        a.mono = 0.0
+        _write_proc(t, quiet_end, mt_b)
+        with_threads(90, [20, 7])
+        b = sample(t, root)
+        b.mono = 1.0
+        assert b.procs[90].thread_cpus == (7, 20) and b.procs[90].processor == 20, b.procs[90]
+        r = assess(a, b, pin16, root)
+        assert abs(r["on_pin_foreign_busy_cpus"] - 0.4) < 0.01, r
+
+        # 17. The guard's own CPU is not host-wide foreign load.
+        me = 95
+        r = window(proc_a + [(me, 1, "python3", 0, 0, 900, 0, 20)],
+                   proc_b + [(me, 1, "python3", hz // 2, 0, 900, 0, 20)], quiet_end, self_pids=frozenset({me}))
+        assert r["foreign_busy_cpus"] == 0.0 and abs(r["self_busy_cpus"] - 0.5) < 0.01, r
+        assert r["attribution"]["classes"]["sampler"] == 0.5, r
+
+        # 18. A scan that cannot see every process is refused, not read as a
+        # quiet host: an entry that exists and cannot be read, and a `/proc`
+        # with no PID 1 (a PID namespace, `hidepid`).
+        _write_proc(t, cpus_a, proc_a + [(96, 1, "hidden", 0, 0, 900)])
+        (t / "96" / "stat").chmod(0o000)
+        try:
+            if os.geteuid() != 0:  # root reads through the mode bits
+                try:
+                    sample(t, root)
+                except IncompleteScan as exc:
+                    assert "cannot read" in str(exc), exc
+                else:
+                    raise AssertionError("an unreadable process entry was skipped")
+        finally:
+            (t / "96" / "stat").chmod(0o644)
+        _write_proc(t, cpus_a, proc_a[1:])
+        try:
+            sample(t, root)
+        except IncompleteScan as exc:
+            assert "no PID 1" in str(exc), exc
+        else:
+            raise AssertionError("a process table without PID 1 was accepted")
+        # A process that exits between the listing and the read is skipped.
+        _write_proc(t, cpus_a, proc_a + [(97, 1, "gone", 0, 0, 900)])
+        (t / "97" / "stat").unlink()
+        assert 97 not in sample(t, root).procs
+
+        # 19. summarize refuses a record with a hole in it: one long window,
+        # and two clean samples far apart.
+        calm = {"foreign_busy_cpus": 0.0, "on_pin_foreign_busy_cpus": 0.0, "offenders": [], "governor": ["performance"]}
+        for records, expect in (
+            ([dict(calm, t=100.0, window_s=2.0), dict(calm, t=102.0, window_s=2.0)], 0),
+            ([dict(calm, t=100.0, window_s=600.0)], 1),
+            ([dict(calm, t=100.0, window_s=2.0), dict(calm, t=3100.0, window_s=2.0)], 1),
+        ):
+            jl.write_text("".join(json.dumps(x) + "\n" for x in records))
+            with open(os.devnull, "w") as dn:
+                old, sys.stdout = sys.stdout, dn
+                try:
+                    got = cmd_summarize(argparse.Namespace(inp=str(jl), md=None))
+                finally:
+                    sys.stdout = old
+            assert got == expect, (records, got)
 
         # 8. The pin set follows bench_pin.sh: an explicit list, else cpu_core.
         sysfs = Path(td, "sys")
