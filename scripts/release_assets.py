@@ -115,6 +115,13 @@ def readback_problems(readback: Path, local: Path) -> list[str]:
     uploaded, downloaded = files_in(local), files_in(readback)
     out = [f"{name} was uploaded but is not on the release" for name in sorted(uploaded - downloaded)]
     out += [f"{name} is on the release but was not uploaded by this run" for name in sorted(downloaded - uploaded)]
+    # Byte-level comparison: a replaced asset with a matching SHA256SUMS line
+    # must still be caught — compare each local file against its downloaded copy.
+    for name in sorted(uploaded & downloaded):
+        local_digest = digest(local / name)
+        readback_digest = digest(readback / name)
+        if local_digest != readback_digest:
+            out.append(f"{name}: local digest {local_digest[:16]}… differs from download ({readback_digest[:16]}…)")
     return out + checksum_problems(readback)
 
 
@@ -199,7 +206,8 @@ def self_test() -> int:
         truncated = make("readback-truncated")
         (truncated / "libexpanse1_1.0.0_amd64.deb").write_bytes(b"de")
         got = readback_problems(truncated, good)
-        check("a truncated asset", len(got) == 1 and got[0].startswith("libexpanse1_1.0.0_amd64.deb: digest"), True)
+        check("a truncated asset",
+              any("libexpanse1_1.0.0_amd64.deb: local digest" in g for g in got), True)
         short = make("readback-short")
         (short / "expanse-1.0.0-x86_64-unknown-linux-gnu.tar.gz").unlink()
         check("an asset missing from the release", readback_problems(short, good)[0],
@@ -208,6 +216,33 @@ def self_test() -> int:
         (foreign / "old.zip").write_bytes(b"x")
         check("an asset this run did not upload", readback_problems(foreign, good)[0],
               "old.zip is on the release but was not uploaded by this run")
+
+        # Byte-level comparison: a replaced asset with an updated SHA256SUMS
+        # line must still be caught — compare each local file against its
+        # downloaded copy regardless of what SHA256SUMS says.
+        replaced = make("readback-replaced")
+        (replaced / "expanse-1.0.0-x86_64-unknown-linux-gnu.tar.gz").write_bytes(b"tampered")
+        # Regenerate SHA256SUMS so the download's checksum matches its own content
+        replaced_sums = "".join(
+            f"{digest(replaced / n)}  ./{n}\n" for n in sorted(files_in(replaced)))
+        (replaced / SUMS).write_text(replaced_sums)
+        got = readback_problems(replaced, good)
+        check("an archive replaced with matching SHA256SUMS",
+              any("expanse-1.0.0-x86_64-unknown-linux-gnu.tar.gz: local digest" in g and "differs from download" in g for g in got), True)
+
+        # Truncated to zero bytes, checksum updated to match the empty file
+        zeroed = make("readback-zeroed")
+        (zeroed / "libexpanse1_1.0.0_amd64.deb").write_bytes(b"")
+        zeroed_sums = "".join(
+            f"{digest(zeroed / n)}  ./{n}\n" for n in sorted(files_in(zeroed)))
+        (zeroed / SUMS).write_text(zeroed_sums)
+        got = readback_problems(zeroed, good)
+        check("a file truncated to zero bytes with matching SHA256SUMS",
+              any("libexpanse1_1.0.0_amd64.deb: local digest" in g and "differs from download" in g for g in got), True)
+
+        # Identical directories should remain clean
+        identical = make("readback-identical")
+        check("identical directories produce no problems", readback_problems(identical, good), [])
 
         # One file against a checksum list kept elsewhere.
         archive = good / "expanse-1.0.0-x86_64-unknown-linux-gnu.tar.gz"
