@@ -132,7 +132,10 @@ jobs:
     needs: [release-gate, github-release, promote]
     # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
     # stops there: nothing is published from it.
-    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
+    # The `release` environment admits release tags only, so on a manual canary
+    # on a branch it refuses the deployment and the job ends red with no step run.
+    # Skipped there instead: nothing a canary exercises is lost.
+    if: ${{ github.event_name == 'push' && !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -517,7 +520,10 @@ jobs:
     needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
     # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
     # stops there: nothing is published from it.
-    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
+    # The `release` environment admits release tags only, so on a manual canary
+    # on a branch it refuses the deployment and the job ends red with no step run.
+    # Skipped there instead: nothing a canary exercises is lost.
+    if: ${{ github.event_name == 'push' && !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -1013,7 +1019,10 @@ jobs:
     needs: [release-gate, build-release-artifacts, github-release, promote] # anchor-first (#313)
     # A pre-release tag (vX.Y.Z-rc.N) is built, attested and smoke-tested, and
     # stops there: nothing is published from it.
-    if: ${{ !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
+    # The `release` environment admits release tags only, so on a manual canary
+    # on a branch it refuses the deployment and the job ends red with no step run.
+    # Skipped there instead: nothing a canary exercises is lost.
+    if: ${{ github.event_name == 'push' && !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: macos-latest # the smoke step needs cc against a darwin archive
     environment: release
     permissions:
