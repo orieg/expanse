@@ -106,9 +106,10 @@ def verify(repo: Path, tag: str, keyring: Path, sha: str | None = None) -> str:
     """Returns the fingerprint that signed `tag`, or raises `Refused`."""
     kind = _run(["git", "cat-file", "-t", f"refs/tags/{tag}"], cwd=repo)
     if kind.returncode != 0:
-        raise Refused(f"tag {tag} does not exist in {repo}")
+        raise Refused(f"tag {tag} does not exist in {repo}. Create the tag with scripts/tag_release.py and push it")
     if kind.stdout.strip() != "tag":
-        raise Refused(f"{tag} is a lightweight tag ({kind.stdout.strip()}): a release tag is annotated and signed")
+        raise Refused(f"{tag} is a lightweight tag ({kind.stdout.strip()}): a release tag is annotated and signed. "
+                      f"Re-create the tag with scripts/tag_release.py, which creates a signed annotated tag")
     with tempfile.TemporaryDirectory(prefix="verify-tag-") as tmp:
         home = Path(tmp)
         home.chmod(0o700)
@@ -125,19 +126,22 @@ def verify(repo: Path, tag: str, keyring: Path, sha: str | None = None) -> str:
     if not signers:
         unsigned = "no signature found" in checked.stderr or "NODATA" in checked.stderr
         reason = "is not signed" if unsigned else "has no valid signature from a key in the keyring"
-        raise Refused(f"{tag} {reason}. Create the tag with scripts/tag_release.py, which signs it")
+        raise Refused(f"{tag} {reason}. Create the tag with scripts/tag_release.py, which signs it; "
+                      f"if already signed, ensure the key is committed in {keyring.name} and not expired, and that gpg is installed")
     if checked.returncode != 0:
         raise Refused(f"{tag}: git verify-tag exited {checked.returncode} although a signature was found: "
-                      f"{' '.join(sorted(statuses)) or checked.stderr.strip()[:200]}")
+                      f"{' '.join(sorted(statuses)) or checked.stderr.strip()[:200]}. Check GnuPG status lines or re-sign the tag")
     accepted = signers & trusted
     if not accepted:
-        raise Refused(f"{tag} is signed by {', '.join(sorted(signers))}, which is not in {keyring.name}")
+        raise Refused(f"{tag} is signed by {', '.join(sorted(signers))}, which is not in {keyring.name}. "
+                      f"Add the signing key to {keyring.name} or sign with a trusted key under a new tag")
     # The signature covers the tag object, whose `tag` line is the name it
     # was signed as; a ref can point at any object.
     obj = _run(["git", "cat-file", "tag", f"refs/tags/{tag}"], cwd=repo).stdout
     named = next((line[4:] for line in obj.split("\n\n", 1)[0].splitlines() if line.startswith("tag ")), None)
     if named != tag:
-        raise Refused(f"the object at refs/tags/{tag} is a signed tag named {named!r}, not {tag!r}")
+        raise Refused(f"the object at refs/tags/{tag} is a signed tag named {named!r}, not {tag!r}. "
+                      f"Re-tag with the correct name or re-create {tag} with scripts/tag_release.py")
     if sha is not None:
         peeled = _run(["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}"], cwd=repo).stdout.strip()
         if peeled != sha:

@@ -133,11 +133,12 @@ def on_branch(repo: str, sha: str, branch: str) -> int:
     try:
         status = json.loads(_gh(["api", f"repos/{repo}/compare/{sha}...{branch}"])).get("status")
     except (RuntimeError, json.JSONDecodeError) as exc:
-        print(f"::error::cannot compare {sha} with {branch} ({exc}) -- failing closed")
+        print(f"::error::cannot compare {sha} with {branch} ({exc}) -- failing closed. Check network connectivity or GitHub API status, then re-run")
         return 1
     if not reached_from(status):
         print(f"::error::{sha} is not on {branch} (compare status {status!r}): a release is cut "
-              f"from a commit of {branch}, never from a side branch or a stale checkout")
+              f"from a commit of {branch}, never from a side branch or a stale checkout. "
+              f"Fast-forward or merge {branch} to include {sha}, or check out {branch} and re-cut the release")
         return 1
     print(f"release gate for {sha}: on {branch} ({status})")
     return 0
@@ -150,7 +151,8 @@ def gate(repo: str, sha: str, dispatch_ref: str | None, deadline_s: float, poll_
         try:
             verdict, detail = decide(fetch(repo, sha))
         except (RuntimeError, json.JSONDecodeError, KeyError) as exc:
-            print(f"::error::cannot read the ci.yml runs of {sha} ({exc}) -- failing closed")
+            print(f"::error::cannot read the ci.yml runs of {sha} ({exc}) -- failing closed. "
+                  f"Check network connectivity or GH_TOKEN permissions, then re-run the release")
             return 1
         print(f"release gate for {sha}: {verdict} -- {detail}")
         if verdict == "pass":
@@ -166,14 +168,16 @@ def gate(repo: str, sha: str, dispatch_ref: str | None, deadline_s: float, poll_
             try:
                 _gh(["workflow", "run", WORKFLOW, "--repo", repo, "--ref", dispatch_ref])
             except RuntimeError as exc:
-                print(f"::error::could not dispatch {WORKFLOW} on {dispatch_ref} ({exc})")
+                print(f"::error::could not dispatch {WORKFLOW} on {dispatch_ref} ({exc}). "
+                      f"Dispatch manually with `gh workflow run {WORKFLOW} --ref {dispatch_ref}` and re-run the release")
                 return 1
             dispatched = True
             print(f"::notice::dispatched a full {WORKFLOW} run on {dispatch_ref} for {sha}")
         if time.monotonic() >= deadline:
             hint = (f" The run dispatched on {dispatch_ref!r} never appeared for {sha}: "
                     "the ref may have moved to another commit.") if dispatched else ""
-            print(f"::error::timed out waiting for a full {WORKFLOW} run on {sha} ({detail}).{hint}")
+            print(f"::error::timed out waiting for a full {WORKFLOW} run on {sha} ({detail}).{hint} "
+                  f"Check GitHub Actions workflow status or increase --deadline-minutes, then re-run the release")
             return 1
         time.sleep(poll_s)
 
