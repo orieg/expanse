@@ -100,6 +100,9 @@ def self_test() -> int:
     check("numeric order", [p.split()[0] for p in problems(two)], ["v0.9.0", "v0.10.0"])
 
     # Test: empty tag list produces no problems (nothing to report).
+    # {} is what a repository with no Go module tags ever returns — the initial
+    # state of every new repository.  The expected output is an empty list
+    # because there are no releases to check against.
     check("empty tag list is clean", problems({}), [])
 
     if failures:

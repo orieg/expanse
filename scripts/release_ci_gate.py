@@ -256,7 +256,17 @@ def self_test() -> int:
     try:
         _mod._gh = _fake_gh_behind
         rc = on_branch("o/r", "abc123def", "main")
-        check("on_branch returns non-zero when off-branch", rc != 0, True)
+        check("on_branch returns non-zero when off-branch (behind)", rc != 0, True)
+    finally:
+        _mod._gh = _orig_gh
+
+    # Test: on_branch also rejects "diverged" with a different error message.
+    def _fake_gh_diverged(args: list[str]) -> str:
+        return '{"status": "diverged"}'
+    try:
+        _mod._gh = _fake_gh_diverged
+        rc = on_branch("o/r", "abc123def", "main")
+        check("on_branch returns non-zero when off-branch (diverged)", rc != 0, True)
     finally:
         _mod._gh = _orig_gh
 
