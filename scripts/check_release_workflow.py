@@ -199,11 +199,15 @@ def supply_chain_problems(workflow: dict) -> list[str]:
 def toolchain_problems(workflow: dict, text: str | None) -> list[str]:
     out: list[str] = []
     if text is not None:
-        # No `npm@latest`: every global npm install must use an exact version.
-        for match in re.finditer(r"npm install -g npm@(\S+)", text):
+        # Every global npm install (npm itself and wasm-pack) must use an exact
+        # version — `npm@latest` or unpinned `wasm-pack` drifts between runs.
+        for match in re.finditer(r"npm install -g (?:npm|wasm-pack)@(\S+)", text):
             ver = match.group(1).strip()
             if ver == "latest":
-                out.append("npm is installed with `npm@latest` instead of an exact version")
+                tool = match.group(0).split()[3].rsplit("@", 1)[0]  # e.g. "npm" or "wasm-pack"
+                out.append(f"{tool} is installed with `@latest` instead of an exact version")
+        for match in re.finditer(r"npm install -g wasm-pack(?!\S)", text):
+            out.append("wasm-pack is installed without an explicit version")
         # All `cargo build` steps must carry `--locked`.
         for line in text.splitlines():
             stripped = line.strip()
@@ -425,7 +429,10 @@ def self_test() -> int:
     # --- toolchain pinning --------------------------------------------------
     check_text("npm@latest instead of an exact version",
                "npm install -g npm@11.6.4", "npm install -g npm@latest",
-               "npm is installed with `npm@latest`")
+               "npm is installed with `@latest`")
+    check_text("wasm-pack@latest instead of an exact version",
+               "npm install -g wasm-pack@0.15.0", "npm install -g wasm-pack@latest",
+               "wasm-pack is installed with `@latest`")
     check_text("cargo build without --locked",
                "--release --locked --target", "--release --target",
                "`cargo build` without `--locked`")
@@ -455,7 +462,7 @@ def main() -> int:
     print(f"check_release_workflow: {len(PUBLISH_JOBS)} publishing jobs wait for promote and skip a pre-release tag; "
           f"every job is behind the gate; {len(CALL_SITES)} call sites are as written; "
           f"actions are pinned by commit, checkouts drop the token, the toolchain is exact; "
-          f"npm uses pinned versions, cargo build carries --locked")
+          f"global tools use pinned versions, cargo build carries --locked")
     return 0
 
 
