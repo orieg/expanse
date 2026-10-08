@@ -229,8 +229,8 @@ def self_test() -> int:
         truncated = make("readback-truncated")
         (truncated / "libexpanse1_1.0.0_amd64.deb").write_bytes(b"de")
         got = readback_problems(truncated, good)
-        check("a truncated asset",
-              any("libexpanse1_1.0.0_amd64.deb: local and download differ" in g for g in got), True)
+        check("a truncated asset is reported once",
+              len(got) == 1 and got[0].startswith("libexpanse1_1.0.0_amd64.deb: local and download differ"), True)
         short = make("readback-short")
         (short / "expanse-1.0.0-x86_64-unknown-linux-gnu.tar.gz").unlink()
         check("an asset missing from the release", readback_problems(short, good)[0],
