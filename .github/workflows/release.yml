@@ -611,6 +611,12 @@ jobs:
           fi
           mkdir -p ~/.m2
           echo "<settings><servers><server><id>central</id><username>${MAVEN_CENTRAL_USERNAME}</username><password>${MAVEN_CENTRAL_TOKEN}</password></server></servers></settings>" > ~/.m2/settings.xml
+          version=$(grep -m1 '<version>' bindings/java/pom.xml | sed 's/[^0-9.]//g')
+          if curl -s -f -o /dev/null "https://repo1.maven.org/maven2/io/github/orieg/expanse-java/${version}/expanse-java-${version}.pom"; then
+            echo "expanse-java ${version} already published on Maven Central, skipping"
+            exit 0
+          fi
+          rm -rf bindings/java/target/central-staging bindings/java/target/central-publishing
           mvn deploy -f bindings/java/pom.xml -P release -DskipTests \
             -Dgpg.pinentry-mode=loopback \
             -Dgpg.passphrase="${GPG_PASSPHRASE:-}"
