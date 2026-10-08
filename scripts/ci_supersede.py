@@ -29,9 +29,10 @@ Run:  ci_supersede.py --repo OWNER/NAME --run-id ID --branch HEAD_REF
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
+
+import release_ci_gate
 
 WORKFLOW = "ci.yml"
 UNFINISHED = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
@@ -55,17 +56,10 @@ def _gh(args: list[str]) -> subprocess.CompletedProcess:
 
 
 def list_runs(repo: str, branch: str) -> list[dict]:
-    proc = _gh(["api", "--paginate",
-                f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=pull_request&per_page=100"])
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip())
-    out, dec, i, runs = proc.stdout.strip(), json.JSONDecoder(), 0, []
-    while i < len(out):
-        page, i = dec.raw_decode(out, i)
-        runs.extend(page.get("workflow_runs", []))
-        while i < len(out) and out[i].isspace():
-            i += 1
-    return runs
+    pages = release_ci_gate._pages(
+        f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=pull_request&per_page=100"
+    )
+    return [r for page in pages for r in page.get("workflow_runs", [])]
 
 
 def main_run(repo: str, run_id: int, branch: str, head_repo: str) -> int:
@@ -120,6 +114,15 @@ def self_test() -> int:
     check("a newer run is never a target",
           21 in [r["id"] for r in superseded(runs, 20, "feat/x", "o/r")], False)
     check("nothing to cancel on a first run", superseded([run(20)], 20, "feat/x", "o/r"), [])
+
+    import release_ci_gate
+    orig_pages = release_ci_gate._pages
+    try:
+        release_ci_gate._pages = lambda path: [{"workflow_runs": [run(10)]}, {"workflow_runs": [run(11)]}]
+        runs_got = list_runs("o/r", "feat/x")
+        check("list_runs flattens pages from _pages", [r["id"] for r in runs_got], [10, 11])
+    finally:
+        release_ci_gate._pages = orig_pages
 
     if failures:
         for f in failures:
