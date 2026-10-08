@@ -196,23 +196,31 @@ def supply_chain_problems(workflow: dict) -> list[str]:
     return out
 
 
+NPM_GLOBAL_RE = re.compile(r"npm install -g (\S+)")
+EXACT_NPM_SPEC_RE = re.compile(r"^@?[^@\s]+@\d+\.\d+\.\d+$")
+
+
 def toolchain_problems(workflow: dict, text: str | None) -> list[str]:
+    """Tools the release installs are exact versions, and cargo builds are locked.
+
+    `npm@latest`, a bare `wasm-pack`, and a range such as `npm@12` each resolve
+    to whatever the registry holds on the day, so a rebuilt tag need not use
+    the tools its canary ran. An unlocked `cargo build` resolves dependencies
+    afresh instead of from `Cargo.lock`.
+    """
     out: list[str] = []
-    if text is not None:
-        # Every global npm install (npm itself and wasm-pack) must use an exact
-        # version — `npm@latest` or unpinned `wasm-pack` drifts between runs.
-        for match in re.finditer(r"npm install -g (?:npm|wasm-pack)@(\S+)", text):
-            ver = match.group(1).strip()
-            if ver == "latest":
-                tool = match.group(0).split()[3].rsplit("@", 1)[0]  # e.g. "npm" or "wasm-pack"
-                out.append(f"{tool} is installed with `@latest` instead of an exact version")
-        for match in re.finditer(r"npm install -g wasm-pack(?!\S)", text):
-            out.append("wasm-pack is installed without an explicit version")
-        # All `cargo build` steps must carry `--locked`.
-        for line in text.splitlines():
-            stripped = line.strip()
-            if "cargo build" in stripped and "--locked" not in stripped:
-                out.append(f"`cargo build` without `--locked`: {stripped}")
+    if text is None:
+        return out
+    for match in NPM_GLOBAL_RE.finditer(text):
+        spec = match.group(1)
+        if not EXACT_NPM_SPEC_RE.match(spec):
+            out.append(f"`npm install -g {spec}` is not pinned to an exact X.Y.Z version")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if re.search(r"\bcargo build\b", stripped) and "--locked" not in stripped:
+            out.append(f"`cargo build` without `--locked`: {stripped}")
     return out
 
 
@@ -427,15 +435,19 @@ def self_test() -> int:
         check_text(label, old, new, "the workflow no longer contains")
 
     # --- toolchain pinning --------------------------------------------------
-    check_text("npm@latest instead of an exact version",
-               "npm install -g npm@11.6.4", "npm install -g npm@latest",
-               "npm is installed with `@latest`")
-    check_text("wasm-pack@latest instead of an exact version",
-               "npm install -g wasm-pack@0.15.0", "npm install -g wasm-pack@latest",
-               "wasm-pack is installed with `@latest`")
-    check_text("cargo build without --locked",
-               "--release --locked --target", "--release --target",
-               "`cargo build` without `--locked`")
+    for label, old, new, needle in (
+        ("npm@latest", "npm install -g npm@12.2.0", "npm install -g npm@latest",
+         "`npm install -g npm@latest` is not pinned"),
+        ("npm given as a range", "npm install -g npm@12.2.0", "npm install -g npm@12",
+         "`npm install -g npm@12` is not pinned"),
+        ("wasm-pack@latest", "npm install -g wasm-pack@0.15.0", "npm install -g wasm-pack@latest",
+         "`npm install -g wasm-pack@latest` is not pinned"),
+        ("wasm-pack with no version", "npm install -g wasm-pack@0.15.0", "npm install -g wasm-pack",
+         "`npm install -g wasm-pack` is not pinned"),
+        ("cargo build without --locked", "--release --locked --target", "--release --target",
+         "`cargo build` without `--locked`"),
+    ):
+        check_text(label, old, new, needle)
 
     if failures:
         for f in failures:
