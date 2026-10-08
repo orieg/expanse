@@ -227,12 +227,12 @@ jobs:
             os: ubuntu-24.04
             cross_pkg: musl-tools
           - target: aarch64-apple-darwin
-            os: macos-26-arm64
+            os: macos-26
             dotnet_rid: osx-arm64
             java_classifier: darwin-aarch64
             nativefile: libexpanse.dylib
           - target: x86_64-apple-darwin
-            os: macos-26-arm64
+            os: macos-26
             dotnet_rid: osx-x64
             java_classifier: darwin-x86_64
             nativefile: libexpanse.dylib
@@ -391,11 +391,11 @@ jobs:
             libfile: libexpanse_node.so
           - platform: darwin-x64
             target: x86_64-apple-darwin
-            os: macos-26-arm64
+            os: macos-26
             libfile: libexpanse_node.dylib
           - platform: darwin-arm64
             target: aarch64-apple-darwin
-            os: macos-26-arm64
+            os: macos-26
             libfile: libexpanse_node.dylib
           - platform: win32-x64-msvc
             target: x86_64-pc-windows-msvc
@@ -891,7 +891,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-24.04
           - target: aarch64-apple-darwin
-            os: macos-26-arm64
+            os: macos-26
           - target: x86_64-pc-windows-msvc
             os: windows-2025-vs2026
     steps:
@@ -1023,7 +1023,7 @@ jobs:
     # on a branch it refuses the deployment and the job ends red with no step run.
     # Skipped there instead: nothing a canary exercises is lost.
     if: ${{ github.event_name == 'push' && !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
-    runs-on: macos-26-arm64 # the smoke step needs cc against a darwin archive
+    runs-on: macos-26 # the smoke step needs cc against a darwin archive
     environment: release
     permissions:
       contents: write # attach expanse.rb and Portfile to the release
