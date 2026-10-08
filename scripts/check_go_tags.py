@@ -99,11 +99,36 @@ def self_test() -> int:
     two = {"v0.10.0": a, "v0.9.0": a}
     check("numeric order", [p.split()[0] for p in problems(two)], ["v0.9.0", "v0.10.0"])
 
-    # Test: empty tag list produces no problems (nothing to report).
-    # {} is what a repository with no Go module tags ever returns — the initial
-    # state of every new repository.  The expected output is an empty list
-    # because there are no releases to check against.
-    check("empty tag list is clean", problems({}), [])
+    # `problems` is a pure comparison: no tags, nothing to compare. The guard
+    # against an empty listing is in `main`.
+    check("no tags: nothing to compare", problems({}), [])
+
+    # `main`, with `remote_tags` stubbed: the exit status is what the nightly
+    # job reads.
+    import contextlib
+    import io
+    import sys as _sys
+    mod = _sys.modules[__name__]
+    real_remote_tags = mod.remote_tags
+
+    def exit_of(tags):
+        mod.remote_tags = lambda _repo, _remote: tags
+        saved = _sys.argv
+        _sys.argv = ["check_go_tags.py"]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                return mod.main(), out.getvalue()
+        finally:
+            _sys.argv = saved
+            mod.remote_tags = real_remote_tags
+
+    check("main: matched tags pass", exit_of(ok)[0], 0)
+    check("main: a missing Go tag fails", exit_of(missing)[0], 1)
+    rc, out = exit_of({})
+    check("main: an empty listing fails", rc, 1)
+    check("main: an empty listing says so", "lists no release tag" in out, True)
+    check("main: only pre-release and foreign tags is also empty",
+          exit_of({"v0.6.0-rc.1": a, "some/other/v1.0.0": a})[0], 1)
 
     if failures:
         for f in failures:
@@ -125,6 +150,12 @@ def main() -> int:
         tags = remote_tags(args.repo, args.remote)
     except RuntimeError as exc:
         print(f"::error::{exc}")
+        return 1
+    # No release tag at all is not "every release is covered": a remote that
+    # lists nothing (the wrong URL, a ref filter, a parse that matched no line)
+    # would otherwise pass this guard with "0 Go module tag(s)".
+    if not any(STABLE_RE.match(n) for n in tags):
+        print(f"::error::{args.remote} lists no release tag (vX.Y.Z): the Go tags cannot be checked against nothing")
         return 1
     found = problems(tags)
     for p in found:

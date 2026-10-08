@@ -270,30 +270,43 @@ def self_test() -> int:
     finally:
         _mod._gh = _orig_gh
 
-    # Test: gate returns non-zero on deadline.
-    # Use an old created_at so the 0.01 s deadline fires immediately.
-    _old_created = run(1, "push", status="in_progress", conclusion=None,
-                       created="2020-01-01T00:00:00Z")
-    def _fake_fetch_always_pending(repo: str, sha: str) -> list[tuple[dict, str]]:
-        return [(_old_created, "pending")]
+    # `gate`, with `fetch` stubbed. The failed-verdict case uses a FULL run
+    # that concluded failure and a deadline an hour away, so the only way it
+    # returns non-zero is by the failure branch; the deadline case uses a
+    # pending run and a deadline that has already passed.
     _orig_fetch = fetch
-    try:
-        _mod.fetch = _fake_fetch_always_pending
-        rc = gate("o/r", "abc", None, 0.01, 0)
-        check("gate returns non-zero on deadline", rc != 0, True)
-    finally:
-        _mod.fetch = _orig_fetch
 
-    # Test: gate returns non-zero on failed verdict.
-    _old_created_fail = run(1, "push", created="2020-01-01T00:00:00Z")
-    def _fake_fetch_always_fail(repo: str, sha: str) -> list[tuple[dict, str]]:
-        return [(_old_created_fail, classify(run(1, "push"), [job("Core / Linter & Formatting")]),)]
-    try:
-        _mod.fetch = _fake_fetch_always_fail
-        rc = gate("o/r", "abc", None, 0.01, 0)
-        check("gate returns non-zero on failed verdict", rc != 0, True)
-    finally:
-        _mod.fetch = _orig_fetch
+    def gate_rc(classified, deadline_s):
+        _mod.fetch = lambda repo, sha: classified
+        try:
+            return gate("o/r", "abc", None, deadline_s, 0)
+        finally:
+            _mod.fetch = _orig_fetch
+
+    check("gate: a full successful run returns 0", gate_rc([full_ok], 3600), 0)
+    check("gate: a full failed run returns 1 by the failure branch", gate_rc([full_ok, full_bad], 3600), 1)
+    check("gate: a pending run past the deadline returns 1", gate_rc([pending], 0.0), 1)
+
+    # `main` must stop on `on_branch`'s answer before it reads any run.
+    def main_rc(status, extra):
+        reads = []
+        _mod._gh = lambda args: '{"status": "%s"}' % status
+        _mod.fetch = lambda repo, sha: reads.append(sha) or [full_ok]
+        saved = _sys.argv
+        _sys.argv = ["release_ci_gate.py", "--repo", "o/r", "--sha", "abc", "--poll-seconds", "0"] + extra
+        try:
+            return main(), reads
+        finally:
+            _sys.argv = saved
+            _mod._gh = _orig_gh
+            _mod.fetch = _orig_fetch
+
+    check("main: --require-ancestor-of with a commit off the branch returns 1, and reads no run",
+          main_rc("behind", ["--require-ancestor-of", "main"]), (1, []))
+    check("main: --require-ancestor-of with a commit on the branch goes on to the run",
+          main_rc("ahead", ["--require-ancestor-of", "main"]), (0, ["abc"]))
+    check("main: without --require-ancestor-of the branch is not asked",
+          main_rc("behind", []), (0, ["abc"]))
 
     if failures:
         for f in failures:
