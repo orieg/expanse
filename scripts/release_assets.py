@@ -311,7 +311,7 @@ def main() -> int:
         return self_test()
     if args.command == "check-file":
         if not args.file or not args.sums:
-            print("::error::check-file needs --file and --sums", file=sys.stderr)
+            print("::error::check-file needs --file and --sums. Pass both --file <path> and --sums <path>, then re-run", file=sys.stderr)
             return 1
         found = file_problems(args.file, args.sums)
         for p in found:
@@ -321,19 +321,19 @@ def main() -> int:
         print(f"release_assets check-file: {args.file.name} matches {args.sums.name}")
         return 0
     if not args.command or not args.dir or not args.dir.is_dir():
-        print("::error::a command and an existing --dir are required", file=sys.stderr)
+        print("::error::a command and an existing --dir are required. Pass a command (check-local or check-readback) and an existing directory with --dir, then re-run", file=sys.stderr)
         return 1
     if args.command == "check-local":
         try:
             targets = build_targets(args.workflow)
         except (OSError, ValueError) as exc:
-            print(f"::error::{exc}")
+            print(f"::error::{exc}. Check that {args.workflow} exists and contains the {BUILD_JOB} job with matrix targets")
             return 1
         found = local_problems(args.dir, targets)
         ok = f"{len(targets)} build target(s) each have one archive; {len(files_in(args.dir))} file(s) match {SUMS}"
     else:
         if not args.local or not args.local.is_dir():
-            print("::error::check-readback needs --local, the uploaded directory", file=sys.stderr)
+            print("::error::check-readback needs --local, the uploaded directory. Pass --local pointing to the directory of uploaded artifacts, then re-run", file=sys.stderr)
             return 1
         found = readback_problems(args.dir, args.local)
         ok = f"{len(files_in(args.dir))} asset(s) read back from the release match what was uploaded"

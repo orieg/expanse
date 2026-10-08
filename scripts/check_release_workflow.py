@@ -191,14 +191,51 @@ def supply_chain_problems(workflow: dict) -> list[str]:
                         out.append(f"`{name}`: its checkout must state `persist-credentials: true`")
                 elif persist is not False:
                     out.append(f"`{name}`: a checkout without `persist-credentials: false`")
-            toolchain = (step.get("with") or {}).get("toolchain")
-            if toolchain is not None and toolchain != TOOLCHAIN_REF:
-                out.append(f"`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
+            if uses.startswith("dtolnay/rust-toolchain@"):
+                toolchain = (step.get("with") or {}).get("toolchain")
+                if toolchain != TOOLCHAIN_REF:
+                    out.append(f"`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
+            else:
+                toolchain = (step.get("with") or {}).get("toolchain")
+                if toolchain is not None and toolchain != TOOLCHAIN_REF:
+                    out.append(f"`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
         if holds_credentials(job):
             first = steps[0].get("uses", "") if steps else ""
             if not first.startswith("step-security/harden-runner@"):
                 out.append(f"`{name}` holds a write permission or the release environment "
                            f"and does not start with harden-runner")
+    return out
+
+
+PYTHON_WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "python.yml"
+
+
+def python_pin_problems(workflow: dict, where: str = "python.yml") -> list[str]:
+    """Checks the pin rules on python.yml: actions pinned by commit, persist-credentials: false, exact toolchain."""
+    out: list[str] = []
+    prefix = f"{where}: "
+    pinned = str((workflow.get("env") or {}).get("RELEASE_TOOLCHAIN", ""))
+    if not EXACT_VERSION_RE.match(pinned):
+        out.append(f"{prefix}`env.RELEASE_TOOLCHAIN` is {pinned!r}, not an exact version (X.Y.Z)")
+    for name, job in sorted(workflow.get("jobs", {}).items()):
+        steps = job.get("steps", [])
+        for step in steps:
+            uses = step.get("uses", "")
+            label = step.get("name") or uses
+            if uses and not uses.startswith("./") and not SHA_PINNED_RE.match(uses):
+                out.append(f"{prefix}`{name}`: `{uses}` is not pinned by commit")
+            if uses.startswith("actions/checkout@"):
+                persist = (step.get("with") or {}).get("persist-credentials")
+                if persist is not False:
+                    out.append(f"{prefix}`{name}`: a checkout without `persist-credentials: false`")
+            if uses.startswith("dtolnay/rust-toolchain@"):
+                toolchain = (step.get("with") or {}).get("toolchain")
+                if toolchain != TOOLCHAIN_REF:
+                    out.append(f"{prefix}`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
+            else:
+                toolchain = (step.get("with") or {}).get("toolchain")
+                if toolchain is not None and toolchain != TOOLCHAIN_REF:
+                    out.append(f"{prefix}`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
     return out
 
 
@@ -528,6 +565,34 @@ def self_test() -> int:
         if not lock_problems(command, "x"):
             failures.append(f"{command!r} was not reported as an unlocked cargo command")
 
+    # --- python.yml pin rules -----------------------------------------------
+    real_py_path = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "python.yml"
+    real_py_text = real_py_path.read_text(encoding="utf-8")
+    real_py = yaml.safe_load(real_py_text)
+    py_found = python_pin_problems(real_py, "python.yml")
+    if py_found:
+        failures.append(f"the real python.yml has pin problems: {py_found}")
+
+    def check_py(label: str, mutate, needle: str) -> None:
+        wf = copy.deepcopy(real_py)
+        mutate(wf)
+        got = python_pin_problems(wf, "python.yml")
+        if not any(needle in p for p in got):
+            failures.append(f"{label}: not reported (got {got})")
+
+    check_py("an action pinned by tag in python.yml",
+             lambda w: step_of(w, "test", "actions/checkout@").__setitem__("uses", "actions/checkout@v7"),
+             "`actions/checkout@v7` is not pinned by commit")
+    check_py("a checkout without persist-credentials: false in python.yml",
+             lambda w: step_of(w, "test", "actions/checkout@")["with"].pop("persist-credentials"),
+             "a checkout without `persist-credentials: false`")
+    check_py("a toolchain channel in python.yml",
+             lambda w: step_of(w, "test", "dtolnay/rust-toolchain@")["with"].__setitem__("toolchain", "stable"),
+             "installs toolchain 'stable'")
+    check_py("RELEASE_TOOLCHAIN set to a channel in python.yml",
+             lambda w: w["env"].__setitem__("RELEASE_TOOLCHAIN", "stable"),
+             "not an exact version")
+
     if failures:
         for f in failures:
             print(f"::error::check_release_workflow self-test: {f}")
@@ -547,6 +612,9 @@ def main() -> int:
     text = args.workflow.read_text(encoding="utf-8")
     found = problems(yaml.safe_load(text), text)
     found += hwcaps_problems(text)
+    if PYTHON_WORKFLOW.is_file():
+        py_text = PYTHON_WORKFLOW.read_text(encoding="utf-8")
+        found += python_pin_problems(yaml.safe_load(py_text), PYTHON_WORKFLOW.name)
     for p in found:
         print(f"::error::{p}")
     if found:
