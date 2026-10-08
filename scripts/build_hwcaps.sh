@@ -40,7 +40,7 @@ build_variant() {
 
     echo "building ${level} for ${TARGET} ..."
     mkdir -p "$dest"
-    RUSTFLAGS="-C target-cpu=${level}" cargo build --release \
+    RUSTFLAGS="-C target-cpu=${level}" cargo build --release --locked \
         --manifest-path crates/expanse-capi/Cargo.toml \
         --target "$TARGET" --target-dir "$tdir"
 

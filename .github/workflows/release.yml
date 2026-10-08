@@ -173,7 +173,7 @@ jobs:
             while :; do
               attempt=$((attempt + 1))
               echo "Publishing ${crate} (attempt ${attempt}/${max})..."
-              if cargo publish -p "${crate}" 2>&1 | tee /tmp/publish.log; then
+              if cargo publish --locked -p "${crate}" 2>&1 | tee /tmp/publish.log; then
                 echo "Published ${crate}."
                 return 0
               fi

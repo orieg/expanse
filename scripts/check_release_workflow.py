@@ -205,8 +205,10 @@ def toolchain_problems(workflow: dict, text: str | None) -> list[str]:
 
     `npm@latest`, a bare `wasm-pack`, and a range such as `npm@12` each resolve
     to whatever the registry holds on the day, so a rebuilt tag need not use
-    the tools its canary ran. An unlocked `cargo build` resolves dependencies
-    afresh instead of from `Cargo.lock`.
+    the tools its canary ran. An unlocked `cargo build` or `cargo publish`
+    resolves dependencies afresh instead of from `Cargo.lock`; the glibc-hwcaps
+    variants that `build_hwcaps.sh` builds ship in the release archives, so it
+    is held to the same rule (`main`).
     """
     out: list[str] = []
     if text is None:
@@ -215,13 +217,34 @@ def toolchain_problems(workflow: dict, text: str | None) -> list[str]:
         spec = match.group(1)
         if not EXACT_NPM_SPEC_RE.match(spec):
             out.append(f"`npm install -g {spec}` is not pinned to an exact X.Y.Z version")
+    return out + lock_problems(text, "release.yml")
+
+
+def lock_problems(text: str, where: str) -> list[str]:
+    """Every `cargo build` and `cargo publish` in `text` names `--locked` on its own line."""
+    out: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
+        if stripped.startswith(("#", "echo ", "printf ")):
             continue
-        if re.search(r"\bcargo build\b", stripped) and "--locked" not in stripped:
-            out.append(f"`cargo build` without `--locked`: {stripped}")
+        # A command, not a word inside a message: `::error::cargo publish failed`
+        # is preceded by a colon.
+        found = re.search(r"(?<![\w:/.\"'-])cargo (build|publish)\b", stripped)
+        if found and "--locked" not in stripped:
+            out.append(f"{where}: `cargo {found.group(1)}` without `--locked`: {stripped}")
     return out
+
+
+HWCAPS_SCRIPT = Path(__file__).resolve().parent / "build_hwcaps.sh"
+
+
+def hwcaps_problems(workflow_text: str) -> list[str]:
+    """The script the release calls to build the glibc-hwcaps variants is read too."""
+    if "build_hwcaps.sh" not in workflow_text:
+        return []
+    if not HWCAPS_SCRIPT.is_file():
+        return [f"release.yml calls {HWCAPS_SCRIPT.name}, which does not exist"]
+    return lock_problems(HWCAPS_SCRIPT.read_text(encoding="utf-8"), HWCAPS_SCRIPT.name)
 
 
 def problems(workflow: dict, text: str | None = None) -> list[str]:
@@ -446,8 +469,54 @@ def self_test() -> int:
          "`npm install -g wasm-pack` is not pinned"),
         ("cargo build without --locked", "--release --locked --target", "--release --target",
          "`cargo build` without `--locked`"),
+        ("cargo publish without --locked", "cargo publish --locked -p", "cargo publish -p",
+         "`cargo publish` without `--locked`"),
     ):
         check_text(label, old, new, needle)
+
+    # `main` reads the script too: run it on the real workflow with the script
+    # swapped for an unlocked copy, and with the script missing.
+    import contextlib
+    import io
+    import tempfile
+
+    global HWCAPS_SCRIPT
+    real_script = HWCAPS_SCRIPT
+    try:
+        with tempfile.TemporaryDirectory(prefix="hwcaps-test-") as tmp:
+            for label, content, want in (("unlocked", None, 1), ("locked", "cargo build --release --locked\n", 0),
+                                         ("missing", False, 1)):
+                path = Path(tmp) / f"{label}.sh"
+                if content is None:
+                    path.write_text(real_script.read_text(encoding="utf-8").replace("--release --locked", "--release"))
+                elif content:
+                    path.write_text(content)
+                HWCAPS_SCRIPT = path
+                saved = sys.argv
+                sys.argv = ["check_release_workflow.py", "--workflow", str(real_path)]
+                try:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        got = main()
+                finally:
+                    sys.argv = saved
+                if got != want:
+                    failures.append(f"main with a {label} build_hwcaps.sh exited {got}, want {want}")
+    finally:
+        HWCAPS_SCRIPT = real_script
+
+    hwcaps = HWCAPS_SCRIPT.read_text(encoding="utf-8")
+    if "cargo build --release --locked" not in hwcaps:
+        failures.append("build_hwcaps.sh no longer builds with `--locked`")
+    unlocked = hwcaps.replace("cargo build --release --locked", "cargo build --release")
+    if not any("without `--locked`" in p for p in lock_problems(unlocked, "build_hwcaps.sh")):
+        failures.append("an unlocked cargo build in build_hwcaps.sh: not reported")
+    for harmless in ("# cargo build --release", "echo \"::error::cargo publish failed for x\"",
+                     "run: echo cargo builds", "x=$(echo cargo-build)", "echo cargo publish failed"):
+        if lock_problems(harmless, "x"):
+            failures.append(f"{harmless!r} was reported as an unlocked cargo command")
+    for command in ("cargo build --release", "if cargo publish -p x 2>&1; then", "run: cargo build -p a"):
+        if not lock_problems(command, "x"):
+            failures.append(f"{command!r} was not reported as an unlocked cargo command")
 
     if failures:
         for f in failures:
@@ -467,6 +536,7 @@ def main() -> int:
         return self_test()
     text = args.workflow.read_text(encoding="utf-8")
     found = problems(yaml.safe_load(text), text)
+    found += hwcaps_problems(text)
     for p in found:
         print(f"::error::{p}")
     if found:
