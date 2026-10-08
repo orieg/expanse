@@ -72,6 +72,9 @@ JOB_GUARDS = frozenset({
     _NOT_PRERELEASE_TAG,
     f"github.event_name == 'push' && {_NOT_PRERELEASE_TAG}",
 })
+# A job in the `release` environment runs only on a pushed tag: the environment
+# admits release tags alone, and a canary dispatched on a branch is refused by it.
+ENVIRONMENT_JOB_GUARDS = frozenset({f"github.event_name == 'push' && {_NOT_PRERELEASE_TAG}"})
 STEP_GUARDS = frozenset({
     f"github.event_name == 'push' && !{PRERELEASE_GUARD}",
     f"!(github.event_name == 'workflow_dispatch' && inputs.dry_run) && !{PRERELEASE_GUARD}",
@@ -147,6 +150,9 @@ def gate_problems(workflow: dict, text: str | None) -> list[str]:
             out.append(f"`{name}` does not need `release-gate`, directly or through its needs")
         if "uses" in job:
             out.append(f"`{name}` calls a reusable workflow, which this check does not read")
+        if environment_name(job) == "release" and normalise(job.get("if")) not in ENVIRONMENT_JOB_GUARDS:
+            out.append(f"`{name}` is in the `release` environment but runs on a manual canary: the environment "
+                       f"refuses a branch, so the canary would end red with the job's steps unrun")
         for where, cond in [(f"`{name}`", job.get("if"))] + [
                 (f"`{name}` step `{st.get('name') or st.get('uses')}`", st.get("if")) for st in job.get("steps", [])]:
             for word in ESCAPING:
@@ -400,6 +406,10 @@ def self_test() -> int:
     check("the release environment in mapping form",
           lambda j: j.__setitem__("upload-elsewhere", {"needs": ["promote"], "environment": {"name": "release"}, "steps": []}),
           "`upload-elsewhere` looks like a publishing job")
+    for job in ("publish-crates", "package-maven", "publish-homebrew"):
+        check(f"{job}, in the release environment, left running on a manual canary",
+              lambda j, job=job: j[job].__setitem__("if", "${{ " + _NOT_PRERELEASE_TAG + " }}"),
+              f"`{job}` is in the `release` environment but runs on a manual canary")
     check("a job calling a reusable workflow",
           lambda j: j.__setitem__("reuse", {"needs": ["release-gate"], "uses": "o/r/.github/workflows/x.yml@main"}),
           "`reuse` calls a reusable workflow")
