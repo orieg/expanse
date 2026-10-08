@@ -579,40 +579,6 @@ pub(crate) fn version_unlock(v: &VersionCell, old_v: u32, modified: bool) {
     v.store(next, Ordering::Release);
 }
 
-/// Engine boundary for [`version_try_lock`]: tries to lock `v` when `OCC = true`.
-///
-/// # Safety
-///
-/// `v` must point to a live branch node's version field.
-#[allow(dead_code)]
-#[inline(always)]
-pub(crate) unsafe fn version_try_lock_if_ptr<const OCC: bool>(v: *mut u32) -> Result<u32, u32> {
-    if OCC {
-        // SAFETY: forwarded contract; `version_cell` carries liveness obligation.
-        version_try_lock(unsafe { version_cell(v) })
-    } else {
-        Ok(0)
-    }
-}
-
-/// Engine boundary for [`version_unlock`]: unlocks `v` when `OCC = true`.
-///
-/// # Safety
-///
-/// `v` must point to a live branch node's version field previously locked.
-#[allow(dead_code)]
-#[inline(always)]
-pub(crate) unsafe fn version_unlock_if_ptr<const OCC: bool>(
-    v: *mut u32,
-    old_v: u32,
-    modified: bool,
-) {
-    if OCC {
-        // SAFETY: forwarded contract; `version_cell` carries liveness obligation.
-        version_unlock(unsafe { version_cell(v) }, old_v, modified);
-    }
-}
-
 /// An RAII guard representing exclusive write access to a branch node `N`.
 ///
 /// Acquired via [`version_try_lock`]. On drop, automatically unlocks the node

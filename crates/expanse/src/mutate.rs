@@ -248,23 +248,6 @@ impl<T: Copy + Default> ImmedBuf<T> {
         self.buf[self.len] = v;
         self.len += 1;
     }
-
-    #[allow(dead_code)]
-    pub(crate) fn insert(&mut self, at: usize, v: T) {
-        debug_assert!(at <= self.len && self.len < IMMED_BUF_CAP);
-        self.buf.copy_within(at..self.len, at + 1);
-        self.buf[at] = v;
-        self.len += 1;
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn remove(&mut self, at: usize) -> T {
-        debug_assert!(at < self.len);
-        let v = self.buf[at];
-        self.buf.copy_within(at + 1..self.len, at);
-        self.len -= 1;
-        v
-    }
 }
 
 /// Read access to the populated prefix: indexing, `binary_search`,
