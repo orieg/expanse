@@ -365,7 +365,8 @@ pub fn record_reclaim(bytes: usize) {
     let _ = bytes;
     #[cfg(feature = "occ-stats")]
     {
-        // `fetch_update` → `try_update` (stable at MSRV 1.89; rust-lang/rust#135894)
+        // `fetch_update` is deprecated in favour of `try_update`, which is stable
+        // from Rust 1.95; the minimum supported version is 1.88 (AGENTS.md section 5).
         #[allow(deprecated)]
         let _ = cells::GLOBAL[Stat::RetainedGarbageBytes as usize].fetch_update(
             core::sync::atomic::Ordering::Relaxed,
