@@ -232,6 +232,82 @@ def self_test() -> int:
     check("commit on a side branch", reached_from("diverged"), False)
     check("no status is not a pass", reached_from(None), False)
 
+    # Stub _gh for integration-level tests below.
+    import sys as _sys
+    _mod = _sys.modules[__name__]
+    _orig_gh = _mod._gh
+
+    # Test: on_branch builds the compare request as compare/{sha}...{branch}.
+    _gh_calls: list[list[str]] = []
+    def _fake_gh(args: list[str]) -> str:
+        _gh_calls.append(args)
+        return '{"status": "ahead"}'
+    try:
+        _mod._gh = _fake_gh
+        on_branch("o/r", "abc123def", "main")
+        check("on_branch builds compare/{sha}...{branch}",
+              _gh_calls, [["api", "repos/o/r/compare/abc123def...main"]])
+    finally:
+        _mod._gh = _orig_gh
+
+    # Test: on_branch returns non-zero when commit is not on branch.
+    def _fake_gh_behind(args: list[str]) -> str:
+        return '{"status": "behind"}'
+    try:
+        _mod._gh = _fake_gh_behind
+        rc = on_branch("o/r", "abc123def", "main")
+        check("on_branch returns non-zero when off-branch (behind)", rc != 0, True)
+    finally:
+        _mod._gh = _orig_gh
+
+    # Test: on_branch also rejects "diverged" with a different error message.
+    def _fake_gh_diverged(args: list[str]) -> str:
+        return '{"status": "diverged"}'
+    try:
+        _mod._gh = _fake_gh_diverged
+        rc = on_branch("o/r", "abc123def", "main")
+        check("on_branch returns non-zero when off-branch (diverged)", rc != 0, True)
+    finally:
+        _mod._gh = _orig_gh
+
+    # `gate`, with `fetch` stubbed. The failed-verdict case uses a FULL run
+    # that concluded failure and a deadline an hour away, so the only way it
+    # returns non-zero is by the failure branch; the deadline case uses a
+    # pending run and a deadline that has already passed.
+    _orig_fetch = fetch
+
+    def gate_rc(classified, deadline_s):
+        _mod.fetch = lambda repo, sha: classified
+        try:
+            return gate("o/r", "abc", None, deadline_s, 0)
+        finally:
+            _mod.fetch = _orig_fetch
+
+    check("gate: a full successful run returns 0", gate_rc([full_ok], 3600), 0)
+    check("gate: a full failed run returns 1 by the failure branch", gate_rc([full_ok, full_bad], 3600), 1)
+    check("gate: a pending run past the deadline returns 1", gate_rc([pending], 0.0), 1)
+
+    # `main` must stop on `on_branch`'s answer before it reads any run.
+    def main_rc(status, extra):
+        reads = []
+        _mod._gh = lambda args: '{"status": "%s"}' % status
+        _mod.fetch = lambda repo, sha: reads.append(sha) or [full_ok]
+        saved = _sys.argv
+        _sys.argv = ["release_ci_gate.py", "--repo", "o/r", "--sha", "abc", "--poll-seconds", "0"] + extra
+        try:
+            return main(), reads
+        finally:
+            _sys.argv = saved
+            _mod._gh = _orig_gh
+            _mod.fetch = _orig_fetch
+
+    check("main: --require-ancestor-of with a commit off the branch returns 1, and reads no run",
+          main_rc("behind", ["--require-ancestor-of", "main"]), (1, []))
+    check("main: --require-ancestor-of with a commit on the branch goes on to the run",
+          main_rc("ahead", ["--require-ancestor-of", "main"]), (0, ["abc"]))
+    check("main: without --require-ancestor-of the branch is not asked",
+          main_rc("behind", []), (0, ["abc"]))
+
     if failures:
         for f in failures:
             print(f"::error::release_ci_gate self-test: {f}")
