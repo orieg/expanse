@@ -1136,6 +1136,7 @@ impl DirtyDigits {
     }
 
     #[inline(always)]
+    #[cfg(test)]
     pub fn is_dirty(&self) -> bool {
         for word in &self.0 {
             if word.0.load(core::sync::atomic::Ordering::Relaxed) != 0 {
@@ -2383,14 +2384,6 @@ impl<T: SharedTree> Shared<T> {
     #[inline(always)]
     pub(crate) fn mark_dirty_digit(&self, d: u8) {
         self.dirty_digits.mark_digit(d);
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn ensure_branch_pop0(&self) {
-        if !self.dirty_digits.is_dirty() {
-            return;
-        }
-        self.with_locked(|_| {});
     }
 
     /// Admits the calling thread as an optimistic writer, returning the guard

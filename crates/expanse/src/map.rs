@@ -2221,7 +2221,7 @@ impl MapCore {
         }
     }
 
-    /// [`Self::insert_pathless`] for the holder of a string node's cover
+    /// [`Self::insert_pathless_dispatch`] for the holder of a string node's cover
     /// lock, through a raw pointer to the node's core (#1086): readers copy
     /// the core while the holder stores to it, so the holder must not hold
     /// `&mut MapCore`. The root must be empty or a root leaf (a tree's
@@ -2266,7 +2266,7 @@ impl MapCore {
         }
     }
 
-    /// [`Self::remove_pathless`] for the holder of a string node's cover
+    /// [`Self::remove_pathless_dispatch`] for the holder of a string node's cover
     /// lock; the twin of [`Self::insert_leaf_state_at`].
     ///
     /// # Safety
@@ -4327,12 +4327,6 @@ impl MapCore {
     }
 
     #[inline(always)]
-    #[allow(dead_code)]
-    pub(crate) fn insert_pathless(&mut self, alloc: &NodeAlloc, key: Key, val: u64) -> Option<u64> {
-        by_mode!(alloc, self.insert_pathless_dispatch(alloc, key, val))
-    }
-
-    #[inline(always)]
     pub(crate) fn remove_pathless_dispatch<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
@@ -4346,12 +4340,6 @@ impl MapCore {
     }
 
     #[inline(always)]
-    #[allow(dead_code)]
-    pub(crate) fn remove_pathless(&mut self, alloc: &NodeAlloc, key: Key) -> Option<u64> {
-        by_mode!(alloc, self.remove_pathless_dispatch(alloc, key))
-    }
-
-    #[inline(always)]
     pub(crate) fn ins_slot_pathless_dispatch<const OCC: bool, const NESTED: bool>(
         &mut self,
         alloc: &NodeAlloc,
@@ -4362,16 +4350,6 @@ impl MapCore {
             key,
             &mut crate::mutate_map::InsertPathMap::empty(),
         )
-    }
-
-    #[inline(always)]
-    #[allow(dead_code)]
-    pub(crate) fn ins_slot_pathless(
-        &mut self,
-        alloc: &NodeAlloc,
-        key: Key,
-    ) -> core::ptr::NonNull<u64> {
-        by_mode!(alloc, self.ins_slot_pathless_dispatch(alloc, key))
     }
 
     #[inline(always)]

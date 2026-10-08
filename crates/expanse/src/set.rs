@@ -1398,15 +1398,6 @@ impl ExpanseSet {
         noting_root_rewrite!(self, t => t.remove_inner_plain(key))
     }
 
-    #[inline(always)]
-    #[allow(dead_code)]
-    pub(crate) fn remove_dispatch<const OCC: bool, const NESTED: bool>(
-        &mut self,
-        key: Key,
-    ) -> bool {
-        noting_root_rewrite!(self, t => t.remove_inner_dispatch::<OCC, NESTED>(key))
-    }
-
     /// [`Self::remove`] for the concurrent wrapper; as [`Self::insert_shared`].
     #[cfg(feature = "std")]
     #[inline(always)]

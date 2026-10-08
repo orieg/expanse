@@ -1678,16 +1678,7 @@ impl ExpanseBlobMap {
         self.arena.prepare_slot(data, hot_meta)
     }
 
-    #[inline(always)]
-    #[allow(dead_code)]
-    pub(crate) fn insert_slot(&mut self, key: Key, slot: ValueSlot) {
-        if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
-            let old = ValueSlot::from_raw(old_raw);
-            self.arena.record_deleted_slot(old);
-        }
-    }
-
-    /// [`Self::insert_slot`] for the concurrent wrapper (#1086): the index's
+    /// Slot insertion for the concurrent wrapper (#1086): the index's
     /// shared entry, whose root-leaf stores are atomic words.
     #[cfg(all(
         target_pointer_width = "64",
@@ -1699,13 +1690,6 @@ impl ExpanseBlobMap {
             let old = ValueSlot::from_raw(old_raw);
             self.arena.record_deleted_slot(old);
         }
-    }
-
-    #[inline(always)]
-    #[cfg(all(target_pointer_width = "64", feature = "std"))]
-    #[allow(dead_code)]
-    pub(crate) fn record_deleted_slot(&mut self, slot: ValueSlot) {
-        self.arena.record_deleted_slot(slot);
     }
 
     /// Multi-writer private arena (Refs #929): [`BlobArena::grant_private_chunk`]
