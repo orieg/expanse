@@ -700,13 +700,20 @@ class TestStrCursorBounds(unittest.TestCase):
         with self.assertRaises(ValueError):
             str_cursor_attempt_read_set_bound(0)
 
-    def test_cursor_bound_fits_cap_only_at_depth_one_and_one_seek(self) -> None:
-        """The 14 <= 16 claim omits ancestor covers and the second seek."""
+    def test_multi_level_read_set_exceeds_cap(self) -> None:
+        """A multi-level attempt exceeds READ_SET_CAP; the 14 <= 16 claim omits covers and a seek."""
+        self.assertEqual(str_cursor_attempt_read_set_bound(1, ASSUME_ONE_SEEK), 14)
         self.assertLessEqual(str_cursor_attempt_read_set_bound(1, ASSUME_ONE_SEEK), READ_SET_CAP)
+        self.assertEqual(str_cursor_attempt_read_set_bound(2, ASSUME_ONE_SEEK), 22)
         self.assertGreater(str_cursor_attempt_read_set_bound(2, ASSUME_ONE_SEEK), READ_SET_CAP)
+        self.assertEqual(str_cursor_attempt_read_set_bound(1, ASSUME_TWO_SEEK), 21)
         self.assertGreater(str_cursor_attempt_read_set_bound(1, ASSUME_TWO_SEEK), READ_SET_CAP)
+        self.assertEqual(str_point_read_set_bound(2, 1, ASSUME_TWO_SEEK), 44)
+        self.assertGreater(str_point_read_set_bound(2, 1, ASSUME_TWO_SEEK), READ_SET_CAP)
+        self.assertEqual(str_point_read_set_bound(3, 2, ASSUME_ONE_SEEK), 46)
+        self.assertGreater(str_point_read_set_bound(3, 2, ASSUME_ONE_SEEK), READ_SET_CAP)
 
-    def test_single_node_read_set(self) -> None:
+    def test_single_node_read_set_fits_cap(self) -> None:
         """One level: 14 under one seek (fits the cap), 21 under the code's two seeks."""
         self.assertEqual(str_single_node_max_read_set(), 14)
         self.assertLessEqual(str_single_node_max_read_set(ASSUME_ONE_SEEK), READ_SET_CAP)
