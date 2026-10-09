@@ -918,10 +918,10 @@ impl StrNode {
     /// Largest entry in this subtree; appends its key bytes to `out`.
     /// `None` only when every node under it is empty (see `extreme_entry`).
     fn max_entry(&self, out: &mut Vec<u8>) -> Option<NonNull<u64>> {
-        self.extreme_entry(out, false)
+        self.extreme_entry::<false>(out)
     }
 
-    /// The subtree's first (`min`) or last (`!min`) entry.
+    /// The subtree's first (`MIN`) or last (`!MIN`) entry.
     ///
     /// Iterative, like every other walk in this module: one frame per 8
     /// key bytes turns a long key into a stack overflow, and this runs
@@ -936,15 +936,15 @@ impl StrNode {
     /// next entry in the direction of the walk ([`Self::extreme_past_empty`],
     /// out of line so the common descent is unchanged). `None` only when
     /// every node in the subtree is empty.
-    fn extreme_entry(&self, out: &mut Vec<u8>, min: bool) -> Option<NonNull<u64>> {
+    fn extreme_entry<const MIN: bool>(&self, out: &mut Vec<u8>) -> Option<NonNull<u64>> {
         let mut node: *const StrNode = self;
         loop {
             // SAFETY: `self` on the first turn, then continuation values,
             // which are live child nodes; the descent never revisits one.
             let n = unsafe { &*node };
-            let found = if min { n.map.first() } else { n.map.last() };
+            let found = if MIN { n.map.first() } else { n.map.last() };
             let Some((chunk, v)) = found else {
-                return self.extreme_past_empty(node, out, min);
+                return self.extreme_past_empty::<MIN>(node, out);
             };
             if is_terminal(chunk) {
                 push_terminal(out, chunk);
@@ -972,36 +972,34 @@ impl StrNode {
     /// continues past `empty` with backtracking.
     #[cold]
     #[inline(never)]
-    fn extreme_past_empty(
+    fn extreme_past_empty<const MIN: bool>(
         &self,
         empty: *const StrNode,
         out: &mut Vec<u8>,
-        min: bool,
     ) -> Option<NonNull<u64>> {
         let mut path: Vec<(*const StrNode, u64)> = Vec::new();
         let mut node: *const StrNode = self;
         while !core::ptr::eq(node, empty) {
             // SAFETY: the nodes the descent just walked, live and unchanged.
             let n = unsafe { &*node };
-            let (chunk, v) = if min { n.map.first() } else { n.map.last() }?;
+            let (chunk, v) = if MIN { n.map.first() } else { n.map.last() }?;
             path.push((node, chunk));
             node = unpack_child(v);
         }
         // `out` ends with the chunk of every level on `path`, as
         // `extreme_walk` expects of its stack.
-        Self::extreme_walk(empty, path, None, out, min)
+        Self::extreme_walk::<MIN>(empty, path, None, out)
     }
 
-    /// The first (`min`) or last entry at or past `cursor` in `node`, then up
+    /// The first (`MIN`) or last entry at or past `cursor` in `node`, then up
     /// the levels `stack` records (each with the chunk that led below it),
     /// skipping empty nodes. The general, backtracking form of
     /// `extreme_entry`, taken only once an empty node was met.
-    fn extreme_walk(
+    fn extreme_walk<const MIN: bool>(
         mut node: *const StrNode,
         mut stack: Vec<(*const StrNode, u64)>,
         mut cursor: Option<(u64, u64)>,
         out: &mut Vec<u8>,
-        min: bool,
     ) -> Option<NonNull<u64>> {
         loop {
             // SAFETY: `node` is a live node of the walk: the start node, a
@@ -1013,7 +1011,7 @@ impl StrNode {
                 node = parent;
                 // SAFETY: as above.
                 let p = unsafe { &*parent };
-                cursor = if min {
+                cursor = if MIN {
                     p.map.next_after(via)
                 } else {
                     p.map.prev_before(via)
@@ -1038,7 +1036,7 @@ impl StrNode {
             node = unpack_child(v);
             // SAFETY: a continuation value is a live child node.
             let c = unsafe { &*node };
-            cursor = if min { c.map.first() } else { c.map.last() };
+            cursor = if MIN { c.map.first() } else { c.map.last() };
         }
     }
 
@@ -1046,25 +1044,28 @@ impl StrNode {
     /// next entry of this node past `chunk`, in the walk's direction.
     #[cold]
     #[inline(never)]
-    fn take_past_empty(&self, chunk: u64, out: &mut Vec<u8>, min: bool) -> Option<NonNull<u64>> {
+    fn take_past_empty<const MIN: bool>(
+        &self,
+        chunk: u64,
+        out: &mut Vec<u8>,
+    ) -> Option<NonNull<u64>> {
         out.truncate(out.len() - CHUNK);
-        let cursor = if min {
+        let cursor = if MIN {
             self.map.next_after(chunk)
         } else {
             self.map.prev_before(chunk)
         };
-        Self::extreme_walk(self, Vec::new(), cursor, out, min)
+        Self::extreme_walk::<MIN>(self, Vec::new(), cursor, out)
     }
 
     /// Emits the entry `cursor` names: a terminal chunk *is* the answer,
     /// a continuation chunk contributes its subtree extreme. `None`
     /// cursor means this node had nothing in the requested direction,
     /// which is what makes the caller backtrack.
-    fn take_from(
+    fn take_from<const MIN: bool>(
         &self,
         cursor: Option<(u64, u64)>,
         out: &mut Vec<u8>,
-        min: bool,
     ) -> Option<NonNull<u64>> {
         let (chunk, v) = cursor?;
         if is_terminal(chunk) {
@@ -1080,9 +1081,9 @@ impl StrNode {
         } else {
             out.extend_from_slice(&chunk.to_be_bytes());
             // SAFETY: continuation values are child pointers.
-            match unsafe { Self::child(v) }.extreme_entry(out, min) {
+            match unsafe { Self::child(v) }.extreme_entry::<MIN>(out) {
                 Some(slot) => Some(slot),
-                None => self.take_past_empty(chunk, out, min),
+                None => self.take_past_empty::<MIN>(chunk, out),
             }
         }
     }
@@ -1125,7 +1126,7 @@ impl StrNode {
                     }
                     // Suffix is strictly less than target key remainder; resume at next sibling.
                     let sibling = n.map.next_after(target);
-                    if let Some(slot) = n.take_from(sibling, out, true) {
+                    if let Some(slot) = n.take_from::<true>(sibling, out) {
                         return Some(slot);
                     }
                 } else {
@@ -1137,7 +1138,7 @@ impl StrNode {
                     off += CHUNK;
                     continue;
                 }
-            } else if let Some(slot) = n.take_from(cursor, out, true) {
+            } else if let Some(slot) = n.take_from::<true>(cursor, out) {
                 return Some(slot);
             }
 
@@ -1149,7 +1150,7 @@ impl StrNode {
                 // SAFETY: recorded during the descent; still live.
                 let p = unsafe { &*parent };
                 let sibling = p.map.next_after(parent_target);
-                if let Some(slot) = p.take_from(sibling, out, true) {
+                if let Some(slot) = p.take_from::<true>(sibling, out) {
                     return Some(slot);
                 }
             }
@@ -1200,7 +1201,7 @@ impl StrNode {
                         );
                     }
                     let sibling = n.map.prev_before(target);
-                    if let Some(slot) = n.take_from(sibling, out, false) {
+                    if let Some(slot) = n.take_from::<false>(sibling, out) {
                         return Some(slot);
                     }
                 } else {
@@ -1218,7 +1219,7 @@ impl StrNode {
                 } else {
                     n.map.prev_before(target)
                 };
-                if let Some(slot) = n.take_from(cursor, out, false) {
+                if let Some(slot) = n.take_from::<false>(cursor, out) {
                     return Some(slot);
                 }
             }
@@ -1232,7 +1233,7 @@ impl StrNode {
                 // target, whose own subtree was just exhausted — so the
                 // resume point is strictly below it, never at it.
                 let sibling = p.map.prev_before(parent_target);
-                if let Some(slot) = p.take_from(sibling, out, false) {
+                if let Some(slot) = p.take_from::<false>(sibling, out) {
                     return Some(slot);
                 }
             }
