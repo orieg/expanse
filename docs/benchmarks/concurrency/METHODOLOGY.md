@@ -4822,6 +4822,88 @@ No performance claim is evaluated until every gate below passes:
 - Host contention per AGENTS.md §8.17 (non-target CPU > 100%, load average > cores / 2, or load shift > 2).
 - Inconsistent counters or uncompleted rounds.
 
+### 33.7 Amendment A1 to §33 — mechanism, read-set bound, projected constants, and units (appended 2026-10-08, before any engine code of #1143; §33.1 to §33.6 above are not edited)
+
+A review of §33 against `origin/main` at `d5c5289a1` found statements of fact in §33.1 that the code contradicts, a read-set bound that undercounts, and constants presented as derived that no run measured. This amendment is errata plus a re-derivation. It changes no P33 threshold, no cell, no void condition and no gate G33.1 to G33.6. Where it contradicts §33.1, this section is the statement that stands. Refs #1143.
+
+#### 33.7.1 The `with_locked` mechanism
+
+§33.1 says `with_locked` "holds the tree word for the whole closure ... blocking concurrent readers that fall back". The code does not do that.
+
+- `SyncExpanseStrMap::with_locked` (`crates/expanse/src/sync.rs:12980`) calls `Shared::with_locked` (`sync.rs:3032-3074`), which takes `fallback_mutex`, quiesces the writer gate and takes the writer mutex, then runs the closure.
+- It brackets the tree word only around the dirty-digit fold republish (`sync.rs:3054-3061`), and only when `T::PUBLISHES_ROOT` holds and the fold finds a top edge. `SharedTree for ExpanseStrMap` (`sync.rs:797-835`) does not override `root_top_ptr`, whose default is null (`sync.rs:684-686`), so for the string map the closure runs with the tree word even. Optimistic `get` readers are not made to retry by it.
+- What a scan under `with_locked` serialises against is other `with_locked` callers (the mutex) and writers (the gate), and a reader that has fallen back to `read_locked` (the same mutex).
+
+This changes the mechanism sentence in the P33.3 derivation (the `(W=1, R=4)` "single mutex" collapse applies to scanners and to fallback readers, not to optimistic point readers) and nothing else. The floors are unchanged, and the 4-reader collapse figure in §33.4 stays an unmeasured expectation (unsourced; the cell decides).
+
+Line references that moved: `StrReader` is at `sync.rs:13207` with `get` at `:13235` (§33.1 cites `:13030-13095`); `SyncExpanseStrMap::with_locked` is at `sync.rs:12980` (§33.1 cites `:12808`). The `writer_scaling.rs:3413-3426` cite is still current.
+
+#### 33.7.2 Depth is shared prefix chunks, not key length
+
+§33.1 indexes depth by key length, $C(K) = \lfloor K / 8 \rfloor + 1$, and bounds $D(K) \le 8 C(K)$. Tail collapse (`strmap.rs` module doc, `TAG_SUFFIX`) moves a key's remainder into a `StrSuffix` once it is unique, so the number of `StrNode` levels on a path is the number of shared whole 8-byte prefix chunks plus the level where the keys diverge: $\lfloor P / 8 \rfloor + 1$ for $P$ shared prefix bytes (`str_strnode_depth`). $C(K)$ remains a ceiling only for keys with no shared prefix. The `path_keys` generator builds 47-byte keys with a 35-byte shared prefix (`crates/expanse/benches/instructions.rs:1945`, `path_keys`), so its depth is 5, where key length would give 6. `paths_dense` can be deeper where chunk-4 bytes collide.
+
+#### 33.7.3 The retained read-set bound, derived by enumeration
+
+§33.1 gives $14 + 8(C(K) - 1)$ for a multi-level search and "14 <= 16" for the cursor. Both are wrong for the code to be ported. Three reviews of the scoping computed the point-op bound three ways; each is reproduced by one seek-count assumption of the enumeration `enumerate_point_read_sets` in `scripts/str_cursor_bounds.py`, which walks the shapes of the ported `StrNode::next_at_or_after` and takes the maximum:
+
+- Inputs, per `StrNode` level: the cover (1); a descent of 0 to 7 branches (0 for a sub-map in leaf state, at most `ROOT_LEAF_CAP = 31` entries); a sub-map seek that answers after a backtrack at level $\ell \in [2, 8]$, retaining `olc_bounds.ordered_read_set_branches(ℓ)` branches, at most 13.
+- `ReadSet::sample` pushes every sample and `backtrack` shrinks the set only under `cfg(test)` as a negative control (`crates/expanse/src/sync_nav.rs:69-79`, `:758-771`), so the paths of two seeks in one sub-map are both retained.
+- The single-threaded walk it mirrors seeks `next_at_or_after(target)` at `strmap.rs:957`, then `next_after(target)` when a suffix compares below the remainder (`strmap.rs:977`) or `next_after(parent_target)` on unwinding from a failed child (`strmap.rs:1001`). That is two seeks per descended level, so the two-seek row is the one that matches the code.
+
+| Maximum versions retained, probe depth $D$, answer depth $D - 1$ (derived: `scripts/str_cursor_bounds.py::str_point_read_set_bound`) | D=1 | 2 | 3 | 4 | 5 | Form |
+|---|---|---|---|---|---|---|
+| `two_seek` (matches the code) | 21 | 44 | 67 | 90 | 113 | $15d + 6 + 8a$ |
+| `one_seek` (the resume reuses the first seek's path) | 14 | 30 | 46 | 62 | 78 | $8d + 6 + 8a$, i.e. $16D - 2$ |
+| `ordered_step_per_failed_level` (scoping document; a failed level is charged a full ordered step, which a level that found nothing cannot retain) | 14 | 36 | 58 | 80 | 102 | $14d + 8a$, i.e. $22D - 8$ |
+
+The maximum is the answer taken at level 0 (each lower answer level removes more from the descent term than it adds). Of the two figures that are not the code's, only `one_seek` is reachable, and only if the port shares a path between its two seeks, which `ReadSet` does not do today. The enumeration is cross-checked against the closed forms over $d \in [1, 5]$, $a \in [0, 4]$ in the script's self-test.
+
+Cursor attempt, ancestor covers included (derived: `str_cursor_attempt_read_set_bound`). An attempt descends $d - 1$ ancestor levels (cover plus descent path each) and works in the final level; a failed child restarts by key, so failed levels are not retained across attempts.
+
+| | d=1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| `two_seek`, worst case | 21 | 29 | 37 | 45 | 53 |
+| `one_seek`, worst case | 14 | 22 | 30 | 38 | 46 |
+| `one_seek`, ancestors in leaf state (cover only) | 14 | 15 | 16 | 17 | 18 |
+| `two_seek`, ancestors in leaf state (cover only) | 21 | 22 | 23 | 24 | 25 |
+
+Corrections to §33.1 that follow:
+
+- "14 <= 16" holds only at depth 1 and only under one seek per level. With ancestor covers a `paths` attempt (depth 5, ancestors in leaf state) reaches 18 under one seek and 25 under the code's two seeks, and the worst case reaches 46 and 53. Under two seeks even depth 1 (21) exceeds `READ_SET_CAP = 16`.
+- The leaf-state ancestor rows rest on the shape of `path_keys` (levels 0 to 3 are single-entry chains) and are (projected): no read-set-length census on a built map has been taken, and none is claimed.
+- The $14 + 8(C(K) - 1)$ form is withdrawn. It charged 8 per extra level and indexed levels by key length.
+- This amendment does not set a read-set capacity for the point ops. Whether to size the set at a fixed capacity, share the seeks' paths or de-duplicate is a decision for the PR that adds the walk, taken against this table.
+
+#### 33.7.4 Overflow policy
+
+§33.1 says an overflow of `READ_SET_CAP` makes `ReadSet::sample` return `Err(Retry)` and triggers root re-descent. `sample` does that today (`sync_nav.rs:72-73`, `crates/expanse/src/sync_cursor.rs:82-83`), and for the u64 maps it is sound because there an overflow implies a moving tree. For strings a depth overflow is deterministic, so every retry overflows again and the read spends `MAX_RETRIES = 64` attempts (`sync.rs:165`) before `read_locked`; `Shared::optimistic_read` has no outcome that falls back at once (`sync.rs:3146-3180`).
+
+The policy for the string walk is: an overflow is classified by `len == READ_SET_CAP` after `validate_all`. A failed validation is a moving tree and retries; a passed validation with a full set is a depth overflow and goes to `read_locked` at once, counted by its own `occ_stats` stat. `classify_read_set_overflow` pins this. No Rust changes in this amendment.
+
+#### 33.7.5 Open modelling item: an emptied child that stays linked
+
+The enumeration assumes that a sibling descent which starts always answers, as the comment block above `BRANCH_TOP_LEVEL` in `scripts/olc_bounds.py` states for a non-empty node. Transition T9 can leave a node empty and still linked: "The emptied node then stays linked and empty" (`strmap.rs:3610-3620`). The single-threaded `extreme_entry` expects a non-empty node (`strmap.rs:882-892`, `expect("non-empty node")`). A validated port must instead treat an empty linked child as a node that answers nothing and continue to the next sibling, and each such child retains its cover and path. The bound in §33.7.3 does not cover that case: it is open, unmodelled, and the table is a lower bound on the worst case until it is closed. Tracked in #1143.
+
+#### 33.7.6 Constants that are projections
+
+§33.5 and `scripts/str_cursor_bounds.py` present the following as derived. None was measured, and each is (projected) from here on:
+
+- the batch overhead of $40 + 15 + 35 = 90$ instructions per batch (projected);
+- the assumed batch of 64 keys (projected), which makes the amortized sync cost $90 / 64 \approx 1.4$ instructions per key (projected);
+- the 3.0 instructions per key of buffering (projected);
+- the resulting ~4.4 instructions per key (projected), and the ratios "predicted ~1.024" and "~1.016" in §33.4 (projected).
+
+The baseline instructions per key, 184.0 on `paths` and 273.2 on `paths_dense`, stay (measured: CI run 37249211829, commit `dce4447834374b562fc8923e19d60a091a5d923b`). The ceiling 1.15 stays (target). The 90-instruction term was not re-derived for the larger read set of §33.7.3, so the prediction does not constrain P33.2; only the `instruction-counts` job decides it.
+
+#### 33.7.7 Unit of P33.3, and arm identities
+
+- **Unit.** P33.3 throughput is scan keys per second (elements returned), not scans per second. Each cell records its scan length (keys per scan) beside the rate, and the floors are ratios of keys per second between cells of equal scan length. A comparison between cells of different scan length is not a P33.3 comparison.
+- **Arm identities.** `sync_strmap_scan` stays the batch cursor's arm, as §33.5 registers it. The arm that scans through the validated point ops (`first` then `next_after`) is named `sync_strmap_scan_pointops`, and no result of it is filed under `sync_strmap_scan`. `sync_strmap_scan_locked` stays the baseline both are measured against.
+
+#### 33.7.8 What is not changed
+
+P33.1, P33.2 and P33.3 thresholds, the cells and the void conditions of §33.6, gates G33.1 to G33.6, and the instruments of §33.5 other than the added arm name. Reproduction of every figure in this amendment: `python3 scripts/str_cursor_bounds.py` (the table) and `python3 scripts/str_cursor_bounds.py --self-test` (the pinned values).
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).
