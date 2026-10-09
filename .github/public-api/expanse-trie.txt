@@ -92,6 +92,7 @@ pub expanse_trie::blobmap::ArenaError::CorruptedHeader
 pub expanse_trie::blobmap::ArenaError::GenerationMismatch
 pub expanse_trie::blobmap::ArenaError::InvalidOffset
 pub expanse_trie::blobmap::ArenaError::MetaOverflow
+pub expanse_trie::blobmap::ArenaError::NoMetaField
 pub expanse_trie::blobmap::ArenaError::OffsetOverflow
 pub expanse_trie::blobmap::ArenaError::UnsupportedFormatVersion
 pub expanse_trie::blobmap::ArenaError::UnsupportedFormatVersion::found: u32
@@ -154,6 +155,28 @@ impl<'a> core::marker::Unpin for expanse_trie::blobmap::BlobView<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::blobmap::BlobView<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::blobmap::BlobView<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for expanse_trie::blobmap::BlobView<'a>
+pub enum expanse_trie::blobmap::CompareExchangeError<T>
+pub expanse_trie::blobmap::CompareExchangeError::Mismatch(T)
+pub expanse_trie::blobmap::CompareExchangeError::Unstorable(expanse_trie::blobmap::ArenaError)
+impl<T: core::clone::Clone> core::clone::Clone for expanse_trie::blobmap::CompareExchangeError<T>
+pub fn expanse_trie::blobmap::CompareExchangeError<T>::clone(&self) -> expanse_trie::blobmap::CompareExchangeError<T>
+impl<T: core::cmp::Eq> core::cmp::Eq for expanse_trie::blobmap::CompareExchangeError<T>
+impl<T: core::cmp::PartialEq> core::cmp::PartialEq for expanse_trie::blobmap::CompareExchangeError<T>
+pub fn expanse_trie::blobmap::CompareExchangeError<T>::eq(&self, &expanse_trie::blobmap::CompareExchangeError<T>) -> bool
+impl<T: core::cmp::PartialEq> core::marker::StructuralPartialEq for expanse_trie::blobmap::CompareExchangeError<T>
+impl<T: core::fmt::Debug> core::error::Error for expanse_trie::blobmap::CompareExchangeError<T>
+pub fn expanse_trie::blobmap::CompareExchangeError<T>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<T: core::fmt::Debug> core::fmt::Debug for expanse_trie::blobmap::CompareExchangeError<T>
+pub fn expanse_trie::blobmap::CompareExchangeError<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T> core::fmt::Display for expanse_trie::blobmap::CompareExchangeError<T>
+pub fn expanse_trie::blobmap::CompareExchangeError<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T> core::marker::Freeze for expanse_trie::blobmap::CompareExchangeError<T> where T: core::marker::Freeze
+impl<T> core::marker::Send for expanse_trie::blobmap::CompareExchangeError<T> where T: core::marker::Send
+impl<T> core::marker::Sync for expanse_trie::blobmap::CompareExchangeError<T> where T: core::marker::Sync
+impl<T> core::marker::Unpin for expanse_trie::blobmap::CompareExchangeError<T> where T: core::marker::Unpin
+impl<T> core::marker::UnsafeUnpin for expanse_trie::blobmap::CompareExchangeError<T> where T: core::marker::UnsafeUnpin
+impl<T> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::blobmap::CompareExchangeError<T> where T: core::panic::unwind_safe::RefUnwindSafe
+impl<T> core::panic::unwind_safe::UnwindSafe for expanse_trie::blobmap::CompareExchangeError<T> where T: core::panic::unwind_safe::UnwindSafe
 pub struct expanse_trie::blobmap::ArenaChunk
 impl expanse_trie::blobmap::ArenaChunk
 pub const expanse_trie::blobmap::ArenaChunk::MAX_CHUNK_CAPACITY: usize
@@ -281,8 +304,8 @@ impl expanse_trie::blobmap::ExpanseBlobMap
 pub fn expanse_trie::blobmap::ExpanseBlobMap::arena(&self) -> &expanse_trie::blobmap::BlobArena
 pub fn expanse_trie::blobmap::ExpanseBlobMap::clear(&mut self)
 pub fn expanse_trie::blobmap::ExpanseBlobMap::compact(&mut self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
-pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange(&mut self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, core::option::Option<(alloc::vec::Vec<u8>, u32)>>
-pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange_meta(&mut self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, core::option::Option<u32>>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange(&mut self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<(alloc::vec::Vec<u8>, u32)>>>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange_meta(&mut self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<u32>>>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice(&[u8]) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice_with_max_capacity(&[u8], usize) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
@@ -2478,8 +2501,8 @@ impl expanse_trie::sync::SyncExpanseBlobMap
 pub fn expanse_trie::sync::SyncExpanseBlobMap::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseBlobMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseBlobMap::compact(&self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
-pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange(&self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, core::option::Option<(alloc::vec::Vec<u8>, u32)>>
-pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange_meta(&self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, core::option::Option<u32>>
+pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange(&self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<(alloc::vec::Vec<u8>, u32)>>>
+pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange_meta(&self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<u32>>>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get(&self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get_meta(&self, expanse_trie::types::Key) -> core::option::Option<u32>
@@ -3586,8 +3609,8 @@ impl expanse_trie::blobmap::ExpanseBlobMap
 pub fn expanse_trie::blobmap::ExpanseBlobMap::arena(&self) -> &expanse_trie::blobmap::BlobArena
 pub fn expanse_trie::blobmap::ExpanseBlobMap::clear(&mut self)
 pub fn expanse_trie::blobmap::ExpanseBlobMap::compact(&mut self) -> core::result::Result<expanse_trie::blobmap::CompactionStats, expanse_trie::blobmap::ArenaError>
-pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange(&mut self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, core::option::Option<(alloc::vec::Vec<u8>, u32)>>
-pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange_meta(&mut self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, core::option::Option<u32>>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange(&mut self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<(alloc::vec::Vec<u8>, u32)>>>
+pub fn expanse_trie::blobmap::ExpanseBlobMap::compare_exchange_meta(&mut self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<u32>>>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice(&[u8]) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::blobmap::ExpanseBlobMap::from_bytes_slice_with_max_capacity(&[u8], usize) -> core::result::Result<Self, expanse_trie::blobmap::ArenaError>
