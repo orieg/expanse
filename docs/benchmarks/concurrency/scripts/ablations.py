@@ -2,7 +2,7 @@
 """The #789 ablations on the single-writer cells (#568 PR 0, item 5).
 
 Builds `masstree_concurrent` once per engine feature variant — `default`,
-`lock-padded`, `advance-every-4096`, `advance-never` — each into its own
+`advance-every-4096`, `advance-never` — each into its own
 target directory, and runs the same two throughput cells on every build:
 C1 W=1 R=0 (the writer alone) and C2 W=1 R=8 (the writer with eight
 readers). Each cell is the harness's own interleaved Expanse-vs-Masstree
@@ -13,9 +13,6 @@ variant, with a BCa 95% interval over rounds, never a ratio.
 What each variant removes or moves (AGENTS.md section 6, one increment per
 measurement):
 
-- `lock-padded`: the writer mutex and the tree version word on their own
-  cache lines (`sync::Line`), so a writer's version stores and a reader's
-  version loads stop sharing a line with the lock and the collector handle.
 - `advance-every-4096`: the reader-slot scan inside the critical section
   runs every 4096 writes instead of every 32.
 - `advance-never`: no epoch advance on the write path at all. Sound only
@@ -50,7 +47,7 @@ from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
 from bench_provenance import add_load, host_facts, load_snapshot, git_sha  # noqa: E402
 
 CRATE = REPO_ROOT / "crates" / "expanse-hot-bench" / "Cargo.toml"
-VARIANTS = ("default", "lock-padded", "advance-every-4096", "advance-never")
+VARIANTS = ("default", "advance-every-4096", "advance-never")
 CELLS = ((1, 0), (1, 8))
 # The harness arm each run measures and the workload id its rows carry. The
 # map arm is the #789 ablation set; the string arm is the #568 PR 3 falsifier
@@ -228,7 +225,7 @@ def self_test() -> int:
         pass
     # The string arm carries its own workload id and arm tag.
     srows = [dict(r, workload_id=ARMS["str"], expanse_reader_mops=1.0 + 0.1 * i) for i, r in enumerate(rows)]
-    sc = summarise("lock-padded", 1, 8, srows, seed=1, arm="str")
+    sc = summarise("default", 1, 8, srows, seed=1, arm="str")
     assert sc["workload_id"] == "masstree_conc_str" and sc["arm"] == "str", sc
     assert sc["expanse_reader_mops"]["n"] == 5
     print("ablations.py --self-test: all checks passed")
