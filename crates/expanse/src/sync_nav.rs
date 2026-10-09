@@ -880,6 +880,7 @@ fn backtrack<const CAP: usize>(rs: &mut ReadSet<CAP>, mark: usize) {
     #[cfg(test)]
     {
         crate::sync::test_hooks::before_ordered_backtrack();
+        crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedBacktrack);
         if crate::sync::test_hooks::drops_child_snapshots() {
             rs.truncate(mark);
         }

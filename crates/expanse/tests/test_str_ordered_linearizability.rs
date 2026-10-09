@@ -25,7 +25,7 @@
 #![cfg(not(miri))]
 
 use std::collections::{BTreeMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::Instant;
 
@@ -244,17 +244,21 @@ fn history(threads: usize, per_thread: usize, round: usize) -> (Vec<Event>, Stat
     }
     let (keys, probes) = (Arc::new(keys()), Arc::new(probes()));
     let out = Arc::new(Mutex::new(Vec::new()));
+    // The threads start their operations together, so they overlap.
+    let start_line = Arc::new(Barrier::new(threads));
     let hs: Vec<_> = (0..threads)
         .map(|t| {
-            let (map, keys, probes, out) = (
+            let (map, keys, probes, out, start_line) = (
                 Arc::clone(&map),
                 Arc::clone(&keys),
                 Arc::clone(&probes),
                 Arc::clone(&out),
+                Arc::clone(&start_line),
             );
             thread::spawn(move || {
                 let rd = map.reader();
                 let mut local = Vec::with_capacity(per_thread);
+                start_line.wait();
                 for i in 0..per_thread {
                     let k = keys[(t * 5 + i + round) % keys.len()].clone();
                     let p = probes[(t * 3 + i + round) % probes.len()].clone();
@@ -302,7 +306,7 @@ fn history(threads: usize, per_thread: usize, round: usize) -> (Vec<Event>, Stat
 #[test]
 fn str_ordered_reads_are_linearizable() {
     let before = occ_stats::snapshot();
-    let rounds = 200;
+    let rounds = 1000;
     for round in 0..rounds {
         let (events, initial) = history(3, 16, round);
         assert!(

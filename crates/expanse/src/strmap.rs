@@ -821,6 +821,23 @@ impl std::error::Error for NulInKey {}
 #[cfg(feature = "std")]
 pub(crate) type StrAnswer = Option<(Vec<u8>, u64)>;
 
+/// One `StrNode` level on the stack of [`ExpanseStrMap::ordered_validated`].
+#[cfg(feature = "std")]
+pub(crate) struct StrLevel {
+    /// The node's cover word, and its sample (also retained in the read set).
+    cover: *const u32,
+    csnap: u32,
+    /// The sub-map's root state, copied under the cover.
+    msnap: crate::sync::RootSnapshot,
+    /// The chunk the parent maps to this node (unused at the root).
+    via: u64,
+    /// `out` length before `via` was appended.
+    mark: usize,
+    /// Read-set length on entry, for the drop-a-level negative control.
+    #[cfg(test)]
+    rs_mark: usize,
+}
+
 /// The question a validated ordered read asks
 /// ([`ExpanseStrMap::ordered_validated`], #1143).
 #[cfg(feature = "std")]
@@ -834,6 +851,18 @@ pub(crate) enum StrSeek<'k> {
     Before(&'k NulFreeStr),
     /// Largest key.
     Last,
+}
+
+#[cfg(feature = "std")]
+impl StrSeek<'_> {
+    /// The probe's length in bytes (0 for `Last`), to size the walk's
+    /// buffers.
+    pub(crate) fn key_len(&self) -> usize {
+        match self {
+            Self::AtOrAfter(k) | Self::AtOrBefore(k) | Self::Before(k) => k.len(),
+            Self::Last => 0,
+        }
+    }
 }
 
 impl StrNode {
@@ -2524,33 +2553,22 @@ impl ExpanseStrMap {
     ///
     /// As [`Self::get_validated`].
     #[cfg(feature = "std")]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) unsafe fn ordered_validated<const CAP: usize>(
         root: Option<NonNull<u8>>,
         seek: StrSeek<'_>,
         ver: &crate::occ::SeqVersion,
         snap: u64,
         rs: &mut crate::sync_nav::ReadSet<CAP>,
+        stack: &mut Vec<StrLevel>,
+        out: &mut Vec<u8>,
     ) -> Result<(StrAnswer, bool), crate::sync::Retry> {
         use crate::occ::{node_validate, version_cell};
         use crate::sync::Retry;
         #[cfg(test)]
         use crate::sync::test_hooks::{self as th, Site, StrControl, StrCount};
 
-        /// One `StrNode` level on the walk's stack.
-        struct Level {
-            /// The node's cover word, and its sample (also retained in `rs`).
-            cover: *const u32,
-            csnap: u32,
-            /// The sub-map's root state, copied under the cover.
-            msnap: crate::sync::RootSnapshot,
-            /// The chunk the parent maps to this node (unused at the root).
-            via: u64,
-            /// `out` length before `via` was appended.
-            mark: usize,
-            /// `rs` length on entry, for the drop-a-level negative control.
-            #[cfg(test)]
-            rs_mark: usize,
-        }
+        type Level = StrLevel;
 
         /// Samples `node`'s cover into `rs`, copies its sub-map root state,
         /// and checks the cover before anything reads through the copy.
@@ -2615,13 +2633,16 @@ impl ExpanseStrMap {
         }
 
         /// Validates the holder of an entry the seek that started at `from`
-        /// returned, before the entry's pointer is dereferenced.
+        /// returned, before the entry's pointer is dereferenced. `SITE` names
+        /// the call site (`AT_FORWARD_EXACT`, `AT_BACKWARD_EXACT`, `AT_FREE`)
+        /// for the per-site negative controls; the three sites are pinned by
+        /// `str_ordered_tests::holder_checks_precede_every_dereference`.
         ///
         /// # Safety
         ///
         /// The caller's pin covers every sample.
         #[inline(always)]
-        unsafe fn holder_ok<const CAP: usize>(
+        unsafe fn holder_ok<const CAP: usize, const SITE: u8>(
             l: &Level,
             from: usize,
             rs: &crate::sync_nav::ReadSet<CAP>,
@@ -2632,10 +2653,16 @@ impl ExpanseStrMap {
             let held = node_validate(unsafe { version_cell(l.cover) }, l.csnap)
                 && unsafe { rs.validate_from(from) };
             #[cfg(test)]
-            let skip = th::str_control(StrControl::SkipPreDeref);
+            let skip = th::str_control(match SITE {
+                AT_FORWARD_EXACT => StrControl::SkipPreDerefForwardExact,
+                AT_BACKWARD_EXACT => StrControl::SkipPreDerefBackwardExact,
+                _ => StrControl::SkipPreDerefFree,
+            });
             #[cfg(not(test))]
             let skip = false;
             if !skip && !held {
+                #[cfg(test)]
+                th::str_count(StrCount::HolderRetries);
                 return Err(Retry);
             }
             // The audit the controls are judged by: a dereference is about to
@@ -2668,6 +2695,11 @@ impl ExpanseStrMap {
             }
         }
 
+        /// The `holder_ok` call sites.
+        const AT_FORWARD_EXACT: u8 = 0;
+        const AT_BACKWARD_EXACT: u8 = 1;
+        const AT_FREE: u8 = 2;
+
         let (forward, key, mut bounded) = match seek {
             StrSeek::AtOrAfter(k) => (true, k.as_bytes(), true),
             StrSeek::AtOrBefore(k) | StrSeek::Before(k) => (false, k.as_bytes(), true),
@@ -2685,8 +2717,13 @@ impl ExpanseStrMap {
             #[cfg(not(test))]
             let skip = false;
             // The answer is returned only after this check
-            // (`docs/ARCHITECTURE.md` §4.1, S5). The tree word covers the
-            // meta-trie root's creation and removal, as in `get_validated`.
+            // (`docs/ARCHITECTURE.md` §4.1, S5). The tree word check is
+            // defence in depth, kept as `get_validated` keeps it: the states
+            // it brackets (the meta-trie root's creation and removal,
+            // `clear`) either leave a root-`None` read linearizable at its
+            // load, or unlink a node, which `dispose_node` marks obsolete
+            // first, so the retained cover fails. No interleaving makes it
+            // decisive, and it has no negative control.
             // SAFETY: same pin as every sample.
             if (!skip && !unsafe { rs.validate_all() }) || !ver.validate(snap) {
                 return Err(Retry);
@@ -2697,8 +2734,9 @@ impl ExpanseStrMap {
         let Some(root) = root.map(|p| p.as_ptr().cast::<StrNode>().cast_const()) else {
             return finish(None, false, rs);
         };
-        let mut stack: Vec<Level> = Vec::new();
-        let mut out: Vec<u8> = Vec::with_capacity(key.len() + CHUNK);
+        // The caller's buffers, kept across its retries.
+        stack.clear();
+        out.clear();
         // SAFETY: the published root is EBR-live under the pin (see
         // `get_validated`).
         let mut lvl = unsafe { enter(root, 0, 0, rs)? };
@@ -2726,14 +2764,14 @@ impl ExpanseStrMap {
                     match cursor {
                         Some((chunk, v)) if chunk == target && !is_terminal(chunk) => {
                             // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
-                            unsafe { holder_ok(&lvl, from, rs)? };
+                            unsafe { holder_ok::<CAP, AT_FORWARD_EXACT>(&lvl, from, rs)? };
                             if is_suffix_ptr(v) {
                                 // SAFETY: the holder validated just above.
                                 let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
                                 if &key[rem_at..] <= bytes {
                                     // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
-                                    let value = unsafe { take_suffix(v, chunk, &mut out) };
-                                    return finish(Some((out, value)), cross, rs);
+                                    let value = unsafe { take_suffix(v, chunk, out) };
+                                    return finish(Some((core::mem::take(out), value)), cross, rs);
                                 }
                                 // The suffix sorts below the probe: the
                                 // answer is past this entry.
@@ -2763,7 +2801,7 @@ impl ExpanseStrMap {
                     match cursor {
                         Some((chunk, v)) if chunk == target => {
                             // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
-                            unsafe { holder_ok(&lvl, from, rs)? };
+                            unsafe { holder_ok::<CAP, AT_BACKWARD_EXACT>(&lvl, from, rs)? };
                             if is_suffix_ptr(v) {
                                 // SAFETY: the holder validated just above.
                                 let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
@@ -2775,8 +2813,8 @@ impl ExpanseStrMap {
                                 };
                                 if hit {
                                     // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
-                                    let value = unsafe { take_suffix(v, chunk, &mut out) };
-                                    return finish(Some((out, value)), cross, rs);
+                                    let value = unsafe { take_suffix(v, chunk, out) };
+                                    return finish(Some((core::mem::take(out), value)), cross, rs);
                                 }
                                 bounded = false;
                                 from = rs.len();
@@ -2849,15 +2887,15 @@ impl ExpanseStrMap {
                 }
                 Some((chunk, v)) => {
                     if is_terminal(chunk) {
-                        push_terminal(&mut out, chunk);
-                        return finish(Some((out, v)), cross, rs);
+                        push_terminal(out, chunk);
+                        return finish(Some((core::mem::take(out), v)), cross, rs);
                     }
                     // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
-                    unsafe { holder_ok(&lvl, from, rs)? };
+                    unsafe { holder_ok::<CAP, AT_FREE>(&lvl, from, rs)? };
                     if is_suffix_ptr(v) {
                         // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
-                        let value = unsafe { take_suffix(v, chunk, &mut out) };
-                        return finish(Some((out, value)), cross, rs);
+                        let value = unsafe { take_suffix(v, chunk, out) };
+                        return finish(Some((core::mem::take(out), value)), cross, rs);
                     }
                     let mark = out.len();
                     out.extend_from_slice(&chunk.to_be_bytes());

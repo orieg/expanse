@@ -13394,6 +13394,10 @@ impl StrReader<'_> {
         crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         #[cfg(test)]
         test_hooks::str_count(test_hooks::StrCount::Ops);
+        // The walk's buffers, allocated once per call and kept across its
+        // retries; a successful attempt takes `out` as the answer's key.
+        let mut out = Vec::with_capacity(seek.key_len() + crate::strmap::CHUNK_BYTES);
+        let mut stack = Vec::with_capacity(seek.key_len() / crate::strmap::CHUNK_BYTES + 2);
         for _ in 0..MAX_RETRIES {
             crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             #[cfg(test)]
@@ -13410,6 +13414,8 @@ impl StrReader<'_> {
                     shared.version(),
                     snap,
                     &mut rs,
+                    &mut stack,
+                    &mut out,
                 )
             };
             match attempt {
@@ -13422,8 +13428,15 @@ impl StrReader<'_> {
                     }
                     return found;
                 }
-                // SAFETY: still pinned; every entry was sampled under the pin.
-                Err(Retry) if rs.is_full() && unsafe { rs.validate_all() } => {
+                // A full set that still validates, under a tree word that
+                // did not move, came from depth.
+                Err(Retry)
+                    if rs.is_full()
+                        // SAFETY: still pinned; every entry was sampled
+                        // under the pin.
+                        && unsafe { rs.validate_all() }
+                        && shared.version().validate(snap) =>
+                {
                     crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedOverflows);
                     #[cfg(test)]
                     test_hooks::str_count(test_hooks::StrCount::Overflows);
@@ -22238,6 +22251,10 @@ pub(crate) mod test_hooks {
         StrDeref,
         /// Before the string walk's final validation.
         StrFinal,
+        /// `sync_nav`'s ordered search found nothing in a child subtree and
+        /// is about to move to its sibling (the closure form of
+        /// `before_ordered_backtrack`).
+        OrderedBacktrack,
         /// A string-map removal emptied a `StrNode` whose optimistic prune
         /// did not go through: the node is linked and empty until the
         /// exclusive prune that follows this site.
@@ -22256,8 +22273,12 @@ pub(crate) mod test_hooks {
         /// Skip the final validation of the retained read set.
         SkipFinalValidation = 2,
         /// Skip the holder validation between loading a suffix or child
-        /// pointer and dereferencing it.
-        SkipPreDeref = 4,
+        /// pointer and dereferencing it, at the forward exact-chunk site.
+        SkipPreDerefForwardExact = 4,
+        /// The same, at the backward exact-chunk site.
+        SkipPreDerefBackwardExact = 32,
+        /// The same, at the site that takes a candidate past the probe.
+        SkipPreDerefFree = 64,
         /// Skip the cover check between copying a sub-map's root state and
         /// reading through it.
         SkipCoverCheck = 8,
@@ -22282,11 +22303,13 @@ pub(crate) mod test_hooks {
         /// Dereferences of a pointer whose holder no longer validated: the
         /// audit behind the pre-dereference and cover-check controls.
         UnvalidatedDerefs,
+        /// Attempts the holder check before a dereference sent back.
+        HolderRetries,
     }
 
     thread_local! {
         static STR_CONTROLS: Cell<u8> = const { Cell::new(0) };
-        static STR_COUNTS: Cell<[u64; 6]> = const { Cell::new([0; 6]) };
+        static STR_COUNTS: Cell<[u64; 7]> = const { Cell::new([0; 7]) };
     }
 
     /// Turns `control` on or off for this thread's string ordered walks.
@@ -22314,8 +22337,8 @@ pub(crate) mod test_hooks {
     }
 
     /// This thread's counts, and resets them.
-    pub(crate) fn take_str_counts() -> [u64; 6] {
-        STR_COUNTS.with(|c| c.replace([0; 6]))
+    pub(crate) fn take_str_counts() -> [u64; 7] {
+        STR_COUNTS.with(|c| c.replace([0; 7]))
     }
 
     /// The armed site and the write it runs there.
@@ -25336,6 +25359,7 @@ mod str_empty_child_tests {
 mod str_ordered_tests {
     use super::*;
     use crate::sync::test_hooks::{self as th, Site, StrControl, StrCount};
+    use crate::types::{EdgeTag, EdgeType};
     use core::ptr::NonNull;
 
     type Answer = crate::strmap::StrAnswer;
@@ -25386,7 +25410,7 @@ mod str_ordered_tests {
     fn on_thread<R: Send>(
         controls: &[StrControl],
         body: impl FnOnce() -> R + Send,
-    ) -> (R, [u64; 6]) {
+    ) -> (R, [u64; 7]) {
         std::thread::scope(|s| {
             s.spawn(|| {
                 for &c in controls {
@@ -25400,7 +25424,7 @@ mod str_ordered_tests {
         })
     }
 
-    fn count(c: [u64; 6], which: StrCount) -> u64 {
+    fn count(c: [u64; 7], which: StrCount) -> u64 {
         c[which as usize]
     }
 
@@ -25438,7 +25462,7 @@ mod str_ordered_tests {
 
     /// Runs the interleaving with `controls` and returns the answer and the
     /// reader thread's counts.
-    fn run_p1(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 6]) {
+    fn run_p1(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
         let map = Arc::new(p1_fixture());
         let (root, c, s) = {
             let m = inner(&map);
@@ -25662,26 +25686,22 @@ mod str_ordered_tests {
         );
         let root = inner(&map).test_cover_at(&[]).expect("root");
         let before = version(root);
-        let (got, _) = on_thread(&[], || {
-            let g = th::Gate::new();
+        // The writes run on the reader's thread at the site, so a site that
+        // never fires leaves `fired` at 0 and fails, rather than parking a
+        // writer thread forever.
+        let ((got, fired), _) = on_thread(&[], || {
             th::set_drop_child_snapshots(drop_child);
-            th::arm_ordered_backtrack(Arc::clone(&g));
-            std::thread::scope(|s| {
-                let w = Arc::clone(&map);
-                let gw = Arc::clone(&g);
-                let writer = s.spawn(move || {
-                    gw.parked.wait();
-                    assert_eq!(w.insert(nf(&p3_key(0x20, 0x20, 0x01)), 50), None);
-                    assert_eq!(w.insert(nf(&p3_key(0x10, 0x30, 0xF0)), 51), None);
-                    gw.release.wait();
-                });
-                let got = map
-                    .reader()
-                    .prev_at_or_before(nf(&p3_key(0x20, 0x20, 0x05)));
-                writer.join().expect("writer");
-                got
-            })
+            let w = Arc::clone(&map);
+            let fired = arm(Site::OrderedBacktrack, move || {
+                assert_eq!(w.insert(nf(&p3_key(0x20, 0x20, 0x01)), 50), None);
+                assert_eq!(w.insert(nf(&p3_key(0x10, 0x30, 0xF0)), 51), None);
+            });
+            let got = map
+                .reader()
+                .prev_at_or_before(nf(&p3_key(0x20, 0x20, 0x05)));
+            (got, fired.load(Ordering::SeqCst))
         });
+        assert_eq!(fired, 1, "the backtrack site must fire once");
         assert_eq!(
             version(root),
             before,
@@ -25691,20 +25711,12 @@ mod str_ordered_tests {
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "a writer thread races the optimistic reader: the seqlock racy read Miri reports by design (sync.rs module docs)"
-    )]
     fn str_ordered_read_restarts_when_a_passed_subtree_of_one_level_changes() {
         assert_eq!(run_p3(false), Some((p3_key(0x20, 0x20, 0x01), 50)));
     }
 
     /// Negative control: the u64 walk's own control, inside a string level.
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "a writer thread races the optimistic reader: the seqlock racy read Miri reports by design (sync.rs module docs)"
-    )]
     fn str_ordered_read_that_forgets_a_passed_subtree_returns_a_key_that_was_never_the_predecessor()
     {
         assert_eq!(run_p3(true), Some((p3_key(0x10, 0x30, 0xF0), 51)));
@@ -25720,7 +25732,7 @@ mod str_ordered_tests {
 
     /// Park point 4 (T4): the suffix "abcdefgh" + "tail1" is split by an
     /// insert of "abcdefgh" + "tail2" after the reader loaded its pointer.
-    fn run_p4(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 6]) {
+    fn run_p4(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
         let map = Arc::new(SyncExpanseStrMap::new());
         map.insert(nf(b"abcdefghtail1"), 1);
         map.insert(nf(b"zz"), 2);
@@ -25763,14 +25775,14 @@ mod str_ordered_tests {
     /// suffix through a holder that no longer validates.
     #[test]
     fn str_ordered_read_without_the_holder_check_dereferences_a_stale_suffix() {
-        let (got, counts) = run_p4(&[StrControl::SkipPreDeref]);
+        let (got, counts) = run_p4(&[StrControl::SkipPreDerefForwardExact]);
         assert_eq!(got, Some((b"abcdefghtail1".to_vec(), 1)));
         assert!(count(counts, StrCount::UnvalidatedDerefs) > 0, "{counts:?}");
     }
 
     /// Park point 5 (T9): the child C under "aaaaaaaa" is pruned after the
     /// reader loaded its pointer.
-    fn run_p5(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 6]) {
+    fn run_p5(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
         let map = Arc::new(p1_fixture());
         let root = inner(&map).test_cover_at(&[]).expect("root");
         assert!(inner(&map).test_cover_at(&[chunk(b"aaaaaaaa")]).is_some());
@@ -25809,16 +25821,131 @@ mod str_ordered_tests {
     /// child through a holder that no longer validates.
     #[test]
     fn str_ordered_read_without_the_holder_check_dereferences_a_pruned_child() {
-        let (got, counts) = run_p5(&[StrControl::SkipPreDeref]);
+        let (got, counts) = run_p5(&[StrControl::SkipPreDerefFree]);
         assert_eq!(got, Some((b"bbbbbbbbM".to_vec(), 2)));
         assert!(count(counts, StrCount::UnvalidatedDerefs) > 0, "{counts:?}");
+    }
+
+    /// Park point 7 (T4, backward): the predecessor search for
+    /// "abcdefghzzz" matches the chunk "abcdefgh" exactly and loads the
+    /// suffix pointer for "tail1"; the writer splits it by inserting
+    /// "abcdefgh" + "tail2" before the holder check. This is the third
+    /// `holder_ok` site, the backward exact-chunk match.
+    fn run_p7(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        map.insert(nf(b"abcdefghtail1"), 1);
+        map.insert(nf(b"aa"), 2);
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        assert_eq!(
+            inner(&map).test_cover_at(&[chunk(b"abcdefgh")]),
+            None,
+            "the key must be a suffix leaf, not a child node"
+        );
+        let before = version(root);
+        let ((got, fired), counts) = on_thread(controls, || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrDeref, move || {
+                assert_eq!(w.insert(nf(b"abcdefghtail2"), 3), None);
+            });
+            let got = map.reader().prev_at_or_before(nf(b"abcdefghzzz"));
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the dereference site must fire once");
+        assert_ne!(
+            version(root),
+            before,
+            "the split must move the root's cover"
+        );
+        assert!(
+            inner(&map).test_cover_at(&[chunk(b"abcdefgh")]).is_some(),
+            "the split must replace the suffix with a child node"
+        );
+        (got, counts)
+    }
+
+    #[test]
+    fn str_ordered_read_validates_a_backward_suffix_holder_before_the_dereference() {
+        let (got, counts) = run_p7(&[]);
+        assert_eq!(got, Some((b"abcdefghtail2".to_vec(), 3)));
+        assert_eq!(count(counts, StrCount::UnvalidatedDerefs), 0, "{counts:?}");
+        assert_eq!(count(counts, StrCount::HolderRetries), 1, "{counts:?}");
+    }
+
+    /// Negative control for the backward exact-chunk site.
+    #[test]
+    fn str_ordered_read_without_the_backward_holder_check_dereferences_a_stale_suffix() {
+        let (got, counts) = run_p7(&[StrControl::SkipPreDerefBackwardExact]);
+        assert_eq!(got, Some((b"abcdefghtail2".to_vec(), 3)));
+        assert!(count(counts, StrCount::UnvalidatedDerefs) > 0, "{counts:?}");
+    }
+
+    // ---- Park point 8: the holder is a branch, not the cover ---------------
+    //
+    // The root's sub-map is a tree whose top edge is a level-8 linear branch
+    // B over three leaves, one per first byte. Every key is its 8-byte chunk
+    // plus "tail", so each entry is a suffix leaf. The probe matches a chunk
+    // in the leaf under digit 'b' exactly, and the reader parks between
+    // loading the suffix pointer and the holder check; the writer inserts an
+    // 18th key into that leaf, which shifts it in place under B's version
+    // (capacity class 24) and leaves the cover alone (asserted). Only
+    // `validate_from` sees it: B is the first version that seek sampled.
+
+    fn p8_key(first: u8, i: u8) -> Vec<u8> {
+        let mut k = vec![first, b'k', b'k', b'k', b'k', b'k', b'k', b'0' + i];
+        k.extend_from_slice(b"tail");
+        k
+    }
+
+    fn run_p8() -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        for first in *b"abc" {
+            for i in 0..17u8 {
+                map.insert(nf(&p8_key(first, 2 * i)), u64::from(i));
+            }
+        }
+        let snap = inner(&map).test_submap_snapshot_at(&[]).expect("root");
+        let RootSnapshot::Tree { top } = snap else {
+            panic!("the root's sub-map must be a tree")
+        };
+        assert_eq!(
+            top.tag(),
+            Some(EdgeTag::Structural(EdgeType::BranchL3)),
+            "the top edge must be the level-8 branch over the three first bytes"
+        );
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        let before = version(root);
+        let ((got, fired), counts) = on_thread(&[], || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrDeref, move || {
+                assert_eq!(w.insert(nf(&p8_key(b'b', 1)), 99), None);
+            });
+            let got = map.reader().next_at_or_after(nf(&p8_key(b'b', 4)));
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the dereference site must fire once");
+        assert_eq!(
+            version(root),
+            before,
+            "the cover must not move: only the branch's version may tell"
+        );
+        (got, counts)
+    }
+
+    /// Pins `ReadSet::validate_from`: the holder check must send the attempt
+    /// back on the branch's version alone.
+    #[test]
+    fn str_ordered_read_validates_a_branch_holder_before_the_dereference() {
+        let (got, counts) = run_p8();
+        assert_eq!(got, Some((p8_key(b'b', 4), 2)));
+        assert_eq!(count(counts, StrCount::HolderRetries), 1, "{counts:?}");
+        assert_eq!(count(counts, StrCount::UnvalidatedDerefs), 0, "{counts:?}");
     }
 
     // ---- Park point 6: the cover before a sub-map's root state is read -----
 
     /// The reader copies the root's sub-map root state and parks before it
     /// checks the cover; the writer inserts into the leaf-state root.
-    fn run_p6(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 6]) {
+    fn run_p6(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
         let map = Arc::new(SyncExpanseStrMap::new());
         for (i, k) in [&b"k1"[..], b"k2", b"k3"].iter().enumerate() {
             map.insert(nf(k), i as u64);
@@ -25978,12 +26105,118 @@ mod str_ordered_tests {
         assert_eq!(count(counts, StrCount::Fallbacks), 1, "{counts:?}");
     }
 
+    // ---- The holder check's call sites, pinned in the source ---------------
+    //
+    // The park tests above count dereferences through a holder that no longer
+    // validates, inside `holder_ok`. Deleting a `holder_ok` call removes the
+    // count with the check, and the answer stays right (the final validation
+    // catches the stale read), so they cannot see it. This scan of the
+    // production walk can (AGENTS.md §5, structural attribution).
+
+    /// The window, in code lines, within which a dereference must follow its
+    /// holder check: the longest distance in the walk is the forward
+    /// exact-chunk branch, from the check to the child descent.
+    const HOLDER_WINDOW: usize = 24;
+
+    /// The code lines of `ExpanseStrMap::ordered_validated`, comment lines
+    /// dropped, so a commented-out call does not count.
+    fn walk_code(src: &str) -> Vec<&str> {
+        let start = src
+            .find("pub(crate) unsafe fn ordered_validated")
+            .expect("the walk is in strmap.rs");
+        let end = start
+            + src[start..]
+                .find("/// Returns a writable pointer to `key`'s value slot")
+                .expect("the function after the walk");
+        src[start..end]
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect()
+    }
+
+    /// The scan: exactly three `holder_ok` calls, and every dereference of an
+    /// entry's pointer (`suffix_bytes(unpack_suffix(v))`, `take_suffix(v,`,
+    /// `unpack_child(v)`) within `HOLDER_WINDOW` code lines after one.
+    /// Returns the clause that failed.
+    fn scan_holder_checks(src: &str) -> Result<(), String> {
+        let code = walk_code(src);
+        let is_call = |l: &str| l.contains("holder_ok::<") && !l.contains("fn holder_ok");
+        let calls: Vec<usize> = (0..code.len()).filter(|&i| is_call(code[i])).collect();
+        if calls.len() != 3 {
+            return Err(std::format!(
+                "count: {} holder_ok calls, want 3",
+                calls.len()
+            ));
+        }
+        let derefs: Vec<usize> = (0..code.len())
+            .filter(|&i| {
+                let l = code[i];
+                l.contains("suffix_bytes(unpack_suffix(v))")
+                    || l.contains("take_suffix(v,")
+                    || l.contains("unpack_child(v)")
+            })
+            .collect();
+        if derefs.len() != 8 {
+            return Err(std::format!("sites: {} dereferences, want 8", derefs.len()));
+        }
+        for d in derefs {
+            let near = calls.iter().filter(|&&c| c < d).max();
+            match near {
+                Some(&c) if d - c <= HOLDER_WINDOW => {}
+                _ => {
+                    return Err(std::format!(
+                        "window: no holder_ok within {HOLDER_WINDOW} code lines before `{}`",
+                        code[d]
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn holder_checks_precede_every_dereference() {
+        let src = include_str!("strmap.rs");
+        assert_eq!(scan_holder_checks(src), Ok(()));
+    }
+
+    /// The scan's negative controls, one per clause, on mutated copies of
+    /// the real source: a deleted call fails the count; a call moved away
+    /// from its dereferences (filler code between them) fails the window
+    /// with the count intact; a commented-out call is not counted.
+    #[test]
+    fn holder_check_scan_fails_on_each_clause() {
+        let src = include_str!("strmap.rs");
+        let call = "unsafe { holder_ok::<CAP, AT_BACKWARD_EXACT>(&lvl, from, rs)? };";
+        assert!(src.contains(call));
+        let deleted = src.replacen(call, "", 1);
+        assert!(
+            scan_holder_checks(&deleted)
+                .unwrap_err()
+                .starts_with("count:")
+        );
+        let commented = src.replacen(call, &std::format!("// {call}"), 1);
+        assert!(
+            scan_holder_checks(&commented)
+                .unwrap_err()
+                .starts_with("count:")
+        );
+        let filler = "let _ = 0;\n".repeat(HOLDER_WINDOW);
+        let moved = src.replacen(call, &std::format!("{call}\n{filler}"), 1);
+        assert!(
+            scan_holder_checks(&moved)
+                .unwrap_err()
+                .starts_with("window:")
+        );
+    }
+
     // ---- Differential and boundary tests on quiescent maps -----------------
 
     /// Every ordered read on `keys`, against `ExpanseStrMap`'s same-named
     /// method and its cursor, at every probe. Returns the reader thread's
     /// counts.
-    fn differential(keys: &[Vec<u8>], probes: &[Vec<u8>]) -> [u64; 6] {
+    fn differential(keys: &[Vec<u8>], probes: &[Vec<u8>]) -> [u64; 7] {
         let mut plain = ExpanseStrMap::new();
         let shared = SyncExpanseStrMap::new();
         for (i, k) in keys.iter().enumerate() {
