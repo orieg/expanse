@@ -1227,14 +1227,14 @@ Both arena fields are **12 bits wide**: `ARENA_OFFSET_MASK = 0x000F_FF00` at shi
 
 ### 10.6 Bitmap structures
 
-`Bitmap256` (`crates/expanse/src/bits.rs:491`) is four `u64` words, 32 bytes, covering one decode byte's 256 values. Bit `idx` is word `idx >> 6`, bit `idx & 63` (`Bitmap256::test`, `crates/expanse/src/bits.rs:686`).
+`Bitmap256` (`crates/expanse/src/bits.rs:489`) is four `u64` words, 32 bytes, covering one decode byte's 256 values. Bit `idx` is word `idx >> 6`, bit `idx & 63` (`Bitmap256::test`, `crates/expanse/src/bits.rs:684`).
 
 Both bitmap branches and bitmap map-leaves partition those 256 values into **eight 32-digit subexpanses**, each with its own packed array, so the rank that finds a slot is a rank *within a subexpanse*, not a global rank:
 
-- `subexpanse_rank` (`crates/expanse/src/bits.rs:843`) reinterprets the four `u64` words as eight `u32` subwords, loads subword `idx >> 5`, and popcounts the bits below `idx & 31`. That is one 32-bit load and one popcount — no loop over preceding words.
-- `test_and_subexpanse_rank` (`crates/expanse/src/bits.rs:857`) fuses the membership test with that rank, and `test_and_subexpanse_rank_with_sub` (`crates/expanse/src/bits.rs:876`) also returns the subexpanse index.
-- `subexpanse_count` (`crates/expanse/src/bits.rs:895`) is the length of one subexpanse's packed array.
-- `rank` (`crates/expanse/src/bits.rs:825`) is the *global* count of members below `idx`, used for ordered navigation rather than slot addressing; `select` (`crates/expanse/src/bits.rs:910`) inverts it and is the `ByCount` primitive.
+- `subexpanse_rank` (`crates/expanse/src/bits.rs:841`) reinterprets the four `u64` words as eight `u32` subwords, loads subword `idx >> 5`, and popcounts the bits below `idx & 31`. That is one 32-bit load and one popcount — no loop over preceding words.
+- `test_and_subexpanse_rank` (`crates/expanse/src/bits.rs:855`) fuses the membership test with that rank, and `test_and_subexpanse_rank_with_sub` (`crates/expanse/src/bits.rs:874`) also returns the subexpanse index.
+- `subexpanse_count` (`crates/expanse/src/bits.rs:893`) is the length of one subexpanse's packed array.
+- `rank` (`crates/expanse/src/bits.rs:823`) is the *global* count of members below `idx`, used for ordered navigation rather than slot addressing; `select` (`crates/expanse/src/bits.rs:908`) inverts it and is the `ByCount` primitive.
 
 **`BranchB`** (`crates/expanse/src/node.rs:784`) is 128 bytes: the bitmap at offset 0, `subarrays: [*mut Edge; 8]` at offset 32, `pop_counts: [u16; 8]` at offset 96, `version` at 112. Line 0 therefore holds the bitmap plus the first four subarray pointers, so a lookup landing in digits `0x00..0x7F` touches one line before the child edge. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
 
