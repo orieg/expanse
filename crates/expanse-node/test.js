@@ -11,6 +11,7 @@ const {
   ExpanseMap,
   ExpanseStrMap,
   ExpanseBytesMap,
+  ExpanseOrderedBytesMap,
   ExpanseBlobMap,
   SyncExpanseMap,
   SyncExpanseSet,
@@ -253,6 +254,200 @@ test('ExpanseBytesMap supporting arbitrary binary keys with NUL bytes', () => {
   const keys = bytesmap.keys();
   assert.strictEqual(keys.length, 2);
   assert(Buffer.isBuffer(keys[0]));
+});
+
+// 4b. ExpanseOrderedBytesMap Tests (C ABI: expanse_ordered_bytesmap_*)
+console.log('\n--- ExpanseOrderedBytesMap Tests ---');
+
+test('ExpanseOrderedBytesMap round-trip: set returns the previous value, get, has, size, delete', () => {
+  const map = new ExpanseOrderedBytesMap();
+  const k = Buffer.from([0x10, 0x20, 0x30]);
+
+  assert.strictEqual(map.isEmpty(), true);
+  assert.strictEqual(map.set(k, 5n), null);
+  assert.strictEqual(map.set(k, 6n), 5n);
+  assert.strictEqual(map.get(k), 6n);
+  assert.strictEqual(map.has(k), true);
+  assert.strictEqual(map.size(), 1n);
+  assert.strictEqual(map.isEmpty(), false);
+  assert.strictEqual(map.delete(k), true);
+  assert.strictEqual(map.get(k), null);
+  assert.strictEqual(map.size(), 0n);
+});
+
+test('ExpanseOrderedBytesMap orders keys as unsigned bytes, lexicographically', () => {
+  const map = new ExpanseOrderedBytesMap();
+  // Inserted out of order; 0x80 and 0xFF must sort after 0x7F (unsigned, not signed).
+  const keys = [[0xff], [0x80], [0x7f], [0x00], [0x01], [0x00, 0x00], [0x00, 0xff], [0x80, 0x00]];
+  keys.forEach((bytes, i) => map.set(Buffer.from(bytes), BigInt(i)));
+
+  const sorted = keys.map((b) => Buffer.from(b)).sort(Buffer.compare);
+  assert.deepStrictEqual(map.first().key, sorted[0]);
+  assert.deepStrictEqual(map.last().key, sorted[sorted.length - 1]);
+  assert.deepStrictEqual(map.first().key, Buffer.from([0x00]));
+  assert.deepStrictEqual(map.last().key, Buffer.from([0xff]));
+
+  // Walking higher() from the first key visits every key in ascending order.
+  const walked = [];
+  let cur = map.first();
+  while (cur !== null) {
+    walked.push(cur.key);
+    cur = map.higher(cur.key);
+  }
+  assert.strictEqual(walked.length, sorted.length);
+  walked.forEach((k, i) => assert.deepStrictEqual(k, sorted[i]));
+
+  // A key sorts before any longer key it prefixes: [0x00] < [0x00,0x00] < [0x00,0xff] < [0x01].
+  assert.deepStrictEqual(map.higher(Buffer.from([0x00])).key, Buffer.from([0x00, 0x00]));
+  assert.deepStrictEqual(map.higher(Buffer.from([0x00, 0x00])).key, Buffer.from([0x00, 0xff]));
+  assert.deepStrictEqual(map.higher(Buffer.from([0x00, 0xff])).key, Buffer.from([0x01]));
+});
+
+test('ExpanseOrderedBytesMap navigation: ceiling, higher, floor, lower on present and absent probes', () => {
+  const map = new ExpanseOrderedBytesMap();
+  map.set(Buffer.from([0x02]), 20n);
+  map.set(Buffer.from([0x04]), 40n);
+  map.set(Buffer.from([0x06]), 60n);
+
+  // Present probe: ceiling/floor include it, higher/lower exclude it.
+  assert.deepStrictEqual(map.ceiling(Buffer.from([0x04])), { key: Buffer.from([0x04]), value: 40n });
+  assert.deepStrictEqual(map.floor(Buffer.from([0x04])), { key: Buffer.from([0x04]), value: 40n });
+  assert.deepStrictEqual(map.higher(Buffer.from([0x04])), { key: Buffer.from([0x06]), value: 60n });
+  assert.deepStrictEqual(map.lower(Buffer.from([0x04])), { key: Buffer.from([0x02]), value: 20n });
+
+  // Absent probe between keys.
+  assert.deepStrictEqual(map.ceiling(Buffer.from([0x03])), { key: Buffer.from([0x04]), value: 40n });
+  assert.deepStrictEqual(map.floor(Buffer.from([0x03])), { key: Buffer.from([0x02]), value: 20n });
+
+  // Out-of-range probes return null.
+  assert.strictEqual(map.ceiling(Buffer.from([0x07])), null);
+  assert.strictEqual(map.higher(Buffer.from([0x06])), null);
+  assert.strictEqual(map.floor(Buffer.from([0x01])), null);
+  assert.strictEqual(map.lower(Buffer.from([0x02])), null);
+});
+
+test('ExpanseOrderedBytesMap empty key is valid, sorts first, and round-trips', () => {
+  const map = new ExpanseOrderedBytesMap();
+  const empty = Buffer.alloc(0);
+
+  assert.strictEqual(map.set(empty, 7n), null);
+  assert.strictEqual(map.get(empty), 7n);
+  assert.strictEqual(map.has(empty), true);
+  assert.strictEqual(map.size(), 1n);
+
+  map.set(Buffer.from([0x00]), 8n);
+  const first = map.first();
+  assert.strictEqual(first.key.length, 0);
+  assert.strictEqual(first.value, 7n);
+  assert.strictEqual(map.lower(Buffer.from([0x00])).key.length, 0);
+  assert.strictEqual(map.lower(Buffer.from([0x00])).value, 7n);
+  assert.strictEqual(map.floor(empty).value, 7n);
+  assert.strictEqual(map.higher(empty).value, 8n);
+
+  assert.strictEqual(map.delete(empty), true);
+  assert.deepStrictEqual(map.first().key, Buffer.from([0x00]));
+});
+
+test('ExpanseOrderedBytesMap keys containing 0x00 and 0xFF round-trip byte-exact', () => {
+  const map = new ExpanseOrderedBytesMap();
+  const a = Buffer.from([0x00, 0x00, 0x00]);
+  const b = Buffer.from([0xff, 0x00, 0xff]);
+  const c = Buffer.from([0x00, 0xff]);
+  map.set(a, 1n);
+  map.set(b, 2n);
+  map.set(c, 3n);
+
+  assert.strictEqual(map.get(a), 1n);
+  assert.strictEqual(map.get(b), 2n);
+  assert.strictEqual(map.get(c), 3n);
+  assert.deepStrictEqual(map.first().key, a);
+  assert.deepStrictEqual(map.last().key, b);
+  assert.deepStrictEqual(map.higher(a).key, c);
+  // The returned key is the exact stored bytes, not a truncated or C-string-cut prefix.
+  assert.deepStrictEqual(map.floor(Buffer.from([0x00, 0xff, 0x00])).key, c);
+});
+
+test('ExpanseOrderedBytesMap returns keys longer than 8 bytes without truncation', () => {
+  const map = new ExpanseOrderedBytesMap();
+  const shared = Buffer.from('prefix-shared-across-keys:');
+  const long1 = Buffer.concat([shared, Buffer.from('alpha-suffix-that-is-long')]);
+  const long2 = Buffer.concat([shared, Buffer.from('beta-suffix-that-is-longer-still')]);
+  const huge = Buffer.alloc(300, 0xab);
+  huge[0] = 0x00;
+  huge[299] = 0xff;
+
+  map.set(long1, 11n);
+  map.set(long2, 22n);
+  map.set(huge, 33n);
+
+  assert.strictEqual(map.get(long1), 11n);
+  assert.strictEqual(map.get(long2), 22n);
+  assert.strictEqual(map.get(huge), 33n);
+
+  const first = map.first();
+  assert.strictEqual(first.key.length, 300);
+  assert.deepStrictEqual(first.key, huge);
+  assert.deepStrictEqual(map.last().key, long2);
+  assert.deepStrictEqual(map.ceiling(long1).key, long1);
+  assert.deepStrictEqual(map.higher(long1).key, long2);
+});
+
+test('ExpanseOrderedBytesMap absent key: get and delete report absence; insertSlot inserts zero once', () => {
+  const map = new ExpanseOrderedBytesMap();
+  const absent = Buffer.from([0x42, 0x42]);
+
+  assert.strictEqual(map.get(absent), null);
+  assert.strictEqual(map.has(absent), false);
+  assert.strictEqual(map.delete(absent), false);
+  assert.strictEqual(map.size(), 0n);
+  assert.strictEqual(map.first(), null);
+  assert.strictEqual(map.last(), null);
+
+  // insertSlot inserts 0 for an absent key and keeps an existing value.
+  assert.strictEqual(map.insertSlot(absent), 0n);
+  assert.strictEqual(map.get(absent), 0n);
+  map.set(absent, 9n);
+  assert.strictEqual(map.insertSlot(absent), 9n);
+  assert.strictEqual(map.get(absent), 9n);
+  assert.strictEqual(map.size(), 1n);
+});
+
+test('ExpanseOrderedBytesMap iteration observes mutations made between steps', () => {
+  const map = new ExpanseOrderedBytesMap();
+  map.set(Buffer.from([0x01]), 1n);
+  map.set(Buffer.from([0x02]), 2n);
+  map.set(Buffer.from([0x03]), 3n);
+
+  assert.deepStrictEqual(map.first().key, Buffer.from([0x01]));
+  map.delete(Buffer.from([0x01]));
+  assert.deepStrictEqual(map.first().key, Buffer.from([0x02]));
+
+  // A key inserted below the current first becomes the new first.
+  map.set(Buffer.from([0x00, 0x09]), 9n);
+  assert.deepStrictEqual(map.first(), { key: Buffer.from([0x00, 0x09]), value: 9n });
+  assert.deepStrictEqual(map.higher(Buffer.from([0x00, 0x09])), { key: Buffer.from([0x02]), value: 2n });
+
+  // Overwriting a value is visible to the navigation that returns it.
+  map.set(Buffer.from([0x03]), 33n);
+  assert.deepStrictEqual(map.last(), { key: Buffer.from([0x03]), value: 33n });
+});
+
+test('ExpanseOrderedBytesMap memory accounting and clear', () => {
+  const map = new ExpanseOrderedBytesMap();
+  for (let i = 0; i < 64; i++) {
+    map.set(Buffer.from([i, i ^ 0x5a]), BigInt(i));
+  }
+  assert.strictEqual(map.size(), 64n);
+  assert.strictEqual(typeof map.memUsed(), 'bigint');
+  assert.ok(map.memUsed() > 0n);
+  assert.ok(map.memHeld() >= map.memUsed());
+  assert.strictEqual(typeof map.shrinkToFit(), 'bigint');
+
+  map.clear();
+  assert.strictEqual(map.size(), 0n);
+  assert.strictEqual(map.isEmpty(), true);
+  assert.strictEqual(map.first(), null);
+  assert.strictEqual(map.get(Buffer.from([0, 0x5a])), null);
 });
 
 // 5. ExpanseBlobMap Tests
