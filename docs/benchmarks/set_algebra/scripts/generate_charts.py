@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -30,6 +31,8 @@ from pathlib import Path
 # re-created as an orphan at the old path).
 SUITE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from svg_helpers import esc  # noqa: E402
 DATA_PATH = SUITE_DIR / "results" / "bench_domain_algebra.json"
 OUTPUT_PATH = SUITE_DIR / "results" / "bench_domain_algebra.svg"
 
@@ -108,10 +111,6 @@ STYLE = """
       :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
       :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
 """
-
-
-def esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def badge(x: float, y: float, w: float, text: str) -> str:

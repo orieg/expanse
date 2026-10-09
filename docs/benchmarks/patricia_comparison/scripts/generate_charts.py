@@ -22,10 +22,14 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from theme import svg_footer, svg_header
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+from svg_helpers import esc  # noqa: E402
 
 BASE = Path(__file__).resolve().parent.parent
 RESULTS = BASE / "results"
@@ -40,10 +44,6 @@ LABEL_X, PLOT_X0, PLOT_X1, VALUE_X = 24, 200, 800, 990
 
 def load(name: str) -> dict:
     return json.loads((RESULTS / f"baseline_{name}.json").read_text())
-
-
-def esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def save(name: str, svg: str) -> None:

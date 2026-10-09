@@ -10,28 +10,16 @@ Produces four charts:
 """
 
 import json
-import xml.etree.ElementTree as ET
+import sys
 from pathlib import Path
 
 from theme import svg_header
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+from svg_helpers import esc, save_svg  # noqa: E402
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 RESULTS_DIR = BASE_DIR / "results"
-
-
-def save_svg(filepath: Path, content: str) -> None:
-    try:
-        ET.fromstring(content)
-    except ET.ParseError as err:
-        print(f"XML validation error in {filepath.name}: {err}")
-        raise
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(content)
-    print(f"Generated & validated: {filepath}")
-
-
-def esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def render_draft_quality_chart():

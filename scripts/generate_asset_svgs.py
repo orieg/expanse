@@ -36,6 +36,8 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from svg_helpers import esc
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA = REPO_ROOT / "docs" / "assets" / "data" / "bench_assets.json"
 ASSETS = REPO_ROOT / "docs" / "assets"
@@ -141,10 +143,6 @@ STYLE = """
       :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #d97706; }
       :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fcd34d; }
 """
-
-
-def esc(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def head(width: int, height: int, title: str) -> str:
