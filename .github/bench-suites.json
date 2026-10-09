@@ -427,10 +427,13 @@
           "sync_bytesmap_cas",
           "sync_bytesmap_update_rmw",
           "sync_bytesmap_cas_remove",
-          "sync_blobmap_cas"
+          "sync_blobmap_cas",
+          "sync_map_cas_insert",
+          "sync_strmap_cas_insert",
+          "sync_bytesmap_cas_insert"
         ]
       },
-      "summary": "Callgrind counts of the shipped `compare_exchange` and `update` entry points on `SyncExpanseMap`, `SyncExpanseStrMap`, `SyncExpanseBytesMap` and `SyncExpanseBlobMap`, and the bytes map's value-to-absent exchange. A second binary, so its call sites cannot move the arms of `instructions` (Refs #1395); dual-pass against the base ref."
+      "summary": "Callgrind counts of the shipped `compare_exchange` and `update` entry points on `SyncExpanseMap`, `SyncExpanseStrMap`, `SyncExpanseBytesMap` and `SyncExpanseBlobMap`, the bytes map's value-to-absent exchange, and the absent-to-value (insert-if-absent) exchange on the map, string map and bytes map. A second binary, so its call sites cannot move the arms of `instructions` (Refs #1395); dual-pass against the base ref."
     },
     {
       "name": "leaf_cap_cascaded",
