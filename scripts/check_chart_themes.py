@@ -2,17 +2,17 @@
 """Assert the shared chart-theme CSS has not drifted between suites.
 
 Each comparative suite under `docs/benchmarks/<suite>/scripts/` carries its own
-`theme.py`. Five of them exist and no two are identical: 47 of ~92-117 lines are
+`theme.py`. Eight of them exist and no two are identical: 47 of ~92-117 lines are
 common, and the rest is that suite's own competitor palette, which is correct --
 `.b-roaring` belongs to the search suite and nowhere else.
 
 What is NOT correct is the shared chrome silently diverging. Background, border,
 grid, axis, divider, every text class and their dark-mode overrides are the same
-design system in all five, and a change landing in one copy is invisible in the
+design system in all eight, and a change landing in one copy is invisible in the
 other four.
 
 This gate takes the drift-prevention half of that problem without the rewrite.
-Consolidating the five into one module was considered and rejected: the SVGs
+Consolidating the eight into one module was considered and rejected: the SVGs
 regenerate byte-identically today, which is the only acceptance test worth
 having, and a shared module that emits the same rules in a different ORDER
 cannot meet it -- the CSS is embedded in the chart text. A gate keeps the
