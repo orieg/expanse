@@ -9,6 +9,7 @@ pub mod blobmap;
 pub mod buffer;
 pub mod bytesmap;
 pub mod map;
+pub mod ordered_bytesmap;
 pub mod set;
 pub mod strmap;
 pub mod sync;
@@ -21,6 +22,10 @@ pub use bytesmap::{
 };
 pub use map::{
     ExpanseMap, ExpanseMapItemIter, ExpanseMapKeyIter, ExpanseMapRangeIter, ExpanseMapValueIter,
+};
+pub use ordered_bytesmap::{
+    ExpanseOrderedBytesMap, ExpanseOrderedBytesMapItemIter, ExpanseOrderedBytesMapKeyIter,
+    ExpanseOrderedBytesMapValueIter,
 };
 pub use set::{ExpanseSet, ExpanseSetIter, ExpanseSetRangeIter};
 pub use strmap::{
@@ -45,6 +50,7 @@ fn _expanse(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ExpanseStrMap>()?;
     m.add_class::<ExpanseBytesMap>()?;
     m.add_class::<ExpanseBlobMap>()?;
+    m.add_class::<ExpanseOrderedBytesMap>()?;
 
     // Iterator types for ExpanseMap
     m.add_class::<ExpanseMapKeyIter>()?;
@@ -75,6 +81,11 @@ fn _expanse(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ExpanseBytesMapKeyIter>()?;
     m.add_class::<ExpanseBytesMapValueIter>()?;
     m.add_class::<ExpanseBytesMapItemIter>()?;
+
+    // Iterator types for ExpanseOrderedBytesMap
+    m.add_class::<ExpanseOrderedBytesMapKeyIter>()?;
+    m.add_class::<ExpanseOrderedBytesMapValueIter>()?;
+    m.add_class::<ExpanseOrderedBytesMapItemIter>()?;
 
     Ok(())
 }

@@ -194,6 +194,39 @@ assert reloaded[1] == b"arbitrary payload bytes"
 
 The arena's capacity cap counts allocated chunk bytes and defaults to 1 GiB; `ExpanseBlobMap(chunk_size, max_capacity)` sets another, clamped to `[chunk_size, 64 GiB]`. An insert the cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1); `set_reclaim_at_cap(False)` turns that off. `insert` raises `RuntimeError` on any refusal; `insert_status` returns the reason instead: `"cap_refused"` when nothing was compacted (dead bytes may remain, `arena_stats()` shows how many), `"arena_full"` when the insert compacted and the record still does not fit. A map loaded with `load_from_file` has the default cap.
 
+### 3.6 `ExpanseOrderedBytesMap` (Ordered Byte Key Map / `expanse_ordered_bytesmap_*`)
+
+`ExpanseOrderedBytesMap` binds the `expanse_ordered_bytesmap_*` C surface (`include/expanse.h`) for Python: an ordered map from arbitrary byte keys to 64-bit values. Keys compare as unsigned bytes in lexicographic order, so a key sorts before any longer key it prefixes. Keys may be empty and may contain any byte, including `0x00` and `0xFF`. `str` keys are encoded as UTF-8 and address the same entry as their bytes.
+
+| Python | C symbol |
+|---|---|
+| constructor / garbage collection | `_new` / `_free` |
+| `map[key]`, `insert`, `get`, `in`, `del map[key]`, `remove` | `_get`, `_insert`, `_contains`, `_remove` |
+| `slot`, `ins_slot` | `_slot`, `_ins_slot` |
+| `len`, `mem_used`, `mem_held`, `shrink_to_fit`, `clear` | `_len`, `_mem_used`, `_mem_held`, `_shrink_to_fit`, `_clear` |
+| `first`, `last` | `_first`, `_last` |
+| `next_at_or_after`, `next_after` | `_next_at_or_after`, `_next_after` |
+| `prev_at_or_before`, `prev_before` | `_prev_at_or_before`, `_prev_before` |
+
+```python
+from expanse_trie import ExpanseOrderedBytesMap
+
+om = ExpanseOrderedBytesMap()
+om[b""] = 0
+om[b"\x00\xff"] = 1
+om["user:42"] = 2
+
+assert list(om.keys()) == [b"", b"\x00\xff", b"user:42"]
+assert om.first() == (b"", 0)
+assert om.next_after(b"") == (b"\x00\xff", 1)
+assert om.prev_before(b"user:42") == (b"\x00\xff", 1)
+```
+
+- **Navigation returns owned `bytes`.** The C ABI asks the caller to supply a destination buffer and retry on `EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL`. The Python binding has no caller buffer: each key is returned whole, so a key is never truncated and no retry is needed.
+- **Missing keys:** `map[key]` raises `KeyError`; `get` returns `None` or the given default; `first`/`last` and the navigation methods return `None` when no entry matches.
+- **`slot` and `ins_slot` return values, not pointers.** Python has no writable value pointer, so `slot(key)` returns the stored value or `None`, and `ins_slot(key)` inserts `0` when the key is absent (an existing value is kept) and returns the value. Store a new value with `map[key] = value`.
+- **Iteration** (`for key in map`, `keys()`, `values()`, `items()`) is in ascending key order over a snapshot taken when the iterator is created. Navigation methods read the map as it is at the call.
+
 ---
 
 ## 4. Multithreaded GIL-Free Concurrency (`SyncExpanse*`)
