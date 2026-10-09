@@ -32,15 +32,21 @@ concurrency:
 jobs:
   publish-java:
     name: Package & Publish Java (${{ inputs.release_tag }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: write # attach the jar to the GitHub Release
       actions: read # read the source run's artifacts
     steps:
-      - uses: actions/checkout@v7
+      - name: Harden the runner (audit egress)
+        uses: step-security/harden-runner@351661ca32ac09a36dc5ee2d536e3128f2a3c8ed # v2.22.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.release_tag }}
+          persist-credentials: false
 
       - name: Verify the tag's manifests match the tag
         run: |
@@ -51,10 +57,28 @@ jobs:
           grep -q "<version>${VERSION}</version>" bindings/java/pom.xml \
             || { echo "::error::bindings/java/pom.xml is not at ${VERSION}"; exit 1; }
 
+      - name: Upgrade central publishing plugin if tagged prior to 0.9.0
+        run: |
+          set -euo pipefail
+          # Pre-v0.11.2 tags pinned central-publishing-maven-plugin 0.4.0, which Sonatype
+          # Central Portal rejects with "Bundle has content that does NOT have a .pom file" (Refs #1431).
+          python3 -c "
+          p = 'bindings/java/pom.xml'
+          with open(p, 'r', encoding='utf-8') as f:
+              content = f.read()
+          if '<version>0.4.0</version>' in content:
+              content = content.replace('<version>0.4.0</version>', '<version>0.9.0</version>')
+              with open(p, 'w', encoding='utf-8') as f:
+                  f.write(content)
+              print('Upgraded central-publishing-maven-plugin from 0.4.0 to 0.9.0')
+          "
+          grep -q "<version>0.9.0</version>" bindings/java/pom.xml \
+            || { echo "::error::central-publishing-maven-plugin is not at 0.9.0"; exit 1; }
+
       - name: Set up JDK 22
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
-          java-version: '22'
+          java-version: '22.0.2'
           distribution: 'temurin'
           server-id: central
           server-username: MAVEN_CENTRAL_USERNAME
@@ -114,6 +138,12 @@ jobs:
           fi
           mkdir -p ~/.m2
           echo "<settings><servers><server><id>central</id><username>${MAVEN_CENTRAL_USERNAME}</username><password>${MAVEN_CENTRAL_TOKEN}</password></server></servers></settings>" > ~/.m2/settings.xml
+          version=$(grep -m1 '<version>' bindings/java/pom.xml | sed 's/[^0-9.]//g')
+          if curl -s -f -o /dev/null "https://repo1.maven.org/maven2/io/github/orieg/expanse-java/${version}/expanse-java-${version}.pom"; then
+            echo "expanse-java ${version} already published on Maven Central, skipping"
+            exit 0
+          fi
+          rm -rf bindings/java/target/central-staging bindings/java/target/central-publishing
           mvn deploy -f bindings/java/pom.xml -P release -DskipTests \
             -Dgpg.pinentry-mode=loopback \
             -Dgpg.passphrase="${GPG_PASSPHRASE:-}"
