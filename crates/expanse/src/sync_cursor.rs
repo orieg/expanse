@@ -279,6 +279,15 @@ pub struct SyncMapCursor<'m, 'r> {
 
 impl<'m, 'r> SyncMapCursor<'m, 'r> {
     /// Creates a forward batch cursor scanning all entries in `map`.
+    ///
+    /// `reader` must be registered on `map`'s collector, which in the public
+    /// API means by `map` itself (#1194). An [`crate::occ::Collector`] built
+    /// with `Collector::new` belongs to no map, so its readers are rejected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `reader` was registered on a different collector than
+    /// `map`'s, when the cursor is created and before any node is read.
     #[must_use]
     pub fn new(map: &'m SyncExpanseMap, reader: &'r Reader) -> Self {
         Self::range(map, reader, 0, u64::MAX)
@@ -288,8 +297,16 @@ impl<'m, 'r> SyncMapCursor<'m, 'r> {
     ///
     /// The range is inclusive of both bounds (`start..=end`), matching future
     /// single-threaded `MapCursor RangeBounds` conventions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `reader` was registered on a different collector than
+    /// `map`'s (see [`Self::new`]).
     #[must_use]
     pub fn range(map: &'m SyncExpanseMap, reader: &'r Reader, start: u64, end: u64) -> Self {
+        // The map's collector is fixed at construction and the cursor holds
+        // both borrows, so this one check covers every batch it pins for.
+        let reader = map.registered(reader);
         let exhausted = start > end;
         Self {
             map,
@@ -305,12 +322,18 @@ impl<'m, 'r> SyncMapCursor<'m, 'r> {
     }
 
     /// Creates a forward batch cursor scanning entries matching `bounds`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `reader` was registered on a different collector than
+    /// `map`'s (see [`Self::new`]), including for an empty range.
     #[must_use]
     pub fn range_bounds<R: core::ops::RangeBounds<u64>>(
         map: &'m SyncExpanseMap,
         reader: &'r Reader,
         bounds: R,
     ) -> Self {
+        let reader = map.registered(reader);
         let start = match bounds.start_bound() {
             core::ops::Bound::Included(&s) => s,
             core::ops::Bound::Excluded(&s) => match s.checked_add(1) {
