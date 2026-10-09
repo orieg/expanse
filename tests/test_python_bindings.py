@@ -18,6 +18,7 @@ from expanse_trie import (
     ExpanseStrMap,
     ExpanseBytesMap,
     ExpanseBlobMap,
+    ExpanseOrderedBytesMap,
     SyncExpanseSet,
     SyncExpanseMap,
     __version__,
@@ -770,3 +771,179 @@ def test_sync_map_get_many_matches_per_call_get():
     out = m.get_many(big)
     assert len(out) == len(big)
     assert out == [m.get(k) for k in big]
+
+
+# ============================================================================
+# 6. ExpanseOrderedBytesMap Tests (C ABI expanse_ordered_bytesmap_*)
+# ============================================================================
+
+
+def test_ordered_bytesmap_roundtrip_and_mutation():
+    om = ExpanseOrderedBytesMap()
+    assert om.is_empty()
+    assert len(om) == 0
+    assert not om
+    assert om.get(b"absent") is None
+    assert om.get(b"absent", 7) == 7
+
+    assert om.insert(b"alpha", 1) is None  # new key: no previous value
+    assert om.insert(b"alpha", 2) == 1  # replace returns previous
+    assert om[b"alpha"] == 2
+    assert b"alpha" in om
+    assert om.contains("alpha")  # str keys are encoded as UTF-8
+    assert om.get("alpha") == 2  # str and bytes keys address the same entry
+    om["beta"] = 5
+    assert om[b"beta"] == 5
+    assert len(om) == 2
+    assert bool(om)
+
+    with pytest.raises(KeyError):
+        _ = om[b"missing"]
+    assert om.remove(b"beta") == 5
+    assert om.remove(b"beta") is None
+    with pytest.raises(KeyError):
+        del om[b"beta"]
+    del om[b"alpha"]
+    assert len(om) == 0
+    assert repr(om) == "ExpanseOrderedBytesMap(len=0)"
+
+
+def test_ordered_bytesmap_order_and_navigation():
+    om = ExpanseOrderedBytesMap()
+    keys = [b"b", b"a", b"ab", b"", b"\x00", b"\xff", b"abc", b"\x01"]
+    for i, k in enumerate(keys):
+        om.insert(k, i)
+
+    # Ascending unsigned-byte lexicographic order; a key sorts before its extensions.
+    expected = sorted(keys)
+    assert list(om.keys()) == expected
+    assert [k for k in om] == expected
+    assert [v for _, v in om.items()] == [keys.index(k) for k in expected]
+    assert list(om.values()) == [keys.index(k) for k in expected]
+
+    assert om.first() == (b"", keys.index(b""))
+    assert om.last() == (b"\xff", keys.index(b"\xff"))
+
+    # Exact-hit and between-key navigation.
+    assert om.next_at_or_after(b"a") == (b"a", keys.index(b"a"))
+    assert om.next_after(b"a") == (b"ab", keys.index(b"ab"))
+    assert om.next_at_or_after(b"aa") == (b"ab", keys.index(b"ab"))
+    assert om.prev_at_or_before(b"aa") == (b"a", keys.index(b"a"))
+    assert om.prev_at_or_before(b"ab") == (b"ab", keys.index(b"ab"))
+    assert om.prev_before(b"ab") == (b"a", keys.index(b"a"))
+
+    # Edges: nothing before the smallest key or after the largest.
+    assert om.prev_before(b"") is None
+    assert om.prev_at_or_before(b"") == (b"", keys.index(b""))
+    assert om.next_after(b"\xff") is None
+    assert om.next_at_or_after(b"\xff\xff") is None
+
+
+def test_ordered_bytesmap_empty_key():
+    om = ExpanseOrderedBytesMap()
+    om.insert(b"", 42)
+    om.insert(b"\x00", 1)
+    assert om[b""] == 42
+    assert b"" in om
+    assert om.first() == (b"", 42)
+    assert om.next_after(b"") == (b"\x00", 1)
+    assert om.remove(b"") == 42
+    assert b"" not in om
+    assert om.first() == (b"\x00", 1)
+
+
+def test_ordered_bytesmap_nul_and_ff_bytes_roundtrip():
+    om = ExpanseOrderedBytesMap()
+    raw = [b"\x00", b"\x00\x00", b"\x01", b"\x01\x00\x01", b"\xff", b"\xff\x00\xff", b"a\x00b"]
+    for i, k in enumerate(raw):
+        om.insert(k, 100 + i)
+    for i, k in enumerate(raw):
+        assert om[k] == 100 + i
+    # Every key comes back byte-for-byte, with its embedded NUL/0x01/0xFF intact.
+    assert list(om.keys()) == sorted(raw)
+    assert all(type(k) is bytes for k in om.keys())
+    assert om.last() == (b"\xff\x00\xff", 100 + raw.index(b"\xff\x00\xff"))
+
+
+def test_ordered_bytesmap_long_key_beyond_navigation_buffer():
+    # Longer than 8 bytes and longer than a 256-byte caller buffer would hold: navigation must
+    # return the whole key, never a truncated prefix.
+    long_key = bytes(range(256)) * 16  # 4096 bytes, ends in 0xFF, includes 0x00
+    # Shares the first 4095 bytes; its last byte is 0x00, so it sorts before long_key.
+    other = long_key[:-1] + b"\x00"
+    assert other < long_key
+    om = ExpanseOrderedBytesMap()
+    om.insert(long_key, 9)
+    om.insert(other, 8)
+    assert om[long_key] == 9
+    assert len(om.first()[0]) == len(other)
+    assert om.first() == (other, 8)
+    assert om.last() == (long_key, 9)
+    assert om.next_at_or_after(long_key[:-1]) == (other, 8)
+    assert om.next_after(other) == (long_key, 9)
+    assert om.prev_before(long_key) == (other, 8)
+    assert om.prev_at_or_before(long_key) == (long_key, 9)
+
+
+def test_ordered_bytesmap_absent_key_and_empty_map():
+    om = ExpanseOrderedBytesMap()
+    assert om.first() is None
+    assert om.last() is None
+    assert om.next_at_or_after(b"x") is None
+    assert om.prev_at_or_before(b"x") is None
+    assert om.get(b"x") is None
+    assert list(om.keys()) == []
+
+    om.insert(b"m", 1)
+    # An absent key navigates to its neighbours without matching.
+    assert om.get(b"l") is None
+    assert b"l" not in om
+    assert om.next_at_or_after(b"l") == (b"m", 1)
+    assert om.prev_at_or_before(b"n") == (b"m", 1)
+    assert om.next_after(b"m") is None
+
+
+def test_ordered_bytesmap_iteration_after_mutation():
+    om = ExpanseOrderedBytesMap()
+    for i, k in enumerate([b"a", b"c", b"e"]):
+        om.insert(k, i)
+    assert list(om.keys()) == [b"a", b"c", b"e"]
+
+    # Mutations made between navigation calls are observed by the following calls.
+    om.insert(b"b", 10)
+    assert om.next_after(b"a") == (b"b", 10)
+    om.remove(b"b")
+    assert om.next_after(b"a") == (b"c", 1)
+
+    # A fresh iterator reflects the current contents; an old one is a snapshot.
+    snapshot = om.keys()
+    om.insert(b"d", 3)
+    assert list(om.keys()) == [b"a", b"c", b"d", b"e"]
+    assert list(snapshot) == [b"a", b"c", b"e"]
+    assert len(list(om.items())) == 4
+
+
+def test_ordered_bytesmap_slot_and_ins_slot():
+    om = ExpanseOrderedBytesMap()
+    assert om.slot(b"k") is None  # absent: no slot value
+    assert om.ins_slot(b"k") == 0  # absent: inserted with value 0
+    assert b"k" in om
+    om[b"k"] = 77
+    assert om.ins_slot(b"k") == 77  # present: existing value is kept
+    assert om.slot(b"k") == 77
+    assert om[b"k"] == 77
+
+
+def test_ordered_bytesmap_memory_accounting_and_clear():
+    om = ExpanseOrderedBytesMap()
+    assert om.mem_used() == 0
+    for i in range(500):
+        om.insert(i.to_bytes(4, "big"), i)
+    assert len(om) == 500
+    assert om.mem_used() > 0
+    assert om.mem_held() >= om.mem_used()
+    assert isinstance(om.shrink_to_fit(), int)
+    om.clear()
+    assert len(om) == 0
+    assert om.first() is None
+    assert om.mem_used() == 0
