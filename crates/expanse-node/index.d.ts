@@ -455,6 +455,99 @@ export class ExpanseBytesMap {
 }
 
 /**
+ * An ordered map from arbitrary byte keys (any length, including empty, `0x00` and `0xFF`) to 64-bit unsigned integers.
+ * Keys are ordered as unsigned bytes, lexicographically; a key sorts before any longer key it prefixes.
+ */
+export class ExpanseOrderedBytesMap {
+  constructor();
+
+  /**
+   * Number of entries stored in the map.
+   */
+  size(): bigint;
+
+  /**
+   * Returns true if the map is empty.
+   */
+  isEmpty(): boolean;
+
+  /**
+   * Checks whether `key` exists in the map.
+   */
+  has(key: BytesInput): boolean;
+
+  /**
+   * Sets `map[key] = value`. Returns the previous value if present, or null.
+   */
+  set(key: BytesInput, value: KeyInput): bigint | null;
+
+  /**
+   * Retrieves the value for `key`, or null if absent.
+   */
+  get(key: BytesInput): bigint | null;
+
+  /**
+   * Returns the value for `key`, inserting it with value 0 first if absent. An existing value is kept.
+   */
+  insertSlot(key: BytesInput): bigint;
+
+  /**
+   * Deletes `key` from the map. Returns true if present, false otherwise.
+   */
+  delete(key: BytesInput): boolean;
+
+  /**
+   * Removes all entries and releases memory.
+   */
+  clear(): void;
+
+  /**
+   * Heap bytes used by the trie nodes and value slots.
+   */
+  memUsed(): bigint;
+
+  /**
+   * Heap bytes held by the map, including spare capacity.
+   */
+  memHeld(): bigint;
+
+  /**
+   * Releases spare capacity and returns the number of bytes released.
+   */
+  shrinkToFit(): bigint;
+
+  /**
+   * Smallest key and its value, or null if the map is empty. The key is a Buffer, never truncated.
+   */
+  first(): BytesMapEntry | null;
+
+  /**
+   * Largest key and its value, or null if the map is empty.
+   */
+  last(): BytesMapEntry | null;
+
+  /**
+   * Smallest entry whose key is `>= key`, or null if none.
+   */
+  ceiling(key: BytesInput): BytesMapEntry | null;
+
+  /**
+   * Smallest entry whose key is `> key`, or null if none.
+   */
+  higher(key: BytesInput): BytesMapEntry | null;
+
+  /**
+   * Largest entry whose key is `<= key`, or null if none.
+   */
+  floor(key: BytesInput): BytesMapEntry | null;
+
+  /**
+   * Largest entry whose key is `< key`, or null if none.
+   */
+  lower(key: BytesInput): BytesMapEntry | null;
+}
+
+/**
  * A high-performance map from 64-bit integer keys to arbitrary-length byte payloads
  * backed by inline polymorphic 64-bit value slots and chunked slab arenas.
  */
