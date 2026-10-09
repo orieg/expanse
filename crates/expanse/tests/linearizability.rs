@@ -1731,6 +1731,87 @@ fn test_sync_map_get_or_insert_linearizability_tree_rooted() {
     run_get_or_insert_mix(map);
 }
 
+/// Runs the `get_or_insert` mix on the string map and checks every key's
+/// history.
+fn run_strmap_get_or_insert_mix(map: Arc<SyncExpanseStrMap>) {
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let num_threads = 4;
+    let ops_per_thread = 120;
+    let mut handles = vec![];
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            for i in 0..ops_per_thread {
+                let key = ((t_id * 7 + i * 5) % 3) as u64;
+                let op = get_or_insert_mix_op(t_id, i, key);
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(str_key(*k), *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(str_key(*k))),
+                    Op::Get(k) => Ret::Get(map_clone.get(str_key(*k))),
+                    Op::GetOrInsert(k, v) => {
+                        Ret::GetOrInsert(map_clone.get_or_insert(str_key(*k), *v))
+                    }
+                    _ => unreachable!(),
+                };
+                let end = Instant::now();
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+            history_clone.lock().unwrap().extend(local_events);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let history = history.lock().unwrap().clone();
+    assert_get_or_insert_mix_exercised(&history);
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for get_or_insert string key {}",
+            key
+        );
+    }
+}
+
+/// `SyncExpanseStrMap::get_or_insert` against concurrent inserts, removes
+/// and reads, with the root node's sub-map in root-leaf state.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_strmap_get_or_insert_linearizability_root_leaf() {
+    run_strmap_get_or_insert_mix(Arc::new(SyncExpanseStrMap::new()));
+}
+
+/// The same mix with more first chunks than a root leaf holds, so the root
+/// node's sub-map is a tree and the mix runs on the optimistic tree paths.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_strmap_get_or_insert_linearizability_tree_rooted() {
+    let map = Arc::new(SyncExpanseStrMap::new());
+    for b in 1..=64u64 {
+        let k = format!("f{b:03}");
+        map.insert(NulFreeStr::new(k.as_bytes()).expect("NUL-free"), b);
+    }
+    run_strmap_get_or_insert_mix(map);
+}
+
 /// Linearizability verification of `SyncExpanseMap::update`
 /// across concurrent writers and readers mixing inserts, removes, gets, CAS, and update.
 #[test]
