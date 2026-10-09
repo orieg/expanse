@@ -341,7 +341,6 @@ pub(crate) unsafe fn lower_bound_16_u8(hay: *const u8, len: usize, needle: u8) -
 ///
 /// `hay` must point to at least 16 readable bytes (8 x u16).
 #[inline]
-#[allow(dead_code)]
 pub(crate) unsafe fn search_8_u16(hay: *const u8, len: usize, needle: u16) -> Option<usize> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
@@ -416,7 +415,6 @@ pub(crate) unsafe fn lower_bound_8_u16(hay: *const u8, len: usize, needle: u16) 
 ///
 /// `hay` must point to at least 16 readable bytes (4 x u32).
 #[inline]
-#[allow(dead_code)]
 pub(crate) unsafe fn search_4_u32(hay: *const u8, len: usize, needle: u32) -> Option<usize> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {

@@ -724,18 +724,6 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         None
     }
 
-    /// Switches this map to deferred reclamation through `collector`,
-    /// permanently (the Phase 7 `sync` wrapper calls this once at
-    /// construction). Idempotent for the same collector; a second call
-    /// with a different collector panics.
-    ///
-    /// Requires an **empty** map: a populated map's hash trie holds
-    /// slab-carved node memory, which must never be retired to the
-    /// collector (see `NodeAlloc::defer_to`). The `sync` wrapper shares
-    /// a populated map by rebuilding it through a pre-deferred one.
-    ///
-    /// `pub(crate)` deliberately — only the `sync` wrapper drives a
-    /// collector's epochs (see `BlobArena::defer_to` for the rationale).
     /// Binds the wrapper's tree-level version word to the hash trie's
     /// allocator (#568 PR 3; see `NodeAlloc::bind_tree_word`).
     ///
@@ -749,6 +737,18 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         unsafe { self.map.occ_root().1.bind_tree_word(word) };
     }
 
+    /// Switches this map to deferred reclamation through `collector`,
+    /// permanently (the Phase 7 `sync` wrapper calls this once at
+    /// construction). Idempotent for the same collector; a second call
+    /// with a different collector panics.
+    ///
+    /// Requires an **empty** map: a populated map's hash trie holds
+    /// slab-carved node memory, which must never be retired to the
+    /// collector (see `NodeAlloc::defer_to`). The `sync` wrapper shares
+    /// a populated map by rebuilding it through a pre-deferred one.
+    ///
+    /// `pub(crate)` deliberately — only the `sync` wrapper drives a
+    /// collector's epochs (see `BlobArena::defer_to` for the rationale).
     #[cfg(feature = "std")]
     pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
         assert!(
@@ -773,25 +773,26 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     }
 
     #[inline(always)]
-    #[allow(dead_code)]
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-bytes-serial-writers")
+    ))]
     pub(crate) fn set_len(&mut self, len: u64) {
         self.len = len;
     }
 
     /// Number of buckets in the underlying trie.
     #[inline(always)]
-    #[allow(dead_code)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn bucket_count(&self) -> u64 {
         self.map.len()
     }
 
     #[inline(always)]
-    #[allow(dead_code)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn set_bucket_pop(&mut self, pop: u64) {
-        #[cfg(all(target_pointer_width = "64", feature = "std"))]
         self.map.set_tree_pop(pop);
-        #[cfg(not(all(target_pointer_width = "64", feature = "std")))]
-        let _ = pop;
     }
 
     /// True when no keys are present.

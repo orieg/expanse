@@ -2361,13 +2361,6 @@ impl ExpanseBlobMap {
         &self.index
     }
 
-    /// Phase 7 (issue #219): replaces the index with a copy rebuilt through
-    /// an allocator deferred to `collector` **before any node is
-    /// allocated**. Sharing a populated map requires this because a
-    /// single-threaded index holds slab-carved node memory, which must
-    /// never be retired to the collector (see `NodeAlloc::defer_to`); the
-    /// old index (and its slab pages, wholesale) is freed here. Arena
-    /// payloads are untouched — the raw `ValueSlot` words carry over.
     /// Binds the wrapper's tree-level version word to the index trie's
     /// allocator (#568 PR 3; see `NodeAlloc::bind_tree_word`).
     ///
@@ -2381,6 +2374,13 @@ impl ExpanseBlobMap {
         unsafe { self.index.occ_root().1.bind_tree_word(word) };
     }
 
+    /// Phase 7 (issue #219): replaces the index with a copy rebuilt through
+    /// an allocator deferred to `collector` **before any node is
+    /// allocated**. Sharing a populated map requires this because a
+    /// single-threaded index holds slab-carved node memory, which must
+    /// never be retired to the collector (see `NodeAlloc::defer_to`); the
+    /// old index (and its slab pages, wholesale) is freed here. Arena
+    /// payloads are untouched — the raw `ValueSlot` words carry over.
     #[cfg(feature = "std")]
     pub(crate) fn rebuild_index_deferred(&mut self, collector: &Arc<Collector>) {
         let fresh = ExpanseMap::new();

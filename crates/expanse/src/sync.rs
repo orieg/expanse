@@ -2800,7 +2800,6 @@ impl<T: SharedTree> Shared<T> {
     /// compaction table republication) or whole-tree states (`clear`, fallback
     /// insert) that concurrent readers validate against the tree version word.
     #[inline(always)]
-    #[allow(dead_code)]
     fn write_quiesced<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
     where
         T: RootState,
