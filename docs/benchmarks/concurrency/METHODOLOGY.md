@@ -4928,6 +4928,37 @@ A consequence registered here: on `paths` and `paths_dense` at depth 5 or less, 
 - The reference host decides P33.4, with the §33.5 protocol: two independent runs, BCa 95% intervals, §8.17 load snapshots, pin `0,2,4,6,8,10,12,14`. The laptop decides nothing here.
 - Execution status: specified; no run has been taken. The harness route (`--read-op scan` with a point-op variant on `--arm str`) does not exist yet and is a prerequisite of the run, not of the pull request that adds the point ops.
 
+### 33.9 Amendment A1 to §33.8 — derivation scope, frozen threshold, missing parameters, and one correction (appended 2026-10-09, before any run of P33.4; §33.1 to §33.8 above are not edited)
+
+A review of §33.8 found a derivation stated more strongly than it holds, parameters a run needs that §33.8 does not fix, a one-sided void rule, and a sentence the code contradicted. Where this section and §33.8 differ, this section stands. The proposed threshold value is not changed. Refs #1143.
+
+#### 33.9.1 The derivation is a necessary condition
+
+§33.8.2 derives that the paired ratio "clears 1.0 when" one point-op step costs less than R = 4 cursor steps. Read it as: P33.4 **can clear 1.0 only if** the instruction ratio of `sync_strmap_scan_pointops` to `sync_strmap_scan_locked` is below R = 4. It is an upper bound on what the point ops can achieve, not a prediction that they achieve it: an instruction ratio is not a time ratio (cache misses per step, the writer's effect on both routes and the mutex's hand-off cost are not instructions), and a ratio below 4 is necessary, not sufficient.
+
+#### 33.9.2 The threshold freezes at confirmation
+
+The threshold of §33.8.2 is proposed. It freezes at the moment the maintainer confirms it, in the issue or in a review of the pull request that adds the point ops, and that confirmation is recorded beside this section before any P33.4 run. A change after that moment relabels any result taken under the old value `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+
+#### 33.9.3 Parameters a run needs
+
+- **Rounds and pairing.** 8 rounds per run. Each round runs the point-op cell and the comparator cell once each, back to back, in the order the §33.5 driver's Williams permutation gives that round. The paired statistic is the per-round ratio of point-op keys/s to comparator keys/s, both taken in the same round.
+- **Interval.** BCa 95% over the 8 per-round ratios of a run, with 10,000 bootstrap resamples (at least the 1,000 AGENTS.md §8.4 requires).
+- **Scan length.** A round whose two cells differ in mean scan length by more than 1% contributes no ratio. A run with fewer than 6 contributing rounds on a probe is `NOT_EVALUABLE` on that probe and counts as not taken; P33.4 is then evaluated only when two runs that are not `NOT_EVALUABLE` exist.
+- **Verdicts.** `PASS` needs the lower bound at or above the threshold on both probes in both runs; `REFUTED` follows from a lower bound below it on either probe in either run; one run each way is `INTERMEDIATE`, as §33.8.2 says.
+
+#### 33.9.4 The fallback share
+
+A cell whose optimistic read fallbacks exceed 1% of its read ops counts toward `REFUTED` and not toward `PASS`. The asymmetry is deliberate: the shipped point ops include their fallback, so a loss measured through it is a loss of the shipped route; a win is attributed to the optimistic route this section registers only when that route served at least 99% of the reads. A cell over 1% whose lower bound clears the threshold is `INTERMEDIATE`, and the share is reported with it.
+
+#### 33.9.5 A pre-run expectation, not evidence
+
+The new arm's first counts put the point-op scan at 3,823 instructions per key on `paths` and 4,234 on `paths_dense`, against 184.0 and 273.2 for `sync_strmap_scan_locked`: ratios of about 20.8 and 15.5 (measured: CI run 37906645775 at commit `5b8fdac19`, an earlier head of the pull request that adds the point ops; the per-key figures are derived from the arm totals over 50,000 ops). By §33.9.1 a ratio above 4 means P33.4 cannot clear 1.0 at $(W, R) = (1, 4)$ unless time per instruction differs between the routes by more than the ratio's excess. This is recorded as a pre-run expectation only. It is not evidence for or against P33.4, which only the reference host decides (§33.8.3), and the threshold is not adjusted for it.
+
+#### 33.9.6 Correction to §33.8.1
+
+§33.8.1 says an emptied but linked child "reaches the overflow path, never a wrong answer". At the time it was written the overflow path's fallback, `read_locked` running the single-threaded ordered reads, panicked on such a child (`StrNode::extreme_entry`'s `expect("non-empty node")`), as `with_locked` did on `main`. The single-threaded reads pass over the child since the fix that precedes the point ops (Refs #1143), and the sentence holds from that commit on. `StrCursor` under `with_locked` still stops early at such a child, without a panic; that is outside P33.4.
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).
