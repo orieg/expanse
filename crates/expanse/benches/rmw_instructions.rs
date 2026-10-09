@@ -1,9 +1,11 @@
 //! Deterministic cost of the shipped read-modify-write entry points on the
 //! concurrent maps: `compare_exchange` and `update` on `SyncExpanseMap`,
 //! `SyncExpanseStrMap` and `SyncExpanseBytesMap`, `compare_exchange` on
-//! `SyncExpanseBlobMap` (which has no `update`), and the value-to-absent
+//! `SyncExpanseBlobMap` (which has no `update`), the value-to-absent
 //! `compare_exchange` on `SyncExpanseBytesMap` that removes a bucket's last
-//! entry, via callgrind.
+//! entry, and the absent-to-value `compare_exchange` (insert-if-absent) on
+//! `SyncExpanseMap`, `SyncExpanseStrMap` and `SyncExpanseBytesMap`, via
+//! callgrind.
 //!
 //! This is a second Callgrind binary, apart from `instructions.rs`, on
 //! purpose. Arms that call these entry points were first written into
@@ -31,10 +33,10 @@
 //! | `group` | 2 |
 //! | `population` | `POP` (50k) keys per arm, above `ROOT_LEAF_CAP`, so every arm walks the tree and none takes the root-leaf short-circuit; `SyncExpanseMap` and `SyncExpanseBlobMap` take 50k random 64-bit keys, `SyncExpanseStrMap` and `SyncExpanseBytesMap` 50k route-shaped ASCII keys (~40 bytes, long shared prefixes) |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle is applied to the probe stream, not to the build |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0: each present key is exchanged or updated exactly once; `sync_bytesmap_cas_remove` removes each key once, so the map is empty at the end |
-//! | `hit_rate` | 100%: every `compare_exchange` carries the value the key holds, so every exchange succeeds (one thread, no concurrent writer), and every `update` replaces a present key |
-//! | `miss_gen_method` | None: no arm probes an absent key |
-//! | `value_dereference` | `black_box` on every key and expected value passed in, and on the success count returned |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0: each present key is exchanged or updated exactly once; `sync_bytesmap_cas_remove` removes each key once, so the map is empty at the end; each `*_cas_insert` arm probes 50k absent keys once each, so the map holds 100k keys at the end |
+//! | `hit_rate` | 100% on every arm but the `*_cas_insert` arms: every `compare_exchange` carries the value the key holds, so every exchange succeeds (one thread, no concurrent writer), and every `update` replaces a present key. The `*_cas_insert` arms are 0% hit by construction: every probe is absent and every exchange inserts |
+//! | `miss_gen_method` | Only the `*_cas_insert` arms probe absent keys, drawn from the population's own generator and never present: `SyncExpanseMap` continues the population's `XorShift` stream past its first `POP` draws and rejects any draw that is a member or a repeat; the string and bytes arms continue the route generator at index `POP..2*POP`, which no population key has. Not a transform of a present key |
+//! | `value_dereference` | `black_box` on every key, expected value and inserted value passed in, and on the success count returned |
 //! | `measured_region` | Build and shuffle outside the region; the map and the probe stream are both leaked with `mem::forget`, so no teardown is counted. One `assert_eq!` on the success count is inside it |
 //! | `arm_symmetry` | Internal trie paths; no competitor arm |
 //! | `statistics` | iai Callgrind exact counts |
@@ -152,6 +154,51 @@ fn built_sync_map(_dist: &str) -> (SyncExpanseMap, Vec<u64>) {
         map.insert(k, value_of(k));
     }
     (map, shuffled(ks))
+}
+
+/// `POP` keys that are not in `keys()`: the population's own `XorShift`
+/// stream continued past its first `POP` draws, rejecting a draw that is a
+/// population member or a repeat (§8.6: same generator, rejected on
+/// membership, no transform of a present key).
+fn absent_keys() -> Vec<u64> {
+    let present: std::collections::HashSet<u64> = keys().into_iter().collect();
+    let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+    for _ in 0..POP {
+        rng.next();
+    }
+    let mut seen = std::collections::HashSet::with_capacity(POP);
+    let mut out = Vec::with_capacity(POP);
+    while out.len() < POP {
+        let k = rng.next();
+        if !present.contains(&k) && seen.insert(k) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+/// Route-shaped keys that are not in `str_keys()`: the same format at indices
+/// `POP..2*POP`, which the population never reaches.
+fn absent_str_keys() -> Vec<Vec<u8>> {
+    (POP..2 * POP)
+        .map(|i| format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).into_bytes())
+        .collect()
+}
+
+/// A populated map and a shuffled stream of keys the map does not hold.
+fn built_sync_map_absent(_dist: &str) -> (SyncExpanseMap, Vec<u64>) {
+    let (map, _present) = built_sync_map("random");
+    (map, shuffled(absent_keys()))
+}
+
+fn built_sync_strmap_absent(_dist: &str) -> (SyncExpanseStrMap, Vec<Vec<u8>>) {
+    let (map, _present) = built_sync_strmap("routes");
+    (map, shuffled(absent_str_keys()))
+}
+
+fn built_sync_bytesmap_absent(_dist: &str) -> (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>) {
+    let (map, _present) = built_sync_bytesmap("routes");
+    (map, shuffled(absent_str_keys()))
 }
 
 fn built_sync_blobmap(_dist: &str) -> (SyncExpanseBlobMap, Vec<u64>) {
@@ -409,6 +456,82 @@ fn sync_blobmap_cas(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     sync_blobmap_cas_body(built)
 }
 
+// `SyncExpanseMap::compare_exchange` (sync.rs:6573), absent to value: the key
+// is not in the map, so the exchange inserts. This is the insert-if-absent
+// path a `get_or_insert` would take (Refs #1194).
+#[inline(always)]
+fn sync_map_cas_insert_body(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut won = 0u64;
+    for &k in &probes {
+        won += u64::from(
+            map.compare_exchange(black_box(k), None, Some(black_box(value_of(k))))
+                .is_ok(),
+        );
+    }
+    core::mem::forget(map);
+    core::mem::forget(probes);
+    // Every operation must insert: a failed exchange means the key was present.
+    assert_eq!(won, POP as u64);
+    black_box(won)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_map_absent)]
+fn sync_map_cas_insert(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
+    sync_map_cas_insert_body(built)
+}
+
+// `SyncExpanseStrMap::compare_exchange` (sync.rs:12737), absent to value.
+#[inline(always)]
+fn sync_strmap_cas_insert_body(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut won = 0u64;
+    for (i, k) in probes.iter().enumerate() {
+        won += u64::from(
+            map.compare_exchange(black_box(tk(k)), None, Some(black_box(i as u64)))
+                .is_ok(),
+        );
+    }
+    core::mem::forget(map);
+    core::mem::forget(probes);
+    // Every operation must insert: a failed exchange means the key was present.
+    assert_eq!(won, POP as u64);
+    black_box(won)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_strmap_absent)]
+fn sync_strmap_cas_insert(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    sync_strmap_cas_insert_body(built)
+}
+
+// `SyncExpanseBytesMap::compare_exchange` (sync.rs:13813), absent to value.
+// The 50k new keys hash to buckets the population does not occupy, so every
+// exchange inserts a new bucket.
+#[inline(always)]
+fn sync_bytesmap_cas_insert_body(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut won = 0u64;
+    for (i, k) in probes.iter().enumerate() {
+        won += u64::from(
+            map.compare_exchange(black_box(k), None, Some(black_box(i as u64)))
+                .is_ok(),
+        );
+    }
+    core::mem::forget(map);
+    core::mem::forget(probes);
+    // Every operation must insert: a failed exchange means the key was present.
+    assert_eq!(won, POP as u64);
+    black_box(won)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_sync_bytesmap_absent)]
+fn sync_bytesmap_cas_insert(built: (SyncExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    sync_bytesmap_cas_insert_body(built)
+}
+
 /// `--cache-sim=yes`, as `instructions.rs`: the same columns, so the report
 /// reads both binaries alike. Branch simulation is not requested.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -428,15 +551,18 @@ library_benchmark_group!(
         sync_bytesmap_cas,
         sync_bytesmap_update_rmw,
         sync_bytesmap_cas_remove,
-        sync_blobmap_cas
+        sync_blobmap_cas,
+        sync_map_cas_insert,
+        sync_strmap_cas_insert,
+        sync_bytesmap_cas_insert
 );
 
 #[cfg(target_os = "linux")]
 main!(config = bench_config(); library_benchmark_groups = rmw);
 
 /// Without valgrind, run every arm once and check the count it returns: each
-/// exchange succeeds and each update finds its key, so every arm returns
-/// `POP`. Not a measurement.
+/// exchange succeeds, each update finds its key and each insert-if-absent
+/// inserts, so every arm returns `POP`. Not a measurement.
 #[cfg(not(target_os = "linux"))]
 fn main() {
     // `#[library_benchmark]` turns each arm into a module, so the bodies are
@@ -449,8 +575,11 @@ fn main() {
     sync_bytesmap_update_rmw_body(built_sync_bytesmap("routes"));
     sync_bytesmap_cas_remove_body(built_sync_bytesmap("routes"));
     sync_blobmap_cas_body(built_sync_blobmap("random"));
+    sync_map_cas_insert_body(built_sync_map_absent("random"));
+    sync_strmap_cas_insert_body(built_sync_strmap_absent("routes"));
+    sync_bytesmap_cas_insert_body(built_sync_bytesmap_absent("routes"));
     println!(
         "rmw_instructions: iai-callgrind arms run on Linux only; \
-         all 8 arms ran once and met their counts (smoke check, not a measurement)."
+         all 11 arms ran once and met their counts (smoke check, not a measurement)."
     );
 }
