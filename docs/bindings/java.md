@@ -118,6 +118,26 @@ try (ExpanseMap counterMap = new ExpanseMap()) {
 
 ---
 
+### 4.1 Ordered Byte-Key Map (`ExpanseOrderedBytesMap`)
+
+`ExpanseOrderedBytesMap` binds the `expanse_ordered_bytesmap_*` C surface (`include/expanse.h`): an ordered map from arbitrary byte keys to 64-bit values. The binding covers all 19 symbols of the family.
+
+| Java | C symbol |
+|---|---|
+| constructor / `close()` | `_new` / `_free` |
+| `put` / `insert`, `get`, `containsKey`, `remove` | `_insert`, `_get`, `_contains`, `_remove` |
+| `slot`, `insertSlot` | `_slot`, `_ins_slot` |
+| `size` / `len`, `memUsed`, `memHeld`, `shrinkToFit`, `clear` | `_len`, `_mem_used`, `_mem_held`, `_shrink_to_fit`, `_clear` |
+| `firstEntry`, `lastEntry` | `_first`, `_last` |
+| `ceilingEntry`, `higherEntry` | `_next_at_or_after`, `_next_after` |
+| `floorEntry`, `lowerEntry` | `_prev_at_or_before`, `_prev_before` |
+
+- **Order**: keys compare as unsigned bytes, lexicographically; a key sorts before any longer key it prefixes. The empty key is valid and sorts first; keys may contain `0x00` and `0xFF`.
+- **Navigation buffers are caller-owned** (AGENTS.md §2.4). Each navigation call hands the native side a freshly allocated destination buffer and receives the exact key length back. On `EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL` nothing is written, and the wrapper retries with a buffer of the reported size, so a key is never truncated and a long key is never mistaken for the end of the map. A key longer than a Java array can hold raises `IllegalStateException`.
+- **Entries**: `Entry(byte[] key, long value)` carries a fresh key array per call. Record equality on the array is by reference; compare keys with `Arrays.equals`.
+- **Slots** follow the same contract as the other maps: valid until the next structural mutation, and scoped to the map's lifetime so a slot read after `close()` throws `IllegalStateException`.
+- `forEach` re-navigates from the previous key on each step, so it observes mutations made between steps.
+
 ## 5. Big Data & Streaming Integration Patterns
 
 ### 5.1 Apache Spark: Off-Heap Broadcast State & Deduplication
