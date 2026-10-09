@@ -249,6 +249,13 @@ pub enum ArenaError {
     /// `hot_meta` exceeds the 24-bit `ArenaMeta` field
     /// ([`ValueSlot::ARENA_META_MAX`]). Rejected rather than silently truncated.
     MetaOverflow,
+    /// A metadata-only compare-exchange
+    /// ([`ExpanseBlobMap::compare_exchange_meta`]) offered non-zero metadata
+    /// for a value with no metadata field: an absent key, which metadata alone
+    /// cannot create, or a payload stored in its slot word (7 bytes or fewer,
+    /// or compressed into the slot), which always reads back metadata `0`.
+    /// Only an arena payload carries the 24-bit field.
+    NoMetaField,
     /// Invalid arena offset was provided.
     InvalidOffset,
     /// Blob generation mismatch (ABA detected).
@@ -280,6 +287,10 @@ impl core::fmt::Display for ArenaError {
                 "Arena full: the record does not fit under the capacity cap after compacting"
             ),
             Self::MetaOverflow => write!(f, "hot_meta exceeds the 24-bit ArenaMeta field"),
+            Self::NoMetaField => write!(
+                f,
+                "the value has no metadata field: the key is absent or its payload is inline"
+            ),
             Self::InvalidOffset => write!(f, "Invalid arena offset"),
             Self::GenerationMismatch => write!(f, "Blob generation mismatch (ABA detected)"),
             Self::CorruptedHeader => write!(f, "Corrupted blob record header"),
@@ -292,6 +303,85 @@ impl core::fmt::Display for ArenaError {
 }
 
 impl core::error::Error for ArenaError {}
+
+/// Why a blob compare-exchange stored nothing.
+///
+/// Returned by [`ExpanseBlobMap::compare_exchange`] and
+/// [`ExpanseBlobMap::compare_exchange_meta`], and by their concurrent twins on
+/// `SyncExpanseBlobMap`. The two variants call for different handling: a
+/// [`Mismatch`](Self::Mismatch) means another value is current, and a retry
+/// that takes it as the new `expected` can succeed; an
+/// [`Unstorable`](Self::Unstorable) means the current value *was* `expected`
+/// and `new` itself was refused, so retrying the same `new` returns it again.
+/// A retry loop that matches on the variant cannot spin on a value it can
+/// never store.
+///
+/// `T` is the operation's value type: `Option<(Vec<u8>, u32)>` for a payload
+/// exchange and `Option<u32>` for a metadata exchange.
+///
+/// The enum is exhaustive on purpose: an exchange either stores `new` or
+/// fails for one of these two reasons. A new way for `new` to be refused is a
+/// new [`ArenaError`] variant inside [`Unstorable`](Self::Unstorable).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompareExchangeError<T> {
+    /// The current value is not `expected`. Carries the current value, as the
+    /// sibling wrappers' `compare_exchange` does in its `Err`. The map is
+    /// unchanged.
+    Mismatch(T),
+    /// The current value equals `expected`, but `new` cannot be stored:
+    /// [`ArenaError::MetaOverflow`] for metadata above
+    /// [`ValueSlot::ARENA_META_MAX`] on an arena payload,
+    /// [`ArenaError::NoMetaField`] for metadata offered to a value that has no
+    /// metadata field, or the arena's refusal of the payload
+    /// ([`ArenaError::OffsetOverflow`], [`ArenaError::ArenaFull`],
+    /// [`ArenaError::AllocationFailed`]). The map's contents are unchanged.
+    ///
+    /// An arena refusal can clear once other writers remove records; the two
+    /// metadata causes cannot while `new` stays the same.
+    Unstorable(ArenaError),
+}
+
+impl<T> core::fmt::Display for CompareExchangeError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Mismatch(_) => write!(
+                f,
+                "compare-exchange: the current value is not the expected one"
+            ),
+            Self::Unstorable(cause) => {
+                write!(
+                    f,
+                    "compare-exchange: the new value cannot be stored: {cause}"
+                )
+            }
+        }
+    }
+}
+
+impl<T: core::fmt::Debug> core::error::Error for CompareExchangeError<T> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Mismatch(_) => None,
+            Self::Unstorable(cause) => Some(cause),
+        }
+    }
+}
+
+/// Whether a blob value read back by a compare-exchange is the caller's
+/// `expected`: both absent, or equal payload bytes and equal metadata.
+#[inline]
+pub(crate) fn blob_value_matches(
+    current: Option<&(Vec<u8>, u32)>,
+    expected: Option<(&[u8], u32)>,
+) -> bool {
+    match (current, expected) {
+        (None, None) => true,
+        (Some((cur_b, cur_m)), Some((exp_b, exp_m))) => {
+            cur_b.as_slice() == exp_b && *cur_m == exp_m
+        }
+        _ => false,
+    }
+}
 
 /// Summary statistics from an in-place arena garbage collection and compaction run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -2080,12 +2170,29 @@ impl ExpanseBlobMap {
     }
 
     /// Compare-and-swap the 24-bit hot metadata stored for `key`.
+    ///
+    /// The current metadata is `None` for an absent key, `Some(0)` for a
+    /// payload stored in its slot word, and the stored field for an arena
+    /// payload. When it equals `expected`, `new == None` removes the key and
+    /// `new == Some(m)` rewrites the field in place; either way `Ok(current)`.
+    ///
+    /// # Errors
+    ///
+    /// - [`CompareExchangeError::Mismatch`]`(current)` when the current
+    ///   metadata is not `expected`.
+    /// - [`CompareExchangeError::Unstorable`] when it is, but `new` cannot be
+    ///   stored: [`ArenaError::MetaOverflow`] for `m` above
+    ///   [`ValueSlot::ARENA_META_MAX`], [`ArenaError::NoMetaField`] for a
+    ///   non-zero `m` on an absent key or an inline payload.
+    ///
+    /// Both leave the map unchanged. The comparison comes first, so
+    /// `Unstorable` is returned only when the current metadata is `expected`.
     pub fn compare_exchange_meta(
         &mut self,
         key: Key,
         expected: Option<u32>,
         new: Option<u32>,
-    ) -> Result<Option<u32>, Option<u32>> {
+    ) -> Result<Option<u32>, CompareExchangeError<Option<u32>>> {
         let cur_slot_raw = self.index.get(key);
         let cur_meta = cur_slot_raw.map(|raw| {
             let slot = ValueSlot::from_raw(raw);
@@ -2096,11 +2203,14 @@ impl ExpanseBlobMap {
             }
         });
         if cur_meta != expected {
-            return Err(cur_meta);
+            return Err(CompareExchangeError::Mismatch(cur_meta));
+        }
+        if matches!(new, Some(m) if m > ValueSlot::ARENA_META_MAX) {
+            return Err(CompareExchangeError::Unstorable(ArenaError::MetaOverflow));
         }
         match (cur_slot_raw, new) {
             (None, None) => Ok(None),
-            (None, Some(_)) => Err(None),
+            (None, Some(_)) => Err(CompareExchangeError::Unstorable(ArenaError::NoMetaField)),
             (Some(raw), None) => {
                 let slot = ValueSlot::from_raw(raw);
                 self.index.remove(key);
@@ -2110,16 +2220,17 @@ impl ExpanseBlobMap {
             (Some(raw), Some(new_m)) => {
                 let slot = ValueSlot::from_raw(raw);
                 if slot.tag() == SlotTag::ArenaMeta {
-                    if let Some(new_slot) = slot.with_arena_meta_meta(new_m) {
-                        self.index.insert(key, new_slot.to_raw());
-                        Ok(cur_meta)
-                    } else {
-                        Err(cur_meta)
+                    match slot.with_arena_meta_meta(new_m) {
+                        Some(new_slot) => {
+                            self.index.insert(key, new_slot.to_raw());
+                            Ok(cur_meta)
+                        }
+                        None => Err(CompareExchangeError::Unstorable(ArenaError::MetaOverflow)),
                     }
                 } else if new_m == 0 {
                     Ok(cur_meta)
                 } else {
-                    Err(cur_meta)
+                    Err(CompareExchangeError::Unstorable(ArenaError::NoMetaField))
                 }
             }
         }
@@ -2136,7 +2247,7 @@ impl ExpanseBlobMap {
         key: Key,
         expected: Option<u32>,
         new: Option<u32>,
-    ) -> Result<Option<u32>, Option<u32>> {
+    ) -> Result<Option<u32>, CompareExchangeError<Option<u32>>> {
         let cur_slot_raw = self.index.get(key);
         let cur_meta = cur_slot_raw.map(|raw| {
             let slot = ValueSlot::from_raw(raw);
@@ -2147,11 +2258,14 @@ impl ExpanseBlobMap {
             }
         });
         if cur_meta != expected {
-            return Err(cur_meta);
+            return Err(CompareExchangeError::Mismatch(cur_meta));
+        }
+        if matches!(new, Some(m) if m > ValueSlot::ARENA_META_MAX) {
+            return Err(CompareExchangeError::Unstorable(ArenaError::MetaOverflow));
         }
         match (cur_slot_raw, new) {
             (None, None) => Ok(None),
-            (None, Some(_)) => Err(None),
+            (None, Some(_)) => Err(CompareExchangeError::Unstorable(ArenaError::NoMetaField)),
             (Some(raw), None) => {
                 let slot = ValueSlot::from_raw(raw);
                 self.index.remove_shared(key);
@@ -2161,16 +2275,17 @@ impl ExpanseBlobMap {
             (Some(raw), Some(new_m)) => {
                 let slot = ValueSlot::from_raw(raw);
                 if slot.tag() == SlotTag::ArenaMeta {
-                    if let Some(new_slot) = slot.with_arena_meta_meta(new_m) {
-                        self.index.insert_shared(key, new_slot.to_raw());
-                        Ok(cur_meta)
-                    } else {
-                        Err(cur_meta)
+                    match slot.with_arena_meta_meta(new_m) {
+                        Some(new_slot) => {
+                            self.index.insert_shared(key, new_slot.to_raw());
+                            Ok(cur_meta)
+                        }
+                        None => Err(CompareExchangeError::Unstorable(ArenaError::MetaOverflow)),
                     }
                 } else if new_m == 0 {
                     Ok(cur_meta)
                 } else {
-                    Err(cur_meta)
+                    Err(CompareExchangeError::Unstorable(ArenaError::NoMetaField))
                 }
             }
         }
@@ -2178,8 +2293,27 @@ impl ExpanseBlobMap {
 
     /// Compare-and-swap the payload and metadata stored for `key`.
     ///
+    /// When the current value (`None` if absent) equals `expected`,
+    /// `new == None` removes the key and `new == Some((data, meta))` stores it
+    /// as [`Self::insert`] would; either way `Ok(current)`.
+    ///
+    /// # Errors
+    ///
+    /// - [`CompareExchangeError::Mismatch`]`(current)` when the current value
+    ///   is not `expected`.
+    /// - [`CompareExchangeError::Unstorable`]`(cause)` when it is, but `new`
+    ///   cannot be stored: `cause` is the [`ArenaError`] [`Self::insert`]
+    ///   returns for it ([`ArenaError::MetaOverflow`] for a payload longer
+    ///   than 7 bytes with metadata above [`ValueSlot::ARENA_META_MAX`], or the
+    ///   arena's refusal).
+    ///
+    /// Both leave the map's contents unchanged (an arena refusal after the
+    /// reclaim rule compacted moves arena payloads, as [`Self::insert`]
+    /// states). The comparison comes first, so `Unstorable` is returned only
+    /// when the current value is `expected`.
+    ///
     /// # Allocation Note on Failure
-    /// On mismatch, returning `Err(Some((Vec<u8>, u32)))` allocates a fresh `Vec<u8>`
+    /// On mismatch, returning `Err(Mismatch(Some((Vec<u8>, u32))))` allocates a fresh `Vec<u8>`
     /// to return the observed payload bytes. In high-contention loops where CAS operations
     /// retry frequently, allocating on failure introduces heap overhead.
     ///
@@ -2193,24 +2327,16 @@ impl ExpanseBlobMap {
         key: Key,
         expected: Option<(&[u8], u32)>,
         new: Option<(&[u8], u32)>,
-    ) -> Result<Option<(Vec<u8>, u32)>, Option<(Vec<u8>, u32)>> {
+    ) -> Result<Option<(Vec<u8>, u32)>, CompareExchangeError<Option<(Vec<u8>, u32)>>> {
         let cur = self.get(key).map(|(v, m)| (v.as_bytes().to_vec(), m));
-        let matches = match (&cur, expected) {
-            (None, None) => true,
-            (Some((cur_b, cur_m)), Some((exp_b, exp_m))) => cur_b == exp_b && *cur_m == exp_m,
-            _ => false,
-        };
-        if !matches {
-            return Err(cur);
+        if !blob_value_matches(cur.as_ref(), expected) {
+            return Err(CompareExchangeError::Mismatch(cur));
         }
         match new {
-            Some((data, meta)) => {
-                if self.insert(key, data, meta).is_ok() {
-                    Ok(cur)
-                } else {
-                    Err(cur)
-                }
-            }
+            Some((data, meta)) => match self.insert(key, data, meta) {
+                Ok(()) => Ok(cur),
+                Err(cause) => Err(CompareExchangeError::Unstorable(cause)),
+            },
             None => {
                 self.remove(key);
                 Ok(cur)
@@ -2230,24 +2356,16 @@ impl ExpanseBlobMap {
         key: Key,
         expected: Option<(&[u8], u32)>,
         new: Option<(&[u8], u32)>,
-    ) -> Result<Option<(Vec<u8>, u32)>, Option<(Vec<u8>, u32)>> {
+    ) -> Result<Option<(Vec<u8>, u32)>, CompareExchangeError<Option<(Vec<u8>, u32)>>> {
         let cur = self.get(key).map(|(v, m)| (v.as_bytes().to_vec(), m));
-        let matches = match (&cur, expected) {
-            (None, None) => true,
-            (Some((cur_b, cur_m)), Some((exp_b, exp_m))) => cur_b == exp_b && *cur_m == exp_m,
-            _ => false,
-        };
-        if !matches {
-            return Err(cur);
+        if !blob_value_matches(cur.as_ref(), expected) {
+            return Err(CompareExchangeError::Mismatch(cur));
         }
         match new {
-            Some((data, meta)) => {
-                if self.insert_shared(key, data, meta).is_ok() {
-                    Ok(cur)
-                } else {
-                    Err(cur)
-                }
-            }
+            Some((data, meta)) => match self.insert_shared(key, data, meta) {
+                Ok(()) => Ok(cur),
+                Err(cause) => Err(CompareExchangeError::Unstorable(cause)),
+            },
             None => {
                 self.remove_shared(key);
                 Ok(cur)
@@ -3935,5 +4053,150 @@ mod tests {
         assert_eq!(view.as_bytes(), arena_payload_2);
         assert_eq!(meta, 0x5678);
         assert_eq!(map.arena.total_allocated, allocated_at_err);
+    }
+
+    /// #1398 on the single-threaded map: a `new` that cannot be stored is
+    /// [`CompareExchangeError::Unstorable`] with its cause, a failed
+    /// comparison is `Mismatch(current)` whether or not `new` is storable, and
+    /// neither changes the map. Root-leaf state, then tree state.
+    #[test]
+    fn compare_exchange_unstorable_new_is_distinct_from_a_mismatch() {
+        use CompareExchangeError::{Mismatch, Unstorable};
+        let over = ValueSlot::ARENA_META_MAX + 1;
+        let long = [7u8; 16];
+        for fill in [0u64, 64] {
+            let mut m = ExpanseBlobMap::new();
+            for k in 0..fill {
+                m.insert(1_000 + k, &long, 1).unwrap();
+            }
+            assert_eq!(m.index.root_is_tree(), fill > 0);
+            m.insert(5, &long, 3).unwrap();
+            m.insert(7, b"tiny", 0).unwrap();
+
+            assert_eq!(
+                m.compare_exchange_meta(5, Some(3), Some(over)),
+                Err(Unstorable(ArenaError::MetaOverflow))
+            );
+            assert_eq!(
+                m.compare_exchange_meta(5, Some(9), Some(over)),
+                Err(Mismatch(Some(3)))
+            );
+            assert_eq!(
+                m.compare_exchange(5, Some((&long, 3)), Some((&long, over))),
+                Err(Unstorable(ArenaError::MetaOverflow))
+            );
+            assert_eq!(
+                m.compare_exchange(5, Some((&long, 9)), Some((&long, over))),
+                Err(Mismatch(Some((long.to_vec(), 3))))
+            );
+            assert_eq!(
+                m.get(5).map(|(v, meta)| (v.as_bytes().to_vec(), meta)),
+                Some((long.to_vec(), 3))
+            );
+
+            assert_eq!(
+                m.compare_exchange_meta(6, None, Some(1)),
+                Err(Unstorable(ArenaError::NoMetaField))
+            );
+            assert!(m.get(6).is_none());
+            assert_eq!(
+                m.compare_exchange_meta(7, Some(0), Some(1)),
+                Err(Unstorable(ArenaError::NoMetaField))
+            );
+            assert_eq!(
+                m.compare_exchange_meta(7, Some(1), Some(1)),
+                Err(Mismatch(Some(0)))
+            );
+            assert_eq!(m.compare_exchange_meta(7, Some(0), Some(0)), Ok(Some(0)));
+
+            assert_eq!(m.compare_exchange_meta(5, Some(3), Some(4)), Ok(Some(3)));
+            assert_eq!(m.len(), fill + 2);
+        }
+    }
+
+    /// #1398: an arena refusal is `Unstorable` with the refusal's own cause:
+    /// `OffsetOverflow` when the reclaim rule declined, `ArenaFull` when the
+    /// exchange compacted and the record still did not fit (the arena of
+    /// [`Self::arena_full_after_compaction_is_distinct_from_a_declined_reclaim`]).
+    /// The tree-state fill is inline, so it takes no arena bytes.
+    #[test]
+    fn compare_exchange_arena_refusal_is_unstorable() {
+        use CompareExchangeError::{Mismatch, Unstorable};
+        for fill in [0u64, 64] {
+            let mut m = ExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 6000);
+            for k in 0..fill {
+                m.insert(1_000 + k, &[k as u8; 4], 0).unwrap();
+            }
+            for k in 0..4u64 {
+                m.insert(k, &[k as u8; 1000], 1).unwrap();
+            }
+            assert_eq!(m.index.root_is_tree(), fill > 0);
+            let big = [9u8; 3100];
+            let g0 = m.arena().generation();
+            assert_eq!(
+                m.compare_exchange(0, Some((&[0u8; 1000], 1)), Some((&big, 1))),
+                Err(Unstorable(ArenaError::OffsetOverflow))
+            );
+            assert_eq!(
+                m.compare_exchange(0, Some((&[1u8; 1000], 1)), Some((&big, 1))),
+                Err(Mismatch(Some((vec![0u8; 1000], 1))))
+            );
+            assert_eq!(m.arena().generation(), g0);
+            for k in 1..4u64 {
+                assert!(m.remove(k));
+            }
+            assert_eq!(
+                m.compare_exchange(0, Some((&[0u8; 1000], 1)), Some((&big, 1))),
+                Err(Unstorable(ArenaError::ArenaFull))
+            );
+            assert_ne!(m.arena().generation(), g0, "the exchange compacted");
+            assert_eq!(m.get(0).unwrap().0.as_bytes(), &[0u8; 1000][..]);
+            assert_eq!(m.len(), fill + 1);
+        }
+    }
+
+    /// #1398: a retry loop that takes a `Mismatch`'s value as its next
+    /// `expected` and stops on `Unstorable` ends. Bounded, so a regression to
+    /// the ambiguous `Err(current)` fails instead of hanging.
+    #[test]
+    fn compare_exchange_retry_loop_ends_on_an_unstorable_new() {
+        use CompareExchangeError::{Mismatch, Unstorable};
+        const BOUND: usize = 8;
+        let over = ValueSlot::ARENA_META_MAX + 1;
+        let long = [7u8; 16];
+        for fill in [0u64, 64] {
+            let mut m = ExpanseBlobMap::new();
+            for k in 0..fill {
+                m.insert(1_000 + k, &long, 1).unwrap();
+            }
+            m.insert(5, &long, 3).unwrap();
+
+            let mut expected = Some(2);
+            let mut rounds = 0;
+            let cause = loop {
+                rounds += 1;
+                assert!(rounds <= BOUND, "metadata retry loop did not end");
+                match m.compare_exchange_meta(5, expected, Some(over)) {
+                    Ok(_) => panic!("an unstorable value was stored"),
+                    Err(Mismatch(cur)) => expected = cur,
+                    Err(Unstorable(e)) => break e,
+                }
+            };
+            assert_eq!((cause, rounds), (ArenaError::MetaOverflow, 2));
+
+            let mut expected: Option<(Vec<u8>, u32)> = Some((long.to_vec(), 2));
+            let mut rounds = 0;
+            let cause = loop {
+                rounds += 1;
+                assert!(rounds <= BOUND, "payload retry loop did not end");
+                let exp = expected.as_ref().map(|(b, meta)| (b.as_slice(), *meta));
+                match m.compare_exchange(5, exp, Some((&long, over))) {
+                    Ok(_) => panic!("an unstorable value was stored"),
+                    Err(Mismatch(cur)) => expected = cur,
+                    Err(Unstorable(e)) => break e,
+                }
+            };
+            assert_eq!((cause, rounds), (ArenaError::MetaOverflow, 2));
+        }
     }
 }

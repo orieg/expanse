@@ -64,7 +64,7 @@
 
 use crate::alloc::NodeAlloc;
 use crate::bits::shared_word;
-use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
+use crate::blobmap::{ArenaError, CompactionStats, CompareExchangeError, ExpanseBlobMap};
 #[cfg(all(feature = "std", not(feature = "ablation-bytes-serial-writers")))]
 use crate::bytesmap::{Bucket, dispose_bucket};
 use crate::bytesmap::{BytesMapStats, ExpanseBytesMap};
@@ -11415,31 +11415,44 @@ impl SyncExpanseBlobMap {
     ///   - Returns `Ok(expected)`.
     /// - If the current metadata does not match `expected`:
     ///   - Leaves the map unchanged.
-    ///   - Returns `Err(current_meta)`.
+    ///   - Returns `Err(CompareExchangeError::Mismatch(current_meta))`.
     ///
     /// # Errors
     ///
-    /// `Err(current_meta)` when the current metadata is not `expected`.
+    /// As [`ExpanseBlobMap::compare_exchange_meta`]:
     ///
-    /// A `new` above [`ValueSlot::ARENA_META_MAX`] cannot be stored. The map is
-    /// left unchanged and `Err(current_meta)` is returned whatever the current
-    /// metadata is, so the value in the `Err` can equal `expected`. A loop that
-    /// retries with the value it was handed must check for that case, or it
-    /// never ends.
+    /// - [`CompareExchangeError::Mismatch`]`(current_meta)` when the current
+    ///   metadata is not `expected`.
+    /// - [`CompareExchangeError::Unstorable`] when it is, but `new` cannot be
+    ///   stored: [`ArenaError::MetaOverflow`] for a value above
+    ///   [`ValueSlot::ARENA_META_MAX`], [`ArenaError::NoMetaField`] for a
+    ///   non-zero value on an absent key or an inline payload.
+    ///
+    /// Both leave the map unchanged. `Unstorable` is returned only when the
+    /// current metadata is `expected`, so a retry loop that takes a
+    /// `Mismatch`'s value as its next `expected` and stops on `Unstorable`
+    /// always ends.
     pub fn compare_exchange_meta(
         &self,
         key: Key,
         expected: Option<u32>,
         new: Option<u32>,
-    ) -> Result<Option<u32>, Option<u32>> {
+    ) -> Result<Option<u32>, CompareExchangeError<Option<u32>>> {
         if expected.is_none() && new.is_none() {
             return match self.get_meta(key) {
                 None => Ok(None),
-                seen => Err(seen),
+                seen => Err(CompareExchangeError::Mismatch(seen)),
             };
         }
         if matches!(new, Some(m) if m > ValueSlot::ARENA_META_MAX) {
-            return Err(self.get_meta(key));
+            // Refused before any write, but only once the comparison holds:
+            // `Unstorable` promises the current metadata was `expected`.
+            let seen = self.get_meta(key);
+            return Err(if seen == expected {
+                CompareExchangeError::Unstorable(ArenaError::MetaOverflow)
+            } else {
+                CompareExchangeError::Mismatch(seen)
+            });
         }
         #[cfg(feature = "ablation-blob-serial-writers")]
         {
@@ -11500,7 +11513,7 @@ impl SyncExpanseBlobMap {
                         let cur_meta = found.and_then(blob_slot_meta);
                         if cur_meta != expected {
                             crate::occ_stats::op_end();
-                            return Ok(Err(cur_meta));
+                            return Ok(Err(CompareExchangeError::Mismatch(cur_meta)));
                         }
                         let old_raw = found;
                         match (old_raw, new) {
@@ -11510,7 +11523,9 @@ impl SyncExpanseBlobMap {
                             }
                             (None, Some(_)) => {
                                 crate::occ_stats::op_end();
-                                return Ok(Err(None));
+                                return Ok(Err(CompareExchangeError::Unstorable(
+                                    ArenaError::NoMetaField,
+                                )));
                             }
                             (Some(raw), None) => {
                                 match olc_cas_remove_map(&*self.shared, key, raw) {
@@ -11607,7 +11622,9 @@ impl SyncExpanseBlobMap {
                                     return Ok(Ok(cur_meta));
                                 } else {
                                     crate::occ_stats::op_end();
-                                    return Ok(Err(cur_meta));
+                                    return Ok(Err(CompareExchangeError::Unstorable(
+                                        ArenaError::NoMetaField,
+                                    )));
                                 }
                             }
                         }
@@ -11647,20 +11664,29 @@ impl SyncExpanseBlobMap {
     /// is removed if `new == None`).
     ///
     /// - Returns `Ok(expected)` if the current value matched and the update succeeded.
-    /// - Returns `Err(current_value)` if the current value did not match.
+    /// - Returns `Err(CompareExchangeError::Mismatch(current_value))` if the
+    ///   current value did not match.
     ///
     /// # Errors
     ///
-    /// `Err(current_value)` when the current value is not `expected`.
+    /// As [`ExpanseBlobMap::compare_exchange`]:
     ///
-    /// A `new` that cannot be stored is reported the same way: a payload longer
-    /// than 7 bytes with metadata above [`ValueSlot::ARENA_META_MAX`], or one the
-    /// arena refuses. The map is left unchanged and the value in the `Err` can
-    /// equal `expected`. A loop that retries with the value it was handed must
-    /// check for that case, or it never ends.
+    /// - [`CompareExchangeError::Mismatch`]`(current_value)` when the current
+    ///   value is not `expected`.
+    /// - [`CompareExchangeError::Unstorable`]`(cause)` when it is, but `new`
+    ///   cannot be stored: [`ArenaError::MetaOverflow`] for a payload longer
+    ///   than 7 bytes with metadata above [`ValueSlot::ARENA_META_MAX`], or the
+    ///   arena's refusal ([`ArenaError::OffsetOverflow`] when the capacity cap
+    ///   refuses the record's chunk; this path does not run the reclaim rule
+    ///   that [`Self::insert`] runs).
+    ///
+    /// Both leave the map's contents unchanged. `Unstorable` is returned only
+    /// when the current value is `expected`, so a retry loop that takes a
+    /// `Mismatch`'s value as its next `expected` and stops on `Unstorable`
+    /// always ends.
     ///
     /// # Allocation Note on Failure
-    /// On mismatch, returning `Err(Some((Vec<u8>, u32)))` allocates a fresh `Vec<u8>`
+    /// On mismatch, returning `Err(Mismatch(Some((Vec<u8>, u32))))` allocates a fresh `Vec<u8>`
     /// to return the observed payload bytes. In high-contention loops where CAS operations
     /// retry frequently, allocating on failure introduces heap overhead.
     ///
@@ -11674,15 +11700,24 @@ impl SyncExpanseBlobMap {
         key: Key,
         expected: Option<(&[u8], u32)>,
         new: Option<(&[u8], u32)>,
-    ) -> Result<Option<(Vec<u8>, u32)>, Option<(Vec<u8>, u32)>> {
+    ) -> Result<Option<(Vec<u8>, u32)>, CompareExchangeError<Option<(Vec<u8>, u32)>>> {
         if expected.is_none() && new.is_none() {
             return match self.get(key) {
                 None => Ok(None),
-                seen => Err(seen),
+                seen => Err(CompareExchangeError::Mismatch(seen)),
             };
         }
         if matches!(new, Some((data, meta)) if data.len() > 7 && meta > ValueSlot::ARENA_META_MAX) {
-            return Err(self.get(key));
+            // Refused before any write, but only once the comparison holds:
+            // `Unstorable` promises the current value was `expected`.
+            let seen = self.get(key);
+            return Err(
+                if crate::blobmap::blob_value_matches(seen.as_ref(), expected) {
+                    CompareExchangeError::Unstorable(ArenaError::MetaOverflow)
+                } else {
+                    CompareExchangeError::Mismatch(seen)
+                },
+            );
         }
         #[cfg(feature = "ablation-blob-serial-writers")]
         {
@@ -11746,17 +11781,10 @@ impl SyncExpanseBlobMap {
                         };
                         let observed = found
                             .and_then(|raw| self.resolve_slot_to_owned(ValueSlot::from_raw(raw)));
-                        let matches = match (&observed, expected) {
-                            (None, None) => true,
-                            (Some((obs_b, obs_m)), Some((exp_b, exp_m))) => {
-                                obs_b.as_slice() == exp_b && *obs_m == exp_m
-                            }
-                            _ => false,
-                        };
-                        if !matches {
+                        if !crate::blobmap::blob_value_matches(observed.as_ref(), expected) {
                             // ZERO arena bytes allocated!
                             crate::occ_stats::op_end();
-                            return Ok(Err(observed));
+                            return Ok(Err(CompareExchangeError::Mismatch(observed)));
                         }
 
                         // Target matches expected!
@@ -21227,19 +21255,25 @@ mod tests {
         assert_eq!(m.compare_exchange_meta(k1, None, None), Ok(None));
 
         // (Some(10), Some(20)) on absent key -> Err(None)
-        assert_eq!(m.compare_exchange_meta(k1, Some(10), Some(20)), Err(None));
+        assert_eq!(
+            m.compare_exchange_meta(k1, Some(10), Some(20)),
+            Err(CompareExchangeError::Mismatch(None))
+        );
 
         // Insert arena-backed key (payload > 7 bytes)
         m.insert(k1, b"hello-arena-world-12345", 100).unwrap();
         assert_eq!(m.get_meta(k1), Some(100));
 
         // (None, None) on present key -> Err(Some(100))
-        assert_eq!(m.compare_exchange_meta(k1, None, None), Err(Some(100)));
+        assert_eq!(
+            m.compare_exchange_meta(k1, None, None),
+            Err(CompareExchangeError::Mismatch(Some(100)))
+        );
 
         // Mismatch meta: (Some(99), Some(200)) -> Err(Some(100))
         assert_eq!(
             m.compare_exchange_meta(k1, Some(99), Some(200)),
-            Err(Some(100))
+            Err(CompareExchangeError::Mismatch(Some(100)))
         );
         assert_eq!(m.get_meta(k1), Some(100));
 
@@ -21271,7 +21305,7 @@ mod tests {
         assert_eq!(m.compare_exchange(k_inline, None, None), Ok(None));
         assert_eq!(
             m.compare_exchange(k_inline, Some((b"nonexistent", 0)), None),
-            Err(None)
+            Err(CompareExchangeError::Mismatch(None))
         );
         assert_eq!(
             m.compare_exchange(k_inline, None, Some((b"tiny", 0))),
@@ -21281,7 +21315,7 @@ mod tests {
 
         assert_eq!(
             m.compare_exchange(k_inline, Some((b"wrong", 0)), Some((b"next", 0))),
-            Err(Some((b"tiny".to_vec(), 0)))
+            Err(CompareExchangeError::Mismatch(Some((b"tiny".to_vec(), 0))))
         );
         assert_eq!(
             m.compare_exchange(k_inline, Some((b"tiny", 0)), Some((b"next", 0))),
@@ -21318,7 +21352,13 @@ mod tests {
             Some((b"wrong-arena-payload-mismatch", 99)),
             Some((b"speculative-arena-payload-should-not-allocate", 77)),
         );
-        assert_eq!(res, Err(Some((arena_p2.to_vec(), 20))));
+        assert_eq!(
+            res,
+            Err(CompareExchangeError::Mismatch(Some((
+                arena_p2.to_vec(),
+                20
+            ))))
+        );
         let live_after = m.with_locked(|m| m.arena().live_bytes());
         assert_eq!(
             live_before, live_after,
@@ -21333,33 +21373,153 @@ mod tests {
         assert_eq!(m.get(k_arena), None);
     }
 
-    /// A `new` that cannot be stored comes back as `Err(current)` with the map
-    /// unchanged, even when `current` is the `expected` the caller passed. The
-    /// rustdoc of both methods states it; this pins it.
+    /// #1398: a `new` that cannot be stored is
+    /// [`CompareExchangeError::Unstorable`] with its cause, never a
+    /// `Mismatch` carrying a value equal to `expected` (the ambiguity #1386
+    /// pinned). A comparison that fails is still `Mismatch(current)`, whether
+    /// or not `new` is storable. Root-leaf state (serialised path), then tree
+    /// state (the optimistic path, which `NoMetaField` reaches without the
+    /// early metadata check).
     #[test]
-    fn sync_blob_compare_exchange_unstorable_new_reports_the_current_value() {
+    fn sync_blob_compare_exchange_unstorable_new_is_distinct_from_a_mismatch() {
+        use CompareExchangeError::{Mismatch, Unstorable};
         let over = ValueSlot::ARENA_META_MAX + 1;
         let long = [7u8; 16];
         for fill in [0u64, 64] {
-            // Root-leaf state, then tree state.
+            let map = SyncExpanseBlobMap::new();
+            for k in 0..fill {
+                map.insert(1_000 + k, &long, 1).unwrap();
+            }
+            assert_eq!(map.shared.published().is_tree(), fill > 0);
+            map.insert(5, &long, 3).unwrap();
+            map.insert(7, b"tiny", 0).unwrap();
+
+            // Metadata above the 24-bit field.
+            assert_eq!(
+                map.compare_exchange_meta(5, Some(3), Some(over)),
+                Err(Unstorable(ArenaError::MetaOverflow))
+            );
+            assert_eq!(
+                map.compare_exchange_meta(5, Some(9), Some(over)),
+                Err(Mismatch(Some(3)))
+            );
+            assert_eq!(map.get_meta(5), Some(3));
+            assert_eq!(
+                map.compare_exchange(5, Some((&long, 3)), Some((&long, over))),
+                Err(Unstorable(ArenaError::MetaOverflow))
+            );
+            assert_eq!(
+                map.compare_exchange(5, Some((&long, 9)), Some((&long, over))),
+                Err(Mismatch(Some((long.to_vec(), 3))))
+            );
+            assert_eq!(map.get(5), Some((long.to_vec(), 3)));
+
+            // Metadata for a value with no metadata field.
+            assert_eq!(
+                map.compare_exchange_meta(6, None, Some(1)),
+                Err(Unstorable(ArenaError::NoMetaField))
+            );
+            assert_eq!(map.get_meta(6), None);
+            assert_eq!(
+                map.compare_exchange_meta(7, Some(0), Some(1)),
+                Err(Unstorable(ArenaError::NoMetaField))
+            );
+            assert_eq!(
+                map.compare_exchange_meta(7, Some(1), Some(1)),
+                Err(Mismatch(Some(0)))
+            );
+            assert_eq!(map.compare_exchange_meta(7, Some(0), Some(0)), Ok(Some(0)));
+            assert_eq!(map.get(7), Some((b"tiny".to_vec(), 0)));
+
+            // The same exchange with storable metadata goes through.
+            assert_eq!(map.compare_exchange_meta(5, Some(3), Some(4)), Ok(Some(3)));
+            assert_eq!(map.get_meta(5), Some(4));
+            assert_eq!(map.len(), fill + 2);
+        }
+    }
+
+    /// #1398: a payload the arena refuses is `Unstorable(OffsetOverflow)`
+    /// with the map unchanged, in root-leaf and tree state. One 4 KiB chunk
+    /// fits under the 6000-byte cap, four 1000-byte records fill it, and a
+    /// 3100-byte record needs a second chunk. The tree-state fill is inline,
+    /// so it takes no arena bytes.
+    #[test]
+    fn sync_blob_compare_exchange_arena_refusal_is_unstorable() {
+        use CompareExchangeError::{Mismatch, Unstorable};
+        for fill in [0u64, 64] {
+            let m = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 6000);
+            for k in 0..fill {
+                m.insert(1_000 + k, &[k as u8; 4], 0).unwrap();
+            }
+            for k in 0..4u64 {
+                m.insert(k, &[k as u8; 1000], 1).unwrap();
+            }
+            assert_eq!(m.shared.published().is_tree(), fill > 0);
+            let big = [9u8; 3100];
+            assert_eq!(
+                m.compare_exchange(0, Some((&[0u8; 1000], 1)), Some((&big, 1))),
+                Err(Unstorable(ArenaError::OffsetOverflow))
+            );
+            assert_eq!(
+                m.compare_exchange(0, Some((&[1u8; 1000], 1)), Some((&big, 1))),
+                Err(Mismatch(Some((vec![0u8; 1000], 1))))
+            );
+            assert_eq!(m.get(0), Some((vec![0u8; 1000], 1)));
+            assert_eq!(m.len(), fill + 4);
+            // A storable `new` still goes through on the same map.
+            assert_eq!(
+                m.compare_exchange(0, Some((&[0u8; 1000], 1)), Some((b"short", 0))),
+                Ok(Some((vec![0u8; 1000], 1)))
+            );
+        }
+    }
+
+    /// #1398: a retry loop that takes a `Mismatch`'s value as its next
+    /// `expected` and stops on `Unstorable` ends, for both operations, in
+    /// both states. The loop starts from a stale `expected`, so it sees one
+    /// mismatch first. It is bounded so that a regression to the ambiguous
+    /// `Err(current)` (which re-offers the same `expected` forever) fails
+    /// instead of hanging.
+    #[test]
+    fn sync_blob_compare_exchange_retry_loop_ends_on_an_unstorable_new() {
+        use CompareExchangeError::{Mismatch, Unstorable};
+        const BOUND: usize = 8;
+        let over = ValueSlot::ARENA_META_MAX + 1;
+        let long = [7u8; 16];
+        for fill in [0u64, 64] {
             let map = SyncExpanseBlobMap::new();
             for k in 0..fill {
                 map.insert(1_000 + k, &long, 1).unwrap();
             }
             map.insert(5, &long, 3).unwrap();
-            assert_eq!(
-                map.compare_exchange_meta(5, Some(3), Some(over)),
-                Err(Some(3))
-            );
-            assert_eq!(map.get_meta(5), Some(3));
-            assert_eq!(
-                map.compare_exchange(5, Some((&long, 3)), Some((&long, over))),
-                Err(Some((long.to_vec(), 3)))
-            );
+
+            let mut expected = Some(2);
+            let mut rounds = 0;
+            let cause = loop {
+                rounds += 1;
+                assert!(rounds <= BOUND, "metadata retry loop did not end");
+                match map.compare_exchange_meta(5, expected, Some(over)) {
+                    Ok(_) => panic!("an unstorable value was stored"),
+                    Err(Mismatch(cur)) => expected = cur,
+                    Err(Unstorable(e)) => break e,
+                }
+            };
+            assert_eq!((cause, rounds), (ArenaError::MetaOverflow, 2));
+
+            let mut expected: Option<(Vec<u8>, u32)> = Some((long.to_vec(), 2));
+            let mut rounds = 0;
+            let cause = loop {
+                rounds += 1;
+                assert!(rounds <= BOUND, "payload retry loop did not end");
+                let exp = expected.as_ref().map(|(b, m)| (b.as_slice(), *m));
+                match map.compare_exchange(5, exp, Some((&long, over))) {
+                    Ok(_) => panic!("an unstorable value was stored"),
+                    Err(Mismatch(cur)) => expected = cur,
+                    Err(Unstorable(e)) => break e,
+                }
+            };
+            assert_eq!((cause, rounds), (ArenaError::MetaOverflow, 2));
             assert_eq!(map.get(5), Some((long.to_vec(), 3)));
-            // The same exchange with storable metadata goes through.
-            assert_eq!(map.compare_exchange_meta(5, Some(3), Some(4)), Ok(Some(3)));
-            assert_eq!(map.get_meta(5), Some(4));
         }
     }
 

@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
+use expanse_trie::blobmap::{ArenaError, CompareExchangeError};
+use expanse_trie::slot::ValueSlot;
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::{
     SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
@@ -34,7 +36,16 @@ enum Ret {
     Update(Option<u64>),
     Contains(bool),
     GetOrInsert(Option<u64>),
+    /// A blob compare-exchange whose comparison held but whose `new` the map
+    /// refused (`CompareExchangeError::Unstorable`, #1398): the state was
+    /// `expected` and stays.
+    CompareExchangeUnstorable,
 }
+
+/// The `new` value a blob mix offers to mean "a payload the map cannot store"
+/// (#1398). Mixes store values from `1..=3` only, so a history in which this
+/// value were stored would fail the check at the next read.
+const UNSTORABLE: u64 = 0;
 
 impl Op {
     fn key(&self) -> u64 {
@@ -94,6 +105,9 @@ fn is_valid_transition(state: &Option<u64>, op: &Op, ret: &Ret) -> (bool, Option
                 }
             }
         },
+        (Op::CompareExchange(_, expected, _), Ret::CompareExchangeUnstorable) => {
+            (state == expected, *state)
+        }
         // Present: the old value comes back and stays. Absent: `None` comes
         // back and the offered value is stored.
         (Op::GetOrInsert(_, v), Ret::GetOrInsert(old)) => {
@@ -2321,10 +2335,18 @@ fn test_sync_blobmap_compare_exchange_linearizability() {
                 // Values from `1..=3`, so an exchange's `expected` is a value
                 // some thread stores; see `cas_mix_op`.
                 let v = ((t_id + i) % 3 + 1) as u64;
-                let op = match (t_id * 3 + i) % 4 {
+                let op = match (t_id * 3 + i) % 5 {
                     0 => Op::CompareExchange(key, None, Some(v)),
                     1 => Op::CompareExchange(key, Some(((t_id + 2 * i) % 3 + 1) as u64), Some(v)),
                     2 => Op::CompareExchange(key, Some(v), None),
+                    // #1398: an unstorable `new` (metadata above the 24-bit
+                    // field on an arena payload) against an `expected` that
+                    // sometimes holds.
+                    3 => Op::CompareExchange(
+                        key,
+                        (!i.is_multiple_of(4)).then_some(v),
+                        Some(UNSTORABLE),
+                    ),
                     _ => Op::Get(key),
                 };
 
@@ -2332,20 +2354,34 @@ fn test_sync_blobmap_compare_exchange_linearizability() {
                 let ret = match &op {
                     Op::CompareExchange(k, exp, new) => {
                         let exp_buf = exp.map(|v| (v.to_le_bytes(), 0u32));
-                        let new_buf = new.map(|v| (v.to_le_bytes(), 0u32));
+                        // 16 bytes so the payload needs the arena, where
+                        // metadata above 24 bits is refused.
+                        let unstorable = [0xAB_u8; 16];
+                        let new_val = match *new {
+                            Some(UNSTORABLE) => {
+                                Some((&unstorable[..], ValueSlot::ARENA_META_MAX + 1))
+                            }
+                            _ => None,
+                        };
+                        let new_buf = new
+                            .filter(|&v| v != UNSTORABLE)
+                            .map(|v| (v.to_le_bytes(), 0u32));
                         let res = map_clone.compare_exchange(
                             *k,
                             exp_buf.as_ref().map(|(b, m)| (&b[..], *m)),
-                            new_buf.as_ref().map(|(b, m)| (&b[..], *m)),
+                            new_val.or(new_buf.as_ref().map(|(b, m)| (&b[..], *m))),
                         );
-                        let conv =
-                            match res {
-                                Ok(prev) => Ok(prev
-                                    .map(|(b, _)| u64::from_le_bytes(b[..8].try_into().unwrap()))),
-                                Err(seen) => Err(seen
-                                    .map(|(b, _)| u64::from_le_bytes(b[..8].try_into().unwrap()))),
-                            };
-                        Ret::CompareExchange(conv)
+                        let dec = |b: Vec<u8>| u64::from_le_bytes(b[..8].try_into().unwrap());
+                        match res {
+                            Ok(prev) => Ret::CompareExchange(Ok(prev.map(|(b, _)| dec(b)))),
+                            Err(CompareExchangeError::Mismatch(seen)) => {
+                                Ret::CompareExchange(Err(seen.map(|(b, _)| dec(b))))
+                            }
+                            Err(CompareExchangeError::Unstorable(cause)) => {
+                                assert_eq!(cause, ArenaError::MetaOverflow);
+                                Ret::CompareExchangeUnstorable
+                            }
+                        }
                     }
                     Op::Get(k) => {
                         let got = reader
@@ -2376,6 +2412,15 @@ fn test_sync_blobmap_compare_exchange_linearizability() {
 
     let history = history.lock().unwrap().clone();
     assert_cas_mix_exercised(&history);
+    // #1398: the unstorable outcome occurred, so the check below covered it.
+    let unstorable = history
+        .iter()
+        .filter(|e| e.ret == Ret::CompareExchangeUnstorable)
+        .count();
+    assert!(
+        unstorable > 0,
+        "no exchange reported an unstorable new value"
+    );
 
     let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
     for e in history {
