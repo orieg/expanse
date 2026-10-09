@@ -868,7 +868,8 @@ impl StrNode {
     }
 
     /// Largest entry in this subtree; appends its key bytes to `out`.
-    fn max_entry(&self, out: &mut Vec<u8>) -> NonNull<u64> {
+    /// `None` only when every node under it is empty (see `extreme_entry`).
+    fn max_entry(&self, out: &mut Vec<u8>) -> Option<NonNull<u64>> {
         self.extreme_entry(out, false)
     }
 
@@ -879,20 +880,27 @@ impl StrNode {
     /// down the deepest chain in the tree by construction. The two
     /// directions differ only in which end of each node they take, so
     /// they share a walk.
-    fn extreme_entry(&self, out: &mut Vec<u8>, min: bool) -> NonNull<u64> {
+    ///
+    /// A node on the way can be linked and empty: a shared map's removal
+    /// that empties a node and cannot prune it at once leaves it so until
+    /// its exclusive prune (`prune_locked`), and a locked reader can run in
+    /// that window. Such a node answers nothing, and the walk moves on to the
+    /// next entry in the direction of the walk ([`Self::extreme_past_empty`],
+    /// out of line so the common descent is unchanged). `None` only when
+    /// every node in the subtree is empty.
+    fn extreme_entry(&self, out: &mut Vec<u8>, min: bool) -> Option<NonNull<u64>> {
         let mut node: *const StrNode = self;
         loop {
             // SAFETY: `self` on the first turn, then continuation values,
             // which are live child nodes; the descent never revisits one.
             let n = unsafe { &*node };
-            let (chunk, v) = if min {
-                n.map.first().expect("non-empty node")
-            } else {
-                n.map.last().expect("non-empty node")
+            let found = if min { n.map.first() } else { n.map.last() };
+            let Some((chunk, v)) = found else {
+                return self.extreme_past_empty(node, out, min);
             };
             if is_terminal(chunk) {
                 push_terminal(out, chunk);
-                return n.map.get_slot_ptr(chunk).expect("present chunk");
+                return Some(n.map.get_slot_ptr(chunk).expect("present chunk"));
             }
             out.extend_from_slice(&chunk.to_be_bytes());
             if is_suffix_ptr(v) {
@@ -902,11 +910,102 @@ impl StrNode {
                 // `&StrSuffix` would not (see `StrSuffix`).
                 out.extend_from_slice(unsafe { suffix_bytes(sfx) });
                 // SAFETY: field-precise pointer to the value word at offset 0.
-                return NonNull::new(unsafe { &raw mut (*sfx).value })
-                    .expect("non-null value slot");
+                return Some(
+                    NonNull::new(unsafe { &raw mut (*sfx).value }).expect("non-null value slot"),
+                );
             }
             node = unpack_child(v);
         }
+    }
+
+    /// [`Self::extreme_entry`] after its descent from `self` met the empty
+    /// node `empty`. Re-walks the path to `empty` (every node on it held the
+    /// entry the descent took, so the re-walk takes the same entries) and
+    /// continues past `empty` with backtracking.
+    #[cold]
+    #[inline(never)]
+    fn extreme_past_empty(
+        &self,
+        empty: *const StrNode,
+        out: &mut Vec<u8>,
+        min: bool,
+    ) -> Option<NonNull<u64>> {
+        let mut path: Vec<(*const StrNode, u64)> = Vec::new();
+        let mut node: *const StrNode = self;
+        while !core::ptr::eq(node, empty) {
+            // SAFETY: the nodes the descent just walked, live and unchanged.
+            let n = unsafe { &*node };
+            let (chunk, v) = if min { n.map.first() } else { n.map.last() }?;
+            path.push((node, chunk));
+            node = unpack_child(v);
+        }
+        // `out` ends with the chunk of every level on `path`, as
+        // `extreme_walk` expects of its stack.
+        Self::extreme_walk(empty, path, None, out, min)
+    }
+
+    /// The first (`min`) or last entry at or past `cursor` in `node`, then up
+    /// the levels `stack` records (each with the chunk that led below it),
+    /// skipping empty nodes. The general, backtracking form of
+    /// `extreme_entry`, taken only once an empty node was met.
+    fn extreme_walk(
+        mut node: *const StrNode,
+        mut stack: Vec<(*const StrNode, u64)>,
+        mut cursor: Option<(u64, u64)>,
+        out: &mut Vec<u8>,
+        min: bool,
+    ) -> Option<NonNull<u64>> {
+        loop {
+            // SAFETY: `node` is a live node of the walk: the start node, a
+            // recorded ancestor, or a child just taken from a live entry.
+            let n = unsafe { &*node };
+            let Some((chunk, v)) = cursor else {
+                let (parent, via) = stack.pop()?;
+                out.truncate(out.len() - CHUNK);
+                node = parent;
+                // SAFETY: as above.
+                let p = unsafe { &*parent };
+                cursor = if min {
+                    p.map.next_after(via)
+                } else {
+                    p.map.prev_before(via)
+                };
+                continue;
+            };
+            if is_terminal(chunk) {
+                push_terminal(out, chunk);
+                return Some(n.map.get_slot_ptr(chunk).expect("present chunk"));
+            }
+            out.extend_from_slice(&chunk.to_be_bytes());
+            if is_suffix_ptr(v) {
+                let sfx = unpack_suffix(v);
+                // SAFETY: live suffix leaf, raw provenance over the bytes.
+                out.extend_from_slice(unsafe { suffix_bytes(sfx) });
+                // SAFETY: field-precise pointer to the value word at offset 0.
+                return Some(
+                    NonNull::new(unsafe { &raw mut (*sfx).value }).expect("non-null value slot"),
+                );
+            }
+            stack.push((node, chunk));
+            node = unpack_child(v);
+            // SAFETY: a continuation value is a live child node.
+            let c = unsafe { &*node };
+            cursor = if min { c.map.first() } else { c.map.last() };
+        }
+    }
+
+    /// [`Self::take_from`] after the child under `chunk` held nothing: the
+    /// next entry of this node past `chunk`, in the walk's direction.
+    #[cold]
+    #[inline(never)]
+    fn take_past_empty(&self, chunk: u64, out: &mut Vec<u8>, min: bool) -> Option<NonNull<u64>> {
+        out.truncate(out.len() - CHUNK);
+        let cursor = if min {
+            self.map.next_after(chunk)
+        } else {
+            self.map.prev_before(chunk)
+        };
+        Self::extreme_walk(self, Vec::new(), cursor, out, min)
     }
 
     /// Emits the entry `cursor` names: a terminal chunk *is* the answer,
@@ -933,7 +1032,10 @@ impl StrNode {
         } else {
             out.extend_from_slice(&chunk.to_be_bytes());
             // SAFETY: continuation values are child pointers.
-            Some(unsafe { Self::child(v) }.extreme_entry(out, min))
+            match unsafe { Self::child(v) }.extreme_entry(out, min) {
+                Some(slot) => Some(slot),
+                None => self.take_past_empty(chunk, out, min),
+            }
         }
     }
 
@@ -2605,7 +2707,7 @@ impl ExpanseStrMap {
     pub fn last(&self) -> Option<(Vec<u8>, NonNull<u64>)> {
         let root = self.root.as_deref()?;
         let mut out = Vec::new();
-        let slot = root.max_entry(&mut out);
+        let slot = root.max_entry(&mut out)?;
         Some((out, slot))
     }
 
@@ -3704,6 +3806,39 @@ mod olc {
 
 #[cfg(feature = "std")]
 impl ExpanseStrMap {
+    /// Test view (#1143): the node reached from the root through the
+    /// continuation entries for `chunks`, or `None` when the path does not
+    /// lead to a child node. Called only while no writer runs.
+    #[cfg(test)]
+    fn test_node_at(&self, chunks: &[u64]) -> Option<*const StrNode> {
+        let mut node: *const StrNode = self.root_raw()?;
+        for &c in chunks {
+            // SAFETY: a live node of a quiescent map.
+            let v = unsafe { (*node).map.get(c) }?;
+            if is_terminal(c) || is_suffix_ptr(v) {
+                return None;
+            }
+            node = unpack_child(v);
+        }
+        Some(node)
+    }
+
+    /// Test view (#1143): the entry count of the sub-map at `chunks`.
+    #[cfg(test)]
+    pub(crate) fn test_submap_len_at(&self, chunks: &[u64]) -> Option<u64> {
+        let node = self.test_node_at(chunks)?;
+        // SAFETY: a live node of a quiescent map.
+        Some(unsafe { MapCore::len_of(&raw const (*node).map) })
+    }
+
+    /// Test view (#1143): whether the sub-map at `chunks` is in tree state.
+    #[cfg(test)]
+    pub(crate) fn test_submap_is_tree_at(&self, chunks: &[u64]) -> Option<bool> {
+        let node = self.test_node_at(chunks)?;
+        // SAFETY: a live node of a quiescent map.
+        Some(unsafe { MapCore::root_is_tree_of(&raw const (*node).map) })
+    }
+
     /// Sets the population; the wrapper's exclusive sections re-sync it
     /// from the sharded counter optimistic writers count in (Refs #929).
     #[inline(always)]
