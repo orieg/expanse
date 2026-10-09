@@ -3736,6 +3736,33 @@ fn sync_strmap_scan_locked(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+// Full ascending scan through a shared string map via with_locked, one
+// `first` then `next_after` per entry (#1143). The string twin of
+// `sync_map_next_after_scan` on today's only ordered route: the writer lock is
+// held for the whole walk, and every step is a root descent that allocates
+// its result key. The per-element baseline the point ops are predicted
+// against; `sync_strmap_scan_locked` is its cursor-walk sibling on the same
+// keys.
+#[library_benchmark]
+#[bench::paths(args = ("paths",), setup = built_sync_path_strmap)]
+#[bench::paths_dense(args = ("paths_dense",), setup = built_sync_path_strmap)]
+fn sync_strmap_next_after_scan_locked(built: (SyncExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, _) = built;
+    let (mut n, mut sink) = (0u64, 0u64);
+    map.with_locked(|m| {
+        let mut at = m.first();
+        while let Some((k, slot)) = at {
+            // SAFETY: as in sync_strmap_scan_locked.
+            sink ^= k.len() as u64 ^ unsafe { slot.as_ptr().read() };
+            n += 1;
+            at = m.next_after(black_box(tk(&k)));
+        }
+    });
+    assert_eq!(n, POP as u64, "the scan visits every entry once");
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::routes(args = ("routes",), setup = str_keys)]
 fn sync_bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
@@ -4224,6 +4251,7 @@ library_benchmark_group!(
         sync_strmap_compare_exchange,
         sync_strmap_insert_sorted,
         sync_strmap_scan_locked,
+        sync_strmap_next_after_scan_locked,
         sync_bytesmap_insert,
         sync_bytesmap_remove,
         sync_bytesmap_churn,
