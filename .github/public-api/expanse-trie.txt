@@ -2519,6 +2519,8 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::collector_census(&self) -> ex
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::compare_exchange(&self, &[u8], core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::contains_key(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get(&self, &[u8]) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get_or_insert(&self, &[u8], u64) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get_or_insert_with(&self, &[u8], impl core::ops::function::FnOnce() -> u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::insert(&self, &[u8], u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::len(&self) -> u64

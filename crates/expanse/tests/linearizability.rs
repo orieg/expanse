@@ -1812,6 +1812,181 @@ fn test_sync_strmap_get_or_insert_linearizability_tree_rooted() {
     run_strmap_get_or_insert_mix(map);
 }
 
+/// Hasher for the shared-bucket bytes mix: a key containing `filler/` hashes to
+/// one of 96 values, so the filler population is a tree, and every other key
+/// hashes to one value, so the mix keys share a single collision bucket.
+#[derive(Default, Clone)]
+struct SharedBucketHasher {
+    bytes: Vec<u8>,
+}
+impl std::hash::Hasher for SharedBucketHasher {
+    fn finish(&self) -> u64 {
+        if self.bytes.windows(7).any(|w| w == b"filler/") {
+            let mut h = 0xcbf2_9ce4_8422_2325u64;
+            for &b in &self.bytes {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x100_0000_01b3);
+            }
+            h % 96
+        } else {
+            0x42
+        }
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        self.bytes.extend_from_slice(bytes);
+    }
+}
+#[derive(Default, Clone)]
+struct SharedBucketState;
+impl std::hash::BuildHasher for SharedBucketState {
+    type Hasher = SharedBucketHasher;
+    fn build_hasher(&self) -> SharedBucketHasher {
+        SharedBucketHasher::default()
+    }
+}
+
+/// Runs the `get_or_insert` mix on a bytes map and checks every key's
+/// history. Three keys, so each is absent and present often. Returns how
+/// many compare-and-removes succeeded.
+fn run_bytes_get_or_insert_mix_once<S>(map: Arc<SyncExpanseBytesMap<S>>) -> usize
+where
+    S: std::hash::BuildHasher + Clone + Send + Sync + 'static,
+{
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let num_threads = 4;
+    let ops_per_thread = 120;
+    let mut handles = vec![];
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            for i in 0..ops_per_thread {
+                let key = ((t_id * 7 + i * 5) % 3) as u64;
+                let op = match get_or_insert_mix_op(t_id, i, key) {
+                    // Half the removals are a compare-and-remove on a guessed
+                    // value: the entry point whose last-entry path #1381 made
+                    // serialised, racing the exchange of `get_or_insert`.
+                    Op::Remove(k) if i % 2 == 0 => {
+                        Op::CompareExchange(k, Some(((t_id + i) % 3 + 1) as u64), None)
+                    }
+                    other => other,
+                };
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(bytes_key(*k), *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(bytes_key(*k))),
+                    Op::Get(k) => Ret::Get(map_clone.get(bytes_key(*k))),
+                    Op::GetOrInsert(k, v) => {
+                        Ret::GetOrInsert(map_clone.get_or_insert(bytes_key(*k), *v))
+                    }
+                    Op::CompareExchange(k, exp, new) => {
+                        Ret::CompareExchange(map_clone.compare_exchange(bytes_key(*k), *exp, *new))
+                    }
+                    _ => unreachable!(),
+                };
+                let end = Instant::now();
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+            history_clone.lock().unwrap().extend(local_events);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let history = history.lock().unwrap().clone();
+    assert_get_or_insert_mix_exercised(&history);
+    let removed = history
+        .iter()
+        .filter(|e| {
+            matches!(e.op, Op::CompareExchange(_, _, None))
+                && matches!(e.ret, Ret::CompareExchange(Ok(Some(_))))
+        })
+        .count();
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for bytes get_or_insert key {}",
+            key
+        );
+    }
+    removed
+}
+
+/// Runs the mix on fresh maps from `make` until one run saw a successful
+/// compare-and-remove (the guessed value is usually, not always, right), so
+/// the removal side of the mix is exercised in every test that passes. Every
+/// run is checked for linearizability.
+fn run_bytes_get_or_insert_mix<S>(make: impl Fn() -> Arc<SyncExpanseBytesMap<S>>)
+where
+    S: std::hash::BuildHasher + Clone + Send + Sync + 'static,
+{
+    for _ in 0..50 {
+        if run_bytes_get_or_insert_mix_once(make()) > 0 {
+            return;
+        }
+    }
+    panic!("no compare-and-remove succeeded in 50 runs of the mix");
+}
+
+/// `SyncExpanseBytesMap::get_or_insert` against concurrent inserts, removes
+/// and reads, in the serialised root-leaf state.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_bytesmap_get_or_insert_linearizability_root_leaf() {
+    run_bytes_get_or_insert_mix(|| Arc::new(SyncExpanseBytesMap::new()));
+}
+
+/// The same mix on the optimistic tree paths. The three mix keys hash to
+/// distinct buckets, so every compare-and-remove of a present key takes a
+/// bucket's last entry: the serialised remove path of #1381, racing the
+/// exchange (`test_bytes_get_or_insert_paths` pins that with the fallback
+/// counter).
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_bytesmap_get_or_insert_linearizability_tree_last_entry() {
+    run_bytes_get_or_insert_mix(|| {
+        let map = Arc::new(SyncExpanseBytesMap::new());
+        for i in 0..64u64 {
+            map.insert(format!("filler/{i}").as_bytes(), i);
+        }
+        map
+    });
+}
+
+/// The same mix with the three keys in one collision bucket of a tree. Measured in
+/// `test_bytes_get_or_insert_paths`: all its removals stay optimistic, so this
+/// mix covers the shorter-bucket publish and not the serialised path.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_bytesmap_get_or_insert_linearizability_tree_shared_bucket() {
+    run_bytes_get_or_insert_mix(|| {
+        let map = Arc::new(SyncExpanseBytesMap::with_hasher(SharedBucketState));
+        for i in 0..256u64 {
+            map.insert(format!("filler/{i}").as_bytes(), i);
+        }
+        map
+    });
+}
+
 /// Linearizability verification of `SyncExpanseMap::update`
 /// across concurrent writers and readers mixing inserts, removes, gets, CAS, and update.
 #[test]
