@@ -12749,6 +12749,10 @@ impl SyncExpanseStrMap {
                     if cause == FallbackCause::Contention {
                         crate::occ_stats::bump(contention_stat(false));
                     }
+                    // The emptied node is linked and empty until the prune
+                    // below; tests park readers here (Refs #1143).
+                    #[cfg(test)]
+                    test_hooks::at(test_hooks::Site::StrPrunePending);
                     self.shared
                         .write_root_covered_exact(|m| m.prune_empty_path(key));
                     prev
@@ -22042,6 +22046,10 @@ pub(crate) mod test_hooks {
         SetBitmapLeaf,
         /// Before an ordered read's final validation (`sync_nav`).
         OrderedFinal,
+        /// A string-map removal emptied a `StrNode` whose optimistic prune
+        /// did not go through: the node is linked and empty until the
+        /// exclusive prune that follows this site.
+        StrPrunePending,
     }
 
     /// The armed site and the write it runs there.
@@ -24868,5 +24876,183 @@ mod contains_key_tests {
         for k in 0..n {
             check(&map, k << 40, k % 2 == 1);
         }
+    }
+}
+
+/// A string-map removal that empties a `StrNode` and cannot prune it on the
+/// optimistic path leaves the node linked and empty until the exclusive prune
+/// that follows (`StrNode::prune_locked`). A locked reader can run in that
+/// window: `with_locked`, and the locked fallback of any optimistic reader.
+/// The single-threaded ordered reads it runs must treat the empty node as
+/// answering nothing (Refs #1143). Each test parks at `StrPrunePending`, on
+/// the remover's thread, asserts the node is linked and empty there, and
+/// compares every ordered read under `with_locked` against a model.
+#[cfg(test)]
+mod str_empty_child_tests {
+    use super::*;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::collections::BTreeMap;
+    use std::sync::{Arc, Mutex};
+    use std::vec;
+
+    type Answer = Option<(Vec<u8>, u64)>;
+
+    fn nf(b: &[u8]) -> &NulFreeStr {
+        NulFreeStr::new(b).expect("test keys are NUL-free")
+    }
+
+    fn chunk(b: &[u8]) -> u64 {
+        let mut c = [0u8; 8];
+        c[..b.len()].copy_from_slice(b);
+        u64::from_be_bytes(c)
+    }
+
+    /// Probes on both sides of, into and past the emptied node, and the ends.
+    const PROBES: [&[u8]; 12] = [
+        b"",
+        b"a",
+        b"aaaaaaaa",
+        b"aaaaaaaaZ",
+        b"az",
+        b"m",
+        b"mmmmmmmm",
+        b"mmmmmmmmZ",
+        b"mz",
+        b"n",
+        b"zzzzzzzz",
+        b"zzzzzzzzZ",
+    ];
+
+    /// Every ordered read of the single-threaded API at every probe, in a
+    /// fixed order: `first`, `last`, then per probe `next_at_or_after`,
+    /// `next_after`, `prev_at_or_before`, `prev_before`.
+    fn reads(m: &ExpanseStrMap) -> Vec<Answer> {
+        let val = |r: Option<(Vec<u8>, core::ptr::NonNull<u64>)>| {
+            // SAFETY: the map is not mutated while the slot is read.
+            r.map(|(k, s)| (k, unsafe { *s.as_ptr() }))
+        };
+        let mut out = vec![val(m.first()), val(m.last())];
+        for p in PROBES {
+            let p = nf(p);
+            out.push(val(m.next_at_or_after(p)));
+            out.push(val(m.next_after(p)));
+            out.push(val(m.prev_at_or_before(p)));
+            out.push(val(m.prev_before(p)));
+        }
+        out
+    }
+
+    fn model_reads(model: &BTreeMap<Vec<u8>, u64>) -> Vec<Answer> {
+        let e = |(a, b): (&Vec<u8>, &u64)| (a.clone(), *b);
+        let mut out = vec![model.iter().next().map(e), model.iter().next_back().map(e)];
+        for p in PROBES {
+            let mut succ = p.to_vec();
+            succ.push(1);
+            out.push(model.range(p.to_vec()..).next().map(e));
+            out.push(model.range(succ..).next().map(e));
+            out.push(model.range(..=p.to_vec()).next_back().map(e));
+            out.push(model.range(..p.to_vec()).next_back().map(e));
+        }
+        out
+    }
+
+    /// The map: twenty keys under `b` and twenty under `x`, so the root's
+    /// sub-map is a tree, plus a child node under `c` holding two keys. `c`'s
+    /// top byte is its own top digit, so the optimistic prune of the emptied
+    /// child would empty a child of a linear branch and falls back (Refs
+    /// #1079). Returns the reads taken at the prune-pending site and the
+    /// model's answers there.
+    fn run(c: &[u8; 8]) -> (Vec<Answer>, Vec<Answer>) {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        let mut model = BTreeMap::new();
+        for i in 0..20u8 {
+            for (k, v) in [
+                (vec![b'b', b'0' + i], u64::from(i)),
+                (vec![b'x', b'0' + i], 100 + u64::from(i)),
+            ] {
+                map.insert(nf(&k), v);
+                model.insert(k, v);
+            }
+        }
+        let (mut k1, mut k2) = (c.to_vec(), c.to_vec());
+        k1.extend_from_slice(b"AA");
+        k2.extend_from_slice(b"AB");
+        map.insert(nf(&k1), 200);
+        map.insert(nf(&k2), 201);
+        map.with_locked(|m| {
+            assert_eq!(
+                m.test_submap_is_tree_at(&[]),
+                Some(true),
+                "the root must be a tree"
+            );
+            assert_eq!(
+                m.test_submap_len_at(&[chunk(c)]),
+                Some(2),
+                "the child must be a node"
+            );
+        });
+        assert_eq!(map.remove(nf(&k1)), Some(200));
+        model.remove(&k1);
+        model.remove(&k2);
+        let seen: Arc<Mutex<Option<Vec<Answer>>>> = Arc::new(Mutex::new(None));
+        let fired = Arc::new(AtomicUsize::new(0));
+        let (m2, s2, f2, c2) = (Arc::clone(&map), Arc::clone(&seen), Arc::clone(&fired), *c);
+        test_hooks::arm_site(
+            test_hooks::Site::StrPrunePending,
+            Box::new(move || {
+                f2.fetch_add(1, Ordering::SeqCst);
+                let got = m2.with_locked(|m| {
+                    assert_eq!(
+                        m.test_submap_len_at(&[chunk(&c2)]),
+                        Some(0),
+                        "the child must be linked and empty at the site"
+                    );
+                    reads(m)
+                });
+                *s2.lock().unwrap() = Some(got);
+            }),
+        );
+        assert_eq!(map.remove(nf(&k2)), Some(201));
+        assert_eq!(
+            fired.load(Ordering::SeqCst),
+            1,
+            "the prune must be pending once"
+        );
+        map.with_locked(|m| {
+            assert_eq!(
+                m.test_submap_len_at(&[chunk(c)]),
+                None,
+                "the exclusive prune unlinks it"
+            );
+        });
+        let got = seen
+            .lock()
+            .unwrap()
+            .take()
+            .expect("the reads ran at the site");
+        (got, model_reads(&model))
+    }
+
+    /// The emptied node first in key order: `first` and the forward reads
+    /// enter it for its minimum.
+    #[test]
+    fn locked_ordered_reads_pass_over_an_emptied_first_child() {
+        let (got, want) = run(b"aaaaaaaa");
+        assert_eq!(got, want);
+    }
+
+    /// In the middle: forward and backward reads enter it from both sides.
+    #[test]
+    fn locked_ordered_reads_pass_over_an_emptied_middle_child() {
+        let (got, want) = run(b"mmmmmmmm");
+        assert_eq!(got, want);
+    }
+
+    /// Last in key order: `last` and the backward reads enter it for its
+    /// maximum.
+    #[test]
+    fn locked_ordered_reads_pass_over_an_emptied_last_child() {
+        let (got, want) = run(b"zzzzzzzz");
+        assert_eq!(got, want);
     }
 }
