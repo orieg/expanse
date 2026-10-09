@@ -502,6 +502,7 @@ jobs:
           python3 scripts/bench_governor.py --self-test
           python3 scripts/check_chart_themes.py --self-test
           python3 scripts/check_chart_layout.py --self-test
+          python3 scripts/svg_helpers.py --self-test
           python3 scripts/check_bench_shapes.py --self-test
           # bench_pin.sh's refusal paths (no taskset, a pin that does not hold,
           # a mask including an E-core) run against a synthetic topology, so
