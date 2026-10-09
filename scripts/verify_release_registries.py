@@ -339,9 +339,10 @@ def main() -> int:
         for name, pkg in pending:
             print(f"  MISSING  {name:16s} {pkg}", file=sys.stderr)
         print(
-            "\nThe publish job for each of these reported success. Either the upload did not "
-            "happen, or ingestion is slower than the retry budget -- check the package page "
-            "before assuming the release is complete.",
+            "\nThis job runs whether or not each publish job succeeded. For each of these, "
+            "either its publish job failed (see that job), the upload did not happen although "
+            "the job reported success, or ingestion is slower than the retry budget -- check "
+            "the package page before assuming the release is complete.",
             file=sys.stderr,
         )
         return 1
