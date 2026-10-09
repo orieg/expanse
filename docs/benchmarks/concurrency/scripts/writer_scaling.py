@@ -145,8 +145,6 @@ PADDED_RESULTS_PATH = (
 # Hypothesis D arms (METHODOLOGY.md §11): each shorthand flag compares one
 # ablation feature against the default build.
 ABLATION_ARMS = {
-    "compare_ablation_alloc": "ablation-sharded-alloc",
-    "compare_ablation_epoch": "ablation-striped-epoch",
     "compare_ablation_unstriped_freelist": "ablation-unstriped-freelist",
 }
 # Inverse ablations where the default build represents the promoted optimization
@@ -7916,7 +7914,7 @@ def self_test() -> int:
     assert comp_inv_feature["ratio_direction"] == "c_default_over_c_variant", comp_inv_feature
     desc_inv = ratio_description(["ablation-unstriped-freelist"])
     assert "C_default(W) / C_variant(W)" in desc_inv and "C_variant(W) / C_default(W)" not in desc_inv, desc_inv
-    desc_fwd = ratio_description(["ablation-striped-epoch"])
+    desc_fwd = ratio_description(["ablation-unsharded-alloc"])
     assert "C_variant(W) / C_default(W)" in desc_fwd and "C_default(W) / C_variant(W)" not in desc_fwd, desc_fwd
 
     # 6c. The frequency-droop rule, on synthetic counts. This runs everywhere:
@@ -8196,7 +8194,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--features",
         type=str,
         default=None,
-        help="Cargo features for single-build throughput pass (e.g. lock-padded)",
+        help="Cargo features for single-build throughput pass (e.g. ablation-unsharded-alloc)",
     )
     # One comparison selector per run: combining two would otherwise keep
     # one and silently drop the rest.
@@ -8209,25 +8207,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compare default build vs feature build with interleaved (build × W) rounds",
     )
     comparison.add_argument(
-        "--compare-padded",
-        action="store_true",
-        help="Shorthand for --compare lock-padded (Hypothesis B)",
-    )
-    comparison.add_argument(
         "--variants",
         metavar="VARIANTS",
         default=None,
         help="Comma-separated feature variants to compare against default (or via BENCH_VARIANTS env var)",
-    )
-    comparison.add_argument(
-        "--compare-ablation-alloc",
-        action="store_true",
-        help="Shorthand for --compare ablation-sharded-alloc (Hypothesis D arm a)",
-    )
-    comparison.add_argument(
-        "--compare-ablation-epoch",
-        action="store_true",
-        help="Shorthand for --compare ablation-striped-epoch (Hypothesis D arm b)",
     )
     comparison.add_argument(
         "--compare-ablation-unstriped-freelist",
@@ -8574,8 +8557,6 @@ def main() -> int:
     variant_list: list[str] = []
     if args.variants:
         variant_list.extend(v.strip() for v in args.variants.split(",") if v.strip())
-    elif args.compare_padded:
-        variant_list.append("lock-padded")
     elif args.compare:
         variant_list.append(args.compare)
     elif args.gate_929_str or args.gate_929_str_v2:
