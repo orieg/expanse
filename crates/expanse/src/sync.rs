@@ -15004,6 +15004,61 @@ impl SyncExpanseOrderedBytesMap {
         with_encoded_key(key, |nul_free| self.inner.remove(nul_free))
     }
 
+    /// Conditionally stores `new` at `key` iff its current value is `expected`.
+    ///
+    /// Delegates to [`SyncExpanseStrMap::compare_exchange`] with the escaped
+    /// key, so it is the same single linearizable step with the same
+    /// optimistic form and exclusive fallback; it adds no engine entry point.
+    ///
+    /// # Semantics
+    ///
+    /// - `expected == None`, `new == Some(v)`: inserts `v` iff the key is absent.
+    /// - `expected == Some(e)`, `new == Some(v)`: updates to `v` iff the current value is `e`.
+    /// - `expected == Some(e)`, `new == None`: removes the key iff the current value is `e`.
+    /// - `expected == None`, `new == None`: validated lookup; `Ok(None)` if absent, `Err(seen)` if present.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(observed)` when the key's current value was not `expected`.
+    ///
+    /// # Escaping invariant
+    ///
+    /// `key` is any byte string. It is escaped here (`0x00 -> [0x01, 0x01]`,
+    /// `0x01 -> [0x01, 0x02]`) before it reaches the string map, so the
+    /// string map only ever sees NUL-free, order-preserving encodings. A key
+    /// handed to [`Self::inner`] or to `From<SyncExpanseStrMap>` without that
+    /// encoding names a different entry than the same bytes do here, and
+    /// breaks the decode of the navigation methods; this method relies on
+    /// every stored key being an escaped one.
+    pub fn compare_exchange(
+        &self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        with_encoded_key(key, |nul_free| {
+            self.inner.compare_exchange(nul_free, expected, new)
+        })
+    }
+
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
+    /// `None` removes the key. Retried over [`Self::compare_exchange`] until
+    /// the exchange succeeds. Returns the value that was replaced (or `None`
+    /// if the key was absent).
+    ///
+    /// Delegates to [`SyncExpanseStrMap::update`] with the escaped key.
+    /// Because the exchange may fail under concurrent writes, `f` is an
+    /// [`FnMut`] closure that may be invoked multiple times upon retry. It
+    /// must be side-effect free or idempotent.
+    ///
+    /// # Escaping invariant
+    ///
+    /// As for [`Self::compare_exchange`]: `key` is escaped here, and the
+    /// operation relies on every stored key being an escaped one.
+    pub fn update(&self, key: &[u8], f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.update(nul_free, f))
+    }
+
     /// Removes every entry; returns the heap bytes released.
     pub fn clear(&self) -> u64 {
         self.inner.clear()
@@ -15330,6 +15385,25 @@ impl OrderedBytesExclusive<'_> {
         f: impl FnOnce(Option<u64>) -> Option<u64>,
     ) -> Option<u64> {
         with_encoded_key(key, |nul_free| self.inner.update(nul_free, f))
+    }
+
+    /// Compare-and-swap the value for `key`.
+    ///
+    /// Stores `new` (or removes the key if `new == None`) if and only if the
+    /// current value equals `expected`. Returns `Ok(expected)` on success, or
+    /// `Err(current)` if the current value did not match. Delegates to
+    /// [`StrExclusive::compare_exchange`] with the escaped key; `key` is
+    /// escaped here, and the operation relies on every stored key being an
+    /// escaped one (see [`SyncExpanseOrderedBytesMap::compare_exchange`]).
+    pub fn compare_exchange(
+        &mut self,
+        key: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> Result<Option<u64>, Option<u64>> {
+        with_encoded_key(key, |nul_free| {
+            self.inner.compare_exchange(nul_free, expected, new)
+        })
     }
 
     /// Number of keys in the map.
@@ -25540,6 +25614,325 @@ mod bytes_get_or_insert_tests {
             assert_eq!(calls.get(), 1);
             assert_eq!(map.get(&key_of(0)), Some(0));
         }
+    }
+}
+
+/// `SyncExpanseOrderedBytesMap::compare_exchange` and `update`, and
+/// `OrderedBytesExclusive::compare_exchange`: the semantics of the string
+/// map's operations, reached through the escape encoding, with keys that put
+/// the encoding on the path (`0x00`, `0x01` the escape byte, `0xFF`, the empty
+/// key, keys that are prefixes of one another).
+#[cfg(test)]
+mod ordered_bytes_rmw_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use std::format;
+    use std::vec;
+    use std::vec::Vec;
+
+    /// Keys that stress the escaping, several a prefix of another.
+    fn escaping_keys() -> Vec<Vec<u8>> {
+        let mut keys: Vec<Vec<u8>> = vec![
+            vec![],
+            vec![0x00],
+            vec![0x01],
+            vec![0xFF],
+            vec![0x00, 0x00],
+            vec![0x00, 0x01],
+            vec![0x01, 0x00],
+            vec![0x01, 0x01],
+            vec![0x01, 0x02],
+            vec![0xFF, 0x00],
+            vec![0xFF, 0xFF],
+            b"a".to_vec(),
+            b"a\x00".to_vec(),
+            b"a\x01".to_vec(),
+            b"a\x00b".to_vec(),
+            b"a\x01b".to_vec(),
+            b"ab".to_vec(),
+        ];
+        // One key long enough to take the heap-allocating encoder.
+        let mut long = vec![0x00, 0x01, 0xFF];
+        long.extend(core::iter::repeat_n(b'z', 40));
+        long.push(0x00);
+        keys.push(long);
+        keys
+    }
+
+    /// Every entry in byte-lexicographic order, by walking the navigation
+    /// methods (which decode the stored escaped keys).
+    fn walk(map: &SyncExpanseOrderedBytesMap) -> Vec<(Vec<u8>, u64)> {
+        let mut out = Vec::new();
+        let mut cur = map.first();
+        while let Some((k, v)) = cur {
+            cur = map.next_after(&k);
+            out.push((k, v));
+        }
+        out
+    }
+
+    fn root_is_tree(map: &SyncExpanseOrderedBytesMap) -> bool {
+        map.inner()
+            .with_locked(|m| m.test_submap_is_tree_at(&[]).expect("root node"))
+    }
+
+    /// `n` keys with distinct first chunks, each carrying escaped bytes.
+    fn key_of(k: u64) -> Vec<u8> {
+        let mut key = format!("w{k:03}").into_bytes();
+        key.extend_from_slice(&[0x00, 0x01, 0xFF]);
+        key
+    }
+
+    #[test]
+    fn compare_exchange_present_absent_and_mismatch() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        // Absent: insert-if-absent succeeds, then the same call mismatches.
+        assert_eq!(map.compare_exchange(b"k\x00", None, Some(1)), Ok(None));
+        assert_eq!(map.get(b"k\x00"), Some(1));
+        assert_eq!(map.compare_exchange(b"k\x00", None, Some(9)), Err(Some(1)));
+        // Wrong expected value: the current value comes back, nothing stored.
+        assert_eq!(
+            map.compare_exchange(b"k\x00", Some(2), Some(9)),
+            Err(Some(1))
+        );
+        assert_eq!(map.get(b"k\x00"), Some(1));
+        // Expected value on an absent key: Err(None).
+        assert_eq!(map.compare_exchange(b"j\x01", Some(1), Some(9)), Err(None));
+        assert_eq!(map.get(b"j\x01"), None);
+        // Match: replace, then remove-if-equals.
+        assert_eq!(
+            map.compare_exchange(b"k\x00", Some(1), Some(2)),
+            Ok(Some(1))
+        );
+        assert_eq!(map.get(b"k\x00"), Some(2));
+        assert_eq!(map.compare_exchange(b"k\x00", Some(2), None), Ok(Some(2)));
+        assert_eq!(map.get(b"k\x00"), None);
+        assert!(map.is_empty());
+        // (None, None) is a validated lookup that does not mutate.
+        assert_eq!(map.compare_exchange(b"k\x00", None, None), Ok(None));
+        map.insert(b"k\x00", 4);
+        assert_eq!(map.compare_exchange(b"k\x00", None, None), Err(Some(4)));
+        assert_eq!(map.get(b"k\x00"), Some(4));
+    }
+
+    #[test]
+    fn compare_exchange_value_zero_is_a_present_key() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        assert_eq!(map.compare_exchange(b"\x00", None, Some(0)), Ok(None));
+        assert_eq!(map.compare_exchange(b"\x00", None, Some(5)), Err(Some(0)));
+        assert_eq!(map.get(b"\x00"), Some(0));
+    }
+
+    #[test]
+    fn compare_exchange_escaping_keys_keep_identity_and_order() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        let keys = escaping_keys();
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(
+                map.compare_exchange(k, None, Some(i as u64 + 1)),
+                Ok(None),
+                "insert {k:?}"
+            );
+        }
+        assert_eq!(map.len(), keys.len() as u64);
+        for (i, k) in keys.iter().enumerate() {
+            let v = i as u64 + 1;
+            // Each key names its own entry: a mismatch reports its own value.
+            assert_eq!(map.get(k), Some(v), "get {k:?}");
+            assert_eq!(
+                map.compare_exchange(k, None, Some(99)),
+                Err(Some(v)),
+                "mismatch {k:?}"
+            );
+            assert_eq!(
+                map.compare_exchange(k, Some(v), Some(v + 100)),
+                Ok(Some(v)),
+                "swap {k:?}"
+            );
+        }
+        // Order and identity as the decoded keys see them.
+        let mut expected: Vec<(Vec<u8>, u64)> = keys
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i as u64 + 101))
+            .collect();
+        expected.sort();
+        assert_eq!(walk(&map), expected);
+        // Remove-if-equals on every key, again by its own value.
+        for (i, k) in keys.iter().enumerate() {
+            let v = i as u64 + 101;
+            assert_eq!(map.compare_exchange(k, Some(v), None), Ok(Some(v)));
+            assert_eq!(map.get(k), None, "removed {k:?}");
+        }
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn prefix_pairs_do_not_alias_under_compare_exchange() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        let pairs: [(&[u8], &[u8]); 4] = [
+            (b"", b"\x00"),
+            (b"a", b"a\x00"),
+            (b"a\x00", b"a\x00\x00"),
+            (b"\x01", b"\x01\x01"),
+        ];
+        for (n, (short, long)) in pairs.iter().enumerate() {
+            let n = n as u64 * 10;
+            assert_eq!(map.compare_exchange(short, None, Some(n + 1)), Ok(None));
+            assert_eq!(map.compare_exchange(long, None, Some(n + 2)), Ok(None));
+            assert_eq!(map.get(short), Some(n + 1));
+            assert_eq!(map.get(long), Some(n + 2));
+            // Removing the longer key leaves the shorter one.
+            assert_eq!(
+                map.compare_exchange(long, Some(n + 2), None),
+                Ok(Some(n + 2))
+            );
+            assert_eq!(map.get(short), Some(n + 1));
+            assert_eq!(map.get(long), None);
+        }
+    }
+
+    fn exercise_cx(map: &SyncExpanseOrderedBytesMap, n: u64) {
+        for k in 0..n {
+            assert_eq!(
+                map.compare_exchange(&key_of(k), None, Some(k + 1)),
+                Ok(None)
+            );
+        }
+        assert_eq!(map.len(), n);
+        for k in 0..n {
+            assert_eq!(
+                map.compare_exchange(&key_of(k), Some(k + 2), Some(0)),
+                Err(Some(k + 1)),
+                "mismatch {k}"
+            );
+            assert_eq!(
+                map.compare_exchange(&key_of(k), Some(k + 1), Some(k + 1000)),
+                Ok(Some(k + 1)),
+                "swap {k}"
+            );
+        }
+        for k in 0..n {
+            assert_eq!(map.get(&key_of(k)), Some(k + 1000), "kept {k}");
+        }
+        assert_eq!(
+            map.compare_exchange(&key_of(0), Some(1000), None),
+            Ok(Some(1000))
+        );
+        assert_eq!(map.get(&key_of(0)), None);
+        assert_eq!(map.len(), n - 1);
+    }
+
+    #[test]
+    fn compare_exchange_root_leaf_state() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        exercise_cx(&map, ROOT_LEAF_CAP as u64);
+        assert!(!root_is_tree(&map));
+    }
+
+    #[test]
+    fn compare_exchange_tree_state() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        exercise_cx(&map, 4 * ROOT_LEAF_CAP as u64);
+        assert!(root_is_tree(&map));
+    }
+
+    #[test]
+    fn update_closure_semantics() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        let key: &[u8] = b"u\x00\x01\xFF";
+        // Absent: the closure sees None; Some stores it; the old value is None.
+        let mut seen = Vec::new();
+        assert_eq!(
+            map.update(key, |cur| {
+                seen.push(cur);
+                Some(5)
+            }),
+            None
+        );
+        assert_eq!(seen, vec![None]);
+        assert_eq!(map.get(key), Some(5));
+        // Present: the closure sees the value; the replaced value is returned.
+        assert_eq!(map.update(key, |cur| cur.map(|v| v + 1)), Some(5));
+        assert_eq!(map.get(key), Some(6));
+        // None removes.
+        assert_eq!(map.update(key, |_| None), Some(6));
+        assert_eq!(map.get(key), None);
+        // None on an absent key is a no-op.
+        assert_eq!(map.update(key, |_| None), None);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn update_escaping_keys_keep_identity_and_order() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        let keys = escaping_keys();
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(map.update(k, |cur| cur.or(Some(i as u64 + 1))), None);
+        }
+        for (i, k) in keys.iter().enumerate() {
+            let v = i as u64 + 1;
+            assert_eq!(map.update(k, |cur| cur.map(|x| x + 100)), Some(v));
+        }
+        let mut expected: Vec<(Vec<u8>, u64)> = keys
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i as u64 + 101))
+            .collect();
+        expected.sort();
+        assert_eq!(walk(&map), expected);
+    }
+
+    #[test]
+    fn update_root_leaf_and_tree_state() {
+        for (n, tree) in [
+            (ROOT_LEAF_CAP as u64, false),
+            (4 * ROOT_LEAF_CAP as u64, true),
+        ] {
+            let map = SyncExpanseOrderedBytesMap::new();
+            for k in 0..n {
+                assert_eq!(map.update(&key_of(k), |_| Some(k + 1)), None);
+            }
+            for k in 0..n {
+                assert_eq!(map.update(&key_of(k), |c| c.map(|v| v * 2)), Some(k + 1));
+                assert_eq!(map.get(&key_of(k)), Some((k + 1) * 2));
+            }
+            assert_eq!(root_is_tree(&map), tree);
+        }
+    }
+
+    #[test]
+    fn exclusive_compare_exchange() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        let keys = escaping_keys();
+        map.with_exclusive(|ex| {
+            for (i, k) in keys.iter().enumerate() {
+                let v = i as u64 + 1;
+                assert_eq!(ex.compare_exchange(k, None, Some(v)), Ok(None), "{k:?}");
+                assert_eq!(ex.compare_exchange(k, None, Some(99)), Err(Some(v)));
+                assert_eq!(ex.compare_exchange(k, Some(v + 1), Some(99)), Err(Some(v)));
+                assert_eq!(ex.get(k), Some(v));
+                assert_eq!(ex.compare_exchange(k, Some(v), Some(v + 100)), Ok(Some(v)));
+            }
+            assert_eq!(ex.len(), keys.len() as u64);
+            for (i, k) in keys.iter().enumerate() {
+                let v = i as u64 + 101;
+                assert_eq!(ex.compare_exchange(k, Some(v), None), Ok(Some(v)));
+                assert_eq!(ex.compare_exchange(k, Some(v), None), Err(None));
+            }
+            assert!(ex.is_empty());
+        });
+    }
+
+    #[test]
+    fn exclusive_and_shared_agree_on_the_entry() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        assert_eq!(map.compare_exchange(b"\x00x", None, Some(3)), Ok(None));
+        map.with_exclusive(|ex| {
+            assert_eq!(ex.compare_exchange(b"\x00x", Some(3), Some(4)), Ok(Some(3)));
+        });
+        assert_eq!(map.get(b"\x00x"), Some(4));
+        assert_eq!(map.update(b"\x00x", |c| c), Some(4));
     }
 }
 
