@@ -81,6 +81,29 @@ var (
 	expanse_bytesmap_for_each func(mapPtr uintptr, cb uintptr, userCtx unsafe.Pointer) uintptr
 )
 
+// OrderedBytesMap
+var (
+	expanse_ordered_bytesmap_new               func() uintptr
+	expanse_ordered_bytesmap_free              func(mapPtr uintptr)
+	expanse_ordered_bytesmap_insert            func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, oldOut *uint64) bool
+	expanse_ordered_bytesmap_get               func(mapPtr uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
+	expanse_ordered_bytesmap_contains          func(mapPtr uintptr, key unsafe.Pointer, len uintptr) bool
+	expanse_ordered_bytesmap_remove            func(mapPtr uintptr, key unsafe.Pointer, len uintptr, oldOut *uint64) bool
+	expanse_ordered_bytesmap_slot              func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
+	expanse_ordered_bytesmap_ins_slot          func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
+	expanse_ordered_bytesmap_len               func(mapPtr uintptr) uint64
+	expanse_ordered_bytesmap_mem_used          func(mapPtr uintptr) uintptr
+	expanse_ordered_bytesmap_mem_held          func(mapPtr uintptr) uintptr
+	expanse_ordered_bytesmap_shrink_to_fit     func(mapPtr uintptr) uintptr
+	expanse_ordered_bytesmap_clear             func(mapPtr uintptr)
+	expanse_ordered_bytesmap_first             func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_ordered_bytesmap_last              func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_ordered_bytesmap_next_at_or_after  func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_ordered_bytesmap_next_after        func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_ordered_bytesmap_prev_at_or_before func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_ordered_bytesmap_prev_before       func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+)
+
 // StrMap
 var (
 	expanse_strmap_new                  func() uintptr
@@ -270,6 +293,27 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_bytesmap_mem_used, "expanse_bytesmap_mem_used"},
 		{&expanse_bytesmap_clear, "expanse_bytesmap_clear"},
 		{&expanse_bytesmap_for_each, "expanse_bytesmap_for_each"},
+
+		// OrderedBytesMap
+		{&expanse_ordered_bytesmap_new, "expanse_ordered_bytesmap_new"},
+		{&expanse_ordered_bytesmap_free, "expanse_ordered_bytesmap_free"},
+		{&expanse_ordered_bytesmap_insert, "expanse_ordered_bytesmap_insert"},
+		{&expanse_ordered_bytesmap_get, "expanse_ordered_bytesmap_get"},
+		{&expanse_ordered_bytesmap_contains, "expanse_ordered_bytesmap_contains"},
+		{&expanse_ordered_bytesmap_remove, "expanse_ordered_bytesmap_remove"},
+		{&expanse_ordered_bytesmap_slot, "expanse_ordered_bytesmap_slot"},
+		{&expanse_ordered_bytesmap_ins_slot, "expanse_ordered_bytesmap_ins_slot"},
+		{&expanse_ordered_bytesmap_len, "expanse_ordered_bytesmap_len"},
+		{&expanse_ordered_bytesmap_mem_used, "expanse_ordered_bytesmap_mem_used"},
+		{&expanse_ordered_bytesmap_mem_held, "expanse_ordered_bytesmap_mem_held"},
+		{&expanse_ordered_bytesmap_shrink_to_fit, "expanse_ordered_bytesmap_shrink_to_fit"},
+		{&expanse_ordered_bytesmap_clear, "expanse_ordered_bytesmap_clear"},
+		{&expanse_ordered_bytesmap_first, "expanse_ordered_bytesmap_first"},
+		{&expanse_ordered_bytesmap_last, "expanse_ordered_bytesmap_last"},
+		{&expanse_ordered_bytesmap_next_at_or_after, "expanse_ordered_bytesmap_next_at_or_after"},
+		{&expanse_ordered_bytesmap_next_after, "expanse_ordered_bytesmap_next_after"},
+		{&expanse_ordered_bytesmap_prev_at_or_before, "expanse_ordered_bytesmap_prev_at_or_before"},
+		{&expanse_ordered_bytesmap_prev_before, "expanse_ordered_bytesmap_prev_before"},
 
 		// StrMap
 		{&expanse_strmap_new, "expanse_strmap_new"},
