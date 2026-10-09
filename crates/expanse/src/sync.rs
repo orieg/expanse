@@ -6860,6 +6860,13 @@ impl SyncExpanseMap {
         self.reader().get(key)
     }
 
+    /// One-shot membership test (registers a throwaway reader; use
+    /// [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn contains_key(&self, key: Key) -> bool {
+        self.reader().contains(key)
+    }
+
     /// Number of keys (validated read).
     #[must_use]
     pub fn len(&self) -> u64 {
@@ -10165,6 +10172,13 @@ impl<'a> MapReader<'a> {
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(self.map, &self.reader, key)
+    }
+
+    /// Optimistic membership test: the validated [`Self::get`] walk reduced to
+    /// presence, so `contains(k) == get(k).is_some()` for every key.
+    #[must_use]
+    pub fn contains(&self, key: Key) -> bool {
+        map_get_with(self.map, &self.reader, key).is_some()
     }
 
     /// Returns a forward batch cursor scanning the map in ascending order (#1142).
@@ -24648,5 +24662,65 @@ mod validated_answer_tests {
         assert_eq!(set.len(), 0);
         assert_eq!(set.mem_used(), set.with_locked(ExpanseSet::mem_used));
         assert_eq!(set.mem_used(), 0);
+    }
+}
+
+/// `SyncExpanseMap::contains_key` and `MapReader::contains` agree with
+/// `get(..).is_some()` in root-leaf state and in tree state.
+#[cfg(test)]
+mod contains_key_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+
+    /// Asserts both entry points against `get` for `key`, expecting `want`.
+    fn check(map: &SyncExpanseMap, key: Key, want: bool) {
+        assert_eq!(map.get(key).is_some(), want, "get disagrees at {key:#x}");
+        assert_eq!(map.contains_key(key), want, "contains_key at {key:#x}");
+        assert_eq!(map.reader().contains(key), want, "contains at {key:#x}");
+    }
+
+    #[test]
+    fn contains_key_present_absent_and_after_remove() {
+        let map = SyncExpanseMap::new();
+        check(&map, 7, false);
+        map.insert(7, 0);
+        // A stored value of zero is still a present key.
+        check(&map, 7, true);
+        check(&map, 8, false);
+        map.remove(7);
+        check(&map, 7, false);
+    }
+
+    #[test]
+    fn contains_key_root_leaf_state() {
+        let map = SyncExpanseMap::new();
+        for k in 0..ROOT_LEAF_CAP as u64 {
+            map.insert(k << 40, k + 1);
+        }
+        assert_eq!(map.len(), ROOT_LEAF_CAP as u64);
+        for k in 0..ROOT_LEAF_CAP as u64 {
+            check(&map, k << 40, true);
+            check(&map, (k << 40) | 1, false);
+        }
+    }
+
+    #[test]
+    fn contains_key_tree_state_agrees_with_get() {
+        let map = SyncExpanseMap::new();
+        let n = 4 * ROOT_LEAF_CAP as u64;
+        for k in 0..n {
+            map.insert(k << 40, k);
+        }
+        assert!(map.len() > ROOT_LEAF_CAP as u64);
+        for k in 0..n {
+            check(&map, k << 40, true);
+            check(&map, (k << 40) | 1, false);
+        }
+        for k in (0..n).step_by(2) {
+            map.remove(k << 40);
+        }
+        for k in 0..n {
+            check(&map, k << 40, k % 2 == 1);
+        }
     }
 }
