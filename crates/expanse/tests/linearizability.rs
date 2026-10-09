@@ -22,6 +22,7 @@ enum Op {
     CompareExchange(u64, Option<u64>, Option<u64>),
     Update(u64, i64),
     Contains(u64),
+    GetOrInsert(u64, u64),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,6 +33,7 @@ enum Ret {
     CompareExchange(Result<Option<u64>, Option<u64>>),
     Update(Option<u64>),
     Contains(bool),
+    GetOrInsert(Option<u64>),
 }
 
 impl Op {
@@ -43,6 +45,7 @@ impl Op {
             Op::CompareExchange(k, _, _) => *k,
             Op::Update(k, _) => *k,
             Op::Contains(k) => *k,
+            Op::GetOrInsert(k, _) => *k,
         }
     }
 }
@@ -91,6 +94,15 @@ fn is_valid_transition(state: &Option<u64>, op: &Op, ret: &Ret) -> (bool, Option
                 }
             }
         },
+        // Present: the old value comes back and stays. Absent: `None` comes
+        // back and the offered value is stored.
+        (Op::GetOrInsert(_, v), Ret::GetOrInsert(old)) => {
+            if old == state {
+                (true, state.or(Some(*v)))
+            } else {
+                (false, None)
+            }
+        }
         (Op::Update(_, delta), Ret::Update(old)) => {
             if old == state {
                 (true, update_state(*state, *delta))
@@ -240,7 +252,7 @@ fn test_sync_map_linearizability() {
                     Op::CompareExchange(k, exp, new) => {
                         Ret::CompareExchange(map_clone.compare_exchange(*k, *exp, *new))
                     }
-                    Op::Update(..) | Op::Contains(_) => unreachable!(),
+                    Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -331,7 +343,7 @@ fn test_sync_map_linearizability_zipfian() {
                     Op::CompareExchange(k, exp, new) => {
                         Ret::CompareExchange(map_clone.compare_exchange(*k, *exp, *new))
                     }
-                    Op::Update(..) | Op::Contains(_) => unreachable!(),
+                    Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -421,7 +433,7 @@ fn test_sync_map_linearizability_single_threaded() {
                 Ret::Get(v)
             }
             Op::CompareExchange(..) => unreachable!(),
-            Op::Update(..) | Op::Contains(_) => unreachable!(),
+            Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
         };
         let end = Instant::now();
 
@@ -810,7 +822,7 @@ fn test_sync_map_linearizability_tree_rooted() {
                     Op::Remove(k) => Ret::Remove(map_clone.remove(*k)),
                     Op::Get(k) => Ret::Get(map_clone.get(*k)),
                     Op::CompareExchange(..) => unreachable!(),
-                    Op::Update(..) | Op::Contains(_) => unreachable!(),
+                    Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1369,7 +1381,7 @@ fn test_sync_strmap_linearizability() {
                     Op::Remove(k) => Ret::Remove(map_clone.remove(str_key(*k))),
                     Op::Get(k) => Ret::Get(reader.get(str_key(*k))),
                     Op::CompareExchange(..) => unreachable!(),
-                    Op::Update(..) | Op::Contains(_) => unreachable!(),
+                    Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1482,7 +1494,7 @@ fn test_sync_strmap_compare_exchange_linearizability() {
                         Ret::CompareExchange(map_clone.compare_exchange(str_key(*k), *exp, *new))
                     }
                     Op::Get(k) => Ret::Get(reader.get(str_key(*k))),
-                    Op::Update(..) | Op::Contains(_) => unreachable!(),
+                    Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1574,7 +1586,7 @@ fn test_sync_bytesmap_compare_exchange_linearizability() {
                         Ret::CompareExchange(map_clone.compare_exchange(bytes_key(*k), *exp, *new))
                     }
                     Op::Get(k) => Ret::Get(reader.get(bytes_key(*k))),
-                    Op::Update(..) | Op::Contains(_) => unreachable!(),
+                    Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1610,6 +1622,113 @@ fn test_sync_bytesmap_compare_exchange_linearizability() {
             key
         );
     }
+}
+
+/// One operation of the `get_or_insert` mixes below. Values come from
+/// `1..=3` and `Remove` is in the mix, so a key is absent often enough for
+/// the insert side to recur and present often enough for the hit side to.
+fn get_or_insert_mix_op(t_id: usize, i: usize, key: u64) -> Op {
+    let v = ((t_id + i) % 3 + 1) as u64;
+    match (t_id + 2 * i) % 5 {
+        0 | 3 => Op::GetOrInsert(key, v),
+        1 => Op::Remove(key),
+        2 => Op::Insert(key, v),
+        _ => Op::Get(key),
+    }
+}
+
+/// A `get_or_insert` mix that recorded no insert, or no hit, checked one
+/// side of the operation only.
+fn assert_get_or_insert_mix_exercised(history: &[Event]) {
+    let (mut inserted, mut hit) = (0, 0);
+    for e in history {
+        match e.ret {
+            Ret::GetOrInsert(None) => inserted += 1,
+            Ret::GetOrInsert(Some(_)) => hit += 1,
+            _ => {}
+        }
+    }
+    assert!(
+        inserted > 0 && hit > 0,
+        "get_or_insert outcomes: {inserted} inserted, {hit} already present"
+    );
+}
+
+/// Runs the `get_or_insert` mix on `map` and checks every key's history.
+fn run_get_or_insert_mix(map: Arc<SyncExpanseMap>) {
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let num_threads = 4;
+    let ops_per_thread = 120;
+    let mut handles = vec![];
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            for i in 0..ops_per_thread {
+                let key = ((t_id * 7 + i * 5) % 3) as u64;
+                let op = get_or_insert_mix_op(t_id, i, key);
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(*k, *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(*k)),
+                    Op::Get(k) => Ret::Get(map_clone.get(*k)),
+                    Op::GetOrInsert(k, v) => Ret::GetOrInsert(map_clone.get_or_insert(*k, *v)),
+                    _ => unreachable!(),
+                };
+                let end = Instant::now();
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+            history_clone.lock().unwrap().extend(local_events);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let history = history.lock().unwrap().clone();
+    assert_get_or_insert_mix_exercised(&history);
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for get_or_insert key {}",
+            key
+        );
+    }
+}
+
+/// `SyncExpanseMap::get_or_insert` against concurrent inserts, removes and
+/// reads, in the serialised root-leaf state.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_get_or_insert_linearizability_root_leaf() {
+    run_get_or_insert_mix(Arc::new(SyncExpanseMap::new()));
+}
+
+/// The same mix with more keys than a root leaf holds, so it runs on the
+/// optimistic tree paths.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_map_get_or_insert_linearizability_tree_rooted() {
+    let map = Arc::new(SyncExpanseMap::new());
+    for b in 1..=64u64 {
+        map.insert(b << 56, b);
+    }
+    run_get_or_insert_mix(map);
 }
 
 /// Linearizability verification of `SyncExpanseMap::update`
@@ -1674,7 +1793,7 @@ fn test_sync_map_update_linearizability() {
                         Ret::Update(map_clone.update(*k, |cur| update_state(cur, d)))
                     }
                     Op::Get(k) => Ret::Get(map_clone.get(*k)),
-                    Op::Contains(_) => unreachable!(),
+                    Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1774,7 +1893,7 @@ fn test_sync_strmap_update_linearizability() {
                         Ret::Update(map_clone.update(str_key(*k), |cur| update_state(cur, d)))
                     }
                     Op::Get(k) => Ret::Get(reader.get(str_key(*k))),
-                    Op::Contains(_) => unreachable!(),
+                    Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -1874,7 +1993,7 @@ fn test_sync_bytesmap_update_linearizability() {
                         Ret::Update(map_clone.update(bytes_key(*k), |cur| update_state(cur, d)))
                     }
                     Op::Get(k) => Ret::Get(reader.get(bytes_key(*k))),
-                    Op::Contains(_) => unreachable!(),
+                    Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
 
@@ -2145,7 +2264,7 @@ fn contains_key_mix_run(tree_rooted: bool) {
                     // Both entry points are exercised, alternating by step.
                     Op::Contains(k) if i % 2 == 0 => Ret::Contains(reader.contains(*k)),
                     Op::Contains(k) => Ret::Contains(map_clone.contains_key(*k)),
-                    Op::Update(..) => unreachable!(),
+                    Op::Update(..) | Op::GetOrInsert(..) => unreachable!(),
                 };
                 let end = Instant::now();
                 local_events.push(Event {
@@ -2586,7 +2705,7 @@ fn test_sync_map_linearizability_branch_u_floor_crossings() {
                         Op::Remove(k) => Ret::Remove(map.remove(*k)),
                         Op::Get(k) => Ret::Get(map.get(*k)),
                         Op::CompareExchange(..) => unreachable!(),
-                        Op::Update(..) | Op::Contains(_) => unreachable!(),
+                        Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
                     };
                     let end = Instant::now();
                     // The first writer validates the tree every tenth step
