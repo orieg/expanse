@@ -2652,6 +2652,8 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::collector_census(&self) -> expanse
 pub fn expanse_trie::sync::SyncExpanseStrMap::compare_exchange(&self, &expanse_trie::strmap::NulFreeStr, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseStrMap::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseStrMap::get_or_insert(&self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseStrMap::get_or_insert_with(&self, &expanse_trie::strmap::NulFreeStr, impl core::ops::function::FnOnce() -> u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::insert(&self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseStrMap::len(&self) -> u64

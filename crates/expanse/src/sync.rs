@@ -12866,6 +12866,40 @@ impl SyncExpanseStrMap {
         }
     }
 
+    /// Stores `val` under `key` only if `key` is absent, as one
+    /// linearizable step. Returns the value already present, which is left
+    /// untouched, or `None` when `val` was stored. Like [`Self::insert`] and
+    /// [`Self::update`] it returns the previous value, so `None` means the
+    /// key was inserted.
+    ///
+    /// Of any number of callers racing on one absent key, exactly one gets
+    /// `None`; the others get the winner's value. It is
+    /// [`Self::compare_exchange`] with `expected = None`, and takes that
+    /// method's optimistic form and its exclusive fallback.
+    pub fn get_or_insert(&self, key: &NulFreeStr, val: u64) -> Option<u64> {
+        match self.compare_exchange(key, None, Some(val)) {
+            Ok(_) => None,
+            Err(seen) => {
+                // A mismatch against `None` observed a value.
+                debug_assert!(seen.is_some(), "an absent-expected exchange failed on None");
+                seen
+            }
+        }
+    }
+
+    /// [`Self::get_or_insert`] that computes the value only when the key is
+    /// absent: `f` does not run when `key` is present at the initial read,
+    /// and runs at most once, even when the exchange loses a race (the
+    /// computed value is then dropped and the winner's value is returned).
+    /// `f` may therefore run for a call that returns `Some`, when another
+    /// caller inserts between the read and the exchange.
+    pub fn get_or_insert_with(&self, key: &NulFreeStr, f: impl FnOnce() -> u64) -> Option<u64> {
+        if let Some(present) = self.get(key) {
+            return Some(present);
+        }
+        self.get_or_insert(key, f())
+    }
+
     /// The word the compare saw; the store happened iff it equals `expected`.
     fn compare_exchange_observed(
         &self,
@@ -25233,6 +25267,128 @@ mod get_or_insert_tests {
             assert_eq!(got, None);
             assert_eq!(calls.get(), 1);
             assert_eq!(map.get(0), Some(0));
+        }
+    }
+}
+
+/// `SyncExpanseStrMap::get_or_insert` and `get_or_insert_with`: insert when
+/// absent, keep the present value, never run the closure on a present key,
+/// with the root node's sub-map in root-leaf state and in tree state.
+#[cfg(test)]
+mod str_get_or_insert_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use core::cell::Cell;
+    use std::format;
+    use std::string::String;
+
+    fn nf(b: &str) -> &NulFreeStr {
+        NulFreeStr::new(b.as_bytes()).expect("test keys are NUL-free")
+    }
+
+    /// Four-byte keys, each with its own first chunk, so `n` of them are `n`
+    /// entries in the root node's sub-map.
+    fn key(k: u64) -> String {
+        format!("w{k:03}")
+    }
+
+    fn root_is_tree(map: &SyncExpanseStrMap) -> bool {
+        map.with_locked(|m| m.test_submap_is_tree_at(&[]).expect("root node"))
+    }
+
+    #[test]
+    fn inserts_when_absent_and_keeps_present() {
+        let map = SyncExpanseStrMap::new();
+        assert_eq!(map.get_or_insert(nf("seven"), 10), None);
+        assert_eq!(map.get(nf("seven")), Some(10));
+        // Present: the old value comes back and is not overwritten.
+        assert_eq!(map.get_or_insert(nf("seven"), 20), Some(10));
+        assert_eq!(map.get(nf("seven")), Some(10));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn value_zero_is_stored_and_is_a_present_key() {
+        let map = SyncExpanseStrMap::new();
+        assert_eq!(map.get_or_insert(nf("three"), 0), None);
+        assert_eq!(map.get(nf("three")), Some(0));
+        assert_eq!(map.get_or_insert(nf("three"), 9), Some(0));
+        assert_eq!(map.get(nf("three")), Some(0));
+    }
+
+    fn exercise(map: &SyncExpanseStrMap, n: u64) {
+        for k in 0..n {
+            assert_eq!(map.get_or_insert(nf(&key(k)), k + 1), None, "insert {k}");
+        }
+        assert_eq!(map.len(), n);
+        for k in 0..n {
+            assert_eq!(map.get_or_insert(nf(&key(k)), 999), Some(k + 1), "hit {k}");
+            assert_eq!(map.get(nf(&key(k))), Some(k + 1), "kept {k}");
+        }
+        assert_eq!(map.len(), n);
+        map.remove(nf(&key(0)));
+        assert_eq!(map.get_or_insert(nf(&key(0)), 5), None);
+        assert_eq!(map.get(nf(&key(0))), Some(5));
+    }
+
+    #[test]
+    fn root_leaf_state() {
+        let map = SyncExpanseStrMap::new();
+        exercise(&map, ROOT_LEAF_CAP as u64);
+        assert!(!root_is_tree(&map));
+    }
+
+    #[test]
+    fn tree_state() {
+        let map = SyncExpanseStrMap::new();
+        exercise(&map, 4 * ROOT_LEAF_CAP as u64);
+        assert!(root_is_tree(&map));
+    }
+
+    #[test]
+    fn keys_sharing_a_prefix_stay_distinct() {
+        let map = SyncExpanseStrMap::new();
+        let (a, b) = (nf("shared/prefix/aaaa"), nf("shared/prefix/aaab"));
+        assert_eq!(map.get_or_insert(a, 1), None);
+        assert_eq!(map.get_or_insert(b, 2), None);
+        assert_eq!(map.get_or_insert(a, 3), Some(1));
+        assert_eq!(map.get_or_insert(b, 4), Some(2));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn with_does_not_run_the_closure_on_a_present_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseStrMap::new();
+            for k in 0..n {
+                map.insert(nf(&key(k)), k + 1);
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(nf(&key(0)), || {
+                calls.set(calls.get() + 1);
+                77
+            });
+            assert_eq!(got, Some(1));
+            assert_eq!(calls.get(), 0, "closure ran on a present key");
+            assert_eq!(map.get(nf(&key(0))), Some(1));
+        }
+    }
+
+    #[test]
+    fn with_runs_the_closure_once_on_an_absent_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseStrMap::new();
+            for k in 1..=n {
+                map.insert(nf(&key(k)), k);
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(nf(&key(0)), || {
+                calls.set(calls.get() + 1);
+                0
+            });
+            assert_eq!(got, None);
+            assert_eq!(calls.get(), 1);
+            assert_eq!(map.get(nf(&key(0))), Some(0));
         }
     }
 }
