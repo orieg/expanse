@@ -16,6 +16,7 @@ High-performance, **zero-GC**, off-heap associative trie collections for **.NET 
   - `ExpanseMap`: High-performance ordered 64-bit $\to$ 64-bit map (cf. JudyL).
   - `ExpanseStrMap`: High-performance ordered string trie supporting `string` and `ReadOnlySpan<char>` (cf. JudySL).
   - `ExpanseBytesMap`: High-performance binary-safe hash map supporting arbitrary byte keys and embedded NUL (`0x00`) bytes (cf. JudyHS).
+  - `ExpanseOrderedBytesMap`: High-performance ordered arbitrary byte-key map with `FirstEntry`/`LastEntry`/`CeilingEntry`/`HigherEntry`/`FloorEntry`/`LowerEntry` navigation.
   - `ExpanseBlobMap`: Polymorphic off-heap large-value map with inline packing ($\le 7$ bytes stored in 64-bit slot), chunked arena slabs, 32-bit hot metadata filtering, zero-copy span access, compaction, and predicate pruning.
   - `ExpanseSyncSet` / `ExpanseSyncMap`: Multithreaded concurrent collections with serialized writers and optimistic readers.
 

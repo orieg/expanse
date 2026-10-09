@@ -256,6 +256,80 @@ public static class NativeMethods
 
     #endregion
 
+    #region ExpanseOrderedBytesMap
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_new")]
+    public static extern SafeExpanseOrderedBytesMapHandle expanse_ordered_bytesmap_new();
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_free")]
+    public static extern void expanse_ordered_bytesmap_free(IntPtr map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_ordered_bytesmap_insert(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, ulong value, out ulong old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_ordered_bytesmap_insert(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, ulong value, IntPtr old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_get")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_ordered_bytesmap_get(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_ordered_bytesmap_contains(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_remove")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_ordered_bytesmap_remove(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, out ulong old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_remove")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_ordered_bytesmap_remove(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, IntPtr old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_slot")]
+    public static extern unsafe ulong* expanse_ordered_bytesmap_slot(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_ins_slot")]
+    public static extern unsafe ulong* expanse_ordered_bytesmap_ins_slot(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_len")]
+    public static extern ulong expanse_ordered_bytesmap_len(SafeExpanseOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_mem_used")]
+    public static extern nuint expanse_ordered_bytesmap_mem_used(SafeExpanseOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_mem_held")]
+    public static extern nuint expanse_ordered_bytesmap_mem_held(SafeExpanseOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_shrink_to_fit")]
+    public static extern nuint expanse_ordered_bytesmap_shrink_to_fit(SafeExpanseOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_clear")]
+    public static extern void expanse_ordered_bytesmap_clear(SafeExpanseOrderedBytesMapHandle map);
+
+    // Navigation returns expanse_ordered_bytes_nav_status (0 OK, 1 NOT_FOUND, 2 BUFFER_TOO_SMALL).
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_first")]
+    public static extern unsafe int expanse_ordered_bytesmap_first(SafeExpanseOrderedBytesMapHandle map, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_last")]
+    public static extern unsafe int expanse_ordered_bytesmap_last(SafeExpanseOrderedBytesMapHandle map, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_next_at_or_after")]
+    public static extern unsafe int expanse_ordered_bytesmap_next_at_or_after(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_next_after")]
+    public static extern unsafe int expanse_ordered_bytesmap_next_after(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_prev_at_or_before")]
+    public static extern unsafe int expanse_ordered_bytesmap_prev_at_or_before(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_ordered_bytesmap_prev_before")]
+    public static extern unsafe int expanse_ordered_bytesmap_prev_before(SafeExpanseOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    #endregion
+
     #region ExpanseStrMap
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_new")]
