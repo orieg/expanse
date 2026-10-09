@@ -82,6 +82,25 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_bytesmap_mem_used;
     public static final MethodHandle MH_expanse_bytesmap_clear;
     public static final MethodHandle MH_expanse_bytesmap_for_each;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_new;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_free;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_insert;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_get;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_contains;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_remove;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_slot;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_ins_slot;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_len;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_mem_used;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_mem_held;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_shrink_to_fit;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_clear;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_first;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_last;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_next_at_or_after;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_next_after;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_prev_at_or_before;
+    public static final MethodHandle MH_expanse_ordered_bytesmap_prev_before;
 
     // StrMap
     public static final MethodHandle MH_expanse_strmap_new;
@@ -230,6 +249,26 @@ public final class ExpanseNative {
         MH_expanse_bytesmap_mem_used = downcall("expanse_bytesmap_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_bytesmap_clear = downcall("expanse_bytesmap_clear", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         MH_expanse_bytesmap_for_each = downcall("expanse_bytesmap_for_each", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        // OrderedBytesMap (expanse_ordered_bytesmap_t)
+        MH_expanse_ordered_bytesmap_new = downcall("expanse_ordered_bytesmap_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_free = downcall("expanse_ordered_bytesmap_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_insert = downcall("expanse_ordered_bytesmap_insert", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_get = downcall("expanse_ordered_bytesmap_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_contains = downcall("expanse_ordered_bytesmap_contains", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        MH_expanse_ordered_bytesmap_remove = downcall("expanse_ordered_bytesmap_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_slot = downcall("expanse_ordered_bytesmap_slot", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        MH_expanse_ordered_bytesmap_ins_slot = downcall("expanse_ordered_bytesmap_ins_slot", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        MH_expanse_ordered_bytesmap_len = downcall("expanse_ordered_bytesmap_len", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_mem_used = downcall("expanse_ordered_bytesmap_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_mem_held = downcall("expanse_ordered_bytesmap_mem_held", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_shrink_to_fit = downcall("expanse_ordered_bytesmap_shrink_to_fit", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_clear = downcall("expanse_ordered_bytesmap_clear", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_first = downcall("expanse_ordered_bytesmap_first", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_last = downcall("expanse_ordered_bytesmap_last", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_next_at_or_after = downcall("expanse_ordered_bytesmap_next_at_or_after", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_next_after = downcall("expanse_ordered_bytesmap_next_after", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_prev_at_or_before = downcall("expanse_ordered_bytesmap_prev_at_or_before", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_ordered_bytesmap_prev_before = downcall("expanse_ordered_bytesmap_prev_before", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
         // StrMap
         MH_expanse_strmap_new = downcall("expanse_strmap_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
