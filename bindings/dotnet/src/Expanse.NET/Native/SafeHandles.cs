@@ -81,6 +81,25 @@ public sealed class SafeExpanseBytesMapHandle : SafeHandleZeroOrMinusOneIsInvali
 }
 
 /// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_ordered_bytesmap_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseOrderedBytesMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseOrderedBytesMapHandle() : base(true) { }
+
+    public SafeExpanseOrderedBytesMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_ordered_bytesmap_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
 /// SafeHandle wrapping an unmanaged <c>ExpanseBlobMap</c> pointer.
 /// </summary>
 public sealed class SafeExpanseBlobMapHandle : SafeHandleZeroOrMinusOneIsInvalid
