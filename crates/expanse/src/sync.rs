@@ -6838,6 +6838,23 @@ impl SyncExpanseMap {
         }
     }
 
+    /// Returns `reader` if it was registered on this map's collector, and
+    /// panics otherwise (#1194).
+    ///
+    /// Every safe entry that takes a reader separately from the map it reads
+    /// passes it through here before the first pin: a pin on a different
+    /// collector does not hold off this map's reclamation. The collector is
+    /// fixed at construction, so one check covers a handle that keeps both
+    /// borrows (a cursor). The check is two loads, a compare and a branch to a
+    /// cold panic; it touches no atomic.
+    #[inline(always)]
+    pub(crate) fn registered<'r>(&self, reader: &'r Reader) -> &'r Reader {
+        if !Arc::ptr_eq(&reader.collector, &self.shared.collector) {
+            foreign_reader();
+        }
+        reader
+    }
+
     /// Performs an optimistic read against this map with automatic retry and lock fallback (#1142).
     #[inline(always)]
     pub(crate) fn optimistic_read<R>(
@@ -9999,6 +10016,17 @@ impl OwnedMapReader {
     }
 }
 
+/// The panic of [`SyncExpanseMap::registered`], out of line so the check on a
+/// lookup path is a compare and a branch that is never taken.
+#[cold]
+#[inline(never)]
+fn foreign_reader() -> ! {
+    panic!(
+        "reader was registered on a different collector than this map's; \
+         use a reader only with the map that created it"
+    )
+}
+
 /// A reader that owns neither its map nor a reference to it.
 ///
 /// [`OwnedMapReader`] holds an `Arc<SyncExpanseMap>` so it can be cached
@@ -10061,57 +10089,67 @@ impl DetachedMapReader {
     /// Optimistic lookup against `map`, without the per-call registry lock
     /// [`SyncExpanseMap::get`] pays.
     ///
-    /// `map` must be the map this reader was registered against; reading a
-    /// different map through it would validate against the wrong collector.
+    /// `map` must be the map this reader was registered against. The check
+    /// compares collectors: a pin on another map's collector does not hold
+    /// off `map`'s reclamation, so it is made on every call (#1194).
     ///
     /// See [`MapReader::get`] for the reclamation contract when `u64` values are
     /// locators into an external epoch-reclaimed store.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any node
+    /// of `map` is read.
     #[must_use]
     pub fn get(&self, map: &SyncExpanseMap, key: Key) -> Option<u64> {
-        map_get_with(map, &self.reader, key)
+        map_get_with(map, map.registered(&self.reader), key)
     }
 
     // The ordered reads of `map_reader_ordered_reads!`, taking the map at call
-    // time, with the same contract; the `map` requirement of `get` applies to
-    // each.
+    // time, with the same contract; the `map` requirement of `get`, and its
+    // panic, apply to each.
 
     /// Smallest entry, without excluding writers.
     #[must_use]
     pub fn first(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
-        map_next_with(map, &self.reader, 0)
+        map_next_with(map, map.registered(&self.reader), 0)
     }
 
     /// Largest entry, without excluding writers.
     #[must_use]
     pub fn last(&self, map: &SyncExpanseMap) -> Option<(u64, u64)> {
-        map_prev_with(map, &self.reader, u64::MAX)
+        map_prev_with(map, map.registered(&self.reader), u64::MAX)
     }
 
     /// Smallest entry with key `>= key`, without excluding writers.
     #[must_use]
     pub fn next_at_or_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
-        map_next_with(map, &self.reader, key)
+        map_next_with(map, map.registered(&self.reader), key)
     }
 
     /// Smallest entry with key `> key`, without excluding writers.
     #[must_use]
     pub fn next_after(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
-        map_next_with(map, &self.reader, key.checked_add(1)?)
+        map_next_with(map, map.registered(&self.reader), key.checked_add(1)?)
     }
 
     /// Largest entry with key `<= key`, without excluding writers.
     #[must_use]
     pub fn prev_at_or_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
-        map_prev_with(map, &self.reader, key)
+        map_prev_with(map, map.registered(&self.reader), key)
     }
 
     /// Largest entry with key `< key`, without excluding writers.
     #[must_use]
     pub fn prev_before(&self, map: &SyncExpanseMap, key: Key) -> Option<(u64, u64)> {
-        map_prev_with(map, &self.reader, key.checked_sub(1)?)
+        map_prev_with(map, map.registered(&self.reader), key.checked_sub(1)?)
     }
 
     /// Returns a forward batch cursor scanning `map` in ascending order (#1142).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector (see [`Self::get`]).
     #[must_use]
     pub fn cursor<'m>(&self, map: &'m SyncExpanseMap) -> crate::sync_cursor::SyncMapCursor<'m, '_> {
         crate::sync_cursor::SyncMapCursor::new(map, &self.reader)
@@ -10121,6 +10159,10 @@ impl DetachedMapReader {
     ///
     /// The range is inclusive of both bounds (`start..=end`), matching future
     /// single-threaded `MapCursor RangeBounds` conventions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector (see [`Self::get`]).
     #[must_use]
     pub fn range_cursor<'m>(
         &self,
@@ -17746,6 +17788,110 @@ mod tests {
         // not be dropped after its map; a detached one has nothing to dangle.
         drop(map);
         drop(reader);
+    }
+
+    /// Two populated maps, each with its own collector (#1194).
+    fn two_maps() -> (SyncExpanseMap, SyncExpanseMap) {
+        let (a, b) = (SyncExpanseMap::new(), SyncExpanseMap::new());
+        for k in 0..64u64 {
+            a.insert(k, k);
+            b.insert(k, k + 1);
+        }
+        assert!(
+            !Arc::ptr_eq(&a.shared.collector, &b.shared.collector),
+            "the fixture needs two collectors"
+        );
+        (a, b)
+    }
+
+    /// Each safe entry that takes a reader separately from the map it reads
+    /// rejects a reader registered on another map's collector (#1194).
+    ///
+    /// Without the check every one of these calls returns normally — the walk
+    /// validates against `b`'s version words while the pin is on `a`'s
+    /// collector — so `should_panic` with the message is what fails when the
+    /// check is removed. `next_after(u64::MAX)` and `prev_before(0)` answer
+    /// `None` without walking; they pin that the check precedes that early
+    /// return, so a mismatched pair is rejected whatever the key.
+    macro_rules! foreign_reader_rejected {
+        ($($name:ident: |$a:ident, $b:ident, $r:ident| $call:expr;)+) => {$(
+            #[test]
+            #[should_panic(expected = "reader was registered on a different collector")]
+            fn $name() {
+                let ($a, $b) = two_maps();
+                let $r = $a.detached_reader();
+                let _ = (&$a, &$r);
+                let _ = $call;
+            }
+        )+};
+    }
+
+    foreign_reader_rejected! {
+        detached_get_rejects_foreign_map: |a, b, r| r.get(&b, 3);
+        detached_first_rejects_foreign_map: |a, b, r| r.first(&b);
+        detached_last_rejects_foreign_map: |a, b, r| r.last(&b);
+        detached_next_at_or_after_rejects_foreign_map: |a, b, r| r.next_at_or_after(&b, 3);
+        detached_next_after_rejects_foreign_map: |a, b, r| r.next_after(&b, 3);
+        detached_next_after_max_rejects_foreign_map: |a, b, r| r.next_after(&b, u64::MAX);
+        detached_prev_at_or_before_rejects_foreign_map: |a, b, r| r.prev_at_or_before(&b, 3);
+        detached_prev_before_rejects_foreign_map: |a, b, r| r.prev_before(&b, 3);
+        detached_prev_before_zero_rejects_foreign_map: |a, b, r| r.prev_before(&b, 0);
+        detached_cursor_rejects_foreign_map: |a, b, r| r.cursor(&b).count();
+        detached_range_cursor_rejects_foreign_map: |a, b, r| r.range_cursor(&b, 0, 10).count();
+        cursor_new_rejects_foreign_reader: |a, b, r| {
+            let raw = a.shared.collector.register();
+            crate::sync_cursor::SyncMapCursor::new(&b, &raw).count()
+        };
+        cursor_range_rejects_foreign_reader: |a, b, r| {
+            let raw = a.shared.collector.register();
+            crate::sync_cursor::SyncMapCursor::range(&b, &raw, 0, 10).count()
+        };
+        cursor_range_bounds_rejects_foreign_reader: |a, b, r| {
+            let raw = a.shared.collector.register();
+            crate::sync_cursor::SyncMapCursor::range_bounds(&b, &raw, 5..).count()
+        };
+        cursor_range_bounds_empty_rejects_foreign_reader: |a, b, r| {
+            // The excluded-`u64::MAX` start returns an exhausted cursor early;
+            // the check precedes that return too.
+            let raw = a.shared.collector.register();
+            let bounds = (core::ops::Bound::Excluded(u64::MAX), core::ops::Bound::Unbounded);
+            crate::sync_cursor::SyncMapCursor::range_bounds(&b, &raw, bounds).count()
+        };
+        cursor_new_rejects_unowned_collector_reader: |a, b, r| {
+            // `Collector::new` and `register` are public, so safe code can
+            // hold a reader that belongs to no map at all.
+            let raw = Arc::new(Collector::new()).register();
+            crate::sync_cursor::SyncMapCursor::new(&b, &raw).count()
+        };
+    }
+
+    /// The positive half of the #1194 check: a reader on its own map's
+    /// collector passes through every entry the tests above reject on.
+    #[test]
+    fn readers_on_their_own_map_pass_the_collector_check() {
+        let (a, b) = two_maps();
+        let (ra, rb) = (a.detached_reader(), b.detached_reader());
+        assert_eq!(ra.get(&a, 3), Some(3));
+        assert_eq!(rb.get(&b, 3), Some(4));
+        assert_eq!(rb.first(&b), Some((0, 1)));
+        assert_eq!(rb.last(&b), Some((63, 64)));
+        assert_eq!(rb.next_after(&b, u64::MAX), None);
+        assert_eq!(rb.prev_before(&b, 0), None);
+        assert_eq!(rb.cursor(&b).count(), 64);
+        assert_eq!(rb.range_cursor(&b, 0, 9).count(), 10);
+        let raw = b.shared.collector.register();
+        use crate::sync_cursor::SyncMapCursor;
+        assert_eq!(SyncMapCursor::new(&b, &raw).count(), 64);
+        assert_eq!(SyncMapCursor::range(&b, &raw, 60, 70).count(), 4);
+        assert_eq!(SyncMapCursor::range_bounds(&b, &raw, 60..).count(), 4);
+        let bounds = (
+            core::ops::Bound::Excluded(u64::MAX),
+            core::ops::Bound::Unbounded,
+        );
+        assert_eq!(SyncMapCursor::range_bounds(&b, &raw, bounds).count(), 0);
+        // The bound readers reach the same cursor constructors.
+        assert_eq!(b.reader().cursor().count(), 64);
+        assert_eq!(b.reader().range_cursor(0, 9).count(), 10);
     }
 
     /// An `OwnedMapReader` must agree with the one-shot `get` it replaces, and
