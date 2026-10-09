@@ -6605,6 +6605,40 @@ impl SyncExpanseMap {
         }
     }
 
+    /// Stores `val` under `key` only if `key` is absent, as one
+    /// linearizable step. Returns the value already present, which is left
+    /// untouched, or `None` when `val` was stored. Like [`Self::insert`] and
+    /// [`Self::update`] it returns the previous value, so `None` means the
+    /// key was inserted.
+    ///
+    /// Of any number of callers racing on one absent key, exactly one gets
+    /// `None`; the others get the winner's value. It is
+    /// [`Self::compare_exchange`] with `expected = None`, and takes that
+    /// method's optimistic form and its exclusive fallback.
+    pub fn get_or_insert(&self, key: Key, val: u64) -> Option<u64> {
+        match self.compare_exchange(key, None, Some(val)) {
+            Ok(_) => None,
+            Err(seen) => {
+                // A mismatch against `None` observed a value.
+                debug_assert!(seen.is_some(), "an absent-expected exchange failed on None");
+                seen
+            }
+        }
+    }
+
+    /// [`Self::get_or_insert`] that computes the value only when the key is
+    /// absent: `f` does not run when `key` is present at the initial read,
+    /// and runs at most once, even when the exchange loses a race (the
+    /// computed value is then dropped and the winner's value is returned).
+    /// `f` may therefore run for a call that returns `Some`, when another
+    /// caller inserts between the read and the exchange.
+    pub fn get_or_insert_with(&self, key: Key, f: impl FnOnce() -> u64) -> Option<u64> {
+        if let Some(present) = self.get(key) {
+            return Some(present);
+        }
+        self.get_or_insert(key, f())
+    }
+
     /// The word the compare saw; the store happened iff it equals `expected`.
     fn compare_exchange_observed(
         &self,
@@ -25105,6 +25139,101 @@ mod validated_answer_tests {
         assert_eq!(set.len(), 0);
         assert_eq!(set.mem_used(), set.with_locked(ExpanseSet::mem_used));
         assert_eq!(set.mem_used(), 0);
+    }
+}
+
+/// `SyncExpanseMap::get_or_insert` and `get_or_insert_with`: insert when
+/// absent, keep the present value, never run the closure on a present key,
+/// in root-leaf state and in tree state.
+#[cfg(test)]
+mod get_or_insert_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use core::cell::Cell;
+
+    #[test]
+    fn inserts_when_absent_and_keeps_present() {
+        let map = SyncExpanseMap::new();
+        assert_eq!(map.get_or_insert(7, 10), None);
+        assert_eq!(map.get(7), Some(10));
+        // Present: the old value comes back and is not overwritten.
+        assert_eq!(map.get_or_insert(7, 20), Some(10));
+        assert_eq!(map.get(7), Some(10));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn value_zero_is_stored_and_is_a_present_key() {
+        let map = SyncExpanseMap::new();
+        assert_eq!(map.get_or_insert(3, 0), None);
+        assert_eq!(map.get(3), Some(0));
+        assert_eq!(map.get_or_insert(3, 9), Some(0));
+        assert_eq!(map.get(3), Some(0));
+    }
+
+    fn exercise(map: &SyncExpanseMap, n: u64) {
+        for k in 0..n {
+            assert_eq!(map.get_or_insert(k << 40, k + 1), None, "insert {k}");
+        }
+        assert_eq!(map.len(), n);
+        for k in 0..n {
+            assert_eq!(map.get_or_insert(k << 40, 999), Some(k + 1), "hit {k}");
+            assert_eq!(map.get(k << 40), Some(k + 1), "kept {k}");
+        }
+        assert_eq!(map.len(), n);
+        map.remove(0);
+        assert_eq!(map.get_or_insert(0, 5), None);
+        assert_eq!(map.get(0), Some(5));
+    }
+
+    #[test]
+    fn root_leaf_state() {
+        let map = SyncExpanseMap::new();
+        exercise(&map, ROOT_LEAF_CAP as u64);
+        assert!(!map.shared.published().is_tree());
+    }
+
+    #[test]
+    fn tree_state() {
+        let map = SyncExpanseMap::new();
+        exercise(&map, 4 * ROOT_LEAF_CAP as u64);
+        assert!(map.shared.published().is_tree());
+    }
+
+    #[test]
+    fn with_does_not_run_the_closure_on_a_present_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseMap::new();
+            for k in 0..n {
+                map.insert(k << 40, k + 1);
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(0, || {
+                calls.set(calls.get() + 1);
+                77
+            });
+            assert_eq!(got, Some(1));
+            assert_eq!(calls.get(), 0, "closure ran on a present key");
+            assert_eq!(map.get(0), Some(1));
+        }
+    }
+
+    #[test]
+    fn with_runs_the_closure_once_on_an_absent_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseMap::new();
+            for k in 1..=n {
+                map.insert(k << 40, k);
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(0, || {
+                calls.set(calls.get() + 1);
+                0
+            });
+            assert_eq!(got, None);
+            assert_eq!(calls.get(), 1);
+            assert_eq!(map.get(0), Some(0));
+        }
     }
 }
 

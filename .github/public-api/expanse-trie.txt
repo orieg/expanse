@@ -2551,6 +2551,8 @@ pub fn expanse_trie::sync::SyncExpanseMap::compare_exchange(&self, expanse_trie:
 pub fn expanse_trie::sync::SyncExpanseMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseMap::detached_reader(&self) -> expanse_trie::sync::DetachedMapReader
 pub fn expanse_trie::sync::SyncExpanseMap::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseMap::get_or_insert(&self, expanse_trie::types::Key, u64) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SyncExpanseMap::get_or_insert_with(&self, expanse_trie::types::Key, impl core::ops::function::FnOnce() -> u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseMap::insert(&self, expanse_trie::types::Key, u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseMap::len(&self) -> u64
