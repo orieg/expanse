@@ -212,10 +212,26 @@ pub enum Stat {
     /// kept apart from [`Stat::BranchSplitRemove`] so the crossings are
     /// attributable.
     BranchSplitDemoteU = 48,
+    /// Ordered reads on a string-map reader (`StrReader::first` and its
+    /// siblings, #1143) answered on the optimistic path, after the walk's
+    /// final validation. Answers taken under the writer lock are not counted
+    /// here; they are [`Stat::ReadFallbacks`].
+    StrOrderedAnswers = 49,
+    /// The subset of [`Stat::StrOrderedAnswers`] taken after a `StrNode`
+    /// level answered nothing and the walk moved to an ancestor's next
+    /// sibling: the cross-level answers the retained read set exists for.
+    /// A concurrent ordered history that claims to exercise that path is
+    /// checked against this being non-zero.
+    StrOrderedCrossLevel = 50,
+    /// String ordered reads whose read set filled and still validated: a
+    /// depth overflow, sent to the writer lock at once rather than retried
+    /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.4). Each is also
+    /// a [`Stat::ReadFallbacks`].
+    StrOrderedOverflows = 51,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 49;
+pub const NUM_STATS: usize = 52;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -268,6 +284,9 @@ pub const NAMES: [&str; NUM_STATS] = [
     "fallback_forced",
     "read_cover_overlaps",
     "branch_split_demote_u",
+    "str_ordered_answers",
+    "str_ordered_cross_level",
+    "str_ordered_overflows",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
@@ -546,7 +565,19 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::BranchSplitDemoteU as usize + 1, NUM_STATS);
+        assert_eq!(Stat::StrOrderedOverflows as usize + 1, NUM_STATS);
+        assert_eq!(
+            NAMES[Stat::StrOrderedAnswers as usize],
+            "str_ordered_answers"
+        );
+        assert_eq!(
+            NAMES[Stat::StrOrderedCrossLevel as usize],
+            "str_ordered_cross_level"
+        );
+        assert_eq!(
+            NAMES[Stat::StrOrderedOverflows as usize],
+            "str_ordered_overflows"
+        );
         assert_eq!(
             NAMES[Stat::BranchSplitDemoteU as usize],
             "branch_split_demote_u"

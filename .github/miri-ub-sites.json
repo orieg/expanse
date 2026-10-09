@@ -366,6 +366,24 @@
       "note": "not observed within the seed range; a clean entry is an observation at this budget, not evidence the workload is free of the class"
     },
     {
+      "test": "str_ordered_reader_writer",
+      "check": "race",
+      "expect": "clean",
+      "note": "not yet run: added with the workload (#1143); the nightly check confirms or replaces this expectation, and a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_ordered_reader_writer",
+      "check": "alias-sb",
+      "expect": "clean",
+      "note": "not yet run: added with the workload (#1143); the nightly check confirms or replaces this expectation, and a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
+      "test": "str_ordered_reader_writer",
+      "check": "alias-tb",
+      "expect": "clean",
+      "note": "not yet run: added with the workload (#1143); the nightly check confirms or replaces this expectation, and a clean entry is an observation at this budget, not evidence the workload is free of the class"
+    },
+    {
       "test": "bytes_two_writers",
       "check": "race",
       "expect": "clean",
