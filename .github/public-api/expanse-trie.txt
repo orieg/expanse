@@ -2369,6 +2369,7 @@ pub fn expanse_trie::sync::MapReader<'_>::next_at_or_after(&self, expanse_trie::
 pub fn expanse_trie::sync::MapReader<'_>::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 pub fn expanse_trie::sync::MapReader<'_>::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<(u64, u64)>
 impl<'a> expanse_trie::sync::MapReader<'a>
+pub fn expanse_trie::sync::MapReader<'a>::contains(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::MapReader<'a>::cursor(&self) -> expanse_trie::sync_cursor::SyncMapCursor<'a, '_>
 pub fn expanse_trie::sync::MapReader<'a>::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::sync::MapReader<'a>::range_cursor(&self, u64, u64) -> expanse_trie::sync_cursor::SyncMapCursor<'a, '_>
@@ -2538,6 +2539,7 @@ pub fn expanse_trie::sync::SyncExpanseMap::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseMap::compact(&self)
 pub fn expanse_trie::sync::SyncExpanseMap::compare_exchange(&self, expanse_trie::types::Key, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
+pub fn expanse_trie::sync::SyncExpanseMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseMap::detached_reader(&self) -> expanse_trie::sync::DetachedMapReader
 pub fn expanse_trie::sync::SyncExpanseMap::get(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseMap::insert(&self, expanse_trie::types::Key, u64) -> core::option::Option<u64>
