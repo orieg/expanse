@@ -192,7 +192,7 @@ reloaded = ExpanseBlobMap.load_from_file("blob.img")
 assert reloaded[1] == b"arbitrary payload bytes"
 ```
 
-The arena's capacity cap counts allocated chunk bytes and defaults to 1 GiB; `ExpanseBlobMap(chunk_size, max_capacity)` sets another, clamped to `[chunk_size, 64 GiB]`. An insert the cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1); `set_reclaim_at_cap(False)` turns that off. `insert` raises `RuntimeError` on any refusal; `insert_status` returns the reason instead: `"cap_refused"` when nothing was compacted (dead bytes may remain, `arena_stats()` shows how many), `"arena_full"` when the insert compacted and the record still does not fit. A map loaded with `load_from_file` has the default cap.
+The arena's capacity cap counts allocated chunk bytes and defaults to 1 GiB; `ExpanseBlobMap(chunk_size, max_capacity)` sets another, clamped to `[chunk_size, 64 GiB]`. An insert the cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1); `set_reclaim_at_cap(False)` turns that off. That compaction copies every live payload inside the one call and stalls the inserting thread, and on a shared map every other writer; §6.3.1 gives the measured stall and how to avoid it. `insert` raises `RuntimeError` on any refusal; `insert_status` returns the reason instead: `"cap_refused"` when nothing was compacted (dead bytes may remain, `arena_stats()` shows how many), `"arena_full"` when the insert compacted and the record still does not fit. A map loaded with `load_from_file` has the default cap.
 
 ### 3.6 `ExpanseOrderedBytesMap` (Ordered Byte Key Map / `expanse_ordered_bytesmap_*`)
 
