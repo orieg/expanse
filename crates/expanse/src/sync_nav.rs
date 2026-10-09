@@ -45,17 +45,48 @@ use core::mem::MaybeUninit;
 /// consistent-read bound of 13, so only a read of a moving tree reaches it.
 const READ_SET_CAP: usize = 16;
 
-/// Every branch version a search sampled, kept until the final validation.
-struct ReadSet {
-    entries: [MaybeUninit<(*const u32, u32)>; READ_SET_CAP],
+/// Every version a search sampled, kept until the final validation.
+///
+/// Generic over its capacity by monomorphisation: the u64 searches use
+/// [`READ_SET_CAP`], and the string map's cross-level walk uses its own
+/// (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.8.1). Each instantiation
+/// compiles on its own, so the string capacity does not reach the u64 code.
+pub(crate) struct ReadSet<const CAP: usize> {
+    entries: [MaybeUninit<(*const u32, u32)>; CAP],
     len: usize,
 }
 
-impl ReadSet {
+/// The cell behind a retained version field.
+///
+/// # Safety
+///
+/// `vp` is the version field of an EBR-live node.
+#[cfg(not(loom))]
+#[inline(always)]
+unsafe fn rs_cell<'a>(vp: *const u32) -> &'a crate::occ::VersionCell {
+    // SAFETY: forwarded contract.
+    unsafe { version_cell(vp) }
+}
+
+/// Under loom the read set holds pointers to the model's own cells, which
+/// the loom tests construct and pass in as `*const u32` (`occ::version_cell`
+/// has no honest cast under loom; see its docs).
+///
+/// # Safety
+///
+/// `vp` was cast from a live `&VersionCell`.
+#[cfg(loom)]
+#[inline(always)]
+unsafe fn rs_cell<'a>(vp: *const u32) -> &'a crate::occ::VersionCell {
+    // SAFETY: forwarded contract.
+    unsafe { &*vp.cast::<crate::occ::VersionCell>() }
+}
+
+impl<const CAP: usize> ReadSet<CAP> {
     #[inline(always)]
-    const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
-            entries: [const { MaybeUninit::uninit() }; READ_SET_CAP],
+            entries: [const { MaybeUninit::uninit() }; CAP],
             len: 0,
         }
     }
@@ -66,10 +97,10 @@ impl ReadSet {
     ///
     /// `vp` is the version field of an EBR-live branch node.
     #[inline(always)]
-    unsafe fn sample(&mut self, vp: *const u32) -> Result<u32, Retry> {
+    pub(crate) unsafe fn sample(&mut self, vp: *const u32) -> Result<u32, Retry> {
         // SAFETY: live version field, per this function's contract.
-        let snap = node_sample(unsafe { version_cell(vp) }).ok_or(Retry)?;
-        if self.len == READ_SET_CAP {
+        let snap = node_sample(unsafe { rs_cell(vp) }).ok_or(Retry)?;
+        if self.len == CAP {
             return Err(Retry);
         }
         self.entries[self.len] = MaybeUninit::new((vp, snap));
@@ -83,13 +114,49 @@ impl ReadSet {
     ///
     /// The caller still holds the pin under which every entry was sampled.
     #[inline(always)]
-    unsafe fn validate_all(&self) -> bool {
+    pub(crate) unsafe fn validate_all(&self) -> bool {
         self.entries[..self.len].iter().all(|e| {
             // SAFETY: entries below `len` were written by `sample`.
             let (vp, snap) = unsafe { e.assume_init() };
             // SAFETY: sampled from an EBR-live node under the same pin.
-            node_validate(unsafe { version_cell(vp) }, snap)
+            node_validate(unsafe { rs_cell(vp) }, snap)
         })
+    }
+
+    /// Validates the versions retained from index `start` on: the ones one
+    /// seek sampled, which include the holder of the entry it returned.
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::validate_all`].
+    #[inline(always)]
+    pub(crate) unsafe fn validate_from(&self, start: usize) -> bool {
+        self.entries[start.min(self.len)..self.len].iter().all(|e| {
+            // SAFETY: entries below `len` were written by `sample`.
+            let (vp, snap) = unsafe { e.assume_init() };
+            // SAFETY: sampled from an EBR-live node under the same pin.
+            node_validate(unsafe { rs_cell(vp) }, snap)
+        })
+    }
+
+    /// Versions retained.
+    #[inline(always)]
+    pub(crate) const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// True when another sample would overflow: the depth-overflow test of
+    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.4.
+    #[inline(always)]
+    pub(crate) const fn is_full(&self) -> bool {
+        self.len == CAP
+    }
+
+    /// Forgets the versions retained from `mark` on. Only the negative
+    /// controls call it: a correct search never forgets a version.
+    #[cfg(test)]
+    pub(crate) fn truncate(&mut self, mark: usize) {
+        self.len = self.len.min(mark);
     }
 }
 
@@ -191,14 +258,14 @@ pub(crate) unsafe fn next_validated<const MAP: bool>(
     if !ver.validate(snap) {
         return Err(Retry);
     }
-    let mut rs = ReadSet::new();
+    let mut rs = ReadSet::<READ_SET_CAP>::new();
     let found = match root {
         RootSnapshot::Empty => None,
         // SAFETY: root state validated just above, under the caller's pin.
         RootSnapshot::Leaf { ptr, pop } => unsafe { root_leaf::<MAP>(ptr, pop, key, true) },
         RootSnapshot::Tree { top } => {
             // SAFETY: the top edge copy is validated against the tree version.
-            unsafe { next_in::<MAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
+            unsafe { next_in::<MAP, READ_SET_CAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
         }
     };
     #[cfg(test)]
@@ -226,14 +293,14 @@ pub(crate) unsafe fn prev_validated<const MAP: bool>(
     if !ver.validate(snap) {
         return Err(Retry);
     }
-    let mut rs = ReadSet::new();
+    let mut rs = ReadSet::<READ_SET_CAP>::new();
     let found = match root {
         RootSnapshot::Empty => None,
         // SAFETY: root state validated just above, under the caller's pin.
         RootSnapshot::Leaf { ptr, pop } => unsafe { root_leaf::<MAP>(ptr, pop, key, false) },
         RootSnapshot::Tree { top } => {
             // SAFETY: the top edge copy is validated against the tree version.
-            unsafe { prev_in::<MAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
+            unsafe { prev_in::<MAP, READ_SET_CAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
         }
     };
     #[cfg(test)]
@@ -245,6 +312,48 @@ pub(crate) unsafe fn prev_validated<const MAP: bool>(
         return Err(Retry);
     }
     Ok(found)
+}
+
+/// One seek of the string map's cross-level walk (#1143): the smallest entry
+/// `>= key` (`forward`) or the largest `<= key` of a `StrNode` sub-map, with
+/// the word it maps the chunk to.
+///
+/// The sub-map's root state has no version of its own; the node's cover word
+/// stands where the tree version stands for a map (`strmap.rs`, `StrNode`),
+/// so it is the holder of the top edge and of a root leaf. Every branch the
+/// seek samples is retained in `rs`, as in [`next_validated`]; the caller
+/// owns the final validation.
+///
+/// # Safety
+///
+/// `root` was copied after `csnap` was sampled from `cover` and validated
+/// against it afterwards, `cover` is the cover word of an EBR-live `StrNode`,
+/// and the caller holds the pin for the whole call.
+#[inline]
+pub(crate) unsafe fn seek_submap<const CAP: usize>(
+    root: RootSnapshot,
+    key: u64,
+    forward: bool,
+    cover: *const u32,
+    csnap: u32,
+    rs: &mut ReadSet<CAP>,
+) -> Result<Option<(u64, u64)>, Retry> {
+    match root {
+        RootSnapshot::Empty => Ok(None),
+        // SAFETY: the root state was validated against the cover (contract).
+        RootSnapshot::Leaf { ptr, pop } => Ok(unsafe { root_leaf::<true>(ptr, pop, key, forward) }),
+        RootSnapshot::Tree { top } => {
+            let holder = Holder::Node(cover, csnap);
+            // SAFETY: the top edge copy is validated against the cover.
+            unsafe {
+                if forward {
+                    next_in::<true, CAP>(&top, key, 8, holder, rs)
+                } else {
+                    prev_in::<true, CAP>(&top, key, 8, holder, rs)
+                }
+            }
+        }
+    }
 }
 
 /// The successor (`forward`) or predecessor of `key` in a root leaf of `pop`
@@ -301,12 +410,12 @@ unsafe fn root_leaf<const MAP: bool>(
 /// # Safety
 ///
 /// `edge` is a copy validated against `holder`, and the caller holds the pin.
-unsafe fn next_in<const MAP: bool>(
+unsafe fn next_in<const MAP: bool, const CAP: usize>(
     edge: &Edge,
     suffix: u64,
     level: u8,
     holder: Holder<'_>,
-    rs: &mut ReadSet,
+    rs: &mut ReadSet<CAP>,
 ) -> Result<Option<(u64, u64)>, Retry> {
     use core::cmp::Ordering::{Equal, Greater, Less};
     let Some(tag) = edge.tag() else {
@@ -426,7 +535,8 @@ unsafe fn next_in<const MAP: bool>(
                 }
                 let mark = rs.len;
                 // SAFETY: child copy validated against this branch.
-                if let Some((r, v)) = unsafe { next_in::<MAP>(&child, rem, bl - 1, here, rs)? } {
+                if let Some((r, v)) = unsafe { next_in::<MAP, CAP>(&child, rem, bl - 1, here, rs)? }
+                {
                     return Ok(Some(((dv << shift) | compose(bd, r, bl), v)));
                 }
                 backtrack(rs, mark);
@@ -463,7 +573,8 @@ unsafe fn next_in<const MAP: bool>(
                 let child = unsafe { branch_b_child(node, bd, here)? };
                 let mark = rs.len;
                 // SAFETY: child copy validated against this branch.
-                if let Some((r, v)) = unsafe { next_in::<MAP>(&child, rem, bl - 1, here, rs)? } {
+                if let Some((r, v)) = unsafe { next_in::<MAP, CAP>(&child, rem, bl - 1, here, rs)? }
+                {
                     return Ok(Some(((dv << shift) | compose(bd, r, bl), v)));
                 }
                 backtrack(rs, mark);
@@ -509,8 +620,10 @@ unsafe fn next_in<const MAP: bool>(
                     0
                 };
                 let mark = rs.len;
-                // SAFETY: child copy validated against this branch.
-                if let Some((r, v)) = unsafe { next_in::<MAP>(&child, rem, level - 1, here, rs)? } {
+                if let Some((r, v)) =
+                    // SAFETY: child copy validated against this branch.
+                    unsafe { next_in::<MAP, CAP>(&child, rem, level - 1, here, rs)? }
+                {
                     return Ok(Some((compose(bd, r, level), v)));
                 }
                 backtrack(rs, mark);
@@ -525,12 +638,12 @@ unsafe fn next_in<const MAP: bool>(
 /// # Safety
 ///
 /// As [`next_in`].
-unsafe fn prev_in<const MAP: bool>(
+unsafe fn prev_in<const MAP: bool, const CAP: usize>(
     edge: &Edge,
     suffix: u64,
     level: u8,
     holder: Holder<'_>,
-    rs: &mut ReadSet,
+    rs: &mut ReadSet<CAP>,
 ) -> Result<Option<(u64, u64)>, Retry> {
     use core::cmp::Ordering::{Equal, Greater, Less};
     let Some(tag) = edge.tag() else {
@@ -656,7 +769,8 @@ unsafe fn prev_in<const MAP: bool>(
                 }
                 let mark = rs.len;
                 // SAFETY: child copy validated against this branch.
-                if let Some((r, v)) = unsafe { prev_in::<MAP>(&child, rem, bl - 1, here, rs)? } {
+                if let Some((r, v)) = unsafe { prev_in::<MAP, CAP>(&child, rem, bl - 1, here, rs)? }
+                {
                     return Ok(Some(((dv << shift) | compose(bd, r, bl), v)));
                 }
                 backtrack(rs, mark);
@@ -697,7 +811,8 @@ unsafe fn prev_in<const MAP: bool>(
                 let child = unsafe { branch_b_child(node, bd, here)? };
                 let mark = rs.len;
                 // SAFETY: child copy validated against this branch.
-                if let Some((r, v)) = unsafe { prev_in::<MAP>(&child, rem, bl - 1, here, rs)? } {
+                if let Some((r, v)) = unsafe { prev_in::<MAP, CAP>(&child, rem, bl - 1, here, rs)? }
+                {
                     return Ok(Some(((dv << shift) | compose(bd, r, bl), v)));
                 }
                 backtrack(rs, mark);
@@ -743,8 +858,10 @@ unsafe fn prev_in<const MAP: bool>(
                     pow256(level - 1) - 1
                 };
                 let mark = rs.len;
-                // SAFETY: child copy validated against this branch.
-                if let Some((r, v)) = unsafe { prev_in::<MAP>(&child, rem, level - 1, here, rs)? } {
+                if let Some((r, v)) =
+                    // SAFETY: child copy validated against this branch.
+                    unsafe { prev_in::<MAP, CAP>(&child, rem, level - 1, here, rs)? }
+                {
                     return Ok(Some((compose(bd, r, level), v)));
                 }
                 backtrack(rs, mark);
@@ -759,12 +876,13 @@ unsafe fn prev_in<const MAP: bool>(
 /// Test builds park here (G12.1), and the negative control forgets the
 /// child's snapshots, as a single moving cover would.
 #[inline(always)]
-fn backtrack(rs: &mut ReadSet, mark: usize) {
+fn backtrack<const CAP: usize>(rs: &mut ReadSet<CAP>, mark: usize) {
     #[cfg(test)]
     {
         crate::sync::test_hooks::before_ordered_backtrack();
+        crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedBacktrack);
         if crate::sync::test_hooks::drops_child_snapshots() {
-            rs.len = mark;
+            rs.truncate(mark);
         }
     }
     #[cfg(not(test))]
@@ -882,5 +1000,106 @@ unsafe fn immed_value(edge: &Edge, im: crate::types::ImmedType, slot: usize) -> 
     } else {
         // SAFETY: live value array per contract; `slot < key_count`.
         unsafe { crate::bits::shared_word::load::<true>(edge.node_ptr().cast::<u64>().add(slot)) }
+    }
+}
+
+/// The string map's cross-level retention (#1143) on the real [`ReadSet`]:
+/// `ReadSet::sample`, `validate_from` and `validate_all` over node cover
+/// words, as `StrNode` covers stand in the walk. A successor search descends
+/// a child level C, finds nothing there, unwinds and takes the minimum of
+/// the next sibling level S. The writer inserts `K_PRIME` into C under C's
+/// bracket, then a new minimum `M` into S under S's. The successor is `M0`
+/// before the first insert and `K_PRIME` from then on, so `M` never is.
+#[cfg(all(test, loom))]
+mod loom_tests {
+    use super::ReadSet;
+    use crate::occ::{VersionCell, version_begin, version_end};
+    use loom::sync::Arc;
+    use loom::sync::atomic::{AtomicU64, Ordering};
+
+    const M0: u64 = 0x30;
+    const M: u64 = 0x20;
+    const K_PRIME: u64 = 0x10;
+
+    fn cover(v: &Arc<VersionCell>) -> *const u32 {
+        Arc::as_ptr(v).cast::<u32>()
+    }
+
+    /// One search; `drop_level` forgets C's versions at the unwind, as the
+    /// `DropLevelOnUnwind` control does in `ExpanseStrMap::ordered_validated`.
+    fn search(
+        c_v: &Arc<VersionCell>,
+        c_key: &AtomicU64,
+        s_v: &Arc<VersionCell>,
+        s_min: &AtomicU64,
+        drop_level: bool,
+    ) -> Option<u64> {
+        let mut rs = ReadSet::<4>::new();
+        let level = rs.len();
+        // SAFETY: the cell outlives the search; under loom the read set
+        // casts the pointer back to it.
+        unsafe { rs.sample(cover(c_v)) }.ok()?;
+        let x = c_key.load(Ordering::Relaxed);
+        if x != 0 {
+            // SAFETY: as above.
+            return unsafe { rs.validate_all() }.then_some(x);
+        }
+        // C answered nothing: unwind to the sibling level.
+        if drop_level {
+            rs.truncate(level);
+        }
+        let from = rs.len();
+        // SAFETY: as above.
+        unsafe { rs.sample(cover(s_v)) }.ok()?;
+        let y = s_min.load(Ordering::Relaxed);
+        // The holder check before a dereference, then the final validation.
+        // SAFETY: as above.
+        if !unsafe { rs.validate_from(from) } || !unsafe { rs.validate_all() } {
+            return None;
+        }
+        Some(y)
+    }
+
+    fn model(drop_level: bool) {
+        loom::model(move || {
+            let (c_v, s_v) = (Arc::new(VersionCell::new(0)), Arc::new(VersionCell::new(0)));
+            let (c_key, s_min) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(M0)));
+            let writer = {
+                let (c_v, s_v, c_key, s_min) = (
+                    Arc::clone(&c_v),
+                    Arc::clone(&s_v),
+                    Arc::clone(&c_key),
+                    Arc::clone(&s_min),
+                );
+                loom::thread::spawn(move || {
+                    version_begin(&c_v);
+                    c_key.store(K_PRIME, Ordering::Relaxed);
+                    version_end(&c_v);
+                    version_begin(&s_v);
+                    s_min.store(M, Ordering::Relaxed);
+                    version_end(&s_v);
+                })
+            };
+            if let Some(a) = search(&c_v, &c_key, &s_v, &s_min, drop_level) {
+                assert!(
+                    a == M0 || a == K_PRIME,
+                    "string ordered read returned {a:#x}, never the successor"
+                );
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn loom_str_ordered_read_retained_read_set() {
+        model(false);
+    }
+
+    /// The negative control: forgetting C's versions at the unwind, as a
+    /// single moving cover would, lets the search return `M`.
+    #[test]
+    #[should_panic(expected = "never the successor")]
+    fn loom_str_ordered_read_hand_over_hand_is_not_enough() {
+        model(true);
     }
 }

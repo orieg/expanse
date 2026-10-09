@@ -81,7 +81,7 @@ use crate::occ::{Collector, CollectorCensus, Pin, Reader, SeqVersion};
 use crate::ordered_bytesmap::{ExpanseOrderedBytesMap, with_encoded_key};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
-use crate::strmap::{ExpanseStrMap, NulFreeStr, StrMapStats};
+use crate::strmap::{ExpanseStrMap, NulFreeStr, StrMapStats, StrSeek};
 use crate::types::{
     BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit,
 };
@@ -13323,7 +13323,150 @@ impl StrReader<'_> {
     pub fn contains(&self, key: &NulFreeStr) -> bool {
         self.get(key).is_some()
     }
+
+    // The ordered reads (#1143), the string twin of the map readers' ordered
+    // reads (#900). Each call is one optimistic read that does not exclude
+    // writers: it walks the `StrNode` levels validating every version it
+    // depends on, retries when a concurrent write overlaps, and after
+    // `MAX_RETRIES` attempts answers under the writer lock. Each call is
+    // linearizable on its own; a sequence of calls is not a snapshot, so a
+    // scan built from them sees each key present throughout it, and may or
+    // may not see keys inserted or removed while it runs. The key is copied
+    // out under validation, so the result owns its bytes.
+
+    /// Smallest entry `(key, value)`, without excluding writers.
+    #[must_use]
+    pub fn first(&self) -> Option<(Vec<u8>, u64)> {
+        // SAFETY: the empty key contains no NUL.
+        self.ordered(StrSeek::AtOrAfter(unsafe {
+            NulFreeStr::new_unchecked(&[])
+        }))
+    }
+
+    /// Largest entry, without excluding writers.
+    #[must_use]
+    pub fn last(&self) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::Last)
+    }
+
+    /// Smallest entry with key `>= key`, without excluding writers.
+    #[must_use]
+    pub fn next_at_or_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::AtOrAfter(key))
+    }
+
+    /// Smallest entry with key `> key`, without excluding writers. The
+    /// immediate successor of a NUL-free string is itself followed by `0x01`,
+    /// as in [`ExpanseStrMap::next_after`].
+    #[must_use]
+    pub fn next_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        let mut succ = Vec::with_capacity(key.len() + 1);
+        succ.extend_from_slice(key.as_bytes());
+        succ.push(1);
+        // SAFETY: `key` is NUL-free and the appended byte is `1`.
+        self.ordered(StrSeek::AtOrAfter(unsafe {
+            NulFreeStr::new_unchecked(&succ)
+        }))
+    }
+
+    /// Largest entry with key `<= key`, without excluding writers.
+    #[must_use]
+    pub fn prev_at_or_before(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::AtOrBefore(key))
+    }
+
+    /// Largest entry with key `< key`, without excluding writers.
+    #[must_use]
+    pub fn prev_before(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::Before(key))
+    }
+
+    /// The optimistic attempt loop of the ordered reads.
+    ///
+    /// A read set that is full is classified as
+    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.4 registers: when
+    /// it still validates, the overflow came from depth, not from a moving
+    /// tree, every retry would overflow again, and the read falls back at
+    /// once. `Retry` stays a zero-sized type; the classification reads the
+    /// set the attempt left behind.
+    fn ordered(&self, seek: StrSeek<'_>) -> Option<(Vec<u8>, u64)> {
+        let shared = &self.map.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+        #[cfg(test)]
+        test_hooks::str_count(test_hooks::StrCount::Ops);
+        // The walk's buffers, allocated once per call and kept across its
+        // retries; a successful attempt takes `out` as the answer's key.
+        let mut out = Vec::with_capacity(seek.key_len() + crate::strmap::CHUNK_BYTES);
+        let mut stack = Vec::with_capacity(seek.key_len() / crate::strmap::CHUNK_BYTES + 2);
+        for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+            #[cfg(test)]
+            test_hooks::str_count(test_hooks::StrCount::Attempts);
+            let _pin = self.reader.pin();
+            let snap = shared.version().sample();
+            let mut rs = crate::sync_nav::ReadSet::<STR_READ_SET_CAP>::new();
+            // SAFETY: pinned and freshly sampled, as in `get`; the walk
+            // validates every load it acts on.
+            let attempt = unsafe {
+                ExpanseStrMap::ordered_validated(
+                    str_root_of(shared.published().load()),
+                    seek,
+                    shared.version(),
+                    snap,
+                    &mut rs,
+                    &mut stack,
+                    &mut out,
+                )
+            };
+            match attempt {
+                Ok((found, cross)) => {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedAnswers);
+                    if cross {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedCrossLevel);
+                        #[cfg(test)]
+                        test_hooks::str_count(test_hooks::StrCount::CrossLevel);
+                    }
+                    return found;
+                }
+                // A full set that still validates, under a tree word that
+                // did not move, came from depth.
+                Err(Retry)
+                    if rs.is_full()
+                        // SAFETY: still pinned; every entry was sampled
+                        // under the pin.
+                        && unsafe { rs.validate_all() }
+                        && shared.version().validate(snap) =>
+                {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedOverflows);
+                    #[cfg(test)]
+                    test_hooks::str_count(test_hooks::StrCount::Overflows);
+                    break;
+                }
+                Err(Retry) => {}
+            }
+        }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+        #[cfg(test)]
+        test_hooks::str_count(test_hooks::StrCount::Fallbacks);
+        shared.read_locked(|m| {
+            let found = match seek {
+                StrSeek::AtOrAfter(k) => m.next_at_or_after(k),
+                StrSeek::AtOrBefore(k) => m.prev_at_or_before(k),
+                StrSeek::Before(k) => m.prev_before(k),
+                StrSeek::Last => m.last(),
+            };
+            // SAFETY: the slot is valid until the map's next mutation, which
+            // the writer lock held here excludes.
+            found.map(|(k, slot)| (k, unsafe { *slot.as_ptr() }))
+        })
+    }
 }
+
+/// Versions one validated string ordered read may retain before it falls
+/// back: the two-seek bound of `docs/benchmarks/concurrency/METHODOLOGY.md`
+/// §33.7.3 is 113 at depth 5 (`path_keys`) and 136 at depth 6, so 128 covers
+/// every depth up to 5 (§33.8.1). 128 × 16 B = 2 KiB of stack.
+const STR_READ_SET_CAP: usize = 128;
 
 /// An **unordered** byte-string map shareable across threads (issue
 /// #362 — the JudyHS member completing the Sync* family): one writer at
@@ -16679,6 +16822,56 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(map.len(), CHURN_KEYS);
+    }
+
+    /// The validated string ordered reads (#1143) under a writer: the keys
+    /// share their first chunk, so the passes descend into a child node,
+    /// unwind out of it and copy suffix bytes, while the writer inserts into
+    /// that child. Every prefilled key is present throughout, so every
+    /// ascending pass sees all of them.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn str_ordered_reader_writer() {
+        fn ordered_key(t: u64, i: u64) -> std::string::String {
+            std::format!("kkkkkkkk{t}-{i:04}")
+        }
+        let map = SyncExpanseStrMap::new();
+        for i in 0..KEYS {
+            assert_eq!(map.insert(nf(&ordered_key(9, i)), i), None);
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..KEYS {
+                    assert_eq!(map.insert(nf(&ordered_key(0, i)), i), None);
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = map.reader();
+                read_until(&done, || {
+                    let mut up = std::vec::Vec::new();
+                    let mut at = rd.first();
+                    while let Some((k, _)) = at {
+                        assert!(up.last().is_none_or(|p: &std::vec::Vec<u8>| *p < k));
+                        at = rd.next_after(NulFreeStr::new(&k).expect("NUL-free"));
+                        up.push(k);
+                    }
+                    for i in 0..KEYS {
+                        let k = ordered_key(9, i);
+                        assert!(up.binary_search(&k.into_bytes()).is_ok());
+                    }
+                    let mut last_seen: Option<std::vec::Vec<u8>> = None;
+                    let mut at = rd.last();
+                    while let Some((k, _)) = at {
+                        assert!(last_seen.as_ref().is_none_or(|p| *p > k));
+                        at = rd.prev_before(NulFreeStr::new(&k).expect("NUL-free"));
+                        last_seen = Some(k);
+                    }
+                });
+            });
+        });
+        assert_eq!(map.len(), 2 * KEYS);
     }
 
     /// The string map's serialised path under a reader: the writer
@@ -22046,10 +22239,106 @@ pub(crate) mod test_hooks {
         SetBitmapLeaf,
         /// Before an ordered read's final validation (`sync_nav`).
         OrderedFinal,
+        /// The string map's validated ordered walk (#1143): a `StrNode`
+        /// level answered nothing and the walk is about to seek its parent's
+        /// next sibling.
+        StrUnwind,
+        /// The string walk copied a `StrNode`'s sub-map root state and has
+        /// not yet checked the cover it copied it under.
+        StrLevelEntry,
+        /// The string walk loaded a suffix or child pointer from an entry and
+        /// has not yet validated the entry's holder.
+        StrDeref,
+        /// Before the string walk's final validation.
+        StrFinal,
+        /// `sync_nav`'s ordered search found nothing in a child subtree and
+        /// is about to move to its sibling (the closure form of
+        /// `before_ordered_backtrack`).
+        OrderedBacktrack,
         /// A string-map removal emptied a `StrNode` whose optimistic prune
         /// did not go through: the node is linked and empty until the
         /// exclusive prune that follows this site.
         StrPrunePending,
+    }
+
+    /// The negative controls of the string map's validated ordered walk
+    /// (#1143), one per validation clause. Each is a thread-local switch: a
+    /// test sets it on the reader's thread only.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    #[repr(u8)]
+    pub(crate) enum StrControl {
+        /// Forget a `StrNode` level's retained versions when the walk unwinds
+        /// past it, as a single moving cover would.
+        DropLevelOnUnwind = 1,
+        /// Skip the final validation of the retained read set.
+        SkipFinalValidation = 2,
+        /// Skip the holder validation between loading a suffix or child
+        /// pointer and dereferencing it, at the forward exact-chunk site.
+        SkipPreDerefForwardExact = 4,
+        /// The same, at the backward exact-chunk site.
+        SkipPreDerefBackwardExact = 32,
+        /// The same, at the site that takes a candidate past the probe.
+        SkipPreDerefFree = 64,
+        /// Skip the cover check between copying a sub-map's root state and
+        /// reading through it.
+        SkipCoverCheck = 8,
+        /// End the search when a child entered for its extreme holds nothing,
+        /// as a port of the single-threaded `extreme_entry` would.
+        EmptyChildEndsSearch = 16,
+    }
+
+    /// Per-thread counts the string walk's tests assert on.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(crate) enum StrCount {
+        /// Public ordered calls.
+        Ops,
+        /// Optimistic attempts.
+        Attempts,
+        /// Calls answered under the writer lock.
+        Fallbacks,
+        /// Depth overflows (a full read set that still validated).
+        Overflows,
+        /// Validated optimistic answers taken after a level unwound.
+        CrossLevel,
+        /// Dereferences of a pointer whose holder no longer validated: the
+        /// audit behind the pre-dereference and cover-check controls.
+        UnvalidatedDerefs,
+        /// Attempts the holder check before a dereference sent back.
+        HolderRetries,
+    }
+
+    thread_local! {
+        static STR_CONTROLS: Cell<u8> = const { Cell::new(0) };
+        static STR_COUNTS: Cell<[u64; 7]> = const { Cell::new([0; 7]) };
+    }
+
+    /// Turns `control` on or off for this thread's string ordered walks.
+    pub(crate) fn set_str_control(control: StrControl, on: bool) {
+        STR_CONTROLS.with(|c| {
+            let bit = control as u8;
+            c.set(if on { c.get() | bit } else { c.get() & !bit });
+        });
+    }
+
+    /// Whether `control` is on for this thread.
+    #[inline(always)]
+    pub(crate) fn str_control(control: StrControl) -> bool {
+        STR_CONTROLS.with(|c| c.get() & control as u8 != 0)
+    }
+
+    /// Adds one to this thread's `count`.
+    #[inline(always)]
+    pub(crate) fn str_count(count: StrCount) {
+        STR_COUNTS.with(|c| {
+            let mut a = c.get();
+            a[count as usize] += 1;
+            c.set(a);
+        });
+    }
+
+    /// This thread's counts, and resets them.
+    pub(crate) fn take_str_counts() -> [u64; 7] {
+        STR_COUNTS.with(|c| c.replace([0; 7]))
     }
 
     /// The armed site and the write it runs there.
@@ -25054,5 +25343,1059 @@ mod str_empty_child_tests {
     fn locked_ordered_reads_pass_over_an_emptied_last_child() {
         let (got, want) = run(b"zzzzzzzz");
         assert_eq!(got, want);
+    }
+}
+
+/// Soundness gates for the validated string ordered reads (#1143;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §33.3 and §33.8): park
+/// points with one negative control per validation clause, the emptied but
+/// linked child, the depth overflow, and the differential and boundary
+/// tests against `ExpanseStrMap` on quiescent maps.
+///
+/// Every park test runs the write on the reader's own thread at the armed
+/// site (`test_hooks::arm_site`), asserts that the site fired, and asserts
+/// the state the interleaving needs before it asserts the answer.
+#[cfg(test)]
+mod str_ordered_tests {
+    use super::*;
+    use crate::sync::test_hooks::{self as th, Site, StrControl, StrCount};
+    use crate::types::{EdgeTag, EdgeType};
+    use core::ptr::NonNull;
+
+    type Answer = crate::strmap::StrAnswer;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use std::vec;
+
+    fn nf(b: &[u8]) -> &NulFreeStr {
+        NulFreeStr::new(b).expect("test keys are NUL-free")
+    }
+
+    /// The big-endian chunk of `b`, zero-padded.
+    fn chunk(b: &[u8]) -> u64 {
+        let mut c = [0u8; 8];
+        c[..b.len()].copy_from_slice(b);
+        u64::from_be_bytes(c)
+    }
+
+    fn inner(map: &SyncExpanseStrMap) -> &ExpanseStrMap {
+        // SAFETY: called only while no writer runs on the map.
+        unsafe { &*map.shared.tree_ptr() }
+    }
+
+    fn version(vp: *const u32) -> u32 {
+        // SAFETY: the node is live for the whole test and not replaced by
+        // the writes the tests run.
+        unsafe { crate::occ::version_cell(vp) }.load(Ordering::Acquire)
+    }
+
+    /// Arms `site` with `write` and returns the count of times it ran.
+    fn arm(site: Site, write: impl FnOnce() + 'static) -> Arc<AtomicUsize> {
+        let fired = Arc::new(AtomicUsize::new(0));
+        let f = Arc::clone(&fired);
+        th::arm_site(
+            site,
+            Box::new(move || {
+                f.fetch_add(1, Ordering::SeqCst);
+                write();
+            }),
+        );
+        fired
+    }
+
+    /// Runs `body` on a fresh thread with `controls` on, and returns its
+    /// result with that thread's counts. A fresh thread starts with every
+    /// control off and every count at zero.
+    fn on_thread<R: Send>(
+        controls: &[StrControl],
+        body: impl FnOnce() -> R + Send,
+    ) -> (R, [u64; 7]) {
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                for &c in controls {
+                    th::set_str_control(c, true);
+                }
+                let r = body();
+                (r, th::take_str_counts())
+            })
+            .join()
+            .expect("reader thread")
+        })
+    }
+
+    fn count(c: [u64; 7], which: StrCount) -> u64 {
+        c[which as usize]
+    }
+
+    // ---- Park point 1: the cross-level backtrack (hand-over-hand) ----------
+    //
+    // The root holds two child nodes, C under chunk "aaaaaaaa" and S under
+    // "bbbbbbbb". The probe "aaaaaaaaZ" descends into C, finds nothing at or
+    // after "Z" there, and unwinds to the root, whose next entry is S. The
+    // reader parks between C answering nothing and the seek past it. The
+    // writer then inserts K' = "aaaaaaaaZZ" into C and M = "bbbbbbbbA" into S.
+    // The successor of the probe was M0 = "bbbbbbbbM" before the first insert
+    // and K' from then on; M never was. Neither insert moves the root's cover
+    // (asserted), so only C's retained cover tells the reader its empty
+    // answer from C went stale.
+
+    const P1_PROBE: &[u8] = b"aaaaaaaaZ";
+    const P1_K_PRIME: &[u8] = b"aaaaaaaaZZ";
+    const P1_M: &[u8] = b"bbbbbbbbA";
+
+    fn p1_fixture() -> SyncExpanseStrMap {
+        let map = SyncExpanseStrMap::new();
+        for (i, k) in [
+            &b"aaaaaaaaAA"[..],
+            b"aaaaaaaaAB",
+            b"bbbbbbbbM",
+            b"bbbbbbbbZ",
+        ]
+        .iter()
+        .enumerate()
+        {
+            map.insert(nf(k), i as u64);
+        }
+        map
+    }
+
+    /// Runs the interleaving with `controls` and returns the answer and the
+    /// reader thread's counts.
+    fn run_p1(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(p1_fixture());
+        let (root, c, s) = {
+            let m = inner(&map);
+            (
+                m.test_cover_at(&[]).expect("root"),
+                m.test_cover_at(&[chunk(b"aaaaaaaa")])
+                    .expect("C is a child node"),
+                m.test_cover_at(&[chunk(b"bbbbbbbb")])
+                    .expect("S is a child node"),
+            )
+        };
+        let before = [version(root), version(c), version(s)];
+        let ((got, fired), counts) = on_thread(controls, || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrUnwind, move || {
+                assert_eq!(w.insert(nf(P1_K_PRIME), 10), None);
+                assert_eq!(w.insert(nf(P1_M), 11), None);
+            });
+            let got = map.reader().next_at_or_after(nf(P1_PROBE));
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the unwind site must fire once");
+        let after = [version(root), version(c), version(s)];
+        assert_eq!(
+            after[0], before[0],
+            "the root's cover must not move, or the interleaving does not need C's"
+        );
+        assert_ne!(after[1], before[1], "the insert into C must move C's cover");
+        assert_ne!(after[2], before[2], "the insert into S must move S's cover");
+        (got, counts)
+    }
+
+    #[test]
+    fn str_ordered_read_restarts_when_a_passed_level_changes() {
+        let (got, counts) = run_p1(&[]);
+        assert_eq!(
+            got,
+            Some((P1_K_PRIME.to_vec(), 10)),
+            "the search must restart and find the key inserted into C"
+        );
+        assert!(count(counts, StrCount::Attempts) >= 2, "{counts:?}");
+        assert_eq!(count(counts, StrCount::Fallbacks), 0, "{counts:?}");
+    }
+
+    /// Negative control, cross-level retention: a walk that forgets C's
+    /// versions when it unwinds past C returns M, which was never the
+    /// successor.
+    #[test]
+    fn str_ordered_read_that_forgets_a_passed_level_returns_a_key_that_was_never_the_successor() {
+        let (got, _) = run_p1(&[StrControl::DropLevelOnUnwind]);
+        assert_eq!(got, Some((P1_M.to_vec(), 11)));
+    }
+
+    /// Negative control, final validation: a walk that skips the final
+    /// validation returns M as well.
+    #[test]
+    fn str_ordered_read_without_final_validation_returns_a_key_that_was_never_the_successor() {
+        let (got, _) = run_p1(&[StrControl::SkipFinalValidation]);
+        assert_eq!(got, Some((P1_M.to_vec(), 11)));
+    }
+
+    // ---- Park point 2: the emptied but linked child ------------------------
+    //
+    // The root's sub-map is a tree (keys under 'b' and 'x' fill it past
+    // ROOT_LEAF_CAP), and C under "mmmmmmmm" is the only key under its top
+    // digit, so the optimistic prune of an emptied C would empty a child of a
+    // linear branch and falls back (Refs #1079): C stays linked and empty
+    // until the exclusive prune. The reader runs at that site, on the
+    // remover's thread, and must answer as the map stands then.
+
+    fn p2_fixture() -> (SyncExpanseStrMap, BTreeMap<Vec<u8>, u64>) {
+        let map = SyncExpanseStrMap::new();
+        let mut model = BTreeMap::new();
+        let mut add = |k: Vec<u8>, v: u64| {
+            map.insert(nf(&k), v);
+            model.insert(k, v);
+        };
+        for i in 0..20u8 {
+            add(vec![b'b', b'0' + i], u64::from(i));
+            add(vec![b'x', b'0' + i], 100 + u64::from(i));
+        }
+        add(b"mmmmmmmmAA".to_vec(), 200);
+        add(b"mmmmmmmmAB".to_vec(), 201);
+        (map, model)
+    }
+
+    /// The reads taken while C is linked and empty: forward and backward,
+    /// bounded into C and entering C for its extreme.
+    fn p2_reads(rd: &StrReader<'_>) -> Vec<Option<(Vec<u8>, u64)>> {
+        vec![
+            rd.next_at_or_after(nf(b"m")),
+            rd.next_at_or_after(nf(b"mmmmmmmm")),
+            rd.next_after(nf(b"mmmmmmmmAB")),
+            rd.prev_before(nf(b"n")),
+            rd.prev_at_or_before(nf(b"mmmmmmmmZ")),
+        ]
+    }
+
+    fn p2_expected(model: &BTreeMap<Vec<u8>, u64>) -> Vec<Option<(Vec<u8>, u64)>> {
+        let ge = |k: &[u8]| {
+            model
+                .range(k.to_vec()..)
+                .next()
+                .map(|(a, b)| (a.clone(), *b))
+        };
+        let lt = |k: &[u8]| {
+            model
+                .range(..k.to_vec())
+                .next_back()
+                .map(|(a, b)| (a.clone(), *b))
+        };
+        let le = |k: &[u8]| {
+            model
+                .range(..=k.to_vec())
+                .next_back()
+                .map(|(a, b)| (a.clone(), *b))
+        };
+        vec![
+            ge(b"m"),
+            ge(b"mmmmmmmm"),
+            ge(b"mmmmmmmmAB\x01"),
+            lt(b"n"),
+            le(b"mmmmmmmmZ"),
+        ]
+    }
+
+    fn run_p2(controls: &[StrControl]) -> (Vec<Answer>, Vec<Answer>) {
+        let (map, mut model) = p2_fixture();
+        let map = Arc::new(map);
+        assert!(
+            matches!(
+                inner(&map).test_submap_snapshot_at(&[]),
+                Some(RootSnapshot::Tree { .. })
+            ),
+            "the root's sub-map must be a tree"
+        );
+        assert_eq!(map.remove(nf(b"mmmmmmmmAA")), Some(200));
+        model.remove(&b"mmmmmmmmAA"[..]);
+        model.remove(&b"mmmmmmmmAB"[..]);
+        let ((got, fired), _) = on_thread(controls, || {
+            let seen = Arc::new(std::sync::Mutex::new(None));
+            let (m2, seen2) = (Arc::clone(&map), Arc::clone(&seen));
+            let fired = arm(Site::StrPrunePending, move || {
+                assert_eq!(
+                    inner(&m2).test_submap_len_at(&[chunk(b"mmmmmmmm")]),
+                    Some(0),
+                    "C must be linked and empty at the site"
+                );
+                *seen2.lock().unwrap() = Some(p2_reads(&m2.reader()));
+            });
+            assert_eq!(map.remove(nf(b"mmmmmmmmAB")), Some(201));
+            let got = seen.lock().unwrap().take();
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the prune of C must be pending once");
+        assert_eq!(
+            inner(&map).test_cover_at(&[chunk(b"mmmmmmmm")]),
+            None,
+            "the exclusive prune unlinks C afterwards"
+        );
+        (got.expect("the reads ran at the site"), p2_expected(&model))
+    }
+
+    #[test]
+    fn str_ordered_reads_pass_over_an_emptied_linked_child() {
+        let (got, want) = run_p2(&[]);
+        assert_eq!(got, want);
+        assert!(
+            want[0].is_some() && want[3].is_some(),
+            "a later key is present throughout"
+        );
+    }
+
+    /// Negative control: a walk that, like the single-threaded
+    /// `extreme_entry`, treats an empty child as the end of the search
+    /// answers `None` while a later key is present.
+    #[test]
+    fn str_ordered_reads_that_stop_at_an_empty_child_miss_a_present_key() {
+        let (got, want) = run_p2(&[StrControl::EmptyChildEndsSearch]);
+        assert_ne!(got, want);
+        assert_eq!(got[0], None);
+        assert!(want[0].is_some());
+    }
+
+    // ---- Park point 3: a backtrack inside one sub-map ----------------------
+    //
+    // `sync_nav`'s G12.1 shape, built in the root's sub-map out of chunks: P
+    // is a level-3 linear branch, S under digit 0x10 and C under 0x20, each a
+    // level-2 linear branch over two Leaf1 children of 17 keys. Every key is
+    // its 8-byte chunk plus "x", so each entry is a suffix leaf. The probe's
+    // chunk sits below every key of C, so the predecessor search finds
+    // nothing in C and backtracks to S. The reader parks there (the sync_nav
+    // backtrack site); the writer inserts K' into C and a new maximum M into
+    // S. The retained read set of the sub-map seek must catch it; the
+    // `drops_child_snapshots` control (the u64 walk's own) must not.
+
+    fn p3_key(p: u8, q: u8, r: u8) -> Vec<u8> {
+        vec![b'k', b'k', b'k', b'k', b'k', p, q, r, b'x']
+    }
+
+    fn p3_fixture() -> SyncExpanseStrMap {
+        let map = SyncExpanseStrMap::new();
+        for p in [0x10u8, 0x20] {
+            for q in [0x20u8, 0x30] {
+                for i in 0..17u8 {
+                    map.insert(nf(&p3_key(p, q, 0x10 + 2 * i)), u64::from(i));
+                }
+            }
+        }
+        map
+    }
+
+    fn run_p3(drop_child: bool) -> Option<(Vec<u8>, u64)> {
+        let map = Arc::new(p3_fixture());
+        assert!(
+            matches!(
+                inner(&map).test_submap_snapshot_at(&[]),
+                Some(RootSnapshot::Tree { .. })
+            ),
+            "the root's sub-map must be a tree"
+        );
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        let before = version(root);
+        // The writes run on the reader's thread at the site, so a site that
+        // never fires leaves `fired` at 0 and fails, rather than parking a
+        // writer thread forever.
+        let ((got, fired), _) = on_thread(&[], || {
+            th::set_drop_child_snapshots(drop_child);
+            let w = Arc::clone(&map);
+            let fired = arm(Site::OrderedBacktrack, move || {
+                assert_eq!(w.insert(nf(&p3_key(0x20, 0x20, 0x01)), 50), None);
+                assert_eq!(w.insert(nf(&p3_key(0x10, 0x30, 0xF0)), 51), None);
+            });
+            let got = map
+                .reader()
+                .prev_at_or_before(nf(&p3_key(0x20, 0x20, 0x05)));
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the backtrack site must fire once");
+        assert_eq!(
+            version(root),
+            before,
+            "the root's cover must not move: a tree's interior is the engine's"
+        );
+        got
+    }
+
+    #[test]
+    fn str_ordered_read_restarts_when_a_passed_subtree_of_one_level_changes() {
+        assert_eq!(run_p3(false), Some((p3_key(0x20, 0x20, 0x01), 50)));
+    }
+
+    /// Negative control: the u64 walk's own control, inside a string level.
+    #[test]
+    fn str_ordered_read_that_forgets_a_passed_subtree_returns_a_key_that_was_never_the_predecessor()
+    {
+        assert_eq!(run_p3(true), Some((p3_key(0x10, 0x30, 0xF0), 51)));
+    }
+
+    // ---- Park points 4 and 5: the holder before a dereference --------------
+    //
+    // Both park between loading a pointer and validating its holder. The
+    // answer is right either way, because the final validation catches the
+    // stale read; what the guard buys is that nothing is dereferenced through
+    // a holder that no longer validates. `UnvalidatedDerefs` counts exactly
+    // that, and the controls turn it non-zero.
+
+    /// Park point 4 (T4): the suffix "abcdefgh" + "tail1" is split by an
+    /// insert of "abcdefgh" + "tail2" after the reader loaded its pointer.
+    fn run_p4(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        map.insert(nf(b"abcdefghtail1"), 1);
+        map.insert(nf(b"zz"), 2);
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        assert_eq!(
+            inner(&map).test_cover_at(&[chunk(b"abcdefgh")]),
+            None,
+            "the key must be a suffix leaf, not a child node"
+        );
+        let before = version(root);
+        let ((got, fired), counts) = on_thread(controls, || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrDeref, move || {
+                assert_eq!(w.insert(nf(b"abcdefghtail2"), 3), None);
+            });
+            let got = map.reader().next_at_or_after(nf(b"abcdefgh"));
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the dereference site must fire once");
+        assert_ne!(
+            version(root),
+            before,
+            "the split must move the root's cover"
+        );
+        assert!(
+            inner(&map).test_cover_at(&[chunk(b"abcdefgh")]).is_some(),
+            "the split must replace the suffix with a child node"
+        );
+        (got, counts)
+    }
+
+    #[test]
+    fn str_ordered_read_validates_a_suffix_holder_before_the_dereference() {
+        let (got, counts) = run_p4(&[]);
+        assert_eq!(got, Some((b"abcdefghtail1".to_vec(), 1)));
+        assert_eq!(count(counts, StrCount::UnvalidatedDerefs), 0, "{counts:?}");
+    }
+
+    /// Negative control: skipping the holder check dereferences the retired
+    /// suffix through a holder that no longer validates.
+    #[test]
+    fn str_ordered_read_without_the_holder_check_dereferences_a_stale_suffix() {
+        let (got, counts) = run_p4(&[StrControl::SkipPreDerefForwardExact]);
+        assert_eq!(got, Some((b"abcdefghtail1".to_vec(), 1)));
+        assert!(count(counts, StrCount::UnvalidatedDerefs) > 0, "{counts:?}");
+    }
+
+    /// Park point 5 (T9): the child C under "aaaaaaaa" is pruned after the
+    /// reader loaded its pointer.
+    fn run_p5(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(p1_fixture());
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        assert!(inner(&map).test_cover_at(&[chunk(b"aaaaaaaa")]).is_some());
+        let before = version(root);
+        let ((got, fired), counts) = on_thread(controls, || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrDeref, move || {
+                assert_eq!(w.remove(nf(b"aaaaaaaaAA")), Some(0));
+                assert_eq!(w.remove(nf(b"aaaaaaaaAB")), Some(1));
+            });
+            let got = map.reader().first();
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the dereference site must fire once");
+        assert_ne!(
+            version(root),
+            before,
+            "the prune must move the root's cover"
+        );
+        assert_eq!(
+            inner(&map).test_cover_at(&[chunk(b"aaaaaaaa")]),
+            None,
+            "C must be unlinked"
+        );
+        (got, counts)
+    }
+
+    #[test]
+    fn str_ordered_read_validates_a_child_holder_before_the_dereference() {
+        let (got, counts) = run_p5(&[]);
+        assert_eq!(got, Some((b"bbbbbbbbM".to_vec(), 2)));
+        assert_eq!(count(counts, StrCount::UnvalidatedDerefs), 0, "{counts:?}");
+    }
+
+    /// Negative control: skipping the holder check dereferences the pruned
+    /// child through a holder that no longer validates.
+    #[test]
+    fn str_ordered_read_without_the_holder_check_dereferences_a_pruned_child() {
+        let (got, counts) = run_p5(&[StrControl::SkipPreDerefFree]);
+        assert_eq!(got, Some((b"bbbbbbbbM".to_vec(), 2)));
+        assert!(count(counts, StrCount::UnvalidatedDerefs) > 0, "{counts:?}");
+    }
+
+    /// Park point 7 (T4, backward): the predecessor search for
+    /// "abcdefghzzz" matches the chunk "abcdefgh" exactly and loads the
+    /// suffix pointer for "tail1"; the writer splits it by inserting
+    /// "abcdefgh" + "tail2" before the holder check. This is the third
+    /// `holder_ok` site, the backward exact-chunk match.
+    fn run_p7(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        map.insert(nf(b"abcdefghtail1"), 1);
+        map.insert(nf(b"aa"), 2);
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        assert_eq!(
+            inner(&map).test_cover_at(&[chunk(b"abcdefgh")]),
+            None,
+            "the key must be a suffix leaf, not a child node"
+        );
+        let before = version(root);
+        let ((got, fired), counts) = on_thread(controls, || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrDeref, move || {
+                assert_eq!(w.insert(nf(b"abcdefghtail2"), 3), None);
+            });
+            let got = map.reader().prev_at_or_before(nf(b"abcdefghzzz"));
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the dereference site must fire once");
+        assert_ne!(
+            version(root),
+            before,
+            "the split must move the root's cover"
+        );
+        assert!(
+            inner(&map).test_cover_at(&[chunk(b"abcdefgh")]).is_some(),
+            "the split must replace the suffix with a child node"
+        );
+        (got, counts)
+    }
+
+    #[test]
+    fn str_ordered_read_validates_a_backward_suffix_holder_before_the_dereference() {
+        let (got, counts) = run_p7(&[]);
+        assert_eq!(got, Some((b"abcdefghtail2".to_vec(), 3)));
+        assert_eq!(count(counts, StrCount::UnvalidatedDerefs), 0, "{counts:?}");
+        assert_eq!(count(counts, StrCount::HolderRetries), 1, "{counts:?}");
+    }
+
+    /// Negative control for the backward exact-chunk site.
+    #[test]
+    fn str_ordered_read_without_the_backward_holder_check_dereferences_a_stale_suffix() {
+        let (got, counts) = run_p7(&[StrControl::SkipPreDerefBackwardExact]);
+        assert_eq!(got, Some((b"abcdefghtail2".to_vec(), 3)));
+        assert!(count(counts, StrCount::UnvalidatedDerefs) > 0, "{counts:?}");
+    }
+
+    // ---- Park point 8: the holder is a branch, not the cover ---------------
+    //
+    // The root's sub-map is a tree whose top edge is a level-8 linear branch
+    // B over three leaves, one per first byte. Every key is its 8-byte chunk
+    // plus "tail", so each entry is a suffix leaf. The probe matches a chunk
+    // in the leaf under digit 'b' exactly, and the reader parks between
+    // loading the suffix pointer and the holder check; the writer inserts an
+    // 18th key into that leaf, which shifts it in place under B's version
+    // (capacity class 24) and leaves the cover alone (asserted). Only
+    // `validate_from` sees it: B is the first version that seek sampled.
+
+    fn p8_key(first: u8, i: u8) -> Vec<u8> {
+        let mut k = vec![first, b'k', b'k', b'k', b'k', b'k', b'k', b'0' + i];
+        k.extend_from_slice(b"tail");
+        k
+    }
+
+    fn run_p8() -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        for first in *b"abc" {
+            for i in 0..17u8 {
+                map.insert(nf(&p8_key(first, 2 * i)), u64::from(i));
+            }
+        }
+        let snap = inner(&map).test_submap_snapshot_at(&[]).expect("root");
+        let RootSnapshot::Tree { top } = snap else {
+            panic!("the root's sub-map must be a tree")
+        };
+        assert_eq!(
+            top.tag(),
+            Some(EdgeTag::Structural(EdgeType::BranchL3)),
+            "the top edge must be the level-8 branch over the three first bytes"
+        );
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        let before = version(root);
+        let ((got, fired), counts) = on_thread(&[], || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrDeref, move || {
+                assert_eq!(w.insert(nf(&p8_key(b'b', 1)), 99), None);
+            });
+            let got = map.reader().next_at_or_after(nf(&p8_key(b'b', 4)));
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the dereference site must fire once");
+        assert_eq!(
+            version(root),
+            before,
+            "the cover must not move: only the branch's version may tell"
+        );
+        (got, counts)
+    }
+
+    /// Pins `ReadSet::validate_from`: the holder check must send the attempt
+    /// back on the branch's version alone.
+    #[test]
+    fn str_ordered_read_validates_a_branch_holder_before_the_dereference() {
+        let (got, counts) = run_p8();
+        assert_eq!(got, Some((p8_key(b'b', 4), 2)));
+        assert_eq!(count(counts, StrCount::HolderRetries), 1, "{counts:?}");
+        assert_eq!(count(counts, StrCount::UnvalidatedDerefs), 0, "{counts:?}");
+    }
+
+    // ---- Park point 6: the cover before a sub-map's root state is read -----
+
+    /// The reader copies the root's sub-map root state and parks before it
+    /// checks the cover; the writer inserts into the leaf-state root.
+    fn run_p6(controls: &[StrControl]) -> (Option<(Vec<u8>, u64)>, [u64; 7]) {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        for (i, k) in [&b"k1"[..], b"k2", b"k3"].iter().enumerate() {
+            map.insert(nf(k), i as u64);
+        }
+        assert!(
+            matches!(
+                inner(&map).test_submap_snapshot_at(&[]),
+                Some(RootSnapshot::Leaf { .. })
+            ),
+            "the root's sub-map must be a root leaf"
+        );
+        let root = inner(&map).test_cover_at(&[]).expect("root");
+        let before = version(root);
+        let ((got, fired), counts) = on_thread(controls, || {
+            let w = Arc::clone(&map);
+            let fired = arm(Site::StrLevelEntry, move || {
+                assert_eq!(w.insert(nf(b"k0"), 9), None);
+            });
+            let got = map.reader().first();
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the level-entry site must fire once");
+        assert_ne!(
+            version(root),
+            before,
+            "the insert must move the root's cover"
+        );
+        (got, counts)
+    }
+
+    #[test]
+    fn str_ordered_read_checks_the_cover_before_reading_a_root_state_copy() {
+        let (got, counts) = run_p6(&[]);
+        assert_eq!(got, Some((b"k0".to_vec(), 9)));
+        assert_eq!(count(counts, StrCount::UnvalidatedDerefs), 0, "{counts:?}");
+    }
+
+    /// Negative control: skipping the cover check reads through a root-state
+    /// copy whose cover no longer validates.
+    #[test]
+    fn str_ordered_read_without_the_cover_check_reads_a_stale_root_state() {
+        let (got, counts) = run_p6(&[StrControl::SkipCoverCheck]);
+        assert_eq!(got, Some((b"k0".to_vec(), 9)));
+        assert!(count(counts, StrCount::UnvalidatedDerefs) > 0, "{counts:?}");
+    }
+
+    // ---- The depth overflow (§33.7.4) --------------------------------------
+
+    /// Two keys sharing a 1,096-byte prefix (137 whole chunks) sit 138
+    /// `StrNode` levels deep. Each level's sub-map is a root leaf, so each
+    /// retains exactly its cover: the walk needs 138 versions, more than
+    /// `STR_READ_SET_CAP` = 128. The read must overflow once, validate, and
+    /// fall back at once: one attempt, not `MAX_RETRIES`.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "a 138-level chain; the overflow path is not new unsafe"
+    )]
+    fn str_ordered_read_depth_overflow_falls_back_at_once() {
+        let prefix = vec![b'p'; 1096];
+        let (mut a, mut b) = (prefix.clone(), prefix);
+        a.push(b'A');
+        b.push(b'B');
+        let map = SyncExpanseStrMap::new();
+        map.insert(nf(&a), 1);
+        map.insert(nf(&b), 2);
+        let depth = inner(&map).test_depth_of(&a);
+        assert_eq!(
+            depth, 138,
+            "137 shared chunks and the level they diverge at"
+        );
+        assert!(depth > STR_READ_SET_CAP);
+        let (got, counts) = on_thread(&[], || map.reader().first());
+        assert_eq!(got, Some((a.clone(), 1)));
+        assert_eq!(count(counts, StrCount::Overflows), 1, "{counts:?}");
+        assert_eq!(count(counts, StrCount::Attempts), 1, "{counts:?}");
+        assert_eq!(count(counts, StrCount::Fallbacks), 1, "{counts:?}");
+        // One level shallower than the capacity does not overflow.
+        let short = SyncExpanseStrMap::new();
+        let (mut c, mut d) = (vec![b'p'; 8 * 126], vec![b'p'; 8 * 126]);
+        c.push(b'A');
+        d.push(b'B');
+        short.insert(nf(&c), 1);
+        short.insert(nf(&d), 2);
+        assert_eq!(inner(&short).test_depth_of(&c), 127);
+        let (got, counts) = on_thread(&[], || short.reader().last());
+        assert_eq!(got, Some((d, 2)));
+        assert_eq!(count(counts, StrCount::Overflows), 0, "{counts:?}");
+        assert_eq!(count(counts, StrCount::Fallbacks), 0, "{counts:?}");
+    }
+
+    /// Arms `site` to run `write` at its `n`th hit on this thread, by
+    /// re-arming itself until then.
+    fn arm_nth(site: Site, n: usize, write: Box<dyn FnOnce()>, fired: Arc<AtomicUsize>) {
+        th::arm_site(
+            site,
+            Box::new(move || {
+                if n <= 1 {
+                    fired.fetch_add(1, Ordering::SeqCst);
+                    write();
+                } else {
+                    arm_nth(site, n - 1, write, fired);
+                }
+            }),
+        );
+    }
+
+    /// A full read set that no longer validates came from a moving tree, not
+    /// from depth: it retries, and only the next attempt's overflow, which
+    /// validates, falls back. The write lands at the 100th level entry, on
+    /// level 10, whose cover the walk has already retained.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "a 138-level chain; the overflow path is not new unsafe"
+    )]
+    fn str_ordered_read_overflow_of_a_moving_tree_retries_first() {
+        let prefix = vec![b'p'; 1096];
+        let (mut a, mut b) = (prefix.clone(), prefix);
+        a.push(b'A');
+        b.push(b'B');
+        let map = Arc::new(SyncExpanseStrMap::new());
+        map.insert(nf(&a), 1);
+        map.insert(nf(&b), 2);
+        let mut early = vec![b'p'; 80];
+        early.push(b'Q');
+        let level10 = inner(&map)
+            .test_cover_at(&[chunk(b"pppppppp"); 10])
+            .expect("level 10 is a node");
+        let before = version(level10);
+        let ((got, fired), counts) = on_thread(&[], || {
+            let fired = Arc::new(AtomicUsize::new(0));
+            let (w, k) = (Arc::clone(&map), early.clone());
+            arm_nth(
+                Site::StrLevelEntry,
+                100,
+                Box::new(move || {
+                    assert_eq!(w.insert(nf(&k), 3), None);
+                }),
+                Arc::clone(&fired),
+            );
+            // `last` descends the whole chain on both attempts: the new key
+            // sorts below it.
+            let got = map.reader().last();
+            (got, fired.load(Ordering::SeqCst))
+        });
+        assert_eq!(fired, 1, "the write must run at the 100th level entry");
+        assert_ne!(
+            version(level10),
+            before,
+            "the write must move level 10's cover"
+        );
+        assert_eq!(map.get(nf(&early)), Some(3));
+        assert_eq!(got, Some((b, 2)));
+        assert_eq!(count(counts, StrCount::Attempts), 2, "{counts:?}");
+        assert_eq!(count(counts, StrCount::Overflows), 1, "{counts:?}");
+        assert_eq!(count(counts, StrCount::Fallbacks), 1, "{counts:?}");
+    }
+
+    // ---- The holder check's call sites, pinned in the source ---------------
+    //
+    // The park tests above count dereferences through a holder that no longer
+    // validates, inside `holder_ok`. Deleting a `holder_ok` call removes the
+    // count with the check, and the answer stays right (the final validation
+    // catches the stale read), so they cannot see it. This scan of the
+    // production walk can (AGENTS.md §5, structural attribution).
+
+    /// The window, in code lines, within which a dereference must follow its
+    /// holder check: the longest distance in the walk is the forward
+    /// exact-chunk branch, from the check to the child descent.
+    const HOLDER_WINDOW: usize = 24;
+
+    /// The code lines of `ExpanseStrMap::ordered_validated`, comment lines
+    /// dropped, so a commented-out call does not count.
+    fn walk_code(src: &str) -> Vec<&str> {
+        let start = src
+            .find("pub(crate) unsafe fn ordered_validated")
+            .expect("the walk is in strmap.rs");
+        let end = start
+            + src[start..]
+                .find("/// Returns a writable pointer to `key`'s value slot")
+                .expect("the function after the walk");
+        src[start..end]
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect()
+    }
+
+    /// The scan: exactly three `holder_ok` calls, and every dereference of an
+    /// entry's pointer (`suffix_bytes(unpack_suffix(v))`, `take_suffix(v,`,
+    /// `unpack_child(v)`) within `HOLDER_WINDOW` code lines after one.
+    /// Returns the clause that failed.
+    fn scan_holder_checks(src: &str) -> Result<(), String> {
+        let code = walk_code(src);
+        let is_call = |l: &str| l.contains("holder_ok::<") && !l.contains("fn holder_ok");
+        let calls: Vec<usize> = (0..code.len()).filter(|&i| is_call(code[i])).collect();
+        if calls.len() != 3 {
+            return Err(std::format!(
+                "count: {} holder_ok calls, want 3",
+                calls.len()
+            ));
+        }
+        let derefs: Vec<usize> = (0..code.len())
+            .filter(|&i| {
+                let l = code[i];
+                l.contains("suffix_bytes(unpack_suffix(v))")
+                    || l.contains("take_suffix(v,")
+                    || l.contains("unpack_child(v)")
+            })
+            .collect();
+        if derefs.len() != 8 {
+            return Err(std::format!("sites: {} dereferences, want 8", derefs.len()));
+        }
+        for d in derefs {
+            let near = calls.iter().filter(|&&c| c < d).max();
+            match near {
+                Some(&c) if d - c <= HOLDER_WINDOW => {}
+                _ => {
+                    return Err(std::format!(
+                        "window: no holder_ok within {HOLDER_WINDOW} code lines before `{}`",
+                        code[d]
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn holder_checks_precede_every_dereference() {
+        let src = include_str!("strmap.rs");
+        assert_eq!(scan_holder_checks(src), Ok(()));
+    }
+
+    /// The scan's negative controls, one per clause, on mutated copies of
+    /// the real source: a deleted call fails the count; a call moved away
+    /// from its dereferences (filler code between them) fails the window
+    /// with the count intact; a commented-out call is not counted.
+    #[test]
+    fn holder_check_scan_fails_on_each_clause() {
+        let src = include_str!("strmap.rs");
+        let call = "unsafe { holder_ok::<CAP, AT_BACKWARD_EXACT>(&lvl, from, rs)? };";
+        assert!(src.contains(call));
+        let deleted = src.replacen(call, "", 1);
+        assert!(
+            scan_holder_checks(&deleted)
+                .unwrap_err()
+                .starts_with("count:")
+        );
+        let commented = src.replacen(call, &std::format!("// {call}"), 1);
+        assert!(
+            scan_holder_checks(&commented)
+                .unwrap_err()
+                .starts_with("count:")
+        );
+        let filler = "let _ = 0;\n".repeat(HOLDER_WINDOW);
+        let moved = src.replacen(call, &std::format!("{call}\n{filler}"), 1);
+        assert!(
+            scan_holder_checks(&moved)
+                .unwrap_err()
+                .starts_with("window:")
+        );
+    }
+
+    // ---- Differential and boundary tests on quiescent maps -----------------
+
+    /// Every ordered read on `keys`, against `ExpanseStrMap`'s same-named
+    /// method and its cursor, at every probe. Returns the reader thread's
+    /// counts.
+    fn differential(keys: &[Vec<u8>], probes: &[Vec<u8>]) -> [u64; 7] {
+        let mut plain = ExpanseStrMap::new();
+        let shared = SyncExpanseStrMap::new();
+        for (i, k) in keys.iter().enumerate() {
+            plain.insert(nf(k), i as u64);
+            shared.insert(nf(k), i as u64);
+        }
+        let val = |r: Option<(Vec<u8>, NonNull<u64>)>| -> Answer {
+            // SAFETY: `plain` is not mutated while the slot is read.
+            r.map(|(k, s)| (k, unsafe { *s.as_ptr() }))
+        };
+        // The single-threaded map's answers, taken first: it is not `Sync`.
+        let mut want = Vec::new();
+        let mut cur = plain.cursor();
+        while let Some((k, s)) = cur.next() {
+            // SAFETY: as above.
+            want.push((k.to_vec(), unsafe { *s.as_ptr() }));
+        }
+        let ends = (val(plain.first()), val(plain.last()));
+        let expected: Vec<[Answer; 4]> = probes
+            .iter()
+            .map(|p| {
+                let p = nf(p);
+                [
+                    val(plain.next_at_or_after(p)),
+                    val(plain.next_after(p)),
+                    val(plain.prev_at_or_before(p)),
+                    val(plain.prev_before(p)),
+                ]
+            })
+            .collect();
+        let (_, counts) = on_thread(&[], || {
+            let rd = shared.reader();
+            // A whole scan by the point ops against the cursor.
+            let mut got = Vec::new();
+            let mut at = rd.first();
+            while let Some((k, v)) = at {
+                at = rd.next_after(nf(&k));
+                got.push((k, v));
+            }
+            assert_eq!(got, want, "a first/next_after scan must equal the cursor");
+            let mut back = Vec::new();
+            let mut at = rd.last();
+            while let Some((k, v)) = at {
+                at = rd.prev_before(nf(&k));
+                back.push((k, v));
+            }
+            back.reverse();
+            assert_eq!(back, want, "a last/prev_before scan must equal the cursor");
+            assert_eq!((rd.first(), rd.last()), ends);
+            for (p, e) in probes.iter().zip(&expected) {
+                let p = nf(p);
+                let got = [
+                    rd.next_at_or_after(p),
+                    rd.next_after(p),
+                    rd.prev_at_or_before(p),
+                    rd.prev_before(p),
+                ];
+                assert_eq!(&got, e, "probe {p:?}");
+            }
+        });
+        assert_eq!(count(counts, StrCount::Fallbacks), 0, "{counts:?}");
+        assert_eq!(count(counts, StrCount::Overflows), 0, "{counts:?}");
+        assert_eq!(
+            count(counts, StrCount::Attempts),
+            count(counts, StrCount::Ops),
+            "a quiescent map never retries: {counts:?}"
+        );
+        counts
+    }
+
+    /// Probes around every key: the key, its truncations at the chunk edge,
+    /// its last byte moved by one either way, and its extensions by 0x01 and
+    /// 0xFF.
+    fn probes_around(keys: &[Vec<u8>]) -> Vec<Vec<u8>> {
+        let mut out = vec![Vec::new(), vec![0x01], vec![0xFF; 20]];
+        for k in keys {
+            out.push(k.clone());
+            for cut in [k.len().saturating_sub(1), k.len() / 8 * 8, 8, 7, 9] {
+                if cut <= k.len() {
+                    out.push(k[..cut].to_vec());
+                }
+            }
+            if let Some(&last) = k.last() {
+                let mut up = k.clone();
+                let mut down = k.clone();
+                *up.last_mut().unwrap() = last.saturating_add(1);
+                *down.last_mut().unwrap() = last.saturating_sub(1).max(1);
+                out.push(up);
+                out.push(down);
+            }
+            for ext in [0x01u8, 0xFF] {
+                let mut e = k.clone();
+                e.push(ext);
+                out.push(e);
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The chunk-edge boundary cases of §33.3 G33.6 and the issue: lengths 7,
+    /// 8 and 9 sharing a prefix, a terminal against a continuation byte, a
+    /// 0x01 continuation, and a prefix that ends in 0xFF.
+    fn boundary_keys() -> Vec<Vec<u8>> {
+        [
+            &b"abcdefg"[..],
+            b"abcdefgh",
+            b"abcdefghi",
+            b"abcdefg\x01",
+            b"abcdefgh\x01",
+            b"abc\xFF",
+            b"abc\xFF\xFF",
+            b"abc\xFF\x01",
+            b"abc\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF",
+            b"abd",
+            b"a",
+            b"\xFF",
+        ]
+        .iter()
+        .map(|k| k.to_vec())
+        .collect()
+    }
+
+    #[test]
+    fn str_ordered_reads_match_strmap_at_the_boundaries() {
+        // The empty map, then one key, then the boundary set.
+        let none: Vec<Vec<u8>> = Vec::new();
+        differential(&none, &probes_around(&[b"abc".to_vec()]));
+        differential(
+            &[b"abcdefgh".to_vec()],
+            &probes_around(&[b"abcdefgh".to_vec()]),
+        );
+        let keys = boundary_keys();
+        differential(&keys, &probes_around(&keys));
+    }
+
+    /// Generated key sets whose lengths are dense around 8k - 1, 8k and
+    /// 8k + 1 for k = 1..4, over a small alphabet that includes 0x01 and
+    /// 0xFF, so keys share prefixes across chunk edges and sub-maps reach
+    /// tree state; plus `path_keys`-shaped keys (a 35-byte shared prefix and
+    /// 12 hex digits, depth 5). Asserts the walk took cross-level answers.
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "thousands of ordered reads; the boundary test covers the paths"
+    )]
+    fn str_ordered_reads_match_strmap_on_generated_keys() {
+        let alphabet = [0x01u8, b'a', b'b', 0x7F, 0xFE, 0xFF];
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut rand = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut keys = boundary_keys();
+        for _ in 0..600 {
+            let k = 1 + (rand() % 4) as usize;
+            let len = 8 * k + (rand() % 3) as usize - 1;
+            let shared = (rand() % len as u64) as usize;
+            let mut key = vec![b'q'; shared];
+            while key.len() < len {
+                key.push(alphabet[(rand() % alphabet.len() as u64) as usize]);
+            }
+            keys.push(key);
+        }
+        for i in 0..300u64 {
+            let mut key = b"https://example.com/api/v2/objects/".to_vec();
+            key.extend_from_slice(std::format!("{:012x}", i.wrapping_mul(0x9E37_79B9)).as_bytes());
+            keys.push(key);
+        }
+        keys.sort();
+        keys.dedup();
+        let probes = probes_around(&keys);
+        let counts = differential(&keys, &probes);
+        assert!(
+            count(counts, StrCount::CrossLevel) > 0,
+            "the probes must reach answers across levels: {counts:?}"
+        );
     }
 }

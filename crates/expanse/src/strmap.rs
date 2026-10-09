@@ -817,6 +817,54 @@ impl core::fmt::Display for NulInKey {
 #[cfg(feature = "std")]
 impl std::error::Error for NulInKey {}
 
+/// A validated ordered read's answer: the key's bytes and its value.
+#[cfg(feature = "std")]
+pub(crate) type StrAnswer = Option<(Vec<u8>, u64)>;
+
+/// One `StrNode` level on the stack of [`ExpanseStrMap::ordered_validated`].
+#[cfg(feature = "std")]
+pub(crate) struct StrLevel {
+    /// The node's cover word, and its sample (also retained in the read set).
+    cover: *const u32,
+    csnap: u32,
+    /// The sub-map's root state, copied under the cover.
+    msnap: crate::sync::RootSnapshot,
+    /// The chunk the parent maps to this node (unused at the root).
+    via: u64,
+    /// `out` length before `via` was appended.
+    mark: usize,
+    /// Read-set length on entry, for the drop-a-level negative control.
+    #[cfg(test)]
+    rs_mark: usize,
+}
+
+/// The question a validated ordered read asks
+/// ([`ExpanseStrMap::ordered_validated`], #1143).
+#[cfg(feature = "std")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum StrSeek<'k> {
+    /// Smallest key `>= key`.
+    AtOrAfter(&'k NulFreeStr),
+    /// Largest key `<= key`.
+    AtOrBefore(&'k NulFreeStr),
+    /// Largest key `< key`.
+    Before(&'k NulFreeStr),
+    /// Largest key.
+    Last,
+}
+
+#[cfg(feature = "std")]
+impl StrSeek<'_> {
+    /// The probe's length in bytes (0 for `Last`), to size the walk's
+    /// buffers.
+    pub(crate) fn key_len(&self) -> usize {
+        match self {
+            Self::AtOrAfter(k) | Self::AtOrBefore(k) | Self::Before(k) => k.len(),
+            Self::Last => 0,
+        }
+    }
+}
+
 impl StrNode {
     fn new() -> Self {
         Self {
@@ -870,10 +918,10 @@ impl StrNode {
     /// Largest entry in this subtree; appends its key bytes to `out`.
     /// `None` only when every node under it is empty (see `extreme_entry`).
     fn max_entry(&self, out: &mut Vec<u8>) -> Option<NonNull<u64>> {
-        self.extreme_entry(out, false)
+        self.extreme_entry::<false>(out)
     }
 
-    /// The subtree's first (`min`) or last (`!min`) entry.
+    /// The subtree's first (`MIN`) or last (`!MIN`) entry.
     ///
     /// Iterative, like every other walk in this module: one frame per 8
     /// key bytes turns a long key into a stack overflow, and this runs
@@ -888,15 +936,15 @@ impl StrNode {
     /// next entry in the direction of the walk ([`Self::extreme_past_empty`],
     /// out of line so the common descent is unchanged). `None` only when
     /// every node in the subtree is empty.
-    fn extreme_entry(&self, out: &mut Vec<u8>, min: bool) -> Option<NonNull<u64>> {
+    fn extreme_entry<const MIN: bool>(&self, out: &mut Vec<u8>) -> Option<NonNull<u64>> {
         let mut node: *const StrNode = self;
         loop {
             // SAFETY: `self` on the first turn, then continuation values,
             // which are live child nodes; the descent never revisits one.
             let n = unsafe { &*node };
-            let found = if min { n.map.first() } else { n.map.last() };
+            let found = if MIN { n.map.first() } else { n.map.last() };
             let Some((chunk, v)) = found else {
-                return self.extreme_past_empty(node, out, min);
+                return self.extreme_past_empty::<MIN>(node, out);
             };
             if is_terminal(chunk) {
                 push_terminal(out, chunk);
@@ -924,36 +972,34 @@ impl StrNode {
     /// continues past `empty` with backtracking.
     #[cold]
     #[inline(never)]
-    fn extreme_past_empty(
+    fn extreme_past_empty<const MIN: bool>(
         &self,
         empty: *const StrNode,
         out: &mut Vec<u8>,
-        min: bool,
     ) -> Option<NonNull<u64>> {
         let mut path: Vec<(*const StrNode, u64)> = Vec::new();
         let mut node: *const StrNode = self;
         while !core::ptr::eq(node, empty) {
             // SAFETY: the nodes the descent just walked, live and unchanged.
             let n = unsafe { &*node };
-            let (chunk, v) = if min { n.map.first() } else { n.map.last() }?;
+            let (chunk, v) = if MIN { n.map.first() } else { n.map.last() }?;
             path.push((node, chunk));
             node = unpack_child(v);
         }
         // `out` ends with the chunk of every level on `path`, as
         // `extreme_walk` expects of its stack.
-        Self::extreme_walk(empty, path, None, out, min)
+        Self::extreme_walk::<MIN>(empty, path, None, out)
     }
 
-    /// The first (`min`) or last entry at or past `cursor` in `node`, then up
+    /// The first (`MIN`) or last entry at or past `cursor` in `node`, then up
     /// the levels `stack` records (each with the chunk that led below it),
     /// skipping empty nodes. The general, backtracking form of
     /// `extreme_entry`, taken only once an empty node was met.
-    fn extreme_walk(
+    fn extreme_walk<const MIN: bool>(
         mut node: *const StrNode,
         mut stack: Vec<(*const StrNode, u64)>,
         mut cursor: Option<(u64, u64)>,
         out: &mut Vec<u8>,
-        min: bool,
     ) -> Option<NonNull<u64>> {
         loop {
             // SAFETY: `node` is a live node of the walk: the start node, a
@@ -965,7 +1011,7 @@ impl StrNode {
                 node = parent;
                 // SAFETY: as above.
                 let p = unsafe { &*parent };
-                cursor = if min {
+                cursor = if MIN {
                     p.map.next_after(via)
                 } else {
                     p.map.prev_before(via)
@@ -990,7 +1036,7 @@ impl StrNode {
             node = unpack_child(v);
             // SAFETY: a continuation value is a live child node.
             let c = unsafe { &*node };
-            cursor = if min { c.map.first() } else { c.map.last() };
+            cursor = if MIN { c.map.first() } else { c.map.last() };
         }
     }
 
@@ -998,25 +1044,28 @@ impl StrNode {
     /// next entry of this node past `chunk`, in the walk's direction.
     #[cold]
     #[inline(never)]
-    fn take_past_empty(&self, chunk: u64, out: &mut Vec<u8>, min: bool) -> Option<NonNull<u64>> {
+    fn take_past_empty<const MIN: bool>(
+        &self,
+        chunk: u64,
+        out: &mut Vec<u8>,
+    ) -> Option<NonNull<u64>> {
         out.truncate(out.len() - CHUNK);
-        let cursor = if min {
+        let cursor = if MIN {
             self.map.next_after(chunk)
         } else {
             self.map.prev_before(chunk)
         };
-        Self::extreme_walk(self, Vec::new(), cursor, out, min)
+        Self::extreme_walk::<MIN>(self, Vec::new(), cursor, out)
     }
 
     /// Emits the entry `cursor` names: a terminal chunk *is* the answer,
     /// a continuation chunk contributes its subtree extreme. `None`
     /// cursor means this node had nothing in the requested direction,
     /// which is what makes the caller backtrack.
-    fn take_from(
+    fn take_from<const MIN: bool>(
         &self,
         cursor: Option<(u64, u64)>,
         out: &mut Vec<u8>,
-        min: bool,
     ) -> Option<NonNull<u64>> {
         let (chunk, v) = cursor?;
         if is_terminal(chunk) {
@@ -1032,9 +1081,9 @@ impl StrNode {
         } else {
             out.extend_from_slice(&chunk.to_be_bytes());
             // SAFETY: continuation values are child pointers.
-            match unsafe { Self::child(v) }.extreme_entry(out, min) {
+            match unsafe { Self::child(v) }.extreme_entry::<MIN>(out) {
                 Some(slot) => Some(slot),
-                None => self.take_past_empty(chunk, out, min),
+                None => self.take_past_empty::<MIN>(chunk, out),
             }
         }
     }
@@ -1077,7 +1126,7 @@ impl StrNode {
                     }
                     // Suffix is strictly less than target key remainder; resume at next sibling.
                     let sibling = n.map.next_after(target);
-                    if let Some(slot) = n.take_from(sibling, out, true) {
+                    if let Some(slot) = n.take_from::<true>(sibling, out) {
                         return Some(slot);
                     }
                 } else {
@@ -1089,7 +1138,7 @@ impl StrNode {
                     off += CHUNK;
                     continue;
                 }
-            } else if let Some(slot) = n.take_from(cursor, out, true) {
+            } else if let Some(slot) = n.take_from::<true>(cursor, out) {
                 return Some(slot);
             }
 
@@ -1101,7 +1150,7 @@ impl StrNode {
                 // SAFETY: recorded during the descent; still live.
                 let p = unsafe { &*parent };
                 let sibling = p.map.next_after(parent_target);
-                if let Some(slot) = p.take_from(sibling, out, true) {
+                if let Some(slot) = p.take_from::<true>(sibling, out) {
                     return Some(slot);
                 }
             }
@@ -1152,7 +1201,7 @@ impl StrNode {
                         );
                     }
                     let sibling = n.map.prev_before(target);
-                    if let Some(slot) = n.take_from(sibling, out, false) {
+                    if let Some(slot) = n.take_from::<false>(sibling, out) {
                         return Some(slot);
                     }
                 } else {
@@ -1170,7 +1219,7 @@ impl StrNode {
                 } else {
                     n.map.prev_before(target)
                 };
-                if let Some(slot) = n.take_from(cursor, out, false) {
+                if let Some(slot) = n.take_from::<false>(cursor, out) {
                     return Some(slot);
                 }
             }
@@ -1184,7 +1233,7 @@ impl StrNode {
                 // target, whose own subtree was just exhausted — so the
                 // resume point is strictly below it, never at it.
                 let sibling = p.map.prev_before(parent_target);
-                if let Some(slot) = p.take_from(sibling, out, false) {
+                if let Some(slot) = p.take_from::<false>(sibling, out) {
                     return Some(slot);
                 }
             }
@@ -2472,6 +2521,400 @@ impl ExpanseStrMap {
             }
             node = unpack_child(v);
             off += CHUNK;
+        }
+    }
+
+    /// The validated ordered walk behind `sync::StrReader`'s ordered reads
+    /// (#1143): [`StrNode::next_at_or_after`] and
+    /// [`StrNode::prev_at_or_before`] under the optimistic read protocol, in
+    /// one walk with an explicit stack of `StrNode` levels.
+    ///
+    /// `get_validated` moves one cover down the chain. An ordered search
+    /// cannot: a level that answers nothing sends it back to its parent's next
+    /// sibling, so its answer depends on every level it passed over. Every
+    /// version it samples — each level's cover and each branch of each sub-map
+    /// seek — goes into `rs` and stays there, and all of them are validated
+    /// after the last load (`sync_nav`'s retained read set, across levels as
+    /// well as within one; `docs/benchmarks/concurrency/METHODOLOGY.md`
+    /// §33.7.3). Memory safety is separate, as in `walk_validated`: a
+    /// sub-map's root state is read only after the cover it was copied under
+    /// validates, and a suffix or child pointer is dereferenced only after its
+    /// holder (the cover, or a branch the same seek sampled) validates.
+    /// Suffix bytes are copied into the result, never borrowed past the call.
+    ///
+    /// A child that is linked and empty (a prune that did not go through,
+    /// [`StrNode::prune_locked`]) answers nothing, and the walk moves to the
+    /// next sibling as for any level that answered nothing.
+    ///
+    /// Returns the answer and whether it was taken after a level unwound (a
+    /// cross-level answer). `Err(Retry)` with `rs` full is the caller's to
+    /// classify (§33.7.4).
+    ///
+    /// # Safety
+    ///
+    /// As [`Self::get_validated`].
+    #[cfg(feature = "std")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) unsafe fn ordered_validated<const CAP: usize>(
+        root: Option<NonNull<u8>>,
+        seek: StrSeek<'_>,
+        ver: &crate::occ::SeqVersion,
+        snap: u64,
+        rs: &mut crate::sync_nav::ReadSet<CAP>,
+        stack: &mut Vec<StrLevel>,
+        out: &mut Vec<u8>,
+    ) -> Result<(StrAnswer, bool), crate::sync::Retry> {
+        use crate::occ::{node_validate, version_cell};
+        use crate::sync::Retry;
+        #[cfg(test)]
+        use crate::sync::test_hooks::{self as th, Site, StrControl, StrCount};
+
+        type Level = StrLevel;
+
+        /// Samples `node`'s cover into `rs`, copies its sub-map root state,
+        /// and checks the cover before anything reads through the copy.
+        ///
+        /// # Safety
+        ///
+        /// `node` is EBR-live under the caller's pin.
+        unsafe fn enter<const CAP: usize>(
+            node: *const StrNode,
+            via: u64,
+            mark: usize,
+            rs: &mut crate::sync_nav::ReadSet<CAP>,
+        ) -> Result<Level, Retry> {
+            #[cfg(test)]
+            let rs_mark = rs.len();
+            // SAFETY: field projection from the raw pointer of a live node.
+            let cover: *const u32 = unsafe { &raw const (*node).cover };
+            // SAFETY: the live node's cover word.
+            let csnap = unsafe { rs.sample(cover)? };
+            // SAFETY: a by-value copy, checked against the cover below.
+            let msnap = unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) };
+            #[cfg(test)]
+            th::at(Site::StrLevelEntry);
+            #[cfg(test)]
+            let skip = th::str_control(StrControl::SkipCoverCheck);
+            #[cfg(not(test))]
+            let skip = false;
+            // SAFETY: the live node's cover word.
+            let held = node_validate(unsafe { version_cell(cover) }, csnap);
+            if !skip && !held {
+                return Err(Retry);
+            }
+            #[cfg(test)]
+            if !held {
+                th::str_count(StrCount::UnvalidatedDerefs);
+            }
+            Ok(Level {
+                cover,
+                csnap,
+                msnap,
+                via,
+                mark,
+                #[cfg(test)]
+                rs_mark,
+            })
+        }
+
+        /// The level's seek from `key`; see `sync_nav::seek_submap`.
+        ///
+        /// # Safety
+        ///
+        /// `l` came from `enter` under the caller's pin.
+        #[inline(always)]
+        unsafe fn seek_level<const CAP: usize>(
+            l: &Level,
+            key: u64,
+            forward: bool,
+            rs: &mut crate::sync_nav::ReadSet<CAP>,
+        ) -> Result<Option<(u64, u64)>, Retry> {
+            // SAFETY: the copy was checked against the cover in `enter`.
+            unsafe { crate::sync_nav::seek_submap(l.msnap, key, forward, l.cover, l.csnap, rs) }
+        }
+
+        /// Validates the holder of an entry the seek that started at `from`
+        /// returned, before the entry's pointer is dereferenced. `SITE` names
+        /// the call site (`AT_FORWARD_EXACT`, `AT_BACKWARD_EXACT`, `AT_FREE`)
+        /// for the per-site negative controls; the three sites are pinned by
+        /// `str_ordered_tests::holder_checks_precede_every_dereference`.
+        ///
+        /// # Safety
+        ///
+        /// The caller's pin covers every sample.
+        #[inline(always)]
+        unsafe fn holder_ok<const CAP: usize, const SITE: u8>(
+            l: &Level,
+            from: usize,
+            rs: &crate::sync_nav::ReadSet<CAP>,
+        ) -> Result<(), Retry> {
+            #[cfg(test)]
+            th::at(Site::StrDeref);
+            // SAFETY: the level's live cover; entries sampled under the pin.
+            let held = node_validate(unsafe { version_cell(l.cover) }, l.csnap)
+                && unsafe { rs.validate_from(from) };
+            #[cfg(test)]
+            let skip = th::str_control(match SITE {
+                AT_FORWARD_EXACT => StrControl::SkipPreDerefForwardExact,
+                AT_BACKWARD_EXACT => StrControl::SkipPreDerefBackwardExact,
+                _ => StrControl::SkipPreDerefFree,
+            });
+            #[cfg(not(test))]
+            let skip = false;
+            if !skip && !held {
+                #[cfg(test)]
+                th::str_count(StrCount::HolderRetries);
+                return Err(Retry);
+            }
+            // The audit the controls are judged by: a dereference is about to
+            // go through a holder that no longer validates.
+            #[cfg(test)]
+            if !held {
+                th::str_count(StrCount::UnvalidatedDerefs);
+            }
+            Ok(())
+        }
+
+        /// The suffix leaf behind `v`: its bytes appended to `out`, after
+        /// `chunk`, and its value.
+        ///
+        /// # Safety
+        ///
+        /// `v`'s holder validated after `v` was loaded (`holder_ok`).
+        #[inline(always)]
+        unsafe fn take_suffix(v: u64, chunk: u64, out: &mut Vec<u8>) -> u64 {
+            let sfx: *const StrSuffix = unpack_suffix(v);
+            out.extend_from_slice(&chunk.to_be_bytes());
+            // SAFETY: the holder validated after the pointer was loaded, so
+            // `sfx` was the published suffix then, and EBR keeps the whole
+            // block mapped under the pin; header and bytes are write-once.
+            // The value word may race a T3, which moves the cover the final
+            // validation checks. Both reads project from the raw pointer.
+            unsafe {
+                out.extend_from_slice(suffix_bytes(sfx));
+                crate::bits::shared_word::load::<true>((&raw const (*sfx).value).cast_mut())
+            }
+        }
+
+        /// The `holder_ok` call sites.
+        const AT_FORWARD_EXACT: u8 = 0;
+        const AT_BACKWARD_EXACT: u8 = 1;
+        const AT_FREE: u8 = 2;
+
+        let (forward, key, mut bounded) = match seek {
+            StrSeek::AtOrAfter(k) => (true, k.as_bytes(), true),
+            StrSeek::AtOrBefore(k) | StrSeek::Before(k) => (false, k.as_bytes(), true),
+            StrSeek::Last => (false, &[][..], false),
+        };
+        let exclusive = matches!(seek, StrSeek::Before(_));
+        let finish = |found: Option<(Vec<u8>, u64)>,
+                      cross: bool,
+                      rs: &crate::sync_nav::ReadSet<CAP>|
+         -> Result<(StrAnswer, bool), Retry> {
+            #[cfg(test)]
+            th::at(Site::StrFinal);
+            #[cfg(test)]
+            let skip = th::str_control(StrControl::SkipFinalValidation);
+            #[cfg(not(test))]
+            let skip = false;
+            // The answer is returned only after this check
+            // (`docs/ARCHITECTURE.md` §4.1, S5). The tree word check is
+            // defence in depth, kept as `get_validated` keeps it: the states
+            // it brackets (the meta-trie root's creation and removal,
+            // `clear`) either leave a root-`None` read linearizable at its
+            // load, or unlink a node, which `dispose_node` marks obsolete
+            // first, so the retained cover fails. No interleaving makes it
+            // decisive, and it has no negative control.
+            // SAFETY: same pin as every sample.
+            if (!skip && !unsafe { rs.validate_all() }) || !ver.validate(snap) {
+                return Err(Retry);
+            }
+            Ok((found, cross))
+        };
+
+        let Some(root) = root.map(|p| p.as_ptr().cast::<StrNode>().cast_const()) else {
+            return finish(None, false, rs);
+        };
+        // The caller's buffers, kept across its retries.
+        stack.clear();
+        out.clear();
+        // SAFETY: the published root is EBR-live under the pin (see
+        // `get_validated`).
+        let mut lvl = unsafe { enter(root, 0, 0, rs)? };
+        let mut off = 0usize;
+        let mut cross = false;
+        // The seek whose result `cursor` holds started at `from` in `rs`.
+        let mut from = rs.len();
+        // SAFETY (whole loop): every pointer read below is the published
+        // root, or a child or suffix pointer whose holder `holder_ok`
+        // validated after the load; all are EBR-live under the caller's pin.
+        let mut cursor = if bounded {
+            None
+        } else {
+            // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+            unsafe { seek_level(&lvl, u64::MAX, false, rs)? }
+        };
+        loop {
+            if bounded {
+                let (target, target_terminal) = chunk_at(key, off);
+                from = rs.len();
+                let rem_at = off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off));
+                if forward {
+                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                    cursor = unsafe { seek_level(&lvl, target, true, rs)? };
+                    match cursor {
+                        Some((chunk, v)) if chunk == target && !is_terminal(chunk) => {
+                            // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                            unsafe { holder_ok::<CAP, AT_FORWARD_EXACT>(&lvl, from, rs)? };
+                            if is_suffix_ptr(v) {
+                                // SAFETY: the holder validated just above.
+                                let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
+                                if &key[rem_at..] <= bytes {
+                                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                                    let value = unsafe { take_suffix(v, chunk, out) };
+                                    return finish(Some((core::mem::take(out), value)), cross, rs);
+                                }
+                                // The suffix sorts below the probe: the
+                                // answer is past this entry.
+                                bounded = false;
+                                from = rs.len();
+                                cursor = match target.checked_add(1) {
+                                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                                    Some(t) => unsafe { seek_level(&lvl, t, true, rs)? },
+                                    None => None,
+                                };
+                            } else {
+                                let mark = out.len();
+                                out.extend_from_slice(&chunk.to_be_bytes());
+                                let child = unpack_child(v).cast_const();
+                                stack.push(lvl);
+                                // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                                lvl = unsafe { enter(child, chunk, mark, rs)? };
+                                off += CHUNK;
+                                continue;
+                            }
+                        }
+                        _ => bounded = false,
+                    }
+                } else if !target_terminal {
+                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                    cursor = unsafe { seek_level(&lvl, target, false, rs)? };
+                    match cursor {
+                        Some((chunk, v)) if chunk == target => {
+                            // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                            unsafe { holder_ok::<CAP, AT_BACKWARD_EXACT>(&lvl, from, rs)? };
+                            if is_suffix_ptr(v) {
+                                // SAFETY: the holder validated just above.
+                                let bytes = unsafe { suffix_bytes(unpack_suffix(v)) };
+                                let cmp = key[rem_at..].cmp(bytes);
+                                let hit = if exclusive {
+                                    cmp == core::cmp::Ordering::Greater
+                                } else {
+                                    cmp != core::cmp::Ordering::Less
+                                };
+                                if hit {
+                                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                                    let value = unsafe { take_suffix(v, chunk, out) };
+                                    return finish(Some((core::mem::take(out), value)), cross, rs);
+                                }
+                                bounded = false;
+                                from = rs.len();
+                                cursor = match target.checked_sub(1) {
+                                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                                    Some(t) => unsafe { seek_level(&lvl, t, false, rs)? },
+                                    None => None,
+                                };
+                            } else {
+                                let mark = out.len();
+                                out.extend_from_slice(&chunk.to_be_bytes());
+                                let child = unpack_child(v).cast_const();
+                                stack.push(lvl);
+                                // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                                lvl = unsafe { enter(child, chunk, mark, rs)? };
+                                off += CHUNK;
+                                continue;
+                            }
+                        }
+                        _ => bounded = false,
+                    }
+                } else {
+                    // A terminal target: entries at or below it in this node
+                    // (strictly below when `exclusive`).
+                    bounded = false;
+                    cursor = if exclusive {
+                        match target.checked_sub(1) {
+                            // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                            Some(t) => unsafe { seek_level(&lvl, t, false, rs)? },
+                            None => None,
+                        }
+                    } else {
+                        // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                        unsafe { seek_level(&lvl, target, false, rs)? }
+                    };
+                }
+            }
+
+            // Free: `cursor` is this level's candidate, and every entry from
+            // it on (in the walk's direction) is past the probe, so the answer
+            // is the candidate or the extreme of its subtree.
+            match cursor {
+                None => {
+                    // This level answered nothing: unwind to the nearest
+                    // ancestor with an unexplored sibling.
+                    let Some(parent) = stack.pop() else {
+                        return finish(None, cross, rs);
+                    };
+                    #[cfg(test)]
+                    th::at(Site::StrUnwind);
+                    #[cfg(test)]
+                    if th::str_control(StrControl::DropLevelOnUnwind) {
+                        rs.truncate(lvl.rs_mark);
+                    }
+                    out.truncate(lvl.mark);
+                    cross = true;
+                    let via = lvl.via;
+                    lvl = parent;
+                    from = rs.len();
+                    let next = if forward {
+                        via.checked_add(1)
+                    } else {
+                        via.checked_sub(1)
+                    };
+                    cursor = match next {
+                        // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                        Some(t) => unsafe { seek_level(&lvl, t, forward, rs)? },
+                        None => None,
+                    };
+                }
+                Some((chunk, v)) => {
+                    if is_terminal(chunk) {
+                        push_terminal(out, chunk);
+                        return finish(Some((core::mem::take(out), v)), cross, rs);
+                    }
+                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                    unsafe { holder_ok::<CAP, AT_FREE>(&lvl, from, rs)? };
+                    if is_suffix_ptr(v) {
+                        // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                        let value = unsafe { take_suffix(v, chunk, out) };
+                        return finish(Some((core::mem::take(out), value)), cross, rs);
+                    }
+                    let mark = out.len();
+                    out.extend_from_slice(&chunk.to_be_bytes());
+                    let child = unpack_child(v).cast_const();
+                    stack.push(lvl);
+                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                    lvl = unsafe { enter(child, chunk, mark, rs)? };
+                    from = rs.len();
+                    // SAFETY: pinned walk: the level came from `enter`, and every pointer is the published root or one whose holder `holder_ok` validated after its load, EBR-live under the caller's pin.
+                    cursor = unsafe {
+                        seek_level(&lvl, if forward { 0 } else { u64::MAX }, forward, rs)?
+                    };
+                    #[cfg(test)]
+                    if cursor.is_none() && th::str_control(StrControl::EmptyChildEndsSearch) {
+                        return finish(None, cross, rs);
+                    }
+                }
+            }
         }
     }
 
@@ -3837,6 +4280,49 @@ impl ExpanseStrMap {
         let node = self.test_node_at(chunks)?;
         // SAFETY: a live node of a quiescent map.
         Some(unsafe { MapCore::root_is_tree_of(&raw const (*node).map) })
+    }
+
+    /// Test view (#1143): the cover word of the node at `chunks`.
+    #[cfg(test)]
+    pub(crate) fn test_cover_at(&self, chunks: &[u64]) -> Option<*const u32> {
+        let node = self.test_node_at(chunks)?;
+        // SAFETY: field projection from a live node.
+        Some(unsafe { &raw const (*node).cover })
+    }
+
+    /// Test view (#1143): the root state of the sub-map at `chunks`.
+    #[cfg(test)]
+    pub(crate) fn test_submap_snapshot_at(
+        &self,
+        chunks: &[u64],
+    ) -> Option<crate::sync::RootSnapshot> {
+        let node = self.test_node_at(chunks)?;
+        // SAFETY: a live node of a quiescent map.
+        Some(unsafe { MapCore::occ_snapshot_of(&raw const (*node).map) })
+    }
+
+    /// Test view (#1143): the `StrNode` levels a lookup of `key` visits.
+    #[cfg(test)]
+    pub(crate) fn test_depth_of(&self, key: &[u8]) -> usize {
+        let Some(mut node) = self.root_raw().map(<*mut StrNode>::cast_const) else {
+            return 0;
+        };
+        let (mut depth, mut off) = (1, 0);
+        loop {
+            let (chunk, terminal) = chunk_at(key, off);
+            if terminal {
+                return depth;
+            }
+            // SAFETY: a live node of a quiescent map.
+            match unsafe { (*node).map.get(chunk) } {
+                Some(v) if !is_suffix_ptr(v) => {
+                    node = unpack_child(v);
+                    depth += 1;
+                    off += CHUNK;
+                }
+                _ => return depth,
+            }
+        }
     }
 
     /// Sets the population; the wrapper's exclusive sections re-sync it

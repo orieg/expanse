@@ -4904,6 +4904,61 @@ The baseline instructions per key, 184.0 on `paths` and 273.2 on `paths_dense`, 
 
 P33.1, P33.2 and P33.3 thresholds, the cells and the void conditions of §33.6, gates G33.1 to G33.6, and the instruments of §33.5 other than the added arm name. Reproduction of every figure in this amendment: `python3 scripts/str_cursor_bounds.py` (the table) and `python3 scripts/str_cursor_bounds.py --self-test` (the pinned values).
 
+### 33.8 Pre-registration P33.4 — the value claim for the validated point ops (appended 2026-10-09, before any engine code of the point ops and before any data; §33.1 to §33.7 above are not edited)
+
+The point ops (`StrReader::{first, last, next_at_or_after, next_after, prev_at_or_before, prev_before}`) are item 1 of §33.1. P33.3 registers the batch cursor's value claim; nothing registered one for the point ops. This section does, before the code that adds them and before any measurement of it. Refs #1143.
+
+#### 33.8.1 Read-set capacity the claim assumes
+
+The walk the point ops port is the two-seek walk of §33.7.3, whose bound is $15d + 6 + 8a$ with $a = D - 1$ at probe depth $d = D$: 21, 44, 67, 90, 113 for $D = 1 \dots 5$ (derived: `scripts/str_cursor_bounds.py::str_point_read_set_bound`). `path_keys` has depth 5 (§33.7.2), so a capacity that covers the measured workloads must hold 113 entries. The point ops use a read set of 128 entries, which covers every depth $D \le 5$; at $D = 6$ the bound is 136 and exceeds it. A full set is classified as §33.7.4 says: `validate_all` first, a failure retries, a success with the set full falls back to `read_locked` at once and is counted on its own stat. The emptied-but-linked child of §33.7.5 adds one cover and one parent seek per such child and is not in the bound; it reaches the overflow path, never a wrong answer.
+
+A consequence registered here: on `paths` and `paths_dense` at depth 5 or less, the overflow count is 0. A non-zero overflow count on either probe falsifies the depth claim of §33.7.2 for that probe, and the cell is reported with it.
+
+#### 33.8.2 The claim
+
+- **Cell.** $(W, R) = (1, 4)$ on `paths` and on `paths_dense`: one writer running `WriterStrWorkload`, four readers, each reader repeating a full ascending scan made of `first` then `next_after` on its own `StrReader` (the `sync_strmap_scan_pointops` route). The cells are those of §33.5 at $(1, 4)$; no other cell is part of this claim.
+- **Comparator.** The same cell with each reader scanning through `SyncExpanseStrMap::with_locked` and `StrCursor` (the `sync_strmap_scan_locked` route), under the same pin `0,2,4,6,8,10,12,14`, same key set, same writer.
+- **Metric.** Aggregate reader throughput in scan keys per second (elements returned, §33.7.7), with the mean scan length (keys per scan) recorded beside it in every round. A pair of cells whose mean scan lengths differ by more than 1% is not a P33.4 comparison and is reported, not judged.
+- **Threshold (proposed for maintainer confirmation).** The BCa 95% lower bound of the paired ratio (point ops over comparator, keys per second) is at least 1.0, on both probes, in both of two independent runs. Derivation: under `with_locked` the four scanners and the writer's serialised fallbacks share one mutex (§33.7.1), so the comparator's aggregate rate is at most one scanner's rate; the point ops take no lock on the optimistic path, so their aggregate rate is up to $R = 4$ times one point-op scanner's rate less retries. The ratio therefore clears 1.0 when one point-op step costs less than $R = 4$ cursor steps, that is when the instruction ratio of `sync_strmap_scan_pointops` to `sync_strmap_scan_locked` is below 4 (derived; the instruction ratio is unmeasured until the arm runs). Validation adds at most 113 version loads per step at depth 5 (§33.7.3), against a baseline of 184.0 instructions per key on `paths` (measured: CI run 37249211829, commit `dce4447834374b562fc8923e19d60a091a5d923b`); whether the whole step stays under four cursor steps is what the arm measures, not what this section asserts.
+- **Falsifier.** The lower bound is below 1.0 on either probe in either run (REFUTED). A lower bound at or above 1.0 in one run and below it in the other is `INTERMEDIATE`. A cell whose optimistic read fallbacks exceed 1% of its read ops is reported with that share and does not count toward a PASS, since it measures the locked route.
+
+#### 33.8.3 Which instrument decides what
+
+- CI Callgrind decides **only** the no-regression gate of the pull request that adds the point ops: the §6 review threshold (0.1%) on the u64 ordered arms (`sync_map_get`, `sync_map_next_after_scan`, `sync_map_prev`, `sync_map_prev_locked`, `sync_map_insert`, `sync_map_churn`) and on every `strmap_*` arm, measured against that pull request's base. It records the new arm `sync_strmap_scan_pointops/{paths,paths_dense}` (50,000 ops, the `sync_strmap_scan_locked` setup and key set) as a figure, not as evidence for or against P33.4, because Callgrind cannot see contention.
+- The reference host decides P33.4, with the §33.5 protocol: two independent runs, BCa 95% intervals, §8.17 load snapshots, pin `0,2,4,6,8,10,12,14`. The laptop decides nothing here.
+- Execution status: specified; no run has been taken. The harness route (`--read-op scan` with a point-op variant on `--arm str`) does not exist yet and is a prerequisite of the run, not of the pull request that adds the point ops.
+
+### 33.9 Amendment A1 to §33.8 — derivation scope, frozen threshold, missing parameters, and one correction (appended 2026-10-09, before any run of P33.4; §33.1 to §33.8 above are not edited)
+
+A review of §33.8 found a derivation stated more strongly than it holds, parameters a run needs that §33.8 does not fix, a one-sided void rule, and a sentence the code contradicted. Where this section and §33.8 differ, this section stands. The proposed threshold value is not changed. Refs #1143.
+
+#### 33.9.1 The derivation is a necessary condition
+
+§33.8.2 derives that the paired ratio "clears 1.0 when" one point-op step costs less than R = 4 cursor steps. Read it as: P33.4 **can clear 1.0 only if** the instruction ratio of `sync_strmap_scan_pointops` to `sync_strmap_scan_locked` is below R = 4. It is an upper bound on what the point ops can achieve, not a prediction that they achieve it: an instruction ratio is not a time ratio (cache misses per step, the writer's effect on both routes and the mutex's hand-off cost are not instructions), and a ratio below 4 is necessary, not sufficient.
+
+#### 33.9.2 The threshold freezes at confirmation
+
+The threshold of §33.8.2 is proposed. It freezes at the moment the maintainer confirms it, in the issue or in a review of the pull request that adds the point ops, and that confirmation is recorded beside this section before any P33.4 run. A change after that moment relabels any result taken under the old value `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+
+#### 33.9.3 Parameters a run needs
+
+- **Rounds and pairing.** 8 rounds per run. Each round runs the point-op cell and the comparator cell once each, back to back, in the order the §33.5 driver's Williams permutation gives that round. The paired statistic is the per-round ratio of point-op keys/s to comparator keys/s, both taken in the same round.
+- **Interval.** BCa 95% over the 8 per-round ratios of a run, with 10,000 bootstrap resamples (at least the 1,000 AGENTS.md §8.4 requires).
+- **Scan length.** A round whose two cells differ in mean scan length by more than 1% contributes no ratio. A run with fewer than 6 contributing rounds on a probe is `NOT_EVALUABLE` on that probe and counts as not taken; P33.4 is then evaluated only when two runs that are not `NOT_EVALUABLE` exist.
+- **Verdicts.** `PASS` needs the lower bound at or above the threshold on both probes in both runs; `REFUTED` follows from a lower bound below it on either probe in either run; one run each way is `INTERMEDIATE`, as §33.8.2 says.
+
+#### 33.9.4 The fallback share
+
+A cell whose optimistic read fallbacks exceed 1% of its read ops counts toward `REFUTED` and not toward `PASS`. The asymmetry is deliberate: the shipped point ops include their fallback, so a loss measured through it is a loss of the shipped route; a win is attributed to the optimistic route this section registers only when that route served at least 99% of the reads. A cell over 1% whose lower bound clears the threshold is `INTERMEDIATE`, and the share is reported with it.
+
+#### 33.9.5 A pre-run expectation, not evidence
+
+The new arm's first counts put the point-op scan at 3,823 instructions per key on `paths` and 4,234 on `paths_dense`, against 184.0 and 273.2 for `sync_strmap_scan_locked`: ratios of about 20.8 and 15.5 (measured: CI run 37906645775 at commit `5b8fdac19`, an earlier head of the pull request that adds the point ops; the per-key figures are derived from the arm totals over 50,000 ops). By §33.9.1 a ratio above 4 means P33.4 cannot clear 1.0 at $(W, R) = (1, 4)$ unless time per instruction differs between the routes by more than the ratio's excess. This is recorded as a pre-run expectation only. It is not evidence for or against P33.4, which only the reference host decides (§33.8.3), and the threshold is not adjusted for it.
+
+#### 33.9.6 Correction to §33.8.1
+
+§33.8.1 says an emptied but linked child "reaches the overflow path, never a wrong answer". At the time it was written the overflow path's fallback, `read_locked` running the single-threaded ordered reads, panicked on such a child (`StrNode::extreme_entry`'s `expect("non-empty node")`), as `with_locked` did on `main`. The single-threaded reads pass over the child since the fix that precedes the point ops (Refs #1143), and the sentence holds from that commit on. `StrCursor` under `with_locked` still stops early at such a child, without a panic; that is outside P33.4.
+
 ## 34. Pre-registration for #1280 Item 1 — cause of the four-thread peak in `SyncExpanseBlobMap` (appended 2026-10-04, locked before any run of the builds or instruments below)
 
 > **Section numbering note:** Section 33 was claimed by PR #1373 (A6, thread-local freelist allocation stripe) which merged. This pre-registration uses §34 (peak) and §35 (split).

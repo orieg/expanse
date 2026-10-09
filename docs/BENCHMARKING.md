@@ -1679,6 +1679,7 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `sync_map_scan/*` | Full ascending scan of a `SyncExpanseMap` through the validated batch cursor | The batch cursor (#1142); in Stage 1 baseline, falls back to ordered reads. |
 | `sync_strmap_scan_locked/*` | Full ascending scan of a `SyncExpanseStrMap` through `with_locked` and `StrCursor::next` | Today's only route for an ordered string scan on a shared map (#1143); acquires the writer lock and quiesces writers. |
 | `sync_strmap_next_after_scan_locked/*` | Full ascending scan of a `SyncExpanseStrMap` through `with_locked`, `first` then `next_after` per entry | The per-element baseline for the string point ops (#1143): one root descent and one result-key allocation per entry under the writer lock; same keys and ops count as `sync_strmap_scan_locked`. |
+| `sync_strmap_scan_pointops/*` | Full ascending scan of a `SyncExpanseStrMap` through one `StrReader`, `first` then `next_after` per entry | The validated string point ops (#1143): one optimistic root descent with a retained read set and one result-key allocation per entry, no writer lock; same keys and ops count as `sync_strmap_scan_locked`. Named by `docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.7; `sync_strmap_scan` stays the batch cursor's arm. |
 | `map_count_below/*` · `set_count_below/*` | `count_below` (rank) from each present key | `nav::count_below`, summing sibling `pop0` down the descent; the plain-engine control for the concurrent count arms (#1144). |
 | `sync_map_count_locked/*` | `count_below` through `with_locked`, no writes | The lock, the writer quiesce and the count, with the dirty mask clean after setup's fold (#1144). |
 | `sync_map_write_twin/*` | Insert an absent key and remove it | The writes of `sync_map_count_after_write` without its count (#1144). |
@@ -1896,6 +1897,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_strmap_next_after_scan_locked` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `sync_strmap_remove` | `routes` | 50,000 |
 | `cost` | `sync_strmap_scan_locked` | `paths`, `paths_dense` | 50,000 |
+| `cost` | `sync_strmap_scan_pointops` | `paths`, `paths_dense` | 50,000 |
 | `cost` | `sync_strmap_update` | `routes` | 50,000 |
 | `range_cost` | `map_range` | `random`, `sequential`, `clustered` | 10,000 |
 | `range_cost` | `set_range` | `random`, `sequential`, `clustered` | 10,000 |
