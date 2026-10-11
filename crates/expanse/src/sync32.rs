@@ -633,6 +633,115 @@ impl Writer32<'_, ExpanseMap32> {
         Ok(self.write(|m| m.remove_shared(key)))
     }
 
+    /// Publishes `new` under `key` only if the key's current value is
+    /// `expected`, as one step (`None` is "absent" on both sides, so
+    /// `(None, Some(v))` is insert-if-absent and `(Some(e), None)` is
+    /// remove-if-equals). The result shape follows
+    /// `SyncExpanseMap::compare_exchange`
+    /// with the arena refusal outside it:
+    ///
+    /// - `Ok(Ok(previous))`: the compare held, so `previous == expected`,
+    ///   and `new` is now stored (or, if `new == expected`, there was
+    ///   nothing to store).
+    /// - `Ok(Err(observed))`: the compare failed and nothing was stored.
+    /// - `Err(WriteError)`: the compare held and the store was refused for
+    ///   arena headroom (tree untouched).
+    ///
+    /// A mismatch is decided by a read and consults no headroom, so it is
+    /// reported even from a full arena; headroom is required exactly when
+    /// the exchange would change the map.
+    ///
+    /// The exchange is one version bracket around one engine mutation
+    /// (an overwrite or a removal), so a reader sees the old state or the
+    /// new one, never an absent key in between. It is atomic against other
+    /// writers by construction: [`Sync32::split`] yields exactly one
+    /// [`Writer32`], this method takes `&mut self`, and so no other
+    /// mutation can run between the read and the store. It uses no atomic
+    /// read-modify-write.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError`] when the compare held, the map would change, and the
+    /// arena could not take the mutation.
+    pub fn compare_exchange(
+        &mut self,
+        key: Key32,
+        expected: Option<Value32>,
+        new: Option<Value32>,
+    ) -> Result<Result<Option<Value32>, Option<Value32>>, WriteError> {
+        let seen = self.inner().get(key);
+        if seen != expected {
+            return Ok(Err(seen));
+        }
+        if new == seen {
+            // Nothing to store (this includes `(None, None)`): no bracket.
+            return Ok(Ok(seen));
+        }
+        self.ensure_headroom()?;
+        self.store(key, new);
+        Ok(Ok(seen))
+    }
+
+    /// Replaces the value for `key` with `f(current)`: `Some(v)` stores
+    /// `v`, `None` removes the key. Returns the value that was replaced
+    /// (`None` if the key was absent). `f` runs exactly once, after the
+    /// headroom check, so a refused call does not run it. Like
+    /// [`Self::try_insert`] it is refused when headroom is short whatever
+    /// `f` returns, and the whole read-modify-write is one bracket (see
+    /// [`Self::compare_exchange`] for why it is atomic).
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError`] when the arena could not take a mutation.
+    pub fn update(
+        &mut self,
+        key: Key32,
+        f: impl FnOnce(Option<Value32>) -> Option<Value32>,
+    ) -> Result<Option<Value32>, WriteError> {
+        self.ensure_headroom()?;
+        let seen = self.inner().get(key);
+        let new = f(seen);
+        if new != seen {
+            self.store(key, new);
+        }
+        Ok(seen)
+    }
+
+    /// Stores `val` under `key` only if `key` is absent. Returns the value
+    /// already present (left untouched), or `None` when `val` was stored,
+    /// as `SyncExpanseMap::get_or_insert`
+    /// does. A present key needs no headroom.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteError`] when the key is absent and the arena could not take
+    /// the insert.
+    pub fn get_or_insert(
+        &mut self,
+        key: Key32,
+        val: Value32,
+    ) -> Result<Option<Value32>, WriteError> {
+        if let Some(present) = self.inner().get(key) {
+            return Ok(Some(present));
+        }
+        self.ensure_headroom()?;
+        self.store(key, Some(val));
+        Ok(None)
+    }
+
+    /// One engine mutation in one bracket: an overwrite/insert for
+    /// `Some(v)`, a removal for `None`. The caller has checked headroom.
+    fn store(&mut self, key: Key32, new: Option<Value32>) {
+        match new {
+            Some(v) => {
+                self.write(|m| m.insert_shared(key, v));
+            }
+            None => {
+                self.write(|m| m.remove_shared(key));
+            }
+        }
+    }
+
     /// Point lookup through the writer (always consistent; never `Busy`).
     #[must_use]
     pub fn get(&self, key: Key32) -> Option<Value32> {
@@ -958,6 +1067,152 @@ mod tests {
             assert_eq!(w.get(k), Some(k ^ 0xFFFF));
         }
         assert_eq!(w.len(), inserted.len());
+    }
+
+    /// Fills a tiny arena until it refuses; returns the keys it holds.
+    fn fill_until_arena_full(w: &mut Writer32<'_, ExpanseMap32>) -> Vec<u32> {
+        let mut state = 0xBEEF_0032u32;
+        let mut held = Vec::new();
+        loop {
+            let k = lcg_key(&mut state);
+            match w.try_insert(k, k ^ 0x55) {
+                Ok(_) => held.push(k),
+                Err(WriteError::ArenaFull) => return held,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+            assert!(held.len() < 10_000, "arena never filled");
+        }
+    }
+
+    #[test]
+    fn compare_exchange_match_mismatch_insert_and_remove() {
+        let mut m = SyncExpanseMap32::with_capacity(256, 1);
+        let (mut w, mut pool) = m.split();
+        let mut r = pool.take().unwrap();
+        // Insert-if-absent: expected None, absent -> stored, previous None.
+        assert_eq!(w.compare_exchange(7, None, Some(1)), Ok(Ok(None)));
+        assert_eq!(r.try_get(7), Ok(Some(1)));
+        // Insert-if-absent against a present key: mismatch reports the
+        // current value and stores nothing.
+        assert_eq!(w.compare_exchange(7, None, Some(9)), Ok(Err(Some(1))));
+        assert_eq!(r.try_get(7), Ok(Some(1)));
+        // Match: swap.
+        assert_eq!(w.compare_exchange(7, Some(1), Some(2)), Ok(Ok(Some(1))));
+        assert_eq!(r.try_get(7), Ok(Some(2)));
+        // Mismatch with a wrong expected value.
+        assert_eq!(w.compare_exchange(7, Some(1), Some(3)), Ok(Err(Some(2))));
+        assert_eq!(r.try_get(7), Ok(Some(2)));
+        // Expected value on an absent key is a mismatch reporting None.
+        assert_eq!(w.compare_exchange(8, Some(5), Some(6)), Ok(Err(None)));
+        assert_eq!(r.try_get(8), Ok(None));
+        assert_eq!(w.len(), 1);
+        // Remove-if-equals: wrong value keeps it, right value removes it.
+        assert_eq!(w.compare_exchange(7, Some(5), None), Ok(Err(Some(2))));
+        assert_eq!(r.try_get(7), Ok(Some(2)));
+        assert_eq!(w.compare_exchange(7, Some(2), None), Ok(Ok(Some(2))));
+        assert_eq!(r.try_get(7), Ok(None));
+        assert_eq!(w.len(), 0);
+        // (None, None) on an absent key is a successful no-op.
+        assert_eq!(w.compare_exchange(7, None, None), Ok(Ok(None)));
+        assert_eq!(w.len(), 0);
+    }
+
+    #[test]
+    fn compare_exchange_opens_one_bracket_only_when_it_changes_the_map() {
+        let mut m = SyncExpanseMap32::with_capacity(256, 1);
+        let (mut w, mut pool) = m.split();
+        let r = pool.take().unwrap();
+        w.try_insert(7, 1).unwrap();
+        let v0 = m_version(&r).try_sample().unwrap();
+        // Mismatch and identical-value exchanges open no bracket.
+        assert_eq!(w.compare_exchange(7, Some(2), Some(3)), Ok(Err(Some(1))));
+        assert_eq!(w.compare_exchange(7, Some(1), Some(1)), Ok(Ok(Some(1))));
+        assert_eq!(m_version(&r).try_sample(), Some(v0), "no bracket");
+        // A changing exchange is exactly one bracket (one begin, one end).
+        assert_eq!(w.compare_exchange(7, Some(1), Some(2)), Ok(Ok(Some(1))));
+        let v1 = m_version(&r).try_sample().unwrap();
+        assert_eq!(v1, v0.wrapping_add(2), "exactly one bracket");
+        assert_eq!(w.compare_exchange(7, Some(2), None), Ok(Ok(Some(2))));
+        let v2 = m_version(&r).try_sample().unwrap();
+        assert_eq!(v2, v1.wrapping_add(2), "a removal is one bracket");
+    }
+
+    #[test]
+    fn compare_exchange_headroom_refusal_leaves_the_map_unchanged() {
+        let mut m = SyncExpanseMap32::with_capacity(MUTATION_HEADROOM + 8, 1);
+        let (mut w, _) = m.split();
+        let held = fill_until_arena_full(&mut w);
+        let k = held[0];
+        let len = w.len();
+        // A matching exchange that would change the map is refused...
+        assert_eq!(
+            w.compare_exchange(k, Some(k ^ 0x55), Some(0xDEAD)),
+            Err(WriteError::ArenaFull)
+        );
+        assert_eq!(
+            w.compare_exchange(k, Some(k ^ 0x55), None),
+            Err(WriteError::ArenaFull)
+        );
+        // ...and an insert-if-absent of a new key likewise.
+        assert_eq!(
+            w.compare_exchange(0x7777_7777, None, Some(1)),
+            Err(WriteError::ArenaFull)
+        );
+        // Nothing changed.
+        assert_eq!(w.len(), len);
+        assert_eq!(w.get(k), Some(k ^ 0x55));
+        assert_eq!(w.get(0x7777_7777), None);
+        // A mismatch needs no headroom and is still reported.
+        assert_eq!(
+            w.compare_exchange(k, Some(1), Some(2)),
+            Ok(Err(Some(k ^ 0x55)))
+        );
+        // A no-op exchange needs none either.
+        assert_eq!(
+            w.compare_exchange(k, Some(k ^ 0x55), Some(k ^ 0x55)),
+            Ok(Ok(Some(k ^ 0x55)))
+        );
+    }
+
+    #[test]
+    fn update_and_get_or_insert_follow_the_exchange() {
+        let mut m = SyncExpanseMap32::with_capacity(256, 1);
+        let (mut w, mut pool) = m.split();
+        let mut r = pool.take().unwrap();
+        // get_or_insert: absent stores and returns None; present returns
+        // the current value and leaves it.
+        assert_eq!(w.get_or_insert(5, 50), Ok(None));
+        assert_eq!(w.get_or_insert(5, 99), Ok(Some(50)));
+        assert_eq!(r.try_get(5), Ok(Some(50)));
+        // update sees the current value and returns the replaced one.
+        assert_eq!(w.update(5, |c| c.map(|v| v + 1)), Ok(Some(50)));
+        assert_eq!(r.try_get(5), Ok(Some(51)));
+        assert_eq!(w.update(6, |c| Some(c.unwrap_or(0) + 10)), Ok(None));
+        assert_eq!(r.try_get(6), Ok(Some(10)));
+        assert_eq!(w.update(6, |_| None), Ok(Some(10)));
+        assert_eq!(r.try_get(6), Ok(None));
+        assert_eq!(w.update(6, |_| None), Ok(None), "absent to absent");
+        assert_eq!(w.len(), 1);
+
+        // On a full arena: refused, `f` not run, map unchanged; a present
+        // key needs no headroom for get_or_insert.
+        let mut m = SyncExpanseMap32::with_capacity(MUTATION_HEADROOM + 8, 1);
+        let (mut w, _) = m.split();
+        let held = fill_until_arena_full(&mut w);
+        let k = held[0];
+        let mut ran = false;
+        assert_eq!(
+            w.update(k, |_| {
+                ran = true;
+                Some(1)
+            }),
+            Err(WriteError::ArenaFull)
+        );
+        assert!(!ran, "f must not run on a refused update");
+        assert_eq!(w.get_or_insert(0x7777_7777, 1), Err(WriteError::ArenaFull));
+        assert_eq!(w.get_or_insert(k, 1), Ok(Some(k ^ 0x55)));
+        assert_eq!(w.get(k), Some(k ^ 0x55));
+        assert_eq!(w.len(), held.len());
     }
 
     #[test]
