@@ -33,7 +33,10 @@ And four are about the gate itself:
   6. **Everything is behind the gate.** Every job other than `release-gate`
      needs it, directly or through its `needs`. No job or step condition uses
      `always()`, `failure()` or `cancelled()`, which would run it past a
-     failed gate or a failed smoke test.
+     failed gate or a failed smoke test. One condition is exempt, compared
+     whole: `verify-registries` runs on `!cancelled()` once `promote`
+     succeeded (`VERIFY_REGISTRIES_GUARD`), so that a failed registry job
+     does not take the report of every registry with it. It is read-only.
   7. **A condition is one of the known ones, exactly.** A pre-release guard
      is compared with the expressions listed in `JOB_GUARDS` and
      `STEP_GUARDS` after normalising whitespace. Containing the guard's text
@@ -41,7 +44,12 @@ And four are about the gate itself:
   8. **`promote` does what it says, in order.** Its named steps are exactly
      `PROMOTE_STEPS`: the Go tag first, while nothing is public, then the
      release, then PyPI.
-  9. **The gate scripts are called as written.** Each line in `CALL_SITES`
+  9. **A channel neither redeploys nor skips silently.** The steps in
+     `STEP_CONDITIONS` carry exactly their listed condition: Maven Central's
+     deploy is skipped only when the `central` probe, which runs first, found
+     the version already served, and the tap push runs on every tag push.
+     The probe's answers and the two unset-secret failures are call sites.
+ 10. **The gate scripts are called as written.** Each line in `CALL_SITES`
      must appear in the workflow, so an argument cannot be dropped and a
      check cannot be swapped for `true` without this failing. The workflow's
      default permission is read-only, and a manual run cannot publish.
@@ -80,6 +88,23 @@ STEP_GUARDS = frozenset({
     f"!(github.event_name == 'workflow_dispatch' && inputs.dry_run) && !{PRERELEASE_GUARD}",
 })
 ESCAPING = ("always()", "failure()", "cancelled()")
+# The one condition allowed to name `cancelled()`: `verify-registries` reports
+# every registry even when one registry job failed, and only once the release
+# is published, which keeps it behind the gate and the smoke job.
+VERIFY_REGISTRIES_GUARD = (f"!cancelled() && needs.promote.result == 'success' && "
+                           f"github.event_name == 'push' && {_NOT_PRERELEASE_TAG}")
+# Steps whose condition is fixed, compared whole after normalising: (job, step
+# name) -> condition, None for a step that must have none.
+MAVEN_PUBLISH_STEP = "Publish to Maven Central"
+MAVEN_PROBE_STEP = "Check whether Maven Central already serves this version"
+MAVEN_PROBE_ID = "central"
+STEP_CONDITIONS = {
+    ("package-maven", MAVEN_PROBE_STEP): None,
+    ("package-maven", MAVEN_PUBLISH_STEP):
+        f"!(github.event_name == 'workflow_dispatch' && inputs.dry_run) && "
+        f"steps.{MAVEN_PROBE_ID}.outputs.published != 'true'",
+    ("publish-homebrew", "Push formula to orieg/homebrew-tap"): "github.event_name == 'push'",
+}
 # Lines the workflow must contain, as written: the gate scripts' call sites.
 CALL_SITES = (
     "if: ${{ github.event_name == 'workflow_dispatch' && !inputs.dry_run }}",
@@ -94,6 +119,15 @@ CALL_SITES = (
     "python3 scripts/release_assets.py check-readback --dir readback --local artifacts",
     'git push origin "${GITHUB_SHA}:refs/tags/bindings/go/${GITHUB_REF_NAME}"',
     "cancel-in-progress: false",
+    # Maven Central: probe the POM verify-registries reads; 200 skips the deploy.
+    'url="https://repo1.maven.org/maven2/io/github/orieg/expanse-java/${version}/expanse-java-${version}.pom"',
+    '200) echo "published=true" >> "${GITHUB_OUTPUT}"',
+    '404) echo "published=false" >> "${GITHUB_OUTPUT}" ;;',
+    # An unset secret fails the real-tag path; it never warns and exits 0.
+    '[ -n "${MAVEN_CENTRAL_TOKEN:-}" ] || { echo "::error::MAVEN_CENTRAL_TOKEN is unset in the release environment: '
+    'expanse-java was not published to Maven Central."; exit 1; }',
+    '[ -n "${HOMEBREW_TAP_DEPLOY_KEY}" ] || { echo "::error::HOMEBREW_TAP_DEPLOY_KEY is unset in the release environment: '
+    'the formula was not pushed to orieg/homebrew-tap (dist/expanse.rb is attached to the release)."; exit 1; }',
 )
 SHA_PINNED_RE = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
 EXACT_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -153,7 +187,8 @@ def gate_problems(workflow: dict, text: str | None) -> list[str]:
         if environment_name(job) == "release" and normalise(job.get("if")) not in ENVIRONMENT_JOB_GUARDS:
             out.append(f"`{name}` is in the `release` environment but runs on a manual canary: the environment "
                        f"refuses a branch, so the canary would end red with the job's steps unrun")
-        for where, cond in [(f"`{name}`", job.get("if"))] + [
+        exempt = name == "verify-registries" and normalise(job.get("if")) == VERIFY_REGISTRIES_GUARD
+        for where, cond in [(f"`{name}`", None if exempt else job.get("if"))] + [
                 (f"`{name}` step `{st.get('name') or st.get('uses')}`", st.get("if")) for st in job.get("steps", [])]:
             for word in ESCAPING:
                 if word in str(cond or ""):
@@ -310,8 +345,29 @@ def problems(workflow: dict, text: str | None = None) -> list[str]:
             out.append(f"`{name}` has no job-level condition that excludes a pre-release tag")
     if jobs["promote"].get("if") is not None:
         out.append("`promote` has a job-level condition: it must run exactly when `smoke` succeeded")
-    if not guarded(jobs["verify-registries"].get("if"), JOB_GUARDS):
-        out.append("`verify-registries` has no condition that excludes a pre-release tag")
+    if normalise(jobs["verify-registries"].get("if")) != VERIFY_REGISTRIES_GUARD:
+        out.append("`verify-registries` has no condition that excludes a pre-release tag and still reports "
+                   f"every registry when one registry job failed: expected exactly `{VERIFY_REGISTRIES_GUARD}`")
+    if "promote" not in needs(jobs["verify-registries"]):
+        out.append("`verify-registries` does not need `promote`, which its condition reads")
+    for (job_name, step_name), want in STEP_CONDITIONS.items():
+        steps = (jobs.get(job_name) or {}).get("steps", [])
+        found = [k for k, st in enumerate(steps) if st.get("name") == step_name]
+        if len(found) != 1:
+            out.append(f"`{job_name}` has {len(found)} steps named `{step_name}`, not exactly one")
+            continue
+        got = steps[found[0]].get("if")
+        if (None if got is None else normalise(got)) != want:
+            out.append(f"`{job_name}` step `{step_name}` runs on {got!r}, not exactly {want!r}")
+    maven = (jobs.get("package-maven") or {}).get("steps", [])
+    order = {st.get("name"): k for k, st in enumerate(maven)}
+    probe = next((st for st in maven if st.get("name") == MAVEN_PROBE_STEP), {})
+    if probe.get("id") != MAVEN_PROBE_ID:
+        out.append(f"`package-maven` step `{MAVEN_PROBE_STEP}` does not have id `{MAVEN_PROBE_ID}`, "
+                   f"which the deploy's condition reads")
+    if order.get(MAVEN_PROBE_STEP, 1 << 30) > order.get(MAVEN_PUBLISH_STEP, -1):
+        out.append(f"`package-maven` does not probe Maven Central before `{MAVEN_PUBLISH_STEP}`: "
+                   f"a re-run would deploy a version Central already holds")
     for name, job in sorted(jobs.items()):
         looks_publishing = (environment_name(job) == "release"
                             or name.startswith(("publish-", "package-")))
@@ -367,6 +423,55 @@ def self_test() -> int:
     check("verify-registries on a pre-release",
            lambda j: j["verify-registries"].__setitem__("if", "github.event_name == 'push'"),
            "`verify-registries` has no condition")
+    # verify-registries reports every registry even when one registry job failed.
+    check("verify-registries skipped whenever one registry job fails",
+          lambda j: j["verify-registries"].__setitem__(
+              "if", "${{ github.event_name == 'push' && " + _NOT_PRERELEASE_TAG + " }}"),
+          "`verify-registries` has no condition")
+    check("verify-registries running although the release was never published",
+          lambda j: j["verify-registries"].__setitem__(
+              "if", "${{ " + VERIFY_REGISTRIES_GUARD.replace("needs.promote.result == 'success' && ", "") + " }}"),
+          "`verify-registries` has no condition")
+    check("verify-registries on always() instead of !cancelled()",
+          lambda j: j["verify-registries"].__setitem__(
+              "if", "${{ " + VERIFY_REGISTRIES_GUARD.replace("!cancelled()", "always()") + " }}"),
+          "`verify-registries` uses `always()`")
+    check("the !cancelled() exemption borrowed by a publishing job",
+          lambda j: j["publish-gem"].__setitem__("if", "${{ !cancelled() && " + _NOT_PRERELEASE_TAG + " }}"),
+          "`publish-gem` uses `cancelled()`")
+    check("verify-registries no longer needing promote", drop_need("verify-registries", "promote"),
+          "`verify-registries` does not need `promote`")
+
+    # Maven Central: a re-run skips a version Central already serves.
+    def maven_step(jobs, name):
+        return next(s for s in jobs["package-maven"]["steps"] if s.get("name") == name)
+
+    check("the Maven deploy no longer reading the probe",
+          lambda j: maven_step(j, MAVEN_PUBLISH_STEP).__setitem__(
+              "if", "${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}"),
+          f"`package-maven` step `{MAVEN_PUBLISH_STEP}` runs on")
+    check("the Maven probe removed",
+          lambda j: j["package-maven"]["steps"].remove(maven_step(j, MAVEN_PROBE_STEP)),
+          f"`package-maven` has 0 steps named `{MAVEN_PROBE_STEP}`")
+    check("the Maven probe given a condition",
+          lambda j: maven_step(j, MAVEN_PROBE_STEP).__setitem__("if", "false"),
+          f"`package-maven` step `{MAVEN_PROBE_STEP}` runs on")
+    check("the Maven probe under another id",
+          lambda j: maven_step(j, MAVEN_PROBE_STEP).__setitem__("id", "probe"),
+          "does not have id `central`")
+
+    def probe_after_deploy(jobs):
+        steps = jobs["package-maven"]["steps"]
+        probe = maven_step(jobs, MAVEN_PROBE_STEP)
+        steps.remove(probe)
+        steps.insert(steps.index(maven_step(jobs, MAVEN_PUBLISH_STEP)) + 1, probe)
+
+    check("the Maven probe moved after the deploy", probe_after_deploy,
+          "`package-maven` does not probe Maven Central before")
+    check("the tap push switched off",
+          lambda j: next(s for s in j["publish-homebrew"]["steps"]
+                         if s.get("name") == "Push formula to orieg/homebrew-tap").__setitem__("if", "false"),
+          "`publish-homebrew` step `Push formula to orieg/homebrew-tap` runs on")
     check("a new publishing job outside the list",
            lambda j: j.__setitem__("publish-conda", {"needs": ["promote"], "runs-on": "ubuntu-latest", "steps": []}),
            "`publish-conda` looks like a publishing job")
@@ -501,6 +606,19 @@ def self_test() -> int:
         ("the notes read from another tag",
          'python3 scripts/release_notes.py --tag "${GITHUB_REF_NAME}" --out curated-notes.md',
          'python3 scripts/release_notes.py --tag v0.0.1 --out curated-notes.md'),
+        ("the Maven probe never reporting a published version",
+         '200) echo "published=true" >> "${GITHUB_OUTPUT}"', '200) echo "published=false" >> "${GITHUB_OUTPUT}"'),
+        ("the Maven probe deploying when it could not tell",
+         '404) echo "published=false" >> "${GITHUB_OUTPUT}" ;;', '*) echo "published=false" >> "${GITHUB_OUTPUT}" ;;'),
+        ("the Maven probe reading another URL",
+         'url="https://repo1.maven.org/maven2/io/github/orieg/expanse-java/${version}/expanse-java-${version}.pom"',
+         'url="https://search.maven.org/solrsearch/select?q=expanse-java"'),
+        ("an unset Maven token skipped with exit 0",
+         'expanse-java was not published to Maven Central."; exit 1; }',
+         'expanse-java was not published to Maven Central."; exit 0; }'),
+        ("an unset tap key skipped with exit 0",
+         '(dist/expanse.rb is attached to the release)."; exit 1; }',
+         '(dist/expanse.rb is attached to the release)."; exit 0; }'),
     ):
         check_text(label, old, new, "the workflow no longer contains")
 

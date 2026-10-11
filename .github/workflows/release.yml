@@ -599,8 +599,29 @@ jobs:
             bindings/java/pom.xml
           if-no-files-found: error
 
+      # A re-run of a release whose deploy already reached Central (say the
+      # attach step below failed) must not deploy again: Central refuses a
+      # version it holds, and the job would fail where nothing is left to do.
+      # Probes the POM a pinned build resolves, the URL verify-registries reads,
+      # past the CDN cache. 200 skips the deploy with a notice, 404 deploys,
+      # and any other answer stops the job: the question is left open.
+      - name: Check whether Maven Central already serves this version
+        id: central
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '<version>' bindings/java/pom.xml | sed 's/[^0-9.]//g')
+          url="https://repo1.maven.org/maven2/io/github/orieg/expanse-java/${version}/expanse-java-${version}.pom"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 "${url}?nocache=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}")
+          case "${status}" in
+            200) echo "published=true" >> "${GITHUB_OUTPUT}"
+              echo "::notice::expanse-java ${version} is already on Maven Central (${url}); the deploy is skipped." ;;
+            404) echo "published=false" >> "${GITHUB_OUTPUT}" ;;
+            *) echo "::error::could not tell whether expanse-java ${version} is on Maven Central: ${url} answered HTTP ${status}"
+              exit 1 ;;
+          esac
+
       - name: Publish to Maven Central
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) && steps.central.outputs.published != 'true' }}
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
@@ -608,10 +629,9 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
-          if [ -z "${MAVEN_CENTRAL_TOKEN:-}" ]; then
-            echo "::warning::MAVEN_CENTRAL_TOKEN is unset; skipping Maven Central publish."
-            exit 0
-          fi
+          # Fails, never skips: this job runs on a pushed stable tag only, and
+          # a green job that published nothing is the failure class #313 removed.
+          [ -n "${MAVEN_CENTRAL_TOKEN:-}" ] || { echo "::error::MAVEN_CENTRAL_TOKEN is unset in the release environment: expanse-java was not published to Maven Central."; exit 1; }
           if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
             # maven-gpg-plugin shells out to gpg, which asks its agent for the
             # passphrase and fails with "Inappropriate ioctl for device" on a
@@ -627,11 +647,6 @@ jobs:
           fi
           mkdir -p ~/.m2
           echo "<settings><servers><server><id>central</id><username>${MAVEN_CENTRAL_USERNAME}</username><password>${MAVEN_CENTRAL_TOKEN}</password></server></servers></settings>" > ~/.m2/settings.xml
-          version=$(grep -m1 '<version>' bindings/java/pom.xml | sed 's/[^0-9.]//g')
-          if curl -s -f -o /dev/null "https://repo1.maven.org/maven2/io/github/orieg/expanse-java/${version}/expanse-java-${version}.pom"; then
-            echo "expanse-java ${version} already published on Maven Central, skipping"
-            exit 0
-          fi
           rm -rf bindings/java/target/central-staging bindings/java/target/central-publishing
           mvn deploy -f bindings/java/pom.xml -P release -DskipTests \
             -Dgpg.pinentry-mode=loopback \
@@ -1107,10 +1122,9 @@ jobs:
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY || '' }}
         run: |
           set -euo pipefail
-          if [ -z "${HOMEBREW_TAP_DEPLOY_KEY}" ]; then
-            echo "::warning::HOMEBREW_TAP_DEPLOY_KEY is not configured — formula NOT pushed to orieg/homebrew-tap; dist/expanse.rb is attached to the release"
-            exit 0
-          fi
+          # Fails, never skips: nothing after this job checks the tap, so a
+          # warning here would leave the formula a release behind unnoticed.
+          [ -n "${HOMEBREW_TAP_DEPLOY_KEY}" ] || { echo "::error::HOMEBREW_TAP_DEPLOY_KEY is unset in the release environment: the formula was not pushed to orieg/homebrew-tap (dist/expanse.rb is attached to the release)."; exit 1; }
           python3 scripts/update_homebrew_formula.py \
             --version "${VERSION}" --artifacts-dir artifacts \
             --push-to-tap orieg/homebrew-tap
@@ -1239,7 +1253,15 @@ jobs:
   # the registries by hand afterwards. This job makes that query part of the
   # release, so an upload that silently did not land fails the run.
   #
-  # Skipped on the dry-run canary, which publishes nothing.
+  # It runs once the release is published (`promote` succeeded), whatever the
+  # registry jobs concluded: when one of them fails, this report of every
+  # registry is when it is most wanted. `!cancelled()` is what lets it start
+  # past a failed or skipped need; `needs.promote.result == 'success'` keeps it
+  # behind the gate, the smoke job and the publish of the release. It holds
+  # `contents: read` only and publishes nothing, so running past a failed
+  # registry job cannot publish anything early.
+  #
+  # Skipped on the dry-run canary, which publishes nothing, and on a pre-release tag.
   verify-registries:
     name: Verify / Registries Serve the Release
     needs:
@@ -1252,7 +1274,7 @@ jobs:
       - github-release
       - promote
     # Nothing to verify for a pre-release tag: no registry receives it.
-    if: ${{ github.event_name == 'push' && !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
+    if: ${{ !cancelled() && needs.promote.result == 'success' && github.event_name == 'push' && !(startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')) }}
     runs-on: ubuntu-24.04
     # The shared budget below waits 30+60+120+240+240 s; Maven Central's four
     # extra attempts (EXTRA_ATTEMPTS in the script) add 4 x 240 s, 1,650 s of
