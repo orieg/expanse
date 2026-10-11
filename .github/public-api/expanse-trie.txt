@@ -2509,6 +2509,8 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange_meta(&self, expa
 pub fn expanse_trie::sync::SyncExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get(&self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get_meta(&self, expanse_trie::types::Key) -> core::option::Option<u32>
+pub fn expanse_trie::sync::SyncExpanseBlobMap::get_or_insert(&self, expanse_trie::types::Key, &[u8], u32) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::ArenaError>
+pub fn expanse_trie::sync::SyncExpanseBlobMap::get_or_insert_with(&self, expanse_trie::types::Key, impl core::ops::function::FnOnce() -> (alloc::vec::Vec<u8>, u32)) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::insert(&self, expanse_trie::types::Key, &[u8], u32) -> core::result::Result<(), expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::len(&self) -> u64
@@ -2520,6 +2522,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::reclaim_at_cap(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::remove(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::set_reclaim_at_cap(&self, bool)
 pub fn expanse_trie::sync::SyncExpanseBlobMap::shrink_to_fit(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseBlobMap::update(&self, expanse_trie::types::Key, impl core::ops::function::FnMut(core::option::Option<(&[u8], u32)>) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::ArenaError>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_chunk_size(usize) -> Self
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_chunk_size_and_max_capacity(usize, usize) -> Self
 pub fn expanse_trie::sync::SyncExpanseBlobMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::blobmap::ExpanseBlobMap) -> R) -> R
