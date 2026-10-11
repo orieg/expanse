@@ -1664,6 +1664,7 @@ pub struct expanse_trie::ordered_bytesmap::SyncExpanseOrderedBytesMap
 impl expanse_trie::sync::SyncExpanseOrderedBytesMap
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::clear(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::compare_exchange(&self, &[u8], core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::contains(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::contains_key(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::first(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
@@ -1691,6 +1692,7 @@ pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::reader(&self) -> expanse_
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::remove(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::shrink_to_fit(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::stats(&self) -> expanse_trie::validate::StrMapStats
+pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::update(&self, &[u8], impl core::ops::function::FnMut(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::OrderedBytesExclusive<'_>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap) -> R) -> R
 impl core::convert::From<expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap> for expanse_trie::sync::SyncExpanseOrderedBytesMap
@@ -2385,6 +2387,7 @@ impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::MapRea
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::MapReader<'a>
 pub struct expanse_trie::sync::OrderedBytesExclusive<'a>
 impl expanse_trie::sync::OrderedBytesExclusive<'_>
+pub fn expanse_trie::sync::OrderedBytesExclusive<'_>::compare_exchange(&mut self, &[u8], core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::OrderedBytesExclusive<'_>::contains_key(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::OrderedBytesExclusive<'_>::get(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::OrderedBytesExclusive<'_>::insert(&mut self, &[u8], u64) -> core::option::Option<u64>
@@ -2580,6 +2583,7 @@ pub struct expanse_trie::sync::SyncExpanseOrderedBytesMap
 impl expanse_trie::sync::SyncExpanseOrderedBytesMap
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::clear(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
+pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::compare_exchange(&self, &[u8], core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::contains(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::contains_key(&self, &[u8]) -> bool
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::first(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
@@ -2607,6 +2611,7 @@ pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::reader(&self) -> expanse_
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::remove(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::shrink_to_fit(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::stats(&self) -> expanse_trie::validate::StrMapStats
+pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::update(&self, &[u8], impl core::ops::function::FnMut(core::option::Option<u64>) -> core::option::Option<u64>) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::with_exclusive<R>(&self, impl core::ops::function::FnOnce(&mut expanse_trie::sync::OrderedBytesExclusive<'_>) -> R) -> R
 pub fn expanse_trie::sync::SyncExpanseOrderedBytesMap::with_locked<R>(&self, impl core::ops::function::FnOnce(&expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap) -> R) -> R
 impl core::convert::From<expanse_trie::ordered_bytesmap::ExpanseOrderedBytesMap> for expanse_trie::sync::SyncExpanseOrderedBytesMap

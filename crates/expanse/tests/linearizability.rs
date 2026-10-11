@@ -7,7 +7,8 @@ use std::time::Instant;
 
 use expanse_trie::strmap::NulFreeStr;
 use expanse_trie::sync::{
-    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
+    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseOrderedBytesMap,
+    SyncExpanseSet, SyncExpanseStrMap,
 };
 use expanse_trie::types::{BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCHU_TO_B_DOWN};
 
@@ -2281,6 +2282,224 @@ fn test_sync_bytesmap_update_linearizability() {
         assert!(
             check_linearizability_for_key(&events),
             "Linearizability violation for bytes key {}",
+            key
+        );
+    }
+}
+
+/// Keys for the ordered-bytes mixes: every one carries a byte the escape
+/// encoding rewrites (`0x00`, `0x01`) or sits at its edge (`0xFF`), and
+/// several are prefixes of others, so a mix that mishandled the escaping
+/// would alias two keys or split one.
+fn ordered_bytes_key(idx: u64) -> &'static [u8] {
+    const KEYS: [&[u8]; 6] = [
+        b"",
+        b"\x00",
+        b"\x00\x01",
+        b"a\x01",
+        b"a\x01\xFF",
+        b"a\x00\x00",
+    ];
+    KEYS[idx as usize]
+}
+
+/// Runs the compare-exchange mix over `SyncExpanseOrderedBytesMap` and checks
+/// every key's history for linearizability. The mix has `Remove`, values in
+/// `1..=3`, and the checker's both outcomes asserted.
+fn run_ordered_bytes_cas_mix(map: Arc<SyncExpanseOrderedBytesMap>) {
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let num_threads = 4;
+    let ops_per_thread = 50;
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            let reader = map_clone.reader();
+
+            for i in 0..ops_per_thread {
+                let key = ((t_id * 7 + i * 5) % 6) as u64;
+                let op = cas_mix_op(t_id, i, key);
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(ordered_bytes_key(*k), *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(ordered_bytes_key(*k))),
+                    Op::CompareExchange(k, exp, new) => Ret::CompareExchange(
+                        map_clone.compare_exchange(ordered_bytes_key(*k), *exp, *new),
+                    ),
+                    Op::Get(k) => Ret::Get(reader.get(ordered_bytes_key(*k))),
+                    Op::Update(..) | Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            history_clone.lock().unwrap().extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+    assert_cas_mix_exercised(&history);
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for ordered bytes key {}",
+            key
+        );
+    }
+}
+
+/// `SyncExpanseOrderedBytesMap::compare_exchange` in root-leaf state.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_ordered_bytesmap_compare_exchange_linearizability_root_leaf() {
+    run_ordered_bytes_cas_mix(Arc::new(SyncExpanseOrderedBytesMap::new()));
+}
+
+/// `SyncExpanseOrderedBytesMap::compare_exchange` in tree state: more
+/// entries than a root leaf holds, so the mix runs on the optimistic paths.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_ordered_bytesmap_compare_exchange_linearizability_tree_rooted() {
+    let map = Arc::new(SyncExpanseOrderedBytesMap::new());
+    for i in 0..64u64 {
+        map.insert(format!("filler/{i}\x00").as_bytes(), i);
+    }
+    run_ordered_bytes_cas_mix(map);
+}
+
+/// `SyncExpanseOrderedBytesMap::update` against concurrent inserts, removes,
+/// compare-exchanges and gets over the escaping-heavy key set.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_ordered_bytesmap_update_linearizability() {
+    let map = Arc::new(SyncExpanseOrderedBytesMap::new());
+    for i in 0..64u64 {
+        map.insert(format!("filler/{i}\x00").as_bytes(), i);
+    }
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let num_threads = 8;
+    let ops_per_thread = 200;
+    let mut handles = vec![];
+
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            let reader = map_clone.reader();
+            let keys = [1u64, 2];
+
+            for i in 0..ops_per_thread {
+                let key = keys[(t_id + i) % keys.len()];
+                let v = ((t_id + i) % 3 + 1) as u64;
+
+                let op = match (t_id + i) % 5 {
+                    0 => Op::Insert(key, v),
+                    1 => Op::Remove(key),
+                    2 => Op::CompareExchange(
+                        key,
+                        (!(t_id + i).is_multiple_of(2)).then_some(((t_id + 2 * i) % 3 + 1) as u64),
+                        Some(v),
+                    ),
+                    3 => {
+                        let delta = match (t_id + i) % 3 {
+                            0 => 10,
+                            1 => -1,
+                            _ => 0,
+                        };
+                        Op::Update(key, delta)
+                    }
+                    _ => Op::Get(key),
+                };
+
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => Ret::Insert(map_clone.insert(ordered_bytes_key(*k), *v)),
+                    Op::Remove(k) => Ret::Remove(map_clone.remove(ordered_bytes_key(*k))),
+                    Op::CompareExchange(k, exp, new) => Ret::CompareExchange(
+                        map_clone.compare_exchange(ordered_bytes_key(*k), *exp, *new),
+                    ),
+                    Op::Update(k, delta) => {
+                        let d = *delta;
+                        Ret::Update(
+                            map_clone.update(ordered_bytes_key(*k), |cur| update_state(cur, d)),
+                        )
+                    }
+                    Op::Get(k) => Ret::Get(reader.get(ordered_bytes_key(*k))),
+                    Op::Contains(_) | Op::GetOrInsert(..) => unreachable!(),
+                };
+                let end = Instant::now();
+
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+
+            history_clone.lock().unwrap().extend(local_events);
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let history = history.lock().unwrap().clone();
+    let (mut upd_some, mut upd_none) = (0, 0);
+    for e in &history {
+        if let Ret::Update(prev) = e.ret {
+            if prev.is_some() {
+                upd_some += 1;
+            } else {
+                upd_none += 1;
+            }
+        }
+    }
+    assert!(
+        upd_some > 0 && upd_none > 0,
+        "update outcomes: {upd_some} replaced, {upd_none} absent"
+    );
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for ordered bytes key {}",
             key
         );
     }
