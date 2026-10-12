@@ -284,7 +284,7 @@ Using.resource(new ExpanseMap()) { map =>
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.11.2</version>
+    <version>0.12.0</version>
 </dependency>
 ```
 
@@ -339,7 +339,7 @@ Because Project Panama FFM performs raw off-heap dereferences and native linker 
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.11.2</version>
+    <version>0.12.0</version>
 </dependency>
 ```
 
@@ -378,7 +378,7 @@ Add the native access flag to your test runner:
 #### Kotlin DSL (`build.gradle.kts`)
 ```kotlin
 dependencies {
-    implementation("io.github.orieg:expanse-java:0.11.2")
+    implementation("io.github.orieg:expanse-java:0.12.0")
 }
 
 tasks.withType<Test> {
@@ -398,7 +398,7 @@ application {
 #### Groovy DSL (`build.gradle`)
 ```groovy
 dependencies {
-    implementation 'io.github.orieg:expanse-java:0.11.2'
+    implementation 'io.github.orieg:expanse-java:0.12.0'
 }
 
 test {
@@ -419,7 +419,7 @@ application {
 ### 10.3 sbt Configuration (Scala) (`build.sbt`)
 
 ```scala
-libraryDependencies += "io.github.orieg" % "expanse-java" % "0.11.2"
+libraryDependencies += "io.github.orieg" % "expanse-java" % "0.12.0"
 
 // Panama requires forking the JVM to pass native access authorization
 fork := true
