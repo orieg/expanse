@@ -41,6 +41,16 @@ enum Ret {
     /// refused (`CompareExchangeError::Unstorable`, #1398): the state was
     /// `expected` and stays.
     CompareExchangeUnstorable,
+    /// A blob `get_or_insert` that found the key absent and whose value the
+    /// map refused (#1194): the state was `None` and stays.
+    GetOrInsertUnstorable,
+    /// A blob `update` whose closure's value for the current state the map
+    /// refused (#1194): the state is unchanged.
+    UpdateUnstorable,
+    /// The blob wrapper's `insert`, which does not return the old value.
+    InsertBlind,
+    /// The blob wrapper's `remove`, which returns whether a key was removed.
+    Removed(bool),
 }
 
 /// The `new` value a blob mix offers to mean "a payload the map cannot store"
@@ -117,6 +127,13 @@ fn is_valid_transition(state: &Option<u64>, op: &Op, ret: &Ret) -> (bool, Option
             } else {
                 (false, None)
             }
+        }
+        (Op::Insert(_, v), Ret::InsertBlind) => (true, Some(*v)),
+        (Op::Remove(_), Ret::Removed(present)) => (*present == state.is_some(), None),
+        (Op::GetOrInsert(..), Ret::GetOrInsertUnstorable) => (state.is_none(), None),
+        // A removal is always storable, so a refused update offered a value.
+        (Op::Update(_, delta), Ret::UpdateUnstorable) => {
+            (update_state(*state, *delta).is_some(), *state)
         }
         (Op::Update(_, delta), Ret::Update(old)) => {
             if old == state {
@@ -2652,6 +2669,270 @@ fn test_sync_blobmap_compare_exchange_linearizability() {
             "Linearizability violation for blob key {}",
             key
         );
+    }
+}
+
+/// A checked blob value: 16 payload bytes (the value twice, little-endian)
+/// and the value as metadata, so it is an arena record carrying both, and a
+/// read that paired one value's payload with another's metadata is caught.
+fn blob_enc(v: u64) -> (Vec<u8>, u32) {
+    let mut b = v.to_le_bytes().to_vec();
+    b.extend_from_slice(&v.to_le_bytes());
+    (b, (v as u32) & ValueSlot::ARENA_META_MAX)
+}
+
+fn blob_dec(b: &[u8], meta: u32) -> u64 {
+    assert_eq!(b.len(), 16, "payload length");
+    let v = u64::from_le_bytes(b[..8].try_into().unwrap());
+    assert_eq!(&b[8..], &v.to_le_bytes(), "payload halves disagree");
+    assert_eq!(meta, (v as u32) & ValueSlot::ARENA_META_MAX, "metadata");
+    v
+}
+
+/// Arena churn beside the checked keys: each thread overwrites its own
+/// `per_thread` keys with 128-byte records, `CHURN` of them per checked
+/// operation, so the arena reaches its capacity cap again and again and the
+/// overwriting `insert` compacts it under the reclaim rule (`reclaim_at_cap`,
+/// on by default). The live churn set is small against the cap, so the rule
+/// always finds dead bytes to reclaim and no churn insert may be refused.
+const BLOB_RMW_CHURN: u64 = 4;
+
+fn blob_churn(map: &SyncExpanseBlobMap, t_id: u64, i: u64, per_thread: u64) {
+    for j in 0..BLOB_RMW_CHURN {
+        let n = i * BLOB_RMW_CHURN + j;
+        let k = 10_000 + t_id * per_thread + n % per_thread;
+        let payload: Vec<u8> = (0..128u64).map(|x| (k ^ n ^ x) as u8).collect();
+        map.insert(k, &payload, 1)
+            .unwrap_or_else(|e| panic!("churn insert {k} refused: {e:?}"));
+    }
+}
+
+/// One operation of the blob read-modify-write mix: `get_or_insert` with a
+/// value from `1..=3`, `get_or_insert` with an unstorable value, `update`
+/// (+1, -1, or remove), `insert`, `remove` and `get`. `Remove` is in the mix,
+/// so a key is absent often enough for the insert side of `get_or_insert`
+/// to recur and present often enough for the hit side to.
+fn blob_rmw_mix_op(t_id: usize, i: usize, key: u64) -> Op {
+    let v = ((t_id + i) % 3 + 1) as u64;
+    match (t_id + 2 * i) % 7 {
+        0 | 3 => Op::GetOrInsert(key, v),
+        // Every other unstorable offer goes to key 3, which nothing stores,
+        // so the refusal of an absent key occurs in every run; the rest race
+        // the checked keys' stores and removals.
+        6 => Op::GetOrInsert(if i.is_multiple_of(2) { 3 } else { key }, UNSTORABLE),
+        1 => Op::Remove(key),
+        2 => Op::Insert(key, v),
+        4 => Op::Update(
+            key,
+            match (t_id + i) % 3 {
+                0 => 1,
+                1 => -1,
+                _ => 0,
+            },
+        ),
+        _ => Op::Get(key),
+    }
+}
+
+/// Runs the blob read-modify-write mix on `map` with arena churn, checks
+/// every key's history, and returns the arena generations the mix's
+/// compactions advanced.
+fn run_blob_rmw_mix(map: Arc<SyncExpanseBlobMap>, churn_per_thread: u64) -> u32 {
+    let history = Arc::new(Mutex::new(Vec::new()));
+    let num_threads = 4;
+    let ops_per_thread = 120;
+    let generation = |m: &SyncExpanseBlobMap| m.with_locked(|t| t.arena().generation());
+    let g0 = generation(&map);
+    let mut handles = vec![];
+    for t_id in 0..num_threads {
+        let map_clone = Arc::clone(&map);
+        let history_clone = Arc::clone(&history);
+        handles.push(thread::spawn(move || {
+            let mut local_events = Vec::with_capacity(ops_per_thread);
+            for i in 0..ops_per_thread {
+                blob_churn(&map_clone, t_id as u64, i as u64, churn_per_thread);
+                let key = ((t_id * 7 + i * 5) % 3) as u64;
+                let op = blob_rmw_mix_op(t_id, i, key);
+                let start = Instant::now();
+                let ret = match &op {
+                    Op::Insert(k, v) => {
+                        let (b, m) = blob_enc(*v);
+                        map_clone
+                            .insert(*k, &b, m)
+                            .unwrap_or_else(|e| panic!("insert of {v} refused: {e:?}"));
+                        Ret::InsertBlind
+                    }
+                    Op::Remove(k) => Ret::Removed(map_clone.remove(*k)),
+                    Op::Get(k) => Ret::Get(map_clone.get(*k).map(|(b, m)| blob_dec(&b, m))),
+                    Op::GetOrInsert(k, v) => {
+                        let unstorable = [0xAB_u8; 16];
+                        let enc = blob_enc(*v);
+                        let (data, meta) = if *v == UNSTORABLE {
+                            (&unstorable[..], ValueSlot::ARENA_META_MAX + 1)
+                        } else {
+                            (&enc.0[..], enc.1)
+                        };
+                        match map_clone.get_or_insert(*k, data, meta) {
+                            Ok(old) => Ret::GetOrInsert(old.map(|(b, m)| blob_dec(&b, m))),
+                            Err(cause) => {
+                                // Metadata above the field for the unstorable
+                                // offer; the cap's refusal for any other, which
+                                // this path does not reclaim.
+                                let want = if *v == UNSTORABLE {
+                                    ArenaError::MetaOverflow
+                                } else {
+                                    ArenaError::OffsetOverflow
+                                };
+                                assert_eq!(cause, want, "get_or_insert {v}");
+                                Ret::GetOrInsertUnstorable
+                            }
+                        }
+                    }
+                    Op::Update(k, delta) => {
+                        let d = *delta;
+                        let res = map_clone.update(*k, |cur| {
+                            update_state(cur.map(|(b, m)| blob_dec(b, m)), d).map(blob_enc)
+                        });
+                        match res {
+                            Ok(old) => Ret::Update(old.map(|(b, m)| blob_dec(&b, m))),
+                            Err(cause) => {
+                                assert_eq!(cause, ArenaError::OffsetOverflow, "update {d}");
+                                Ret::UpdateUnstorable
+                            }
+                        }
+                    }
+                    _ => unreachable!(),
+                };
+                let end = Instant::now();
+                local_events.push(Event {
+                    op,
+                    ret,
+                    start,
+                    end,
+                });
+            }
+            history_clone.lock().unwrap().extend(local_events);
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+    let compactions = generation(&map) - g0;
+    let history = history.lock().unwrap().clone();
+    assert_get_or_insert_mix_exercised(&history);
+    let count = |want: &dyn Fn(&Ret) -> bool| history.iter().filter(|e| want(&e.ret)).count();
+    let refused_meta = history
+        .iter()
+        .filter(|e| {
+            e.op == Op::GetOrInsert(e.op.key(), UNSTORABLE) && e.ret == Ret::GetOrInsertUnstorable
+        })
+        .count();
+    assert!(
+        refused_meta > 0,
+        "no get_or_insert of an unstorable value found its key absent"
+    );
+    assert!(
+        count(&|r| matches!(r, Ret::Update(Some(_)))) > 0
+            && count(&|r| matches!(r, Ret::Update(None))) > 0,
+        "update did not run on both a present and an absent key"
+    );
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for blob read-modify-write key {}",
+            key
+        );
+    }
+    compactions
+}
+
+/// A map whose 64 KiB arena cap the churn reaches many times over.
+fn blob_rmw_map() -> SyncExpanseBlobMap {
+    SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 64 * 1024)
+}
+
+/// `SyncExpanseBlobMap::get_or_insert` and `update` (#1194) against
+/// concurrent inserts, removes, reads and the reclaiming compactions of
+/// `insert` at the capacity cap, in the serialised root-leaf state: 4
+/// checked keys and 4 churn keys per thread are 20 keys, under the root
+/// leaf's `ROOT_LEAF_CAP` (31).
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_blobmap_rmw_linearizability_root_leaf() {
+    const _: () = assert!(4 + 4 * 4 < expanse_trie::types::ROOT_LEAF_CAP);
+    let compactions = run_blob_rmw_mix(Arc::new(blob_rmw_map()), 4);
+    assert!(compactions > 0, "the churn did not reach the reclaim");
+}
+
+/// The same mix with 64 more keys than a root leaf holds, so it runs on the
+/// optimistic tree paths and the writers' private arena chunks.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_blobmap_rmw_linearizability_tree_rooted() {
+    let map = blob_rmw_map();
+    // Inline payloads: they root the tree and take no arena bytes.
+    for k in 0..64u64 {
+        map.insert(1_000 + k, &[k as u8; 4], 0).unwrap();
+    }
+    let compactions = run_blob_rmw_mix(Arc::new(map), 8);
+    assert!(compactions > 0, "the churn did not reach the reclaim");
+}
+
+/// Of the callers racing `get_or_insert` on one absent blob key, exactly one
+/// stores its value and every other gets the stored one back, in both
+/// states. Each thread offers its own payload and metadata, so a second
+/// store would show as two `Ok(None)` or as a returned value that differs
+/// from the one the map holds.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_blobmap_get_or_insert_one_winner_per_key() {
+    const THREADS: u64 = 8;
+    const KEYS: u64 = 400;
+    for fill in [0u64, 64] {
+        let map = Arc::new(SyncExpanseBlobMap::new());
+        for k in 0..fill {
+            map.insert(1_000_000 + k, &[k as u8; 4], 0).unwrap();
+        }
+        let barrier = Arc::new(std::sync::Barrier::new(THREADS as usize));
+        let handles: Vec<_> = (0..THREADS)
+            .map(|t| {
+                let map = Arc::clone(&map);
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    (0..KEYS)
+                        .map(|k| {
+                            let (b, m) = blob_enc(t + 1);
+                            map.get_or_insert(k, &b, m).expect("storable")
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let results: Vec<Vec<_>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        for k in 0..KEYS {
+            let stored = map.get(k).expect("some caller stored the key");
+            let winners = results.iter().filter(|r| r[k as usize].is_none()).count();
+            assert_eq!(winners, 1, "key {k}: {winners} callers stored a value");
+            for r in &results {
+                if let Some(seen) = &r[k as usize] {
+                    assert_eq!(seen, &stored, "key {k}: a loser saw another value");
+                }
+            }
+        }
     }
 }
 

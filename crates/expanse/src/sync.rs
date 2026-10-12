@@ -12031,6 +12031,110 @@ impl SyncExpanseBlobMap {
         }
     }
 
+    /// Stores `data` with `hot_meta` under `key` only if `key` is absent, as
+    /// one linearizable step.
+    ///
+    /// - `Ok(None)`: the key was absent and the value was stored.
+    /// - `Ok(Some(present))`: the key was present; its payload and metadata
+    ///   come back and are left untouched, whether or not `data` is storable.
+    ///
+    /// Of any number of callers racing on one absent key, exactly one gets
+    /// `Ok(None)`; the others get the winner's value. It is
+    /// [`Self::compare_exchange`] with `expected = None`, and takes that
+    /// method's optimistic form and its exclusive fallback.
+    ///
+    /// # Errors
+    ///
+    /// The key was absent and `data` cannot be stored: the
+    /// [`CompareExchangeError::Unstorable`] cause of [`Self::compare_exchange`]
+    /// ([`ArenaError::MetaOverflow`] for metadata above
+    /// [`ValueSlot::ARENA_META_MAX`] on a payload longer than 7 bytes, or the
+    /// arena's refusal). The map is unchanged. Like `compare_exchange`, this
+    /// path does not run the reclaim rule that [`Self::insert`] runs at the
+    /// capacity cap, so at the cap it returns [`ArenaError::OffsetOverflow`]
+    /// where `insert` might compact and succeed; [`Self::compact`] and a retry
+    /// is the caller's choice.
+    pub fn get_or_insert(
+        &self,
+        key: Key,
+        data: &[u8],
+        hot_meta: u32,
+    ) -> Result<Option<(Vec<u8>, u32)>, ArenaError> {
+        match self.compare_exchange(key, None, Some((data, hot_meta))) {
+            Ok(_) => Ok(None),
+            Err(CompareExchangeError::Mismatch(seen)) => {
+                // A mismatch against `None` observed a value.
+                debug_assert!(seen.is_some(), "an absent-expected exchange failed on None");
+                Ok(seen)
+            }
+            Err(CompareExchangeError::Unstorable(cause)) => Err(cause),
+        }
+    }
+
+    /// [`Self::get_or_insert`] that computes the payload and metadata only
+    /// when the key is absent: `f` does not run when `key` is present at the
+    /// initial read, and runs at most once, even when the exchange loses a
+    /// race (the computed value is then dropped and the winner's value is
+    /// returned). `f` may therefore run for a call that returns `Ok(Some)`,
+    /// when another caller inserts between the read and the exchange.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::get_or_insert`]: the key was absent and `f`'s value cannot
+    /// be stored.
+    pub fn get_or_insert_with(
+        &self,
+        key: Key,
+        f: impl FnOnce() -> (Vec<u8>, u32),
+    ) -> Result<Option<(Vec<u8>, u32)>, ArenaError> {
+        if let Some(present) = self.get(key) {
+            return Ok(Some(present));
+        }
+        let (data, hot_meta) = f();
+        self.get_or_insert(key, &data, hot_meta)
+    }
+
+    /// Replaces the value for `key` with `f(current)`: `Some((data, meta))`
+    /// stores it, `None` removes the key. `current` is `None` when the key is
+    /// absent, else its payload and metadata. Retried over
+    /// [`Self::compare_exchange`] while the exchange reports a
+    /// [`CompareExchangeError::Mismatch`], each retry calling `f` on the value
+    /// the mismatch observed. Returns the value that was replaced (`None` if
+    /// the key was absent).
+    ///
+    /// Because the exchange may fail under concurrent writes, `f` is an
+    /// [`FnMut`] that may run several times; it must be side-effect free or
+    /// idempotent.
+    ///
+    /// # Errors
+    ///
+    /// `f`'s value for the current value cannot be stored: the
+    /// [`CompareExchangeError::Unstorable`] cause of [`Self::compare_exchange`].
+    /// The map is unchanged and the loop stops there rather than re-offering
+    /// a value the map refused, so `update` never spins on an unstorable
+    /// value. As for [`Self::get_or_insert`], the capacity-cap reclaim of
+    /// [`Self::insert`] does not run on this path.
+    pub fn update(
+        &self,
+        key: Key,
+        mut f: impl FnMut(Option<(&[u8], u32)>) -> Option<(Vec<u8>, u32)>,
+    ) -> Result<Option<(Vec<u8>, u32)>, ArenaError> {
+        let mut current = self.get(key);
+        loop {
+            let cur = current.as_ref().map(|(b, m)| (b.as_slice(), *m));
+            let new = f(cur);
+            let offered = new.as_ref().map(|(b, m)| (b.as_slice(), *m));
+            match self.compare_exchange(key, cur, offered) {
+                Ok(prev) => return Ok(prev),
+                Err(CompareExchangeError::Mismatch(seen)) => {
+                    current = seen;
+                    core::hint::spin_loop();
+                }
+                Err(CompareExchangeError::Unstorable(cause)) => return Err(cause),
+            }
+        }
+    }
+
     /// Runs arena garbage collection and compaction. Dead chunks are retired
     /// through the epoch collector, so concurrent pinned readers keep reading
     /// their (relocated-from) payload bytes safely.
@@ -25773,6 +25877,274 @@ mod bytes_get_or_insert_tests {
             assert_eq!(got, None);
             assert_eq!(calls.get(), 1);
             assert_eq!(map.get(&key_of(0)), Some(0));
+        }
+    }
+}
+
+/// `SyncExpanseBlobMap::get_or_insert`, `get_or_insert_with` and `update`
+/// (#1194): insert when absent, keep the present value, never run the
+/// closure on a present key, report an unstorable value as its
+/// [`ArenaError`] and stop there, with payload and metadata, in root-leaf
+/// state and in tree state.
+#[cfg(test)]
+mod blob_rmw_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use core::cell::Cell;
+
+    /// A payload longer than 7 bytes, so it is stored in the arena with its
+    /// metadata, distinct per `(k, round)`.
+    fn payload(k: u64, round: u64) -> Vec<u8> {
+        (0..24u64)
+            .map(|i| (k ^ round.wrapping_mul(31) ^ i) as u8)
+            .collect()
+    }
+
+    const OVER: u32 = ValueSlot::ARENA_META_MAX + 1;
+
+    #[test]
+    fn get_or_insert_inserts_when_absent_and_keeps_present() {
+        let map = SyncExpanseBlobMap::new();
+        assert_eq!(map.get_or_insert(7, &payload(7, 0), 5), Ok(None));
+        assert_eq!(map.get(7), Some((payload(7, 0), 5)));
+        // Present: the old payload and metadata come back and stay.
+        assert_eq!(
+            map.get_or_insert(7, &payload(7, 1), 6),
+            Ok(Some((payload(7, 0), 5)))
+        );
+        assert_eq!(map.get(7), Some((payload(7, 0), 5)));
+        // An inline payload, which reads back metadata 0.
+        assert_eq!(map.get_or_insert(8, b"abc", 0), Ok(None));
+        assert_eq!(
+            map.get_or_insert(8, &payload(8, 0), 9),
+            Ok(Some((b"abc".to_vec(), 0)))
+        );
+        assert_eq!(map.len(), 2);
+    }
+
+    /// A present key returns its value even when the offered one could not
+    /// be stored: the comparison fails first, so it is not `Unstorable`.
+    #[test]
+    fn get_or_insert_present_key_ignores_an_unstorable_new() {
+        for fill in [0u64, 64] {
+            let map = SyncExpanseBlobMap::new();
+            for k in 0..fill {
+                map.insert(1_000 + k, &payload(k, 0), 1).unwrap();
+            }
+            map.insert(3, &payload(3, 0), 2).unwrap();
+            assert_eq!(map.shared.published().is_tree(), fill > 0);
+            assert_eq!(
+                map.get_or_insert(3, &payload(3, 1), OVER),
+                Ok(Some((payload(3, 0), 2)))
+            );
+            assert_eq!(map.get(3), Some((payload(3, 0), 2)));
+        }
+    }
+
+    /// An absent key with an unstorable value is the arena error, with the
+    /// map unchanged: metadata above the 24-bit field, then the capacity
+    /// cap's refusal (one 4 KiB chunk under a 6000-byte cap, filled by four
+    /// 1000-byte records, so a 3100-byte record needs a second chunk; the
+    /// tree-state fill is inline and takes no arena bytes).
+    #[test]
+    fn get_or_insert_unstorable_on_an_absent_key_is_the_arena_error() {
+        for fill in [0u64, 64] {
+            let map = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 6000);
+            for k in 0..fill {
+                map.insert(1_000 + k, &[k as u8; 4], 0).unwrap();
+            }
+            for k in 0..4u64 {
+                map.insert(k, &[k as u8; 1000], 1).unwrap();
+            }
+            assert_eq!(map.shared.published().is_tree(), fill > 0);
+            assert_eq!(
+                map.get_or_insert(9, &payload(9, 0), OVER),
+                Err(ArenaError::MetaOverflow)
+            );
+            assert_eq!(
+                map.get_or_insert(9, &[9u8; 3100], 1),
+                Err(ArenaError::OffsetOverflow)
+            );
+            assert_eq!(map.get(9), None);
+            assert_eq!(map.len(), fill + 4);
+            // A storable value still goes in on the same map.
+            assert_eq!(map.get_or_insert(9, b"short", 0), Ok(None));
+            assert_eq!(map.get(9), Some((b"short".to_vec(), 0)));
+        }
+    }
+
+    fn exercise_get_or_insert(map: &SyncExpanseBlobMap, n: u64) {
+        for k in 0..n {
+            let meta = (k + 1) as u32;
+            assert_eq!(map.get_or_insert(k << 40, &payload(k, 0), meta), Ok(None));
+        }
+        assert_eq!(map.len(), n);
+        for k in 0..n {
+            let meta = (k + 1) as u32;
+            assert_eq!(
+                map.get_or_insert(k << 40, &payload(k, 1), 999),
+                Ok(Some((payload(k, 0), meta))),
+                "hit {k}"
+            );
+            assert_eq!(map.get(k << 40), Some((payload(k, 0), meta)), "kept {k}");
+        }
+        assert_eq!(map.len(), n);
+        assert!(map.remove(0));
+        assert_eq!(map.get_or_insert(0, &payload(0, 2), 4), Ok(None));
+        assert_eq!(map.get(0), Some((payload(0, 2), 4)));
+    }
+
+    #[test]
+    fn get_or_insert_root_leaf_state() {
+        let map = SyncExpanseBlobMap::new();
+        exercise_get_or_insert(&map, ROOT_LEAF_CAP as u64);
+        assert!(!map.shared.published().is_tree());
+    }
+
+    #[test]
+    fn get_or_insert_tree_state() {
+        let map = SyncExpanseBlobMap::new();
+        exercise_get_or_insert(&map, 4 * ROOT_LEAF_CAP as u64);
+        assert!(map.shared.published().is_tree());
+    }
+
+    #[test]
+    fn get_or_insert_with_does_not_run_the_closure_on_a_present_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseBlobMap::new();
+            for k in 0..n {
+                map.insert(k << 40, &payload(k, 0), 3).unwrap();
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(0, || {
+                calls.set(calls.get() + 1);
+                (payload(0, 9), 9)
+            });
+            assert_eq!(got, Ok(Some((payload(0, 0), 3))));
+            assert_eq!(calls.get(), 0, "closure ran on a present key");
+            assert_eq!(map.get(0), Some((payload(0, 0), 3)));
+        }
+    }
+
+    #[test]
+    fn get_or_insert_with_runs_the_closure_once_on_an_absent_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseBlobMap::new();
+            for k in 1..=n {
+                map.insert(k << 40, &payload(k, 0), 3).unwrap();
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(0, || {
+                calls.set(calls.get() + 1);
+                (payload(0, 1), 7)
+            });
+            assert_eq!(got, Ok(None));
+            assert_eq!(calls.get(), 1);
+            assert_eq!(map.get(0), Some((payload(0, 1), 7)));
+            // An unstorable computed value is the error, after one call.
+            let got = map.get_or_insert_with(1, || {
+                calls.set(calls.get() + 1);
+                (payload(1, 1), OVER)
+            });
+            assert_eq!(got, Err(ArenaError::MetaOverflow));
+            assert_eq!(calls.get(), 2);
+            assert_eq!(map.get(1), None);
+        }
+    }
+
+    /// `update` stores, rewrites from the current payload and metadata, and
+    /// removes, returning the replaced value, in both states. The rewrite
+    /// grows an inline payload into an arena one and back.
+    fn exercise_update(map: &SyncExpanseBlobMap, n: u64) {
+        for k in 0..n {
+            let seen = Cell::new(None);
+            let got = map.update(k << 40, |cur| {
+                seen.set(Some(cur.is_some()));
+                Some((vec![k as u8; 3], 0))
+            });
+            assert_eq!(got, Ok(None), "store {k}");
+            assert_eq!(seen.get(), Some(false), "absent {k}");
+        }
+        assert_eq!(map.len(), n);
+        for k in 0..n {
+            // Inline to arena: append to the payload and set the metadata
+            // from what was read.
+            let got = map.update(k << 40, |cur| {
+                let (b, m) = cur.expect("present");
+                let mut v = b.to_vec();
+                v.extend_from_slice(&payload(k, 0));
+                Some((v, m + 1 + k as u32))
+            });
+            assert_eq!(got, Ok(Some((vec![k as u8; 3], 0))), "grow {k}");
+            let mut want = vec![k as u8; 3];
+            want.extend_from_slice(&payload(k, 0));
+            assert_eq!(map.get(k << 40), Some((want.clone(), 1 + k as u32)));
+            // Arena to arena: bump the metadata only.
+            let got = map.update(k << 40, |cur| {
+                let (b, m) = cur.expect("present");
+                Some((b.to_vec(), m + 1))
+            });
+            assert_eq!(got, Ok(Some((want.clone(), 1 + k as u32))), "bump {k}");
+            assert_eq!(map.get(k << 40), Some((want, 2 + k as u32)));
+        }
+        // `None` removes, and on an absent key changes nothing.
+        let removed = map.update(0, |_| None).expect("a removal is storable");
+        assert!(removed.is_some());
+        assert_eq!(map.get(0), None);
+        assert_eq!(map.update(0, |_| None), Ok(None));
+        assert_eq!(map.len(), n - 1);
+    }
+
+    #[test]
+    fn update_root_leaf_state() {
+        let map = SyncExpanseBlobMap::new();
+        exercise_update(&map, ROOT_LEAF_CAP as u64);
+        assert!(!map.shared.published().is_tree());
+    }
+
+    #[test]
+    fn update_tree_state() {
+        let map = SyncExpanseBlobMap::new();
+        exercise_update(&map, 4 * ROOT_LEAF_CAP as u64);
+        assert!(map.shared.published().is_tree());
+    }
+
+    /// `update` stops on an unstorable value and returns its cause, with the
+    /// map unchanged: metadata above the 24-bit field, then the capacity
+    /// cap's refusal (as in the `get_or_insert` test above). The closure
+    /// counts its calls and panics past a bound, so a regression that
+    /// retries the refused value fails instead of hanging.
+    #[test]
+    fn update_stops_on_an_unstorable_value() {
+        const BOUND: u32 = 8;
+        for fill in [0u64, 64] {
+            let map = SyncExpanseBlobMap::with_chunk_size_and_max_capacity(4096, 6000);
+            for k in 0..fill {
+                map.insert(1_000 + k, &[k as u8; 4], 0).unwrap();
+            }
+            for k in 0..4u64 {
+                map.insert(k, &[k as u8; 1000], 1).unwrap();
+            }
+            assert_eq!(map.shared.published().is_tree(), fill > 0);
+            for (key, new, cause) in [
+                (0, (vec![5u8; 16], OVER), ArenaError::MetaOverflow),
+                (1, (vec![5u8; 3100], 1), ArenaError::OffsetOverflow),
+                (9, (vec![5u8; 16], OVER), ArenaError::MetaOverflow),
+                (9, (vec![5u8; 3100], 1), ArenaError::OffsetOverflow),
+            ] {
+                let calls = Cell::new(0u32);
+                let got = map.update(key, |_| {
+                    calls.set(calls.get() + 1);
+                    assert!(calls.get() <= BOUND, "update retried an unstorable value");
+                    Some(new.clone())
+                });
+                assert_eq!(got, Err(cause), "key {key}");
+                assert_eq!(calls.get(), 1, "key {key}");
+            }
+            assert_eq!(map.get(0), Some((vec![0u8; 1000], 1)));
+            assert_eq!(map.get(1), Some((vec![1u8; 1000], 1)));
+            assert_eq!(map.get(9), None);
+            assert_eq!(map.len(), fill + 4);
         }
     }
 }
