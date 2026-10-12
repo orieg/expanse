@@ -10106,6 +10106,8 @@ pub use crate::sync_cursor::SyncMapCursor;
 /// assert_send::<OwnedStrReader>();
 /// assert_send::<DetachedStrReader>();
 /// assert_send::<BytesReader<'static>>();
+/// assert_send::<OwnedBytesReader>();
+/// assert_send::<DetachedBytesReader>();
 /// assert_send::<BlobReader<'static>>();
 /// ```
 pub struct MapReader<'a> {
@@ -10235,6 +10237,8 @@ const _: fn() = || {
     assert_send::<OwnedStrReader>();
     assert_send::<DetachedStrReader>();
     assert_send::<BytesReader<'static>>();
+    assert_send::<OwnedBytesReader>();
+    assert_send::<DetachedBytesReader>();
     assert_send::<BlobReader<'static>>();
     // The guard borrows its reader `&mut`, so no sibling pin can exist while
     // it lives and dropping it on another thread is sound (see `occ::Pin`).
@@ -10251,6 +10255,8 @@ crate::occ::assert_not_sync!(
     OwnedStrReader,
     DetachedStrReader,
     BytesReader<'static>,
+    OwnedBytesReader,
+    DetachedBytesReader,
     BlobReader<'static>,
 );
 
@@ -15079,6 +15085,43 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         }
     }
 
+    /// Registers a reader that owns a handle on this map, for a cache whose
+    /// lifetime is not a borrow's (#554, #1194). See [`OwnedBytesReader`].
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync` (see
+    /// [`Reader`]).
+    #[must_use]
+    pub fn owned_reader(self: &Arc<Self>) -> OwnedBytesReader<S> {
+        OwnedBytesReader {
+            map: Arc::clone(self),
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Registers a reader that holds no reference to this map.
+    ///
+    /// Use this where the reader is cached somewhere whose lifetime is not the
+    /// map's -- a per-thread cache, say -- and pass the map back in at lookup
+    /// time. See [`DetachedBytesReader`].
+    ///
+    /// One handle per thread: the handle is `Send`, not `Sync` (see [`Reader`]).
+    #[must_use]
+    pub fn detached_reader(&self) -> DetachedBytesReader {
+        DetachedBytesReader {
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Returns `reader` if it was registered on this map's collector, and
+    /// panics otherwise (#1194). See [`SyncExpanseMap::registered`].
+    #[inline(always)]
+    pub(crate) fn registered<'r>(&self, reader: &'r Reader) -> &'r Reader {
+        if !Arc::ptr_eq(&reader.collector, &self.shared.collector) {
+            foreign_reader();
+        }
+        reader
+    }
+
     /// One-shot lookup (registers a throwaway reader; use
     /// [`Self::reader`] in hot loops).
     #[must_use]
@@ -15404,6 +15447,44 @@ impl<S: BuildHasher + Clone + Send + Sync + Default> From<ExpanseBytesMap<S>>
     }
 }
 
+/// The validated bytes lookup shared by [`BytesReader`], [`OwnedBytesReader`]
+/// and [`DetachedBytesReader`] (#1194).
+///
+/// One source for all three, so the readers cannot drift. A macro and not a
+/// function for the reason `set_contains_walk!` and `str_get_walk!` are: a
+/// plain function and `#[inline(always)]` each changed the instruction count
+/// of the set's `contains` on #1465, and expanding in place left the body as
+/// it was. `$map` is the map read, `$reader` the epoch reader pinned
+/// (evaluated once, before the first pin), `$key` the `&[u8]`. Expanded as the
+/// whole body of a function returning `Option<u64>`: it returns from it.
+macro_rules! bytes_get_walk {
+    ($map:expr, $reader:expr, $key:expr) => {{
+        let key = $key;
+        let map = $map;
+        let shared = &map.shared;
+        let reader = $reader;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+        for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+            let _pin = reader.pin();
+            let snap = shared.version().sample();
+            // The published root and the wrapper's hasher: the lookup forms
+            // no reference to the map (#1086).
+            let root = shared.published().load();
+            // SAFETY: pinned + freshly sampled version, the root loaded after
+            // it; every load is validated (see `bytesmap::get_validated`).
+            let attempt = unsafe {
+                crate::bytesmap::get_validated(root, &map.hasher, key, shared.version(), snap)
+            };
+            if let Ok(r) = attempt {
+                return r;
+            }
+        }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+        shared.read_locked(|m| m.get(key))
+    }};
+}
+
 /// A per-thread reader handle for [`SyncExpanseBytesMap`].
 ///
 /// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
@@ -15425,32 +15506,108 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
     /// after bounded retries.
     #[must_use]
     pub fn get(&self, key: &[u8]) -> Option<u64> {
-        let shared = &self.map.shared;
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        for _ in 0..MAX_RETRIES {
-            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let _pin = self.reader.pin();
-            let snap = shared.version().sample();
-            // The published root and the wrapper's hasher: the lookup forms
-            // no reference to the map (#1086).
-            let root = shared.published().load();
-            // SAFETY: pinned + freshly sampled version, the root loaded after
-            // it; every load is validated (see `bytesmap::get_validated`).
-            let attempt = unsafe {
-                crate::bytesmap::get_validated(root, &self.map.hasher, key, shared.version(), snap)
-            };
-            if let Ok(r) = attempt {
-                return r;
-            }
-        }
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        shared.read_locked(|m| m.get(key))
+        bytes_get_walk!(self.map, &self.reader, key)
     }
 
     /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: &[u8]) -> bool {
         self.get(key).is_some()
+    }
+}
+
+/// A reader that **owns** its map handle instead of borrowing it.
+///
+/// [`BytesReader`] borrows, which makes it impossible to cache: a
+/// `#[pyclass]`, a thread-local, or any struct outliving the call cannot hold
+/// it. This is the bytes map's counterpart of [`OwnedMapReader`] (#554,
+/// #1194), with the same lookups as [`BytesReader`]. It carries the map's
+/// hasher parameter as [`BytesReader`] does, `S: BuildHasher + Send + Sync`
+/// defaulting to [`RandomState`].
+///
+/// One [`Reader`] owns a single epoch slot and its pins are not reentrant, so
+/// an `OwnedBytesReader` is `Send`, not `Sync`: give each thread its own.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::OwnedBytesReader>();
+/// ```
+pub struct OwnedBytesReader<S: BuildHasher + Send + Sync = RandomState> {
+    map: Arc<SyncExpanseBytesMap<S>>,
+    reader: Reader,
+}
+
+impl<S: BuildHasher + Send + Sync> OwnedBytesReader<S> {
+    /// Optimistic lookup, without the per-call registry lock
+    /// [`SyncExpanseBytesMap::get`] pays. See [`BytesReader::get`].
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        bytes_get_walk!(&self.map, &self.reader, key)
+    }
+
+    /// Optimistic membership test.
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
+}
+
+/// A reader that owns neither its map nor a reference to it.
+///
+/// The bytes map's counterpart of [`DetachedMapReader`]: it holds only the
+/// epoch slot, so caching one says nothing about how long the map lives, and
+/// the caller supplies the map at lookup time. One [`Reader`] owns a single
+/// epoch slot, so a `DetachedBytesReader` is `Send`, not `Sync`.
+///
+/// The type has no hasher parameter: it holds no map, and the hasher is read
+/// from the map each call names, so the lookups are generic over
+/// `S: BuildHasher + Send + Sync` instead. Which map the reader belongs to is
+/// the collector's business, not the hasher's.
+///
+/// Every entry compares the reader's collector with the map's before the
+/// first pin and panics on a mismatch: a pin on another map's collector does
+/// not hold off this map's reclamation (#1194).
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::DetachedBytesReader>();
+/// ```
+pub struct DetachedBytesReader {
+    reader: Reader,
+}
+
+impl DetachedBytesReader {
+    /// Optimistic lookup against `map`, without the per-call registry lock
+    /// [`SyncExpanseBytesMap::get`] pays.
+    ///
+    /// `map` must be the map this reader was registered against; the check
+    /// is made on every call. See [`BytesReader::get`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any node
+    /// of `map` is read.
+    #[must_use]
+    pub fn get<S: BuildHasher + Send + Sync>(
+        &self,
+        map: &SyncExpanseBytesMap<S>,
+        key: &[u8],
+    ) -> Option<u64> {
+        bytes_get_walk!(map, map.registered(&self.reader), key)
+    }
+
+    /// Optimistic membership test against `map`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector.
+    #[must_use]
+    pub fn contains<S: BuildHasher + Send + Sync>(
+        &self,
+        map: &SyncExpanseBytesMap<S>,
+        key: &[u8],
+    ) -> bool {
+        self.get(map, key).is_some()
     }
 }
 
@@ -26945,6 +27102,309 @@ mod bytes_get_or_insert_tests {
             assert_eq!(calls.get(), 1);
             assert_eq!(map.get(&key_of(0)), Some(0));
         }
+    }
+}
+
+/// The owned and detached bytes readers (#1194): equal to [`BytesReader`] on
+/// the same map, in root-leaf and tree state and with single-entry and
+/// colliding buckets; one registered slot per owned or detached reader; and
+/// the identity check at every detached entry.
+#[cfg(test)]
+mod bytes_reader_forms_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use std::hash::Hasher;
+
+    /// Keys containing `filler/` hash to one of 96 values, every other key to
+    /// one value: the fillers make a tree, the others share one bucket.
+    #[derive(Default, Clone)]
+    struct SharedBucket;
+    struct SharedBucketHasher(Vec<u8>);
+    impl Hasher for SharedBucketHasher {
+        fn finish(&self) -> u64 {
+            if self.0.windows(7).any(|w| w == b"filler/") {
+                let mut h = 0xcbf2_9ce4_8422_2325u64;
+                for &b in &self.0 {
+                    h ^= u64::from(b);
+                    h = h.wrapping_mul(0x100_0000_01b3);
+                }
+                h % 96
+            } else {
+                0x42
+            }
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            self.0.extend_from_slice(bytes);
+        }
+    }
+    impl BuildHasher for SharedBucket {
+        type Hasher = SharedBucketHasher;
+        fn build_hasher(&self) -> SharedBucketHasher {
+            SharedBucketHasher(Vec::new())
+        }
+    }
+
+    /// Every key hashes identically: one bucket holds the whole map.
+    #[derive(Default, Clone)]
+    struct OneBucket;
+    struct OneBucketHasher;
+    impl Hasher for OneBucketHasher {
+        fn finish(&self) -> u64 {
+            0x42
+        }
+        fn write(&mut self, _: &[u8]) {}
+    }
+    impl BuildHasher for OneBucket {
+        type Hasher = OneBucketHasher;
+        fn build_hasher(&self) -> OneBucketHasher {
+            OneBucketHasher
+        }
+    }
+
+    const MIX: [&[u8]; 3] = [
+        b"b_short",
+        b"shared/prefix/aaaa",
+        b"shared/prefix/bbbb/first",
+    ];
+
+    /// `n` keys `filler/{i}` (value `i`) plus the three `MIX` keys.
+    fn fixture<S: BuildHasher + Send + Sync + Clone>(
+        hasher: S,
+        n: u64,
+    ) -> Arc<SyncExpanseBytesMap<S>> {
+        let map = Arc::new(SyncExpanseBytesMap::with_hasher(hasher));
+        for i in 0..n {
+            assert_eq!(map.insert(format!("filler/{i}").as_bytes(), i), None);
+        }
+        for (i, k) in MIX.iter().enumerate() {
+            assert_eq!(map.insert(k, 10_000 + i as u64), None);
+        }
+        map
+    }
+
+    fn probes(n: u64) -> Vec<Vec<u8>> {
+        let mut v: Vec<Vec<u8>> = vec![b"".to_vec(), b"\x00".to_vec(), b"zzzz".to_vec()];
+        for i in (0..n).step_by(1.max(n as usize / 40)) {
+            v.push(format!("filler/{i}").into_bytes());
+            v.push(format!("filler/{i}x").into_bytes());
+        }
+        v.push(format!("filler/{n}").into_bytes());
+        for k in MIX {
+            v.push(k.to_vec());
+            v.push([k, b"!"].concat());
+        }
+        v
+    }
+
+    /// `get` and `contains` of both new forms equal `BytesReader`'s and the
+    /// one-shot `get`'s, before and after removing every other filler and
+    /// every mix key, and the forms register nothing per lookup.
+    fn check_equivalence<S: BuildHasher + Send + Sync + Clone>(
+        map: Arc<SyncExpanseBytesMap<S>>,
+        n: u64,
+    ) {
+        let borrowed = map.reader();
+        let owned = map.owned_reader();
+        let detached = map.detached_reader();
+        let check = |when: &str| {
+            for p in probes(n) {
+                let want = borrowed.get(&p);
+                assert_eq!(owned.get(&p), want, "{when}: owned get {p:?}");
+                assert_eq!(detached.get(&map, &p), want, "{when}: detached get {p:?}");
+                assert_eq!(map.get(&p), want, "{when}: one-shot get {p:?}");
+                assert_eq!(owned.contains(&p), want.is_some(), "{when}: owned contains");
+                assert_eq!(
+                    detached.contains(&map, &p),
+                    want.is_some(),
+                    "{when}: det contains"
+                );
+            }
+        };
+        check("present+absent");
+        assert_eq!(owned.get(b"filler/0"), Some(0));
+        assert_eq!(detached.get(&map, MIX[1]), Some(10_001));
+        let before = map.shared.collector.registrations();
+        for i in 0..n.min(50) {
+            let k = format!("filler/{i}");
+            assert!(owned.contains(k.as_bytes()));
+            assert!(detached.contains(&map, k.as_bytes()));
+        }
+        assert_eq!(map.shared.collector.registrations(), before);
+        for i in (0..n).step_by(2) {
+            assert_eq!(map.remove(format!("filler/{i}").as_bytes()), Some(i));
+        }
+        for k in MIX {
+            assert!(map.remove(k).is_some());
+        }
+        check("after remove");
+        assert_eq!(owned.get(b"filler/0"), None);
+        assert_eq!(detached.get(&map, b"filler/0"), None);
+        assert_eq!(owned.get(MIX[0]), None);
+        assert!(owned.contains(b"filler/1") && detached.contains(&map, b"filler/1"));
+    }
+
+    /// Number of distinct hashes among the fixture's keys, i.e. buckets: a
+    /// collision bucket is what two keys of one hash share.
+    fn buckets<S: BuildHasher + Send + Sync>(map: &SyncExpanseBytesMap<S>, n: u64) -> usize {
+        let mut hashes = std::collections::BTreeSet::new();
+        for i in 0..n {
+            hashes.insert(map.hasher.hash_one(format!("filler/{i}").as_bytes()));
+        }
+        for k in MIX {
+            hashes.insert(map.hasher.hash_one(k));
+        }
+        hashes.len()
+    }
+
+    /// Root leaf: `RandomState` and a few keys, each in a bucket of its own.
+    #[test]
+    fn bytes_readers_match_in_root_leaf_state_with_single_entry_buckets() {
+        let n = 3;
+        let map = fixture(RandomState::new(), n);
+        assert!(!map.shared.published().is_tree());
+        assert_eq!(
+            buckets(&map, n) as u64,
+            map.len(),
+            "every bucket holds one entry"
+        );
+        check_equivalence(map, n);
+    }
+
+    /// Tree: `RandomState` and many keys, one entry per bucket.
+    #[test]
+    fn bytes_readers_match_in_tree_state_with_single_entry_buckets() {
+        let n = 4 * ROOT_LEAF_CAP as u64;
+        let map = fixture(RandomState::new(), n);
+        assert!(map.shared.published().is_tree());
+        assert_eq!(
+            buckets(&map, n) as u64,
+            map.len(),
+            "every bucket holds one entry"
+        );
+        check_equivalence(map, n);
+    }
+
+    /// Root leaf with the whole map in one colliding bucket.
+    #[test]
+    fn bytes_readers_match_in_root_leaf_state_with_one_colliding_bucket() {
+        let n = 5;
+        let map = fixture(OneBucket, n);
+        assert!(!map.shared.published().is_tree());
+        assert_eq!(buckets(&map, n), 1);
+        assert_eq!(map.len(), n + MIX.len() as u64);
+        check_equivalence(map, n);
+    }
+
+    /// Tree whose buckets collide: the fillers spread over 96 hashes and the
+    /// mix keys share one bucket.
+    #[test]
+    fn bytes_readers_match_in_tree_state_with_colliding_buckets() {
+        let n = 4 * ROOT_LEAF_CAP as u64;
+        let map = fixture(SharedBucket, n);
+        assert!(map.shared.published().is_tree());
+        assert!(
+            (buckets(&map, n) as u64) < map.len(),
+            "some bucket holds several entries"
+        );
+        check_equivalence(map, n);
+    }
+
+    /// One owned reader adds one strong reference and one registered slot, a
+    /// detached reader a registered slot only; the map is freed when the last
+    /// owner goes (#1194).
+    #[test]
+    fn bytes_owned_reader_keeps_map_alive_and_detached_holds_nothing() {
+        let map = fixture(RandomState::new(), 50);
+        let strong = Arc::strong_count(&map);
+        let regs = map.shared.collector.registered_readers();
+
+        let detached = map.detached_reader();
+        assert_eq!(
+            Arc::strong_count(&map),
+            strong,
+            "detached takes no strong ref"
+        );
+        assert_eq!(map.shared.collector.registered_readers(), regs + 1);
+
+        let owned = map.owned_reader();
+        assert_eq!(
+            Arc::strong_count(&map),
+            strong + 1,
+            "owned takes one strong ref"
+        );
+        assert_eq!(map.shared.collector.registered_readers(), regs + 2);
+
+        let weak = Arc::downgrade(&map);
+        drop(map);
+        assert!(
+            weak.upgrade().is_some(),
+            "owned reader must keep the map alive"
+        );
+        assert_eq!(weak.strong_count(), 1);
+        for i in 0..50u64 {
+            assert_eq!(owned.get(format!("filler/{i}").as_bytes()), Some(i));
+        }
+        drop(detached);
+        assert_eq!(
+            weak.strong_count(),
+            1,
+            "dropping a detached reader frees no ref"
+        );
+        drop(owned);
+        assert!(
+            weak.upgrade().is_none(),
+            "last owner dropped: the map is freed"
+        );
+    }
+
+    /// One `should_panic` test per detached entry: a map registered on
+    /// another collector is rejected before the first pin (#1194).
+    macro_rules! bytes_detached_rejects_foreign_map {
+        ($($name:ident: |$r:ident, $b:ident| $call:expr;)*) => {$(
+            #[test]
+            #[should_panic(expected = "reader was registered on a different collector")]
+            fn $name() {
+                let (a, $b) = (fixture(RandomState::new(), 8), fixture(RandomState::new(), 8));
+                assert!(!Arc::ptr_eq(&a.shared.collector, &$b.shared.collector));
+                let $r = a.detached_reader();
+                let _ = $call;
+            }
+        )*};
+    }
+
+    bytes_detached_rejects_foreign_map! {
+        bytes_detached_get_rejects_foreign_map: |r, b| r.get(&b, b"filler/1");
+        bytes_detached_contains_rejects_foreign_map: |r, b| r.contains(&b, b"filler/1");
+    }
+
+    /// The same rejection for present, absent and empty keys, and for a
+    /// foreign map with a different hasher type; the right map still answers.
+    #[test]
+    fn bytes_detached_rejects_foreign_map_for_every_key() {
+        let (a, b) = (
+            fixture(RandomState::new(), 8),
+            fixture(RandomState::new(), 8),
+        );
+        let r = a.detached_reader();
+        for k in [&b"filler/0"[..], b"filler/7", b"absent", b""] {
+            let caught = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| r.get(&b, k)));
+            assert!(caught.is_err(), "{k:?} was answered from a foreign map");
+            assert_eq!(r.get(&a, k), a.get(k));
+        }
+        let c = fixture(OneBucket, 8);
+        let caught =
+            std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| r.contains(&c, b"x")));
+        assert!(caught.is_err(), "a map of another hasher type answered");
+    }
+
+    /// A reader from a bare `Collector` belongs to no map and is rejected by
+    /// the same check.
+    #[test]
+    #[should_panic(expected = "reader was registered on a different collector")]
+    fn bytes_registered_rejects_unowned_collector_reader() {
+        let map = fixture(RandomState::new(), 8);
+        let raw = Arc::new(Collector::new()).register();
+        let _ = map.registered(&raw);
     }
 }
 
