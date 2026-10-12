@@ -22862,6 +22862,24 @@ pub(crate) mod test_hooks {
     }
 
     thread_local! {
+        static HEADER_BEFORE_SAMPLE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// The negative control for the linear-branch sample order (#900): while
+    /// set, this thread's ordered walks (`sync_nav` and the batch cursor)
+    /// load a linear branch's header before sampling its version, the order
+    /// the walks shipped with.
+    pub(crate) fn set_header_before_sample(on: bool) {
+        HEADER_BEFORE_SAMPLE.with(|c| c.set(on));
+    }
+
+    /// Whether [`set_header_before_sample`] is on for this thread.
+    #[inline(always)]
+    pub(crate) fn loads_header_before_sample() -> bool {
+        HEADER_BEFORE_SAMPLE.with(Cell::get)
+    }
+
+    thread_local! {
         static ARMED_CHILD_EDGE: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
     }
 
@@ -24986,12 +25004,14 @@ mod ordered_read_tests {
     }
 
     /// Runs `read` on the reader's thread with the writer's insert armed at
-    /// B's version sample. Asserts the write fired exactly once, that it
-    /// shifted B in place, and that it moved B's version and no other
-    /// (tree word and every branch above B unchanged).
+    /// B's version sample, and with the header-before-sample negative
+    /// control set to `header_first` for the read only. Asserts the write
+    /// fired exactly once, that it shifted B in place, and that it moved B's
+    /// version and no other (tree word and every branch above B unchanged).
     fn run_branch_sample<T: SharedTree, R>(
         shared: &Shared<T>,
         c: &BranchSampleCase,
+        header_first: bool,
         insert: impl FnOnce() + 'static,
         read: impl FnOnce() -> R,
     ) -> R {
@@ -25011,7 +25031,9 @@ mod ordered_read_tests {
                 f.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             }),
         );
+        test_hooks::set_header_before_sample(header_first);
         let got = read();
+        test_hooks::set_header_before_sample(false);
         // Disarm, in case the walk never reached B.
         test_hooks::arm_branch_sample(core::ptr::null(), Box::new(|| {}));
         test_hooks::before_branch_sample(core::ptr::null());
@@ -25041,78 +25063,9 @@ mod ordered_read_tests {
         got
     }
 
-    /// Reproduction (#900): the ordered walk loads B's header before it
-    /// samples B's version, so a writer that shifts B in place in between
-    /// leaves the walk with B's old digits, B's new edges and a version
-    /// sample that every later check accepts.
-    #[test]
-    fn ordered_read_branch_sample_pairs_old_digits_with_shifted_edges() {
-        for c in &BRANCH_SAMPLE_CASES {
-            let want = branch_sample_model(c);
-            let map = Arc::new(SyncExpanseMap::new());
-            for k in bsf::keys() {
-                map.insert(k, !k);
-            }
-            let m = Arc::clone(&map);
-            let new_key = c.new_key;
-            let insert = move || assert_eq!(m.insert(new_key, !new_key), None);
-            let rd = map.reader();
-            let got = run_branch_sample(&map.shared, c, insert, || {
-                if c.forward {
-                    rd.next_at_or_after(c.probe)
-                } else {
-                    rd.prev_at_or_before(c.probe)
-                }
-            });
-            assert_ne!(Some((want, !want)), got, "forward = {}", c.forward);
-            // The never-present key carries the inserted key's value.
-            assert_eq!(got, Some((c.never_present, !c.new_key)));
-        }
-    }
-
-    /// The same interleaving on the set form of the shared walk
-    /// (`MAP = false`), called directly: `SetReader` has no ordered reads yet.
-    #[test]
-    fn set_ordered_walk_branch_sample_pairs_old_digits_with_shifted_edges() {
-        for c in &BRANCH_SAMPLE_CASES {
-            let want = branch_sample_model(c);
-            let set = Arc::new(SyncExpanseSet::new());
-            for k in bsf::keys() {
-                set.insert(k);
-            }
-            let s = Arc::clone(&set);
-            let new_key = c.new_key;
-            let insert = move || assert!(s.insert(new_key));
-            let rd = set.reader();
-            let got = run_branch_sample(&set.shared, c, insert, || {
-                let _pin = rd.reader.pin();
-                let ver = set.shared.version();
-                let snap = ver.sample();
-                let root = set.shared.published().load();
-                // SAFETY: pinned, with a version sampled after the pin and a
-                // root copied after the sample.
-                let r = unsafe {
-                    if c.forward {
-                        crate::sync_nav::next_validated::<false>(root, c.probe, ver, snap)
-                    } else {
-                        crate::sync_nav::prev_validated::<false>(root, c.probe, ver, snap)
-                    }
-                };
-                r.ok()
-            });
-            assert_ne!(Some(Some((want, 0))), got, "forward = {}", c.forward);
-            assert_eq!(got, Some(Some((c.never_present, 0))));
-        }
-    }
-
-    /// The same interleaving on the batch cursor's seek (`sync_cursor`),
-    /// which has its own copy of the linear-branch arm.
-    #[test]
-    fn cursor_branch_sample_pairs_old_digits_with_shifted_edges() {
-        let c = &BRANCH_SAMPLE_CASES[0];
-        assert!(c.forward);
-        branch_sample_model(c);
-        let model: Vec<u64> = bsf::keys().into_iter().filter(|&k| k >= c.probe).collect();
+    /// `MapReader::next_at_or_after` / `prev_at_or_before` over the
+    /// interleaving.
+    fn map_branch_sample(c: &BranchSampleCase, header_first: bool) -> Option<(u64, u64)> {
         let map = Arc::new(SyncExpanseMap::new());
         for k in bsf::keys() {
             map.insert(k, !k);
@@ -25121,12 +25074,124 @@ mod ordered_read_tests {
         let new_key = c.new_key;
         let insert = move || assert_eq!(m.insert(new_key, !new_key), None);
         let rd = map.reader();
-        let got: Vec<(u64, u64)> = run_branch_sample(&map.shared, c, insert, || {
+        run_branch_sample(&map.shared, c, header_first, insert, || {
+            if c.forward {
+                rd.next_at_or_after(c.probe)
+            } else {
+                rd.prev_at_or_before(c.probe)
+            }
+        })
+    }
+
+    /// The set form of the shared walk (`MAP = false`), called directly:
+    /// `SetReader` has no ordered reads yet. `None` is a retry.
+    fn set_branch_sample(c: &BranchSampleCase, header_first: bool) -> Option<Option<(u64, u64)>> {
+        let set = Arc::new(SyncExpanseSet::new());
+        for k in bsf::keys() {
+            set.insert(k);
+        }
+        let s = Arc::clone(&set);
+        let new_key = c.new_key;
+        let insert = move || assert!(s.insert(new_key));
+        let rd = set.reader();
+        run_branch_sample(&set.shared, c, header_first, insert, || {
+            let _pin = rd.reader.pin();
+            let ver = set.shared.version();
+            let snap = ver.sample();
+            let root = set.shared.published().load();
+            // SAFETY: pinned, with a version sampled after the pin and a
+            // root copied after the sample.
+            let r = unsafe {
+                if c.forward {
+                    crate::sync_nav::next_validated::<false>(root, c.probe, ver, snap)
+                } else {
+                    crate::sync_nav::prev_validated::<false>(root, c.probe, ver, snap)
+                }
+            };
+            r.ok()
+        })
+    }
+
+    /// The batch cursor's seek (`sync_cursor`), which has its own copy of
+    /// the linear-branch arm: everything at or after the forward case's
+    /// probe.
+    fn cursor_branch_sample(header_first: bool) -> Vec<(u64, u64)> {
+        let c = &BRANCH_SAMPLE_CASES[0];
+        assert!(c.forward);
+        let map = Arc::new(SyncExpanseMap::new());
+        for k in bsf::keys() {
+            map.insert(k, !k);
+        }
+        let m = Arc::clone(&map);
+        let new_key = c.new_key;
+        let insert = move || assert_eq!(m.insert(new_key, !new_key), None);
+        let rd = map.reader();
+        run_branch_sample(&map.shared, c, header_first, insert, || {
             rd.range_cursor(c.probe, u64::MAX).collect()
-        });
-        let want: Vec<(u64, u64)> = model.iter().map(|&k| (k, !k)).collect();
-        assert_ne!(got, want);
-        assert_eq!(got.first(), Some(&(c.never_present, !c.new_key)));
+        })
+    }
+
+    /// #900: a writer that inserts a digit in place into a linear branch B
+    /// immediately before the ordered read samples B's version. The walk
+    /// samples B's version before it loads B's header, so it reads the
+    /// header the sample covers and returns the true neighbour.
+    #[test]
+    fn ordered_read_samples_a_linear_branch_before_its_header() {
+        for c in &BRANCH_SAMPLE_CASES {
+            let want = branch_sample_model(c);
+            assert_eq!(
+                map_branch_sample(c, false),
+                Some((want, !want)),
+                "map, forward = {}",
+                c.forward
+            );
+            assert_eq!(
+                set_branch_sample(c, false),
+                Some(Some((want, 0))),
+                "set, forward = {}",
+                c.forward
+            );
+        }
+        let c = &BRANCH_SAMPLE_CASES[0];
+        let want: Vec<(u64, u64)> = bsf::keys()
+            .into_iter()
+            .filter(|&k| k >= c.probe)
+            .map(|k| (k, !k))
+            .collect();
+        assert_eq!(cursor_branch_sample(false), want, "cursor");
+    }
+
+    /// The negative control: loading B's header before sampling B's version,
+    /// the order the walks shipped with, pairs B's old digits with its
+    /// shifted edges, and every later check accepts the sample. The walk
+    /// returns a key the model never held. This is what makes the test above
+    /// discriminating.
+    #[test]
+    fn ordered_read_that_loads_a_linear_branch_header_first_returns_a_key_never_present() {
+        for c in &BRANCH_SAMPLE_CASES {
+            let want = branch_sample_model(c);
+            let got = map_branch_sample(c, true);
+            assert_ne!(got, Some((want, !want)));
+            // The never-present key carries the inserted key's value.
+            assert_eq!(
+                got,
+                Some((c.never_present, !c.new_key)),
+                "map, forward = {}",
+                c.forward
+            );
+            assert_eq!(
+                set_branch_sample(c, true),
+                Some(Some((c.never_present, 0))),
+                "set, forward = {}",
+                c.forward
+            );
+        }
+        let c = &BRANCH_SAMPLE_CASES[0];
+        assert_eq!(
+            cursor_branch_sample(true).first(),
+            Some(&(c.never_present, !c.new_key)),
+            "cursor"
+        );
     }
 
     /// G12.3: on quiescent maps every validated ordered read agrees with the
