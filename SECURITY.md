@@ -3,7 +3,8 @@
 ## Reporting a vulnerability
 
 Report privately through GitHub's **Security → Report a vulnerability** form on
-this repository. That opens a private advisory visible only to the maintainers,
+this repository: <https://github.com/orieg/expanse/security/advisories/new>.
+That opens a private advisory visible only to the maintainers,
 which is the right channel for anything you would not want in a public issue.
 
 Please do not open a public issue for a suspected vulnerability first. Public
