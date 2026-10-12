@@ -1694,10 +1694,28 @@ impl<'a, const BOUNDED: bool> Walk<'a, BOUNDED> {
             self.key.extend_from_slice(&chunk.to_be_bytes());
             node = unpack_child(v);
             // SAFETY: untagged continuation value, a live child node.
-            (chunk, v) = unsafe { &*node }.map.first()?;
+            let Some(first) = unsafe { &*node }.map.first() else {
+                return self.past_empty_child();
+            };
+            (chunk, v) = first;
             let key_len = self.key.len();
             self.push_frame(node, chunk, key_len, false);
         }
+    }
+
+    /// [`finish_descent`](Self::finish_descent) after the child it entered
+    /// held nothing. A shared map's removal that empties a node and cannot
+    /// prune it at once leaves it linked and empty until its exclusive prune,
+    /// and a locked reader can run in that window; a single-threaded map
+    /// never holds such a node. The empty child answers nothing, so the walk
+    /// moves on as `next` does from the entry it just took: no frame was
+    /// pushed for the child, so the top frame is the entry that led to it and
+    /// the key still carries its chunk, which is the state `next` resumes
+    /// from. Out of line, so the descent is unchanged when no child is empty.
+    #[cold]
+    #[inline(never)]
+    fn past_empty_child(&mut self) -> Option<NonNull<u64>> {
+        self.next().map(|(_, slot)| slot)
     }
 
     /// Advances to the next entry in byte-lexicographic order.

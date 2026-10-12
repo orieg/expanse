@@ -28139,6 +28139,15 @@ mod str_empty_child_tests {
     /// #1079). Returns the reads taken at the prune-pending site and the
     /// model's answers there.
     fn run(c: &[u8; 8]) -> (Vec<Answer>, Vec<Answer>) {
+        run_with(c, reads, model_reads)
+    }
+
+    /// [`run`] with the locked reader and its model chosen by the caller.
+    fn run_with(
+        c: &[u8; 8],
+        read: fn(&ExpanseStrMap) -> Vec<Answer>,
+        model_read: fn(&BTreeMap<Vec<u8>, u64>) -> Vec<Answer>,
+    ) -> (Vec<Answer>, Vec<Answer>) {
         let map = Arc::new(SyncExpanseStrMap::new());
         let mut model = BTreeMap::new();
         for i in 0..20u8 {
@@ -28183,7 +28192,7 @@ mod str_empty_child_tests {
                         Some(0),
                         "the child must be linked and empty at the site"
                     );
-                    reads(m)
+                    read(m)
                 });
                 *s2.lock().unwrap() = Some(got);
             }),
@@ -28206,7 +28215,7 @@ mod str_empty_child_tests {
             .unwrap()
             .take()
             .expect("the reads ran at the site");
-        (got, model_reads(&model))
+        (got, model_read(&model))
     }
 
     /// The emptied node first in key order: `first` and the forward reads
@@ -28230,6 +28239,78 @@ mod str_empty_child_tests {
     fn locked_ordered_reads_pass_over_an_emptied_last_child() {
         let (got, want) = run(b"zzzzzzzz");
         assert_eq!(got, want);
+    }
+
+    /// Every entry a `StrCursor` yields from each probe
+    /// (`cursor_at_or_after`), in order, each scan closed by a `None`.
+    fn cursor_scans(m: &ExpanseStrMap) -> Vec<Answer> {
+        let mut out = Vec::new();
+        for p in PROBES {
+            let mut c = m.cursor_at_or_after(nf(p));
+            while let Some((k, v)) = c.next_entry() {
+                out.push(Some((k.to_vec(), v)));
+            }
+            out.push(None);
+        }
+        out
+    }
+
+    fn model_cursor_scans(model: &BTreeMap<Vec<u8>, u64>) -> Vec<Answer> {
+        let mut out = Vec::new();
+        for p in PROBES {
+            for (k, v) in model.range(p.to_vec()..) {
+                out.push(Some((k.clone(), *v)));
+            }
+            out.push(None);
+        }
+        out
+    }
+
+    /// The entries of a bare `StrCursor` scan: the issue's observation.
+    fn bare_scan(m: &ExpanseStrMap) -> Vec<Answer> {
+        let mut out = Vec::new();
+        let mut c = m.cursor();
+        while let Some((k, v)) = c.next_entry() {
+            out.push(Some((k.to_vec(), v)));
+        }
+        out
+    }
+
+    fn model_bare_scan(model: &BTreeMap<Vec<u8>, u64>) -> Vec<Answer> {
+        model.iter().map(|(k, v)| Some((k.clone(), *v))).collect()
+    }
+
+    /// The emptied node first: the cursor's first descent enters it.
+    #[test]
+    fn locked_cursor_scan_passes_over_an_emptied_first_child() {
+        let (got, want) = run_with(b"aaaaaaaa", bare_scan, model_bare_scan);
+        assert_eq!(got.len(), want.len(), "entries yielded");
+        assert_eq!(got, want);
+    }
+
+    /// In the middle: the cursor reaches it from the previous sibling.
+    #[test]
+    fn locked_cursor_scan_passes_over_an_emptied_middle_child() {
+        let (got, want) = run_with(b"mmmmmmmm", bare_scan, model_bare_scan);
+        assert_eq!(got.len(), want.len(), "entries yielded");
+        assert_eq!(got, want);
+    }
+
+    /// Last in key order: the cursor ends on it.
+    #[test]
+    fn locked_cursor_scan_passes_over_an_emptied_last_child() {
+        let (got, want) = run_with(b"zzzzzzzz", bare_scan, model_bare_scan);
+        assert_eq!(got.len(), want.len(), "entries yielded");
+        assert_eq!(got, want);
+    }
+
+    /// Seeded scans from every probe, at each position of the emptied child.
+    #[test]
+    fn locked_cursor_seeks_pass_over_an_emptied_child() {
+        for c in [b"aaaaaaaa", b"mmmmmmmm", b"zzzzzzzz"] {
+            let (got, want) = run_with(c, cursor_scans, model_cursor_scans);
+            assert_eq!(got, want, "emptied child {}", String::from_utf8_lossy(c));
+        }
     }
 }
 
