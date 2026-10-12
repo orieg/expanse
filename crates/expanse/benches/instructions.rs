@@ -901,7 +901,31 @@ fn map_collect(es: Vec<(u64, u64)>) -> u64 {
 // the same random keys sorted ascending. Counted per key/entry (10,000).
 fn keys32_build(dist: &str) -> Vec<Key32> {
     let mut x: u64 = 0x2545_F491_4F6C_DD1D;
-    let mut ks: Vec<Key32> = (0..10_000u32)
+    // `random_sorted` is the `random` draw sorted ascending, as the 64-bit
+    // `entries` builder does: no dedup, so the population stays 10,000 (the
+    // ops count `scripts/perf_report.py` divides by); the generator draws no
+    // duplicate at this seed. The assertions below pin the sequential-shape
+    // defect of #1455 closed, and an unrecognised name panics rather than
+    // falling through to another shape.
+    if dist == "random_sorted" {
+        let mut ks = keys32_build("random");
+        ks.sort_unstable();
+        assert_eq!(
+            ks.len(),
+            10_000,
+            "random_sorted keeps the random population"
+        );
+        assert!(
+            ks != keys32_build("sequential"),
+            "random_sorted must not be the sequential workload (#1455)"
+        );
+        assert!(
+            ks.windows(2).all(|w| w[0] <= w[1]),
+            "random_sorted is ascending"
+        );
+        return ks;
+    }
+    (0..10_000u32)
         .map(|i| match dist {
             "random" => {
                 x ^= x << 13;
@@ -910,14 +934,10 @@ fn keys32_build(dist: &str) -> Vec<Key32> {
                 (x >> 16) as Key32
             }
             "clustered" => (i / 8) * 4096 + (i % 8),
-            _ => 1_000 + i,
+            "sequential" => 1_000 + i,
+            other => panic!("unknown distribution {other}"),
         })
-        .collect();
-    if dist == "random_sorted" {
-        ks.sort_unstable();
-        ks.dedup();
-    }
-    ks
+        .collect()
 }
 
 fn entries32_build(dist: &str) -> Vec<(Key32, Value32)> {
