@@ -1217,6 +1217,60 @@ fn map_prev(built: (ExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// The set twins of `map_nav` and `map_prev` (#900): the single-threaded
+// references for the ordered reads a set reader will gain. Same keys, probe
+// stream and ops count as the map arms; every probe is a present key, so every
+// `next_at_or_after` answers and every `prev_before` answers except the one
+// probe that is the minimum, which the count assertions pin.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+#[bench::sequential(args = ("sequential",), setup = built_set)]
+#[bench::clustered(args = ("clustered",), setup = built_set)]
+fn set_nav(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let pop = set.len();
+    let mut sink = 0u64;
+    let mut found = 0u64;
+    for &k in &probes {
+        if let Some(next_k) = set.next_at_or_after(black_box(k)) {
+            sink ^= next_k;
+            found += 1;
+        }
+    }
+    assert_eq!(
+        found, pop,
+        "every present key answers its own successor query"
+    );
+    // Leaked — see `map_get`.
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+#[bench::sequential(args = ("sequential",), setup = built_set)]
+#[bench::clustered(args = ("clustered",), setup = built_set)]
+fn set_prev(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let pop = set.len();
+    let mut sink = 0u64;
+    let mut found = 0u64;
+    for &k in &probes {
+        if let Some(prev_k) = set.prev_before(black_box(k)) {
+            sink ^= prev_k;
+            found += 1;
+        }
+    }
+    assert_eq!(
+        found,
+        pop - 1,
+        "every present key but the minimum has a predecessor"
+    );
+    // Leaked — see `map_get`.
+    core::mem::forget(set);
+    black_box(sink)
+}
+
 // A full forward scan through the stateful cursor (#1142): one `next` per
 // entry, the path kept between steps. The single-threaded reference for a
 // concurrent batch cursor; no other arm covers `MapCursor`.
@@ -3040,6 +3094,59 @@ fn sync_map_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// The set twins of `sync_map_prev_locked` and `sync_map_next_after_scan`
+// (#900), on the only ordered route the concurrent set has today:
+// `with_locked`, which runs each call with every writer excluded. Hence the
+// `_locked` suffix: it keeps `sync_set_prev` and `sync_set_next_after_scan`
+// free for the optimistic reads, which are compared against these arms. Same
+// keys, probe stream and ops count as the map twins.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_set)]
+fn sync_set_prev_locked(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let pop = set.len();
+    let mut sink = 0u64;
+    let mut found = 0u64;
+    for &k in &probes {
+        if let Some(pk) = set.with_locked(|s| s.prev_before(black_box(k))) {
+            sink ^= pk;
+            found += 1;
+        }
+    }
+    assert_eq!(
+        found,
+        pop - 1,
+        "every present key but the minimum has a predecessor"
+    );
+    // Leaked — see `map_get`.
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+// A full ascending scan, one `with_locked` per `next_after` (the call the
+// optimistic arm makes without the lock), `first` to start: the per-element
+// baseline for a set reader's `next_after`; `sync_map_next_after_scan` is its
+// optimistic map twin.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_set)]
+#[bench::sequential(args = ("sequential",), setup = built_sync_set)]
+#[bench::clustered(args = ("clustered",), setup = built_sync_set)]
+fn sync_set_next_after_scan_locked(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
+    let (set, _probes) = built;
+    let mut sink = 0u64;
+    let mut n = 0usize;
+    let mut at = set.with_locked(|s| s.first());
+    while let Some(k) = at {
+        sink ^= k;
+        n += 1;
+        at = set.with_locked(|s| s.next_after(black_box(k)));
+    }
+    assert_eq!(n, POP, "the scan visits every entry once");
+    // Leaked — see `sync_map_get`.
+    core::mem::forget(set);
+    black_box(sink)
+}
+
 // ---- Concurrent counts under a writer (#1144) -----------------------------
 //
 // Counts on the concurrent map go through `with_locked`, which folds the
@@ -4203,6 +4310,8 @@ library_benchmark_group!(
         set_clone,
         map_nav,
         map_prev,
+        set_nav,
+        set_prev,
         map_cursor_scan,
         map_range_cursor_scan,
         map_count_below,
@@ -4255,6 +4364,8 @@ library_benchmark_group!(
         sync_map_prev,
         sync_map_next_after_scan,
         sync_map_scan,
+        sync_set_prev_locked,
+        sync_set_next_after_scan_locked,
         sync_map_count_locked,
         sync_map_write_twin,
         sync_map_count_after_write,
