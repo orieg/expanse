@@ -30,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import math
 import sys
 import unittest
 from pathlib import Path
@@ -106,6 +107,102 @@ def registered_bounds() -> dict[str, float]:
         "dtlb_upper": dtlb_elimination_upper_bound(D1_GEN_DTLB_POINT, 0.95),
         "l3_delta_lower": l3_invariance_lower_bound(D1_GEN_L3_POINT - D1_SORTED_L3_POINT, 0.60),
         "cycle_delta_lower": round(D1_STALLS_DELTA_L3_CYCLES, 2),
+    }
+
+
+# --- Host-condition bounds for the errata A5 to Amendment A4 (Refs #1096) -----------
+# Functions only. `evaluate_d2` still applies A4's condition as registered; nothing
+# below is read by it.
+
+LOAD1_TAU_S = 60.0   # time constant of the one-minute load average
+FOREIGN_GRID = 0.01  # `bench_provenance.load_snapshot` rounds its busy-CPU figures to this
+
+
+def expected_load1(load0: float, runnable: float, elapsed_s: float, tau_s: float = LOAD1_TAU_S) -> float:
+    """The one-minute load average after `elapsed_s` with `runnable` tasks runnable throughout.
+
+    Linux updates the figure every 5 s as `load = load * e + active * (1 - e)` with
+    `e = 1/exp(5 s / 1 min)` (`include/linux/sched/loadavg.h`, v6.8: `calc_load`, `EXP_1`
+    "1/exp(5sec/1min) as fixed-point", `LOAD_FREQ` "5 sec intervals";
+    https://raw.githubusercontent.com/torvalds/linux/v6.8/include/linux/sched/loadavg.h).
+    The closed form of that recurrence over a constant `active` is
+
+        load(t) = runnable + (load0 - runnable) * exp(-t / tau)
+
+    so the figure moves toward `runnable` and never crosses it. A harness that keeps
+    one thread runnable therefore reads at least `min(load0, 1.0)` at every later
+    instant, and exactly 1.0 only in the limit: `load1 <= 1.0` during such a run
+    holds only if the run began below 1.0, and is then an upper bound on how long
+    the run has lasted, not a statement about other load.
+    """
+    if load0 < 0 or runnable < 0:
+        raise ValueError(f"load0 and runnable must be non-negative, got {load0}, {runnable}")
+    if elapsed_s < 0 or tau_s <= 0:
+        raise ValueError(f"elapsed_s must be non-negative and tau_s positive, got {elapsed_s}, {tau_s}")
+    return runnable + (load0 - runnable) * math.exp(-elapsed_s / tau_s)
+
+
+def foreign_load_ceiling(bound: float, alternative: float, arm_cycles: float, slowdown: float = 2.0) -> float:
+    """The largest cell-mean foreign load, in core-equivalents, that cannot by itself
+    carry a cycle difference at `alternative` over `bound`.
+
+    Worst-case model, an assumption and not a measurement: every foreign CPU-second
+    falls on the generator arm alone, and for that time the arm's cycles per entry
+    are multiplied by at most `slowdown`. A foreign load `f` then inflates the arm,
+    and so the generator-minus-sorted difference, by at most
+    `f * (slowdown - 1) * arm_cycles` cycles per entry. Requiring that to stay below
+    `bound - alternative` gives `f < (bound - alternative) / ((slowdown - 1) * arm_cycles)`,
+    returned rounded down to the grid the load snapshot records (`FOREIGN_GRID`).
+    """
+    if not bound > alternative >= 0:
+        raise ValueError(f"need bound > alternative >= 0, got {bound}, {alternative}")
+    if arm_cycles <= 0:
+        raise ValueError(f"arm_cycles must be positive, got {arm_cycles}")
+    if slowdown <= 1:
+        raise ValueError(f"slowdown must exceed 1, got {slowdown}")
+    f = (bound - alternative) / ((slowdown - 1.0) * arm_cycles)
+    return math.floor(f / FOREIGN_GRID + 1e-9) * FOREIGN_GRID
+
+
+def foreign_reading_floor(roundings: int = 3, grid: float = FOREIGN_GRID) -> float:
+    """The most negative foreign reading rounding alone can produce, as a grid value.
+
+    `foreign = round(round(host) - round(own))`: three roundings of at most half a
+    grid step each, 0.015 at the 0.01 grid, which the grid records as 0.02. A
+    reading below the negative of this is the two clocks disagreeing, and a
+    remainder of that size can hide a foreign task of the same size.
+    """
+    if roundings < 1 or grid <= 0:
+        raise ValueError(f"need roundings >= 1 and grid > 0, got {roundings}, {grid}")
+    return -math.ceil(roundings * grid / 2 / grid - 1e-9) * grid
+
+
+A5_PHYSICAL_CORES = 16        # the reference host: 8 P-cores (CPUs 0-15, two threads each) and 8 E-cores (16-23)
+A5_VOID_REPLACEMENTS_MAX = 3  # replacement dispatches across the pair, registered in A5.5
+
+
+def a5_host_bounds() -> dict[str, float]:
+    """The host bounds the errata A5 registers, from frozen D1 inputs only.
+
+    `foreign_cell_max`: `foreign_load_ceiling` with the registered D2c bound
+    (52.50), the alternative D2c's falsifier names ("paging alone resolved the
+    majority of the cycle gap": half of D1's 85.9445), the generator arm's D1
+    cycles per entry from the same artifact (158.6335), and `slowdown = 2`.
+    No D2 run's reading enters it.
+
+    `load1_max` and `load1_spread_max` are AGENTS.md section 8.17's floor: a load
+    average above half the host's physical cores, or a shift of more than 2
+    between arms, voids a comparison. `void_replacements_max` is the registered
+    cap on replacement dispatches across the pair.
+    """
+    d1_gen_cycles = 7_921_202_316.5 / D1_OPS
+    return {
+        "foreign_cell_max": round(foreign_load_ceiling(
+            registered_bounds()["cycle_delta_lower"], D1_STALLS_TOTAL_DELTA_CYCLES / 2, d1_gen_cycles, 2.0), 2),
+        "foreign_cell_min": round(foreign_reading_floor(), 2),
+        "load1_max": A5_PHYSICAL_CORES / 2,
+        "load1_spread_max": 2.0,
+        "void_replacements_max": A5_VOID_REPLACEMENTS_MAX,
     }
 
 
@@ -446,6 +543,64 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         self.assertEqual(self._eval(self._artifact(bad, srt, loads=((1.9, None),)))["verdict"], "FAIL")
         # Exactly at the registered values is met.
         self.assertTrue(self._eval(self._artifact(gen, srt, loads=((1.0, None), (1.0, 0.0))))["host_precondition"]["met"])
+
+    def test_expected_load1(self):
+        # Reference values of the closed form.
+        self.assertAlmostEqual(expected_load1(0.0, 1.0, 60.0), 1 - 0.36787944, places=6)
+        self.assertAlmostEqual(expected_load1(2.0, 1.0, 60.0), 1 + 0.36787944, places=6)
+        self.assertEqual(expected_load1(1.0, 1.0, 1e6), 1.0)
+        self.assertEqual(expected_load1(1.7, 1.0, 0.0), 1.7)
+        # One 5 s kernel step of the recurrence: e = EXP_1 / FIXED_1 = 1884 / 2048.
+        self.assertAlmostEqual(expected_load1(2.0, 1.0, 5.0), 1 + 1884 / 2048, places=3)
+        # Never crosses `runnable`, from either side.
+        for load0 in (0.0, 0.5, 1.0, 1.5, 3.0):
+            for t in (0.0, 1.0, 20.0, 600.0):
+                got = expected_load1(load0, 1.0, t)
+                self.assertGreaterEqual(got, min(load0, 1.0))
+                self.assertLessEqual(got, max(load0, 1.0))
+        for bad in ((-1.0, 1.0, 1.0), (1.0, -1.0, 1.0), (1.0, 1.0, -1.0)):
+            with self.assertRaises(ValueError):
+                expected_load1(*bad)
+        with self.assertRaises(ValueError):
+            expected_load1(1.0, 1.0, 1.0, tau_s=0.0)
+
+    def test_expected_load1_against_committed_snapshots(self):
+        # Every consecutive pair of load snapshots in the committed D1 and D2
+        # counter artifacts, each a window in which the driver ran one
+        # single-threaded workload process at a time: the recorded `load1` at
+        # the end of the window against the closed form from the one at its
+        # start with one task runnable. Observational, 12 windows.
+        results = Path(__file__).resolve().parent.parent / "docs/benchmarks/patricia_comparison/results"
+        names = ["counters_prefix_scan_d1.json", "counters_prefix_scan_d1_stalls.json"] + [
+            f"counters_prefix_scan_d2_{pages}_run{run}.json" for run in (1, 2) for pages in ("4k", "2m")]
+        windows, worst = 0, 0.0
+        for name in names:
+            with open(results / name, encoding="utf-8") as fh:
+                loads = json.load(fh)["provenance"]["loads"]
+            for prev, cur in zip(loads, loads[1:]):
+                predicted = expected_load1(prev["load1"], 1.0, cur["monotonic_s"] - prev["monotonic_s"])
+                worst = max(worst, abs(predicted - cur["load1"]))
+                windows += 1
+        self.assertEqual(windows, 12)
+        self.assertLess(worst, 0.05)  # worst recorded residual is 0.03
+
+    def test_a5_host_bounds(self):
+        # (52.50 - 85.9445 / 2) / ((2 - 1) * 158.6335) = 9.5278 / 158.6335 = 0.06006
+        self.assertAlmostEqual(D1_STALLS_TOTAL_DELTA_CYCLES / 2, 42.9722, places=3)
+        self.assertAlmostEqual(7_921_202_316.5 / D1_OPS, 158.6335, places=3)
+        self.assertEqual(a5_host_bounds(), {
+            "foreign_cell_max": 0.06, "foreign_cell_min": -0.02,
+            "load1_max": 8.0, "load1_spread_max": 2.0, "void_replacements_max": 3})
+        self.assertAlmostEqual(foreign_load_ceiling(52.50, 42.9722, 158.6335, 2.0), 0.06, places=9)
+        # The ceiling's dependence on the assumed slowdown.
+        self.assertAlmostEqual(foreign_load_ceiling(52.50, 42.9722, 158.6335, 3.0), 0.03, places=9)
+        self.assertAlmostEqual(foreign_load_ceiling(52.50, 42.9722, 158.6335, 4.0), 0.02, places=9)
+        self.assertAlmostEqual(foreign_reading_floor(), -0.02, places=9)
+        for bad in ((52.5, 52.5, 158.0, 2.0), (52.5, -1.0, 158.0, 2.0), (52.5, 42.0, 0.0, 2.0), (52.5, 42.0, 158.0, 1.0)):
+            with self.assertRaises(ValueError):
+                foreign_load_ceiling(*bad)
+        with self.assertRaises(ValueError):
+            foreign_reading_floor(0)
 
     def test_committed_runs(self):
         # The two runs as committed: every clause met, no void, and A4's host
