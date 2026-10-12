@@ -6352,33 +6352,40 @@ pub struct SetReader<'a> {
     reader: Reader,
 }
 
+/// The validated membership walk shared by [`SetReader`], [`OwnedSetReader`]
+/// and [`DetachedSetReader`].
+///
+/// One source for all three, so the readers cannot drift: they are the same
+/// protocol, differing only in how they hold the set. A macro and not a
+/// function (the map's `map_get_with`) because a function here changed the
+/// `SetReader::contains` instruction count: a plain function measured
+/// +1.90% on `sync_set_contains/random`, and `#[inline(always)]` on it
+/// +7.50% and +9.15% on `random` and `leaf` (instruction-counts job on
+/// #1465). Expanded in place, the body of `SetReader::contains` is the
+/// one it had before the owned and detached forms existed.
+macro_rules! set_contains_walk {
+    ($set:expr, $reader:expr, $key:expr) => {
+        $set.shared.optimistic_read(
+            $reader,
+            |s| s.occ_root().0,
+            |root, ver, snap| {
+                // SAFETY: `optimistic_read` calls the walk pinned, with a
+                // version sampled after the pin and a root copied under it
+                // (`walk_validated`).
+                let walked = unsafe { walk_validated::<false>(root, $key, ver, snap) };
+                walked.map(|r| r.is_some())
+            },
+            |s| s.contains($key),
+        )
+    };
+}
+
 impl SetReader<'_> {
     /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
-        set_contains_with(self.set, &self.reader, key)
+        set_contains_walk!(self.set, &self.reader, key)
     }
-}
-
-/// The validated membership walk shared by [`SetReader`], [`OwnedSetReader`]
-/// and [`DetachedSetReader`].
-///
-/// Split out so the borrowing, owning and detached readers cannot drift: all
-/// three are the same protocol, differing only in how they hold the set (the
-/// map's `map_get_with`, #554).
-#[inline(always)]
-fn set_contains_with(set: &SyncExpanseSet, reader: &Reader, key: Key) -> bool {
-    set.shared.optimistic_read(
-        reader,
-        |s| s.occ_root().0,
-        |root, ver, snap| {
-            // SAFETY: `optimistic_read` calls the walk pinned, with a version
-            // sampled after the pin and a root copied under it (`walk_validated`).
-            let walked = unsafe { walk_validated::<false>(root, key, ver, snap) };
-            walked.map(|r| r.is_some())
-        },
-        |s| s.contains(key),
-    )
 }
 
 /// A reader that **owns** its set handle instead of borrowing it.
@@ -6404,7 +6411,7 @@ impl OwnedSetReader {
     /// [`SyncExpanseSet::contains`] pays.
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
-        set_contains_with(&self.set, &self.reader, key)
+        set_contains_walk!(self.set, &self.reader, key)
     }
 }
 
@@ -6437,7 +6444,7 @@ impl DetachedSetReader {
     /// of `set` is read.
     #[must_use]
     pub fn contains(&self, set: &SyncExpanseSet, key: Key) -> bool {
-        set_contains_with(set, set.registered(&self.reader), key)
+        set_contains_walk!(set, set.registered(&self.reader), key)
     }
 }
 
