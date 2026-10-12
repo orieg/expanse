@@ -18,8 +18,11 @@ on:
       - '.github/workflows/subsplit.yml'
   workflow_dispatch:
 
+# Both jobs push to the mirror repositories over SSH deploy keys; the local
+# `git subtree split` and `git tag` touch only the runner's clone, so nothing
+# here needs write access to this repository's GITHUB_TOKEN scope.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   subsplit-php-library:
