@@ -6366,6 +6366,7 @@ impl SetReader<'_> {
 /// Split out so the borrowing, owning and detached readers cannot drift: all
 /// three are the same protocol, differing only in how they hold the set (the
 /// map's `map_get_with`, #554).
+#[inline(always)]
 fn set_contains_with(set: &SyncExpanseSet, reader: &Reader, key: Key) -> bool {
     set.shared.optimistic_read(
         reader,
