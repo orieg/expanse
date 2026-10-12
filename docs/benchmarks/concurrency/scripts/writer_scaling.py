@@ -145,6 +145,8 @@ PADDED_RESULTS_PATH = (
 # Hypothesis D arms (METHODOLOGY.md §11): each shorthand flag compares one
 # ablation feature against the default build.
 ABLATION_ARMS = {
+    "compare_ablation_unsharded_alloc": "ablation-unsharded-alloc",
+    "compare_ablation_unpadded_lock": "ablation-unpadded-lock",
     "compare_ablation_unstriped_freelist": "ablation-unstriped-freelist",
 }
 # Inverse ablations where the default build represents the promoted optimization
@@ -155,6 +157,8 @@ ABLATION_ARMS = {
 # the default build is the head and the feature build stands for main, so the
 # §17.3 statistic C_head(W, r) / C_main(W, r) is this inverse ratio.
 INVERSE_ABLATIONS = {
+    "ablation-unsharded-alloc",
+    "ablation-unpadded-lock",
     "ablation-unstriped-freelist",
     "ablation-str-serial-writers",
     "ablation-blob-serial-writers",
@@ -295,7 +299,7 @@ def ratio_description(variant_list: list[str]) -> str:
 
 ABLATION_RESULTS_PATHS = tuple(
     REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / f"ablation_{arm}_writer_scaling.json"
-    for arm in ("alloc", "epoch", "freelist", "unstriped_freelist")
+    for arm in ("alloc", "epoch", "freelist", "unsharded_alloc", "unpadded_lock", "unstriped_freelist")
 )
 
 
@@ -7540,6 +7544,24 @@ def _self_test_gate_929_str_report() -> None:
     assert "str" not in MUTEX_WRITER_ARMS
 
 
+def _self_test_ablation_dispatch_flags() -> None:
+    """The flag spelling bench_baremetal.yml builds is one the parser accepts and maps to a live feature."""
+    cargo = (REPO_ROOT / "crates" / "expanse" / "Cargo.toml").read_text()
+    for suite_token, feature in (
+        ("writer_scaling_ablation_unsharded_alloc", "ablation-unsharded-alloc"),
+        ("writer_scaling_ablation_unpadded_lock", "ablation-unpadded-lock"),
+        ("writer_scaling_ablation_unstriped_freelist", "ablation-unstriped-freelist"),
+    ):
+        # The workflow's `${SUITE#writer_scaling_ablation_}` then `${arm//_/-}`.
+        flag = "--compare-ablation-" + suite_token.removeprefix("writer_scaling_ablation_").replace("_", "-")
+        args = build_parser().parse_args([flag])
+        dest = flag[2:].replace("-", "_")
+        assert getattr(args, dest) is True, (flag, args)
+        assert ABLATION_ARMS.get(dest) == feature, (flag, ABLATION_ARMS)
+        assert feature in INVERSE_ABLATIONS, feature
+        assert f"\n{feature} = []" in cargo, f"{feature} is not a live Cargo feature"
+
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
@@ -7547,6 +7569,7 @@ def self_test() -> int:
     # 0. The c2c pass records the measured window only, and `--pmu-arm` offers
     #    every writer arm. Run first: they need no build, so a regression here
     #    fails before minutes of cargo.
+    _self_test_ablation_dispatch_flags()
     _self_test_c2c_window()
     _self_test_c2c_line_table_complete()
     _self_test_pmu_arm_choices()
@@ -7914,7 +7937,7 @@ def self_test() -> int:
     assert comp_inv_feature["ratio_direction"] == "c_default_over_c_variant", comp_inv_feature
     desc_inv = ratio_description(["ablation-unstriped-freelist"])
     assert "C_default(W) / C_variant(W)" in desc_inv and "C_variant(W) / C_default(W)" not in desc_inv, desc_inv
-    desc_fwd = ratio_description(["ablation-unsharded-alloc"])
+    desc_fwd = ratio_description(["test_fwd"])
     assert "C_variant(W) / C_default(W)" in desc_fwd and "C_default(W) / C_variant(W)" not in desc_fwd, desc_fwd
 
     # 6c. The frequency-droop rule, on synthetic counts. This runs everywhere:
@@ -8211,6 +8234,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="VARIANTS",
         default=None,
         help="Comma-separated feature variants to compare against default (or via BENCH_VARIANTS env var)",
+    )
+    comparison.add_argument(
+        "--compare-ablation-unsharded-alloc",
+        action="store_true",
+        help="Shorthand for --compare ablation-unsharded-alloc (Hypothesis D arm a inverse: shared allocator accounting)",
+    )
+    comparison.add_argument(
+        "--compare-ablation-unpadded-lock",
+        action="store_true",
+        help="Shorthand for --compare ablation-unpadded-lock (inverse of the padded writer state)",
     )
     comparison.add_argument(
         "--compare-ablation-unstriped-freelist",
