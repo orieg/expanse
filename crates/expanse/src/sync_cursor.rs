@@ -150,14 +150,36 @@ fn skip_cmp(
     }
 }
 
-/// The version field, level, digit count, digits and edge base of a linear
-/// branch, loaded from memory a writer may be changing.
+/// The version field of a linear branch, by field projection: nothing is
+/// loaded, so the version can be sampled before any field it covers is read.
 ///
 /// # Safety
 ///
 /// `edge` references an EBR-live `BranchL3` (`is_l3`) or `BranchL7`.
 #[inline(always)]
-unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (*const u32, u8, usize, [u8; 8], *const Edge) {
+unsafe fn linear_branch_version(edge: &Edge, is_l3: bool) -> *const u32 {
+    let node = edge.node_ptr();
+    // SAFETY: EBR-live node per contract; field projections only.
+    unsafe {
+        if is_l3 {
+            &raw const (*node.cast::<BranchL3>()).hdr.version
+        } else {
+            &raw const (*node.cast::<BranchL7>()).hdr.version
+        }
+    }
+}
+
+/// The level, digit count, digits and edge base of a linear branch, loaded
+/// from memory a writer may be changing. Called only after the branch's
+/// version was sampled ([`linear_branch_version`]): a header loaded before
+/// the sample can predate an in-place insert the sample already reflects,
+/// and its digits then index the shifted edges.
+///
+/// # Safety
+///
+/// `edge` references an EBR-live `BranchL3` (`is_l3`) or `BranchL7`.
+#[inline(always)]
+unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (u8, usize, [u8; 8], *const Edge) {
     let node = edge.node_ptr();
     // SAFETY: EBR-live node per contract; field projections, and the
     // header's meta and digit words loaded atomically (#1086).
@@ -166,7 +188,6 @@ unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (*const u32, u8, usize, [u8
             let b = node.cast::<BranchL3>();
             let h = crate::node::BranchHeader::load_at(&raw const (*b).hdr);
             (
-                &raw const (*b).hdr.version,
                 h.level,
                 h.num as usize,
                 h.digits,
@@ -176,7 +197,6 @@ unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (*const u32, u8, usize, [u8
             let b = node.cast::<BranchL7>();
             let h = crate::node::BranchHeader::load_at(&raw const (*b).hdr);
             (
-                &raw const (*b).hdr.version,
                 h.level,
                 h.num as usize,
                 h.digits,
@@ -813,10 +833,27 @@ impl SyncMapCursor<'_, '_> {
 
             EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
                 let is_l3 = matches!(t, EdgeType::BranchL3);
-                // SAFETY: validated edge copy names live branch; loads validated below.
-                let (vp, bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+                // SAFETY: validated edge copy names live branch; field projection only.
+                let vp = unsafe { linear_branch_version(edge, is_l3) };
+                // The negative control loads the header before the sample, as the walk
+                // once did.
+                #[cfg(test)]
+                let early = crate::sync::test_hooks::loads_header_before_sample()
+                    // SAFETY: as for the load below.
+                    .then(|| unsafe { linear_branch(edge, is_l3) });
+                #[cfg(test)]
+                crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
                 // SAFETY: `vp` is the live branch's version field.
                 let nsnap = unsafe { rs.sample(vp)? };
+                // The header is loaded after the sample, as every seqlock read loads
+                // the data its version covers: an in-place insert shifts the edges and
+                // rewrites the header under this version, so a header that predates the
+                // sample can pair a digit with its neighbour's edge, and no later check
+                // would see it (`docs/ARCHITECTURE.md` §4.1).
+                // SAFETY: validated edge copy → live branch; loads validated below.
+                let (bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+                #[cfg(test)]
+                let (bl, num, digits, edges) = early.unwrap_or((bl, num, digits, edges));
                 #[cfg(test)]
                 if is_l3 && num == 3 {
                     test_hooks::at(test_hooks::Site::ParentSampled);

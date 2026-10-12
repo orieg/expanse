@@ -187,14 +187,36 @@ fn compose(d: u8, rem: u64, level: u8) -> u64 {
     (u64::from(d) << ((level - 1) * 8)) | rem
 }
 
-/// The version field, level, digit count, digits and edge base of a linear
-/// branch, loaded from memory a writer may be changing.
+/// The version field of a linear branch, by field projection: nothing is
+/// loaded, so the version can be sampled before any field it covers is read.
 ///
 /// # Safety
 ///
 /// `edge` references an EBR-live `BranchL3` (`is_l3`) or `BranchL7`.
 #[inline(always)]
-unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (*const u32, u8, usize, [u8; 8], *const Edge) {
+unsafe fn linear_branch_version(edge: &Edge, is_l3: bool) -> *const u32 {
+    let node = edge.node_ptr();
+    // SAFETY: EBR-live node per contract; field projections only.
+    unsafe {
+        if is_l3 {
+            &raw const (*node.cast::<BranchL3>()).hdr.version
+        } else {
+            &raw const (*node.cast::<BranchL7>()).hdr.version
+        }
+    }
+}
+
+/// The level, digit count, digits and edge base of a linear branch, loaded
+/// from memory a writer may be changing. Called only after the branch's
+/// version was sampled ([`linear_branch_version`]): a header loaded before
+/// the sample can predate an in-place insert the sample already reflects,
+/// and its digits then index the shifted edges.
+///
+/// # Safety
+///
+/// `edge` references an EBR-live `BranchL3` (`is_l3`) or `BranchL7`.
+#[inline(always)]
+unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (u8, usize, [u8; 8], *const Edge) {
     let node = edge.node_ptr();
     // SAFETY: EBR-live node per contract; field projections, and the
     // header's meta and digit words loaded atomically (#1086).
@@ -203,7 +225,6 @@ unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (*const u32, u8, usize, [u8
             let b = node.cast::<BranchL3>();
             let h = crate::node::BranchHeader::load_at(&raw const (*b).hdr);
             (
-                &raw const (*b).hdr.version,
                 h.level,
                 h.num as usize,
                 h.digits,
@@ -213,7 +234,6 @@ unsafe fn linear_branch(edge: &Edge, is_l3: bool) -> (*const u32, u8, usize, [u8
             let b = node.cast::<BranchL7>();
             let h = crate::node::BranchHeader::load_at(&raw const (*b).hdr);
             (
-                &raw const (*b).hdr.version,
                 h.level,
                 h.num as usize,
                 h.digits,
@@ -510,10 +530,27 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             let is_l3 = matches!(t, EdgeType::BranchL3);
-            // SAFETY: validated edge copy → live branch; loads validated below.
-            let (vp, bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+            // SAFETY: validated edge copy → live branch; field projection only.
+            let vp = unsafe { linear_branch_version(edge, is_l3) };
+            // The negative control loads the header before the sample, as the walk
+            // once did.
+            #[cfg(test)]
+            let early = crate::sync::test_hooks::loads_header_before_sample()
+                // SAFETY: as for the load below.
+                .then(|| unsafe { linear_branch(edge, is_l3) });
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: `vp` is the live branch's version field.
             let nsnap = unsafe { rs.sample(vp)? };
+            // The header is loaded after the sample, as every seqlock read loads
+            // the data its version covers: an in-place insert shifts the edges and
+            // rewrites the header under this version, so a header that predates the
+            // sample can pair a digit with its neighbour's edge, and no later check
+            // would see it (`docs/ARCHITECTURE.md` §4.1).
+            // SAFETY: validated edge copy → live branch; loads validated below.
+            let (bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+            #[cfg(test)]
+            let (bl, num, digits, edges) = early.unwrap_or((bl, num, digits, edges));
             if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                 return Err(Retry);
             }
@@ -740,10 +777,27 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             let is_l3 = matches!(t, EdgeType::BranchL3);
-            // SAFETY: validated edge copy → live branch; loads validated below.
-            let (vp, bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+            // SAFETY: validated edge copy → live branch; field projection only.
+            let vp = unsafe { linear_branch_version(edge, is_l3) };
+            // The negative control loads the header before the sample, as the walk
+            // once did.
+            #[cfg(test)]
+            let early = crate::sync::test_hooks::loads_header_before_sample()
+                // SAFETY: as for the load below.
+                .then(|| unsafe { linear_branch(edge, is_l3) });
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: `vp` is the live branch's version field.
             let nsnap = unsafe { rs.sample(vp)? };
+            // The header is loaded after the sample, as every seqlock read loads
+            // the data its version covers: an in-place insert shifts the edges and
+            // rewrites the header under this version, so a header that predates the
+            // sample can pair a digit with its neighbour's edge, and no later check
+            // would see it (`docs/ARCHITECTURE.md` §4.1).
+            // SAFETY: validated edge copy → live branch; loads validated below.
+            let (bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+            #[cfg(test)]
+            let (bl, num, digits, edges) = early.unwrap_or((bl, num, digits, edges));
             if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                 return Err(Retry);
             }
@@ -1003,6 +1057,82 @@ unsafe fn immed_value(edge: &Edge, im: crate::types::ImmedType, slot: usize) -> 
     }
 }
 
+/// The fixture of the branch-sample tests (#900): the tree that the ordered
+/// walk, the batch cursor and the set form are driven over when a writer
+/// shifts a linear branch in place before the walk samples its version.
+///
+/// Keys `0x10_01..=0x10_21` and `0x30_01..=0x30_21` (odd low bytes, 17 under
+/// each digit) give one level-2 `BranchL3`, B, with digits `0x10` and `0x30`
+/// over two `Leaf1` children, under a chain of single-digit branches. B has
+/// room for a third digit, so a key under a new level-2 digit is inserted in
+/// place: B's edges shift and only B's version moves.
+#[cfg(test)]
+pub(crate) mod branch_sample_fixture {
+    use crate::node::{BranchL3, Edge};
+    use crate::sync::RootSnapshot;
+    use crate::types::{EdgeTag, EdgeType};
+
+    /// The fixture's keys.
+    pub(crate) fn keys() -> Vec<u64> {
+        [0x10u64, 0x30]
+            .iter()
+            .flat_map(|&d| (0..17u64).map(move |i| (d << 8) | (1 + 2 * i)))
+            .collect()
+    }
+
+    /// B and the version fields of the branches above it, from a root
+    /// snapshot of a quiescent tree. Panics unless B is a level-2 `BranchL3`
+    /// holding exactly `digits`, under a chain of single-digit `BranchL3`s,
+    /// and, when `leaves` is set, unless its two children are 17-key
+    /// `Leaf1`s (AGENTS.md §5 negative-control discrimination).
+    pub(crate) fn branch_b(
+        root: RootSnapshot,
+        digits: &[u8],
+        leaves: bool,
+    ) -> (*const BranchL3, Vec<*const u32>) {
+        let RootSnapshot::Tree { top } = root else {
+            panic!("root must be a tree")
+        };
+        let mut above = Vec::new();
+        // SAFETY: live nodes of a tree no writer is changing; every field is
+        // copied out before any write.
+        unsafe {
+            let mut edge = top;
+            loop {
+                assert_eq!(
+                    edge.tag(),
+                    Some(EdgeTag::Structural(EdgeType::BranchL3)),
+                    "every branch on the path is a BranchL3"
+                );
+                let b = edge.node_ptr().cast::<BranchL3>().cast_const();
+                let (level, num, hd) = ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits);
+                let edges: [Edge; 3] = (*b).edges;
+                if level == 2 {
+                    assert_eq!(&hd[..num], digits, "B's digits");
+                    if leaves {
+                        for e in &edges[..num] {
+                            assert_eq!(e.tag(), Some(EdgeTag::Structural(EdgeType::Leaf1)));
+                            assert_eq!(e.pop0(1) + 1, 17);
+                        }
+                    }
+                    return (b, above);
+                }
+                assert_eq!(num, 1, "a single-digit chain above B");
+                above.push(&raw const (*b).hdr.version);
+                edge = edges[0];
+            }
+        }
+    }
+
+    /// The version word at `vp`.
+    pub(crate) fn version(vp: *const u32) -> u32 {
+        // SAFETY: the fixture's nodes are not replaced by the in-place insert
+        // the tests make, and each tree outlives every read of its versions.
+        let cell = unsafe { crate::occ::version_cell(vp) };
+        cell.load(core::sync::atomic::Ordering::Acquire)
+    }
+}
+
 /// The string map's cross-level retention (#1143) on the real [`ReadSet`]:
 /// `ReadSet::sample`, `validate_from` and `validate_all` over node cover
 /// words, as `StrNode` covers stand in the walk. A successor search descends
@@ -1101,5 +1231,96 @@ mod loom_tests {
     #[should_panic(expected = "never the successor")]
     fn loom_str_ordered_read_hand_over_hand_is_not_enough() {
         model(true);
+    }
+
+    /// The linear-branch arm of `next_in` (#900) on the real [`ReadSet`]: a
+    /// branch B with digits `0x10` and `0x30`, whose header word packs the
+    /// digit count in its top byte and the digits from its low byte. Each
+    /// child edge is modelled by the digit it was linked under. The writer
+    /// inserts digit `0x20` in place under B's bracket, as
+    /// `linear_insert_at_shared` does: the edges shift right, then the header
+    /// is rewritten. The successor search for digit `0x21` must pair `0x30`
+    /// with the edge linked under `0x30`.
+    fn branch_search(
+        b_v: &Arc<VersionCell>,
+        hdr: &AtomicU64,
+        edges: &[AtomicU64; 3],
+        header_first: bool,
+    ) -> Option<(u8, u64)> {
+        let load_header = || {
+            let h = hdr.load(Ordering::Relaxed);
+            let num = (h >> 56) as usize;
+            let digits: [u8; 8] = h.to_le_bytes();
+            (num, digits)
+        };
+        let mut rs = ReadSet::<2>::new();
+        let early = header_first.then(load_header);
+        // SAFETY: the cell outlives the search; under loom the read set
+        // casts the pointer back to it.
+        unsafe { rs.sample(cover(b_v)) }.ok()?;
+        let (num, digits) = early.unwrap_or_else(load_header);
+        if num > 3 {
+            return None;
+        }
+        let start = digits[..num].partition_point(|&d| d < 0x21);
+        let slot = start;
+        if slot == num {
+            return None;
+        }
+        let child = edges[slot].load(Ordering::Relaxed);
+        // The holder check after the edge load, then the final validation.
+        // SAFETY: as above.
+        if !unsafe { rs.validate_from(0) } || !unsafe { rs.validate_all() } {
+            return None;
+        }
+        Some((digits[slot], child))
+    }
+
+    fn branch_model(header_first: bool) {
+        loom::model(move || {
+            let b_v = Arc::new(VersionCell::new(0));
+            let pack = |num: u64, digits: &[u8]| {
+                let mut b = [0u8; 8];
+                b[..digits.len()].copy_from_slice(digits);
+                u64::from_le_bytes(b) | (num << 56)
+            };
+            let hdr = Arc::new(AtomicU64::new(pack(2, &[0x10, 0x30])));
+            let edges = Arc::new([
+                AtomicU64::new(0x10),
+                AtomicU64::new(0x30),
+                AtomicU64::new(0),
+            ]);
+            let writer = {
+                let (b_v, hdr, edges) = (Arc::clone(&b_v), Arc::clone(&hdr), Arc::clone(&edges));
+                loom::thread::spawn(move || {
+                    version_begin(&b_v);
+                    edges[2].store(0x30, Ordering::Relaxed);
+                    edges[1].store(0x20, Ordering::Relaxed);
+                    hdr.store(pack(3, &[0x10, 0x20, 0x30]), Ordering::Relaxed);
+                    version_end(&b_v);
+                })
+            };
+            if let Some((d, child)) = branch_search(&b_v, &hdr, &edges, header_first) {
+                assert!(
+                    u64::from(d) == child,
+                    "digit {d:#x} paired with the edge linked under {child:#x}"
+                );
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn loom_ordered_read_samples_a_linear_branch_before_its_header() {
+        branch_model(false);
+    }
+
+    /// The negative control: loading the header before the sample, the
+    /// order the walk shipped with, lets an old digit pair with a shifted
+    /// edge.
+    #[test]
+    #[should_panic(expected = "paired with the edge linked under")]
+    fn loom_ordered_read_header_before_sample_pairs_a_shifted_edge() {
+        branch_model(true);
     }
 }
