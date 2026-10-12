@@ -2398,6 +2398,23 @@ impl core::marker::Unpin for expanse_trie::sync::DetachedSetReader
 impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedSetReader
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedSetReader
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedSetReader
+pub struct expanse_trie::sync::DetachedStrReader
+impl expanse_trie::sync::DetachedStrReader
+pub fn expanse_trie::sync::DetachedStrReader::contains(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::DetachedStrReader::first(&self, &expanse_trie::sync::SyncExpanseStrMap) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::DetachedStrReader::get(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::sync::DetachedStrReader::last(&self, &expanse_trie::sync::SyncExpanseStrMap) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::DetachedStrReader::next_after(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::DetachedStrReader::next_at_or_after(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::DetachedStrReader::prev_at_or_before(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::DetachedStrReader::prev_before(&self, &expanse_trie::sync::SyncExpanseStrMap, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+impl core::marker::Freeze for expanse_trie::sync::DetachedStrReader
+impl core::marker::Send for expanse_trie::sync::DetachedStrReader
+impl !core::marker::Sync for expanse_trie::sync::DetachedStrReader
+impl core::marker::Unpin for expanse_trie::sync::DetachedStrReader
+impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedStrReader
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedStrReader
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedStrReader
 pub struct expanse_trie::sync::MapReader<'a>
 impl expanse_trie::sync::MapReader<'_>
 pub fn expanse_trie::sync::MapReader<'_>::first(&self) -> core::option::Option<(u64, u64)>
@@ -2475,6 +2492,23 @@ impl core::marker::Unpin for expanse_trie::sync::OwnedSetReader
 impl core::marker::UnsafeUnpin for expanse_trie::sync::OwnedSetReader
 impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OwnedSetReader
 impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedSetReader
+pub struct expanse_trie::sync::OwnedStrReader
+impl expanse_trie::sync::OwnedStrReader
+pub fn expanse_trie::sync::OwnedStrReader::contains(&self, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::OwnedStrReader::first(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::OwnedStrReader::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
+pub fn expanse_trie::sync::OwnedStrReader::last(&self) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::OwnedStrReader::next_after(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::OwnedStrReader::next_at_or_after(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::OwnedStrReader::prev_at_or_before(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+pub fn expanse_trie::sync::OwnedStrReader::prev_before(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<(alloc::vec::Vec<u8>, u64)>
+impl core::marker::Freeze for expanse_trie::sync::OwnedStrReader
+impl core::marker::Send for expanse_trie::sync::OwnedStrReader
+impl !core::marker::Sync for expanse_trie::sync::OwnedStrReader
+impl core::marker::Unpin for expanse_trie::sync::OwnedStrReader
+impl core::marker::UnsafeUnpin for expanse_trie::sync::OwnedStrReader
+impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OwnedStrReader
+impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedStrReader
 pub struct expanse_trie::sync::SetReader<'a>
 impl expanse_trie::sync::SetReader<'_>
 pub fn expanse_trie::sync::SetReader<'_>::contains(&self, expanse_trie::types::Key) -> bool
@@ -2706,6 +2740,7 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::clear(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseStrMap::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseStrMap::compare_exchange(&self, &expanse_trie::strmap::NulFreeStr, core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseStrMap::contains_key(&self, &expanse_trie::strmap::NulFreeStr) -> bool
+pub fn expanse_trie::sync::SyncExpanseStrMap::detached_reader(&self) -> expanse_trie::sync::DetachedStrReader
 pub fn expanse_trie::sync::SyncExpanseStrMap::get(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::get_or_insert(&self, &expanse_trie::strmap::NulFreeStr, u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::get_or_insert_with(&self, &expanse_trie::strmap::NulFreeStr, impl core::ops::function::FnOnce() -> u64) -> core::option::Option<u64>
@@ -2715,6 +2750,7 @@ pub fn expanse_trie::sync::SyncExpanseStrMap::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseStrMap::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseStrMap::new() -> Self
+pub fn expanse_trie::sync::SyncExpanseStrMap::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedStrReader
 pub fn expanse_trie::sync::SyncExpanseStrMap::reader(&self) -> expanse_trie::sync::StrReader<'_>
 pub fn expanse_trie::sync::SyncExpanseStrMap::remove(&self, &expanse_trie::strmap::NulFreeStr) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseStrMap::shrink_to_fit(&self) -> usize
