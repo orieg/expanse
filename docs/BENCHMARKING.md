@@ -1670,9 +1670,12 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `set_compact_drained/*` · `map_compact_drained/*` | `compact()` of the `*_remove_partial` tree after its removes (200k grown, 62.5k kept), in place | The compact arm of the remove-retention suite ([`remove_retention/METHODOLOGY.md`](benchmarks/remove_retention/METHODOLOGY.md) §12): the ordered walk, the bottom-up build of the new tree (the set through `from_sorted_iter`'s builder, the map through its bulk builder) and the drop of the old one. G-cost compares it with the rebuild arm of the same run. |
 | `map_nav/*` | Ordered navigation (`next_at_or_after`) | Evaluates cursor bounding and successor searching across multi-level branches. |
 | `map_prev/*` | Strict predecessor (`prev_before`) from each present key | The backtracking path: a probe that is its terminal's smallest key descends a sibling subtree to its maximum. The single-threaded reference for #900's optimistic ordered reads. |
+| `set_nav/*` · `set_prev/*` | `next_at_or_after` and `prev_before` from each present key of an `ExpanseSet` | The set twins of `map_nav` and `map_prev` (#900), same keys, probe stream and ops count: the single-threaded references for the ordered reads a set reader will gain. |
 | `map32_nav/*` · `map32_prev/*` | 32-bit `next_at_or_after` and `prev_before` from each `keys32` probe | The 32-bit twins of `map_nav` and `map_prev`. |
 | `sync_map_prev_locked/*` | `prev_before` on `SyncExpanseMap` through `with_locked` | The only ordered route on the concurrent map before #900; the optimistic reads are compared against it. |
 | `sync_map_prev/*` | `prev_before` through a `SyncExpanseMap` reader handle, by the validated ordered walk | The optimistic ordered read (#900); prediction P12.3 compares it with `sync_map_prev_locked` on the same head. |
+| `sync_set_prev_locked/*` | `prev_before` on `SyncExpanseSet` through `with_locked`, from each present key | The only ordered route on the concurrent set (#900); the set twin of `sync_map_prev_locked`, named `_locked` so `sync_set_prev` stays free for the optimistic read. |
+| `sync_set_next_after_scan_locked/*` | Full ascending scan of a `SyncExpanseSet`, `first` then `next_after`, each call through `with_locked` | The per-element baseline for a set reader's `next_after` (#900); the set twin of `sync_map_next_after_scan` on today's only route, named `_locked` so `sync_set_next_after_scan` stays free. |
 | `map_cursor_scan/*` | Full forward scan of a prebuilt map through `MapCursor::next` | The single-threaded reference for a concurrent batch cursor (#1142); asserts every entry is visited once. |
 | `map_range_cursor_scan/*` | Full forward scan of a prebuilt map through `MapRangeCursor::next` | The bounded reference for `MapRangeCursor` (#1142); asserts every entry is visited once under range bounds. |
 | `sync_map_next_after_scan/*` | Full ascending scan of a `SyncExpanseMap` by `first` then `next_after` on a reader handle | One pin, version sample and root descent per entry: the per-element baseline a concurrent batch cursor is predicted against (#1142). |
@@ -1816,7 +1819,9 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `set_contains_batch` | `random` | 50,000 |
 | `cost` | `set_count_below` | `random`, `sequential`, `one_top_byte` | 50,000 |
 | `cost` | `set_insert` | `sequential`, `random`, `clustered`, `dense_leaf`, `linear_leaf` | 50,000 |
+| `cost` | `set_nav` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `set_oscillate` | `random` | 50,000 |
+| `cost` | `set_prev` | `random`, `sequential`, `clustered` | 50,000 |
 | `cost` | `set_rebuild_drained` | `random60` | 62,500 |
 | `cost` | `set_refill` | `random` | 100,000 |
 | `cost` | `set_remove` | `random` | 50,000 |
@@ -1886,6 +1891,8 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_set_contains` | `random`, `leaf` | 50,000 |
 | `cost` | `sync_set_drain_floor` | `top` | 200 |
 | `cost` | `sync_set_insert` | `random` | 50,000 |
+| `cost` | `sync_set_next_after_scan_locked` | `random`, `sequential`, `clustered` | 50,000 |
+| `cost` | `sync_set_prev_locked` | `random` | 50,000 |
 | `cost` | `sync_set_remove` | `random` | 50,000 |
 | `cost` | `sync_strmap_churn` | `routes` | 50,000 |
 | `cost` | `sync_strmap_churn_short` | `short` | 50,000 |
