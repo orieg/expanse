@@ -606,7 +606,6 @@ macro_rules! walk_validated_body {
             }
         }
     }
-
     }};
 }
 
@@ -10104,6 +10103,8 @@ pub use crate::sync_cursor::SyncMapCursor;
 /// assert_send::<OwnedSetReader>();
 /// assert_send::<DetachedSetReader>();
 /// assert_send::<StrReader<'static>>();
+/// assert_send::<OwnedStrReader>();
+/// assert_send::<DetachedStrReader>();
 /// assert_send::<BytesReader<'static>>();
 /// assert_send::<BlobReader<'static>>();
 /// ```
@@ -10175,8 +10176,9 @@ impl OwnedMapReader {
     }
 }
 
-/// The panic of [`SyncExpanseMap::registered`] and [`SyncExpanseSet::registered`], out of line so the check on a
-/// lookup path is a compare and a branch that is never taken.
+/// The panic of [`SyncExpanseMap::registered`], [`SyncExpanseSet::registered`]
+/// and [`SyncExpanseStrMap::registered`], out of line so the check on a lookup
+/// path is a compare and a branch that is never taken.
 #[cold]
 #[inline(never)]
 fn foreign_reader() -> ! {
@@ -10230,6 +10232,8 @@ const _: fn() = || {
     assert_send::<OwnedSetReader>();
     assert_send::<DetachedSetReader>();
     assert_send::<StrReader<'static>>();
+    assert_send::<OwnedStrReader>();
+    assert_send::<DetachedStrReader>();
     assert_send::<BytesReader<'static>>();
     assert_send::<BlobReader<'static>>();
     // The guard borrows its reader `&mut`, so no sibling pin can exist while
@@ -10244,6 +10248,8 @@ crate::occ::assert_not_sync!(
     OwnedSetReader,
     DetachedSetReader,
     StrReader<'static>,
+    OwnedStrReader,
+    DetachedStrReader,
     BytesReader<'static>,
     BlobReader<'static>,
 );
@@ -13254,6 +13260,44 @@ impl SyncExpanseStrMap {
         }
     }
 
+    /// A reader that owns its handle on the map, for callers that cannot hold
+    /// a borrow — a `#[pyclass]`, a thread-local, anything outliving the call.
+    ///
+    /// Registers once, so a loop through it pays none of the per-lookup
+    /// registry locking that [`Self::get`] does. One handle per thread: the
+    /// handle is `Send`, not `Sync` (see [`Reader`]).
+    #[must_use]
+    pub fn owned_reader(self: &Arc<Self>) -> OwnedStrReader {
+        OwnedStrReader {
+            map: Arc::clone(self),
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Registers a reader that holds no reference to this map.
+    ///
+    /// Use this where the reader is cached somewhere whose lifetime is not the
+    /// map's -- a per-thread cache, say -- and pass the map back in at lookup
+    /// time. See [`DetachedStrReader`].
+    ///
+    /// One handle per thread: the handle is `Send`, not `Sync` (see [`Reader`]).
+    #[must_use]
+    pub fn detached_reader(&self) -> DetachedStrReader {
+        DetachedStrReader {
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Returns `reader` if it was registered on this map's collector, and
+    /// panics otherwise (#1194). See [`SyncExpanseMap::registered`].
+    #[inline(always)]
+    pub(crate) fn registered<'r>(&self, reader: &'r Reader) -> &'r Reader {
+        if !Arc::ptr_eq(&reader.collector, &self.shared.collector) {
+            foreign_reader();
+        }
+        reader
+    }
+
     /// One-shot lookup (registers a throwaway reader; use [`Self::reader`]
     /// in hot loops).
     ///
@@ -13570,6 +13614,127 @@ impl From<ExpanseStrMap> for SyncExpanseStrMap {
     }
 }
 
+/// The validated string lookup shared by [`StrReader`], [`OwnedStrReader`] and
+/// [`DetachedStrReader`] (#1194).
+///
+/// One source for all three, so the readers cannot drift. A macro and not a
+/// function for the reason `set_contains_walk!` is: a plain function and
+/// `#[inline(always)]` each changed the instruction count of the set's
+/// `contains` on #1465, and expanding in place left the body as it was.
+/// `$map` is the map read, `$reader` the epoch reader pinned (evaluated
+/// once, before the first pin), `$key` the `&NulFreeStr`. Expanded as the
+/// whole body of a function returning `Option<u64>`: it returns from it.
+macro_rules! str_get_walk {
+    ($map:expr, $reader:expr, $key:expr) => {{
+        let key = $key;
+        let shared = &$map.shared;
+        let reader = $reader;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+        for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+            let _pin = reader.pin();
+            let snap = shared.version().sample();
+            // SAFETY: pinned + freshly sampled version; every hop of the
+            // cascade validates its loads (see `ExpanseStrMap::get_validated`).
+            let attempt =
+                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
+                unsafe {
+                    ExpanseStrMap::get_validated(
+                        str_root_of(shared.published().load()),
+                        key,
+                        shared.version(),
+                        snap,
+                    )
+                };
+            if let Ok(r) = attempt {
+                return r;
+            }
+        }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+        shared.read_locked(|m| m.get(key))
+    }};
+}
+
+/// The optimistic attempt loop of the string ordered reads, shared by
+/// [`StrReader`], [`OwnedStrReader`] and [`DetachedStrReader`] (#1194), for
+/// the reason `str_get_walk!` is a macro. Expanded as the whole body of a
+/// function returning `Option<(Vec<u8>, u64)>`.
+macro_rules! str_ordered_walk {
+    ($map:expr, $reader:expr, $seek:expr) => {{
+        let seek = $seek;
+        let shared = &$map.shared;
+        let reader = $reader;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+        #[cfg(test)]
+        test_hooks::str_count(test_hooks::StrCount::Ops);
+        // The walk's buffers, allocated once per call and kept across its
+        // retries; a successful attempt takes `out` as the answer's key.
+        let mut out = Vec::with_capacity(seek.key_len() + crate::strmap::CHUNK_BYTES);
+        let mut stack = Vec::with_capacity(seek.key_len() / crate::strmap::CHUNK_BYTES + 2);
+        for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+            #[cfg(test)]
+            test_hooks::str_count(test_hooks::StrCount::Attempts);
+            let _pin = reader.pin();
+            let snap = shared.version().sample();
+            let mut rs = crate::sync_nav::ReadSet::<STR_READ_SET_CAP>::new();
+            // SAFETY: pinned and freshly sampled, as in `get`; the walk
+            // validates every load it acts on.
+            let attempt = unsafe {
+                ExpanseStrMap::ordered_validated(
+                    str_root_of(shared.published().load()),
+                    seek,
+                    shared.version(),
+                    snap,
+                    &mut rs,
+                    &mut stack,
+                    &mut out,
+                )
+            };
+            match attempt {
+                Ok((found, cross)) => {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedAnswers);
+                    if cross {
+                        crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedCrossLevel);
+                        #[cfg(test)]
+                        test_hooks::str_count(test_hooks::StrCount::CrossLevel);
+                    }
+                    return found;
+                }
+                // A full set that still validates, under a tree word that
+                // did not move, came from depth.
+                Err(Retry)
+                    if rs.is_full()
+                        // SAFETY: still pinned; every entry was sampled
+                        // under the pin.
+                        && unsafe { rs.validate_all() }
+                        && shared.version().validate(snap) =>
+                {
+                    crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedOverflows);
+                    #[cfg(test)]
+                    test_hooks::str_count(test_hooks::StrCount::Overflows);
+                    break;
+                }
+                Err(Retry) => {}
+            }
+        }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+        #[cfg(test)]
+        test_hooks::str_count(test_hooks::StrCount::Fallbacks);
+        shared.read_locked(|m| {
+            let found = match seek {
+                StrSeek::AtOrAfter(k) => m.next_at_or_after(k),
+                StrSeek::AtOrBefore(k) => m.prev_at_or_before(k),
+                StrSeek::Before(k) => m.prev_before(k),
+                StrSeek::Last => m.last(),
+            };
+            // SAFETY: the slot is valid until the map's next mutation, which
+            // the writer lock held here excludes.
+            found.map(|(k, slot)| (k, unsafe { *slot.as_ptr() }))
+        })
+    }};
+}
+
 /// A per-thread reader handle for [`SyncExpanseStrMap`].
 ///
 /// One handle per thread. The handle is `Send`, not `Sync`: it embeds a
@@ -13614,30 +13779,7 @@ impl StrReader<'_> {
     /// See [`MapReader::get`] for the full protocol details and memory ordering constraints.
     #[must_use]
     pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
-        let shared = &self.map.shared;
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        for _ in 0..MAX_RETRIES {
-            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let _pin = self.reader.pin();
-            let snap = shared.version().sample();
-            // SAFETY: pinned + freshly sampled version; every hop of the
-            // cascade validates its loads (see `ExpanseStrMap::get_validated`).
-            let attempt =
-                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                unsafe {
-                    ExpanseStrMap::get_validated(
-                        str_root_of(shared.published().load()),
-                        key,
-                        shared.version(),
-                        snap,
-                    )
-                };
-            if let Ok(r) = attempt {
-                return r;
-            }
-        }
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        shared.read_locked(|m| m.get(key))
+        str_get_walk!(self.map, &self.reader, key)
     }
 
     /// Optimistic membership test.
@@ -13712,75 +13854,230 @@ impl StrReader<'_> {
     /// once. `Retry` stays a zero-sized type; the classification reads the
     /// set the attempt left behind.
     fn ordered(&self, seek: StrSeek<'_>) -> Option<(Vec<u8>, u64)> {
-        let shared = &self.map.shared;
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        #[cfg(test)]
-        test_hooks::str_count(test_hooks::StrCount::Ops);
-        // The walk's buffers, allocated once per call and kept across its
-        // retries; a successful attempt takes `out` as the answer's key.
-        let mut out = Vec::with_capacity(seek.key_len() + crate::strmap::CHUNK_BYTES);
-        let mut stack = Vec::with_capacity(seek.key_len() / crate::strmap::CHUNK_BYTES + 2);
-        for _ in 0..MAX_RETRIES {
-            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            #[cfg(test)]
-            test_hooks::str_count(test_hooks::StrCount::Attempts);
-            let _pin = self.reader.pin();
-            let snap = shared.version().sample();
-            let mut rs = crate::sync_nav::ReadSet::<STR_READ_SET_CAP>::new();
-            // SAFETY: pinned and freshly sampled, as in `get`; the walk
-            // validates every load it acts on.
-            let attempt = unsafe {
-                ExpanseStrMap::ordered_validated(
-                    str_root_of(shared.published().load()),
-                    seek,
-                    shared.version(),
-                    snap,
-                    &mut rs,
-                    &mut stack,
-                    &mut out,
-                )
-            };
-            match attempt {
-                Ok((found, cross)) => {
-                    crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedAnswers);
-                    if cross {
-                        crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedCrossLevel);
-                        #[cfg(test)]
-                        test_hooks::str_count(test_hooks::StrCount::CrossLevel);
-                    }
-                    return found;
-                }
-                // A full set that still validates, under a tree word that
-                // did not move, came from depth.
-                Err(Retry)
-                    if rs.is_full()
-                        // SAFETY: still pinned; every entry was sampled
-                        // under the pin.
-                        && unsafe { rs.validate_all() }
-                        && shared.version().validate(snap) =>
-                {
-                    crate::occ_stats::bump(crate::occ_stats::Stat::StrOrderedOverflows);
-                    #[cfg(test)]
-                    test_hooks::str_count(test_hooks::StrCount::Overflows);
-                    break;
-                }
-                Err(Retry) => {}
-            }
-        }
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        #[cfg(test)]
-        test_hooks::str_count(test_hooks::StrCount::Fallbacks);
-        shared.read_locked(|m| {
-            let found = match seek {
-                StrSeek::AtOrAfter(k) => m.next_at_or_after(k),
-                StrSeek::AtOrBefore(k) => m.prev_at_or_before(k),
-                StrSeek::Before(k) => m.prev_before(k),
-                StrSeek::Last => m.last(),
-            };
-            // SAFETY: the slot is valid until the map's next mutation, which
-            // the writer lock held here excludes.
-            found.map(|(k, slot)| (k, unsafe { *slot.as_ptr() }))
-        })
+        str_ordered_walk!(self.map, &self.reader, seek)
+    }
+}
+
+/// A reader that **owns** its map handle instead of borrowing it.
+///
+/// [`StrReader`] borrows, which makes it impossible to cache: a `#[pyclass]`,
+/// a thread-local, or any struct outliving the call cannot hold it. This is
+/// the string map's counterpart of [`OwnedMapReader`] (#554, #1194), with the
+/// same lookups as [`StrReader`].
+///
+/// One [`Reader`] owns a single epoch slot and its pins are not reentrant, so
+/// an `OwnedStrReader` is `Send`, not `Sync`: give each thread its own.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::OwnedStrReader>();
+/// ```
+pub struct OwnedStrReader {
+    map: Arc<SyncExpanseStrMap>,
+    reader: Reader,
+}
+
+impl OwnedStrReader {
+    /// Optimistic lookup, without the per-call registry lock
+    /// [`SyncExpanseStrMap::get`] pays. See [`StrReader::get`] for the walk
+    /// and the reclamation contract for locator values.
+    #[must_use]
+    pub fn get(&self, key: &NulFreeStr) -> Option<u64> {
+        str_get_walk!(self.map, &self.reader, key)
+    }
+
+    /// Optimistic membership test.
+    #[must_use]
+    pub fn contains(&self, key: &NulFreeStr) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Smallest entry `(key, value)`, without excluding writers.
+    #[must_use]
+    pub fn first(&self) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::AtOrAfter(
+            // SAFETY: the empty key contains no NUL.
+            unsafe { NulFreeStr::new_unchecked(&[]) },
+        ))
+    }
+
+    /// Largest entry, without excluding writers.
+    #[must_use]
+    pub fn last(&self) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::Last)
+    }
+
+    /// Smallest entry with key `>= key`, without excluding writers.
+    #[must_use]
+    pub fn next_at_or_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::AtOrAfter(key))
+    }
+
+    /// Smallest entry with key `> key`, without excluding writers.
+    #[must_use]
+    pub fn next_after(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        let mut succ = Vec::with_capacity(key.len() + 1);
+        succ.extend_from_slice(key.as_bytes());
+        succ.push(1);
+        // SAFETY: `key` is NUL-free and the appended byte is `1`.
+        let probe = unsafe { NulFreeStr::new_unchecked(&succ) };
+        self.ordered(StrSeek::AtOrAfter(probe))
+    }
+
+    /// Largest entry with key `<= key`, without excluding writers.
+    #[must_use]
+    pub fn prev_at_or_before(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::AtOrBefore(key))
+    }
+
+    /// Largest entry with key `< key`, without excluding writers.
+    #[must_use]
+    pub fn prev_before(&self, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        self.ordered(StrSeek::Before(key))
+    }
+
+    /// The optimistic attempt loop of the ordered reads; see
+    /// [`StrReader`].
+    fn ordered(&self, seek: StrSeek<'_>) -> Option<(Vec<u8>, u64)> {
+        str_ordered_walk!(self.map, &self.reader, seek)
+    }
+}
+
+/// A reader that owns neither its map nor a reference to it.
+///
+/// The string map's counterpart of [`DetachedMapReader`]: it holds only the
+/// epoch slot, so caching one says nothing about how long the map lives, and
+/// the caller supplies the map at lookup time. One [`Reader`] owns a single
+/// epoch slot, so a `DetachedStrReader` is `Send`, not `Sync`.
+///
+/// Every entry compares the reader's collector with the map's before the
+/// first pin and panics on a mismatch: a pin on another map's collector does
+/// not hold off this map's reclamation (#1194).
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::DetachedStrReader>();
+/// ```
+pub struct DetachedStrReader {
+    reader: Reader,
+}
+
+impl DetachedStrReader {
+    /// Optimistic lookup against `map`, without the per-call registry lock
+    /// [`SyncExpanseStrMap::get`] pays.
+    ///
+    /// `map` must be the map this reader was registered against; the check
+    /// is made on every call. See [`StrReader::get`] for the walk and the
+    /// reclamation contract for locator values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any node
+    /// of `map` is read.
+    #[must_use]
+    pub fn get(&self, map: &SyncExpanseStrMap, key: &NulFreeStr) -> Option<u64> {
+        str_get_walk!(map, map.registered(&self.reader), key)
+    }
+
+    /// Optimistic membership test against `map`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector.
+    #[must_use]
+    pub fn contains(&self, map: &SyncExpanseStrMap, key: &NulFreeStr) -> bool {
+        self.get(map, key).is_some()
+    }
+
+    /// Smallest entry `(key, value)`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any
+    /// node of `map` is read.
+    #[must_use]
+    pub fn first(&self, map: &SyncExpanseStrMap) -> Option<(Vec<u8>, u64)> {
+        self.ordered(
+            map,
+            StrSeek::AtOrAfter(
+                // SAFETY: the empty key contains no NUL.
+                unsafe { NulFreeStr::new_unchecked(&[]) },
+            ),
+        )
+    }
+
+    /// Largest entry, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any
+    /// node of `map` is read.
+    #[must_use]
+    pub fn last(&self, map: &SyncExpanseStrMap) -> Option<(Vec<u8>, u64)> {
+        self.ordered(map, StrSeek::Last)
+    }
+
+    /// Smallest entry with key `>= key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any
+    /// node of `map` is read.
+    #[must_use]
+    pub fn next_at_or_after(
+        &self,
+        map: &SyncExpanseStrMap,
+        key: &NulFreeStr,
+    ) -> Option<(Vec<u8>, u64)> {
+        self.ordered(map, StrSeek::AtOrAfter(key))
+    }
+
+    /// Smallest entry with key `> key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any
+    /// node of `map` is read.
+    #[must_use]
+    pub fn next_after(&self, map: &SyncExpanseStrMap, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        let mut succ = Vec::with_capacity(key.len() + 1);
+        succ.extend_from_slice(key.as_bytes());
+        succ.push(1);
+        // SAFETY: `key` is NUL-free and the appended byte is `1`.
+        let probe = unsafe { NulFreeStr::new_unchecked(&succ) };
+        self.ordered(map, StrSeek::AtOrAfter(probe))
+    }
+
+    /// Largest entry with key `<= key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any
+    /// node of `map` is read.
+    #[must_use]
+    pub fn prev_at_or_before(
+        &self,
+        map: &SyncExpanseStrMap,
+        key: &NulFreeStr,
+    ) -> Option<(Vec<u8>, u64)> {
+        self.ordered(map, StrSeek::AtOrBefore(key))
+    }
+
+    /// Largest entry with key `< key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any
+    /// node of `map` is read.
+    #[must_use]
+    pub fn prev_before(&self, map: &SyncExpanseStrMap, key: &NulFreeStr) -> Option<(Vec<u8>, u64)> {
+        self.ordered(map, StrSeek::Before(key))
+    }
+
+    /// The optimistic attempt loop of the ordered reads, behind the identity
+    /// check every ordered entry shares; see [`StrReader`].
+    fn ordered(&self, map: &SyncExpanseStrMap, seek: StrSeek<'_>) -> Option<(Vec<u8>, u64)> {
+        str_ordered_walk!(map, map.registered(&self.reader), seek)
     }
 }
 
@@ -18666,6 +18963,225 @@ mod tests {
         let set = even_set(8);
         let raw = Arc::new(Collector::new()).register();
         let _ = set.registered(&raw);
+    }
+
+    fn snf(b: &[u8]) -> &NulFreeStr {
+        NulFreeStr::new(b).expect("test keys are NUL-free")
+    }
+
+    /// A string map of `n` keys `key00000..` (values `i`), each with a long
+    /// sibling spanning more than one chunk, so lookups walk several hops.
+    fn str_fixture(n: u32) -> Arc<SyncExpanseStrMap> {
+        let map = Arc::new(SyncExpanseStrMap::new());
+        for i in 0..n {
+            let k = std::format!("key{i:05}");
+            assert_eq!(map.insert(snf(k.as_bytes()), u64::from(i)), None);
+            let long = std::format!("key{i:05}/a-rather-long-suffix-over-two-chunks");
+            assert_eq!(map.insert(snf(long.as_bytes()), 1_000 + u64::from(i)), None);
+        }
+        map
+    }
+
+    /// Probes of the equivalence test: present, absent, near and extreme keys.
+    fn str_probes(n: u32) -> Vec<Vec<u8>> {
+        let mut v: Vec<Vec<u8>> = vec![b"".to_vec(), b"a".to_vec(), b"zzzz".to_vec()];
+        for i in (0..n).step_by(1.max(n as usize / 40)) {
+            v.push(std::format!("key{i:05}").into_bytes());
+            v.push(std::format!("key{i:05}/a-rather-long-suffix-over-two-chunks").into_bytes());
+            v.push(std::format!("key{i:05}x").into_bytes());
+            v.push(std::format!("key{i:05}/a-rather-long-suffix-over-two-chunk").into_bytes());
+        }
+        v.push(std::format!("key{n:05}").into_bytes());
+        v
+    }
+
+    /// Every lookup and ordered read of the owned and detached string readers
+    /// equals `StrReader`'s, present, absent and after removing every other
+    /// key, with a root leaf and with a tree root (#1194).
+    #[test]
+    fn str_owned_and_detached_readers_match_str_reader() {
+        for n in [3u32, 3_000] {
+            let map = str_fixture(n);
+            let borrowed = map.reader();
+            let owned = map.owned_reader();
+            let detached = map.detached_reader();
+            let check = |when: &str| {
+                assert_eq!(owned.first(), borrowed.first(), "{when}: owned first");
+                assert_eq!(detached.first(&map), borrowed.first(), "{when}: det first");
+                assert_eq!(owned.last(), borrowed.last(), "{when}: owned last");
+                assert_eq!(detached.last(&map), borrowed.last(), "{when}: det last");
+                for p in str_probes(n) {
+                    let k = snf(&p);
+                    let want = borrowed.get(k);
+                    assert_eq!(owned.get(k), want, "{when}: owned get {p:?}");
+                    assert_eq!(detached.get(&map, k), want, "{when}: detached get {p:?}");
+                    assert_eq!(map.get(k), want, "{when}: one-shot get {p:?}");
+                    assert_eq!(owned.contains(k), want.is_some(), "{when}: owned contains");
+                    assert_eq!(
+                        detached.contains(&map, k),
+                        want.is_some(),
+                        "{when}: det contains"
+                    );
+                    assert_eq!(owned.next_at_or_after(k), borrowed.next_at_or_after(k));
+                    assert_eq!(owned.next_after(k), borrowed.next_after(k));
+                    assert_eq!(owned.prev_at_or_before(k), borrowed.prev_at_or_before(k));
+                    assert_eq!(owned.prev_before(k), borrowed.prev_before(k));
+                    assert_eq!(
+                        detached.next_at_or_after(&map, k),
+                        borrowed.next_at_or_after(k),
+                        "{when}: det next_at_or_after {p:?}"
+                    );
+                    assert_eq!(detached.next_after(&map, k), borrowed.next_after(k));
+                    assert_eq!(
+                        detached.prev_at_or_before(&map, k),
+                        borrowed.prev_at_or_before(k)
+                    );
+                    assert_eq!(detached.prev_before(&map, k), borrowed.prev_before(k));
+                }
+            };
+            check("present+absent");
+            assert_eq!(owned.get(snf(b"key00000")), Some(0));
+            assert_eq!(detached.get(&map, snf(b"key00000")), Some(0));
+            assert!(!owned.contains(snf(b"nope")) && !detached.contains(&map, snf(b"nope")));
+            // The one-shot form registers per call; the readers do not.
+            let before = map.shared.collector.registrations();
+            for i in 0..n.min(50) {
+                let k = std::format!("key{i:05}");
+                assert!(owned.contains(snf(k.as_bytes())));
+                assert!(detached.contains(&map, snf(k.as_bytes())));
+            }
+            let _ = owned.first();
+            let _ = detached.last(&map);
+            assert_eq!(map.shared.collector.registrations(), before);
+            for i in (0..n).step_by(2) {
+                let k = std::format!("key{i:05}");
+                assert_eq!(map.remove(snf(k.as_bytes())), Some(u64::from(i)));
+            }
+            check("after remove");
+            assert_eq!(owned.get(snf(b"key00000")), None);
+            assert_eq!(detached.get(&map, snf(b"key00000")), None);
+            assert!(owned.contains(snf(b"key00001")) && detached.contains(&map, snf(b"key00001")));
+        }
+    }
+
+    /// The fixtures of the equivalence test really are a root leaf and a tree
+    /// root, so those claims are checked and not assumed.
+    #[test]
+    fn str_equivalence_fixtures_cover_root_leaf_and_tree_states() {
+        let leaf = str_fixture(3);
+        let tree = str_fixture(3_000);
+        assert_eq!(
+            leaf.with_locked(|m| m.test_submap_is_tree_at(&[])),
+            Some(false)
+        );
+        assert_eq!(
+            tree.with_locked(|m| m.test_submap_is_tree_at(&[])),
+            Some(true)
+        );
+    }
+
+    /// Registration and strong-count accounting of the owned and detached
+    /// string readers: owned holds one strong reference, detached none; the
+    /// map stays alive, and answers, after the original handle is dropped, and
+    /// is freed when the last owner goes (#1194).
+    #[test]
+    fn str_owned_reader_keeps_map_alive_and_detached_holds_nothing() {
+        let map = str_fixture(50);
+        let strong = Arc::strong_count(&map);
+        let regs = map.shared.collector.registered_readers();
+
+        let detached = map.detached_reader();
+        assert_eq!(
+            Arc::strong_count(&map),
+            strong,
+            "detached takes no strong ref"
+        );
+        assert_eq!(map.shared.collector.registered_readers(), regs + 1);
+
+        let owned = map.owned_reader();
+        assert_eq!(
+            Arc::strong_count(&map),
+            strong + 1,
+            "owned takes one strong ref"
+        );
+        assert_eq!(map.shared.collector.registered_readers(), regs + 2);
+
+        let weak = Arc::downgrade(&map);
+        drop(map);
+        assert!(
+            weak.upgrade().is_some(),
+            "owned reader must keep the map alive"
+        );
+        assert_eq!(weak.strong_count(), 1);
+        for i in 0..50u32 {
+            let k = std::format!("key{i:05}");
+            assert_eq!(owned.get(snf(k.as_bytes())), Some(u64::from(i)));
+        }
+        drop(detached);
+        assert_eq!(
+            weak.strong_count(),
+            1,
+            "dropping a detached reader frees no ref"
+        );
+        drop(owned);
+        assert!(
+            weak.upgrade().is_none(),
+            "last owner dropped: the map is freed"
+        );
+    }
+
+    /// One `should_panic` test per detached entry: a map registered on
+    /// another collector is rejected before the first pin (#1194). Without
+    /// the check each call returns normally, so the expected message is what
+    /// fails when `registered` is removed.
+    macro_rules! str_detached_rejects_foreign_map {
+        ($($name:ident: |$r:ident, $b:ident| $call:expr;)*) => {$(
+            #[test]
+            #[should_panic(expected = "reader was registered on a different collector")]
+            fn $name() {
+                let (a, $b) = (str_fixture(8), str_fixture(8));
+                assert!(!Arc::ptr_eq(&a.shared.collector, &$b.shared.collector));
+                let $r = a.detached_reader();
+                let _ = $call;
+            }
+        )*};
+    }
+
+    str_detached_rejects_foreign_map! {
+        str_detached_get_rejects_foreign_map: |r, b| r.get(&b, snf(b"key00001"));
+        str_detached_contains_rejects_foreign_map: |r, b| r.contains(&b, snf(b"key00001"));
+        str_detached_first_rejects_foreign_map: |r, b| r.first(&b);
+        str_detached_last_rejects_foreign_map: |r, b| r.last(&b);
+        str_detached_next_at_or_after_rejects_foreign_map:
+            |r, b| r.next_at_or_after(&b, snf(b"key00001"));
+        str_detached_next_after_rejects_foreign_map: |r, b| r.next_after(&b, snf(b"key00001"));
+        str_detached_prev_at_or_before_rejects_foreign_map:
+            |r, b| r.prev_at_or_before(&b, snf(b"key00001"));
+        str_detached_prev_before_rejects_foreign_map: |r, b| r.prev_before(&b, snf(b"key00001"));
+    }
+
+    /// The same rejection for present, absent and empty keys; the right map
+    /// still answers after each rejection.
+    #[test]
+    fn str_detached_rejects_foreign_map_for_every_key() {
+        let (a, b) = (str_fixture(8), str_fixture(8));
+        let r = a.detached_reader();
+        for k in [&b"key00000"[..], b"key00007", b"absent", b""] {
+            let k = snf(k);
+            let caught = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| r.get(&b, k)));
+            assert!(caught.is_err(), "{k:?} was answered from a foreign map");
+            assert_eq!(r.get(&a, k), a.get(k));
+        }
+    }
+
+    /// A reader from a bare `Collector` belongs to no map and is rejected by
+    /// the same check.
+    #[test]
+    #[should_panic(expected = "reader was registered on a different collector")]
+    fn str_registered_rejects_unowned_collector_reader() {
+        let map = str_fixture(8);
+        let raw = Arc::new(Collector::new()).register();
+        let _ = map.registered(&raw);
     }
 
     /// An `OwnedMapReader` must agree with the one-shot `get` it replaces, and
@@ -27176,6 +27692,31 @@ mod str_ordered_tests {
         ]
     }
 
+    /// [`p2_reads`] through the owned reader (#1194).
+    fn p2_reads_owned(rd: &OwnedStrReader) -> Vec<Option<(Vec<u8>, u64)>> {
+        vec![
+            rd.next_at_or_after(nf(b"m")),
+            rd.next_at_or_after(nf(b"mmmmmmmm")),
+            rd.next_after(nf(b"mmmmmmmmAB")),
+            rd.prev_before(nf(b"n")),
+            rd.prev_at_or_before(nf(b"mmmmmmmmZ")),
+        ]
+    }
+
+    /// [`p2_reads`] through the detached reader (#1194).
+    fn p2_reads_detached(
+        rd: &DetachedStrReader,
+        m: &SyncExpanseStrMap,
+    ) -> Vec<Option<(Vec<u8>, u64)>> {
+        vec![
+            rd.next_at_or_after(m, nf(b"m")),
+            rd.next_at_or_after(m, nf(b"mmmmmmmm")),
+            rd.next_after(m, nf(b"mmmmmmmmAB")),
+            rd.prev_before(m, nf(b"n")),
+            rd.prev_at_or_before(m, nf(b"mmmmmmmmZ")),
+        ]
+    }
+
     fn p2_expected(model: &BTreeMap<Vec<u8>, u64>) -> Vec<Option<(Vec<u8>, u64)>> {
         let ge = |k: &[u8]| {
             model
@@ -27226,7 +27767,12 @@ mod str_ordered_tests {
                     Some(0),
                     "C must be linked and empty at the site"
                 );
-                *seen2.lock().unwrap() = Some(p2_reads(&m2.reader()));
+                let borrowed = p2_reads(&m2.reader());
+                // The owned and detached readers walk the same emptied but
+                // linked child and answer the same (#1194).
+                assert_eq!(p2_reads_owned(&m2.owned_reader()), borrowed);
+                assert_eq!(p2_reads_detached(&m2.detached_reader(), &m2), borrowed);
+                *seen2.lock().unwrap() = Some(borrowed);
             });
             assert_eq!(map.remove(nf(b"mmmmmmmmAB")), Some(201));
             let got = seen.lock().unwrap().take();
