@@ -2370,6 +2370,17 @@ impl<'a, S> core::marker::Unpin for expanse_trie::sync::BytesReader<'a, S> where
 impl<'a, S> core::marker::UnsafeUnpin for expanse_trie::sync::BytesReader<'a, S> where &'a expanse_trie::sync::SyncExpanseBytesMap<S>: core::marker::UnsafeUnpin
 impl<'a, S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BytesReader<'a, S>
 impl<'a, S> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BytesReader<'a, S>
+pub struct expanse_trie::sync::DetachedBytesReader
+impl expanse_trie::sync::DetachedBytesReader
+pub fn expanse_trie::sync::DetachedBytesReader::contains<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>(&self, &expanse_trie::sync::SyncExpanseBytesMap<S>, &[u8]) -> bool
+pub fn expanse_trie::sync::DetachedBytesReader::get<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>(&self, &expanse_trie::sync::SyncExpanseBytesMap<S>, &[u8]) -> core::option::Option<u64>
+impl core::marker::Freeze for expanse_trie::sync::DetachedBytesReader
+impl core::marker::Send for expanse_trie::sync::DetachedBytesReader
+impl !core::marker::Sync for expanse_trie::sync::DetachedBytesReader
+impl core::marker::Unpin for expanse_trie::sync::DetachedBytesReader
+impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedBytesReader
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedBytesReader
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedBytesReader
 pub struct expanse_trie::sync::DetachedMapReader
 impl expanse_trie::sync::DetachedMapReader
 pub fn expanse_trie::sync::DetachedMapReader::cursor<'m>(&self, &'m expanse_trie::sync::SyncExpanseMap) -> expanse_trie::sync_cursor::SyncMapCursor<'m, '_>
@@ -2463,6 +2474,17 @@ impl<'a> core::marker::Unpin for expanse_trie::sync::OrderedBytesReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::OrderedBytesReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OrderedBytesReader<'a>
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OrderedBytesReader<'a>
+pub struct expanse_trie::sync::OwnedBytesReader<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>
+impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync> expanse_trie::sync::OwnedBytesReader<S>
+pub fn expanse_trie::sync::OwnedBytesReader<S>::contains(&self, &[u8]) -> bool
+pub fn expanse_trie::sync::OwnedBytesReader<S>::get(&self, &[u8]) -> core::option::Option<u64>
+impl<S> core::marker::Freeze for expanse_trie::sync::OwnedBytesReader<S> where alloc::sync::Arc<expanse_trie::sync::SyncExpanseBytesMap<S>>: core::marker::Freeze
+impl<S> core::marker::Send for expanse_trie::sync::OwnedBytesReader<S> where alloc::sync::Arc<expanse_trie::sync::SyncExpanseBytesMap<S>>: core::marker::Send
+impl<S> !core::marker::Sync for expanse_trie::sync::OwnedBytesReader<S>
+impl<S> core::marker::Unpin for expanse_trie::sync::OwnedBytesReader<S> where alloc::sync::Arc<expanse_trie::sync::SyncExpanseBytesMap<S>>: core::marker::Unpin
+impl<S> core::marker::UnsafeUnpin for expanse_trie::sync::OwnedBytesReader<S> where alloc::sync::Arc<expanse_trie::sync::SyncExpanseBytesMap<S>>: core::marker::UnsafeUnpin
+impl<S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OwnedBytesReader<S>
+impl<S> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedBytesReader<S>
 pub struct expanse_trie::sync::OwnedMapReader
 impl expanse_trie::sync::OwnedMapReader
 pub fn expanse_trie::sync::OwnedMapReader::cursor(&self) -> expanse_trie::sync_cursor::SyncMapCursor<'_, '_>
@@ -2601,6 +2623,7 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::compare_exchange(&self, &[u8], core::option::Option<u64>, core::option::Option<u64>) -> core::result::Result<core::option::Option<u64>, core::option::Option<u64>>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::contains_key(&self, &[u8]) -> bool
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::detached_reader(&self) -> expanse_trie::sync::DetachedBytesReader
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get_or_insert(&self, &[u8], u64) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::get_or_insert_with(&self, &[u8], impl core::ops::function::FnOnce() -> u64) -> core::option::Option<u64>
@@ -2609,6 +2632,7 @@ pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::mem_used(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedBytesReader<S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::reader(&self) -> expanse_trie::sync::BytesReader<'_, S>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::remove(&self, &[u8]) -> core::option::Option<u64>
 pub fn expanse_trie::sync::SyncExpanseBytesMap<S>::shrink_to_fit(&self) -> usize
