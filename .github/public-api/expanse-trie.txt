@@ -2805,12 +2805,15 @@ impl<T> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync32::Sync3
 impl<T> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync32::Sync32<T> where core::cell::UnsafeCell<T>: core::panic::unwind_safe::UnwindSafe
 pub struct expanse_trie::sync32::Writer32<'a, T: expanse_trie::sync32::Container32>
 impl expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>
+pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::compare_exchange(&mut self, expanse_trie::types32::Key32, core::option::Option<expanse_trie::types32::Value32>, core::option::Option<expanse_trie::types32::Value32>) -> core::result::Result<core::result::Result<core::option::Option<expanse_trie::types32::Value32>, core::option::Option<expanse_trie::types32::Value32>>, expanse_trie::sync32::WriteError>
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::get(&self, expanse_trie::types32::Key32) -> core::option::Option<expanse_trie::types32::Value32>
+pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::get_or_insert(&mut self, expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> core::result::Result<core::option::Option<expanse_trie::types32::Value32>, expanse_trie::sync32::WriteError>
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::is_empty(&self) -> bool
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::len(&self) -> usize
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::mem_used(&self) -> usize
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::try_insert(&mut self, expanse_trie::types32::Key32, expanse_trie::types32::Value32) -> core::result::Result<core::option::Option<expanse_trie::types32::Value32>, expanse_trie::sync32::WriteError>
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::try_remove(&mut self, expanse_trie::types32::Key32) -> core::result::Result<core::option::Option<expanse_trie::types32::Value32>, expanse_trie::sync32::WriteError>
+pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::map32::ExpanseMap32>::update(&mut self, expanse_trie::types32::Key32, impl core::ops::function::FnOnce(core::option::Option<expanse_trie::types32::Value32>) -> core::option::Option<expanse_trie::types32::Value32>) -> core::result::Result<core::option::Option<expanse_trie::types32::Value32>, expanse_trie::sync32::WriteError>
 impl expanse_trie::sync32::Writer32<'_, expanse_trie::set32::ExpanseSet32>
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::set32::ExpanseSet32>::contains(&self, expanse_trie::types32::Key32) -> bool
 pub fn expanse_trie::sync32::Writer32<'_, expanse_trie::set32::ExpanseSet32>::is_empty(&self) -> bool

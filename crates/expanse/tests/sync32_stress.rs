@@ -364,3 +364,99 @@ fn map_ordered_reads_return_a_committed_neighbour_under_writer_churn() {
         "ordered reads that match no committed state of their window: {wrong:?}"
     );
 }
+
+/// Readers never observe an intermediate state of the writer's
+/// read-modify-write operations (#1194).
+///
+/// The key always holds a value: it is prefilled, and `compare_exchange` and
+/// `update` only ever replace one value with the next. A reader therefore
+/// must never see it absent (the state a remove followed by an insert, as two
+/// brackets, would expose between them), and, since the values the writer
+/// publishes increase by one per exchange, must never see a value that was
+/// not published nor one older than the last it saw. A second key is driven
+/// through `get_or_insert`'s present-key path and must keep the value it was
+/// first given.
+#[test]
+fn map_readers_never_observe_an_intermediate_rmw_state() {
+    const KEY: u32 = 0x0100_0001;
+    const ONCE: u32 = 0x0200_0002;
+    const SWAPS: u32 = 60_000;
+    const UPDATES: u32 = 60_000;
+    const READERS: usize = 3;
+    const MIN_ANSWERS: u64 = 5_000;
+    let mut m = SyncExpanseMap32::with_capacity(4_096, READERS);
+    let (mut w, mut pool) = m.split();
+    assert_eq!(w.compare_exchange(KEY, None, Some(0)), Ok(Ok(None)));
+    assert_eq!(w.get_or_insert(ONCE, 7), Ok(None));
+    let done = AtomicBool::new(false);
+    let answered = AtomicUsize::new(0);
+    let start = Barrier::new(READERS + 1);
+
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..READERS)
+            .map(|_| {
+                let mut r = pool.take().expect("reader slot");
+                let (done, answered, start) = (&done, &answered, &start);
+                s.spawn(move || {
+                    let mut last = 0u32;
+                    let mut ok = 0u64;
+                    start.wait();
+                    loop {
+                        let finished = done.load(Ordering::Acquire);
+                        if let Ok(v) = r.try_get(KEY) {
+                            let v = v.expect("the key was observed absent between brackets");
+                            assert!(v >= last, "value went backwards: {v} after {last}");
+                            assert!(v <= SWAPS + UPDATES, "value {v} was never published");
+                            last = v;
+                            ok += 1;
+                            answered.fetch_add(1, Ordering::Relaxed);
+                        }
+                        if let Ok(v) = r.try_get(ONCE) {
+                            assert_eq!(v, Some(7), "get_or_insert disturbed a present key");
+                        }
+                        if finished {
+                            return ok;
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        start.wait();
+        for i in 0..SWAPS {
+            assert_eq!(
+                w.compare_exchange(KEY, Some(i), Some(i + 1)),
+                Ok(Ok(Some(i)))
+            );
+            // A stale expected value is a mismatch and publishes nothing.
+            assert_eq!(
+                w.compare_exchange(KEY, Some(i), Some(0)),
+                Ok(Err(Some(i + 1)))
+            );
+            assert_eq!(w.get_or_insert(ONCE, 99), Ok(Some(7)));
+            if i % 64 == 0 {
+                std::thread::yield_now();
+            }
+        }
+        for i in 0..UPDATES {
+            assert_eq!(w.update(KEY, |c| c.map(|v| v + 1)), Ok(Some(SWAPS + i)));
+            if i % 64 == 0 {
+                std::thread::yield_now();
+            }
+        }
+        // Keep the writer idle until the readers have answered enough that
+        // the check above ran against the run, not only its edges.
+        // (A reader that panicked has finished; its join below reports it.)
+        while (answered.load(Ordering::Relaxed) as u64) < MIN_ANSWERS
+            && !handles.iter().any(|h| h.is_finished())
+        {
+            std::thread::yield_now();
+        }
+        done.store(true, Ordering::Release);
+        let total: u64 = handles.into_iter().map(|h| h.join().expect("reader")).sum();
+        assert!(total >= MIN_ANSWERS, "readers answered only {total} reads");
+    });
+    assert_eq!(w.get(KEY), Some(SWAPS + UPDATES));
+    assert_eq!(w.get(ONCE), Some(7));
+    assert!(w.try_reclaim());
+}
