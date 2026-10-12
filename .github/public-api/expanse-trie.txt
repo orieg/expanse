@@ -2388,6 +2388,16 @@ impl core::marker::Unpin for expanse_trie::sync::DetachedMapReader
 impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedMapReader
 impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedMapReader
 impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedMapReader
+pub struct expanse_trie::sync::DetachedSetReader
+impl expanse_trie::sync::DetachedSetReader
+pub fn expanse_trie::sync::DetachedSetReader::contains(&self, &expanse_trie::sync::SyncExpanseSet, expanse_trie::types::Key) -> bool
+impl core::marker::Freeze for expanse_trie::sync::DetachedSetReader
+impl core::marker::Send for expanse_trie::sync::DetachedSetReader
+impl !core::marker::Sync for expanse_trie::sync::DetachedSetReader
+impl core::marker::Unpin for expanse_trie::sync::DetachedSetReader
+impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedSetReader
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedSetReader
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedSetReader
 pub struct expanse_trie::sync::MapReader<'a>
 impl expanse_trie::sync::MapReader<'_>
 pub fn expanse_trie::sync::MapReader<'_>::first(&self) -> core::option::Option<(u64, u64)>
@@ -2455,6 +2465,16 @@ impl core::marker::Unpin for expanse_trie::sync::OwnedMapReader
 impl core::marker::UnsafeUnpin for expanse_trie::sync::OwnedMapReader
 impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OwnedMapReader
 impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedMapReader
+pub struct expanse_trie::sync::OwnedSetReader
+impl expanse_trie::sync::OwnedSetReader
+pub fn expanse_trie::sync::OwnedSetReader::contains(&self, expanse_trie::types::Key) -> bool
+impl core::marker::Freeze for expanse_trie::sync::OwnedSetReader
+impl core::marker::Send for expanse_trie::sync::OwnedSetReader
+impl !core::marker::Sync for expanse_trie::sync::OwnedSetReader
+impl core::marker::Unpin for expanse_trie::sync::OwnedSetReader
+impl core::marker::UnsafeUnpin for expanse_trie::sync::OwnedSetReader
+impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OwnedSetReader
+impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedSetReader
 pub struct expanse_trie::sync::SetReader<'a>
 impl expanse_trie::sync::SetReader<'_>
 pub fn expanse_trie::sync::SetReader<'_>::contains(&self, expanse_trie::types::Key) -> bool
@@ -2659,12 +2679,14 @@ pub fn expanse_trie::sync::SyncExpanseSet::clear(&self)
 pub fn expanse_trie::sync::SyncExpanseSet::collector_census(&self) -> expanse_trie::occ::CollectorCensus
 pub fn expanse_trie::sync::SyncExpanseSet::compact(&self)
 pub fn expanse_trie::sync::SyncExpanseSet::contains(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::SyncExpanseSet::detached_reader(&self) -> expanse_trie::sync::DetachedSetReader
 pub fn expanse_trie::sync::SyncExpanseSet::insert(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseSet::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseSet::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseSet::new() -> Self
+pub fn expanse_trie::sync::SyncExpanseSet::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedSetReader
 pub fn expanse_trie::sync::SyncExpanseSet::reader(&self) -> expanse_trie::sync::SetReader<'_>
 pub fn expanse_trie::sync::SyncExpanseSet::remove(&self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::SyncExpanseSet::shrink_to_fit(&self) -> usize
