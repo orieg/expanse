@@ -815,6 +815,8 @@ impl SyncMapCursor<'_, '_> {
                 let is_l3 = matches!(t, EdgeType::BranchL3);
                 // SAFETY: validated edge copy names live branch; loads validated below.
                 let (vp, bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+                #[cfg(test)]
+                crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
                 // SAFETY: `vp` is the live branch's version field.
                 let nsnap = unsafe { rs.sample(vp)? };
                 #[cfg(test)]

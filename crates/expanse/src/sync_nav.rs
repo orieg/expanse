@@ -512,6 +512,8 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
             let is_l3 = matches!(t, EdgeType::BranchL3);
             // SAFETY: validated edge copy → live branch; loads validated below.
             let (vp, bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: `vp` is the live branch's version field.
             let nsnap = unsafe { rs.sample(vp)? };
             if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
@@ -742,6 +744,8 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
             let is_l3 = matches!(t, EdgeType::BranchL3);
             // SAFETY: validated edge copy → live branch; loads validated below.
             let (vp, bl, num, digits, edges) = unsafe { linear_branch(edge, is_l3) };
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: `vp` is the live branch's version field.
             let nsnap = unsafe { rs.sample(vp)? };
             if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
@@ -1000,6 +1004,82 @@ unsafe fn immed_value(edge: &Edge, im: crate::types::ImmedType, slot: usize) -> 
     } else {
         // SAFETY: live value array per contract; `slot < key_count`.
         unsafe { crate::bits::shared_word::load::<true>(edge.node_ptr().cast::<u64>().add(slot)) }
+    }
+}
+
+/// The fixture of the branch-sample tests (#900): the tree that the ordered
+/// walk, the batch cursor and the set form are driven over when a writer
+/// shifts a linear branch in place before the walk samples its version.
+///
+/// Keys `0x10_01..=0x10_21` and `0x30_01..=0x30_21` (odd low bytes, 17 under
+/// each digit) give one level-2 `BranchL3`, B, with digits `0x10` and `0x30`
+/// over two `Leaf1` children, under a chain of single-digit branches. B has
+/// room for a third digit, so a key under a new level-2 digit is inserted in
+/// place: B's edges shift and only B's version moves.
+#[cfg(test)]
+pub(crate) mod branch_sample_fixture {
+    use crate::node::{BranchL3, Edge};
+    use crate::sync::RootSnapshot;
+    use crate::types::{EdgeTag, EdgeType};
+
+    /// The fixture's keys.
+    pub(crate) fn keys() -> Vec<u64> {
+        [0x10u64, 0x30]
+            .iter()
+            .flat_map(|&d| (0..17u64).map(move |i| (d << 8) | (1 + 2 * i)))
+            .collect()
+    }
+
+    /// B and the version fields of the branches above it, from a root
+    /// snapshot of a quiescent tree. Panics unless B is a level-2 `BranchL3`
+    /// holding exactly `digits`, under a chain of single-digit `BranchL3`s,
+    /// and, when `leaves` is set, unless its two children are 17-key
+    /// `Leaf1`s (AGENTS.md §5 negative-control discrimination).
+    pub(crate) fn branch_b(
+        root: RootSnapshot,
+        digits: &[u8],
+        leaves: bool,
+    ) -> (*const BranchL3, Vec<*const u32>) {
+        let RootSnapshot::Tree { top } = root else {
+            panic!("root must be a tree")
+        };
+        let mut above = Vec::new();
+        // SAFETY: live nodes of a tree no writer is changing; every field is
+        // copied out before any write.
+        unsafe {
+            let mut edge = top;
+            loop {
+                assert_eq!(
+                    edge.tag(),
+                    Some(EdgeTag::Structural(EdgeType::BranchL3)),
+                    "every branch on the path is a BranchL3"
+                );
+                let b = edge.node_ptr().cast::<BranchL3>().cast_const();
+                let (level, num, hd) = ((*b).hdr.level, (*b).hdr.num as usize, (*b).hdr.digits);
+                let edges: [Edge; 3] = (*b).edges;
+                if level == 2 {
+                    assert_eq!(&hd[..num], digits, "B's digits");
+                    if leaves {
+                        for e in &edges[..num] {
+                            assert_eq!(e.tag(), Some(EdgeTag::Structural(EdgeType::Leaf1)));
+                            assert_eq!(e.pop0(1) + 1, 17);
+                        }
+                    }
+                    return (b, above);
+                }
+                assert_eq!(num, 1, "a single-digit chain above B");
+                above.push(&raw const (*b).hdr.version);
+                edge = edges[0];
+            }
+        }
+    }
+
+    /// The version word at `vp`.
+    pub(crate) fn version(vp: *const u32) -> u32 {
+        // SAFETY: the fixture's nodes are not replaced by the in-place insert
+        // the tests make, and each tree outlives every read of its versions.
+        let cell = unsafe { crate::occ::version_cell(vp) };
+        cell.load(core::sync::atomic::Ordering::Acquire)
     }
 }
 
