@@ -6130,6 +6130,44 @@ impl SyncExpanseSet {
         }
     }
 
+    /// A reader that owns its handle on the set, for callers that cannot hold
+    /// a borrow — a `#[pyclass]`, a thread-local, anything outliving the call.
+    ///
+    /// Registers once, so a loop through it pays none of the per-lookup
+    /// registry locking that [`Self::contains`] does. One handle per thread:
+    /// the handle is `Send`, not `Sync` (see [`Reader`]).
+    #[must_use]
+    pub fn owned_reader(self: &Arc<Self>) -> OwnedSetReader {
+        OwnedSetReader {
+            set: Arc::clone(self),
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Registers a reader that holds no reference to this set.
+    ///
+    /// Use this where the reader is cached somewhere whose lifetime is not the
+    /// set's -- a per-thread cache, say -- and pass the set back in at lookup
+    /// time. See [`DetachedSetReader`].
+    ///
+    /// One handle per thread: the handle is `Send`, not `Sync` (see [`Reader`]).
+    #[must_use]
+    pub fn detached_reader(&self) -> DetachedSetReader {
+        DetachedSetReader {
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Returns `reader` if it was registered on this set's collector, and
+    /// panics otherwise (#1194). See [`SyncExpanseMap::registered`].
+    #[inline(always)]
+    pub(crate) fn registered<'r>(&self, reader: &'r Reader) -> &'r Reader {
+        if !Arc::ptr_eq(&reader.collector, &self.shared.collector) {
+            foreign_reader();
+        }
+        reader
+    }
+
     /// One-shot membership test (registers a throwaway reader; use
     /// [`Self::reader`] in hot loops).
     #[must_use]
@@ -6318,17 +6356,87 @@ impl SetReader<'_> {
     /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
-        self.set.shared.optimistic_read(
-            &self.reader,
-            |s| s.occ_root().0,
-            |root, ver, snap| {
-                // SAFETY: `optimistic_read` calls the walk pinned, with a version
-                // sampled after the pin and a root copied under it (`walk_validated`).
-                let walked = unsafe { walk_validated::<false>(root, key, ver, snap) };
-                walked.map(|r| r.is_some())
-            },
-            |s| s.contains(key),
-        )
+        set_contains_with(self.set, &self.reader, key)
+    }
+}
+
+/// The validated membership walk shared by [`SetReader`], [`OwnedSetReader`]
+/// and [`DetachedSetReader`].
+///
+/// Split out so the borrowing, owning and detached readers cannot drift: all
+/// three are the same protocol, differing only in how they hold the set (the
+/// map's `map_get_with`, #554).
+fn set_contains_with(set: &SyncExpanseSet, reader: &Reader, key: Key) -> bool {
+    set.shared.optimistic_read(
+        reader,
+        |s| s.occ_root().0,
+        |root, ver, snap| {
+            // SAFETY: `optimistic_read` calls the walk pinned, with a version
+            // sampled after the pin and a root copied under it (`walk_validated`).
+            let walked = unsafe { walk_validated::<false>(root, key, ver, snap) };
+            walked.map(|r| r.is_some())
+        },
+        |s| s.contains(key),
+    )
+}
+
+/// A reader that **owns** its set handle instead of borrowing it.
+///
+/// [`SetReader`] borrows, which makes it impossible to cache: a `#[pyclass]`,
+/// a thread-local, or any struct outliving the call cannot hold it. This is
+/// the set's counterpart of [`OwnedMapReader`] (#554, #1194).
+///
+/// One [`Reader`] owns a single epoch slot and its pins are not reentrant, so
+/// an `OwnedSetReader` is `Send`, not `Sync`: give each thread its own.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::OwnedSetReader>();
+/// ```
+pub struct OwnedSetReader {
+    set: Arc<SyncExpanseSet>,
+    reader: Reader,
+}
+
+impl OwnedSetReader {
+    /// Optimistic membership test, without the per-call registry lock
+    /// [`SyncExpanseSet::contains`] pays.
+    #[must_use]
+    pub fn contains(&self, key: Key) -> bool {
+        set_contains_with(&self.set, &self.reader, key)
+    }
+}
+
+/// A reader that owns neither its set nor a reference to it.
+///
+/// The set's counterpart of [`DetachedMapReader`]: it holds only the epoch
+/// slot, so caching one says nothing about how long the set lives, and the
+/// caller supplies the set at lookup time. One [`Reader`] owns a single epoch
+/// slot, so a `DetachedSetReader` is `Send`, not `Sync`.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::DetachedSetReader>();
+/// ```
+pub struct DetachedSetReader {
+    reader: Reader,
+}
+
+impl DetachedSetReader {
+    /// Optimistic membership test against `set`, without the per-call registry
+    /// lock [`SyncExpanseSet::contains`] pays.
+    ///
+    /// `set` must be the set this reader was registered against. The check
+    /// compares collectors: a pin on another set's collector does not hold
+    /// off `set`'s reclamation, so it is made on every call (#1194).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `set` does not share this reader's collector, before any node
+    /// of `set` is read.
+    #[must_use]
+    pub fn contains(&self, set: &SyncExpanseSet, key: Key) -> bool {
+        set_contains_with(set, set.registered(&self.reader), key)
     }
 }
 
@@ -9985,6 +10093,8 @@ pub use crate::sync_cursor::SyncMapCursor;
 /// assert_send::<OwnedMapReader>();
 /// assert_send::<DetachedMapReader>();
 /// assert_send::<SetReader<'static>>();
+/// assert_send::<OwnedSetReader>();
+/// assert_send::<DetachedSetReader>();
 /// assert_send::<StrReader<'static>>();
 /// assert_send::<BytesReader<'static>>();
 /// assert_send::<BlobReader<'static>>();
@@ -10057,14 +10167,14 @@ impl OwnedMapReader {
     }
 }
 
-/// The panic of [`SyncExpanseMap::registered`], out of line so the check on a
+/// The panic of [`SyncExpanseMap::registered`] and [`SyncExpanseSet::registered`], out of line so the check on a
 /// lookup path is a compare and a branch that is never taken.
 #[cold]
 #[inline(never)]
 fn foreign_reader() -> ! {
     panic!(
-        "reader was registered on a different collector than this map's; \
-         use a reader only with the map that created it"
+        "reader was registered on a different collector than this map's or \
+         set's; use a reader only with the map or set that created it"
     )
 }
 
@@ -10109,6 +10219,8 @@ const _: fn() = || {
     assert_send::<OwnedMapReader>();
     assert_send::<DetachedMapReader>();
     assert_send::<SetReader<'static>>();
+    assert_send::<OwnedSetReader>();
+    assert_send::<DetachedSetReader>();
     assert_send::<StrReader<'static>>();
     assert_send::<BytesReader<'static>>();
     assert_send::<BlobReader<'static>>();
@@ -10121,6 +10233,8 @@ crate::occ::assert_not_sync!(
     OwnedMapReader,
     DetachedMapReader,
     SetReader<'static>,
+    OwnedSetReader,
+    DetachedSetReader,
     StrReader<'static>,
     BytesReader<'static>,
     BlobReader<'static>,
@@ -18411,6 +18525,139 @@ mod tests {
         // The bound readers reach the same cursor constructors.
         assert_eq!(b.reader().cursor().count(), 64);
         assert_eq!(b.reader().range_cursor(0, 9).count(), 10);
+    }
+
+    /// A set holding `n` even keys (`0, 2, .., 2n-2`), so the odd keys around
+    /// them are absent probes. `n <= ROOT_LEAF_CAP` keeps the root a leaf.
+    fn even_set(n: u64) -> Arc<SyncExpanseSet> {
+        let set = Arc::new(SyncExpanseSet::new());
+        for k in 0..n {
+            assert!(set.insert(k * 2));
+        }
+        set
+    }
+
+    /// Present, absent and after-remove answers of the owned and detached set
+    /// readers equal `SetReader`'s and the one-shot `contains`, with a
+    /// root-leaf and with a tree root (#1194).
+    #[test]
+    fn set_owned_and_detached_readers_match_set_reader() {
+        for n in [5u64, 4_000] {
+            let set = even_set(n);
+            let borrowed = set.reader();
+            let owned = set.owned_reader();
+            let detached = set.detached_reader();
+            let check = |when: &str| {
+                for k in (0..(2 * n + 4)).chain([u64::MAX, u64::MAX - 1, 1 << 40]) {
+                    let want = borrowed.contains(k);
+                    assert_eq!(owned.contains(k), want, "{when}: owned at {k}");
+                    assert_eq!(detached.contains(&set, k), want, "{when}: detached at {k}");
+                    assert_eq!(set.contains(k), want, "{when}: one-shot at {k}");
+                }
+            };
+            check("present+absent");
+            assert!(owned.contains(0) && detached.contains(&set, 0));
+            assert!(!owned.contains(1) && !detached.contains(&set, 1));
+            // The one-shot form registers per call; the readers do not.
+            let before = set.shared.collector.registrations();
+            for k in 0..n {
+                assert!(owned.contains(k * 2));
+                assert!(detached.contains(&set, k * 2));
+            }
+            assert_eq!(set.shared.collector.registrations(), before);
+            for k in (0..n).step_by(2) {
+                assert!(set.remove(k * 2));
+            }
+            check("after remove");
+            assert!(!owned.contains(0) && !detached.contains(&set, 0));
+            assert!(owned.contains(2) && detached.contains(&set, 2));
+        }
+    }
+
+    /// Registration and strong-count accounting of the owned and detached set
+    /// readers: the owned one holds exactly one strong reference, the detached
+    /// one none; the set stays alive, and answers, after the original handle
+    /// is dropped, and is freed when the last owner goes (#1194).
+    #[test]
+    fn set_owned_reader_keeps_set_alive_and_detached_holds_nothing() {
+        let set = even_set(100);
+        let strong = Arc::strong_count(&set);
+        let regs = set.shared.collector.registered_readers();
+
+        let detached = set.detached_reader();
+        assert_eq!(
+            Arc::strong_count(&set),
+            strong,
+            "detached takes no strong ref"
+        );
+        assert_eq!(set.shared.collector.registered_readers(), regs + 1);
+
+        let owned = set.owned_reader();
+        assert_eq!(
+            Arc::strong_count(&set),
+            strong + 1,
+            "owned takes one strong ref"
+        );
+        assert_eq!(set.shared.collector.registered_readers(), regs + 2);
+
+        let weak = Arc::downgrade(&set);
+        drop(set);
+        assert!(
+            weak.upgrade().is_some(),
+            "owned reader must keep the set alive"
+        );
+        assert_eq!(weak.strong_count(), 1);
+        for k in 0..100u64 {
+            assert!(owned.contains(k * 2));
+            assert!(!owned.contains(k * 2 + 1));
+        }
+        drop(detached);
+        assert_eq!(
+            weak.strong_count(),
+            1,
+            "dropping a detached reader frees no ref"
+        );
+        drop(owned);
+        assert!(
+            weak.upgrade().is_none(),
+            "last owner dropped: the set is freed"
+        );
+    }
+
+    /// The detached set reader rejects a set registered on another collector
+    /// (#1194). Without the check the call returns normally, so `should_panic`
+    /// with the message is what fails when `registered` is removed.
+    #[test]
+    #[should_panic(expected = "reader was registered on a different collector")]
+    fn set_detached_contains_rejects_foreign_set() {
+        let (a, b) = (even_set(8), even_set(8));
+        assert!(!Arc::ptr_eq(&a.shared.collector, &b.shared.collector));
+        let r = a.detached_reader();
+        let _ = r.contains(&b, 2);
+    }
+
+    /// The same, for present, absent and extreme keys; the right set still
+    /// answers after each rejection.
+    #[test]
+    fn set_detached_contains_rejects_foreign_set_for_every_key() {
+        let (a, b) = (even_set(8), even_set(8));
+        let r = a.detached_reader();
+        for k in [0u64, 1, 14, 15, u64::MAX] {
+            let caught =
+                std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| r.contains(&b, k)));
+            assert!(caught.is_err(), "key {k} was answered from a foreign set");
+            assert_eq!(r.contains(&a, k), a.contains(k));
+        }
+    }
+
+    /// A reader from a bare `Collector` belongs to no set and is rejected by
+    /// the same check.
+    #[test]
+    #[should_panic(expected = "reader was registered on a different collector")]
+    fn set_registered_rejects_unowned_collector_reader() {
+        let set = even_set(8);
+        let raw = Arc::new(Collector::new()).register();
+        let _ = set.registered(&raw);
     }
 
     /// An `OwnedMapReader` must agree with the one-shot `get` it replaces, and
