@@ -198,8 +198,9 @@ severity = "error"
 # context. Diff-scoped, so the masking rules apply to lines this pull request
 # touches; a deliberate `|| true` (a merge-base build that is allowed to fail,
 # and renders as `NO BASELINE`) takes `# discipline:allow(ci-integrity)` on
-# its line. `pin_actions` stays off because this repository pins third-party
-# actions by release tag, not by commit SHA.
+# its line. `pin_actions` stays off because scripts/check_release_workflow.py
+# already fails every `uses:` that is not a 40-hex commit, in every workflow
+# and composite action.
 [gates.ci-integrity]
 enabled = true
 severity = "error"

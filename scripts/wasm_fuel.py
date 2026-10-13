@@ -388,13 +388,16 @@ def pin_problems(ci_yml: str, baseline: List[Dict[str, Any]]) -> List[str]:
     job = m.group(1)
     problems: List[str] = []
     by_target = {e.get("target"): e for e in baseline}
-    toolchains = re.findall(r"uses:\s*dtolnay/rust-toolchain@(\S+)", job)
+    # The action is pinned by commit SHA, so the compiler comes from the step's
+    # `toolchain:` input, not from the ref after the `@`.
+    steps = re.findall(r"uses:\s*dtolnay/rust-toolchain@\S+[^\n]*\n((?:(?!\s*- )[^\n]*\n)*)", job)
+    toolchains = [(re.search(r"^\s*toolchain:\s*(\S+)", blk, re.M) or [None, "<no toolchain input>"])[1] for blk in steps]
     if len(toolchains) != 1:
         problems.append(f"expected one dtolnay/rust-toolchain step in `{CI_JOB}`, found {toolchains}")
     else:
         pin = toolchains[0]
         if not re.fullmatch(r"\d+\.\d+\.\d+", pin):
-            problems.append(f"`{CI_JOB}` builds wasm32 with rust-toolchain@{pin}, not an exact release: fuel follows the compiler")
+            problems.append(f"`{CI_JOB}` builds wasm32 with toolchain {pin}, not an exact release: fuel follows the compiler")
         else:
             rustc = by_target.get(TARGETS["wasm32"], {}).get("rustc", "")
             if not rustc.startswith(f"rustc {pin} "):
@@ -557,7 +560,8 @@ def self_test() -> None:
     def job_yml(toolchain: str, wasmtime: str) -> str:
         return (
             "jobs:\n  wasm-fuel:\n    steps:\n"
-            f"      - uses: dtolnay/rust-toolchain@{toolchain}\n"
+            f"      - uses: dtolnay/rust-toolchain@{'0' * 40} # {toolchain}\n"
+            f"        with:\n          toolchain: {toolchain}\n"
             f"      - run: python3 -m pip install wasmtime=={wasmtime}\n"
             "  test-go:\n    steps:\n      - uses: dtolnay/rust-toolchain@stable\n"
         )
@@ -566,6 +570,8 @@ def self_test() -> None:
     assert any("not an exact release" in p for p in pin_problems(job_yml("stable", "48.0.0"), pin_base))
     assert any("move the pin and the baseline" in p for p in pin_problems(job_yml("1.99.0", "48.0.0"), pin_base))
     assert any("pins wasmtime 49.0.0" in p for p in pin_problems(job_yml("1.98.1", "49.0.0"), pin_base))
+    no_input = job_yml("1.98.1", "48.0.0").replace("          toolchain: 1.98.1\n", "          targets: wasm32-unknown-unknown\n")
+    assert any("<no toolchain input>" in p for p in pin_problems(no_input, pin_base))
     assert any("no `wasm-fuel` job" in p for p in pin_problems("jobs:\n  other:\n", pin_base))
     real = pin_problems(
         CI_WORKFLOW.read_text(encoding="utf-8"),
