@@ -16211,14 +16211,43 @@ mod set_ordered_fixtures {
         }
     }
 
-    /// The model's answer to a read.
-    pub(super) fn model_answer(m: &BTreeSet<u64>, op: Op, key: u64) -> Option<u64> {
-        let (k, forward) = walk_plan(op, key)?;
-        if forward {
-            m.range(k..).next().copied()
-        } else {
-            m.range(..=k).next_back().copied()
+    impl Op {
+        /// Whether the read searches upwards. Used to sort what a read
+        /// visited by direction; the answers are checked without it.
+        pub(super) const fn forward(self) -> bool {
+            matches!(self, Op::First | Op::NextAtOrAfter | Op::NextAfter)
         }
+    }
+
+    /// The model's answer to a read, from the `BTreeSet` alone. Each of the
+    /// six reads is written with its own bounds and none goes through
+    /// [`walk_plan`], so a read that `walk_plan` maps to the wrong walk
+    /// disagrees with its answer here.
+    pub(super) fn model_answer(m: &BTreeSet<u64>, op: Op, key: u64) -> Option<u64> {
+        use core::ops::Bound::{Excluded, Included, Unbounded};
+        match op {
+            Op::First => m.first().copied(),
+            Op::Last => m.last().copied(),
+            Op::NextAtOrAfter => m.range((Included(key), Unbounded)).next().copied(),
+            Op::NextAfter => m.range((Excluded(key), Unbounded)).next().copied(),
+            Op::PrevAtOrBefore => m.range((Unbounded, Included(key))).next_back().copied(),
+            Op::PrevBefore => m.range((Unbounded, Excluded(key))).next_back().copied(),
+        }
+    }
+
+    /// A second oracle: the same read by the single-threaded `ExpanseSet`
+    /// method of that name, under the lock. Native runs only; under Miri
+    /// each call would be interpreted, and the model above is checked there.
+    #[cfg(not(miri))]
+    pub(super) fn locked_answer(set: &SyncExpanseSet, op: Op, key: u64) -> Option<u64> {
+        set.with_locked(|s| match op {
+            Op::First => s.first(),
+            Op::Last => s.last(),
+            Op::NextAtOrAfter => s.next_at_or_after(key),
+            Op::NextAfter => s.next_after(key),
+            Op::PrevAtOrBefore => s.prev_at_or_before(key),
+            Op::PrevBefore => s.prev_before(key),
+        })
     }
 
     /// One read by direct call on a quiescent set, with the three checks of
@@ -16232,9 +16261,21 @@ mod set_ordered_fixtures {
         key: u64,
         what: &str,
     ) -> Vec<Visit> {
+        let want = model_answer(m, op, key);
+        #[cfg(not(miri))]
+        assert_eq!(
+            locked_answer(set, op, key),
+            want,
+            "{what}: {op:?}({key:#x}): the locked set against the model"
+        );
         let Some((k, forward)) = walk_plan(op, key) else {
+            assert_eq!(
+                want, None,
+                "{what}: {op:?}({key:#x}) answers before any walk"
+            );
             return Vec::new();
         };
+        assert_eq!(forward, op.forward(), "{op:?}: the direction of its walk");
         let (got, visits) = direct_walk(set, rd, k, forward);
         let Some(got) = got else {
             panic!("{what}: {op:?}({key:#x}) retried on a quiescent set")
@@ -16247,21 +16288,24 @@ mod set_ordered_fixtures {
         }
         assert_eq!(
             got.map(|(k, _)| k),
-            model_answer(m, op, key),
+            want,
             "{what}: {op:?}({key:#x}) against the model"
         );
         visits
     }
 
-    /// Every read over every probe, and every form the walks visited.
+    /// Every read over every probe, and every form the walks visited: the
+    /// forward reads' first, then the backward reads'. The two are kept
+    /// apart because `next_in` and `prev_in` record their visits at
+    /// separate sites.
     pub(super) fn checked_reads(
         set: &SyncExpanseSet,
         m: &BTreeSet<u64>,
         probes: &[u64],
         what: &str,
-    ) -> Vec<Visit> {
+    ) -> [Vec<Visit>; 2] {
         let rd = set.reader();
-        let mut seen = Vec::new();
+        let mut seen = [Vec::new(), Vec::new()];
         // `First` and `Last` take no key: once per fixture.
         let calls = [Op::First, Op::Last].into_iter().map(|op| (op, 0)).chain(
             probes
@@ -16269,6 +16313,7 @@ mod set_ordered_fixtures {
                 .flat_map(|&p| OPS[2..].iter().map(move |&op| (op, p))),
         );
         for (op, p) in calls {
+            let seen = &mut seen[usize::from(!op.forward())];
             for v in checked_read(set, &rd, m, op, p, what) {
                 if !seen.contains(&v) {
                     seen.push(v);
@@ -16744,18 +16789,21 @@ mod set_ordered_fixtures {
     }
 
     /// Runs every read over every row of [`fixture_table`], with the checks of
-    /// [`checked_read`], and asserts each row's forms were visited. Returns the
+    /// [`checked_read`], and asserts each row's forms were visited by its
+    /// forward reads and, separately, by its backward reads. Returns the
     /// number of rows it ran.
     pub(super) fn run_table(which: Table) -> usize {
         let rows = fixture_table(which);
         let n = rows.len();
         for (what, f, probes, required) in rows {
             let seen = checked_reads(&f.0, &f.1, &probes, &what);
-            for v in required {
-                assert!(
-                    seen.contains(&v),
-                    "{what}: no read visited {v:?} (visited {seen:?})"
-                );
+            for (dir, seen) in ["forward", "backward"].into_iter().zip(&seen) {
+                for v in &required {
+                    assert!(
+                        seen.contains(v),
+                        "{what}: no {dir} read visited {v:?} (visited {seen:?})"
+                    );
+                }
             }
         }
         n
@@ -27307,7 +27355,6 @@ mod set_ordered_stats_tests {
     #[test]
     fn set_ordered_reads_answer_optimistically_and_visit_every_form() {
         assert!(occ_stats::enabled());
-        let start = occ_stats::snapshot();
 
         // The two early answers reach no walk and count no read operation.
         let (set, m) = fx::root_leaf_fixture(8);
@@ -27367,13 +27414,44 @@ mod set_ordered_stats_tests {
             counted(&format!("{what}, mostly removed"), &f.0, &f.1, &probes);
         }
 
-        let visited = occ_stats::snapshot();
-        for s in VISITS {
-            assert!(
-                visited[s as usize] > start[s as usize],
-                "no read visited {}",
-                occ_stats::NAMES[s as usize]
-            );
+        // Every form is visited by the forward reads alone and by the
+        // backward reads alone: `next_in` and `prev_in` count at separate
+        // sites. The counters carry no flavour, so these deltas are the
+        // set's only because no other reader runs in this process meanwhile
+        // (the single-threaded lib pass).
+        let directions = [
+            (
+                "forward",
+                [fx::Op::First, fx::Op::NextAtOrAfter, fx::Op::NextAfter],
+            ),
+            (
+                "backward",
+                [fx::Op::Last, fx::Op::PrevAtOrBefore, fx::Op::PrevBefore],
+            ),
+        ];
+        for (dir, ops) in directions {
+            let rows = fx::fixture_table(fx::Table::Full);
+            let before = occ_stats::snapshot();
+            for (what, f, probes, _) in &rows {
+                let rd = f.0.reader();
+                for &p in probes {
+                    for op in ops {
+                        assert_eq!(
+                            fx::optimistic_set_read(&f.0, &rd, op, p),
+                            fx::model_answer(&f.1, op, p),
+                            "{what}: {op:?}({p:#x}) against the model"
+                        );
+                    }
+                }
+            }
+            let after = occ_stats::snapshot();
+            for s in VISITS {
+                assert!(
+                    after[s as usize] > before[s as usize],
+                    "no {dir} read visited {}",
+                    occ_stats::NAMES[s as usize]
+                );
+            }
         }
 
         // The bound: one read of each direction retains exactly 13 versions
