@@ -35,6 +35,21 @@
 //! See `docs/HARDWARE.md` §1.7 and [#431](https://github.com/orieg/expanse/issues/431)
 //! for the 4KB page granularity and STLB reach trade-offs at 1M+ keys.
 //!
+//! **Under Miri every block is its own allocation.** A slab page is one
+//! zeroed 4 KiB allocation, so a read past a block of 256 bytes or less
+//! lands in a neighbouring block of the same page: initialised memory
+//! inside one allocation, which neither Miri nor AddressSanitizer reports.
+//! With `cfg(miri)` a plain tree's allocator therefore serves each request
+//! from the system allocator at exactly the requested size and alignment,
+//! zeroed as every entry point here promises, and returns it there on free
+//! (the `exact_size` field of [`NodeAlloc`]). A read past a node, or of a
+//! freed one, is then a read outside a live allocation. Accounting is
+//! unchanged: it never depended on where a block came from. A tree shared
+//! through a concurrent wrapper already allocated this way in every build.
+//! The slab and freelist code keeps its Miri coverage through this file's
+//! own tests, which opt back into pooling. Nothing here exists outside
+//! `cfg(miri)`.
+//!
 //! The tree itself is single-writer; Phase 7's concurrent wrappers add
 //! shared readers, so the counters are (relaxed) atomics.
 
@@ -552,6 +567,14 @@ pub struct NodeAlloc {
     /// Set while a thread is inside the single-writer region above.
     #[cfg(debug_assertions)]
     bookkeeping_busy: core::sync::atomic::AtomicBool,
+    /// Miri only, and true unless a test asked for pooling
+    /// (`NodeAlloc::with_pooling`): the plain path takes every block from
+    /// the system allocator at exactly the requested layout and frees it
+    /// there, so the freelists and the slab list above stay empty. Fixed at
+    /// construction, because a block must be freed the way it was allocated.
+    /// The field does not exist in any other build.
+    #[cfg(miri)]
+    exact_size: bool,
 }
 
 impl Default for NodeAlloc {
@@ -570,6 +593,8 @@ impl Default for NodeAlloc {
             slab_pages: AtomicPtr::new(core::ptr::null_mut()),
             #[cfg(debug_assertions)]
             bookkeeping_busy: core::sync::atomic::AtomicBool::new(false),
+            #[cfg(miri)]
+            exact_size: true,
         }
     }
 }
@@ -644,6 +669,17 @@ impl NodeAlloc {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A handle that pools under Miri as it does in every other build: slab
+    /// pages for the small classes and per-class freelists. For the tests of
+    /// that machinery, which Miri would otherwise never run (see the module
+    /// docs).
+    #[cfg(all(miri, test))]
+    pub(crate) fn with_pooling() -> Self {
+        let mut a = Self::new();
+        a.exact_size = false;
+        a
     }
 
     /// Bytes currently allocated through this handle.
@@ -1082,6 +1118,13 @@ impl NodeAlloc {
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
         self.total_allocs.fetch_add(1, Ordering::Relaxed);
 
+        // Miri: one system allocation of exactly `(bytes, align)` per block,
+        // accounted above as in every build (module docs).
+        #[cfg(miri)]
+        if self.exact_size {
+            return Self::alloc_system(bytes, align);
+        }
+
         if let Some(class) = class_for(bytes, align) {
             let head = self.freelists[class].load(Ordering::Relaxed);
             if !head.is_null() {
@@ -1214,6 +1257,19 @@ impl NodeAlloc {
         self.bytes_in_use
             .fetch_sub(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+
+        // Miri: the block goes back to the system allocator, so a later use
+        // of it is a use after free and not a read of a pooled block.
+        #[cfg(miri)]
+        if self.exact_size {
+            // SAFETY: per this function's contract `ptr` is an unfreed
+            // `alloc_raw(bytes, align)` block of this handle. `exact_size` is
+            // fixed at construction, so that call took the matching branch
+            // and allocated it with `alloc_system(bytes, align)`, whose
+            // layout is `layout_for(bytes, align)`.
+            unsafe { dealloc(ptr.as_ptr(), Self::layout_for(bytes, align)) };
+            return;
+        }
 
         if let Some(class) = class_for(bytes, align) {
             #[cfg(debug_assertions)]
@@ -1797,6 +1853,21 @@ mod tests {
     use core_alloc::sync::Arc;
     use core_alloc::vec::Vec;
 
+    /// The allocator for a test of the slab pages and the per-tree freelists.
+    /// Under Miri a plain handle serves exact-size blocks and never touches
+    /// either (module docs), so these tests ask for pooling there; in every
+    /// other build this is `NodeAlloc::new()`.
+    fn pooled_alloc() -> NodeAlloc {
+        #[cfg(miri)]
+        {
+            NodeAlloc::with_pooling()
+        }
+        #[cfg(not(miri))]
+        {
+            NodeAlloc::new()
+        }
+    }
+
     /// Each stripe's allocations are counted in that stripe's shard, a free
     /// on another stripe is netted in the freeing stripe's shard, and the
     /// totals still balance. A shard index that ignored the stripe would put
@@ -2017,7 +2088,7 @@ mod tests {
 
     #[test]
     fn slab_freelist_recycling_round_trip() {
-        let a = NodeAlloc::new();
+        let a = pooled_alloc();
         let p1 = a.alloc_bytes(32);
         let total_after_p1 = a.total_allocs();
         assert_eq!(total_after_p1, 1);
@@ -2102,7 +2173,7 @@ mod tests {
 
     #[test]
     fn slab_page_pooling_and_cleanup_test() {
-        let a = NodeAlloc::new();
+        let a = pooled_alloc();
         let count = if cfg!(miri) { 10 } else { 100 };
         // Allocate blocks (more than 1 block, spanning multiple freelist pops from 4KB pages)
         let mut ptrs = Vec::new();
@@ -2194,7 +2265,7 @@ mod tests {
     fn release_free_returns_free_pages_and_system_blocks() {
         let class = class_for_raw(64).expect("64 is a raw class");
         let per_page = slab_blocks(class);
-        let mut a = NodeAlloc::new();
+        let mut a = pooled_alloc();
         // Three pages: two full, one holding the last block.
         let n = 2 * per_page + 1;
         let blocks: core_alloc::vec::Vec<_> = (0..n).map(|_| a.alloc_bytes(64)).collect();
@@ -2256,7 +2327,7 @@ mod tests {
     fn census_classifies_pages_and_sums_to_held() {
         let class = class_for_raw(64).expect("64 is a raw class");
         let per_page = slab_blocks(class);
-        let mut a = NodeAlloc::new();
+        let mut a = pooled_alloc();
         // Four pages of 64-byte blocks: page 0 full, page 1 with one live
         // block, page 2 with none, page 3 holding the last block alone.
         let n = 3 * per_page + 1;
@@ -2322,6 +2393,169 @@ mod tests {
         assert_eq!(a.census().used(), 0);
     }
 
+    /// Every size class, and sizes no class serves, round-trip through the
+    /// plain path: the block is aligned as asked, reads as zeros over exactly
+    /// the requested bytes, takes a write to every one of them, and is
+    /// accounted at the request rounded up to its alignment, which is the
+    /// same figure whether the block was carved from a slab page or (under
+    /// Miri) allocated alone. Miri checks the rest: each byte touched is
+    /// inside its allocation and initialised, each free passes the layout its
+    /// allocation used, and nothing is left allocated when the test ends.
+    #[test]
+    fn every_class_round_trips_at_its_requested_layout() {
+        let a = NodeAlloc::new();
+        // Sizes outside the class table, at both alignments: below the
+        // smallest class, between classes, in the gap above the slab ceiling,
+        // and past the table.
+        let unclassed = [
+            (1, RAW_ALIGN),
+            (7, RAW_ALIGN),
+            (21, RAW_ALIGN),
+            (251, RAW_ALIGN),
+            (376, RAW_ALIGN),
+            (1000, RAW_ALIGN),
+            (192, CACHE_LINE),
+            (4160, CACHE_LINE),
+        ];
+        for &(bytes, align) in &unclassed {
+            assert_eq!(class_for(bytes, align), None, "({bytes}, {align})");
+        }
+        let mut expect_total = 0;
+        // Twice over, so the second pass allocates after the first freed.
+        for _pass in 0..2 {
+            let mut live = Vec::new();
+            let mut expect_bytes = 0;
+            for &(bytes, align) in CLASS_SPECS.iter().chain(&unclassed) {
+                let p = a.alloc_raw::<false>(bytes, align);
+                expect_bytes += accounted_size(bytes, align);
+                expect_total += 1;
+                assert_eq!(p.as_ptr() as usize % align, 0, "({bytes}, {align})");
+                for i in 0..bytes {
+                    // SAFETY: `i < bytes`, inside the block just allocated.
+                    unsafe {
+                        assert_eq!(*p.as_ptr().add(i), 0, "({bytes}, {align}) byte {i}");
+                        p.as_ptr().add(i).write(0xA5);
+                    }
+                }
+                live.push((p, bytes, align));
+            }
+            assert_eq!(a.bytes_in_use(), expect_bytes);
+            assert_eq!(a.live_allocs(), live.len());
+            assert_eq!(a.total_allocs(), expect_total);
+            // Exact-size mode holds nothing beyond what is live.
+            #[cfg(miri)]
+            assert_eq!(a.bytes_held(), expect_bytes);
+            for (p, bytes, align) in live {
+                // SAFETY: `p` came from `alloc_raw::<false>(bytes, align)` on
+                // this handle above and is not used again.
+                unsafe { a.free_raw::<false>(p, bytes, align) };
+            }
+            assert_eq!(a.bytes_in_use(), 0);
+            assert_eq!(a.live_allocs(), 0);
+            #[cfg(miri)]
+            {
+                assert_eq!(a.bytes_held(), 0, "a freed block went back to the system");
+                assert!(
+                    a.freelists
+                        .iter()
+                        .all(|h| h.load(Ordering::Relaxed).is_null()),
+                    "exact-size mode pooled a freed block"
+                );
+                assert!(
+                    a.slab_pages.load(Ordering::Relaxed).is_null(),
+                    "exact-size mode carved a slab page"
+                );
+            }
+        }
+    }
+
+    /// The typed entry points under the same check: a node written by
+    /// `alloc_node`, a zeroed node, and raw bytes, on the plain and on the
+    /// runtime-dispatched paths, each freed through its own pair.
+    #[test]
+    fn typed_entry_points_round_trip_at_their_own_layout() {
+        let a = NodeAlloc::new();
+        let n1 = a.alloc_node(BranchL3::new(2));
+        let n2 = a.alloc_node_zeroed::<BranchB>();
+        let n3 = a.alloc_node_zeroed_plain::<BranchU>();
+        let n4 = a.alloc_node_zeroed_dispatch::<false, BranchL3>();
+        let b1 = a.alloc_bytes(21);
+        let b2 = a.alloc_bytes_plain(64);
+        let b3 = a.alloc_bytes_dispatch::<false>(300);
+        assert_eq!(a.live_allocs(), 7);
+        assert_eq!(
+            a.bytes_in_use(),
+            2 * size_of::<BranchL3>() + size_of::<BranchB>() + size_of::<BranchU>() + 32 + 64 + 304
+        );
+        // SAFETY: the last byte of each raw block is inside it; each block is
+        // then freed once, through the pair that allocated it.
+        unsafe {
+            assert_eq!(*b1.as_ptr().add(20), 0);
+            assert_eq!(*b2.as_ptr().add(63), 0);
+            assert_eq!(*b3.as_ptr().add(299), 0);
+            a.free_node(n1);
+            a.free_node(n2);
+            a.free_node_plain(n3);
+            a.free_node_dispatch::<false, BranchL3>(n4);
+            a.free_bytes(b1, 21);
+            a.free_bytes_plain(b2, 64);
+            a.free_bytes_dispatch::<false>(b3, 300);
+        }
+        assert_eq!(a.live_allocs(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
+    }
+
+    /// What the exact-size mode exists to remove, shown on the pooled
+    /// allocator: the byte one past a slab-carved node belongs to the next
+    /// block of the same zeroed page, so Miri accepts the read. The canary
+    /// below is the same read on a default handle, and Miri must reject it.
+    #[test]
+    #[cfg(miri)]
+    fn miri_pooled_block_hides_a_read_one_byte_past_it() {
+        let a = NodeAlloc::with_pooling();
+        let node = a.alloc_node_zeroed::<BranchL3>();
+        let class =
+            class_for(size_of::<BranchL3>(), align_of::<BranchL3>()).expect("BranchL3 is a class");
+        assert!(is_slab_class(class) && slab_blocks(class) >= 2);
+        assert_eq!(a.bytes_held(), SLAB_PAGE_SIZE, "the node is on a slab page");
+        // SAFETY: the node is the first of at least two blocks carved from
+        // one zeroed 4 KiB page, so the byte after it is inside that page
+        // and initialised (it is the next block's freelist link).
+        let past = unsafe { node.as_ptr().cast::<u8>().add(size_of::<BranchL3>()).read() };
+        let _ = core::hint::black_box(past);
+        // SAFETY: `node` came from `alloc_node_zeroed` on this handle.
+        unsafe { a.free_node(node) };
+    }
+
+    /// Negative control for the exact-size mode: a read one byte past a node
+    /// must be undefined behaviour to Miri. A test Miri must reject cannot
+    /// pass, so it is ignored in every lane and run alone by the Tier-1
+    /// `miri` job's canary step, which requires Miri's own diagnostic in the
+    /// log and fails on anything else (AGENTS.md §5, string-gated inverted
+    /// assertions). If the mode is off, the read lands in the slab page, no
+    /// report is made, and the panic below is what the step sees instead.
+    #[test]
+    #[cfg(miri)]
+    #[cfg_attr(
+        miri,
+        ignore = "Miri must reject this test; the Tier-1 canary step runs it alone"
+    )]
+    fn miri_canary_read_one_byte_past_a_node() {
+        let a = NodeAlloc::new();
+        let node = a.alloc_node_zeroed::<BranchL3>();
+        let end = node
+            .as_ptr()
+            .cast::<u8>()
+            .wrapping_add(size_of::<BranchL3>());
+        // SAFETY: none. `end` is one past the node's last byte; with the node
+        // as its own allocation this read is out of bounds, and reporting it
+        // is the test.
+        let past = core::hint::black_box(unsafe { end.read() });
+        // SAFETY: `node` came from `alloc_node_zeroed` on this handle.
+        unsafe { a.free_node(node) };
+        panic!("exact-size mode is off: Miri accepted a read one byte past a node (read {past})");
+    }
+
     #[cfg(feature = "std")]
     #[test]
     #[should_panic(expected = "defer_to on an allocator with active freelists")]
@@ -2329,7 +2563,7 @@ mod tests {
         #[repr(C, align(64))]
         struct BigNode([u8; 2048]);
 
-        let a = NodeAlloc::new();
+        let a = pooled_alloc();
         // Allocate a 2048-byte node (class 5) which is > 256 bytes so it does
         // not carve from slab pages (leaving slab_pages null).
         let ptr = a.alloc_node(BigNode([0; 2048]));
