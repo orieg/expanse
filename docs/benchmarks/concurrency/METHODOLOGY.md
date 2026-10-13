@@ -5361,7 +5361,7 @@ The thresholds of §34.2 are not changed by this note. Runs taken under the amen
 
 ## 36. Pre-registration for #1194 — validated ordered reads on the shared set (appended 2026-10-12, locked before any engine code of the change below; next free section, may be renumbered at merge)
 
-The question (#1194, *Ordered reads on the set and string map*; design record #900): can `SyncExpanseSet`'s reader handles answer `first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before` and `prev_before` by the validated walk the map uses, instead of through `with_locked`, and do its readers gain from it? §12.6 excludes the set from the map's registration, so nothing in §12 decides it. This section is commit 2 of the cadence (AGENTS.md §8.8): it holds no engine code and no new data. Every code reference is to `origin/main` at `ed59e8838`. Refs #1194, #900.
+The question (#1194, *Ordered reads on the set and string map*; design record #900): can `SyncExpanseSet`'s reader handles answer `first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before` and `prev_before` by the validated walk the map uses, instead of through `with_locked`, and do its readers gain from it? §12.6 excludes the set from the map's registration, so nothing in §12 decides it. This section is commit 2 of the cadence (AGENTS.md §8.8): it holds no engine code and no new data. Every code reference is to `origin/main` at `b4e153475`. Refs #1194, #900.
 
 ### 36.1 Scope and sequence
 
@@ -5375,15 +5375,14 @@ The question (#1194, *Ordered reads on the set and string map*; design record #9
 
 `SyncExpanseSet` itself gains no one-shot ordered method; `SyncExpanseMap` has none either: `.github/public-api/expanse-trie.txt` lists the map's six on `MapReader`, `OwnedMapReader` and `DetachedMapReader` only.
 
-**Sequence, one gate per pull request.**
+**Sequence, in order, one gate each.**
 
-| PR | Content | Its gate |
-|---|---|---|
-| T | Bench only: the tiny-set Callgrind arms on the locked route (§36.5), registered in `crates/expanse/benches/instructions.rs`, in the ops maps of `scripts/perf_report.py`, and in the arm inventory by `python3 scripts/check_bench_shapes.py --write`. Merges to `main` before any engine code. | `check_bench_shapes.py` green; the arms' own result-count assertions |
-| A | The §36.3 ledger turned into tests. It may touch: `sync_nav.rs` and `sync.rs` under `cfg(test)`, `debug_assert!` and `occ-stats`-gated counter bumps only; `alloc.rs` under `cfg(miri)` only (§36.4, G36.2); test modules and test targets. No public API and no non-test instantiation of the set form. Merges to `main`. | G36.2 to G36.6, G36.9; P36.1 |
-| C1 | Suite wiring that the dispatch reads from `main`: the `.github/bench-suites.json` entry, the dispatch `case`, flag spelling and upload paths in `bench_baremetal.yml`, and the driver sweep. No Rust that names the new methods. Merges to `main`. | `check_bench_suites.py`, the driver's self-tests |
-| B | The eighteen public methods through one macro (§36.5), the optimistic Callgrind arms, the histories of G36.1, the concurrent Miri workloads, G36.7, G36.8, the public-API snapshot, `docs/ARCHITECTURE.md` §4.1 and `docs/COMPAT.md`, and the harness's reader mode for `--arm set` (§36.6). **Held unmerged** until the wall-clock verdict (§36.8). | every G36 gate; P36.1, P36.2 |
-| runs | Two dispatches of the suite with `ref` set to PR B's full 40-character head SHA, then the outcomes appended here as a new subsection, in PR B. | P36.3, P36.4, P36.5 |
+1. **PR M — exact-size node allocation under Miri.** Under `cfg(miri)`, `NodeAlloc` serves every block from the system allocator at exactly the requested size, zeroed only where the engine asked for zeroed memory, in place of slab pages. It applies to every Miri lane, not to a set-only feature. *Depends on:* nothing. *Gate:* every Tier-1 shard, every nightly Tier-3 shard and the `miri-ub-sites` census stay green; or each report the mode surfaces is listed in the PR and handled. A report that shows a defect already on `main` is a finding for the maintainer, with its reproduction, and is never suppressed or ignored to get a lane green. Per-node allocations run slower under Miri, so the shard budgets may need re-balancing (`scripts/check_miri_shards.py`; `docs/CI.md` §5, Miri tiering); that cost is read from the CI runs of PR M and of a dispatched nightly, never from a local run. **Whether the mode fits inside `cfg(miri)` alone is unverified until this PR.** If it does not, PR M says what else it had to touch, and P36.1 applies to it.
+2. **PR T — the tiny-set Callgrind arms** on the locked route (§36.5), registered in `crates/expanse/benches/instructions.rs`, in the ops maps of `scripts/perf_report.py`, and in the arm inventory by `python3 scripts/check_bench_shapes.py --write`. Bench only. *Depends on:* nothing; may land beside PR M. *Gate:* `check_bench_shapes.py` green and the arms' own result-count assertions.
+3. **PR A — the §36.3 ledger turned into tests.** It may touch `sync_nav.rs` and `sync.rs` under `cfg(test)`, `debug_assert!` and `occ-stats`-gated counter bumps only, plus test modules and test targets. No public API and no non-test instantiation of the set form. *Depends on:* PR M (G36.2's third part and G36.6 need its allocation mode) and PR T (its arms are in P36.1's base). *Gate:* G36.2 to G36.6 and G36.9, with P36.1.
+4. **PR C1 — suite wiring** that the dispatch reads from `main`: the `.github/bench-suites.json` entry, the dispatch `case`, flag spelling and upload paths in `bench_baremetal.yml`, and the driver sweep. No Rust that names the new methods. *Depends on:* nothing in code; lands before the runs. *Gate:* `check_bench_suites.py` and the driver's self-tests.
+5. **PR B — the engine.** The eighteen public methods, on all three handle forms (borrowed, owned, detached), through one macro (§36.5); the optimistic Callgrind arms; the histories of G36.1; the concurrent Miri workloads; G36.7; the eight foreign-reader tests of G36.8; the public-API snapshot; `docs/ARCHITECTURE.md` §4.1 and `docs/COMPAT.md`; and the harness's reader mode for `--arm set` (§36.6). **Held unmerged** until the verdict. *Depends on:* PR A, PR T and PR C1 on `main`. *Gate:* every G36 gate, with P36.1 and P36.2.
+6. **The runs and the verdict.** Dispatches of the suite on `main` with `ref` set to PR B's full 40-character head SHA; the outcomes are appended here as a new subsection. *Depends on:* PR B's gates met on that SHA. *Gate:* P36.3, P36.4, P36.5 and §36.8.
 
 **Named exclusions.** Each needs its own registration and is not decided here:
 
@@ -5407,8 +5406,8 @@ The question (#1194, *Ordered reads on the set and string map*; design record #9
   |---|---|
   | `set_nav/{random,sequential,clustered}` | `ExpanseSet::next_at_or_after` from each present key, single-threaded, no wrapper |
   | `set_prev/{random,sequential,clustered}` | `ExpanseSet::prev_before` from each present key, single-threaded |
-  | `sync_set_prev_locked/random` | `SyncExpanseSet::with_locked(\|s\| s.prev_before(k))` per present key (`crates/expanse/benches/instructions.rs:3105`) |
-  | `sync_set_next_after_scan_locked/{random,sequential,clustered}` | a full ascending scan, `first` then `next_after`, one `with_locked` per call (`instructions.rs:3134`) |
+  | `sync_set_prev_locked/random` | `SyncExpanseSet::with_locked(\|s\| s.prev_before(k))` per present key (`crates/expanse/benches/instructions.rs:3125`) |
+  | `sync_set_next_after_scan_locked/{random,sequential,clustered}` | a full ascending scan, `first` then `next_after`, one `with_locked` per call (`instructions.rs:3154`) |
 
   For scale, `sync_set_prev_locked/random` counted 1,161.2 instructions per operation and `sync_set_next_after_scan_locked/random` 1,144.4 *(measured: GitHub-hosted ubuntu x86_64 runner, `8d27a968c`; CI run 38276056419; workload: `core_instructions`)*. The names `sync_set_prev` and `sync_set_next_after_scan` are unused and reserved for the optimistic reads.
 - **The #1466 order holds in the shared arm.** A linear branch's version is reached by field projection (`sync_nav.rs:197-207`), sampled (`:544`, `:791`), and only then is its header loaded (`:551`, `:798`). `sync::ordered_read_tests::ordered_read_samples_a_linear_branch_before_its_header` (`sync.rs:26067`) and its negative control (`sync.rs:26098`) cover the set form by the direct call above.
@@ -5486,7 +5485,7 @@ No cell of §36.6 is read until every gate below passes on the head measured. Ea
 - **G36.2 — every flavour conditional has a mutation that fails.** The mechanism has three parts, because no single one sees all twelve.
   - (i) *The value word is checked.* Every PR A test calls `next_validated::<false>` / `prev_validated::<false>` directly and asserts the value word is 0, on fixtures whose keys have a non-zero low word and a non-zero byte in every position, so that key bytes read as a value are non-zero. The set macro of PR B carries `debug_assert_eq!(v, 0)` before it drops the word, so every debug-build test through the public methods keeps the check.
   - (ii) *A quiescent read never retries.* The direct calls assert `Ok` on the first attempt, and G36.3's counters assert it through the wrappers.
-  - (iii) *Exact-size nodes under Miri.* Under `cfg(miri)` only, `NodeAlloc` serves each block from the system allocator at exactly the size the engine requested, not zeroed unless the engine asked for zeroed memory, instead of carving a slab page. Each node is then its own allocation, and Miri reports a read past it or of bytes never written. `cfg(miri)` code is absent from every other build, so no instruction count can move; P36.1 checks that. If this mode cannot be built without touching code outside `cfg(miri)`, PR A says so and A1's row falls back to part (i) alone, recorded as review-enforced.
+  - (iii) *Exact-size nodes under Miri* (PR M, §36.1). Each node is then its own allocation, and Miri reports a read past it or of bytes never written. If PR M could not deliver the mode, A1's row falls back to part (i) alone and is recorded as review-enforced.
   - *Chosen over making the value loads untypable for the set.* Moving the flavour from a const generic to a trait with per-flavour node views would change the source the map's instantiation compiles from, which puts P36.1 at risk on the map's arms, and a wrong body can still be written inside the set's implementation. The mutation table is needed either way.
   - *The table.* For each row PR A inverts that one conditional for the set instantiation, records the test that fails and where, and restores it (AGENTS.md §5, one negative control per clause). The demonstrations are recorded in the PR; they are not kept as running tests, because nine of them execute a read the language does not define.
 
@@ -5527,7 +5526,7 @@ No cell of §36.6 is read until every gate below passes on the head measured. Ea
   - *Covered:* the validation rule for a multi-word terminal and for a replaced terminal, on the real read-set type. *Not covered:* `bitmap_leaf::<false>`, `next_in` and `prev_in` themselves. A model stays green if that code is wrong; G36.2, G36.3 and G36.4 are what run it.
   - **Falsifier:** a positive model that fails, or a negative control that does not panic with its expected message.
 - **G36.6 — Miri. Run in CI only, never on a development machine.**
-  - *Tier 1, per pull request.* `sync::miri_tests::set_ordered_reads_under_miri`: single-threaded, every method over every fixture of G36.2's table, in the exact-size allocation mode. It is selected by the existing filter word `sync::miri_tests::` (shard `1 of 3`, `.github/workflows/ci.yml:1722`), so no filter word is added and the three lists `scripts/check_miri_shards.py` compares stay equal.
+  - *Tier 1, per pull request.* `sync::miri_tests::set_ordered_reads_under_miri`: single-threaded, every method over every fixture of G36.2's table, in PR M's allocation mode. It is selected by the existing filter word `sync::miri_tests::` (shard `1 of 3`, `.github/workflows/ci.yml:1722`), so no filter word is added and the three lists `scripts/check_miri_shards.py` compares stay equal.
   - *What it reports.* With exact-size nodes: a read past a node, a read of unwritten bytes, and a wild dereference. Without that mode it would report the wild dereferences only (§36.2).
   - *Nightly census.* By module, every test under `sync::` is in shard `lib-sync` and every test under `sync_nav::` in `lib-rest` (`scripts/check_miri_shards.py`, `LIB_SHARDS`).
   - *Concurrent sites.* `sync::miri_ub_sites::set_ordered_leaf_reader_writer`, `set_ordered_tree_reader_writer` and `set_ordered_bitmap_reader_writer`, twins of the map's (`sync.rs:16884`, `:16909`), each entered in `.github/miri-ub-sites.json` under the three checks. `nightly.yml` accepts `workflow_dispatch`, and it is dispatched on PR B's branch for this gate, since that branch is not on `main`.
@@ -5535,7 +5534,7 @@ No cell of §36.6 is read until every gate below passes on the head measured. Ea
   - **Falsifier:** any Miri report in the Tier 1 test; a census failure; a `miri-ub-sites` entry whose observed state differs from the manifest.
 - **G36.7 — the set form is instantiated in one place.** A source test with two clauses, each shown red by its own mutation (AGENTS.md §5): outside test modules, (1) `next_validated::<false>` and `prev_validated::<false>` occur only inside the set's macro; (2) `::<true>` occurs only at the map's two sites and in `seek_submap`. **Falsifier:** either clause green under its mutation (the set macro's constant flipped; a `::<false>` added to a map path).
 - **G36.8 — a detached reader is checked on every ordered entry.** One `should_panic` test per `DetachedSetReader` method, eight in all with `next_after(u64::MAX)` and `prev_before(0)`, on the pattern of `foreign_reader_rejected!` (`sync.rs:18911-18935`): a reader registered on set `a` and called with set `b` panics with the foreign-collector message before any node of `b` is read. The early-return pair pins that the check precedes D3. Fail-then-pass with `registered` removed, as #1465 recorded for `contains` (`sync.rs:19094`, `:19104`). **Falsifier:** a method that returns.
-- **G36.9 — no write path is touched.** The change adds readers. It stores nothing into tree memory, so it adds no `assert_bracketed()` obligation and no `by_mode!` entry point (AGENTS.md §2.1 invariant 5). **Falsifier:** a hunk outside `cfg(test)`, `cfg(miri)` and `occ-stats` bumps in `mutate.rs`, `mutate_map.rs`, `map.rs`, `set.rs`, `alloc.rs` or the `olc_*` bodies of `sync.rs`; or any change in `set_insert/*`, `set_remove/random`, `sync_set_insert/random`, `sync_set_remove/random` or `sync_set_churn/*`. A park point a test needs on the writer side is armed from the reader's hooks, as `arm_branch_sample` runs the writer's call on the reader's thread (`sync.rs:25955-25961`).
+- **G36.9 — no write path is touched.** The change adds readers. It stores nothing into tree memory, so it adds no `assert_bracketed()` obligation and no `by_mode!` entry point (AGENTS.md §2.1 invariant 5). **Falsifier:** a hunk outside `cfg(test)` and `occ-stats` bumps in `mutate.rs`, `mutate_map.rs`, `map.rs`, `set.rs`, `alloc.rs` or the `olc_*` bodies of `sync.rs`; or any change in `set_insert/*`, `set_remove/random`, `sync_set_insert/random`, `sync_set_remove/random` or `sync_set_churn/*`. A park point a test needs on the writer side is armed from the reader's hooks, as `arm_branch_sample` runs the writer's call on the reader's thread (`sync.rs:25955-25961`).
 
 G36.4, G36.5 and the reproducer are re-run after any change to the obsolete-marking or cover rules, as §12.2 requires of G12.1.
 
@@ -5551,7 +5550,7 @@ Fixed before any measurement. The instrument is the `instruction-counts` job on 
 
 | Arm | Setup | Ops |
 |---|---|---|
-| `sync_set_prev_locked/leaf` | `built_sync_set_leaf` (`instructions.rs:2941`): a set held in the root leaf | 50,000 `prev_before` calls, cycling its present keys |
+| `sync_set_prev_locked/leaf` | `built_sync_set_leaf` (`instructions.rs:2961`): a set held in the root leaf | 50,000 `prev_before` calls, cycling its present keys |
 | `sync_set_prev_locked/immed` | a tree-rooted set whose every terminal is an immediate, asserted from `stats().node_counts` in setup | 50,000 `prev_before` calls over present keys |
 
 Their optimistic twins, `sync_set_prev/leaf` and `sync_set_prev/immed`, land with PR B on the same setups and counts.
@@ -5602,22 +5601,24 @@ Reference host only: the host §12.9 describes (Intel Core i9-12900F, 8P+8E, 24 
 - **P36.3 — fallbacks stay rare.** In the counters build, `read_fallbacks ÷ read_ops` of the `prev` cells is below 0.1% in every cell, both probes. The ceiling is §12.3's choice for P12.4, kept. Attempts per operation are reported, not gated.
 - **P36.4 — readers gain over `with_locked` while writers run.**
   - Statistic: ρ = aggregate reader throughput of `prev` ÷ that of `prev_locked`, paired within each round.
-  - Gate cells: (W, R) = (1, 4) and (4, 4), `uniform`. Floor: the BCa 95% lower bound of ρ is at least 1.0, at both cells.
-  - Reported, not gated: both W = 0 cells and every `hotspot` cell.
+  - Gate cells, three: (W, R) = (1, 4) `uniform`, (4, 4) `uniform` and (4, 4) `hotspot`. Floor: the BCa 95% lower bound of ρ is at least 1.0, at each.
+  - *Why (4, 4) for the hot-spot gate.* The principle: among the cells with writers, gate the one §36.7 names as most at risk. That is (4, 4) `hotspot`: it has the most writers filling the subtrees every probe backtracks through, the most `FullExpanse` conversions on the serialised path per window, and on the map it was the cell with the most attempts per read and the largest fallback count (§12.9). A registration that gated only cells expected to pass would test nothing.
+  - Reported, not gated: both W = 0 cells of each probe and (1, 4) `hotspot`.
 - **P36.5 — the gain is a concurrency gain** (AGENTS.md §8.20.2).
   - Statistic: κ = ρ at (1, 4), `uniform` ÷ ρ at (0, 1), `uniform`, both taken in the same round. The (0, 1) cell is the control: one reader and no writer, where a validated read can only be cheaper per call, not less blocked.
   - Floor: the BCa 95% lower bound of κ is above 1.0.
 - **Interval.** BCa 95% over the 8 per-round values of a run, 2,000 resamples, seed 42: the defaults of `scripts/bca_bootstrap.py:141-142` and `:216-217`. Each interval is recorded with its `ci_method`.
 - **Runs.** Two independent dispatches form the pair. The `prev_locked` throughput at (0, 1), `uniform`, a cell this change does not touch, is reported for both runs beside the verdict so a reader can see whether the host moved between them. It is not a gate: this suite has no committed measure of its between-run spread to set a band from.
 - **What voids a run.** §12.5 in full, with this section's gates in place of §12.2's; a row whose `read_ops` does not equal the readers' call count, which the harness refuses (`writer_scaling.rs:455-501`); and host contention, stated as **foreign** busy CPU: a cell whose recorded `foreign_busy_cpus` reaches 1.0 core-equivalent (`RUN_FOREIGN_VOID`, `scripts/bench_provenance.py:127`), or a single foreign process above 100% of a CPU (`RUN_PROCESS_VOID_PCT`, `:128`). `foreign_busy_cpus` is host busy time less the run's own process tree (`bench_provenance.py:250`, `:324-331`), so the harness's eight pinned threads do not count against it. No load-average bound is registered: eight busy threads of the run itself put the load average at 8, and a bound below that could never be met.
-- **Replacement runs.** A void run is replaced. At most three replacement runs are taken under this registration; every void run is kept and disclosed. If a valid pair does not exist after them, the verdict is `INTERMEDIATE`.
+- **Replacement runs, for void runs only.** A void run is replaced. At most three replacement runs are taken per pair; every void run is kept and disclosed. A pair that is still not valid after them has the outcome `INTERMEDIATE`. A valid run is never replaced, whatever it shows.
 
 **What the design can and cannot detect.**
 
 - *Resolution.* With 8 rounds, the map's gate cell had an interval of about 6% of its ratio either side: 91.81 [85.52, 96.74] and 89.47 [84.24, 93.75] (measured: §12.9, `results/ordered_readers_writer_scaling.json` and `_run2.json`; workload: `concurrency_ordered_readers_map_64bit`). If the set's cells are as wide, a true ρ within roughly 6% above 1.0 lands `INCONCLUSIVE`, not `PASS`.
-- *The floor is easy to clear on `uniform` probes.* The locked comparator stops every writer for each read, and the map's gate ratio stood far above 1 for that reason (same figures). A floor of 1.0 at the `uniform` cells would be missed only by a gross defect. Where the set could lose is the `hotspot` cells, which this registration reports and does not gate (§36.7); §36.10 asks whether that should change.
+- *The two `uniform` cells are easy to clear.* The locked comparator stops every writer for each read, and the map's gate ratio stood far above 1 for that reason (same figures). They would be missed only by a gross defect, and they do not touch the set-only node forms.
+- *The `hotspot` cell is the one that can fail.* It is where §36.7 expects the set to be weakest, and it is gated at the same floor. On the map that cell read 11.38 [10.07, 12.47] and 12.38 [11.14, 15.19] (measured: §12.9, same artifacts; workload: `concurrency_ordered_readers_map_64bit`), an interval about 10 to 20% of the ratio either side, wider than the `uniform` cells'. The set's window adds serialised writer sections the map's does not have, so the map's margin is not evidence for the set. **This registration expects a real chance of `REJECTED`, and `REJECTED` means the methods do not ship.**
 
-**Silent constants,** all fixed by this section: `MAX_RETRIES` 64; `READ_SET_CAP` 16; the 0.1% Callgrind bound; the 0.1% fallback ceiling; floors 1.0 on ρ and κ; 8 rounds; 2,000 resamples, seed 42; the pin; the foreign-load boundaries 1.0 and 100%; three replacement runs; 2^20 prefill keys and probes per reader at W = 0 (`writer_scaling.rs:72-73`); the 256-block hot-spot expanse; 24 rounds and at most 64 events per G36.1 history; 50,000 operations per Callgrind arm. Changing any of them after a run relabels that run `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+**Silent constants,** all fixed by this section: `MAX_RETRIES` 64; `READ_SET_CAP` 16; the 0.1% Callgrind bound; the 0.1% fallback ceiling; floors 1.0 on ρ and κ; the three gate cells; 8 rounds; 2,000 resamples, seed 42; the pin; the foreign-load boundaries 1.0 and 100%; three replacement runs per pair; one second pair; 2^20 prefill keys and probes per reader at W = 0 (`writer_scaling.rs:72-73`); the 256-block hot-spot expanse; 24 rounds and at most 64 events per G36.1 history; 50,000 operations per Callgrind arm. Changing any of them after a run relabels that run `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
 
 ### 36.7 Expected losses
 
@@ -5629,7 +5630,7 @@ Recorded before any measurement and never reconciled with the outcome (AGENTS.md
 | A whole scan by `first` + `next_after` against one `with_locked` that iterates the set inside the lock | loses per element | one pin, one sample and one root descent per element against an iterator step; no arm measures this pair, and the remedy is the excluded batch cursor |
 | (0, 1), either probe | smallest ρ of the sweep | nothing waits on anything, so only the per-call cost of the locked route is saved; the map's control read lowest too (§12.9) |
 | `sync_set_prev/leaf` and `/immed` against their locked twins | narrowest P36.2 margins; a loss here refutes P36.2 for that cell | no branch is visited, so validation removes no work, and the root leaf's keys are loaded one atomic word at a time |
-| `hotspot` with writers, most at (4, 4) | ρ far below the `uniform` cells and possibly below 1.0; fallback share nearest the ceiling | every probe backtracks through subtrees the writers are filling, so attempts per read rise as they did on the map (§12.9), and each block's conversion to `FullExpanse` adds a serialised writer section the map's window does not have |
+| `hotspot` with writers, most at (4, 4), which is a gate cell | ρ far below the `uniform` cells and possibly below 1.0; fallback share nearest the ceiling | every probe backtracks through subtrees the writers are filling, so attempts per read rise as they did on the map (§12.9), and each block's conversion to `FullExpanse` adds a serialised writer section the map's window does not have |
 | `sync_set_next_after_scan/sequential` and `/clustered` against their locked twins | narrow P36.2 margins | dense terminals make the locked walk short, so the fixed per-call cost is the larger share |
 | Writer throughput in the `prev` cells | not gated; reported per cell | writers are no longer the only running threads |
 
@@ -5641,25 +5642,26 @@ Recorded before any measurement and never reconciled with the outcome (AGENTS.md
 
 **Wall clock.** The verdict is a function of the valid pair, defined for every outcome.
 
-1. *Per run, per statistic* (ρ at (1, 4), ρ at (4, 4), κ): `MET` when the BCa 95% lower bound clears its floor, `MISSED` when the upper bound is below it, `OPEN` otherwise.
+1. *Per run, per statistic* (ρ at (1, 4) `uniform`, ρ at (4, 4) `uniform`, ρ at (4, 4) `hotspot`, κ): `MET` when the BCa 95% lower bound clears its floor, `MISSED` when the upper bound is below it, `OPEN` otherwise.
 2. *Per run, P36.3:* `HOLDS` when every `prev` cell is below the ceiling, `REFUTED` otherwise.
-3. *Per run:* `RUN_PASS` when all three statistics are `MET` and P36.3 `HOLDS`; `RUN_REJECT` when any statistic is `MISSED` or P36.3 is `REFUTED`; `RUN_OPEN` in every other case.
+3. *Per run:* `RUN_PASS` when all four statistics are `MET` and P36.3 `HOLDS`; `RUN_REJECT` when any statistic is `MISSED` or P36.3 is `REFUTED`; `RUN_OPEN` in every other case.
 4. *The pair:*
 
 | Run 1, run 2 (either order) | Verdict |
 |---|---|
 | `RUN_PASS`, `RUN_PASS` | `PASS` |
 | `RUN_REJECT`, `RUN_REJECT` | `REJECTED`, whether or not the same statistic missed in both |
-| every other combination, and no valid pair after the replacement runs | `INTERMEDIATE` |
+| every other combination, and a pair not valid after its replacement runs | `INTERMEDIATE` |
 
-So one gate cell met and the other missed is `RUN_REJECT`; an `OPEN` statistic with nothing missed is `RUN_OPEN`; P36.3 refuted in one run only makes the pair `INTERMEDIATE`.
+So two gate cells met and the third missed is `RUN_REJECT`; an `OPEN` statistic with nothing missed is `RUN_OPEN`; P36.3 refuted in one run only makes the pair `INTERMEDIATE`.
 
 **What ships.** The methods are released only on `PASS`.
 
 - *Enforcement.* PR B stays unmerged while the runs are taken. `bench_baremetal.yml` resolves its `ref` input to one commit and checks that commit out (`.github/workflows/bench_baremetal.yml:5-9`, `:253-266`, `:623-625`), and reads the workflow and the suite manifest from the branch it is dispatched on, so the suite is dispatched on `main`, where PR C1 put its wiring, with `ref` set to PR B's full head SHA. Nothing of PR B is on `main`, in the public-API snapshot or in a release until the verdict. The artifacts name that SHA, which stays fetchable as the pull request's head; PR B is rebased on `main` before the runs, and a later push to it voids them.
 - `PASS`: PR B merges with its outcome subsection, and the documentation may state that set readers gain over `with_locked`, with the intervals and §36.7's losing cells beside them.
 - `REJECTED`: PR B is closed unmerged, and the outcome subsection and the artifacts are committed to `main` on their own. The methods do not ship. PR T, PR A and PR C1 stay: they add arms, tests and wiring, and no surface. The rejection is not reopened by moving a floor to the measurement (AGENTS.md §8.19).
-- `INTERMEDIATE`: PR B stays unmerged and nothing ships. No further run is taken under this registration; a new pair needs an amendment appended here first, with fresh runs (AGENTS.md §8.19).
+- `INTERMEDIATE` on the first pair: exactly one more pair of fresh runs is taken, on the same SHA, with every constant of this section unchanged. Its verdict is read by the table above and is **final**: `PASS` ships; `REJECTED` or `INTERMEDIATE` closes PR B unmerged, as `REJECTED` does, and the methods do not ship. The first pair's runs are kept and published; they are not pooled with the second pair's.
+- *How the two limits compose.* The replacement cap belongs to a pair and concerns void runs only; the second pair is granted once and concerns an inconclusive outcome only. So the most this registration allows is two pairs, each of two valid runs with up to three void runs replaced: ten dispatches. Nothing beyond that is taken without an amendment appended here first (AGENTS.md §8.19).
 
 In every case all cells are published, the losing ones included.
 
@@ -5672,10 +5674,6 @@ In every case all cells are published, the losing ones included.
 - Any transfer of the map's figures to the set. §12.9's intervals describe the map.
 - Everything under *Named exclusions* in §36.1.
 
-### 36.10 Open questions for the maintainer
+### 36.10 Open questions
 
-1. **Should a `hotspot` cell be a gate?** The `uniform` cells are nearly certain to clear 1.0 and do not touch bitmap leaves or full expanses. The hot-spot cells do, and are where the set could lose, but they are reported only. Gate (1, 4) `hotspot` at 1.0 as well, or leave it reported?
-2. **After `INTERMEDIATE`.** The registration holds PR B unmerged and stops. Is that the wanted outcome, or should one further pair be allowed without an amendment?
-3. **All three handle forms in PR B,** or the owned and detached forms in a later pull request?
-4. **Exact-size nodes under Miri** add a `cfg(miri)` branch to `NodeAlloc`. Acceptable, given it changes what every Miri lane allocates, not only this test?
-5. **Section number.** 36 is the next free number today; it may move at merge.
+None. The section number, 36, is the next free one at lock time and may move at merge.
