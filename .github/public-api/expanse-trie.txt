@@ -2417,6 +2417,12 @@ impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedMapRea
 pub struct expanse_trie::sync::DetachedSetReader
 impl expanse_trie::sync::DetachedSetReader
 pub fn expanse_trie::sync::DetachedSetReader::contains(&self, &expanse_trie::sync::SyncExpanseSet, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::DetachedSetReader::first(&self, &expanse_trie::sync::SyncExpanseSet) -> core::option::Option<u64>
+pub fn expanse_trie::sync::DetachedSetReader::last(&self, &expanse_trie::sync::SyncExpanseSet) -> core::option::Option<u64>
+pub fn expanse_trie::sync::DetachedSetReader::next_after(&self, &expanse_trie::sync::SyncExpanseSet, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::DetachedSetReader::next_at_or_after(&self, &expanse_trie::sync::SyncExpanseSet, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::DetachedSetReader::prev_at_or_before(&self, &expanse_trie::sync::SyncExpanseSet, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::DetachedSetReader::prev_before(&self, &expanse_trie::sync::SyncExpanseSet, expanse_trie::types::Key) -> core::option::Option<u64>
 impl core::marker::Freeze for expanse_trie::sync::DetachedSetReader
 impl core::marker::Send for expanse_trie::sync::DetachedSetReader
 impl !core::marker::Sync for expanse_trie::sync::DetachedSetReader
@@ -2522,6 +2528,12 @@ impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedMapReade
 pub struct expanse_trie::sync::OwnedSetReader
 impl expanse_trie::sync::OwnedSetReader
 pub fn expanse_trie::sync::OwnedSetReader::contains(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::OwnedSetReader::first(&self) -> core::option::Option<u64>
+pub fn expanse_trie::sync::OwnedSetReader::last(&self) -> core::option::Option<u64>
+pub fn expanse_trie::sync::OwnedSetReader::next_after(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::OwnedSetReader::next_at_or_after(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::OwnedSetReader::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::OwnedSetReader::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 impl core::marker::Freeze for expanse_trie::sync::OwnedSetReader
 impl core::marker::Send for expanse_trie::sync::OwnedSetReader
 impl !core::marker::Sync for expanse_trie::sync::OwnedSetReader
@@ -2549,6 +2561,12 @@ impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedStrReade
 pub struct expanse_trie::sync::SetReader<'a>
 impl expanse_trie::sync::SetReader<'_>
 pub fn expanse_trie::sync::SetReader<'_>::contains(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::SetReader<'_>::first(&self) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SetReader<'_>::last(&self) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SetReader<'_>::next_after(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SetReader<'_>::next_at_or_after(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SetReader<'_>::prev_at_or_before(&self, expanse_trie::types::Key) -> core::option::Option<u64>
+pub fn expanse_trie::sync::SetReader<'_>::prev_before(&self, expanse_trie::types::Key) -> core::option::Option<u64>
 impl<'a> core::marker::Freeze for expanse_trie::sync::SetReader<'a>
 impl<'a> core::marker::Send for expanse_trie::sync::SetReader<'a>
 impl<'a> !core::marker::Sync for expanse_trie::sync::SetReader<'a>
