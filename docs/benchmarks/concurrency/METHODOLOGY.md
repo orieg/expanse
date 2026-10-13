@@ -5862,3 +5862,148 @@ The engine pull request (#1504, PR B of §36.1, held unmerged) and two reviews o
 **Also noted.** The direction of the walk is a literal macro argument in `set_ordered_walk!` (`sync.rs:6407`), which §36.5 allows.
 
 **Unverified here.** Which outcome item 1 takes; whether the guard of item 10 is added; and that the host-guard pull request of item 6 has merged. Each is settled by its own pull request before the first dispatch, and the outcome subsection states it.
+
+## 37. Pre-registration for #1479 — do the writer-side wait loops gain from yielding? (appended 2026-10-13, locked before any code or run of the builds below; next free section, may be renumbered at merge)
+
+Three wait loops in the concurrent engine spin on `core::hint::spin_loop()` with no yield, no park and no iteration bound in a non-Loom build (#1479). The decision on that issue is to measure first and to change code only if the measurement shows a gain. This section registers that measurement. It holds no engine code and no data. The runs are taken on the reference host after the verdict runs of §36. Code references are to `origin/main` at `7c5c6f2f3`. Refs #1479.
+
+### 37.1 The question, and what it is not
+
+**The question.** When a writer waits at a closed gate, or a serialised section waits for in-flight writers to drain, does yielding the CPU after a short spin shorten the holder's section or raise throughput, in the one situation where a spinning waiter can take time from the thread it waits for: more runnable threads than CPUs?
+
+**What it is not.**
+
+- Not whether the protocol should block. It blocks by design (AGENTS.md §2.2): writers serialise, a sample waits out an open bracket, readers fall back to a lock. Nothing here proposes lock-freedom, a park queue or a condition variable.
+- Not #1222. That starvation was of threads waiting on `fallback_mutex`, a parking mutex, behind an unpaced compaction loop; it did not involve these loops (#1479, *Consequence*).
+- Not a diagnosable bound on a stuck gate. §37.8 says where that is decided.
+
+**The loops** (`verified`).
+
+| Loop | Where | Waits for | Reached from | Holder |
+|---|---|---|---|---|
+| `Shared::enter_writer_blocking` | `crates/expanse/src/sync.rs:2516-2549`; as a call, `:2554` | the gate to reopen | every optimistic mutation of every 64-bit wrapper, 15 call sites (`sync.rs:4178` to `:14777`), and the diagnostic probe (`:2632`) | whichever thread closed the gate in `quiesce_writers` and has not dropped its `QuiesceGuard` |
+| `WriterGate::wait_drained` | `crates/expanse/src/occ.rs:1106-1112` | one writer slot's in-flight count to reach zero | `Shared::quiesce_writers` (`sync.rs:2451-2474`), once per allocated slot, from every serialised section: `write_root_covered_with` (`:2820`), `write_quiesced_staged` (`:2919`), `read_locked` (`:3009`), `with_locked` (`:3035`), `with_locked_pre` (`:3092`) | an optimistic writer inside the gate. The waiter already holds `fallback_mutex`, and in `read_locked` and `with_locked` goes on to take the writer mutex |
+| `SeqVersion::sample` | `occ.rs:132-158` | the tree word to be even | every optimistic read and write attempt, through `Shared::optimistic_read` and its siblings in `sync.rs`, `strmap.rs` and `sync_cursor.rs` | a thread inside a tree-level bracket (a root-state change, a root publish) |
+
+Per-node versions do not spin: `node_sample` answers `None` on an odd word and the caller restarts (`occ.rs:1155-1158`).
+
+### 37.2 Scope: the two writer-side waits; `SeqVersion::sample` is measured, not changed
+
+**In the variant:** `enter_writer_blocking` and `wait_drained`.
+
+**`SeqVersion::sample` is excluded from the variant,** for three reasons, and included in what is measured.
+
+- It is inlined into every read and write attempt. A slow path added to it changes the code of every caller, so every `sync_*` Callgrind arm is at risk under AGENTS.md §2.1 invariant 5; the writer-side waits are reached once per mutation and once per serialised section.
+- It compiles without `std` (`occ.rs` has no `std` gate on it), where there is no thread to yield to; the two writer-side waits exist only with `std` (`sync.rs:2450`, `:2514`).
+- Its holder's section is a tree-level bracket, which since #568 PR 3 is open only while one frame stores, and since §30 no longer spans a compaction's copy. A wait there is long only if the holder loses its CPU inside the bracket. Whether that happens often enough to matter is unmeasured.
+
+So the counters pass of every cell reports `sample_spins` and `sample_spin_cycles` beside `gate_wait_cycles` and `quiesce_drain_cycles` (`crates/expanse/src/occ_stats.rs:67`, `:95`, `:170`, `:174`), each as a share of the window's thread time. No verdict reads them. A change to `sample` needs a registration of its own, made against those figures.
+
+### 37.3 The builds
+
+Cargo features, by the conventions of AGENTS.md §2.7. The default stays what ships.
+
+| Build | Feature | The two writer-side waits |
+|---|---|---|
+| default | none | `spin_loop` until the condition holds, as on `main` |
+| variant | `ablation-gate-spin-then-yield` | the same first check; on its failure, an out-of-line slow path that calls `spin_loop` for the next `N` failed checks and `std::thread::yield_now()` once after every failed check from then on |
+
+- **N = 64.** It is the spin budget the engine already uses: the mutation loops' backoff is capped at 64 `spin_loop` calls (`sync.rs:2654-2659`) and `MAX_RETRIES` is 64 (`sync.rs:165`). It was chosen to add no new magnitude, and it was not tuned. Another `N` is another variant and needs its own registration; a sweep over `N` after seeing a result is the tuning AGENTS.md §8.19 prices.
+- **The slow path is out of line.** The first check stays where it is. Everything after its failure is in a `#[cold]`, `#[inline(never)]` function, in the variant build. In the default build the feature's code does not exist.
+- **Under Loom** both builds keep the `loom::thread::yield_now()` the loops have today.
+- **If the verdict is `PASS`** and the maintainer promotes the variant, §2.7 applies in full: the feature inverts (an `ablation-gate-spin-only` feature restores today's loops), the old name becomes a `compile_error!`, and every consumer migrates in the same pull request.
+
+**Gates on the pull request that adds the feature,** before any wall-clock run:
+
+- *P37.1, default build.* Every Callgrind arm that exists on the base changes by at most 0.1% (AGENTS.md §6), and the bench binary's disassembly differs from the base's in nothing but anonymous symbol hashes.
+- *P37.2, variant build.* A Callgrind pass of the `instructions` bench built with the feature, against the default build of the same commit: every `sync_*` arm and every plain-tree arm within 0.1%. The benches are single-threaded, so the slow path is never entered; what this checks is that the out-of-line call did not move the callers. Whether an existing job can build that bench with a feature list is unverified; the pull request states how the pass was taken.
+- *Disassembly.* `objdump -d -C` of both builds: the count of `%fs:` reads in `nav::next`, `nav::prev` and `mutate::insert_with_path_flat` is unchanged, and the body of each caller of `enter_writer_blocking` differs only by the call into the slow path.
+- *Loom.* The Loom lane passes with the feature on.
+- **Falsifier:** any arm above 0.1% in either pass. The experiment does not run on a build that fails these.
+
+### 37.4 Instrument and cells
+
+**Primary instrument: `reclaim_stall`** (§29.2), the `SyncExpanseBlobMap` overwrite cells. It is the instrument #1479 names, and it has a holder of known length: an insert the cap refuses compacts the arena inside `write_quiesced_staged` (`sync.rs:11118`), with the gate closed, and that insert's latency is the window's stall. At 200,000 live records the stall read 31.9 to 33.5 ms across W at `d71e65bd` (measured: `results/baseline_reclaim_stall.json`, §29 of the README; workload: `reclaim_stall`). Every other writer of the cell waits in `enter_writer_blocking` for that long, twice per window.
+
+**How oversubscription is produced: by the pin and the thread count, with no load generator.** The driver's pin is set to the eight physical P-cores, `0,2,4,6,8,10,12,14`, one logical CPU each. A cell's threads are its W writers and R readers. A cell with more threads than 8 is oversubscribed by its own threads; one with at most 8 is not. Nothing outside the harness's process tree is started.
+
+| Cell | Role | W | R | Threads on 8 CPUs | Live records |
+|---|---|---|---|---|---|
+| **O** | primary: oversubscribed | 12 | 2 | 14 | 200,000 |
+| **C** | control: not oversubscribed | 4 | 2 | 6 | 200,000 |
+| O-large | reported | 12 | 2 | 14 | 3,600,000 |
+| S | reported: the §29 pin `0-15`, 14 threads on 16 logical CPUs of 8 cores | 12 | 2 | 14 | 200,000 |
+
+- Cell C is where a yield should change nothing: every thread has a CPU, so a waiter that yields has nobody to yield to and the holder was never waiting for a CPU.
+- Cell S is reported because there a spinning waiter shares a physical core with the holder without displacing it. No direction is predicted for it.
+- AGENTS.md §8.20.5 step 0: both builds of a cell run under the same pin, and every published figure names it. The comparison is between builds, never between pins.
+
+**Second instrument, for harm: `writer_scaling`'s count cell** (§23). (W, R) = (4, 1), `--read-op count_locked`, `--probe uniform`, pin `0,2,4,6,8,10,12,14`: four writers and one reader that calls `count_below` through `with_locked` in a loop. Every count closes the gate for a short section. This is the regime where a yield can only cost: the wait is shorter than a system call. It is cell **H**.
+
+**Harness prerequisites,** each a change to a driver or a bench, none to the engine: `reclaim_stall.py` takes a build list and a pin, runs both builds of a cell in each round, and adds cells O, C, O-large and S; `writer_scaling.py` already builds a feature against the default (its ablation sweeps) and gains this cell pair. Suite wiring merges to `main` before the dispatch, as §36.1 item 4 did.
+
+### 37.5 Statistics, fixed now
+
+- **Rounds and processes.** 8 rounds per run. One process per (build, cell, round). Within a round the two builds of a cell run back to back, and which goes first alternates by round; cell order rotates by round as §29.2 does.
+- **Per-round values.**
+  - *Stall* `S`: the window's largest insert latency (§29.3).
+  - *Throughput* `T`: the window's overwrites divided by its duration, all writers together.
+  - *Cell H:* writer throughput in Mops/s.
+- **Paired statistics,** each a per-round ratio of the two builds of one cell, so above 1.0 favours the variant:
+  - `g_stall` = `S` default ÷ `S` variant, in cells O and C;
+  - `g_thr` = `T` variant ÷ `T` default, in cells O and C;
+  - `h` = writer throughput variant ÷ default, in cell H.
+- **The primary statistic is `g_stall` in cell O.** The stall is the holder's section, which is the thing a yield is hypothesised to shorten. `g_thr` is reported beside it and decides nothing.
+- **Intervals.** BCa 95% over the 8 per-round ratios, 2,000 resamples, seed 42 (`scripts/bca_bootstrap.py`), recorded with `ci_method`.
+- **The floor for "a gain"** (AGENTS.md §8.20.2: a gain under contention that the uncontended control does not share). In one run: the lower bound of `g_stall` in cell O is above 1.0, **and** the interval of `g_stall` in cell C contains 1.0.
+- **The floor for "no harm".** In one run: the upper bound of `h` is not below 1.0.
+- **What latency the suite can resolve.** A window at 200,000 live records makes about 16 million overwrites (2.2 cycles of 7,256,256 appends, §29.2) and holds two compactions. At most `2 × (W − 1)` operations per window wait at the gate for a compaction: 22 of 16 million at W = 12. They sit above the 99.9999th percentile, so p99 and p99.9 do not contain them and are not a statistic of this registration. They are reported, as §29 reports them. The gate wait is read from the stall and from the eight largest latencies each row already records.
+- **Runs.** Two independent dispatches form a pair. A claim needs the same per-run verdict in both (`docs/BENCHMARKING.md` rule 18).
+- **What voids a run.** A build that failed §37.3's gates; a pin other than the registered one; a round of an overwrite cell that did not complete exactly two compactions or refused an insert (§29's admissibility); a job the workflow's host guard failed (`scripts/bench_host_guard.py`: foreign load of 1.0 core-equivalent, 0.25 on the pinned CPUs, or a foreign process above 100%; `scripts/bench_provenance.py:127-135`). Foreign means outside the run's own process tree, so cell O's fourteen threads on eight CPUs do not count against it. No load-average bound is registered: cell O's own threads put it above any such bound by design.
+- **Replacements and a second pair,** as §36.6 and §36.8 set them: at most three replacement runs per pair, for void runs only; and after an `INTERMEDIATE` first pair, exactly one more pair of fresh runs, whose verdict is final. At most ten dispatches.
+
+### 37.6 Verdict
+
+1. *Per run, cell O:* `GAIN` when the lower bound of `g_stall` is above 1.0; `LOSS` when its upper bound is below 1.0; `OPEN` otherwise.
+2. *Per run, cell C:* `FLAT` when the interval of `g_stall` contains 1.0; `MOVED` otherwise.
+3. *Per run, cell H:* `HARM` when the upper bound of `h` is below 1.0; `NO_HARM` otherwise.
+4. *Per run:* `RUN_PASS` when O is `GAIN`, C is `FLAT` and H is `NO_HARM`. `RUN_REJECT` when O is `LOSS` or H is `HARM`. `RUN_OPEN` in every other case, which includes a `GAIN` beside a control that `MOVED`.
+5. *The pair:* `PASS` for two `RUN_PASS`; `REJECTED` for two `RUN_REJECT`; `INTERMEDIATE` for every other combination and for a pair not valid after its replacement runs.
+
+| Verdict | What it means |
+|---|---|
+| `PASS` | the variant may be promoted, in its own pull request, under AGENTS.md §2.7 and §37.3's gates. The promotion is permitted, not required |
+| `REJECTED` | the loops stay as they are. The outcome is recorded here and on #1479, with every cell, and the feature is removed or kept only as a diagnostic |
+| `INTERMEDIATE`, after the second pair | not promoted. Recorded as inconclusive, with the intervals; the loops stay |
+
+A verdict describes the build it measured (AGENTS.md §8.20.6). The stall this experiment rests on is the compaction's copy; a change that shortens or splits that copy (#1320) removes the long holder, and the verdict then expires and is not carried to the new engine.
+
+### 37.7 Expected losses, and what is not predicted
+
+Every reason is a hypothesis.
+
+| Cell | Expected | Reason (hypothesis) |
+|---|---|---|
+| C | no change | no thread lacks a CPU |
+| H | a loss is possible | each gate closure is short; a waiter that passes 64 spins pays a system call for a wait that was about to end, and comes back to a colder cache |
+| O, readers | read latency may rise | a yielding writer gives its CPU to any runnable thread, readers included, which lengthens nothing for the holder but changes who runs |
+| O | the gain may be absent | `sched_yield` moves the caller behind other runnable threads of its CPU; it does not hand the CPU to the holder, which may be queued on another CPU |
+| S | unknown | the waiter and the holder may share a core's two logical CPUs; `spin_loop` already relaxes the sibling |
+
+**Not predicted:** any magnitude; `g_thr`; the share of time in `sample`; behaviour on hosts with other core counts, other schedulers or other operating systems (the run is one Linux host); a park-based wait, which is not a variant here.
+
+**Silent constants,** all fixed here: N = 64; a yield after every failed check beyond N; the pin; W, R and live records of each cell; 8 rounds; 2,000 resamples, seed 42; floors 1.0; the 0.1% Callgrind bound; the host guard's three boundaries; three replacement runs per pair; one second pair. Changing any of them after a run relabels that run `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+
+### 37.8 The bound on a stuck gate is a separate question
+
+#1479 also notes that the two writer-side waits have no bound and no diagnostic. A bound that panics with a named message after a very large wait is not a performance question, and this registration does not decide it. No measurement here bears on it: a correct gate always reopens (`QuiesceGuard`, pinned by `tests/test_serialised_section_unwind.rs`), so the bound never fires in any cell above.
+
+It is decided on #1479 as its own item, by review, on three points this section only lists: what the bound counts (spins or elapsed time: a 300 ms compaction is already millions of spins, so a spin count risks a false panic); whether a panic inside a writer is an acceptable failure for a library; and its gate, which would be P37.1 as worded above plus a test that a gate deliberately left closed produces the named message.
+
+### 37.9 Open questions for the maintainer
+
+1. **Is the stall the right primary?** This registration judges the variant by how long the compaction holds the gate when threads outnumber CPUs. The alternative is total throughput in that cell. One has to be primary before the run.
+2. **Is one oversubscription level enough?** Cell O is 14 threads on 8 CPUs. A second level (for example 14 threads on 4 CPUs) would show whether the effect grows, at the cost of more cells.
+3. **Should cell H be able to reject?** As written, a measured loss on the short-hold cell blocks promotion even when the long-hold cell gains. The alternative is to report it and let the gain decide.
+4. **If the verdict is `PASS`, is promotion wanted,** given that the gain exists only when a process runs more threads than it has CPUs?
+5. **Section number.** 37 is the next free number at lock time and may move at merge.
