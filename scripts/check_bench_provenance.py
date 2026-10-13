@@ -636,13 +636,22 @@ D2_GUARD_GRANDFATHERED = frozenset(
     f"{D2_GUARD_PREFIX}{pages}_run{run}.json" for pages in ("4k", "2m") for run in (1, 2))
 
 
+# Ordered readers on the set (#1194, concurrency METHODOLOGY.md §36.12 item 4):
+# §36.6 voids a run on foreign load, so the artifact carries the guard's record
+# and admissibility is decided from it. No artifact of this suite predates the
+# record, so nothing is grandfathered.
+GUARD_REQUIRED = frozenset({"concurrency/results/ordered_readers_set_writer_scaling.json"})
+
+
 def guard_record_problems(rel: str, prov: dict) -> list[str]:
-    """Findings when a D2 artifact lacks a well-formed `provenance.host_guard`."""
-    if not rel.startswith(D2_GUARD_PREFIX) or rel in D2_GUARD_GRANDFATHERED:
+    """Findings when an artifact that owes the guard's record lacks a well-formed `provenance.host_guard`."""
+    owes = ((rel.startswith(D2_GUARD_PREFIX) and rel not in D2_GUARD_GRANDFATHERED)
+            or rel in GUARD_REQUIRED)
+    if not owes:
         return []
     g = prov.get("host_guard")
     if not isinstance(g, dict):
-        return [f"{rel}: `provenance.host_guard` missing — a D2 dispatch is admitted on the host "
+        return [f"{rel}: `provenance.host_guard` missing — a dispatch of this suite is admitted on the host "
                 f"guard's record (bench_host_guard.py attach), not on the run log"]
     start, run = g.get("start"), g.get("run")
     missing = []
@@ -1995,6 +2004,12 @@ def _self_test() -> int:
            rel="patricia_comparison/results/counters_prefix_scan_d1.json")
     if len(D2_GUARD_GRANDFATHERED) != 4 or not all(artifact_path(r).is_file() for r in D2_GUARD_GRANDFATHERED):
         failures.append(f"the A4-era D2 artifacts named must be the four committed ones: {sorted(D2_GUARD_GRANDFATHERED)}")
+
+    # §36.12 item 4: the set ordered-readers artifact owes the same record.
+    for rel in sorted(GUARD_REQUIRED):
+        expect(f"{rel} without the guard record", copy.deepcopy(bare), "`provenance.host_guard` missing", rel=rel)
+        if guard_record_problems(rel, d2["provenance"]):
+            failures.append(f"{rel} with a well-formed guard record must owe nothing")
 
     for msg in failures:
         print(f"  FAIL {msg}")
