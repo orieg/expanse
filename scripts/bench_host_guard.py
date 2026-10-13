@@ -2,6 +2,7 @@
 """Refuse a busy benchmark host, and void a run the host disturbed (#1210).
 
     bench_host_guard.py check     --own-root PID [--pin-cpus LIST] [--wait S] [--json F] [--md F]
+                                  [--suite NAME --manifest bench-suites.json]
     bench_host_guard.py watch     --own-root PID --out F.jsonl [--pin-cpus LIST]
     bench_host_guard.py summarize --in F.jsonl [--md F] [--json F]
     bench_host_guard.py attach    --check F.json --summary F.json --watcher-ok {0,1} ARTIFACT...
@@ -76,6 +77,37 @@ Thresholds are `bench_provenance.START_*` (the start gate) and `RUN_*_VOID`
 - `attach`: writes the start gate's verdict and that record into each named
   artifact's `provenance.host_guard`, so whether the host admitted the run is
   decidable from the committed artifact and not only from the run log.
+
+## Huge-page start gate
+
+A suite that declares `"huge_pages": true` in `.github/bench-suites.json` measures
+on 2 MiB pages (transparent huge pages requested through `madvise`), and a
+host that cannot supply them does not fail the run: the kernel falls back to
+4 KiB pages for each fault it cannot serve, and the run is judged void only
+after it has finished. `check --suite NAME --manifest F` therefore also
+refuses, before anything is built, when
+
+- the THP mode in `/sys/kernel/mm/transparent_hugepage/enabled` is `never` (or
+  unreadable), so an `madvise` request cannot be served, or
+- the **probe** fails: the guard maps `required_huge_pages()` 2 MiB extents (the
+  suite's own need, plus one of slack for alignment), requests huge pages with
+  `madvise`, touches one byte per extent, and reads `AnonHugePages` of that
+  mapping in `/proc/self/smaps`. Fewer backed extents than touched, an
+  unreadable smaps or a probe that cannot run all refuse (fail closed). The
+  mapping is released before `check` returns. The `/proc/vmstat`
+  `thp_fault_alloc` / `thp_fault_fallback` deltas across the probe are
+  system-wide, so another process moves them: recorded, never judged.
+
+The probe tests the supply itself because a free-block count does not bound it:
+a host that had fallen to 4 KiB pages read 166 free 2 MiB pages after the run.
+Free 2 MiB pages, `MemFree`, `Cached`, the THP modes and the compaction
+counters are recorded for diagnosis and are not a clause. A probe at the start
+does not guarantee supply for the whole run, since the suite's builds change
+memory state; it shows the kernel could supply the suite's own need then, and a
+later in-run fallback still voids the run by the existing rule. The gate only
+refuses. It does not drop caches or compact memory; that is the operator's.
+A refusal exits 1 with `fail_reason=no_huge_pages` and is recorded in
+`--json` (`hugepages`), which `attach` copies into `provenance.host_guard`.
 
 Off Linux there is no `/proc`. Each command then says so and exits 0: such a
 host is never the reference host.
@@ -642,6 +674,232 @@ def resolve_pin(sysfs: Path = Path("/sys/devices")) -> list[int]:
 
 
 # --------------------------------------------------------------------------
+# huge-page start gate
+# --------------------------------------------------------------------------
+HUGE_PAGE_BYTES = 2 * 1024 * 1024
+HUGE_PAGE_ORDER = 9  # 4 KiB << 9 = 2 MiB
+# Zones counted for the recorded free-page figure only (no clause reads it).
+HUGE_PAGE_ZONES = ("Normal",)
+# The measured need: the largest `thp_delta.thp_fault_alloc` of any cell of the
+# committed 2 MiB D2 artifacts, and the number of processes that delta spans.
+# A cell runs `runs` x (build, probe) sequential processes (perf_counters.run_cell),
+# and both phases build the same structure from fixed seeds
+# (crates/expanse/examples/perf_point_lookup.rs), so a process maps about
+# delta / processes huge pages, released when it exits. `test_huge_page_basis`
+# re-derives both numbers from the artifacts, so they cannot drift from them.
+HUGE_PAGE_BASIS_ARTIFACTS = (
+    "docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_2m_run1.json",
+    "docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_2m_run2.json",
+)
+HUGE_PAGE_MAX_CELL_FAULTS = 1638
+HUGE_PAGE_PROCESSES_PER_CELL = 20
+# Not measured. The gate runs before the build, and the build (compiler memory,
+# page cache for the target directory) takes from the same free blocks before
+# the first measured process starts; 2 leaves room for one more copy of the
+# measured mapping. A factor, not a bound: it is stated so a reviewer can change it.
+HUGE_PAGE_SAFETY_FACTOR = 2
+
+
+def required_huge_pages(max_cell_faults: int = HUGE_PAGE_MAX_CELL_FAULTS,
+                        processes: int = HUGE_PAGE_PROCESSES_PER_CELL,
+                        safety: int = HUGE_PAGE_SAFETY_FACTOR) -> int:
+    """Free 2 MiB pages a huge-page suite needs at start: ceil(faults / processes) x safety."""
+    if max_cell_faults <= 0 or processes <= 0 or safety < 1:
+        raise ValueError(f"huge-page requirement from nonsensical inputs: {max_cell_faults}, {processes}, {safety}")
+    return -(-max_cell_faults // processes) * safety
+
+
+def read_buddyinfo(proc: Path) -> dict[tuple[str, str], list[int]]:
+    """`(node, zone)` -> free block counts by order, from `/proc/buddyinfo`. Raises OSError/ValueError."""
+    out: dict[tuple[str, str], list[int]] = {}
+    for line in (proc / "buddyinfo").read_text().splitlines():
+        m = re.match(r"Node\s+(\d+),\s+zone\s+(\S+)\s+((?:\d+\s*)+)$", line.strip())
+        if m:
+            out[(m.group(1), m.group(2))] = [int(x) for x in m.group(3).split()]
+    if not out:
+        raise ValueError("no zone line in buddyinfo")
+    return out
+
+
+def free_huge_pages(zones: dict[tuple[str, str], list[int]], names: tuple[str, ...] = HUGE_PAGE_ZONES) -> int:
+    """Free 2 MiB pages: blocks of order >= 9 in the named zones, over all nodes; order 10 counts two."""
+    return sum(n << (o - HUGE_PAGE_ORDER)
+               for (_node, zone), counts in zones.items() if zone in names
+               for o, n in enumerate(counts) if o >= HUGE_PAGE_ORDER)
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:  # discipline:allow(error-swallowing): an unreadable file is recorded as null and judged by hugepage_why, which refuses on it
+        return None
+
+
+def _selected(mode: str | None) -> str | None:
+    """The bracketed word of `always [madvise] never`."""
+    m = re.search(r"\[(\w+)\]", mode or "")
+    return m.group(1) if m else None
+
+
+def _kv_ints(text: str | None, keys: tuple[str, ...]) -> dict[str, int | None]:
+    got: dict[str, int | None] = {k: None for k in keys}
+    for line in (text or "").splitlines():
+        parts = line.replace(":", " ").split()
+        if len(parts) >= 2 and parts[0] in got and parts[1].isdigit():
+            got[parts[0]] = int(parts[1])
+    return got
+
+
+VMSTAT_KEYS = ("thp_fault_alloc", "thp_fault_fallback", "compact_stall", "compact_fail", "compact_success")
+
+
+def hugepage_snapshot(proc: Path, sys_root: Path) -> dict:
+    """Static readings, all recorded for diagnosis. Only the THP mode is judged (`hugepage_why`).
+
+    The free 2 MiB count is not a clause: on the one host observed after a voided run it read 166 free
+    2 MiB pages, and the suite had still fallen back to 4 KiB pages. A count at one instant does not
+    bound what the kernel can supply, so the probe (`run_probe`) tests the supply itself.
+    """
+    thp = sys_root / "kernel" / "mm" / "transparent_hugepage"
+    enabled, defrag = _read_text(thp / "enabled"), _read_text(thp / "defrag")
+    try:
+        zones = read_buddyinfo(proc)
+        free = free_huge_pages(zones)
+        any_zone = free_huge_pages(zones, tuple({z for _n, z in zones}))
+        error = None
+    except (OSError, ValueError) as exc:
+        free, any_zone, error = None, None, repr(exc)
+    mem = _kv_ints(_read_text(proc / "meminfo"), ("MemFree", "Cached"))
+    vm = _kv_ints(_read_text(proc / "vmstat"), VMSTAT_KEYS)
+    return {
+        "free_2mib_pages": free,
+        "free_2mib_pages_all_zones": any_zone,
+        "zones_counted": list(HUGE_PAGE_ZONES),
+        "buddyinfo_error": error,
+        "thp_enabled": enabled,
+        "thp_defrag": defrag,
+        "memfree_kb": mem["MemFree"],
+        "cached_kb": mem["Cached"],
+        **{k: vm[k] for k in VMSTAT_KEYS},
+    }
+
+
+def smaps_anon_huge_kb(text: str, addr: int) -> int | None:
+    """`AnonHugePages` (kB) of the mapping in `/proc/<pid>/smaps` text that contains `addr`; None if none does."""
+    inside = False
+    found: int | None = None
+    for line in text.splitlines():
+        m = re.match(r"([0-9a-f]+)-([0-9a-f]+)\s+\S+\s+[0-9a-f]+\s+\S+\s+\d+", line)
+        if m:
+            if inside:
+                break
+            inside = int(m.group(1), 16) <= addr < int(m.group(2), 16)
+            continue
+        if inside:
+            f = re.match(r"AnonHugePages:\s+(\d+)\s+kB", line)
+            if f:
+                found = int(f.group(1))
+    return found
+
+
+# `mmap.madvise` and `mmap.MADV_HUGEPAGE` arrived in Python 3.8 (Linux). The reference host has 3.10.
+PROBE_MIN_PYTHON = (3, 8)
+
+
+def probe_map_flags(mmap_mod) -> int:
+    """The flags the probe maps with: private anonymous, like the suite's malloc arenas. The default for
+    fd -1 is MAP_SHARED, a shmem mapping whose huge pages are counted as ShmemPmdMapped and never as
+    AnonHugePages, so a shared probe would read 0 on a host that backs the suite fully."""
+    return mmap_mod.MAP_PRIVATE | mmap_mod.MAP_ANONYMOUS
+
+
+def run_probe(pages: int, proc: Path = Path("/proc"), mmap_mod=None, py_version=None) -> dict:
+    """Linux only. Maps `pages` 2 MiB extents (plus one of slack for alignment), requests huge pages with
+    madvise, touches one byte per extent, and reads how many the kernel backed with huge pages.
+
+    The per-process reading is `AnonHugePages` of that mapping in `/proc/self/smaps`, taken after the
+    touches and before the unmap. The `/proc/vmstat` deltas are system-wide, so any other process moves
+    them: they are recorded for context and never judged. The mapping is `pages` x 2 MiB, the suite's own
+    need, and is released before this returns. Any failure, including an interpreter older than
+    `PROBE_MIN_PYTHON`, is returned in `error` and refuses; nothing is raised. `mmap_mod` and `py_version`
+    are for tests.
+    """
+    rec: dict = {"pages": pages, "anon_huge_kb": None, "thp_fault_alloc_delta": None,
+                 "thp_fault_fallback_delta": None, "error": None}
+    buf = m = None
+    try:
+        import ctypes
+        import mmap
+        mmap = mmap_mod if mmap_mod is not None else mmap
+        ver = tuple(py_version if py_version is not None else sys.version_info[:3])
+        if ver < PROBE_MIN_PYTHON:
+            raise OSError(f"the probe needs Python {PROBE_MIN_PYTHON[0]}.{PROBE_MIN_PYTHON[1]} or later "
+                          f"(mmap.madvise); this is {'.'.join(map(str, ver))}")
+        if not hasattr(mmap, "MADV_HUGEPAGE"):
+            raise OSError("mmap.MADV_HUGEPAGE is not available on this Python/OS")
+        m = mmap.mmap(-1, (pages + 1) * HUGE_PAGE_BYTES, flags=probe_map_flags(mmap))
+        buf = ctypes.c_char.from_buffer(m)
+        base = ctypes.addressof(buf)
+        start = (base + HUGE_PAGE_BYTES - 1) & ~(HUGE_PAGE_BYTES - 1)
+        m.madvise(mmap.MADV_HUGEPAGE)
+        before = _kv_ints(_read_text(proc / "vmstat"), VMSTAT_KEYS)
+        for i in range(pages):
+            m[start - base + i * HUGE_PAGE_BYTES] = 1
+        after = _kv_ints(_read_text(proc / "vmstat"), VMSTAT_KEYS)
+        rec["anon_huge_kb"] = smaps_anon_huge_kb((proc / "self" / "smaps").read_text(), start)
+        for key in ("thp_fault_alloc", "thp_fault_fallback"):
+            if before[key] is not None and after[key] is not None:
+                rec[f"{key}_delta"] = after[key] - before[key]
+    except (OSError, ValueError, ImportError, AttributeError, BufferError) as exc:
+        rec["error"] = repr(exc)
+    finally:
+        del buf
+        if m is not None:
+            m.close()
+    return rec
+
+
+def probe_why(probe: dict | None) -> list[str]:
+    """The refusal from a probe reading (pure). Unreadable or missing evidence refuses: the gate fails closed."""
+    if probe is None:
+        return ["the huge-page probe did not run"]
+    if probe.get("error"):
+        return [f"the huge-page probe could not run ({probe['error']})"]
+    kb, pages = probe.get("anon_huge_kb"), probe["pages"]
+    if kb is None:
+        return ["the probe's mapping has no AnonHugePages reading in smaps, so its backing is unknown"]
+    backed = kb // (HUGE_PAGE_BYTES // 1024)
+    if backed < pages:
+        return [
+            f"the kernel backed {backed} of the {pages} 2 MiB extents ({pages * 2} MiB, this suite's own need) "
+            "the probe touched after madvise(MADV_HUGEPAGE); the rest would be 4 KiB pages. "
+            "The page cache and fragmentation are the usual cause: the host's operator has to release "
+            "the cache and compact memory (this guard does neither), then re-dispatch"]
+    return []
+
+
+def hugepage_why(snap: dict, probe: dict | None) -> list[str]:
+    """The reasons a huge-page suite cannot start on this host; empty when it can."""
+    why = []
+    sel = _selected(snap["thp_enabled"])
+    if sel is None:
+        why.append(f"the THP mode could not be read (enabled={snap['thp_enabled']!r}), so an madvise request cannot be assumed served")
+    elif sel == "never":
+        why.append("the THP mode is `never`, so a madvise(MADV_HUGEPAGE) request is not served")
+    else:
+        why += probe_why(probe)
+    return why
+
+
+def suite_needs_huge_pages(manifest: Path, suite: str) -> bool:
+    """The suite's `huge_pages` declaration. An unknown suite raises: the gate fails closed."""
+    for s in json.loads(manifest.read_text())["suites"]:
+        if s.get("name") == suite:
+            return s.get("huge_pages") is True
+    raise KeyError(f"suite {suite!r} is not in {manifest}")
+
+
+# --------------------------------------------------------------------------
 # commands
 # --------------------------------------------------------------------------
 def _gh_output(**kv: str) -> None:
@@ -658,7 +916,16 @@ def _with_cgroups(proc: Path, a: dict) -> dict:
     return a
 
 
-def cmd_check(args, proc: Path) -> int:
+def cmd_check(args, proc: Path, sys_root: Path = Path("/sys")) -> int:
+    gated = False
+    if getattr(args, "suite", None):
+        try:
+            gated = suite_needs_huge_pages(Path(args.manifest), args.suite)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"::error::refusing to start: cannot tell whether suite {args.suite!r} needs huge pages: {exc!r}")
+            if args.github_output:
+                _gh_output(fail_reason="bad_descriptor")
+            return 1
     pin = bp.expand_cpu_list(args.pin_cpus) if args.pin_cpus else resolve_pin()
     deadline = time.monotonic() + args.wait
     quiet = 0
@@ -683,9 +950,28 @@ def cmd_check(args, proc: Path) -> int:
         if time.monotonic() >= deadline and len(history) >= bp.START_QUIET_WINDOWS:
             ok = False
             break
+    return finish_check(args, proc, sys_root, pin, history, ok, gated)
+
+
+def finish_check(args, proc: Path, sys_root: Path, pin: list[int], history: list[dict], ok: bool, gated: bool,
+                 probe_fn=run_probe) -> int:
+    """Judges the huge-page need after the CPU gate, records both, and writes the outputs."""
     last = history[-1]
+    hp = None
+    hp_why: list[str] = []
+    if gated:
+        hp = hugepage_snapshot(proc, sys_root)
+        probe = None
+        if ok:
+            # Only on a host the CPU gate admitted, and only when the THP mode can serve a request.
+            # Sized by the suite's own need, released before it returns: it does not disturb the run.
+            if _selected(hp["thp_enabled"]) not in (None, "never"):
+                probe = probe_fn(required_huge_pages(), proc)
+            hp_why = hugepage_why(hp, probe)
+        hp["probe"] = probe
+        hp["verdict"] = "refused" if hp_why else ("ok" if ok else "not_evaluated")
     report = {
-        "verdict": "quiet" if ok else "busy",
+        "verdict": "quiet" if ok and not hp_why else ("busy" if not ok else "no_huge_pages"),
         "pin_cpus": pin,
         "psi_some_avg10": psi(proc),
         "loadavg": (proc / "loadavg").read_text().split()[:3],
@@ -696,6 +982,8 @@ def cmd_check(args, proc: Path) -> int:
         },
         "windows": history,
     }
+    if hp is not None:
+        report["hugepages"] = hp
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=2) + "\n")
     lines = [
@@ -705,18 +993,29 @@ def cmd_check(args, proc: Path) -> int:
         *attribution_lines(last),
         *offender_table(last["offenders"]),
     ]
+    if hp is not None:
+        pr = hp["probe"] or {}
+        lines.append(
+            f"huge pages: {hp['verdict']}; probe backed {pr.get('anon_huge_kb')} kB of {pr.get('pages', 0) * 2048} kB "
+            f"(error {pr.get('error')}); recorded only: free 2 MiB pages {hp['free_2mib_pages']}, THP {hp['thp_enabled']}, "
+            f"defrag {hp['thp_defrag']}, MemFree {hp['memfree_kb']} kB, Cached {hp['cached_kb']} kB, "
+            f"thp_fault_fallback {hp['thp_fault_fallback']}, compact_stall/fail/success "
+            f"{hp['compact_stall']}/{hp['compact_fail']}/{hp['compact_success']}")
     if args.md:
         Path(args.md).write_text(
             "<details>\n<summary><b>Host guard (live /proc sample before the run)</b></summary>\n\n```text\n"
             + "\n".join(lines) + "\n```\n\n</details>\n"
         )
     print("\n".join(lines))
-    if ok:
+    if ok and not hp_why:
         return 0
-    for w in last["why"]:
-        print(f"::error::refusing to start: the host is busy: {w}")
+    if not ok:
+        for w in last["why"]:
+            print(f"::error::refusing to start: the host is busy: {w}")
+    for w in hp_why:
+        print(f"::error::refusing to start: the host cannot supply 2 MiB pages: {w}")
     if args.github_output:
-        _gh_output(fail_reason="host_busy")
+        _gh_output(fail_reason="host_busy" if not ok else "no_huge_pages")
     return 1
 
 
@@ -802,6 +1101,7 @@ def guard_record(check: dict, run: dict, watcher_ok: bool) -> dict:
             "windows": len(check["windows"]),
             "loadavg": check["loadavg"],
             "thresholds": check["thresholds"],
+            **({"hugepages": check["hugepages"]} if "hugepages" in check else {}),
         },
         "run": run,
         "watcher_ok": bool(watcher_ok),
@@ -1383,6 +1683,239 @@ def self_test() -> int:
                 else:
                     os.environ[k] = v
 
+
+        # 21. The huge-page start gate. Synthetic /proc and /sys roots; no real ones are read here.
+        need = required_huge_pages()
+
+        def mm(name: str, buddy: list[str] | None, thp: str | None = "always [madvise] never") -> tuple[Path, Path]:
+            pr, sy = Path(td, name, "proc"), Path(td, name, "sys")
+            pr.mkdir(parents=True)
+            (sy / "kernel" / "mm" / "transparent_hugepage").mkdir(parents=True)
+            if buddy is not None:
+                (pr / "buddyinfo").write_text("\n".join(buddy) + "\n")
+            if thp is not None:
+                (sy / "kernel" / "mm" / "transparent_hugepage" / "enabled").write_text(thp + "\n")
+            (sy / "kernel" / "mm" / "transparent_hugepage" / "defrag").write_text("always defer [madvise] never\n")
+            (pr / "meminfo").write_text("MemTotal: 100 kB\nMemFree:      1234 kB\nCached:      5678 kB\n")
+            (pr / "vmstat").write_text("thp_fault_alloc 7\nthp_fault_fallback 12\ncompact_stall 100\n"
+                                       "compact_fail 100\ncompact_success 0\n")
+            return pr, sy
+
+        def row(node: int, zone: str, orders: dict[int, int]) -> str:
+            return f"Node {node}, zone {zone:>8} " + " ".join(str(orders.get(o, 0)) for o in range(11))
+
+        def snap_of(name: str, buddy, thp="always [madvise] never") -> dict:
+            pr, sy = mm(name, buddy, thp)
+            return hugepage_snapshot(pr, sy)
+
+        def probe_of(backed_pages: int | None, pages: int = need, error: str | None = None) -> dict:
+            return {"pages": pages, "anon_huge_kb": None if backed_pages is None else backed_pages * 2048,
+                    "thp_fault_alloc_delta": 0, "thp_fault_fallback_delta": 0, "error": error}
+
+        # 21a. The probe's size is the measured need times the stated factor. The basis is
+        # re-derived from the committed artifacts first, so a drifting constant fails here.
+        faults, procs = [], set()
+        for rel in HUGE_PAGE_BASIS_ARTIFACTS:
+            art_obj = json.loads((Path(__file__).resolve().parent.parent / rel).read_text())
+            assert art_obj["provenance"]["hugetlb"] is True, rel
+            for cell in art_obj["cells"]:
+                faults.append(cell["thp_delta"]["thp_fault_alloc"])
+                procs.add(2 * len(art_obj["rounds_raw"][cell["id"]]["cycles"]))
+        assert (max(faults), procs) == (HUGE_PAGE_MAX_CELL_FAULTS, {HUGE_PAGE_PROCESSES_PER_CELL}), (faults, procs)
+        assert need == 164 and required_huge_pages(1638, 20, 2) == 164, need
+        assert required_huge_pages(1640, 20, 1) == 82
+        for bad in ((0, 20, 2), (1638, 0, 2), (1638, 20, 0)):
+            try:
+                required_huge_pages(*bad)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"required_huge_pages accepted {bad}")
+
+        # 21b. smaps parsing (pure, on text in the kernel's format): the mapping containing the
+        # address, and only that one; an address in no mapping reads None.
+        smaps = ("00400000-00452000 r-xp 00000000 08:02 173521 /usr/bin/foo\n"
+                 "AnonHugePages:         0 kB\n"
+                 "7f0000000000-7f0000400000 rw-p 00000000 00:00 0 \n"
+                 "Rss:                4096 kB\n"
+                 "AnonHugePages:      2048 kB\n"
+                 "VmFlags: rd wr mr mw me ac hg\n"
+                 "7f0000400000-7f0000800000 rw-p 00000000 00:00 0 \n"
+                 "AnonHugePages:      4096 kB\n")
+        assert smaps_anon_huge_kb(smaps, 0x7F0000200000) == 2048
+        assert smaps_anon_huge_kb(smaps, 0x7F0000400000) == 4096  # a range's end is the next range's start
+        assert smaps_anon_huge_kb(smaps, 0x00400010) == 0
+        assert smaps_anon_huge_kb(smaps, 0x10000000) is None
+        assert smaps_anon_huge_kb("garbage", 1) is None
+
+        # 21c. The decision over a probe reading (pure): refuses on any extent not backed, and on
+        # missing evidence.
+        assert probe_why(probe_of(need)) == [] and probe_why(probe_of(need + 5)) == []
+        w = probe_why(probe_of(need - 1))
+        assert len(w) == 1 and "163 of the 164 2 MiB extents" in w[0], w
+        assert probe_why(probe_of(0)) and "0 of the 164" in probe_why(probe_of(0))[0]
+        assert any("no AnonHugePages reading" in x for x in probe_why(probe_of(None)))
+        assert any("could not run (OSError" in x for x in probe_why(probe_of(None, error="OSError('boom')")))
+        assert any("did not run" in x for x in probe_why(None))
+        assert probe_why(dict(probe_of(need), error="OSError('x')"))  # an error refuses even beside a full reading
+
+        # 21d. The gate: the THP mode is a clause of its own, and the probe is the other. Free
+        # capacity is recorded and is not a clause: a host reading 166 free pages is judged by its probe.
+        ample = [row(0, "Normal", {10: need})]
+        scarce = [row(0, "Normal", {9: 86, 10: 40})]
+        assert not hugepage_why(snap_of("a", scarce), probe_of(need))
+        assert hugepage_why(snap_of("b", ample), probe_of(need - 1))
+        assert any("`never`" in x for x in hugepage_why(snap_of("c", ample, "always madvise [never]"), probe_of(need)))
+        assert any("could not be read" in x for x in hugepage_why(snap_of("d", ample, None), probe_of(need)))
+        assert not hugepage_why(snap_of("e", ample, "[always] madvise never"), probe_of(need))
+        assert hugepage_why(snap_of("f", ample), None)
+
+        # 21e. The static record: free pages (nodes summed, Normal only, order 10 counted twice),
+        # and the readings that are only recorded.
+        s1 = snap_of("g", scarce)
+        assert s1["free_2mib_pages"] == 166 and s1["free_2mib_pages_all_zones"] == 166, s1
+        assert free_huge_pages({("0", "Normal"): [5, 5, 5, 5, 5, 5, 5, 5, 5, 0, 3]}) == 6
+        s2 = snap_of("h", [row(0, "Normal", {9: 3}), row(1, "Normal", {10: 5}), row(0, "DMA32", {9: 999})])
+        assert s2["free_2mib_pages"] == 13 and s2["free_2mib_pages_all_zones"] == 1012, s2
+        assert snap_of("i", None)["free_2mib_pages"] is None
+        assert (s1["memfree_kb"], s1["cached_kb"], s1["thp_fault_fallback"], s1["compact_stall"], s1["compact_fail"],
+                s1["compact_success"], s1["thp_enabled"], s1["thp_defrag"]) == (
+            1234, 5678, 12, 100, 100, 0, "always [madvise] never", "always defer [madvise] never"), s1
+
+        # 21f. Scope: only a suite that declares the need is gated; an unknown suite fails closed.
+        man = Path(td, "man.json")
+        man.write_text(json.dumps({"suites": [{"name": "needs", "huge_pages": True}, {"name": "plain"},
+                                              {"name": "off", "huge_pages": False}]}))
+        assert suite_needs_huge_pages(man, "needs") is True
+        assert suite_needs_huge_pages(man, "plain") is False and suite_needs_huge_pages(man, "off") is False
+        try:
+            suite_needs_huge_pages(man, "nope")
+        except KeyError:
+            pass
+        else:
+            raise AssertionError("an unknown suite was not refused")
+
+        # 21g. finish_check end to end with a stubbed probe: the order of judgement and the record.
+        cpu_a = samp(t, 0.0, {0: 0, 1: 0, 2: 0, 3: 0}, base)
+        cpu_b = samp(t, 1.0, {0: 0, 1: 0, 2: 0, 3: 0}, base)
+        win = _with_cgroups(t, assess(cpu_a, cpu_b, pin, root))
+
+        def finish(name: str, backed, thp, gated: bool, busy: bool = False) -> tuple[int, dict, str, list]:
+            pr, sy = mm(name, scarce, thp)
+            (pr / "loadavg").write_text("0.10 0.20 0.30 1/100 1\n")
+            gh, js, md = Path(td, name, "gh"), Path(td, name, "out.json"), Path(td, name, "out.md")
+            os.environ["GITHUB_OUTPUT"] = str(gh)
+            w = dict(win, quiet=not busy, why=["synthetic"] if busy else [])
+            calls: list[int] = []
+
+            def fake_probe(pages: int, _proc: Path) -> dict:
+                calls.append(pages)
+                return probe_of(backed, pages)
+
+            try:
+                with open(os.devnull, "w") as dn:
+                    old, sys.stdout = sys.stdout, dn
+                    try:
+                        rc = finish_check(argparse.Namespace(json=str(js), md=str(md), github_output=True), pr, sy, pin,
+                                          [w], not busy, gated, probe_fn=fake_probe)
+                    finally:
+                        sys.stdout = old
+            finally:
+                os.environ.pop("GITHUB_OUTPUT", None)
+            return rc, json.loads(js.read_text()), (gh.read_text() if gh.exists() else ""), calls
+
+        rc, rep, gh, calls = finish("m1", need, "always [madvise] never", True)
+        assert rc == 0 and rep["verdict"] == "quiet" and rep["hugepages"]["verdict"] == "ok" and gh == "", (rc, rep, gh)
+        assert calls == [need] and rep["hugepages"]["probe"]["anon_huge_kb"] == need * 2048, (calls, rep["hugepages"])
+        assert rep["hugepages"]["free_2mib_pages"] == 166  # recorded beside the probe
+        rc, rep, gh, calls = finish("m2", need - 1, "always [madvise] never", True)
+        assert rc == 1 and rep["verdict"] == "no_huge_pages" and rep["hugepages"]["verdict"] == "refused", (rc, rep)
+        assert gh == "fail_reason=no_huge_pages\n", gh
+        assert "huge pages: refused; probe backed" in Path(td, "m2", "out.md").read_text()
+        rc, rep, gh, calls = finish("m3", 0, "always [madvise] never", False)
+        assert rc == 0 and "hugepages" not in rep and rep["verdict"] == "quiet" and calls == [], (rc, rep, calls)
+        rc, rep, gh, calls = finish("m4", 0, "always [madvise] never", True, busy=True)
+        assert rc == 1 and rep["verdict"] == "busy" and gh == "fail_reason=host_busy\n" and calls == [], (rep["verdict"], gh, calls)
+        assert rep["hugepages"]["verdict"] == "not_evaluated", rep["hugepages"]
+        rc, rep, gh, calls = finish("m5", need, "always madvise [never]", True)
+        assert rc == 1 and gh == "fail_reason=no_huge_pages\n" and calls == [], (rc, gh, calls)
+        rec = guard_record(finish("m6", need - 1, "always [madvise] never", True)[1], {"verdict": "ok"}, True)
+        assert rec["start"]["hugepages"]["probe"]["anon_huge_kb"] == (need - 1) * 2048, rec
+
+        # 21g2. The mapping is private anonymous, never shared (pure: a fake mmap module records the flags),
+        # and an interpreter older than the minimum is refused by name, not raised.
+        class _FakeMmap:
+            MAP_SHARED, MAP_PRIVATE, MAP_ANONYMOUS, MADV_HUGEPAGE = 0x01, 0x02, 0x20, 14
+            seen: list = []
+
+            @classmethod
+            def mmap(cls, fd, size, flags=None):
+                cls.seen.append(flags)
+                raise OSError("stop after recording the flags")
+
+        r = run_probe(3, mmap_mod=_FakeMmap)
+        assert r["error"] and len(_FakeMmap.seen) == 1, (r, _FakeMmap.seen)
+        fl = _FakeMmap.seen[0]
+        assert fl & _FakeMmap.MAP_PRIVATE and fl & _FakeMmap.MAP_ANONYMOUS and not fl & _FakeMmap.MAP_SHARED, hex(fl)
+        old = run_probe(3, mmap_mod=_FakeMmap, py_version=(3, 7, 9))
+        assert old["error"] and "needs Python 3.8 or later" in old["error"] and "3.7.9" in old["error"], old
+        assert len(_FakeMmap.seen) == 1  # it refused before mapping anything
+        assert probe_why(old) and "needs Python 3.8" in probe_why(old)[0]
+        assert not run_probe(3, mmap_mod=_FakeMmap, py_version=(3, 8, 0))["error"].startswith("OSError('the probe needs")
+
+        # 21h. The Linux mapping path. It needs /proc/self/smaps and mmap.MADV_HUGEPAGE; elsewhere it is
+        # SKIPPED by name, and the printed line says so (it is never a silent pass, AGENTS.md section 8.1).
+        import mmap as _mmap
+        if sys.platform.startswith("linux") and Path("/proc/self/smaps").exists() and hasattr(_mmap, "MADV_HUGEPAGE"):
+            # the parser against the kernel's real format, on a mapping of known address
+            import ctypes
+            mp = _mmap.mmap(-1, 4 * 1024 * 1024)
+            cb = ctypes.c_char.from_buffer(mp)
+            try:
+                assert smaps_anon_huge_kb(Path("/proc/self/smaps").read_text(), ctypes.addressof(cb)) is not None
+            finally:
+                del cb
+                mp.close()
+            def ref_kb(shared: bool, advise: bool = True) -> int:
+                """An independent mapping of 4 extents, touched, read back from the real smaps."""
+                fl = _mmap.MAP_ANONYMOUS | (_mmap.MAP_SHARED if shared else _mmap.MAP_PRIVATE)
+                mp2 = _mmap.mmap(-1, 5 * 2 * 1024 * 1024, flags=fl)
+                cb2 = ctypes.c_char.from_buffer(mp2)
+                try:
+                    b0 = ctypes.addressof(cb2)
+                    st = (b0 + 2 * 1024 * 1024 - 1) & ~(2 * 1024 * 1024 - 1)
+                    if advise:
+                        mp2.madvise(_mmap.MADV_HUGEPAGE)
+                    for i in range(4):
+                        mp2[st - b0 + i * 2 * 1024 * 1024] = 1
+                    return smaps_anon_huge_kb(Path("/proc/self/smaps").read_text(), st) or 0
+                finally:
+                    del cb2
+                    mp2.close()
+
+            live = run_probe(4)
+            assert live["error"] is None and live["pages"] == 4, live
+            assert isinstance(live["anon_huge_kb"], int) and 0 <= live["anon_huge_kb"] <= 4 * 2048, live
+            # Why the flag matters: a SHARED mapping of the same size reads 0 AnonHugePages, whatever the host.
+            shared_kb, private_kb = ref_kb(True), ref_kb(False)
+            assert shared_kb == 0, f"a shared mapping read {shared_kb} kB AnonHugePages"
+            mode = _selected(_read_text(Path("/sys/kernel/mm/transparent_hugepage/enabled")))
+            if mode in ("madvise", "always") and private_kb == 4 * 2048:
+                # The host can back the full size, so the probe must see it: a probe that skips madvise
+                # (under `madvise` mode), maps shared, or misreads smaps reads less and fails here.
+                assert live["anon_huge_kb"] == 4 * 2048 and probe_why(live) == [], (live, private_kb)
+                print(f"bench_host_guard.py --self-test: Linux probe path ran, THP {mode}: probe {live['anon_huge_kb']} kB, "
+                      f"private reference {private_kb} kB, shared reference {shared_kb} kB")
+            else:
+                print(f"bench_host_guard.py --self-test: SKIPPED the probe-versus-reference clause: this host backs "
+                      f"{private_kb} of {4 * 2048} kB with THP {mode} (probe read {live['anon_huge_kb']} kB); the "
+                      "shared-mapping clause ran")
+        else:
+            print("bench_host_guard.py --self-test: SKIPPED probe mapping path (needs Linux with /proc/self/smaps "
+                  "and mmap.MADV_HUGEPAGE; this host has "
+                  f"platform={sys.platform}, MADV_HUGEPAGE={hasattr(_mmap, 'MADV_HUGEPAGE')}); the pure decision "
+                  "functions above ran")
+
     assert sanitize("k`v\nx") == "k?v?x"
     print("bench_host_guard.py --self-test: all checks passed")
     return 0
@@ -1399,6 +1932,8 @@ def main() -> int:
     c.add_argument("--json")
     c.add_argument("--md")
     c.add_argument("--github-output", action="store_true")
+    c.add_argument("--suite", help="gate on the huge-page need this suite declares in --manifest")
+    c.add_argument("--manifest", help=".github/bench-suites.json; required with --suite")
     w = sub.add_parser("watch")
     w.add_argument("--own-root", type=int, required=True)
     w.add_argument("--pin-cpus")
@@ -1414,6 +1949,8 @@ def main() -> int:
     at.add_argument("--watcher-ok", type=int, choices=(0, 1), required=True)
     at.add_argument("artifacts", nargs="+")
     args = ap.parse_args()
+    if args.cmd == "check" and bool(args.suite) != bool(args.manifest):
+        ap.error("--suite and --manifest go together")
     if args.self_test:
         return self_test()
     proc = Path("/proc")

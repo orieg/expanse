@@ -110,6 +110,10 @@ def check_manifest(manifest: dict) -> tuple[list[str], list[str]]:
                 errs.append(f"{where} ({name}): windows must be one of {WINDOW_MODES}")
             if s.get("kind") != "wallclock":
                 errs.append(f"{where} ({name}): `windows` belongs only on a wallclock suite")
+        # A suite that measures on 2 MiB pages declares it here, once; the
+        # start gate in bench_host_guard.py reads it (#1096).
+        if "huge_pages" in s and s["huge_pages"] is not True:
+            errs.append(f"{where} ({name}): `huge_pages` is either `true` or absent, not {s['huge_pages']!r}")
         if s.get("available") is False and not s.get("reason"):
             errs.append(f"{where} ({name}): an unavailable suite must state a `reason`")
         if s.get("available") is True and s.get("reason"):
@@ -591,6 +595,16 @@ def self_test() -> int:
     m["suites"][-1]["windows"] = "criterion"
     m["suites"][-1]["kind"] = "callgrind"
     assert any("only on a wallclock" in e for e in errs(m)), "windows on a callgrind suite"
+
+    # #1096: `huge_pages` is the huge-page start gate's one declaration.
+    m = json.loads(json.dumps(base))
+    m["suites"].append({"name": "hp", "available": True, "kind": "counters", "runner": "builtin",
+                        "summary": "s", "huge_pages": True})
+    assert errs(m) == [], errs(m)
+    m["suites"][-1]["huge_pages"] = "yes"
+    assert any("`huge_pages` is either" in e for e in errs(m)), "huge_pages must be true or absent"
+    m["suites"][-1]["huge_pages"] = False
+    assert any("`huge_pages` is either" in e for e in errs(m)), "false is spelled by absence"
 
     m = json.loads(json.dumps(base))
     m["suites"].append({"name": "x", "available": False, "kind": "wallclock", "runner": "builtin", "summary": "s"})
