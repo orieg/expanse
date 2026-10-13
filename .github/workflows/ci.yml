@@ -1756,10 +1756,11 @@ jobs:
       # reads one byte past a node and Miri must report it. The test is
       # ignored in every other lane, since a test Miri rejects cannot pass.
       # Fails closed (AGENTS.md §5, string-gated inverted assertions): a
-      # passing run, a build error, a filter that matched nothing or the
-      # canary's own panic all leave the log without Miri's report.
+      # passing run, a build error, a filter that matched nothing, the
+      # canary's failed precondition or its final panic all leave the log
+      # without Miri's report. On every shard: the test binary is already
+      # built, and the control then guards each shard's own run.
       - name: Miri (negative control — a read one byte past an exact-size node is reported)
-        if: matrix.shard == '2 of 3'
         run: |
           canary=alloc::tests::miri_canary_read_one_byte_past_a_node
           if cargo miri test -p expanse-trie --lib -- --ignored --exact "$canary" > miri-canary.log 2>&1; then
@@ -1772,8 +1773,8 @@ jobs:
             || { echo "::error::the exact-size canary failed without Miri's out-of-bounds report (build error, zero tests, or the mode is off)"; exit 1; }
           grep -q 'miri_canary_read_one_byte_past_a_node' miri-canary.log \
             || { echo "::error::Miri's report does not name the canary"; exit 1; }
-          if grep -q 'exact-size mode is off' miri-canary.log; then
-            echo "::error::the canary reached its panic: the read past the node was not reported"
+          if grep -Eq 'exact-size mode is off|Miri accepted a read one byte past' miri-canary.log; then
+            echo "::error::the canary reached one of its own failures: the read past the node was not reported"
             exit 1
           fi
 

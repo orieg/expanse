@@ -2532,8 +2532,11 @@ mod tests {
     /// pass, so it is ignored in every lane and run alone by the Tier-1
     /// `miri` job's canary step, which requires Miri's own diagnostic in the
     /// log and fails on anything else (AGENTS.md §5, string-gated inverted
-    /// assertions). If the mode is off, the read lands in the slab page, no
-    /// report is made, and the panic below is what the step sees instead.
+    /// assertions). The test has three ends, and the step tells them apart:
+    /// Miri's out-of-bounds report (the expected one); the precondition
+    /// below, when the node was carved from a slab page and the read would
+    /// stay inside it; and the final panic, when the node was its own
+    /// allocation and the read went unreported all the same.
     #[test]
     #[cfg(miri)]
     #[cfg_attr(
@@ -2543,6 +2546,13 @@ mod tests {
     fn miri_canary_read_one_byte_past_a_node() {
         let a = NodeAlloc::new();
         let node = a.alloc_node_zeroed::<BranchL3>();
+        // The control's precondition: the node is one system allocation of
+        // its own size. On a slab page the byte after it is the next block.
+        assert!(
+            a.exact_size && a.slab_pages.load(Ordering::Relaxed).is_null(),
+            "exact-size mode is off: the canary's node was carved from a slab page"
+        );
+        assert_eq!(a.bytes_held(), size_of::<BranchL3>());
         let end = node
             .as_ptr()
             .cast::<u8>()
@@ -2553,7 +2563,7 @@ mod tests {
         let past = core::hint::black_box(unsafe { end.read() });
         // SAFETY: `node` came from `alloc_node_zeroed` on this handle.
         unsafe { a.free_node(node) };
-        panic!("exact-size mode is off: Miri accepted a read one byte past a node (read {past})");
+        panic!("Miri accepted a read one byte past an exact-size node (read {past})");
     }
 
     #[cfg(feature = "std")]
