@@ -13,7 +13,9 @@ dorny/paths-filter's `some-with-excludes` quantifier, and evaluates the `||`
 chains in each job's `if:`. A pattern form that appears in `ci.yml` and is not
 in that subset is a hard error, never a silent mismatch (AGENTS.md 8.1).
 
-Three checks, each with `--self-test` coverage:
+Checks, each with `--self-test` coverage (4 and 5 are the job-diff lane: every
+job's closed selection must run, and real edits of `ci.yml` go through the
+differ; see `JOBDIFF_CASES`):
 
   1. `check_golden_table`   -- the change-set -> job-set cases below.
   2. `check_outputs_consumed` -- every declared `detect-changes` output is read
@@ -22,6 +24,9 @@ Three checks, each with `--self-test` coverage:
      read by zero jobs.
   3. `check_if_shape`       -- every job except the declared unconditional ones
      carries an `if:`, and every term in it is one this evaluator understands.
+  4. `check_selected_jobs_can_run` -- selecting any job selects what it needs,
+     and every selected job runs.
+  5. `check_jobdiff_cases` -- the job-diff golden table.
 
 Run:  python3 scripts/check_ci_filters.py [--self-test]
 """
@@ -38,6 +43,10 @@ try:
 except ImportError:  # pragma: no cover - CI always has it
     print("::error::PyYAML is required by check_ci_filters.py", file=sys.stderr)
     raise
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from ci_job_diff import close_over_needs, diff_jobs  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
@@ -294,7 +303,7 @@ def load_ci(path: Path = CI_YML):
     return doc, jobs, filters, detect.get("outputs", {})
 
 
-def jobs_for_change(jobs, filters, changed):
+def jobs_for_change(jobs, filters, changed, changed_jobs=""):
     outputs = evaluate_filters(filters, changed)
     running = set()
     for name, body in jobs.items():
@@ -302,15 +311,26 @@ def jobs_for_change(jobs, filters, changed):
             # The golden cases model a ready pull request whose lint passed.
             running.add(name)
             continue
-        runs, _ = evaluate_if(body.get("if"), outputs)
+        runs, _ = evaluate_if(body.get("if"), outputs, changed_jobs=changed_jobs)
         if runs:
             running.add(name)
-    if "lint" not in running:
-        # A skipped `lint` skips every job behind the fast lane even when the
-        # fast lane itself succeeds: their `if:` carries GitHub's implicit
-        # success(), observed on run 36287802296.
-        running -= gated_jobs(jobs)
+    # A job whose `if:` is true is still skipped when any job it transitively
+    # needs was skipped: GitHub's implicit success() carries a skip down the
+    # whole `needs:` chain, through the fast lane too even though the fast lane
+    # itself succeeds (a skipped `lint` skipped every job behind it, observed on
+    # run 36287802296; a skipped `test-java` skipped `pack-java`, run
+    # 38468032048). The rollup (`always()`) and the fast lane are exempt.
+    ran = set(running)
+    for name in jobs:
+        if name == FAST_LANE_JOB or name not in ran or _runs_regardless(jobs[name]):
+            continue
+        if any(anc not in ran for anc in close_over_needs(jobs, [name])):
+            running.discard(name)
     return running
+
+
+def _runs_regardless(body) -> bool:
+    return str((body or {}).get("if") or "").strip() == "always()"
 
 
 
@@ -362,6 +382,103 @@ def check_golden_table(jobs, filters) -> list[str]:
         for job in sorted(must_not & known):
             if job in running:
                 errs.append(f"{label}: expected {job!r} to be SKIPPED for {changed}, it ran")
+    return errs
+
+
+# Golden table for the job-diff lane: (label, jobs whose definition an edit to
+# ci.yml touches, jobs that MUST run, jobs that MUST NOT). Each case edits the
+# named jobs in a copy of the real workflow and runs the result through
+# `ci_job_diff.diff_jobs`, with every path filter false -- a diff that touches
+# only `.github/workflows/ci.yml` and matches no filter.
+JOBDIFF_CASES = [
+    (
+        "a downstream job's edit runs the prerequisite it needs",
+        {"pack-java"},
+        {"pack-java", "test-java", "lint"},
+        {"miri", "pack-dotnet", "test-dotnet"},
+    ),
+    (
+        "an upstream job's edit does not force its dependant",
+        {"test-java"},
+        {"test-java", "lint"},
+        {"pack-java", "miri"},
+    ),
+    (
+        "an edit to a job behind the fast lane runs `lint`, which releases it",
+        {"miri"},
+        {"miri", "lint", "fast-lane"},
+        {"test-asan", "pack-java"},
+    ),
+    (
+        "an edit to the rollup does not wake the matrix it summarises",
+        {"ci-gate"},
+        {"ci-gate"},
+        {"miri", "test-java", "test-dotnet"},
+    ),
+    (
+        "the dependabot shape: action bumps inside both pack jobs and several "
+        "leaf jobs, with neither test job edited",
+        {"ci-gate", "docs-lint", "fuzz-smoke", "instruction-counts", "pack-dotnet",
+         "pack-java", "rocksdb-locate-ir-bound", "test-node", "test-ruby",
+         "test-wasm64", "wasm-fuel"},
+        {"pack-java", "test-java", "pack-dotnet", "test-dotnet", "fuzz-smoke", "test-node"},
+        {"miri", "test-asan", "loom"},
+    ),
+]
+
+
+def _edited_workflow(text: str, names) -> str:
+    """`text` with every job in `names` given a changed definition."""
+    doc = yaml.safe_load(text)
+    for name in names:
+        doc["jobs"][name]["x-golden-edit"] = True
+    return yaml.safe_dump(doc, sort_keys=False)
+
+
+def check_jobdiff_cases(jobs, filters, text: str) -> list[str]:
+    errs = []
+    known = set(jobs)
+    for label, edited, must_run, must_not in JOBDIFF_CASES:
+        all_changed, selected, reason = diff_jobs(text, _edited_workflow(text, edited & known))
+        if all_changed:
+            errs.append(f"{label}: the differ failed closed ({reason}), so the case cannot run")
+            continue
+        running = jobs_for_change(jobs, filters, [], "|" + "|".join(selected) + "|")
+        for job in sorted(must_run & known):
+            if job not in running:
+                errs.append(
+                    f"{label}: expected {job!r} to RUN when {sorted(edited)} are edited, it was skipped"
+                )
+        for job in sorted(must_not & known):
+            if job in running:
+                errs.append(
+                    f"{label}: expected {job!r} to be SKIPPED when {sorted(edited)} are edited, it ran"
+                )
+    return errs
+
+
+def check_selected_jobs_can_run(jobs, filters) -> list[str]:
+    """A job the job-diff selects, and each job it needs, runs.
+
+    For every job, take the closed selection the differ would emit for an edit
+    to that job alone, and require every member to run under it. A member that
+    does not -- an `if:` without the `changed-jobs` clause, a prerequisite the
+    closure cannot reach -- is skipped by GitHub while the gate floor holds its
+    `if:` true, which fails the rollup.
+    """
+    errs = []
+    for name in sorted(jobs):
+        selected = close_over_needs(jobs, [name])
+        running = jobs_for_change(jobs, filters, [], "|" + "|".join(selected) + "|")
+        for member in selected:
+            if member not in running:
+                via = "" if member == name else f" (a prerequisite of {name!r})"
+                errs.append(
+                    f"{member!r}{via} is selected when {name!r}'s definition changes "
+                    "but does not run: its `if:` lacks the "
+                    f"`contains(...changed-jobs, '|{member}|')` clause, or a job it "
+                    "needs is skipped"
+                )
     return errs
 
 
@@ -540,6 +657,44 @@ def self_test() -> int:
     check("a skipped lint skips the lane (run 36287802296)",
           "test-ruby" in jobs_for_change(blind, lane_filters, ["bindings/ruby/x.rb"]), False)
 
+    # A selected job runs only if every job it needs runs. The pack job below
+    # is the shape that failed: its own clause is present, its prerequisite's
+    # is the only thing that decides whether it runs.
+    def jd(name):
+        return f"contains(needs.detect-changes.outputs.changed-jobs, '|{name}|')"
+
+    sel_jobs = {
+        "detect-changes": {},
+        "docs-lint": {},
+        "lint": {"if": jd("lint")},
+        FAST_LANE_JOB: {"needs": ["lint", "docs-lint"], "if": "!cancelled()"},
+        "test-x": {"needs": ["detect-changes", FAST_LANE_JOB], "if": jd("test-x")},
+        "pack-x": {"needs": ["detect-changes", FAST_LANE_JOB, "test-x"], "if": jd("pack-x")},
+        "ci-gate": {"if": "always()", "needs": ["lint", "test-x", "pack-x"]},
+    }
+    check("every selection can run", check_selected_jobs_can_run(sel_jobs, {}), [])
+    # a prerequisite whose `if:` lacks the clause: selecting its dependant cannot run it
+    no_clause = dict(sel_jobs, **{"test-x": {"needs": ["detect-changes", FAST_LANE_JOB],
+                                              "if": "github.event_name != 'pull_request'"}})
+    errs = check_selected_jobs_can_run(no_clause, {})
+    check("prerequisite without the clause is caught",
+          any("'test-x' (a prerequisite of 'pack-x')" in e for e in errs), True)
+    # the clause on the dependant removed
+    no_own = dict(sel_jobs, **{"pack-x": {"needs": ["detect-changes", FAST_LANE_JOB, "test-x"],
+                                           "if": "github.event_name != 'pull_request'"}})
+    check("job without its own clause is caught",
+          any(e.startswith("'pack-x' is selected") for e in check_selected_jobs_can_run(no_own, {})),
+          True)
+    # a prerequisite that cannot be selected from the dependant (closure is by
+    # `needs:`): a missing edge leaves the dependant skipped on its own edit
+    check("a job runs when it and its prerequisites are selected",
+          "pack-x" in jobs_for_change(sel_jobs, {}, [], "|pack-x|test-x|lint|"), True)
+    check("a job selected without its prerequisite is skipped (run 38468032048)",
+          "pack-x" in jobs_for_change(sel_jobs, {}, [], "|pack-x|"), False)
+    cut = dict(sel_jobs, **{"test-x": dict(sel_jobs["test-x"], **{"if": "github.event_name != 'pull_request'"})})
+    check("skip propagates down `needs:` (run 38468032048)",
+          "pack-x" in jobs_for_change(cut, {}, [], "|pack-x|"), False)
+
     if failures:
         for f in failures:
             print(f"::error::check_ci_filters self-test: {f}")
@@ -570,6 +725,8 @@ def main() -> int:
     errs += check_lint_reads_lane_filters(jobs)
     errs += check_outputs_consumed(jobs, declared_outputs)
     errs += check_golden_table(jobs, filters)
+    errs += check_selected_jobs_can_run(jobs, filters)
+    errs += check_jobdiff_cases(jobs, filters, CI_YML.read_text())
     if errs:
         for e in errs:
             print(f"::error::{e}")
@@ -577,7 +734,7 @@ def main() -> int:
         return 1
     print(
         f"ci.yml path filters OK: {len(jobs)} jobs, {len(filters)} filters, "
-        f"{len(GOLDEN_CASES)} golden cases"
+        f"{len(GOLDEN_CASES)} golden cases, {len(JOBDIFF_CASES)} job-diff cases"
     )
     return 0
 
