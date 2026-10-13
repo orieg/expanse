@@ -235,6 +235,31 @@ def self_test() -> int:
     check("skipped despite changed-jobs is caught",
           len(check_floor(jobdiff_jobs, jd_skipped, jd_outputs)) >= 1, True)
 
+    # THE SHAPE THAT FAILED THE ROLLUP: a dependant named by `changed-jobs`
+    # whose prerequisite was not. The prerequisite's own gate is false, so it
+    # skips, GitHub skips the dependant behind it, and the floor reports the
+    # dependant as narrowed by something other than the gate. The differ now
+    # names the prerequisite too; the floor is unchanged and still refuses the
+    # unclosed set.
+    def _jd(name):
+        return f"contains(needs.detect-changes.outputs.changed-jobs, '|{name}|')"
+
+    chain = {
+        "detect-changes": {},
+        "test-x": {"if": "needs.detect-changes.outputs.rust-src == 'true' || " + _jd("test-x")},
+        "pack-x": {"if": "needs.detect-changes.outputs.rust-src == 'true' || " + _jd("pack-x")},
+    }
+    chain_out = {"rust-src": "false", "changed-jobs": "|pack-x|"}
+    chain_skipped = {"detect-changes": {"result": "success"},
+                     "test-x": {"result": "skipped"}, "pack-x": {"result": "skipped"}}
+    errs = check_floor(chain, chain_skipped, chain_out)
+    check("dependant selected without its prerequisite is caught",
+          any("'pack-x' was skipped" in e for e in errs), True)
+    chain_closed = {"detect-changes": {"result": "success"},
+                    "test-x": {"result": "success"}, "pack-x": {"result": "success"}}
+    check("dependant selected with its prerequisite is consistent",
+          check_floor(chain, chain_closed, {"rust-src": "false", "changed-jobs": "|pack-x|test-x|"}), [])
+
     # a job skipped while its own gate says run
     bad = dict(ok_statuses)
     bad["lint"] = {"result": "skipped"}

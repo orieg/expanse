@@ -23,5 +23,15 @@ updates:
       python-tools:
         patterns:
           - "*"
+    ignore:
+      # pytest 9 does not support Python 3.8, which python.yml still tests
+      # (its matrix); python-bindings.txt is compiled on 3.8 and installed
+      # with --require-hashes on 3.8, 3.10 and 3.12. Lift this with the 3.8 row.
+      - dependency-name: "pytest"
+        update-types: ["version-update:semver-major"]
+      # The wasm fuel instrument's runtime: fuel counts follow the wasmtime
+      # version, and scripts/wasm_fuel.py --self-test compares this pin with
+      # the committed baseline. It moves only with a re-baseline, by hand.
+      - dependency-name: "wasmtime"
     commit-message:
       prefix: "chore(ci)"
