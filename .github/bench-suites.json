@@ -247,6 +247,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_set_ordered_readers",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Ordered readers on SyncExpanseSet (#1194, concurrency METHODOLOGY.md \u00a736.6): optimistic prev_before against with_locked over probe x (W, R) cells under the pin 0,2,4,6,8,10,12,14, with the \u00a736.8 run verdict; needs a harness with the set reader mode, so dispatch with ref set to the engine change's head SHA; outputs ordered_readers_set_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling_band",
       "available": true,
       "kind": "wallclock",
