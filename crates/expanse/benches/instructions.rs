@@ -1492,7 +1492,8 @@ fn keys32(dist: &str) -> Vec<Key32> {
                 (x >> 16) as Key32
             }
             "clustered" => (i / 8) * 4096 + (i % 8),
-            _ => 1_000 + i,
+            "sequential" => 1_000 + i,
+            other => panic!("unknown distribution {other}"),
         })
         .collect()
 }
