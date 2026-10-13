@@ -32,9 +32,10 @@
 //! thread-local storage, so every thread shares shard 0 — the counts are
 //! still exact, only the contention returns.
 //!
-//! The two gauges ([`Stat::RetainedGarbageBytes`],
-//! [`Stat::RetainedGarbageHwm`]) stay in one global slot: a high-water
-//! mark of a sum is not the sum of per-shard high-water marks.
+//! The gauges ([`Stat::RetainedGarbageBytes`],
+//! [`Stat::RetainedGarbageHwm`], [`Stat::OrderedReadSetHwm`]) stay in one
+//! global slot: a high-water mark is not the sum of per-shard high-water
+//! marks.
 //!
 //! Run the probe with
 //! `cargo run --release -p expanse-trie --features occ-stats --example occ_stats_probe`.
@@ -228,10 +229,58 @@ pub enum Stat {
     /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.4). Each is also
     /// a [`Stat::ReadFallbacks`].
     StrOrderedOverflows = 51,
+    /// Root leaves an ordered walk of `sync_nav` searched (#1194). This and the
+    /// `OrderedVisit*` counters below record the terminal forms the walk
+    /// answered from or passed over: what a read visited, which a census of
+    /// the tree cannot say. A differential that claims to cover a node form
+    /// is checked against its counter being non-zero
+    /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.4, G36.3).
+    ///
+    /// The walk is shared, and these counters carry no flavour: a map
+    /// reader, a set read and a string map's sub-map seek all bump them. A
+    /// delta read as "the forms one flavour's reads visited" is that only
+    /// when no other ordered read ran in the process meanwhile, which a
+    /// test binary of its own, or the single-threaded lib pass of
+    /// `scripts/test_occ_stats.sh`, provides.
+    OrderedVisitRootLeaf = 52,
+    /// Immediates an ordered walk read.
+    OrderedVisitImmed = 53,
+    /// The subset of [`Stat::OrderedVisitImmed`] holding as many keys as the
+    /// form allows at its key width.
+    OrderedVisitImmedFull = 54,
+    /// Linear leaves of 1-byte keys an ordered walk read.
+    OrderedVisitLeaf1 = 55,
+    /// Linear leaves of 2-byte keys an ordered walk read.
+    OrderedVisitLeaf2 = 56,
+    /// Linear leaves of 3-byte keys an ordered walk read.
+    OrderedVisitLeaf3 = 57,
+    /// Linear leaves of 4-byte keys an ordered walk read.
+    OrderedVisitLeaf4 = 58,
+    /// Linear leaves of 5-byte keys an ordered walk read.
+    OrderedVisitLeaf5 = 59,
+    /// Linear leaves of 6-byte keys an ordered walk read.
+    OrderedVisitLeaf6 = 60,
+    /// Linear leaves of 7-byte keys an ordered walk read.
+    OrderedVisitLeaf7 = 61,
+    /// Linear leaves an ordered walk read behind a narrow pointer: key bytes
+    /// below the slot's level, so the walk compared a skipped prefix.
+    OrderedVisitLeafNarrow = 62,
+    /// Bitmap leaves an ordered walk read.
+    OrderedVisitBitmapLeaf = 63,
+    /// The subset of [`Stat::OrderedVisitBitmapLeaf`] behind a narrow pointer.
+    OrderedVisitBitmapLeafNarrow = 64,
+    /// Full expanses an ordered walk answered from (set form only).
+    OrderedVisitFullExpanse = 65,
+    /// The largest number of branch versions one `next_validated` or
+    /// `prev_validated` search retained before its final validation: a
+    /// high-water mark, kept global like [`Stat::RetainedGarbageHwm`]. A
+    /// consistent read holds at most 13
+    /// (`scripts/olc_bounds.py::ordered_read_set_branches`).
+    OrderedReadSetHwm = 66,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 52;
+pub const NUM_STATS: usize = 67;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -287,12 +336,29 @@ pub const NAMES: [&str; NUM_STATS] = [
     "str_ordered_answers",
     "str_ordered_cross_level",
     "str_ordered_overflows",
+    "ordered_visit_root_leaf",
+    "ordered_visit_immed",
+    "ordered_visit_immed_full",
+    "ordered_visit_leaf1",
+    "ordered_visit_leaf2",
+    "ordered_visit_leaf3",
+    "ordered_visit_leaf4",
+    "ordered_visit_leaf5",
+    "ordered_visit_leaf6",
+    "ordered_visit_leaf7",
+    "ordered_visit_leaf_narrow",
+    "ordered_visit_bitmap_leaf",
+    "ordered_visit_bitmap_leaf_narrow",
+    "ordered_visit_full_expanse",
+    "ordered_read_set_hwm",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
 #[cfg(feature = "occ-stats")]
 const fn is_gauge(i: usize) -> bool {
-    i == Stat::RetainedGarbageBytes as usize || i == Stat::RetainedGarbageHwm as usize
+    i == Stat::RetainedGarbageBytes as usize
+        || i == Stat::RetainedGarbageHwm as usize
+        || i == Stat::OrderedReadSetHwm as usize
 }
 
 #[cfg(feature = "occ-stats")]
@@ -362,6 +428,23 @@ pub fn bump_by(s: Stat, n: u64) {
     let _ = (s, n);
     #[cfg(feature = "occ-stats")]
     cells::shard().0[s as usize].fetch_add(n, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Raises the high-water mark `s` to `v` when `v` is above it. `s` is a
+/// gauge (`is_gauge`). Exists only with `occ-stats`: its one caller is
+/// compiled with the feature.
+#[cfg(feature = "occ-stats")]
+#[inline(always)]
+pub(crate) fn raise(s: Stat, v: u64) {
+    use core::sync::atomic::Ordering::Relaxed;
+    debug_assert!(is_gauge(s as usize));
+    // Load first: the slot is one line shared by every reader, and a read
+    // that does not raise the mark must not write to it. Once the mark has
+    // reached what a workload retains, no reader stores here again.
+    let cell = &cells::GLOBAL[s as usize];
+    if cell.load(Relaxed) < v {
+        cell.fetch_max(v, Relaxed);
+    }
 }
 
 /// Records retired garbage bytes and updates the high-water mark. A no-op without `occ-stats`.
@@ -565,7 +648,32 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::StrOrderedOverflows as usize + 1, NUM_STATS);
+        assert_eq!(Stat::OrderedReadSetHwm as usize + 1, NUM_STATS);
+        let ordered = [
+            (Stat::OrderedVisitRootLeaf, "ordered_visit_root_leaf"),
+            (Stat::OrderedVisitImmed, "ordered_visit_immed"),
+            (Stat::OrderedVisitImmedFull, "ordered_visit_immed_full"),
+            (Stat::OrderedVisitLeaf1, "ordered_visit_leaf1"),
+            (Stat::OrderedVisitLeaf2, "ordered_visit_leaf2"),
+            (Stat::OrderedVisitLeaf3, "ordered_visit_leaf3"),
+            (Stat::OrderedVisitLeaf4, "ordered_visit_leaf4"),
+            (Stat::OrderedVisitLeaf5, "ordered_visit_leaf5"),
+            (Stat::OrderedVisitLeaf6, "ordered_visit_leaf6"),
+            (Stat::OrderedVisitLeaf7, "ordered_visit_leaf7"),
+            (Stat::OrderedVisitLeafNarrow, "ordered_visit_leaf_narrow"),
+            (Stat::OrderedVisitBitmapLeaf, "ordered_visit_bitmap_leaf"),
+            (
+                Stat::OrderedVisitBitmapLeafNarrow,
+                "ordered_visit_bitmap_leaf_narrow",
+            ),
+            (Stat::OrderedVisitFullExpanse, "ordered_visit_full_expanse"),
+            (Stat::OrderedReadSetHwm, "ordered_read_set_hwm"),
+        ];
+        assert_eq!(ordered.len(), 15);
+        for (i, (stat, name)) in ordered.into_iter().enumerate() {
+            assert_eq!(stat as usize, 52 + i, "{name}");
+            assert_eq!(NAMES[stat as usize], name);
+        }
         assert_eq!(
             NAMES[Stat::StrOrderedAnswers as usize],
             "str_ordered_answers"

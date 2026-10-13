@@ -1754,6 +1754,32 @@ jobs:
           cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_ 2>&1 | tee ablation-miri.log
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' ablation-miri.log \
             || { echo "::error::the ablation_ filter ran zero tests under Miri"; exit 1; }
+      # Negative control for the exact-size node allocation `NodeAlloc` uses
+      # under Miri (`crates/expanse/src/alloc.rs` module docs): the canary
+      # reads one byte past a node and Miri must report it. The test is
+      # ignored in every other lane, since a test Miri rejects cannot pass.
+      # Fails closed (AGENTS.md §5, string-gated inverted assertions): a
+      # passing run, a build error, a filter that matched nothing, the
+      # canary's failed precondition or its final panic all leave the log
+      # without Miri's report. On every shard: the test binary is already
+      # built, and the control then guards each shard's own run.
+      - name: Miri (negative control — a read one byte past an exact-size node is reported)
+        run: |
+          canary=alloc::tests::miri_canary_read_one_byte_past_a_node
+          if cargo miri test -p expanse-trie --lib -- --ignored --exact "$canary" > miri-canary.log 2>&1; then
+            cat miri-canary.log
+            echo "::error::the exact-size canary passed: Miri accepted a read one byte past a node"
+            exit 1
+          fi
+          cat miri-canary.log
+          grep -q 'Undefined Behavior: memory access failed' miri-canary.log \
+            || { echo "::error::the exact-size canary failed without Miri's out-of-bounds report (build error, zero tests, or the mode is off)"; exit 1; }
+          grep -q 'miri_canary_read_one_byte_past_a_node' miri-canary.log \
+            || { echo "::error::Miri's report does not name the canary"; exit 1; }
+          if grep -Eq 'exact-size mode is off|Miri accepted a read one byte past' miri-canary.log; then
+            echo "::error::the canary reached one of its own failures: the read past the node was not reported"
+            exit 1
+          fi
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)

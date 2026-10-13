@@ -68,6 +68,7 @@ on:
           - writer_scaling_ablation_unstriped_freelist
           - writer_scaling_ablation_blob_shared_arena
           - writer_scaling_ordered_readers
+          - writer_scaling_set_ordered_readers
           - writer_scaling_band
           - writer_scaling_count_cells
           - writer_scaling_readers_only
@@ -956,8 +957,13 @@ jobs:
           # lifetime average `ps` prints, and names what it found. Its
           # thresholds are bench_provenance.START_* (docs/BENCHMARKING.md
           # rule 8). The snapshot replaces the start-of-job `ps` table.
+          # A suite declared `huge_pages` in the manifest is also refused here
+          # when the host cannot supply 2 MiB pages (#1096): a fallback to 4 KiB
+          # pages is otherwise found only after the run, as a void. The refusal
+          # is fail_reason=no_huge_pages; the guard changes nothing on the host.
           if ! python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" check \
             --own-root "$$" --wait "$EXPANSE_BENCH_QUIET_WAIT" \
+            --suite "$SUITE" --manifest "$RUNNER_TEMP/bench-tools/.github/bench-suites.json" \
             --json host-guard.json --md system-load.md --github-output; then
             # The sample and the processes it named go to the comment step.
             if [ -f system-load.md ]; then
@@ -1386,6 +1392,22 @@ jobs:
                   python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
                   --ordered-readers \
                   --out docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json | tee writer_scaling.txt
+                ;;
+              "writer_scaling_set_ordered_readers")
+                # Ordered readers on the set (#1194, concurrency METHODOLOGY.md
+                # §36.6). Re-pinned as the map's ordered readers are: §36.6 fixes
+                # one thread per physical P-core under 0,2,4,6,8,10,12,14, the
+                # driver refuses any other pin, and the inherited marker is
+                # dropped so it applies this one. The harness's set reader mode
+                # arrives with the engine change, so this suite is dispatched on
+                # main with `ref` set to that change's full head SHA; against a
+                # harness without the mode the driver fails before any cell
+                # runs and writes no artifact.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0,2,4,6,8,10,12,14}" \
+                  python3 docs/benchmarks/concurrency/scripts/writer_scaling.py \
+                  --set-ordered-readers \
+                  --out docs/benchmarks/concurrency/results/ordered_readers_set_writer_scaling.json | tee writer_scaling.txt
                 ;;
               "writer_scaling_band")
                 # A shared BranchU crossing its demotion floor (#1208,
@@ -2234,6 +2256,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_unpadded_lock_writer_scaling.json \
             docs/benchmarks/concurrency/results/ablation_unstriped_freelist_writer_scaling.json \
             docs/benchmarks/concurrency/results/ordered_readers_writer_scaling.json \
+            docs/benchmarks/concurrency/results/ordered_readers_set_writer_scaling.json \
             docs/benchmarks/concurrency/results/branchu_band_writer_scaling.json \
             docs/benchmarks/concurrency/results/count_cells_writer_scaling.json \
             docs/benchmarks/concurrency/results/baseline_readers_only_writer_scaling.json \
@@ -2464,6 +2487,10 @@ jobs:
               } else if (reason === 'host_busy') {
                 label = 'refused';
                 cause = 'The run was **refused before any benchmark started**: the host stayed busy with work outside this run past the wait bound (a build, a container, another benchmark). The live sample and the processes it named are below. Re-trigger once the host is quiet.';
+                attachReport = true;
+              } else if (reason === 'no_huge_pages') {
+                label = 'refused';
+                cause = 'The run was **refused before any benchmark started**: this suite measures on 2 MiB pages and the host could not supply them (the THP mode does not serve an madvise request, or a probe mapping of the suite\'s own need was not fully backed by huge pages). A run started anyway would fall back to 4 KiB pages and be voided afterwards. The probe reading, the recorded memory and compaction counters and the THP mode are below and in `host-guard.json`. The guard changes nothing on the host: its operator has to release the page cache and compact memory, then re-dispatch. A refused start is neither a dispatch nor a void (patricia_comparison METHODOLOGY, A5.3).';
                 attachReport = true;
               } else if (reason === 'host_contaminated') {
                 label = 'discarded';

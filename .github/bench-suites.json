@@ -247,6 +247,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "writer_scaling_set_ordered_readers",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Ordered readers on SyncExpanseSet (#1194, concurrency METHODOLOGY.md \u00a736.6): optimistic prev_before against with_locked over probe x (W, R) cells under the pin 0,2,4,6,8,10,12,14, with the \u00a736.8 run verdict; needs a harness with the set reader mode, so dispatch with ref set to the engine change's head SHA; outputs ordered_readers_set_writer_scaling.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "writer_scaling_band",
       "available": true,
       "kind": "wallclock",
@@ -836,6 +844,7 @@
       "available": true,
       "kind": "counters",
       "runner": "builtin",
+      "huge_pages": true,
       "summary": "Diagnostic D2 hardware PMU counters over 1M prefix scan (strmap_prefix_scan and strmap_prefix_scan_sorted) under normal 4 KiB vs 2 MiB transparent huge pages (GLIBC_TUNABLES=glibc.malloc.hugetlb=1) on the P-core PMU; evaluates dTLB elimination, L3 miss retention and surviving cycle gap (Refs #1096).",
       "suite": "patricia_comparison"
     },

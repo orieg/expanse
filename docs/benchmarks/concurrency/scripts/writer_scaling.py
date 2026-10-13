@@ -45,6 +45,18 @@ the map arm:
   and P12.5 (the per-round paired `prev` / `prev_locked` reader throughput ratio
   at W=1, R=4, uniform, with the W=0, R=1 control).
 
+`--set-ordered-readers` (#1194, `METHODOLOGY.md` §36.6, §36.8) is the same sweep on
+the set arm, under the same pin and schedule, with the set's own statistics:
+- rho (`prev` over `prev_locked`, paired within the round) at the three gate
+  cells (1, 4) uniform, (4, 4) uniform and (4, 4) hotspot, and kappa (rho at
+  (1, 4) uniform over rho at (0, 1) uniform), each a BCa 95% interval over the
+  8 rounds (2,000 resamples, seed 42);
+- P36.3 (fallbacks below 0.1% in every `prev` cell) and the run verdict
+  `RUN_PASS` / `RUN_REJECT` / `RUN_OPEN` (`VOID` for a run the void rules
+  reject); `--set-ordered-readers-verdict` combines one pair's artifacts;
+- the harness's set reader mode arrives with the engine change, so the sweep
+  refuses to start against a harness without it and writes no artifact.
+
 `--count-cells` (#1144, `METHODOLOGY.md` §23) is a separate sweep on the map
 arm, under the same pin and interleaving:
 - cells probe in {uniform, one_top_byte} x (W, R) in {(0,1), (1,0), (1,1),
@@ -68,6 +80,7 @@ arm, under the same pin:
 Usage:
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --out docs/benchmarks/concurrency/results/baseline_writer_scaling.json
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --ordered-readers
+    python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --set-ordered-readers
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --count-cells
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --band-cells
     python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --self-test
@@ -113,6 +126,8 @@ CI_METHODS = frozenset(
 )
 from bench_provenance import (  # noqa: E402
     MIN_WINDOW_S,
+    RUN_FOREIGN_VOID,
+    RUN_PROCESS_VOID_PCT,
     begin_cell,
     end_cell,
     estimators,
@@ -2449,6 +2464,7 @@ def committed_result_paths() -> tuple[Path, ...]:
         PADDED_RESULTS_PATH.resolve(),
         *(p.resolve() for p in ABLATION_RESULTS_PATHS),
         ORDERED_READERS_RESULTS_PATH.resolve(),
+        SET_ORDERED_READERS_RESULTS_PATH.resolve(),
         COUNT_CELLS_RESULTS_PATH.resolve(),
         BAND_CELLS_RESULTS_PATH.resolve(),
         READERS_ONLY_RESULTS_PATH.resolve(),
@@ -2566,18 +2582,27 @@ def check_row_pins(rows: list[dict[str, Any]], applied: str) -> None:
         )
 
 
-def run_reader_invocation(
-    binary: Path, role: str, run: dict[str, Any], quick: bool
-) -> dict[str, Any]:
-    """One reader-mode cell from the harness, checked against the schedule that asked for it."""
+def reader_cell_argv(
+    binary: Path, role: str, run: dict[str, Any], quick: bool, arm: str = "map"
+) -> list[str]:
+    """The harness command for ONE reader-mode cell: one (W, R, read op, probe), its round and position."""
     cmd = [
-        str(binary), "--role", role, "--arm", "map",
+        str(binary), "--role", role, "--arm", arm,
         "--writers", str(run["writers"]), "--readers", str(run["readers"]),
         "--read-op", run["read_op"], "--probe", run["probe"],
         "--round", str(run["round"]), "--position", str(run["position"]),
     ]
     if quick:
         cmd.append("--quick")
+    return cmd
+
+
+def run_reader_invocation(
+    binary: Path, role: str, run: dict[str, Any], quick: bool,
+    arm: str = "map", workload_id: str = ORDERED_READERS_WORKLOAD_ID,
+) -> dict[str, Any]:
+    """One reader-mode cell from the harness, checked against the schedule that asked for it."""
+    cmd = reader_cell_argv(binary, role, run, quick, arm)
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(
@@ -2589,7 +2614,7 @@ def run_reader_invocation(
         line = line.strip()
         if line.startswith("{") and line.endswith("}"):
             row = json.loads(line)
-            if row.get("role") == role and row.get("workload_id") == ORDERED_READERS_WORKLOAD_ID:
+            if row.get("role") == role and row.get("workload_id") == workload_id:
                 rows.append(row)
     if len(rows) != 1:
         raise RuntimeError(f"reader cell ({role}, {run}) emitted {len(rows)} rows, expected 1")
@@ -2683,8 +2708,13 @@ def summarize_ordered_readers(
     rounds: int,
     load: dict[str, Any],
     throughput_target: Path = THROUGHPUT_TARGET,
+    arm: str = "map",
+    workload_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """One cell per (probe, read_op, W, R), each carrying every round of both roles.
+
+    `arm` labels the cells; a `workload_id`, when given, is the one every row
+    must carry, so rows of another row family are refused rather than averaged.
 
     A cell missing a round in either role, or holding a round twice, is refused:
     its statistics would silently rest on fewer rounds than §12.4 fixes.
@@ -2710,6 +2740,10 @@ def summarize_ordered_readers(
                 check_reader_throughput_row(x)
             for x in c:
                 check_reader_counters_row(x)
+            if workload_id is not None:
+                wrong = sorted({str(x.get("workload_id")) for x in (*t, *c) if x.get("workload_id") != workload_id})
+                if wrong:
+                    raise ValueError(f"{label}: rows carry workload_id {wrong}, expected {workload_id!r}")
             if rounds < 3:
                 raise ValueError(f"{label}: need at least 3 rounds for a BCa interval, got {rounds}")
 
@@ -2719,7 +2753,7 @@ def summarize_ordered_readers(
             read_ops = totals["read_ops"]
             cells.append({
                 "workload_id": t[0]["workload_id"],
-                "arm": "map",
+                "arm": arm,
                 "probe": probe,
                 "read_op": op,
                 "writers": w,
@@ -3040,6 +3074,546 @@ def run_ordered_readers(args: argparse.Namespace) -> int:
     out_path.write_text(json.dumps(artifact, indent=2) + "\n")
     print(f"\nWrote artifact to {out_path}")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# Ordered readers on SyncExpanseSet (#1194, docs/benchmarks/concurrency/METHODOLOGY.md §36.6, §36.8)
+# ---------------------------------------------------------------------------
+
+SET_ORDERED_READERS_RESULTS_PATH = (
+    REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results" / "ordered_readers_set_writer_scaling.json"
+)
+SET_ORDERED_READERS_ARM = "set"
+SET_ORDERED_READERS_WORKLOAD_ID = "concurrency_ordered_readers_set_63bit"
+# §36.6 fixes the cells of §12.4 unchanged, so the schedule is the map's.
+SET_ORDERED_READERS_PIN = ORDERED_READERS_PIN
+# Silent constants, all fixed by §36.6 ("Changing any of them after a run relabels
+# that run INTERMEDIATE", AGENTS.md §8.19): rounds, resamples, seed, floors, the
+# three gate cells, the fallback ceiling, the replacement cap and the pair limit.
+SET_ORDERED_READERS_ROUNDS = 8
+SET_BCA_RESAMPLES = 2000
+SET_BCA_SEED = 42
+SET_RHO_FLOOR = 1.0
+SET_KAPPA_FLOOR = 1.0
+SET_RHO_GATE_CELLS = (("uniform", 1, 4), ("uniform", 4, 4), ("hotspot", 4, 4))
+# kappa = rho at (1, 4) uniform divided by rho at the (0, 1) uniform control, per round.
+SET_KAPPA_NUMERATOR = ("uniform", 1, 4)
+SET_KAPPA_CONTROL = ("uniform", 0, 1)
+SET_GATED_STATS = ("rho_uniform_W1_R4", "rho_uniform_W4_R4", "rho_hotspot_W4_R4", "kappa")
+# P36.3's ceiling as an exact fraction: read_fallbacks / read_ops < 1 / 1000.
+SET_FALLBACK_CEILING = (1, 1000)
+SET_MAX_REPLACEMENTS_PER_PAIR = 3
+SET_MAX_PAIRS = 2
+SET_STAT_STATUSES = ("MET", "MISSED", "OPEN")
+SET_RUN_VERDICTS = ("RUN_PASS", "RUN_REJECT", "RUN_OPEN")
+SET_PAIR_VERDICTS = ("PASS", "REJECTED", "INTERMEDIATE")
+SET_VOID_RUN = "VOID"
+# A cell only the engine change's harness accepts: writers, `--read-op prev`, `--probe hotspot`
+# on `--arm set`. The harness on main refuses all three (`readers_only_main`).
+SET_READER_MODE_PROBE = {
+    "round": 0, "block": 0, "probe": "hotspot", "position": 0,
+    "read_op": "prev", "writers": 4, "readers": 4,
+}
+
+
+def set_rho_name(probe: str, writers: int, readers: int) -> str:
+    return f"rho_{probe}_W{writers}_R{readers}"
+
+
+def set_stat_status(lower: float, upper: float, floor: float, strict: bool) -> str:
+    """§36.8 item 1: `MET` when the lower bound clears the floor, `MISSED` when the upper bound is below it.
+
+    Clearing is `lower >= floor` for rho (§36.6 P36.4: "at least 1.0") and
+    `lower > floor` for kappa (P36.5: "above 1.0"), selected by `strict`.
+    Anything else is `OPEN`. A bound that is not a number, or an interval
+    whose lower bound exceeds its upper, is refused (AGENTS.md §8.1).
+    """
+    for name, v in (("lower", lower), ("upper", upper)):
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or v != v:
+            raise ValueError(f"interval {name} bound {v!r} is not a number")
+    if lower > upper:
+        raise ValueError(f"interval [{lower}, {upper}] has its lower bound above its upper")
+    if (lower > floor) if strict else (lower >= floor):
+        return "MET"
+    if upper < floor:
+        return "MISSED"
+    return "OPEN"
+
+
+def set_round_ratios(
+    throughput_rows: list[dict[str, Any]], probe: str, writers: int, readers: int, rounds: int
+) -> list[float]:
+    """rho per round: `reader_mops(prev) / reader_mops(prev_locked)`, both from the same round (P36.4)."""
+    label = f"{probe} W={writers} R={readers}"
+    by_round: dict[tuple[int, str], float] = {}
+    for row in throughput_rows:
+        if (row["probe"], int(row["writers"]), int(row["readers"])) != (probe, writers, readers):
+            continue
+        key = (int(row["round"]), row["read_op"])
+        if key in by_round:
+            raise ValueError(f"P36.4 {label}: round {key[0]} holds two {key[1]} rows")
+        by_round[key] = float(row["reader_mops"])
+    ratios: list[float] = []
+    for r in range(rounds):
+        optimistic, locked = by_round.get((r, "prev")), by_round.get((r, "prev_locked"))
+        if optimistic is None or locked is None:
+            raise ValueError(f"P36.4 {label}: round {r} is unpaired (prev {optimistic}, prev_locked {locked})")
+        if optimistic <= 0 or locked <= 0:
+            raise ValueError(f"P36.4 {label}: round {r} has a non-positive throughput ({optimistic}, {locked})")
+        ratios.append(optimistic / locked)
+    return ratios
+
+
+def set_stat_entry(name: str, cell: str, values: list[float], floor: float, strict: bool, gated: bool) -> dict[str, Any]:
+    """BCa 95% over the per-round values (2,000 resamples, seed 42), with its construction label and status."""
+    if len(values) < 3:
+        raise ValueError(f"{name}: need at least 3 paired rounds for a BCa interval, got {len(values)}")
+    mean, lo, hi, method = bca_bootstrap_ci_with_method(
+        values, confidence=0.95, num_resamples=SET_BCA_RESAMPLES, seed=SET_BCA_SEED
+    )
+    return {
+        "name": name, "cell": cell, "gated": gated,
+        "floor": floor, "floor_rule": "lower bound > floor" if strict else "lower bound >= floor",
+        "mean": round(mean, 6), "ci_lower": round(lo, 6), "ci_upper": round(hi, 6), "ci_method": method,
+        "per_round_raw": [round(x, 6) for x in values],
+        "status": set_stat_status(lo, hi, floor, strict),
+    }
+
+
+def set_statistics(throughput_rows: list[dict[str, Any]], rounds: int) -> dict[str, Any]:
+    """rho in all eight cells (three gated) and kappa (gated), each paired within its round (§36.6)."""
+    rho: dict[tuple[str, int, int], list[float]] = {}
+    for probe in ORDERED_READERS_PROBES:
+        for w, r in ORDERED_READERS_WR:
+            rho[(probe, w, r)] = set_round_ratios(throughput_rows, probe, w, r, rounds)
+    gated = {
+        set_rho_name(*cell): set_stat_entry(
+            set_rho_name(*cell), f"{cell[0]} W={cell[1]} R={cell[2]}", rho[cell], SET_RHO_FLOOR, False, True
+        )
+        for cell in SET_RHO_GATE_CELLS
+    }
+    kappa_values = [a / b for a, b in zip(rho[SET_KAPPA_NUMERATOR], rho[SET_KAPPA_CONTROL])]
+    gated["kappa"] = set_stat_entry(
+        "kappa", "rho(uniform W=1 R=4) / rho(uniform W=0 R=1), same round", kappa_values, SET_KAPPA_FLOOR, True, True
+    )
+    reported = [
+        set_stat_entry(set_rho_name(*cell), f"{cell[0]} W={cell[1]} R={cell[2]}", values, SET_RHO_FLOOR, False, False)
+        for cell, values in rho.items() if cell not in SET_RHO_GATE_CELLS
+    ]
+    return {"gated": gated, "reported": reported}
+
+
+def set_fallback_verdict(cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """P36.3: `read_fallbacks / read_ops` below 0.1% in every `prev` cell, both probes.
+
+    Read off each cell's counters summed over its rounds and compared in
+    integers (`fallbacks * 1000 < read_ops`), so a cell at exactly 0.1% is not
+    below the ceiling. Fewer than the eight `prev` cells is refused, not judged.
+    """
+    num, den = SET_FALLBACK_CEILING
+    per_cell: list[dict[str, Any]] = []
+    refuted: list[str] = []
+    for c in cells:
+        if c["read_op"] != "prev":
+            continue
+        totals = c["read_counters_total"]
+        ops, fb = int(totals["read_ops"]), int(totals["read_fallbacks"])
+        label = f"{c['probe']} W={c['writers']} R={c['readers']}"
+        if ops <= 0:
+            raise ValueError(f"P36.3 {label}: read_ops = {ops}, so the cell made no optimistic reads to evaluate")
+        holds = fb * den < ops * num
+        per_cell.append({"cell": label, "read_ops": ops, "read_fallbacks": fb, "fallback_rate": fb / ops, "holds": holds})
+        if not holds:
+            refuted.append(label)
+    want = len(ORDERED_READERS_PROBES) * len(ORDERED_READERS_WR)
+    if len(per_cell) != want:
+        raise ValueError(f"P36.3: {len(per_cell)} prev cells to evaluate, expected {want}")
+    return {
+        "claim": "read_fallbacks / read_ops < 0.001 in every prev cell, uniform and hotspot (METHODOLOGY.md §36.6 P36.3)",
+        "boundary": "exactly 0.1% is not below the ceiling and counts against the claim",
+        "per_cell": per_cell,
+        "verdict": "HOLDS" if not refuted else "REFUTED",
+        "refuted_cells": refuted,
+    }
+
+
+def set_run_verdict(statuses: dict[str, str], fallback: str) -> str:
+    """§36.8 item 3, a total function of the four statistics' statuses and P36.3.
+
+    `RUN_PASS` when all four are `MET` and P36.3 `HOLDS`; `RUN_REJECT` when any
+    is `MISSED` or P36.3 is `REFUTED`; `RUN_OPEN` in every other case. All three
+    gate cells and kappa are required: a dictionary without exactly the four
+    names is refused, never judged on the statistics it happens to hold.
+    """
+    if set(statuses) != set(SET_GATED_STATS):
+        raise ValueError(f"a run verdict needs exactly the statistics {SET_GATED_STATS}, got {sorted(statuses)}")
+    for name, st in statuses.items():
+        if st not in SET_STAT_STATUSES:
+            raise ValueError(f"statistic {name}: status {st!r} is not one of {SET_STAT_STATUSES}")
+    if fallback not in ("HOLDS", "REFUTED"):
+        raise ValueError(f"P36.3 verdict {fallback!r} is not HOLDS or REFUTED")
+    if any(st == "MISSED" for st in statuses.values()) or fallback == "REFUTED":
+        return "RUN_REJECT"
+    if all(st == "MET" for st in statuses.values()) and fallback == "HOLDS":
+        return "RUN_PASS"
+    return "RUN_OPEN"
+
+
+def set_pair_verdict(run_a: str, run_b: str) -> str:
+    """§36.8 item 4: `PASS` for two `RUN_PASS`, `REJECTED` for two `RUN_REJECT`, `INTERMEDIATE` otherwise."""
+    for run in (run_a, run_b):
+        if run not in SET_RUN_VERDICTS:
+            raise ValueError(f"run verdict {run!r} is not one of {SET_RUN_VERDICTS}")
+    if run_a == run_b == "RUN_PASS":
+        return "PASS"
+    if run_a == run_b == "RUN_REJECT":
+        return "REJECTED"
+    return "INTERMEDIATE"
+
+
+def set_pair_from_dispatches(dispatches: list[str]) -> dict[str, Any]:
+    """The pair a sequence of dispatches forms (§36.6 replacement runs, §36.8).
+
+    Each entry is a run verdict, or `VOID`. A void run is replaced and a valid
+    run never is, so a dispatch after the second valid run is refused, and so
+    is a sixth dispatch (two plus at most three replacements). A pair that has
+    used all five dispatches without two valid runs is `INTERMEDIATE`; one with
+    dispatches left is `INCOMPLETE`, a state and not a verdict.
+    """
+    valid: list[str] = []
+    for i, d in enumerate(dispatches):
+        if d not in (*SET_RUN_VERDICTS, SET_VOID_RUN):
+            raise ValueError(f"dispatch {i}: {d!r} is neither a run verdict nor {SET_VOID_RUN}")
+        if len(valid) == 2:
+            raise ValueError(f"dispatch {i} follows two valid runs; a valid run is never replaced (§36.6)")
+        if d != SET_VOID_RUN:
+            valid.append(d)
+    cap = 2 + SET_MAX_REPLACEMENTS_PER_PAIR
+    if len(dispatches) > cap:
+        raise ValueError(
+            f"{len(dispatches)} dispatches in one pair; at most {SET_MAX_REPLACEMENTS_PER_PAIR} "
+            f"replacement runs are taken per pair (§36.6)"
+        )
+    voids = len(dispatches) - len(valid)
+    if len(valid) == 2:
+        return {"state": "COMPLETE", "verdict": set_pair_verdict(*valid), "valid_runs": valid, "void_runs": voids}
+    if len(dispatches) == cap:
+        return {"state": "EXHAUSTED", "verdict": "INTERMEDIATE", "valid_runs": valid, "void_runs": voids}
+    return {"state": "INCOMPLETE", "verdict": None, "valid_runs": valid, "void_runs": voids}
+
+
+def set_campaign_outcome(pair_verdicts: list[str]) -> dict[str, Any]:
+    """What §36.8's *What ships* allows after one or two final pair verdicts.
+
+    `PASS` ships and `REJECTED` closes unmerged. `INTERMEDIATE` on the first
+    pair grants exactly one more pair, whose verdict is final: `PASS` ships and
+    anything else closes unmerged. A third pair, or a second after a first that
+    was not `INTERMEDIATE`, needs an amendment first and is refused.
+    """
+    if not 1 <= len(pair_verdicts) <= SET_MAX_PAIRS:
+        raise ValueError(f"{len(pair_verdicts)} pairs; one pair, and one more after INTERMEDIATE, is all §36.8 allows")
+    for v in pair_verdicts:
+        if v not in SET_PAIR_VERDICTS:
+            raise ValueError(f"pair verdict {v!r} is not one of {SET_PAIR_VERDICTS}")
+    first = pair_verdicts[0]
+    if len(pair_verdicts) == 2 and first != "INTERMEDIATE":
+        raise ValueError(f"a second pair follows only an INTERMEDIATE first pair, not {first}")
+    if first == "PASS":
+        return {"final": True, "ships": True, "state": "SHIPS"}
+    if first == "REJECTED":
+        return {"final": True, "ships": False, "state": "CLOSED_UNMERGED"}
+    if len(pair_verdicts) == 1:
+        return {"final": False, "ships": None, "state": "SECOND_PAIR_GRANTED"}
+    return {"final": True, "ships": pair_verdicts[1] == "PASS", "state": "SHIPS" if pair_verdicts[1] == "PASS" else "CLOSED_UNMERGED"}
+
+
+def set_void_reasons(
+    throughput_rows: list[dict[str, Any]],
+    applied_pin: str,
+    quick: bool,
+    foreign_process_pct: dict[str, float] | None = None,
+) -> list[str]:
+    """Why a run is void as a §36.6 measurement; an empty list means valid.
+
+    Host contention is stated as FOREIGN busy CPU (`bench_provenance.RUN_FOREIGN_VOID`):
+    a cell whose `load.foreign_busy_cpus` reaches 1.0 core-equivalent, or a
+    single foreign process above 100% of a CPU (`RUN_PROCESS_VOID_PCT`). A
+    figure that was not measured voids the cell, as it is inadmissible (§8.17).
+    `foreign_process_pct` maps a cell label to its busiest foreign process; the
+    driver cannot sample per-process CPU itself, so it passes none and the
+    artifact says that rule is judged from the runner's host guard.
+    """
+    void: list[str] = []
+    if not pins_equal(applied_pin, SET_ORDERED_READERS_PIN):
+        void.append(f"applied pin {applied_pin!r} is not {SET_ORDERED_READERS_PIN} (METHODOLOGY.md §36.6)")
+    if quick:
+        void.append("--quick population: a smoke run of the instrument, not the §36.6 cells")
+    for row in throughput_rows:
+        label = f"{row['probe']} {row['read_op']} W={row['writers']} R={row['readers']} round {row['round']}"
+        foreign = (row.get("load") or {}).get("foreign_busy_cpus")
+        if not isinstance(foreign, (int, float)) or isinstance(foreign, bool):
+            void.append(f"{label}: foreign_busy_cpus was not measured (AGENTS.md §8.17)")
+        elif foreign >= RUN_FOREIGN_VOID:
+            void.append(f"{label}: foreign_busy_cpus {foreign} reaches {RUN_FOREIGN_VOID} core-equivalent")
+    for label, pct in sorted((foreign_process_pct or {}).items()):
+        if pct > RUN_PROCESS_VOID_PCT:
+            void.append(f"{label}: a foreign process at {pct}% of a CPU exceeds {RUN_PROCESS_VOID_PCT}%")
+    return void
+
+
+def attach_round_loads(cells: list[dict[str, Any]], throughput_rows: list[dict[str, Any]]) -> None:
+    """Put each round's load window on its `rounds_raw` entry, and the worst one on the cell.
+
+    The cell's `load` is the round window with the largest foreign busy CPU
+    (a window with none measured outranks any), which is the number the cell's
+    void rule reads.
+    """
+    for c in cells:
+        rows = sorted(
+            (x for x in throughput_rows
+             if (x["probe"], x["read_op"], int(x["writers"]), int(x["readers"]))
+             == (c["probe"], c["read_op"], c["writers"], c["readers"])),
+            key=lambda x: int(x["round"]),
+        )
+        loads = [x.get("load") or {} for x in rows]
+        for raw, load in zip(c["rounds_raw"], loads):
+            raw["load"] = load
+
+        def badness(load: dict[str, Any]) -> float:
+            v = load.get("foreign_busy_cpus")
+            return float("inf") if not isinstance(v, (int, float)) or isinstance(v, bool) else float(v)
+
+        worst = max(loads, key=badness) if loads else {}
+        c["load"] = {**worst, "selected": "the round window with the largest foreign_busy_cpus"}
+
+
+def set_attempts_report(cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attempts per optimistic ordered read in each `prev` cell. Reported, not gated (§36.6 P36.3)."""
+    return [
+        {
+            "cell": f"{c['probe']} W={c['writers']} R={c['readers']}",
+            "read_ops": c["read_counters_total"]["read_ops"],
+            "read_attempts": c["read_counters_total"]["read_attempts"],
+            "attempts_per_op": c["attempts_per_op"],
+        }
+        for c in cells if c["read_op"] == "prev"
+    ]
+
+
+def build_set_ordered_readers_artifact(
+    prov: dict[str, Any],
+    cells: list[dict[str, Any]],
+    throughput_rows: list[dict[str, Any]],
+    rounds: int,
+    applied_pin: str,
+    quick: bool,
+) -> dict[str, Any]:
+    """The committed shape: provenance, the cells, every statistic with its status, and the run verdict."""
+    attach_round_loads(cells, throughput_rows)
+    void = set_void_reasons(throughput_rows, applied_pin, quick)
+    stats = set_statistics(throughput_rows, rounds)
+    fallback = set_fallback_verdict(cells)
+    statuses = {name: e["status"] for name, e in stats["gated"].items()}
+    computed = set_run_verdict(statuses, fallback["verdict"])
+    control_probe, control_w, control_r = SET_KAPPA_CONTROL
+    control = next(
+        c for c in cells
+        if (c["probe"], c["read_op"], c["writers"], c["readers"]) == (control_probe, "prev_locked", control_w, control_r)
+    )
+    return {
+        "provenance": {**prov, "cell_isolation": CELL_ISOLATION},
+        "throughput": cells,
+        "set_ordered_readers": {
+            "issue": 1194,
+            "preregistration": "docs/benchmarks/concurrency/METHODOLOGY.md §36.6, §36.8",
+            "workload_id": SET_ORDERED_READERS_WORKLOAD_ID,
+            "pin": {"required": SET_ORDERED_READERS_PIN, "applied": applied_pin,
+                    "conforms": pins_equal(applied_pin, SET_ORDERED_READERS_PIN)},
+            "rounds": rounds,
+            "quick": quick,
+            "schedule": "each round runs both probe blocks, alternating which goes first; within a block the "
+                        "eight (read_op, W, R) cells follow that round's row of a Williams design; one harness "
+                        "process per cell; the throughput pass runs every round before the counters pass",
+            "void": void,
+            "run_valid": not void,
+            "process_rule": "a single foreign process above 100% of a CPU is judged from the runner's host guard "
+                            "(host-guard.json, host-activity.jsonl); this driver samples no per-process CPU",
+            "soundness_gates": "not evaluated by this driver: a cell read before every G36 gate passed on the "
+                               "measured head is void (METHODOLOGY.md §36.8)",
+            "statistics": stats,
+            "p36_3": fallback,
+            "attempts_per_op": {"per_cell": set_attempts_report(cells), "gated": False},
+            "control_prev_locked": {
+                "cell": "uniform prev_locked W=0 R=1",
+                "reader_mops_mean": control["reader_mops_mean"],
+                "reader_ci_lower": control["reader_ci_lower"],
+                "reader_ci_upper": control["reader_ci_upper"],
+                "reader_ci_method": control["reader_ci_method"],
+                "gated": False,
+                "note": "reported for both runs of a pair so a reader can see whether the host moved; not a gate",
+            },
+            "run_verdict": SET_VOID_RUN if void else computed,
+            "run_verdict_if_valid": computed,
+        },
+    }
+
+
+def require_set_reader_mode(throughput_bin: Path, counters_bin: Path) -> None:
+    """Refuse a harness that cannot run the set's reader cells, before any cell is timed.
+
+    The harness on main takes `--arm set` only as the readers-only `get` cell
+    and refuses writers, any other read op and any other probe. The mode that
+    runs the §36.6 cells arrives with the engine change, so this suite is
+    dispatched on `main` with `ref` set to that change's head. One quick cell
+    that only that mode accepts is run in each role; a harness that refuses it
+    stops the run here, with the harness's own refusal quoted and no artifact
+    written (AGENTS.md §8.1).
+    """
+    for role, binary in (("throughput", throughput_bin), ("counters", counters_bin)):
+        cmd = reader_cell_argv(binary, role, SET_READER_MODE_PROBE, True, SET_ORDERED_READERS_ARM)
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        refusal = (
+            f"the harness lacks the set reader mode that METHODOLOGY.md §36.6 needs (its {role} build refused "
+            f"`--arm set` with writers, `--read-op prev` and `--probe hotspot`, exit {proc.returncode}): "
+            f"{proc.stderr.strip()!r}. The mode arrives with the engine change; dispatch this suite on main with "
+            f"`ref` set to that change's full head SHA. No cell was run and no artifact is written"
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(refusal)
+        answered = [
+            json.loads(line) for line in (x.strip() for x in proc.stdout.splitlines())
+            if line.startswith("{") and line.endswith("}")
+        ]
+        if not any(r.get("role") == role and r.get("workload_id") == SET_ORDERED_READERS_WORKLOAD_ID for r in answered):
+            seen = sorted({str(r.get("workload_id")) for r in answered})
+            raise RuntimeError(
+                f"the harness lacks the set reader mode that METHODOLOGY.md §36.6 needs: its {role} build ran "
+                f"the probe cell but emitted no {SET_ORDERED_READERS_WORKLOAD_ID} row (workload ids seen: "
+                f"{seen}). No cell was run and no artifact is written"
+            )
+
+
+def run_set_ordered_readers(args: argparse.Namespace) -> int:
+    """`--set-ordered-readers`: the §36.6 cells, both roles, and the §36.8 run verdict."""
+    out_path = Path(args.out) if args.out else SET_ORDERED_READERS_RESULTS_PATH
+    committed = out_path.resolve().is_relative_to((REPO_ROOT / "docs" / "benchmarks").resolve())
+    smoke = bool(args.quick) and not committed
+    try:
+        notice = resolve_ordered_readers_pin(os.environ, smoke, "--set-ordered-readers", "§36.6", "§36.6")
+    except ValueError as exc:
+        sys.stderr.write(f"refusing to start: {exc}\nNo benchmark was run and no numbers were produced.\n")
+        return 1
+    if notice:
+        sys.stderr.write(f"::notice:: smoke run: {notice}; nothing this run produces is a §36.6 cell\n")
+    applied = bench_pin.apply("writer_scaling.py --set-ordered-readers")
+    if not pins_equal(applied, SET_ORDERED_READERS_PIN) and not smoke:
+        sys.stderr.write(
+            f"refusing to start: the applied pin is {applied!r}, not {SET_ORDERED_READERS_PIN} (§36.6)\n"
+        )
+        return 1
+
+    throughput_bin, counters_bin = build_binaries(verbose=True)
+    try:
+        require_set_reader_mode(throughput_bin, counters_bin)
+    except RuntimeError as exc:
+        sys.stderr.write(f"set ordered readers failed: {exc} (AGENTS.md §8.1)\n")
+        return 1
+    ratio = ("P36.4: rho = mean over rounds of reader_mops(prev) / reader_mops(prev_locked), paired within each "
+             "round, BCa 95% interval; P36.5: kappa = rho(W=1 R=4) / rho(W=0 R=1), same round")
+    prov = new_provenance(
+        suite="concurrency",
+        issue=1194,
+        ratio=ratio,
+        repo_root=REPO_ROOT,
+        core_pin=applied,
+        estimators=estimators(
+            ratio,
+            columns="per-cell reader_mops_mean is the mean over rounds with a BCa 95% interval; "
+                    "reader_mops_median is auxiliary; P36.3 reads summed counters over rounds",
+        ),
+    )
+    schedule = ordered_readers_schedule(args.rounds)
+    print("========================================================================")
+    print(" Ordered readers on SyncExpanseSet (#1194, METHODOLOGY.md §36.6)")
+    print(f" Cells: {len(ORDERED_READERS_PROBES) * len(ORDERED_READERS_BLOCK)} | Rounds: {args.rounds} | "
+          f"Pin: {applied} | Quick: {bool(args.quick)}")
+    print("========================================================================")
+    try:
+        t_rows = []
+        for i, run in enumerate(schedule):
+            label = f"cell:set_ordered:{run['probe']}:{run['read_op']}:W{run['writers']}:R{run['readers']}:r{run['round']}"
+            start = begin_cell(prov, label)
+            row = run_reader_invocation(throughput_bin, "throughput", run, args.quick,
+                                        SET_ORDERED_READERS_ARM, SET_ORDERED_READERS_WORKLOAD_ID)
+            row["load"] = end_cell(start)
+            t_rows.append(row)
+            if (i + 1) % len(ORDERED_READERS_BLOCK) == 0:
+                print(f"  [throughput] {i + 1}/{len(schedule)} cells")
+        c_rows = []
+        for i, run in enumerate(schedule):
+            c_rows.append(run_reader_invocation(counters_bin, "counters", run, args.quick,
+                                                SET_ORDERED_READERS_ARM, SET_ORDERED_READERS_WORKLOAD_ID))
+            if (i + 1) % len(ORDERED_READERS_BLOCK) == 0:
+                print(f"  [counters] {i + 1}/{len(schedule)} cells")
+        check_row_pins(t_rows + c_rows, applied)
+        pass_load = {"since": "per-round windows", "note": "each round's window is on its rounds_raw entry"}
+        cells = summarize_ordered_readers(t_rows, c_rows, args.rounds, pass_load,
+                                          arm=SET_ORDERED_READERS_ARM, workload_id=SET_ORDERED_READERS_WORKLOAD_ID)
+        artifact = build_set_ordered_readers_artifact(prov, cells, t_rows, args.rounds, applied, bool(args.quick))
+    except (RuntimeError, ValueError) as exc:
+        sys.stderr.write(f"set ordered readers failed: {exc} (AGENTS.md §8.1)\n")
+        return 1
+
+    report = artifact["set_ordered_readers"]
+    for c in cells:
+        rate = "n/a" if c["fallback_rate"] is None else f"{c['fallback_rate'] * 100:.4f}%"
+        print(
+            f"  {c['probe']:>7} {c['read_op']:>11} W={c['writers']} R={c['readers']} | reader Mops/s "
+            f"{c['reader_mops_mean']:.4f} [{c['reader_ci_lower']:.4f}, {c['reader_ci_upper']:.4f}] "
+            f"| attempts/op {c['attempts_per_op']} | fallbacks {rate}"
+        )
+    for name, e in report["statistics"]["gated"].items():
+        print(f"  {name}: {e['mean']:.4f} [{e['ci_lower']:.4f}, {e['ci_upper']:.4f}] {e['status']}")
+    p363 = report["p36_3"]
+    print(f"  P36.3: {p363['verdict']}" + (f" in {', '.join(p363['refuted_cells'])}" if p363["refuted_cells"] else ""))
+    print(f"  Run verdict: {report['run_verdict']}")
+    for reason in report["void"]:
+        sys.stderr.write(f"::warning:: this run is void as a §36.6 measurement: {reason}\n")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artifact, indent=2) + "\n")
+    print(f"\nWrote artifact to {out_path}")
+    return 0
+
+
+def combine_set_ordered_readers_verdict(paths: list[Path | str]) -> dict[str, Any]:
+    """The pair verdict of one pair's dispatches, in order, read from their artifacts (§36.8).
+
+    Refuses an artifact without the `set_ordered_readers` section, one taken
+    with `--quick`, and dispatches at different commits (the pair is one SHA).
+    A void run is counted as a void dispatch, not dropped.
+    """
+    arts = []
+    for p in map(Path, paths):
+        if not p.exists():
+            raise ValueError(f"artifact does not exist: {p}")
+        arts.append((p, json.loads(p.read_text(encoding="utf-8"))))
+    entries = []
+    commits = set()
+    for p, art in arts:
+        sec = art.get("set_ordered_readers")
+        if not sec:
+            raise ValueError(f"{p} lacks a 'set_ordered_readers' section")
+        if sec.get("quick"):
+            raise ValueError(f"{p} was run with --quick; not an evaluation artifact (§36.6)")
+        commit = art.get("provenance", {}).get("commit")
+        if not commit:
+            raise ValueError(f"{p} records no commit in its provenance")
+        commits.add(commit)
+        entries.append(sec["run_verdict"])
+    if len(commits) != 1:
+        raise ValueError(f"the dispatches ran at {len(commits)} commits {sorted(commits)}; a pair is one SHA (§36.8)")
+    return {"commit": commits.pop(), "dispatches": entries, "pair": set_pair_from_dispatches(entries)}
 
 
 # ---------------------------------------------------------------------------
@@ -5174,6 +5748,7 @@ def _synthetic_reader_rows(
     fallbacks: Any,
     pin: str,
     reader_ops: int = 100_000,
+    workload_id: str = ORDERED_READERS_WORKLOAD_ID,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Rows in the harness's reader-mode schema for every scheduled run.
 
@@ -5187,7 +5762,7 @@ def _synthetic_reader_rows(
     for run in ordered_readers_schedule(rounds):
         fresh = 0 if run["writers"] == 0 else 65_280
         base = {
-            "workload_id": ORDERED_READERS_WORKLOAD_ID, "arm": "expanse",
+            "workload_id": workload_id, "arm": "expanse",
             "cell": f"map_w{run['writers']}_r{run['readers']}_{run['read_op']}_{run['probe']}",
             "keyspace_bits": 64, "prefill": 4096, "hotspot_prefill": 256, "hotspot_base": 1 << 40,
             "fresh_keys": fresh, "write_ops": fresh, "cpu_pin": pin, "tsc_hz": 1,
@@ -7562,6 +8137,487 @@ def _self_test_ablation_dispatch_flags() -> None:
         assert f"\n{feature} = []" in cargo, f"{feature} is not a live Cargo feature"
 
 
+def _self_test_set_ordered_readers_dispatch_flags() -> None:
+    """The flags and `--out` that bench_baremetal.yml builds for the set suite are ones the parser accepts and routes.
+
+    Reads the workflow's case body rather than restating it: joins the
+    continuation lines, splits them as the shell would, and hands the driver's
+    own argv to the real parser and to `main()` (with the sweep itself stubbed).
+    """
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    import shlex  # noqa: PLC0415
+    from unittest import mock  # noqa: PLC0415
+
+    token = "writer_scaling_set_ordered_readers"
+    workflow = (REPO_ROOT / ".github" / "workflows" / "bench_baremetal.yml").read_text()
+    manifest = json.loads((REPO_ROOT / ".github" / "bench-suites.json").read_text())
+    entry = [s for s in manifest["suites"] if s["name"] == token]
+    assert len(entry) == 1 and entry[0]["available"] is True and entry[0]["kind"] == "wallclock", entry
+    assert f"          - {token}\n" in workflow, "the suite is not in the workflow_dispatch choice list"
+
+    start = workflow.index(f'              "{token}")')
+    body = workflow[start:workflow.index("                ;;", start)]
+    command = "\n".join(
+        line for line in body.replace("\\\n", " ").splitlines()[1:] if not line.strip().startswith("#")
+    )
+    words = shlex.split(command)
+    assert words[:3] == ["env", "-u", "EXPANSE_BENCH_PIN_APPLIED"], words[:3]
+    pin_word = next(w for w in words if w.startswith("EXPANSE_BENCH_PIN="))
+    assert pin_word == f"EXPANSE_BENCH_PIN=${{EXPANSE_BENCH_PIN:-{SET_ORDERED_READERS_PIN}}}", pin_word
+    i = words.index("python3")
+    assert words[i + 1] == "docs/benchmarks/concurrency/scripts/writer_scaling.py", words[i:i + 2]
+    argv = words[i + 2:words.index("|")]
+    assert argv[0] == "--set-ordered-readers" and argv[1] == "--out", argv
+    assert argv[2] == "docs/benchmarks/concurrency/results/ordered_readers_set_writer_scaling.json", argv
+    assert (REPO_ROOT / argv[2]) == SET_ORDERED_READERS_RESULTS_PATH, argv
+    parsed = build_parser().parse_args(argv)
+    assert parsed.set_ordered_readers is True and parsed.ordered_readers is False and parsed.out == argv[2], parsed
+    assert f"            {argv[2]} \\\n" in workflow, "the artifact is not in the upload list"
+    assert Path(argv[2]).match("ordered_readers_*.json"), "the provenance gate's glob would not reach the artifact"
+
+    routed: list[argparse.Namespace] = []
+
+    def stub(a: argparse.Namespace) -> int:
+        routed.append(a)
+        return 0
+
+    with mock.patch.object(sys.modules[__name__], "run_set_ordered_readers", stub), \
+            mock.patch.object(sys, "argv", ["writer_scaling.py", *argv]):
+        assert main() == 0
+    assert len(routed) == 1 and routed[0].rounds == SET_ORDERED_READERS_ROUNDS, routed
+    # A round count other than the registered 8 is refused outside a smoke run, and allowed inside one.
+    with mock.patch.object(sys.modules[__name__], "run_set_ordered_readers", stub), \
+            mock.patch.object(sys, "argv", ["writer_scaling.py", *argv, "--rounds", "7"]), \
+            contextlib.redirect_stderr(io.StringIO()) as err:
+        assert main() == 1 and "registered 8 rounds" in err.getvalue(), err.getvalue()
+    routed.clear()
+    with mock.patch.object(sys.modules[__name__], "run_set_ordered_readers", stub), \
+            mock.patch.object(sys, "argv", ["writer_scaling.py", "--set-ordered-readers", "--rounds", "7", "--quick",
+                                             "--out", "scratch/x.json"]):
+        assert main() == 0 and len(routed) == 1 and routed[0].rounds == 7, routed
+    # It is a sweep of its own: a selector that would be silently dropped is refused.
+    with mock.patch.object(sys, "argv", ["writer_scaling.py", "--set-ordered-readers", "--arm", "set"]), \
+            contextlib.redirect_stderr(io.StringIO()) as err:
+        assert main() == 1 and "does not combine with --arm" in err.getvalue(), err.getvalue()
+    # A smoke run to a committed path is refused without --force-quick-out.
+    with mock.patch.object(sys, "argv", ["writer_scaling.py", "--set-ordered-readers", "--quick"]), \
+            contextlib.redirect_stderr(io.StringIO()) as err:
+        assert main() == 1 and "cannot overwrite committed results path" in err.getvalue(), err.getvalue()
+    assert SET_ORDERED_READERS_RESULTS_PATH.resolve() in committed_result_paths()
+
+
+def _set_scenario_mops(factors: dict[tuple[str, int, int], Any]) -> Any:
+    """`mops(run)` for `_synthetic_reader_rows`: `prev` is the round's base times the cell's factor.
+
+    The base differs eightfold across rounds, so a statistic that is not paired
+    within its round cannot land near the within-round ratio.
+    """
+    base = [1.0, 5.0, 2.0, 8.0, 3.0, 7.0, 4.0, 6.0]
+
+    def mops(run: dict[str, Any]) -> float:
+        b = base[run["round"]]
+        if run["read_op"] != "prev":
+            return b
+        return b * factors.get((run["probe"], run["writers"], run["readers"]), lambda r: 1.0)(run["round"])
+
+    return mops
+
+
+def _set_met(r: int) -> float:
+    return 1.5 * (1.0 + 0.001 * r)
+
+
+def _set_missed(r: int) -> float:
+    return 0.5 * (1.0 + 0.001 * r)
+
+
+def _set_open(r: int) -> float:
+    return 1.3 if r % 2 == 0 else 0.8
+
+
+def _self_test_set_ordered_readers_no_build() -> None:
+    """The set ordered-reader instrument (#1194) that needs no cargo build and no set reader mode.
+
+    Schedule, the harness command, every row of METHODOLOGY.md §36.8's tables,
+    the void rules, pairing by round, the artifact's shape, and the driver's
+    refusal of a harness without the set reader mode, driven through fake
+    harness binaries. Each clause is an assertion whose removal or mutation
+    this function fails on (AGENTS.md §5, one negative control per clause).
+    """
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+    import itertools  # noqa: PLC0415
+    from unittest import mock  # noqa: PLC0415
+
+    import check_bench_provenance as cbp  # noqa: PLC0415 -- the gate's own functions judge the artifact
+
+    sys.stderr.write("Testing the set ordered-reader instrument (#1194, METHODOLOGY.md §36.6, §36.8)...\n")
+    _self_test_set_ordered_readers_dispatch_flags()
+    rounds = SET_ORDERED_READERS_ROUNDS
+    pin = SET_ORDERED_READERS_PIN
+    module = sys.modules[__name__]
+
+    # Constants §36.6 fixes.
+    assert rounds == 8 and SET_BCA_RESAMPLES == 2000 and SET_BCA_SEED == 42, (rounds, SET_BCA_RESAMPLES, SET_BCA_SEED)
+    assert SET_FALLBACK_CEILING == (1, 1000) and SET_MAX_REPLACEMENTS_PER_PAIR == 3 and SET_MAX_PAIRS == 2
+    assert SET_RHO_FLOOR == 1.0 and SET_KAPPA_FLOOR == 1.0
+    assert SET_RHO_GATE_CELLS == (("uniform", 1, 4), ("uniform", 4, 4), ("hotspot", 4, 4)), SET_RHO_GATE_CELLS
+    assert SET_KAPPA_NUMERATOR == ("uniform", 1, 4) and SET_KAPPA_CONTROL == ("uniform", 0, 1)
+    assert SET_GATED_STATS == ("rho_uniform_W1_R4", "rho_uniform_W4_R4", "rho_hotspot_W4_R4", "kappa"), SET_GATED_STATS
+    assert tuple(set_rho_name(*c) for c in SET_RHO_GATE_CELLS) == SET_GATED_STATS[:3]
+    assert SET_ORDERED_READERS_PIN == "0,2,4,6,8,10,12,14" and SET_ORDERED_READERS_WORKLOAD_ID == (
+        "concurrency_ordered_readers_set_63bit")
+    assert RUN_FOREIGN_VOID == 1.0 and RUN_PROCESS_VOID_PCT == 100.0
+    assert ORDERED_READERS_WR == ((0, 1), (0, 4), (1, 4), (4, 4)) and ORDERED_READERS_OPS == ("prev_locked", "prev")
+    assert ORDERED_READERS_PROBES == ("uniform", "hotspot")
+    assert all(w + r <= 8 for w, r in ORDERED_READERS_WR), "W + R must fit the eight pinned P-cores"
+
+    # The schedule: 8 rounds x 2 probe blocks x 8 cells, one harness process each; per block every cell in every
+    # position once and every ordered pair of cells adjacent once; the first block alternates by round.
+    n = len(ORDERED_READERS_BLOCK)
+    sched = ordered_readers_schedule(rounds)
+    assert len(sched) == rounds * 2 * n == 128, len(sched)
+    assert len({(x["round"], x["probe"], x["read_op"], x["writers"], x["readers"]) for x in sched}) == 128
+    for probe in ORDERED_READERS_PROBES:
+        positions = {cell: [0] * n for cell in ORDERED_READERS_BLOCK}
+        pairs: dict[tuple[Any, Any], int] = {}
+        for r in range(rounds):
+            block = sorted((x for x in sched if x["round"] == r and x["probe"] == probe), key=lambda x: x["position"])
+            order = [(x["read_op"], x["writers"], x["readers"]) for x in block]
+            assert sorted(order) == sorted(ORDERED_READERS_BLOCK), order
+            for i, cell in enumerate(order):
+                positions[cell][i] += 1
+            for a, b in zip(order, order[1:]):
+                pairs[(a, b)] = pairs.get((a, b), 0) + 1
+        assert all(v == [1] * n for v in positions.values()), positions
+        assert len(pairs) == n * (n - 1) and all(v == 1 for v in pairs.values()), pairs
+    assert [next(x["probe"] for x in sched if x["round"] == r) for r in range(rounds)] == \
+        [ORDERED_READERS_PROBES[r % 2] for r in range(rounds)]
+
+    # The harness command: the set arm, the cell's own W, R, read op, probe, round and position.
+    run = sched[5]
+    argv = reader_cell_argv(Path("/bin/h"), "throughput", run, quick=False, arm=SET_ORDERED_READERS_ARM)
+    assert argv == ["/bin/h", "--role", "throughput", "--arm", "set", "--writers", str(run["writers"]),
+                    "--readers", str(run["readers"]), "--read-op", run["read_op"], "--probe", run["probe"],
+                    "--round", str(run["round"]), "--position", str(run["position"])], argv
+    assert reader_cell_argv(Path("/bin/h"), "counters", run, quick=True)[-1] == "--quick"
+    assert reader_cell_argv(Path("/bin/h"), "counters", run, quick=True)[4] == "map", "the map suite's arm changed"
+
+    # Interval statuses (§36.8 item 1): lower bound for MET, upper bound for MISSED, kappa strictly above.
+    for lo, hi, strict, want in (
+        (1.2, 1.4, False, "MET"), (1.2, 1.4, True, "MET"),
+        (1.0, 1.4, False, "MET"), (1.0, 1.4, True, "OPEN"),      # lower bound exactly on the floor
+        (0.9, 1.4, False, "OPEN"), (0.9, 1.0, False, "OPEN"),    # upper bound exactly on the floor is not below it
+        (0.5, 0.99, False, "MISSED"), (0.5, 0.99, True, "MISSED"),
+        (1.0, 1.0, False, "MET"), (1.0, 1.0, True, "OPEN"),
+        (0.2, 1.4, False, "OPEN"),                                # a high upper bound does not meet; a low lower does not miss
+        (1.1, 3.0, False, "MET"),                                 # the mean is not consulted
+    ):
+        assert set_stat_status(lo, hi, 1.0, strict) == want, (lo, hi, strict, want)
+    _expect_value_error(lambda: set_stat_status(1.2, 1.0, 1.0, False), "lower bound above its upper")
+    _expect_value_error(lambda: set_stat_status(float("nan"), 1.0, 1.0, False), "not a number")
+
+    # §36.8 item 3, every combination of the four statuses and P36.3 against an independent statement of the rule.
+    names = SET_GATED_STATS
+    for combo in itertools.product(SET_STAT_STATUSES, repeat=4):
+        for fb in ("HOLDS", "REFUTED"):
+            got = set_run_verdict(dict(zip(names, combo)), fb)
+            if "MISSED" in combo or fb == "REFUTED":
+                want = "RUN_REJECT"
+            elif combo == ("MET",) * 4:
+                want = "RUN_PASS"
+            else:
+                want = "RUN_OPEN"
+            assert got == want, (combo, fb, got, want)
+    met, missed, opn = "MET", "MISSED", "OPEN"
+
+    def verdict(*statuses: str, fb: str = "HOLDS") -> str:
+        return set_run_verdict(dict(zip(names, statuses)), fb)
+
+    assert verdict(met, met, met, met) == "RUN_PASS"
+    assert verdict(met, met, missed, met) == "RUN_REJECT", "two gate cells met and the third missed"
+    assert verdict(met, missed, met, met) == "RUN_REJECT" and verdict(missed, met, met, met) == "RUN_REJECT"
+    assert verdict(met, met, met, missed) == "RUN_REJECT", "kappa missed"
+    assert verdict(met, met, opn, met) == "RUN_OPEN", "an OPEN statistic with nothing missed"
+    assert verdict(met, met, met, opn) == "RUN_OPEN", "kappa open is required"
+    assert verdict(met, met, met, met, fb="REFUTED") == "RUN_REJECT", "P36.3 refuted alone rejects"
+    assert verdict(opn, opn, opn, opn, fb="REFUTED") == "RUN_REJECT"
+    assert verdict(opn, missed, opn, opn) == "RUN_REJECT", "MISSED outranks OPEN"
+    # All three gate cells and kappa are required: a dictionary lacking one is refused, not judged on the rest.
+    for dropped in names:
+        _expect_value_error(lambda d=dropped: set_run_verdict({k: met for k in names if k != d}, "HOLDS"), "exactly the statistics")
+    _expect_value_error(lambda: set_run_verdict({**{k: met for k in names}, "extra": met}, "HOLDS"), "exactly the statistics")
+    _expect_value_error(lambda: set_run_verdict({k: "PASS" for k in names}, "HOLDS"), "is not one of")
+    _expect_value_error(lambda: set_run_verdict({k: met for k in names}, "OPEN"), "HOLDS or REFUTED")
+
+    # §36.8 item 4, all nine pairs (either order is the same cell of the table).
+    rp, rr, ro = "RUN_PASS", "RUN_REJECT", "RUN_OPEN"
+    table = {(rp, rp): "PASS", (rr, rr): "REJECTED", (rp, rr): "INTERMEDIATE", (rp, ro): "INTERMEDIATE",
+             (rr, ro): "INTERMEDIATE", (ro, ro): "INTERMEDIATE"}
+    for (a, b), want in table.items():
+        assert set_pair_verdict(a, b) == want and set_pair_verdict(b, a) == want, (a, b, want)
+    _expect_value_error(lambda: set_pair_verdict("PASS", rp), "is not one of")
+    _expect_value_error(lambda: set_pair_verdict(rp, "VOID"), "is not one of")
+
+    # The statistics and the run verdict through the production functions, from rows in the harness's schema.
+    def sweep(factors: dict[tuple[str, int, int], Any], fallbacks: Any = None, workload: str = SET_ORDERED_READERS_WORKLOAD_ID
+              ) -> tuple[Any, Any, Any]:
+        t, c = _synthetic_reader_rows(rounds, _set_scenario_mops(factors), fallbacks or (lambda run: 0), pin, workload_id=workload)
+        for x in t:
+            x["load"] = {"foreign_busy_cpus": 0.0, "busy_cpus_since_prev": 1.0, "own_busy_cpus": 1.0, "wall_s": 1.0}
+        cells = summarize_ordered_readers(t, c, rounds, {"since": "self-test"}, arm=SET_ORDERED_READERS_ARM,
+                                          workload_id=SET_ORDERED_READERS_WORKLOAD_ID)
+        return t, c, cells
+
+    def run_report(factors: dict[tuple[str, int, int], Any], fallbacks: Any = None) -> tuple[dict[str, str], str, str]:
+        t, _, cells = sweep(factors, fallbacks)
+        stats = set_statistics(t, rounds)
+        statuses = {k: e["status"] for k, e in stats["gated"].items()}
+        fb = set_fallback_verdict(cells)["verdict"]
+        return statuses, fb, set_run_verdict(statuses, fb)
+
+    u14, u44, h44, u01 = ("uniform", 1, 4), ("uniform", 4, 4), ("hotspot", 4, 4), ("uniform", 0, 1)
+    all_met = {u14: _set_met, u44: _set_met, h44: _set_met}
+    statuses, fb, rv = run_report(all_met)
+    assert statuses == dict(zip(names, [met] * 4)) and fb == "HOLDS" and rv == "RUN_PASS", (statuses, fb, rv)
+    statuses, _, rv = run_report({**all_met, h44: _set_missed})
+    assert statuses["rho_hotspot_W4_R4"] == missed and statuses["rho_uniform_W1_R4"] == met and rv == "RUN_REJECT", statuses
+    statuses, _, rv = run_report({**all_met, h44: _set_open})
+    assert statuses["rho_hotspot_W4_R4"] == opn and rv == "RUN_OPEN", statuses
+    # kappa divides by the control cell's rho of the same round: a control that gains more than (1, 4) misses.
+    statuses, _, rv = run_report({**all_met, u01: lambda r: 3.0 * (1.0 + 0.001 * r)})
+    assert statuses["kappa"] == missed and statuses["rho_uniform_W1_R4"] == met and rv == "RUN_REJECT", statuses
+    statuses, _, rv = run_report({**all_met, u01: lambda r: 1.6 if r % 2 == 0 else 1.4})
+    assert statuses["kappa"] == opn and rv == "RUN_OPEN", statuses
+    # P36.3 over the summed counters of every `prev` cell, in integers: 0.1% exactly is not below the ceiling.
+    def hot_w4(run: dict[str, Any]) -> bool:
+        return run["probe"] == "hotspot" and run["writers"] == 4
+
+    for fbs, want in ((200, "REFUTED"), (100, "REFUTED"), (99, "HOLDS")):
+        _, _, cells = sweep(all_met, lambda run, f=fbs: f if hot_w4(run) else 0)
+        got = set_fallback_verdict(cells)
+        assert got["verdict"] == want, (fbs, got)
+        assert got["refuted_cells"] == ([] if want == "HOLDS" else ["hotspot W=4 R=4"]), (fbs, got)
+        assert len(got["per_cell"]) == 8, got
+    _, _, cells = sweep(all_met)
+    _expect_value_error(lambda: set_fallback_verdict([c for c in cells if c["probe"] != "hotspot"]), "expected 8")
+    # Both limbs of the worked examples: P36.3 refuted in one run only is INTERMEDIATE; two rejected runs are
+    # REJECTED whether or not the same statistic missed in both.
+    _, _, rv_ok = run_report(all_met)
+    _, _, rv_fb = run_report(all_met, lambda run: 200 if hot_w4(run) else 0)
+    assert (rv_ok, rv_fb) == ("RUN_PASS", "RUN_REJECT") and set_pair_verdict(rv_ok, rv_fb) == "INTERMEDIATE"
+    _, _, rv_a = run_report({**all_met, u14: _set_missed})
+    _, _, rv_b = run_report({**all_met, h44: _set_missed})
+    assert (rv_a, rv_b) == ("RUN_REJECT", "RUN_REJECT") and set_pair_verdict(rv_a, rv_b) == "REJECTED"
+
+    # Pairing by round: rho is the mean of per-round ratios; each round's ratio is prev over prev_locked of that
+    # round, and an unpaired, doubled or non-positive round is refused rather than averaged.
+    t, _, _ = sweep(all_met)
+    expect = sum(_set_met(r) for r in range(rounds)) / rounds
+    got = set_statistics(t, rounds)["gated"]["rho_uniform_W1_R4"]
+    assert abs(got["mean"] - expect) < 1e-4 and got["ci_method"] in CI_METHODS, (got, expect)
+    assert [round(v, 6) for v in set_round_ratios(t, *u14, rounds)] == [round(_set_met(r), 6) for r in range(rounds)]
+    # bare-entry-point: an equivalence assertion, the registered resamples and seed against the driver's interval.
+    _, ref_lo, ref_hi = bca_bootstrap.bca_bootstrap_ci(
+        set_round_ratios(t, *u14, rounds), confidence=0.95, num_resamples=2000, seed=42)
+    assert (got["ci_lower"], got["ci_upper"]) == (round(ref_lo, 6), round(ref_hi, 6)), got
+    kappa = set_statistics(t, rounds)["gated"]["kappa"]
+    assert abs(kappa["mean"] - expect) < 1e-4 and kappa["floor_rule"] == "lower bound > floor", kappa
+    assert [e["floor_rule"] for e in set_statistics(t, rounds)["gated"].values()][:3] == ["lower bound >= floor"] * 3
+    unpaired = [x for x in t if (x["probe"], x["writers"], x["readers"], x["read_op"], x["round"]) != (*u14, "prev_locked", 2)]
+    _expect_value_error(lambda: set_round_ratios(unpaired, *u14, rounds), "round 2 is unpaired")
+    _expect_value_error(lambda: set_round_ratios(t + [dict(t[0])], t[0]["probe"], t[0]["writers"], t[0]["readers"], rounds), "holds two")
+    zero = [dict(x, reader_mops=0.0) if (x["probe"], x["writers"], x["readers"], x["read_op"], x["round"]) == (*u14, "prev", 1) else x
+            for x in t]
+    _expect_value_error(lambda: set_round_ratios(zero, *u14, rounds), "non-positive")
+    # Statistics are reported for the five cells that gate nothing as well, without a gate.
+    stats = set_statistics(t, rounds)
+    assert len(stats["reported"]) == 5 and all(not e["gated"] for e in stats["reported"]), stats["reported"]
+    assert sorted(e["name"] for e in stats["reported"]) == sorted(
+        set_rho_name(p, w, r) for p in ORDERED_READERS_PROBES for w, r in ORDERED_READERS_WR
+        if (p, w, r) not in SET_RHO_GATE_CELLS)
+
+    # Replacement runs and pairs (§36.6, §36.8).
+    V = SET_VOID_RUN
+    for ds, state, want in (
+        ([rp, rp], "COMPLETE", "PASS"), ([rr, rr], "COMPLETE", "REJECTED"), ([rp, rr], "COMPLETE", "INTERMEDIATE"),
+        ([V, rp, rp], "COMPLETE", "PASS"), ([rp, V, V, V, rp], "COMPLETE", "PASS"),   # three replacements is the cap
+        ([V, V, V, rr, rr], "COMPLETE", "REJECTED"),
+        ([rp], "INCOMPLETE", None), ([V, V], "INCOMPLETE", None), ([V, V, V, V, rp], "EXHAUSTED", "INTERMEDIATE"),
+        ([V, V, V, V, V], "EXHAUSTED", "INTERMEDIATE"),
+    ):
+        got = set_pair_from_dispatches(ds)
+        assert (got["state"], got["verdict"]) == (state, want), (ds, got)
+    _expect_value_error(lambda: set_pair_from_dispatches([V, V, V, V, V, rp]), "at most 3 replacement runs")
+    _expect_value_error(lambda: set_pair_from_dispatches([rp, rp, rp]), "never replaced")
+    _expect_value_error(lambda: set_pair_from_dispatches([rp, rp, V]), "never replaced")
+    _expect_value_error(lambda: set_pair_from_dispatches(["PASS"]), "neither a run verdict")
+    # One second pair, and only after INTERMEDIATE; its verdict is final.
+    for vs, ships, state in (
+        (["PASS"], True, "SHIPS"), (["REJECTED"], False, "CLOSED_UNMERGED"), (["INTERMEDIATE"], None, "SECOND_PAIR_GRANTED"),
+        (["INTERMEDIATE", "PASS"], True, "SHIPS"), (["INTERMEDIATE", "REJECTED"], False, "CLOSED_UNMERGED"),
+        (["INTERMEDIATE", "INTERMEDIATE"], False, "CLOSED_UNMERGED"),
+    ):
+        got = set_campaign_outcome(vs)
+        assert (got["ships"], got["state"]) == (ships, state) and got["final"] == (ships is not None), (vs, got)
+    _expect_value_error(lambda: set_campaign_outcome(["INTERMEDIATE", "INTERMEDIATE", "PASS"]), "all §36.8 allows")
+    _expect_value_error(lambda: set_campaign_outcome(["PASS", "PASS"]), "follows only an INTERMEDIATE")
+    _expect_value_error(lambda: set_campaign_outcome(["REJECTED", "PASS"]), "follows only an INTERMEDIATE")
+    _expect_value_error(lambda: set_campaign_outcome([]), "all §36.8 allows")
+
+    # Void rules, stated as FOREIGN busy CPU: a cell reaching 1.0 core-equivalent voids; just under it does not.
+    def vrow(foreign: Any, **kw: Any) -> dict[str, Any]:
+        return {"probe": "uniform", "read_op": "prev", "writers": 1, "readers": 4, "round": 0, "load": {"foreign_busy_cpus": foreign}, **kw}
+
+    assert set_void_reasons([vrow(0.99)], pin, quick=False) == []
+    assert set_void_reasons([vrow(0.0)], "14,12,10,8,6,4,2,0", quick=False) == [], "the pin is a set, not a spelling"
+    assert any("reaches 1.0" in v for v in set_void_reasons([vrow(1.0)], pin, quick=False))
+    assert any("reaches 1.0" in v for v in set_void_reasons([vrow(7.5)], pin, quick=False))
+    assert any("not measured" in v for v in set_void_reasons([vrow(None)], pin, quick=False))
+    assert any("not measured" in v for v in set_void_reasons([{**vrow(0.0), "load": {}}], pin, quick=False))
+    assert any("is not 0,2,4" in v for v in set_void_reasons([vrow(0.0)], "0-15", quick=False))
+    assert any("--quick" in v for v in set_void_reasons([vrow(0.0)], pin, quick=True))
+    own = [vrow(0.0, load={"foreign_busy_cpus": 0.0, "own_busy_cpus": 8.0, "busy_cpus_since_prev": 8.0})]
+    assert set_void_reasons(own, pin, quick=False) == [], "the run's own eight threads are not foreign load"
+    assert set_void_reasons([vrow(0.0)], pin, False, {"c": 100.0}) == []
+    assert any("exceeds 100.0%" in v for v in set_void_reasons([vrow(0.0)], pin, False, {"c": 100.1}))
+
+    # The artifact's shape, judged by the provenance gate's own functions, and a void run read as VOID.
+    prov = new_provenance(suite="concurrency", issue=1194, ratio="self-test", repo_root=REPO_ROOT,
+                          core_pin=pin, estimators=estimators("self-test"))
+    rel = SET_ORDERED_READERS_RESULTS_PATH.relative_to(cbp.BENCH).as_posix()
+    assert any(Path(rel).match(g) for g in cbp.ARTIFACT_GLOBS), (rel, cbp.ARTIFACT_GLOBS)
+    t, _, cells = sweep(all_met)
+    art = build_set_ordered_readers_artifact(prov, cells, t, rounds, pin, quick=False)
+    sec = art["set_ordered_readers"]
+    assert sec["void"] == [] and sec["run_valid"] is True and sec["run_verdict"] == "RUN_PASS" == sec["run_verdict_if_valid"], sec
+    assert list(sec["statistics"]["gated"]) == list(SET_GATED_STATS) and sec["p36_3"]["verdict"] == "HOLDS"
+    assert sec["workload_id"] == SET_ORDERED_READERS_WORKLOAD_ID and sec["pin"]["conforms"] is True
+    assert all(c["arm"] == "set" and c["workload_id"] == SET_ORDERED_READERS_WORKLOAD_ID for c in art["throughput"])
+    assert len(art["throughput"]) == 16 and all(len(c["rounds_raw"]) == rounds for c in art["throughput"])
+    assert all("load" in raw for c in art["throughput"] for raw in c["rounds_raw"]), "per-round load windows"
+    assert cbp.findings_for(rel, art) == [], cbp.findings_for(rel, art)
+    assert str(REPO_ROOT) not in json.dumps(art), "absolute repo path leaked into the artifact (AGENTS.md §7)"
+    quick_art = build_set_ordered_readers_artifact(prov, cells, t, rounds, pin, quick=True)
+    assert quick_art["set_ordered_readers"]["run_verdict"] == "VOID" and quick_art["set_ordered_readers"]["run_verdict_if_valid"] == "RUN_PASS"
+    contended = [dict(x, load={"foreign_busy_cpus": 1.0}) if x["round"] == 3 and x["writers"] == 4 else x for x in t]
+    assert build_set_ordered_readers_artifact(prov, cells, contended, rounds, pin, False)["set_ordered_readers"]["run_verdict"] == "VOID"
+    no_rounds = json.loads(json.dumps(art))
+    del no_rounds["throughput"][0]["rounds_raw"]
+    assert cbp.findings_for(rel, no_rounds), "the provenance gate must see a cell without rounds_raw"
+    unlabelled = json.loads(json.dumps(art))
+    del unlabelled["set_ordered_readers"]["statistics"]["gated"]["kappa"]["ci_method"]
+    unlabelled["throughput"][0].pop("reader_ci_method")
+    assert any("construction label" in f for f in cbp.findings_for(rel, unlabelled)), "a dropped CI label must be seen"
+    # Rows of another row family (the map's) are refused rather than averaged into the set's cells.
+    t_map, c_map = _synthetic_reader_rows(rounds, _set_scenario_mops(all_met), lambda run: 0, pin)
+    _expect_value_error(lambda: summarize_ordered_readers(t_map, c_map, rounds, {}, arm="set",
+                                                          workload_id=SET_ORDERED_READERS_WORKLOAD_ID), "expected 'concurrency_ordered_readers_set_63bit'")
+
+    # One pair's artifacts combine by their run verdicts, void runs counted, and only at one commit.
+    with tempfile.TemporaryDirectory() as tmp:
+        def write(name: str, a: dict[str, Any], commit: str = "a" * 40) -> Path:
+            a = json.loads(json.dumps(a))
+            a["provenance"]["commit"] = commit
+            path = Path(tmp) / name
+            path.write_text(json.dumps(a))
+            return path
+
+        p1, p2 = write("r1.json", art), write("r2.json", art)
+        voided = json.loads(json.dumps(art))
+        voided["set_ordered_readers"]["run_verdict"] = V
+        pv = write("rv.json", voided)
+        got = combine_set_ordered_readers_verdict([pv, p1, p2])
+        assert got["pair"]["verdict"] == "PASS" and got["pair"]["void_runs"] == 1 and got["dispatches"] == [V, "RUN_PASS", "RUN_PASS"], got
+        _expect_value_error(lambda: combine_set_ordered_readers_verdict([p1, write("r3.json", art, "b" * 40)]), "one SHA")
+        quick_p = write("q.json", quick_art)
+        _expect_value_error(lambda: combine_set_ordered_readers_verdict([p1, quick_p]), "--quick")
+        _expect_value_error(lambda: combine_set_ordered_readers_verdict([p1, Path(tmp) / "none.json"]), "does not exist")
+        bare = Path(tmp) / "bare.json"
+        bare.write_text(json.dumps({"provenance": {"commit": "a" * 40}}))
+        _expect_value_error(lambda: combine_set_ordered_readers_verdict([p1, bare]), "lacks a 'set_ordered_readers'")
+
+        # The harness seam without the set reader mode: fake binaries standing in for the harness on main, which
+        # refuses writers, any read op but get and any probe but uniform on `--arm set`, and for the engine
+        # change's harness, which answers from the rows below. Nothing here builds the new mode.
+        fake = Path(tmp) / "harness"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            "a = sys.argv[1:]\n"
+            "def flag(n):\n"
+            "    return a[a.index(n) + 1] if n in a else None\n"
+            "with open(os.environ['FAKE_ARGV_LOG'], 'a') as f:\n"
+            "    f.write(json.dumps(a) + '\\n')\n"
+            "if os.environ['FAKE_MODE'] == 'old':\n"
+            "    sys.stderr.write('--arm set in reader mode is the readers-only cell: --writers 0 only, got --writers '"
+            " + flag('--writers') + '\\n')\n"
+            "    sys.exit(1)\n"
+            "rows = json.load(open(os.environ['FAKE_ROWS']))\n"
+            "key = '|'.join(str(flag(n)) for n in ('--role', '--probe', '--read-op', '--writers', '--readers', '--round'))\n"
+            "row = rows[key]\n"
+            "row['position'] = int(flag('--position'))\n"
+            "if os.environ['FAKE_MODE'] == 'wrong_family':\n"
+            "    row['workload_id'] = 'concurrency_readers_set_63bit'\n"
+            "print(json.dumps(row))\n"
+        )
+        fake.chmod(0o755)
+        t_rows, c_rows = _synthetic_reader_rows(rounds, _set_scenario_mops(all_met), lambda run: 0, "off",
+                                                workload_id=SET_ORDERED_READERS_WORKLOAD_ID)
+        by_key = {}
+        for x in (*t_rows, *c_rows):
+            by_key["|".join(str(x[k]) for k in ("role", "probe", "read_op", "writers", "readers", "round"))] = x
+        rows_path = Path(tmp) / "rows.json"
+        rows_path.write_text(json.dumps(by_key))
+        log = Path(tmp) / "argv.jsonl"
+        env = {"FAKE_ARGV_LOG": str(log), "FAKE_ROWS": str(rows_path), "EXPANSE_BENCH_PIN": "off"}
+        env.pop("EXPANSE_BENCH_PIN_APPLIED", None)
+
+        def drive(mode: str, out: Path, extra: list[str] | None = None) -> tuple[int, str]:
+            log.write_text("")
+            argv_ = ["writer_scaling.py", "--set-ordered-readers", "--quick", "--rounds", str(rounds), "--out", str(out), *(extra or [])]
+            with mock.patch.dict(os.environ, {**env, "FAKE_MODE": mode}), \
+                    mock.patch.object(module, "build_binaries", return_value=(fake, fake)), \
+                    mock.patch.object(sys, "argv", argv_), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                rc = main()
+            return rc, err.getvalue()
+
+        # A harness without the mode: a loud, named failure on the first probe cell, before any cell is timed,
+        # and no artifact (never a silently empty or partial one).
+        out_old = Path(tmp) / "old.json"
+        rc, err = drive("old", out_old)
+        assert rc == 1 and not out_old.exists(), (rc, err)
+        assert "lacks the set reader mode" in err and "--writers 0 only" in err and "ref" in err, err
+        assert "No cell was run and no artifact is written" in err, err
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        assert len(calls) == 1 and "--writers" in calls[0], f"expected the probe cell to stop the run: {calls}"
+        assert calls[0][calls[0].index("--arm") + 1] == "set" and calls[0][calls[0].index("--read-op") + 1] == "prev"
+        # A harness that runs the probe but answers in another row family is refused by name too.
+        out_wrong = Path(tmp) / "wrong.json"
+        rc, err = drive("wrong_family", out_wrong)
+        assert rc == 1 and not out_wrong.exists() and "emitted no concurrency_ordered_readers_set_63bit row" in err, (rc, err)
+        # A harness with the mode: the whole sweep runs through it and the artifact is the shape above.
+        out_new = Path(tmp) / "new.json"
+        rc, err = drive("new", out_new)
+        assert rc == 0 and out_new.exists(), (rc, err)
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        assert len(calls) == 2 + 2 * len(sched), len(calls)
+        assert all(c[c.index("--arm") + 1] == "set" and "--quick" in c for c in calls)
+        timed = [c for c in calls[2:] if c[c.index("--role") + 1] == "throughput"]
+        assert [c[c.index("--round") + 1] for c in timed][:3] == [str(x["round"]) for x in sched[:3]]
+        assert [(c[c.index("--read-op") + 1], c[c.index("--writers") + 1], c[c.index("--readers") + 1]) for c in timed] == \
+            [(x["read_op"], str(x["writers"]), str(x["readers"])) for x in sched], "the sweep ran the schedule"
+        e2e = json.loads(out_new.read_text())
+        assert e2e["set_ordered_readers"]["quick"] is True and e2e["set_ordered_readers"]["run_verdict"] == "VOID"
+        assert e2e["set_ordered_readers"]["run_verdict_if_valid"] == "RUN_PASS", e2e["set_ordered_readers"]
+        assert len(e2e["throughput"]) == 16 and e2e["provenance"]["cell_isolation"] == CELL_ISOLATION
+        assert all("load" in raw for c in e2e["throughput"] for raw in c["rounds_raw"])
+        # A smoke run lands where the caller says; the committed path is refused without --force-quick-out.
+        assert not str(out_new.resolve()).startswith(str((REPO_ROOT / "docs" / "benchmarks").resolve()))
+    sys.stderr.write("Set ordered-reader instrument (no-build part) PASSED\n")
+
 def self_test() -> int:
     eprintln = sys.stderr.write
     eprintln("Running writer_scaling.py self-test...\n")
@@ -7570,6 +8626,7 @@ def self_test() -> int:
     #    every writer arm. Run first: they need no build, so a regression here
     #    fails before minutes of cargo.
     _self_test_ablation_dispatch_flags()
+    _self_test_set_ordered_readers_no_build()
     _self_test_c2c_window()
     _self_test_c2c_line_table_complete()
     _self_test_pmu_arm_choices()
@@ -8313,6 +9370,14 @@ def build_parser() -> argparse.ArgumentParser:
              "(default output ordered_readers_writer_scaling.json)",
     )
     comparison.add_argument(
+        "--set-ordered-readers",
+        action="store_true",
+        help="Ordered readers on the set (#1194, METHODOLOGY.md §36.6): probe x (W, R) x read_op cells "
+             "under the pin 0,2,4,6,8,10,12,14, with rho, kappa, P36.3 and the §36.8 run verdict; needs a "
+             "harness with the set reader mode, so it refuses to start against one without "
+             "(default output ordered_readers_set_writer_scaling.json)",
+    )
+    comparison.add_argument(
         "--scan-cells",
         action="store_true",
         help="Batch cursor scan on the map (#1142, METHODOLOGY.md §32.5): probe x (W, R) cells of "
@@ -8361,6 +9426,18 @@ def build_parser() -> argparse.ArgumentParser:
              "Each baremetal dispatch writes scan_cells_writer_scaling.json; run 2's artifact is renamed to *_run2.json on download (or via --out).",
     )
     parser.add_argument(
+        "--set-ordered-readers-verdict",
+        nargs="+",
+        metavar="RUN_JSON",
+        help="The §36.8 pair verdict of one pair's dispatches (2 to 5 artifacts of --set-ordered-readers, "
+             "in dispatch order, void runs included)",
+    )
+    parser.add_argument(
+        "--self-test-set-ordered-readers",
+        action="store_true",
+        help="Run only the set ordered-readers self-tests that need no cargo build, and exit",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run self-test and exit",
@@ -8379,6 +9456,19 @@ def main() -> int:
             sys.stderr.write(f"refusing to combine: {exc}\n")
             return 1
         print(json.dumps(res, indent=2))
+        return 0
+
+    if args.set_ordered_readers_verdict:
+        try:
+            res = combine_set_ordered_readers_verdict(args.set_ordered_readers_verdict)
+        except ValueError as exc:
+            sys.stderr.write(f"refusing to combine: {exc}\n")
+            return 1
+        print(json.dumps(res, indent=2))
+        return 0
+
+    if args.self_test_set_ordered_readers:
+        _self_test_set_ordered_readers_no_build()
         return 0
 
     if args.self_test:
@@ -8489,6 +9579,41 @@ def main() -> int:
             )
             return 1
         return run_ordered_readers(args)
+
+    if args.set_ordered_readers:
+        # A sweep of its own, as `--ordered-readers` is.
+        conflicts = [
+            flag for flag, on in (
+                ("--diagnostic", args.diagnostic), ("--pmu", args.pmu), ("--c2c", args.c2c),
+                ("--features", args.features is not None), ("--arm", args.arm != "all"),
+                ("--writers", args.writers != "1,2,4,8"),
+            ) if on
+        ]
+        if conflicts:
+            sys.stderr.write(f"error: --set-ordered-readers does not combine with {', '.join(conflicts)}\n")
+            return 1
+        if args.rounds < 3:
+            sys.stderr.write("error: --rounds must be >= 3 for BCa bootstrap confidence intervals\n")
+            return 1
+        # Fixed by the registration (§36.6): a run at any other count is
+        # INTERMEDIATE, so it is refused here rather than labelled afterwards.
+        # A smoke run is the one exception; it is void whatever its count.
+        if not args.quick and args.rounds != SET_ORDERED_READERS_ROUNDS:
+            sys.stderr.write(
+                f"error: --set-ordered-readers runs the registered {SET_ORDERED_READERS_ROUNDS} rounds "
+                f"(METHODOLOGY.md §36.6), not {args.rounds}\n"
+            )
+            return 1
+        if not args.out:
+            args.out = str(SET_ORDERED_READERS_RESULTS_PATH)
+        if (args.quick and Path(args.out).resolve() in committed_result_paths()
+                and not args.force_quick_out):
+            sys.stderr.write(
+                "error: --quick output cannot overwrite committed results path "
+                f"{Path(args.out).resolve()} without --force-quick-out\n"
+            )
+            return 1
+        return run_set_ordered_readers(args)
 
     if args.scan_cells:
         # A sweep of its own: none of the writer sweep's selectors apply, and
