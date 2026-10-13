@@ -440,7 +440,7 @@ jobs:
 
       - name: Build WASM pkg (Node target)
         run: |
-          npm install -g wasm-pack
+          npm install -g wasm-pack@0.15.0
           wasm-pack build --release --target nodejs crates/expanse-wasm
 
       - name: Install stock libjudy
