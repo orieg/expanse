@@ -3,7 +3,8 @@
 
     bench_host_guard.py check     --own-root PID [--pin-cpus LIST] [--wait S] [--json F] [--md F]
     bench_host_guard.py watch     --own-root PID --out F.jsonl [--pin-cpus LIST]
-    bench_host_guard.py summarize --in F.jsonl [--md F]
+    bench_host_guard.py summarize --in F.jsonl [--md F] [--json F]
+    bench_host_guard.py attach    --check F.json --summary F.json --watcher-ok {0,1} ARTIFACT...
     bench_host_guard.py --self-test
 
 ## Why
@@ -70,7 +71,11 @@ Thresholds are `bench_provenance.START_*` (the start gate) and `RUN_*_VOID`
   appended as one JSON line, with the pinned CPUs' governor. The watcher's own
   CPU is recorded and excluded. It exits when `--own-root` exits.
 - `summarize`: at the end. Any sample over a void boundary makes it exit 1: a
-  contaminated run is discarded, not reinterpreted (section 8.17).
+  contaminated run is discarded, not reinterpreted (section 8.17). `--json`
+  writes the judgement as a record (`run_record`).
+- `attach`: writes the start gate's verdict and that record into each named
+  artifact's `provenance.host_guard`, so whether the host admitted the run is
+  decidable from the committed artifact and not only from the run log.
 
 Off Linux there is no `/proc`. Each command then says so and exits 0: such a
 host is never the reference host.
@@ -767,6 +772,61 @@ def cmd_watch(args, proc: Path) -> int:
 WATCH_GAP_FACTOR = 3.0
 
 
+def run_record(samples: list[dict], bad: list, worst: float, worst_on: float, governors: set) -> dict:
+    """`summarize`'s judgement as data: what an artifact carries of the in-run record.
+
+    `voids` counts everything `summarize` fails on: a window over a void
+    boundary, a hole in the record, a governor change, an empty record.
+    """
+    return {
+        "verdict": "disturbed" if bad else "undisturbed",
+        "samples": len(samples),
+        "voids": len(bad),
+        "reasons": [w for _s, why in bad[:5] for w in why],
+        "worst_foreign_busy_cpus": worst,
+        "worst_on_pin_foreign_busy_cpus": worst_on,
+        "governors": sorted(governors),
+        "thresholds": {
+            "foreign_void": bp.RUN_FOREIGN_VOID, "on_pin_void": bp.RUN_ON_PIN_VOID,
+            "process_void_pct": bp.RUN_PROCESS_VOID_PCT, "interval_s": bp.WATCH_INTERVAL_S,
+            "max_gap_s": WATCH_GAP_FACTOR * bp.WATCH_INTERVAL_S,
+        },
+    }
+
+
+def guard_record(check: dict, run: dict, watcher_ok: bool) -> dict:
+    """The `provenance.host_guard` block: the start gate, the in-run record, the watcher."""
+    return {
+        "start": {
+            "verdict": check["verdict"],
+            "windows": len(check["windows"]),
+            "loadavg": check["loadavg"],
+            "thresholds": check["thresholds"],
+        },
+        "run": run,
+        "watcher_ok": bool(watcher_ok),
+    }
+
+
+def cmd_attach(args) -> int:
+    """Writes the guard's record into each artifact. A missing input fails the command."""
+    try:
+        check = json.loads(Path(args.check).read_text())
+        run = json.loads(Path(args.summary).read_text())
+        record = guard_record(check, run, args.watcher_ok == 1)
+        for path in args.artifacts:
+            p = Path(path)
+            obj = json.loads(p.read_text())
+            obj["provenance"]["host_guard"] = record
+            p.write_text(json.dumps(obj, indent=2) + "\n")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"::error::the host guard's record could not be written into the artifact(s): {exc!r}")
+        return 1
+    print(f"host guard record written into {len(args.artifacts)} artifact(s): start {record['start']['verdict']}, "
+          f"run {run['verdict']} ({run['samples']} sample(s), {run['voids']} void(s)), watcher_ok={record['watcher_ok']}")
+    return 0
+
+
 def cmd_summarize(args) -> int:
     samples = []
     try:
@@ -816,6 +876,8 @@ def cmd_summarize(args) -> int:
             + "\n".join(lines) + "\n```\n\n</details>\n"
         )
     print("\n".join(lines))
+    if getattr(args, "json", None):
+        Path(args.json).write_text(json.dumps(run_record(samples, bad, worst, worst_on, governors), indent=2) + "\n")
     if bad:
         print(f"::error::the host was disturbed during the run ({len(bad)} sample(s) over the void boundary); "
               "the run is discarded, not reinterpreted (AGENTS.md section 8.17)")
@@ -1263,6 +1325,48 @@ def self_test() -> int:
                     sys.stdout = old
             assert got == expect, (records, got)
 
+        # 20. summarize --json and attach: the judgement reaches the artifact.
+        check_json, run_json, art = Path(td, "host-guard.json"), Path(td, "host-activity.json"), Path(td, "art.json")
+        check_json.write_text(json.dumps({"verdict": "quiet", "windows": [{}, {}, {}], "loadavg": ["0.03", "0.01", "0.00"],
+                                          "thresholds": {"foreign_max": bp.START_FOREIGN_MAX}}))
+        hot = dict(calm, t=102.0, window_s=2.0, foreign_busy_cpus=1.003, on_pin_foreign_busy_cpus=0.998)
+        for records, want_verdict, want_voids, watcher in (
+            ([dict(calm, t=100.0, window_s=2.0), dict(calm, t=102.0, window_s=2.0)], "undisturbed", 0, 1),
+            ([dict(calm, t=100.0, window_s=2.0), hot], "disturbed", 1, 1),
+            ([], "disturbed", 1, 0),
+        ):
+            jl.write_text("".join(json.dumps(x) + "\n" for x in records))
+            art.write_text(json.dumps({"provenance": {"commit": "abc"}, "cells": [1]}))
+            with open(os.devnull, "w") as dn:
+                old, sys.stdout = sys.stdout, dn
+                try:
+                    cmd_summarize(argparse.Namespace(inp=str(jl), md=None, json=str(run_json)))
+                    rc = cmd_attach(argparse.Namespace(check=str(check_json), summary=str(run_json),
+                                                       watcher_ok=watcher, artifacts=[str(art)]))
+                finally:
+                    sys.stdout = old
+            assert rc == 0
+            got = json.loads(art.read_text())
+            g = got["provenance"]["host_guard"]
+            assert got["cells"] == [1] and got["provenance"]["commit"] == "abc", got
+            assert g["start"] == {"verdict": "quiet", "windows": 3, "loadavg": ["0.03", "0.01", "0.00"],
+                                  "thresholds": {"foreign_max": bp.START_FOREIGN_MAX}}, g
+            assert (g["run"]["verdict"], g["run"]["voids"], g["run"]["samples"]) == (want_verdict, want_voids, len(records)), g
+            assert g["watcher_ok"] is (watcher == 1), g
+            assert g["run"]["thresholds"]["on_pin_void"] == bp.RUN_ON_PIN_VOID, g
+        assert g["run"]["reasons"] == ["no sample was taken"], g
+        # A missing input, or an artifact with no provenance block, fails the command.
+        with open(os.devnull, "w") as dn:
+            old, sys.stdout = sys.stdout, dn
+            try:
+                assert cmd_attach(argparse.Namespace(check=str(Path(td, "absent.json")), summary=str(run_json),
+                                                     watcher_ok=1, artifacts=[str(art)])) == 1
+                art.write_text(json.dumps({"cells": []}))
+                assert cmd_attach(argparse.Namespace(check=str(check_json), summary=str(run_json),
+                                                     watcher_ok=1, artifacts=[str(art)])) == 1
+            finally:
+                sys.stdout = old
+
         # 8. The pin set follows bench_pin.sh: an explicit list, else cpu_core.
         sysfs = Path(td, "sys")
         (sysfs / "cpu_core").mkdir(parents=True)
@@ -1303,6 +1407,12 @@ def main() -> int:
     s = sub.add_parser("summarize")
     s.add_argument("--in", dest="inp", required=True)
     s.add_argument("--md")
+    s.add_argument("--json", help="also write the judgement as a record (see `run_record`)")
+    at = sub.add_parser("attach")
+    at.add_argument("--check", required=True, help="the JSON `check --json` wrote")
+    at.add_argument("--summary", required=True, help="the JSON `summarize --json` wrote")
+    at.add_argument("--watcher-ok", type=int, choices=(0, 1), required=True)
+    at.add_argument("artifacts", nargs="+")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
@@ -1316,6 +1426,8 @@ def main() -> int:
         return cmd_watch(args, proc)
     if args.cmd == "summarize":
         return cmd_summarize(args)
+    if args.cmd == "attach":
+        return cmd_attach(args)
     ap.error("a command is required")
     return 2
 

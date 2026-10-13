@@ -24,7 +24,9 @@ Reference values are pinned to committed D1 artifacts:
 Usage:
   python3 scripts/patricia_d2_bounds.py            # run the pinned tests and print derived bounds
   python3 scripts/patricia_d2_bounds.py --self-test
-  python3 scripts/patricia_d2_bounds.py --evaluate <counters_prefix_scan_d2_2m.json>
+  python3 scripts/patricia_d2_bounds.py --evaluate <d2_2m.json> <d2_4k.json>      # one A5 dispatch
+  python3 scripts/patricia_d2_bounds.py --verdict <2m> <4k> [<2m> <4k> ...]       # the A5 pair, in dispatch order
+  python3 scripts/patricia_d2_bounds.py --evaluate-a4 <d2_2m.json>                # the superseded A4 reading
 """
 
 from __future__ import annotations
@@ -111,8 +113,7 @@ def registered_bounds() -> dict[str, float]:
 
 
 # --- Host-condition bounds for the errata A5 to Amendment A4 (Refs #1096) -----------
-# Functions only. `evaluate_d2` still applies A4's condition as registered; nothing
-# below is read by it.
+# `a5_host_condition` and `evaluate_d2` read them.
 
 LOAD1_TAU_S = 60.0   # time constant of the one-minute load average
 FOREIGN_GRID = 0.01  # `bench_provenance.load_snapshot` rounds its busy-CPU figures to this
@@ -238,9 +239,80 @@ def host_precondition(artifact: dict) -> dict:
             "load1_max": max(load1) if load1 else None, "foreign_busy_cpus_max": max(foreign) if foreign else None}
 
 
-def evaluate_d2(artifact_2m: dict, *, expected_runs: int = REGISTERED_RUNS,
-                expected_entries: int = D1_OPS) -> dict:
-    """Evaluates D2a, D2b and D2c on one `counters_prefix_scan_d2_2m.json` artifact.
+A5_SNAPSHOTS = 3  # `perf_counters.py`: one before each of the two cells, one at the end
+
+
+def _is_number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def a5_host_condition(artifact: dict) -> dict:
+    """The errata A5's host condition on one artifact of a dispatch (METHODOLOGY.md section A5.3).
+
+    H0: `provenance.host_guard` records a quiet start gate, a complete in-run
+    record with at least one sample, and no void. H1: each of the two cell
+    windows (snapshots 2 and 3) carries a numeric `foreign_busy_cpus_since_prev`
+    within `[foreign_cell_min, foreign_cell_max]`. H2: every snapshot's `load1`
+    is at most `load1_max`, and the largest minus the smallest at most
+    `load1_spread_max`. Anything not recorded is not met: a missing snapshot,
+    reading or guard record is never read as quiet.
+    """
+    b = a5_host_bounds()
+    prov = artifact.get("provenance", {})
+    loads = prov.get("loads") or []
+    unmet = []
+    foreign = []
+    if len(loads) != A5_SNAPSHOTS:
+        unmet.append(f"{len(loads)} load snapshot(s), registered {A5_SNAPSHOTS}")
+    else:
+        for snap in loads[1:]:
+            f = snap.get("foreign_busy_cpus_since_prev")
+            if not _is_number(f):
+                unmet.append(f"H1: the window ending at {snap.get('label')!r} has no foreign reading")
+                continue
+            foreign.append(float(f))
+            if f > b["foreign_cell_max"]:
+                unmet.append(f"H1: foreign_busy_cpus {f:g} > {b['foreign_cell_max']:g} in the window ending at {snap.get('label')!r}")
+            if f < b["foreign_cell_min"]:
+                unmet.append(f"H1: foreign_busy_cpus {f:g} < {b['foreign_cell_min']:g} in the window ending at {snap.get('label')!r}")
+    load1 = [float(x["load1"]) for x in loads if _is_number(x.get("load1"))]
+    if len(load1) != len(loads) or not load1:
+        unmet.append("H2: a load snapshot has no load1")
+    else:
+        if max(load1) > b["load1_max"]:
+            unmet.append(f"H2: load1 reached {max(load1):g} > {b['load1_max']:g}")
+        if max(load1) - min(load1) > b["load1_spread_max"]:
+            unmet.append(f"H2: load1 moved by {max(load1) - min(load1):g} > {b['load1_spread_max']:g} within the artifact")
+    guard = prov.get("host_guard")
+    if not isinstance(guard, dict):
+        unmet.append("H0: no host-guard record in provenance")
+    else:
+        start, run = guard.get("start") or {}, guard.get("run") or {}
+        if start.get("verdict") != "quiet":
+            unmet.append(f"H0: the start gate read {start.get('verdict')!r}, not 'quiet'")
+        if guard.get("watcher_ok") is not True:
+            unmet.append("H0: the host watcher's record is incomplete")
+        if not _is_number(run.get("samples")) or run["samples"] < 1:
+            unmet.append("H0: the in-run record holds no sample")
+        if run.get("voids") != 0:
+            unmet.append(f"H0: {run.get('voids')!r} in-run void(s): {'; '.join(run.get('reasons') or []) or 'no reason recorded'}")
+    return {"registration": "A5", "met": not unmet, "unmet": unmet,
+            "load1_max": max(load1) if load1 else None,
+            "foreign_busy_cpus_max": max(foreign) if foreign else None,
+            "foreign_busy_cpus_min": min(foreign) if foreign else None}
+
+
+def evaluate_d2(artifact_2m: dict, artifact_4k: dict | None = None, *, registration: str = "A5",
+                expected_runs: int = REGISTERED_RUNS, expected_entries: int = D1_OPS) -> dict:
+    """Evaluates D2a, D2b and D2c on one dispatch's `counters_prefix_scan_d2_2m.json` artifact.
+
+    `registration` selects the host condition. `"A5"` (the default, and the
+    only one a verdict is read under) needs the dispatch's 4 KiB artifact too:
+    `a5_host_condition` must hold on both, the two must name one commit and one
+    run, and a dispatch that does not meet it is VOID. `"A4"` is the superseded
+    condition (`host_precondition`), kept so the record of the artifacts
+    committed under it stays reproducible; under it an unmet host condition
+    with every clause met is INTERMEDIATE.
 
     Counts are per entry: each run's `probe - build` count divided by
     `distinct_probes * passes`. D2a reads the generator arm alone. D2b and D2c
@@ -256,13 +328,16 @@ def evaluate_d2(artifact_2m: dict, *, expected_runs: int = REGISTERED_RUNS,
     `expected_runs` runs, a per-entry denominator other than
     `expected_entries`, or a counter a clause reads whose status is not `ok`.
 
-    The verdict is FAIL when a clause is not met. When every clause is met it
-    is PASS only if A4's host condition is met too (`host_precondition`), and
-    INTERMEDIATE otherwise: the clauses hold on a run the registration did
-    not admit as written.
+    The verdict is FAIL when a clause is not met and PASS when every clause is
+    met (under `"A4"`: PASS only if `host_precondition` is met, INTERMEDIATE
+    otherwise).
 
-    One artifact is one run. A4 registers two runs; a verdict needs both.
+    One call is one dispatch. The registration needs two: `d2_verdict`.
     """
+    if registration not in ("A4", "A5"):
+        raise ValueError(f"registration must be 'A4' or 'A5', got {registration!r}")
+    if registration == "A5" and artifact_4k is None:
+        raise ValueError("A5 judges both artifacts of a dispatch: the 4 KiB artifact is required")
     arms = [c["arm"] for c in artifact_2m["cells"]]
     cells = {c["arm"]: c for c in artifact_2m["cells"]}
     missing = [a for a in (GENERATOR_ARM, SORTED_ARM) if a not in cells]
@@ -290,9 +365,24 @@ def evaluate_d2(artifact_2m: dict, *, expected_runs: int = REGISTERED_RUNS,
                 voids.append(f"{arm}: counter {counter} status is {c.get('status')!r}")
             elif len(c["samples"]) != expected_runs:
                 voids.append(f"{arm}: {len(c['samples'])} runs of {counter}, registered {expected_runs}")
-    host = host_precondition(artifact_2m)
+    prov = artifact_2m.get("provenance", {})
+    ident = {"registration": registration, "commit": prov.get("commit"), "run_id": prov.get("run_id")}
+    if registration == "A4":
+        host = host_precondition(artifact_2m)
+    else:
+        prov_4k = artifact_4k.get("provenance", {})
+        if prov_4k.get("hugetlb") is not False:
+            voids.append("4 KiB artifact: provenance.hugetlb is not false")
+        for key in ("commit", "run_id"):
+            if not prov.get(key) or prov.get(key) != prov_4k.get(key):
+                voids.append(f"the two artifacts do not name one {key}: {prov.get(key)!r} and {prov_4k.get(key)!r}")
+        by_artifact = {"2 MiB": a5_host_condition(artifact_2m), "4 KiB": a5_host_condition(artifact_4k)}
+        unmet = [f"{name} artifact: {u}" for name, c in by_artifact.items() for u in c["unmet"]]
+        host = {"registration": "A5", "met": not unmet, "unmet": unmet, "artifacts": by_artifact}
+        # A5.3: a dispatch that is not admissible is VOID, decided before any clause is read.
+        voids.extend(unmet)
     if voids:
-        return {"verdict": "VOID", "voids": voids, "clauses": {}, "host_precondition": host}
+        return {"verdict": "VOID", "voids": voids, "clauses": {}, "host_precondition": host, **ident}
 
     def per_entry(arm: str, counter: str) -> list[float]:
         cell = cells[arm]
@@ -319,7 +409,55 @@ def evaluate_d2(artifact_2m: dict, *, expected_runs: int = REGISTERED_RUNS,
         verdict = "FAIL"
     else:
         verdict = "PASS" if host["met"] else "INTERMEDIATE"
-    return {"verdict": verdict, "voids": [], "clauses": clauses, "host_precondition": host}
+    return {"verdict": verdict, "voids": [], "clauses": clauses, "host_precondition": host, **ident}
+
+
+def d2_verdict(dispatches: list[dict]) -> dict:
+    """The D2 verdict over A5 dispatches in the order they ran (METHODOLOGY.md section A5.5).
+
+    Each item is an `evaluate_d2` result under `"A5"`. PASS: two admissible
+    dispatches, each PASS. FAIL: an admissible dispatch that misses a clause;
+    it is final and is never replaced. A VOID dispatch is replaced, at most
+    `void_replacements_max` times across the pair: one more void ends D2 as
+    INTERMEDIATE. Until one of those is reached the verdict is INCOMPLETE.
+
+    Raises when the list is not the registered protocol: a result under
+    another registration, dispatches at different commits, one run listed
+    twice, or a dispatch made after the verdict was already decided.
+    """
+    cap = a5_host_bounds()["void_replacements_max"]
+    commits = {d.get("commit") for d in dispatches}
+    runs = [d.get("run_id") for d in dispatches]
+    if any(d.get("registration") != "A5" for d in dispatches):
+        raise ValueError("every dispatch must be evaluated under A5")
+    if dispatches and (len(commits) != 1 or None in commits):
+        raise ValueError(f"the dispatches do not share one commit: {sorted(map(str, commits))}")
+    if None in runs or len(set(runs)) != len(runs):
+        raise ValueError("each dispatch must be its own workflow run")
+    admissible = voids = 0
+    verdict, why = "INCOMPLETE", ""
+    for i, d in enumerate(dispatches):
+        if verdict != "INCOMPLETE":
+            raise ValueError(f"dispatch {i + 1} was made after the verdict was decided ({verdict})")
+        if d["verdict"] == "VOID":
+            voids += 1
+            if voids > cap:
+                verdict = "INTERMEDIATE"
+                why = (f"{voids} dispatches were void and at most {cap} replacements are registered; "
+                       f"{admissible} admissible dispatch(es) of the 2 required")
+        elif d["verdict"] == "FAIL":
+            verdict, why = "FAIL", f"dispatch {i + 1} is admissible and does not meet every clause"
+        elif d["verdict"] == "PASS":
+            admissible += 1
+            if admissible == 2:
+                verdict, why = "PASS", "two admissible dispatches each meet D2a, D2b and D2c"
+        else:
+            raise ValueError(f"dispatch {i + 1} has verdict {d['verdict']!r}")
+    if verdict == "INCOMPLETE":
+        why = f"{admissible} admissible dispatch(es) of the 2 required; {voids} void, {cap - voids} replacement(s) left"
+    return {"verdict": verdict, "why": why, "admissible": admissible, "voids": voids,
+            "void_replacements_max": cap, "commit": next(iter(commits), None),
+            "void_reasons": [d["voids"] for d in dispatches if d["verdict"] == "VOID"]}
 
 
 def load_d1_reference_values(repo_root: Path) -> dict[str, float]:
@@ -413,17 +551,25 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         self.assertAlmostEqual(d["stalls_delta_l3"], D1_STALLS_DELTA_L3_CYCLES, places=3)
         self.assertAlmostEqual(d["stalls_delta_cycles"], D1_STALLS_TOTAL_DELTA_CYCLES, places=3)
 
+    QUIET_GUARD = {"start": {"verdict": "quiet", "windows": 3}, "watcher_ok": True,
+                   "run": {"verdict": "undisturbed", "samples": 60, "voids": 0, "reasons": []}}
+
     @staticmethod
     def _artifact(gen: dict, srt: dict, hugetlb=True, thp=(100, 100), fallback=(0, 0),
-                  loads=((0.4, None), (0.6, 0.0))) -> dict:
+                  loads=((0.4, None), (0.6, 0.01), (0.7, 0.02)), guard="quiet",
+                  commit="c" * 40, run_id="run-1") -> dict:
         def cell(arm, counters, faults, fell_back):
             return {
                 "arm": arm, "distinct_probes": 10, "passes": 10,
                 "thp_delta": {"thp_fault_alloc": faults, "thp_fault_fallback": fell_back},
                 "counters": {k: {"status": "ok", "samples": v} for k, v in counters.items()},
             }
-        return {"provenance": {"hugetlb": hugetlb,
-                               "loads": [{"load1": l, "foreign_busy_cpus_since_prev": f} for l, f in loads]},
+        prov = {"hugetlb": hugetlb, "commit": commit, "run_id": run_id,
+                "loads": [{"label": f"snapshot {i + 1}", "load1": l, "foreign_busy_cpus_since_prev": f}
+                          for i, (l, f) in enumerate(loads)]}
+        if guard is not None:
+            prov["host_guard"] = json.loads(json.dumps(TestPatriciaD2Bounds.QUIET_GUARD)) if guard == "quiet" else guard
+        return {"provenance": prov,
                 "cells": [cell(GENERATOR_ARM, gen, thp[0], fallback[0]), cell(SORTED_ARM, srt, thp[1], fallback[1])]}
 
     JITTER = [0.0, 1.0, -1.0, 2.0, -2.0, 0.5, -0.5, 1.5, -1.5, 0.0]
@@ -438,8 +584,15 @@ class TestPatriciaD2Bounds(unittest.TestCase):
                "cycles": [7000.0] * 10}
         return gen, srt
 
-    def _eval(self, artifact):
-        return evaluate_d2(artifact, expected_entries=100)
+    def _control(self, **kw):
+        """The 4 KiB artifact of the same dispatch."""
+        return self._artifact(*self._good(), hugetlb=False, **kw)
+
+    def _eval(self, artifact, control=None):
+        return evaluate_d2(artifact, self._control() if control is None else control, expected_entries=100)
+
+    def _eval_a4(self, artifact):
+        return evaluate_d2(artifact, registration="A4", expected_entries=100)
 
     def test_evaluate_d2(self):
         gen, srt = self._good()
@@ -450,6 +603,14 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         self.assertEqual({k: v["met"] for k, v in r["clauses"].items()},
                          {"D2a": True, "D2b": True, "D2c": True})
         self.assertAlmostEqual(r["clauses"]["D2c"]["point"], 60.0, places=4)
+        # The dispatch is identified, and both of its artifacts were judged under A5.
+        self.assertEqual(r["registration"], "A5")
+        self.assertEqual(r["commit"], "c" * 40)
+        self.assertEqual(r["run_id"], "run-1")
+        self.assertEqual(r["voids"], [])
+        self.assertEqual(r["host_precondition"]["registration"], "A5")
+        self.assertEqual(sorted(r["host_precondition"]["artifacts"]), ["2 MiB", "4 KiB"])
+        self.assertTrue(all(a["met"] for a in r["host_precondition"]["artifacts"].values()))
         for c in r["clauses"].values():
             self.assertEqual(c["n"], REGISTERED_RUNS)
             self.assertLessEqual(c["ci"][0], c["point"])
@@ -467,6 +628,9 @@ class TestPatriciaD2Bounds(unittest.TestCase):
             r = self._eval(self._artifact(bad, srt))
             self.assertEqual(r["verdict"], "FAIL", clause)
             self.assertEqual([k for k, v in r["clauses"].items() if not v["met"]], [clause])
+            # A missed clause on an admissible dispatch is FAIL, not VOID.
+            self.assertEqual(r["voids"], [], clause)
+            self.assertTrue(r["host_precondition"]["met"], clause)
 
         # A point on the right side of its bound with an interval across it fails:
         # the clause is decided on the bound.
@@ -475,6 +639,7 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         r = self._eval(self._artifact(wide, srt))
         self.assertGreater(r["clauses"]["D2c"]["point"], 52.50)
         self.assertFalse(r["clauses"]["D2c"]["met"])
+        self.assertEqual(r["verdict"], "FAIL")
 
         # D2a is decided on the UPPER bound: a point under the bound whose
         # interval reaches over it fails.
@@ -483,6 +648,7 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         r = self._eval(self._artifact(over, srt))
         self.assertEqual(r["clauses"]["D2a"]["decided_on"], "upper")
         self.assertFalse(r["clauses"]["D2a"]["met"])
+        self.assertEqual(r["verdict"], "FAIL")
 
     def test_evaluate_d2_void(self):
         gen, srt = self._good()
@@ -520,10 +686,15 @@ class TestPatriciaD2Bounds(unittest.TestCase):
         dead["cells"][1]["counters"]["cycles"]["status"] = "multiplexed"
         void(dead, "status is 'multiplexed'")
         # The registered denominator is D1's: the fixture's 100 is not it.
-        self.assertEqual(evaluate_d2(self._artifact(gen, srt))["verdict"], "VOID")
+        self.assertEqual(evaluate_d2(self._artifact(gen, srt), self._control())["verdict"], "VOID")
 
         with self.assertRaises(ValueError):
-            evaluate_d2({"provenance": {"hugetlb": True}, "cells": []})
+            evaluate_d2({"provenance": {"hugetlb": True}, "cells": []}, self._control())
+        # A5 judges both artifacts: a dispatch without its 4 KiB artifact is not evaluated.
+        with self.assertRaises(ValueError):
+            evaluate_d2(self._artifact(gen, srt), expected_entries=100)
+        with self.assertRaises(ValueError):
+            evaluate_d2(self._artifact(gen, srt), self._control(), registration="A6", expected_entries=100)
 
     def test_host_precondition(self):
         gen, srt = self._good()
@@ -533,16 +704,107 @@ class TestPatriciaD2Bounds(unittest.TestCase):
             (((0.5, None), (0.6, 0.02)), "foreign_busy_cpus reached 0.02"),
             ((), "no load snapshot"),
         ):
-            r = self._eval(self._artifact(gen, srt, loads=loads))
+            r = self._eval_a4(self._artifact(gen, srt, loads=loads))
             self.assertEqual(r["verdict"], "INTERMEDIATE", needle)
             self.assertTrue(all(c["met"] for c in r["clauses"].values()))
             self.assertTrue(any(needle in u for u in r["host_precondition"]["unmet"]), r["host_precondition"])
         # A failed clause is FAIL whatever the host read.
         bad = dict(gen)
         bad["cycles"] = [12000.0 + 10 * j for j in self.JITTER]
-        self.assertEqual(self._eval(self._artifact(bad, srt, loads=((1.9, None),)))["verdict"], "FAIL")
+        self.assertEqual(self._eval_a4(self._artifact(bad, srt, loads=((1.9, None),)))["verdict"], "FAIL")
         # Exactly at the registered values is met.
-        self.assertTrue(self._eval(self._artifact(gen, srt, loads=((1.0, None), (1.0, 0.0))))["host_precondition"]["met"])
+        self.assertTrue(self._eval_a4(self._artifact(gen, srt, loads=((1.0, None), (1.0, 0.0))))["host_precondition"]["met"])
+
+    def test_a5_host_condition(self):
+        gen, srt = self._good()
+        r = self._eval(self._artifact(gen, srt))
+        self.assertEqual((r["verdict"], r["registration"], r["commit"], r["run_id"]), ("PASS", "A5", "c" * 40, "run-1"))
+        self.assertEqual(r["host_precondition"]["unmet"], [])
+
+        # Exactly at each bound is met: 0.06 and -0.02 foreign, load1 8.0, a spread of 2.0.
+        for loads in (((0.4, None), (0.6, 0.06), (0.7, -0.02)), ((6.0, None), (8.0, 0.0), (7.0, 0.0))):
+            self.assertEqual(self._eval(self._artifact(gen, srt, loads=loads))["verdict"], "PASS", loads)
+
+        def void(needle, artifact=None, control=None, host=True):
+            r = self._eval(self._artifact(gen, srt) if artifact is None else artifact, control)
+            self.assertEqual(r["verdict"], "VOID", needle)
+            self.assertEqual(r["clauses"], {}, needle)
+            self.assertTrue(any(needle in v for v in r["voids"]), (needle, r["voids"]))
+            self.assertEqual(r["host_precondition"]["met"], not host, needle)
+
+        # One clause each, on the 2 MiB artifact.
+        void("H1: foreign_busy_cpus 0.07 > 0.06", self._artifact(gen, srt, loads=((0.4, None), (0.6, 0.07), (0.7, 0.0))))
+        void("H1: foreign_busy_cpus -0.03 < -0.02", self._artifact(gen, srt, loads=((0.4, None), (0.6, 0.0), (0.7, -0.03))))
+        void("H2: load1 reached 8.01 > 8", self._artifact(gen, srt, loads=((7.0, None), (8.01, 0.0), (7.5, 0.0))))
+        void("H2: load1 moved by 2.5 > 2", self._artifact(gen, srt, loads=((1.0, None), (3.5, 0.0), (2.0, 0.0))))
+        void("2 load snapshot(s), registered 3", self._artifact(gen, srt, loads=((0.4, None), (0.6, 0.0))))
+        void("has no foreign reading", self._artifact(gen, srt, loads=((0.4, None), (0.6, None), (0.7, 0.0))))
+        void("has no foreign reading", self._artifact(gen, srt, loads=((0.4, None), (0.6, True), (0.7, 0.0))))
+        void("H2: a load snapshot has no load1", self._artifact(gen, srt, loads=((None, None), (0.6, 0.0), (0.7, 0.0))))
+        # H0: the guard's record.
+        void("H0: no host-guard record", self._artifact(gen, srt, guard=None))
+        for mutate, needle in (
+            (lambda g: g["start"].update(verdict="busy"), "H0: the start gate read 'busy'"),
+            (lambda g: g.update(watcher_ok=False), "H0: the host watcher's record is incomplete"),
+            (lambda g: g["run"].update(samples=0), "H0: the in-run record holds no sample"),
+            (lambda g: g["run"].update(voids=2, reasons=["foreign load on the pinned CPUs 0.389 > 0.25"]),
+             "H0: 2 in-run void(s): foreign load on the pinned CPUs 0.389 > 0.25"),
+            (lambda g: g["run"].pop("voids"), "H0: None in-run void(s)"),
+        ):
+            g = json.loads(json.dumps(self.QUIET_GUARD))
+            mutate(g)
+            void(needle, self._artifact(gen, srt, guard=g))
+        # The same clauses on the 4 KiB control void the dispatch too.
+        void("4 KiB artifact: H1: foreign_busy_cpus 0.07 > 0.06",
+             control=self._control(loads=((0.4, None), (0.6, 0.07), (0.7, 0.0))))
+        void("4 KiB artifact: H0: no host-guard record", control=self._control(guard=None))
+        void("4 KiB artifact: provenance.hugetlb is not false", control=self._artifact(gen, srt), host=False)
+        void("do not name one commit", control=self._control(commit="d" * 40), host=False)
+        void("do not name one run_id", control=self._control(run_id="run-2"), host=False)
+        # An inadmissible dispatch is VOID even when a clause would fail: no clause is read.
+        bad = dict(gen)
+        bad["cycles"] = [12000.0 + 10 * j for j in self.JITTER]
+        self.assertEqual(self._eval(self._artifact(bad, srt))["verdict"], "FAIL")
+        void("H1: foreign_busy_cpus 0.07", self._artifact(bad, srt, loads=((0.4, None), (0.6, 0.07), (0.7, 0.0))))
+
+    def test_d2_verdict(self):
+        def d(verdict, run):
+            return {"verdict": verdict, "registration": "A5", "commit": "c" * 40, "run_id": f"run-{run}",
+                    "voids": ["H1: x"] if verdict == "VOID" else []}
+
+        def seq(*verdicts):
+            return d2_verdict([d(v, i) for i, v in enumerate(verdicts)])
+
+        self.assertEqual(seq("PASS", "PASS")["verdict"], "PASS")
+        self.assertEqual(seq()["verdict"], "INCOMPLETE")
+        self.assertEqual(seq("PASS")["verdict"], "INCOMPLETE")
+        self.assertEqual(seq("PASS", "VOID")["verdict"], "INCOMPLETE")
+        # A FAIL in an admissible dispatch is final, wherever it falls.
+        self.assertEqual(seq("FAIL")["verdict"], "FAIL")
+        self.assertEqual(seq("PASS", "VOID", "FAIL")["verdict"], "FAIL")
+        # The cap: three voids are replaced, a fourth ends D2 as INTERMEDIATE.
+        self.assertEqual(seq("VOID", "VOID", "VOID", "PASS", "PASS")["verdict"], "PASS")
+        self.assertEqual(seq("VOID", "PASS", "VOID", "VOID", "PASS")["verdict"], "PASS")
+        r = seq("VOID", "VOID", "VOID", "PASS")
+        self.assertEqual((r["verdict"], r["voids"], r["admissible"]), ("INCOMPLETE", 3, 1))
+        self.assertIn("0 replacement(s) left", r["why"])
+        r = seq("VOID", "VOID", "VOID", "PASS", "VOID")
+        self.assertEqual((r["verdict"], r["voids"], r["admissible"]), ("INTERMEDIATE", 4, 1))
+        self.assertIn("at most 3 replacements", r["why"])
+        self.assertEqual(len(r["void_reasons"]), 4)
+        self.assertEqual(seq("VOID", "VOID", "VOID", "VOID")["verdict"], "INTERMEDIATE")
+        # Not the registered protocol.
+        for bad in (
+            [d("PASS", 1), d("PASS", 1)],                                   # one run listed twice
+            [d("PASS", 1), dict(d("PASS", 2), commit="d" * 40)],            # two commits
+            [d("PASS", 1), dict(d("PASS", 2), registration="A4")],          # an A4 reading
+            [d("PASS", 1), d("PASS", 2), d("PASS", 3)],                     # a dispatch after the verdict
+            [d("FAIL", 1), d("PASS", 2)],                                   # a replaced FAIL
+            [d("PASS", 1), d("INTERMEDIATE", 2)],
+            [dict(d("PASS", 1), commit=None)],
+        ):
+            with self.assertRaises(ValueError):
+                d2_verdict(bad)
 
     def test_expected_load1(self):
         # Reference values of the closed form.
@@ -603,12 +865,21 @@ class TestPatriciaD2Bounds(unittest.TestCase):
             foreign_reading_floor(0)
 
     def test_committed_runs(self):
-        # The two runs as committed: every clause met, no void, and A4's host
-        # condition not met as written (load1 above 1.0, foreign above 0).
+        # The two runs as committed, read under A4 as they were dispatched:
+        # every clause met, no void, and A4's host condition not met as written
+        # (load1 above 1.0, foreign above 0). They are not re-read under A5:
+        # an artifact dispatched before A5 carries no guard record and is VOID
+        # there, whatever its snapshots read.
         results = Path(__file__).resolve().parent.parent / "docs/benchmarks/patricia_comparison/results"
         for run, d2c_lower in ((1, 65.28), (2, 66.10)):
             with open(results / f"counters_prefix_scan_d2_2m_run{run}.json", encoding="utf-8") as fh:
-                r = evaluate_d2(json.load(fh))
+                artifact = json.load(fh)
+            with open(results / f"counters_prefix_scan_d2_4k_run{run}.json", encoding="utf-8") as fh:
+                a5 = evaluate_d2(artifact, json.load(fh))
+            self.assertEqual(a5["verdict"], "VOID", run)
+            self.assertEqual(a5["voids"], ["2 MiB artifact: H0: no host-guard record in provenance",
+                                           "4 KiB artifact: H0: no host-guard record in provenance"])
+            r = evaluate_d2(artifact, registration="A4")
             self.assertEqual(r["verdict"], "INTERMEDIATE", run)
             self.assertEqual(r["voids"], [])
             self.assertTrue(all(c["met"] for c in r["clauses"].values()))
@@ -618,12 +889,30 @@ class TestPatriciaD2Bounds(unittest.TestCase):
 
 
 def main() -> int:
-    if sys.argv[1:2] == ["--evaluate"]:
-        if len(sys.argv) != 3:
-            print("usage: patricia_d2_bounds.py --evaluate <counters_prefix_scan_d2_2m.json>", file=sys.stderr)
+    def load(path: str) -> dict:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    mode, paths = sys.argv[1:2], sys.argv[2:]
+    if mode == ["--evaluate-a4"]:
+        if len(paths) != 1:
+            print("usage: patricia_d2_bounds.py --evaluate-a4 <counters_prefix_scan_d2_2m.json>", file=sys.stderr)
             return 2
-        with open(sys.argv[2], "r", encoding="utf-8") as fh:
-            print(json.dumps(evaluate_d2(json.load(fh)), indent=2))
+        print(json.dumps(evaluate_d2(load(paths[0]), registration="A4"), indent=2))
+        return 0
+    if mode == ["--evaluate"]:
+        if len(paths) != 2:
+            print("usage: patricia_d2_bounds.py --evaluate <d2_2m.json> <d2_4k.json>", file=sys.stderr)
+            return 2
+        print(json.dumps(evaluate_d2(load(paths[0]), load(paths[1])), indent=2))
+        return 0
+    if mode == ["--verdict"]:
+        if not paths or len(paths) % 2:
+            print("usage: patricia_d2_bounds.py --verdict <d2_2m.json> <d2_4k.json> [<d2_2m.json> <d2_4k.json> ...]",
+                  file=sys.stderr)
+            return 2
+        dispatches = [evaluate_d2(load(a), load(b)) for a, b in zip(paths[::2], paths[1::2])]
+        print(json.dumps({"verdict": d2_verdict(dispatches), "dispatches": dispatches}, indent=2))
         return 0
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestPatriciaD2Bounds)
     runner = unittest.TextTestRunner(stream=sys.stdout, verbosity=2)
