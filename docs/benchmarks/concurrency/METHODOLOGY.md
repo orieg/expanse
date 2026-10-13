@@ -5358,3 +5358,249 @@ None of the four artifacts is committed. The two discarded runs stay discarded: 
 
 The thresholds of §34.2 are not changed by this note. Runs taken under the amendment use fresh seeds and are evaluated only against it.
 
+
+## 36. Pre-registration for #1194 — validated ordered reads on the shared set (appended 2026-10-12, locked before any engine code of the change below; next free section, may be renumbered at merge)
+
+The question (#1194, *Ordered reads on the set and string map*; design record #900): can `SyncExpanseSet`'s reader handles answer `first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before` and `prev_before` by the validated walk the map uses, instead of through `with_locked`, and do its readers gain from it? §12.6 excludes the set from the map's registration, so nothing in §12 decides it. This section is commit 2 of the cadence (AGENTS.md §8.8): it holds no engine code and no new data. Every code reference is to `origin/main` at `4be163122`. Refs #1194, #900.
+
+### 36.1 Scope and sequence
+
+**In scope.** Six methods, each returning `Option<u64>` as the single-threaded set does (`crates/expanse/src/set.rs:1785-1837`), on the three handle forms the set has (`crates/expanse/src/sync.rs:6349`, `:6403`, `:6428`):
+
+| Type | Methods | Note |
+|---|---|---|
+| `SetReader<'_>` | `first`, `last`, `next_at_or_after(key)`, `next_after(key)`, `prev_at_or_before(key)`, `prev_before(key)` | borrows the set |
+| `OwnedSetReader` | the same six | holds the `Arc` |
+| `DetachedSetReader` | the same six, each taking `&SyncExpanseSet` first | the per-call collector identity check `SyncExpanseSet::registered` (`sync.rs:6163`) runs before the first pin, as it does for `contains` |
+
+`SyncExpanseSet` itself gains no one-shot ordered method; `SyncExpanseMap` has none either: `.github/public-api/expanse-trie.txt` lists the map's six on `MapReader`, `OwnedMapReader` and `DetachedMapReader` only.
+
+**Sequence, one gate per pull request.**
+
+| PR | Content | Its gate |
+|---|---|---|
+| A | The §36.3 site audit turned into tests: `cfg(test)` park points and `debug_assert!`s in `sync_nav.rs`, the per-form tests of G36.4 driven through `next_validated::<false>` / `prev_validated::<false>` directly, the Loom models of G36.3, the single-threaded Miri test of G36.5. No public API, no non-test instantiation of the set form. | G36.3, G36.4, G36.5 (single-threaded part), G36.6; P36.1 |
+| B | The eighteen public methods through one macro (§36.5), the `sync_set_prev` and `sync_set_next_after_scan` Callgrind arms, the histories of G36.1, the counter test of G36.2, the concurrent Miri workloads of G36.5, the public-API snapshot, `docs/ARCHITECTURE.md` §4.1 and `docs/COMPAT.md`. | every G36 gate; P36.1, P36.2 |
+| C | Harness only: reader mode for `--arm set` in `writer_scaling.rs`, the driver sweep, the suite wiring (§36.6). No engine code. | the harness's own self-tests and a `--quick` run to a scratch path (AGENTS.md §8.5) |
+| runs | Two dispatches of the suite on the reference host, on a `main` head that contains PR B and PR C, then the outcomes appended here as a new subsection. | P36.3, P36.4, P36.5 |
+
+**Named exclusions.** Each needs its own registration and is not decided here:
+
+- a batch cursor on the set (`SyncSetCursor`; the map's is §32);
+- the 32-bit set (`sync32.rs`, `SyncExpanseSet32`), whose readers return `Busy` instead of falling back (§12 decisions) and whose wall clock is measured on-device;
+- the C ABI and the Python, Node and WebAssembly surfaces (`include/expanse.h` has `expanse_sync_set_reader_contains` and no ordered entry point for the set); see §36.10, question 4;
+- rank and select on the shared set, and any change to a write path.
+
+### 36.2 What is already true, verified at lock time
+
+- **The walk is shared and generic.** `sync_nav::next_validated` and `prev_validated` take `const MAP: bool` (`crates/expanse/src/sync_nav.rs:271`, `:307`), as do `root_leaf` (`:386`), `next_in` (`:433`), `prev_in` (`:678`) and `bitmap_leaf` (`:991`).
+- **The set form has run, on one shape.** `MAP = false` is instantiated in exactly one place, a unit test (`sync.rs:26016-26036`, `set_branch_sample`), which drives the two entry points over the #1466 fixture: a chain of single-digit `BranchL3`s above a level-2 `BranchL3` with two 17-key `Leaf1` children (`sync_nav.rs:1060-1068`), plus the one-key immediate the armed insert creates. The only non-test callers pass `true` (`sync.rs:10418`, `:10429`), so no build other than the test build contains the set form. A statement that the set form "has never run" is therefore wrong by that one test; what has never run is the set form over a root leaf, a multi-key set immediate on the answer path, a `Leaf2`..`Leaf7`, a `LeafBitmap1`, a `FullExpanse`, a `BranchB` or a `BranchU`, and any concurrent history.
+- **The retry protocol is shared.** `Shared::optimistic_read` (`sync.rs:3144-3179`) counts the operation, makes up to `MAX_RETRIES` = 64 attempts (`sync.rs:165`) and then answers under `read_locked`. The set publishes its root (`PUBLISHES_ROOT = true`, `sync.rs:777`), so a reader takes the root from the tree head (`sync.rs:3158-3159`).
+- **The read-set bound carries over.** `ReadSet::sample` is called in the three branch arms only (`sync_nav.rs:544`, `:589`, `:638` and `:791`, `:840`, `:893`), and the set uses the same four branch forms as the map. The bound of 13 retained versions (`scripts/olc_bounds.py::ordered_read_set_branches`, §12.1) and `READ_SET_CAP` = 16 (`sync_nav.rs:46`) therefore apply unchanged (derived from those call sites; no set-specific term exists).
+- **No emptied child stays linked.** An optimistic removal that empties a child nulls a `BranchU` slot under that branch's lock (`sync.rs:1276-1311`), and a child emptied under a linear or bitmap branch falls back to the exclusive removal (`sync.rs:3474-3483`). §33.7.5's open case for the string map has no counterpart here.
+- **The comparator exists.** The Callgrind arms of #1468 measure the locked route, and nothing else, today:
+
+  | Arm | What it measures now |
+  |---|---|
+  | `set_nav/{random,sequential,clustered}` | `ExpanseSet::next_at_or_after` from each present key, single-threaded, no wrapper |
+  | `set_prev/{random,sequential,clustered}` | `ExpanseSet::prev_before` from each present key, single-threaded |
+  | `sync_set_prev_locked/random` | `SyncExpanseSet::with_locked(\|s\| s.prev_before(k))` per present key (`crates/expanse/benches/instructions.rs:3105`) |
+  | `sync_set_next_after_scan_locked/{random,sequential,clustered}` | a full ascending scan, `first` then `next_after`, one `with_locked` per call (`instructions.rs:3134`) |
+
+  For scale, `sync_set_prev_locked/random` counted 1,161.2 instructions per operation and `sync_set_next_after_scan_locked/random` 1,144.4 *(measured: GitHub-hosted ubuntu x86_64 runner, `8d27a968c`; CI run 38276056419; workload: `core_instructions`)*. The names `sync_set_prev` and `sync_set_next_after_scan` are unused and reserved for the optimistic reads.
+- **The #1466 order holds in the shared arm.** A linear branch's version is reached by field projection (`sync_nav.rs:197-207`), sampled (`:544`, `:791`), and only then is its header loaded (`:551`, `:798`). `sync::ordered_read_tests::ordered_read_samples_a_linear_branch_before_its_header` (`sync.rs:26067`) and its negative control (`sync.rs:26098`) cover the set form by the direct call above.
+
+### 36.3 The site ledger
+
+How it was built: every occurrence of `MAP` in `sync_nav.rs` was read (31 lines), then each arm of `next_in` and `prev_in` was compared with the matching arm of the single-threaded `nav::next` / `nav::prev` (`crates/expanse/src/nav.rs:128`, `:354`) and of the lookup walk `walk_validated_body!` (`sync.rs:231-610`), then the wrapper path of the map's ordered reads (`sync.rs:10412-10482`) was read for what a set wrapper must write differently. Result: **12 flavour conditionals, 12 flavour-selection sites, 7 shared-code sites that carry a set-specific assumption, and 5 wrapper sites — 36 entries**. An earlier count of 8 matches class A's memory-unsafe rows.
+
+**Class A — the `if MAP` conditionals** (`verified` at each line). "Inverted" means the map arm running on a set node.
+
+| # | `sync_nav.rs` | Set node form | If inverted |
+|---|---|---|---|
+| A1 | `:412` (`root_leaf`) | root leaf: sorted `u64` keys only (`set.rs:1322`) | loads a value word at `map::leaf_values_offset(pop)` past the key array: **out-of-bounds read** |
+| A2, A7 | `:451`, `:696` | set immediate: up to 15 payload bytes across word 0 and the aux bytes (`node.rs:214`) | decodes keys from the 7 aux bytes only (`mutate.rs:307`): a bounds-check panic when count × key bytes exceeds 7, wrong keys otherwise. Not a memory error |
+| A3, A8 | `:460`, `:704` | set immediate: word 0 is key bytes | for two or more keys, treats word 0 as a value-array pointer and loads through it (`:1056`): **wild dereference** |
+| A4, A9 | `:490`, `:734` | set linear leaf: keys start at the allocation base | searches keys at `base + leaf::map_keys_offset(pop)`: **out-of-bounds read** |
+| A5, A10 | `:503`, `:750` | set linear leaf: no value area | loads word `slot` at the base; the key area is `kb * cap_class(pop)` bytes (`leaf.rs:804`), so the load can pass its end: **out-of-bounds read** |
+| A6, A11 | `:525`, `:772` | `FullExpanse`, set flavour only | answers `Err(Retry)` on every attempt, so the read spends 64 attempts and falls back. A liveness fault, visible as `read_fallbacks` |
+| A12 | `:997` (`bitmap_leaf`) | `LeafBitmap1`: 64 bytes, bitmap then version and padding (`node.rs:905-911`) | reads it as `LeafBitmapL`, loading `values[d >> 5]` at offset 32 and beyond (past the node for `d >= 128`) and then through that word (`:1028`): **out-of-bounds read and wild dereference** |
+
+Eight conditionals are memory-unsafe if inverted (A1, A3, A4, A5, A8, A9, A10, A12), over four node forms: the root leaf, the immediate, the linear leaf and the bitmap leaf.
+
+**Class B — where the flavour is selected** (`verified`). A wrong constant at any of these is the way a class A arm inverts.
+
+| # | Site | What must hold |
+|---|---|---|
+| B1–B4 | `sync_nav.rs:285`, `:288`, `:320`, `:323` | the entry points pass their own `MAP` to `root_leaf` and to `next_in` / `prev_in` |
+| B5, B6 | `sync_nav.rs:520`, `:767` | the `LeafB1` arm passes `MAP` to `bitmap_leaf` |
+| B7–B12 | `sync_nav.rs:575`, `:613`, `:662`, `:826`, `:868`, `:917` | every recursion passes `MAP` through |
+| — | `sync_nav.rs:364`, `:370`, `:372` (`seek_submap`) | hard-codes `true`; it is the string map's entry, and no set path may reach it |
+| — | the wrapper call PR B adds | `::<false>`, and nowhere else outside tests; the map's stay `::<true>` (`sync.rs:10418`, `:10429`) |
+
+**Class C — shared code with no `MAP` branch** (`verified`), which set trees reach for the first time or under an assumption the walk does not check.
+
+| # | `sync_nav.rs` | Set-specific point | Required of PR A |
+|---|---|---|---|
+| C1 | `:448`, `:693` | an immediate's key width must equal the level; set immediates hold up to 15 one-byte keys where the map holds 7 (`docs/ARCHITECTURE.md` §10.4) | a test with a full 15-key set immediate on the answer path, both directions |
+| C2 | `:478-488`, `:722-732` | leaf width, skipped-prefix compare and `edge.pop0(kb)` are flavour-independent | a narrow-pointer set leaf (key bytes below the slot level) in the differential |
+| C3 | `:497`, `:502`, `:743`, `:749` | `leaf::shared_keys::lower_bound` and `read` take a key area of `kb * cap_class(pop)` bytes at an 8-aligned base (`leaf.rs:801-806`, `:862-880`); for a set leaf that base is the allocation itself. `lower_bound` reaches a set leaf only through this walk (`contains` uses `find`, `sync.rs:542`) | set leaves of every key width 1..=7 at populations 1, a class boundary and the cap, under the Miri test of G36.5 |
+| C4 | `:512-522`, `:759-769` | a `LeafB1` behind a narrow pointer | a skipping set bitmap leaf in the differential |
+| C5 | `:1031-1040` | the set bitmap arm loads up to four bitmap words separately, with no holder check between them and no park point; only the final validation covers it | a park point between word loads, and the Loom model G36.3 (a) |
+| C6 | `:524-528`, `:771-775` | the `FullExpanse` answer is right only at level 1 with no skipped prefix. The engine creates the form only there (`mutate.rs:1056`, `:1897`); the walk does not check it | a `debug_assert!(level == 1)` on the validated copy, and a test that reads at, below and above a full expanse and across two adjacent ones |
+| C7 | `:386-426` | the root-leaf search has no park point in this walk (the lookup walk has `Site::RootLeafProbe`, `sync.rs:265`) | a park point, and a test in which a writer changes the root leaf at it and the read retries |
+
+**Class D — the wrapper** (`verified` against the map's wrapper; the set's does not exist yet).
+
+| # | Map reference | What the set differs in |
+|---|---|---|
+| D1 | `sync.rs:10412-10431` | the answer is `Option<u64>`: the walk's `(key, 0)` is projected to the key |
+| D2 | `sync.rs:10419`, `:10430` | the locked fallback calls `ExpanseSet::next_at_or_after` / `prev_at_or_before` (`set.rs:1797`, `:1819`) under `read_locked` (`sync.rs:3000`) |
+| D3 | `sync.rs:10467`, `:10479` | `next_after(u64::MAX)` and `prev_before(0)` answer `None` without a walk |
+| D4 | `sync.rs:6163` | every `DetachedSetReader` ordered read runs `registered` before its first pin |
+| D5 | `sync.rs:777`, `:3158-3159` | the root comes from the published head, never from the engine |
+
+### 36.4 Correctness gates
+
+No cell of §36.6 is read, and PR B does not merge, until every gate below passes on the head concerned. Each test named here is new unless a line number says otherwise; a name may change in review, its content may not. Every test command quoted in PR A or PR B states its non-zero test count (AGENTS.md §8.11.8).
+
+- **G36.1 — differential against `BTreeSet` under concurrent writers.**
+  - *Harness.* The whole-map checker of `crates/expanse/tests/linearizability.rs` (`check_ordered_linearizability`, `:1057`; its own negative control `:1121`). The set plugs in through an adapter, not a second checker: a set history is recorded as `OrdEvent`s with every value 0, `insert` returning `true` as `OrdRet::Insert(None)` and `false` as `OrdRet::Insert(Some(0))`, `remove` likewise, and an ordered answer `k` as `OrdRet::Found(Some((k, 0)))`. The model is then a `BTreeMap<u64, u64>` whose values are all 0, which is a `BTreeSet<u64>`.
+  - *Histories,* each a twin of `optimistic_ordered_history` (`:1247`) on a `SyncExpanseSet`, 24 rounds, at most 64 events: the tree-rooted and hot-spot shapes of G12.2 (`:1310`, `:1333`); a root-leaf history (prefill below `ROOT_LEAF_CAP`, crossing it); a bitmap history (one terminal byte prefilled above `LEAF1_CAP` so it is a `LeafBitmap1`, written across `LEAFB1_DOWN`); and a full-expanse history (one terminal byte prefilled with 250 keys, the writers inserting and removing the last six, so the leaf converts to `FullExpanse` and back).
+  - *Form check.* Each history asserts, from `with_locked(|s| s.stats().node_counts)` (`set.rs:1737`) before and after, that the form it is registered for was present. A history that never built its form fails.
+  - **Falsifier:** any round the checker rejects, or a form check that fails. The negative control: with the walk's backtrack control on (`drops_child_snapshots`, `sync.rs:23764`), the set's deterministic interleaving (G36.4) must return a key that was never the neighbour.
+- **G36.2 — quiescent differential with the optimistic path proven.**
+  - A new integration target gated on `occ-stats`, holding one `#[test]`, on the pattern and for the reasons of `crates/expanse/tests/test_occ_stats_readers.rs:1-27`; `scripts/test_occ_stats.sh` discovers it and fails a binary that runs zero tests.
+  - On quiescent sets (root leaf; tree over each `keys` distribution; a dense set holding bitmap leaves and full expanses; a set left by removing most of a larger one through `SyncExpanseSet::remove`), every one of the eighteen methods is compared with `BTreeSet` over present keys, absent keys, 0, `u64::MAX`, `next_after(u64::MAX)` and `prev_before(0)`.
+  - *Counter.* Over each block of `n` calls the deltas of `occ_stats::snapshot()` must be `Stat::ReadOps` = `n`, `Stat::ReadAttempts` = `n` and `Stat::ReadFallbacks` = 0. `ReadFallbacks` is bumped at one place on this path, immediately before `read_locked` (`sync.rs:3177`; defined `crates/expanse/src/occ_stats.rs:57`), `ReadOps` and `ReadAttempts` at `sync.rs:3151` and `:3153`.
+  - **Falsifier:** a mismatch with the model; a non-zero `ReadFallbacks`; `ReadAttempts` above `ReadOps` (a retry on a tree nothing is changing means the walk rejects a consistent tree, as an inverted A6 would); `ReadOps` below `n` (the method did not go through the optimistic protocol). Without the counter clause this test passes on a build whose every answer comes from the lock.
+- **G36.3 — Loom, on the real `ReadSet`.** Models in `sync_nav::loom_tests`, built as the existing ones are (`sync_nav.rs:1143-1326`): `ReadSet::sample` and `validate_all` over model version cells.
+  - (a) *Bitmap terminal.* A holder branch and a set bitmap leaf of two words. A successor search finds word 0 empty and takes word 1's minimum; the writer, under the holder's bracket, sets a bit in word 0 and then a lower bit in word 1. The answer must be the successor at one instant. Negative control: the same search without the final validation must return the bit that was never the successor.
+  - (b) *Terminal replaced.* The holder's slot is rewritten from a bitmap-leaf edge to `FullExpanse` and back under the holder's bracket while the search holds the old edge copy. Negative control: validating the holder only before the terminal's loads.
+  - (c) The existing models stay green and unedited: `loom_ordered_read_retained_read_set` and `loom_ordered_read_hand_over_hand_is_not_enough` (`crates/expanse/src/occ.rs:4203`, `:4163`), and the two branch-order models (`sync_nav.rs:1314`, `:1323`). They are flavour-independent, since branches are.
+  - **Falsifier:** a positive model that fails, or a negative control that does not panic with its expected message.
+- **G36.4 — the #1466 order, per node form, each with a mutation that must fail.** The rule: the version that covers a load is sampled before that load.
+
+  | Form | Order today | Mutation | Status |
+  |---|---|---|---|
+  | `BranchL3`, `BranchL7` | sample `:544` / `:791`, header `:551` / `:798` | the `set_header_before_sample` switch (read at `sync.rs:23806`) | exists for the set by direct call (`sync.rs:26098`); PR B re-points it at `SetReader` |
+  | `BranchB` | sample `:589` / `:840`, level `:591` / `:842`, bitmap `:605` / `:856`, child `:610` / `:865` | a `cfg(test)` switch that loads the level, digit and child before the sample; writer inserts a digit into the same 32-digit subexpanse in place | new |
+  | `BranchU` | sample `:638` / `:893`, edge `:643` / `:898` | a switch that loads the child edge before the sample; writer inserts below that child and then below its sibling | new |
+  | root leaf, top edge | tree version `sync.rs:3155`, root copy `sync.rs:3158-3165` | a structural test that the sample precedes the root load in `optimistic_read` | new; whether an existing test already pins it is unverified |
+  | immediates, linear leaves, `LeafBitmap1`, `FullExpanse` | carry no version; covered by the holder, which is sampled before the edge that names them is loaded | covered by the three branch rows and by G36.3 | — |
+
+  Each mutation is run on the set form in both directions, on a fixture that asserts its own shape as `branch_sample_fixture` does (`sync_nav.rs:1088-1124`), and must make the read return a key the model never held. The fail-then-pass run is recorded in the PR with the panic site (AGENTS.md §5, *Decision-Point Mutation*).
+  - **Falsifier:** a mutated walk that still returns the model's answer. If PR A shows, with the recorded attempt, that a form's early load cannot produce a wrong answer on any reachable shape, that row is recorded `not discriminable` with the reason, and a source scanner over `sync_nav.rs` (sample before the first load in each branch arm, with its own mutation demonstration per AGENTS.md §5 item 2 d) becomes that row's enforcing test.
+  - Also in this gate: the park-point tests of C5, C6 and C7; the set twins of the backtrack reproducer G12.1 (`sync.rs:25797-25866`) in an insert and a remove variant; and `tests/test_validated_answers.rs` staying green with its entry-point scan (`:185`) and its one-`node_sample` clause.
+- **G36.5 — Miri. Run in CI only, never on a development machine.**
+  - *Tier 1, per pull request.* `sync::miri_tests::set_ordered_reads_under_miri`: single-threaded, every method over every set node form of class A and C3, each form asserted present. It is selected by the existing filter word `sync::miri_tests::` (shard `1 of 3`, `.github/workflows/ci.yml:1697`), so no filter word is added and the three lists `scripts/check_miri_shards.py` compares stay equal. This is the instrument that reports an inverted class A arm as undefined behaviour rather than as a wrong answer.
+  - *Nightly census.* By module, every test under `sync::` is in shard `lib-sync` and every test under `sync_nav::` in `lib-rest` (`scripts/check_miri_shards.py`, `LIB_SHARDS`); `python3 scripts/check_miri_shards.py` must report every lib test in exactly one shard.
+  - *Concurrent sites.* `sync::miri_ub_sites::set_ordered_leaf_reader_writer`, `set_ordered_tree_reader_writer` and `set_ordered_bitmap_reader_writer`, twins of the map's (`sync.rs:16884`, `:16909`), each entered in `.github/miri-ub-sites.json` under the three checks with the state the nightly job observes.
+  - *Outside Miri, by declaration.* `sync::ordered_read_tests` is `cfg(all(test, not(miri)))` (`sync.rs:25701`); the G36.2 target carries a file-level `#![cfg(not(miri))]`; the G36.1 histories carry the `cfg_attr(miri, ignore)` their map twins do (`linearizability.rs:1306-1309`); Loom tests exist only under `--cfg loom`.
+  - **Falsifier:** any Miri report in the Tier 1 test; a census failure; a `miri-ub-sites` entry whose observed state differs from the manifest.
+- **G36.6 — no write path is touched.**
+  - The change adds readers. It stores nothing into tree memory, so it adds no `assert_bracketed()` obligation and no `by_mode!` entry point (AGENTS.md §2.1 invariant 5).
+  - **Falsifier:** a hunk outside `cfg(test)` in `mutate.rs`, `mutate_map.rs`, `map.rs`, `set.rs` or the `olc_*` bodies of `sync.rs`; or any change in `set_insert/*`, `set_remove/random`, `sync_set_insert/random`, `sync_set_remove/random` or `sync_set_churn/*`. A park point a test needs on the writer side is armed from the reader's hooks, as `arm_branch_sample` runs the writer's call on the reader's thread (`sync.rs:25955-25961`), not placed in a write path.
+- **G36.7 — the set form is instantiated in one place.** A source test pins that, outside test modules, `next_validated::<false>` and `prev_validated::<false>` occur only inside the set's macro and `::<true>` only where the map has them today, and is shown to turn red when the constant is flipped (AGENTS.md §5 item 2 d). **Falsifier:** the scanner stays green with the constant flipped.
+
+G36.3, G36.4 and the reproducer are re-run after any change to the obsolete-marking or cover rules, as §12.2 requires of G12.1.
+
+### 36.5 Performance gates: instruction counts
+
+Fixed before any measurement. The instrument is the `instruction-counts` job on each pull request, against that pull request's base.
+
+**How the walk is shared.** The three handle forms expand **one macro**, `set_ordered_walk!`, the way `set_contains_walk!` does (`sync.rs:6365-6380`). It is not a function and not an `#[inline(always)]` function: on `sync_set_contains` a plain function measured +1.90% on `random`, and `#[inline(always)]` +7.50% on `random` and +9.15% on `leaf` (recorded at `sync.rs:6357-6364`, from the `instruction-counts` job of #1465). Direction is a const generic or a macro argument, never a runtime flag in the loop, as the string walk settled (#1448). The method list may be a second macro, as `map_reader_ordered_reads!` is (`sync.rs:10444`).
+
+- **P36.1 — nothing that exists moves.**
+  - The claim: in PR A and in PR B, every Callgrind arm that exists on the base changes by at most 0.1% (AGENTS.md §6 review threshold). The bound has no direction, as §12.7 read P12.2.
+  - Most at risk, and named in the PR body with their figures whatever they are:
+    - `sync_set_contains/{random,leaf}`: `SetReader::contains` sits in the `impl` blocks the new methods join and shares `optimistic_read`; this is the arm that moved in §12.7 and under the two rejected sharing forms of #1465.
+    - `sync_map_prev/random`, `sync_map_next_after_scan/*`, `sync_map_scan/*` and `sync_strmap_scan_pointops/*`: PR B adds the first non-test `MAP = false` instantiation of the generic source whose `MAP = true` instantiation they run.
+    - `sync_set_insert/random`, `sync_set_remove/random`, `sync_set_churn/*`, `sync_map_get/*`: same file, no shared source line changed.
+    - the plain arms `set_nav/*`, `set_prev/*`, `set_contains/random`, `set_insert/*`, `set_remove/random`, `map_nav/*`, `map_prev/*`.
+  - *Disassembly.* `objdump -d -C` of the bench binary at base and head, with the count of `%fs:` reads in `nav::next::<false>`, `nav::prev::<false>`, `ExpanseSet::contains` and `mutate::insert_with_path_flat` stated for both: equal, and zero where it is zero today (AGENTS.md §2.1 invariant 5).
+  - **REFUTED** on any arm above 0.1% in either direction, or on a changed `%fs:` count. A refuted arm is attributed from a base-against-head `callgrind_annotate` profile, and from the disassembly where its source did not change, before any fix (AGENTS.md §6).
+- **P36.2 — an optimistic ordered read counts fewer instructions than the locked one.**
+  - Arms PR B adds, with the keys, probe stream and ops count of their locked twins: `sync_set_prev/random` (a reader handle's `prev_before` from each present key) and `sync_set_next_after_scan/{random,sequential,clustered}` (`first` then `next_after` on a reader handle).
+  - The claim, and the bound: each of the four cells counts fewer instructions per operation than its `_locked` twin on the same head.
+  - A projection, not a gate (unmeasured): each lands between its single-threaded reference (`set_prev/random`, `set_nav/*`) and its locked twin. No magnitude is predicted.
+  - **REFUTED** for a cell at or above its locked twin.
+
+Callgrind cannot see contention, so P36.2 says nothing about P36.4.
+
+### 36.6 Performance gates: wall clock
+
+Reference host only: the host §12.9 describes (Intel Core i9-12900F, 8P+8E, 24 threads). A development machine decides nothing here. Where a construct is §12.4's it is referenced, not restated.
+
+**Instrument.** §12.4's reader mode, driver and schedule, with these differences:
+
+- *Arm.* `--arm set`. Today that arm in reader mode is the readers-only cell and refuses writers, `--read-op` other than `get` and `--probe` other than `uniform` (`crates/expanse/examples/writer_scaling.rs:3293`, `:3414-3430`); PR C extends it to `prev_locked` (`with_locked(|s| s.prev_before(k))`) and `prev` (`SetReader::prev_before`), W ≥ 1 and both probes.
+- *Hot-spot shape.* §12.4's geometry, re-derived for the set and asserted by the harness before it times anything. Two things differ. The branch argument there cites the map's leaf cap (`writer_scaling.rs:95-100`); the set's is `LEAF_CAP` at `mutate.rs:1267`. And the hot-spot writers fill every 256-key block, which in a set converts each block's `LeafBitmap1` to `FullExpanse` on the serialised path (`CapExpansionKind::BitmapNearFull`, `sync.rs:3524`, `:4867-4869`; conversion `mutate.rs:1897`). A set hot-spot window therefore contains writer fallbacks a map's does not, and readers cross bitmap leaves and full expanses. Every row records the node counts at the end of its window; 256 full expanses are expected in a hot-spot cell with writers (derived from the geometry, unverified by a run), and such a cell ending with none is void for the form-coverage statement.
+- *Suite and artifacts.* `writer_scaling_ordered_readers_set`, wired at every point AGENTS.md §2.7 item 3 lists, with a workload ID of its own; `results/ordered_readers_set_writer_scaling.json` and `_run2.json`.
+
+Unchanged from §12.4: cells (W, R) ∈ {(0, 1), (0, 4), (1, 4), (4, 4)} × `read_op` ∈ {`prev_locked`, `prev`} × `probe` ∈ {`uniform`, `hotspot`}; 8 rounds per cell, one harness process per cell and round, the block interleaved within each round by the driver's Williams rows; pin `0,2,4,6,8,10,12,14`, one thread per physical P-core, W + R ≤ 8; throughput and counters taken from separate binaries. The comparator is the locked route of the same commit and the same binary, over the identical probe stream.
+
+- **P36.3 — fallbacks stay rare.** In the counters build, `read_fallbacks ÷ read_ops` of the `prev` cells is below 0.1% in every cell, both probes. The ceiling is §12.3's choice for P12.4, kept. Attempts per operation are reported, not gated. **REFUTED** at any cell above 0.1%.
+- **P36.4 — readers gain over `with_locked` while writers run.**
+  - Statistic: ρ = reader throughput of `prev` ÷ reader throughput of `prev_locked`, paired within each round.
+  - Gate cells: (W, R) = (1, 4) and (4, 4), `uniform`. Floor: the BCa 95% lower bound of ρ is at least 1.0 (target; proposed for confirmation, §36.10 question 1).
+  - Reported, not gated: both W = 0 cells and every `hotspot` cell.
+- **P36.5 — the gain is a concurrency gain** (AGENTS.md §8.20.2).
+  - Statistic: κ = ρ at (1, 4), `uniform` ÷ ρ at (0, 1), `uniform`, both taken in the same round. The (0, 1) cell is the control: one reader and no writer, where a validated read can only be cheaper per call, not less blocked.
+  - Floor: the BCa 95% lower bound of κ is above 1.0.
+- **A control that should not move.** `prev_locked` at (0, 1), `uniform` runs code this change does not touch and has no concurrency. The ratio of its mean reader throughput between the two runs must lie in [0.90, 1.10]. Outside that band the two runs are not a comparable pair and decide nothing; both are kept and disclosed, and a fresh pair is taken. The band is a choice, not a derivation.
+- **Interval.** BCa 95% over the 8 per-round values of a run, 2,000 resamples, seed 42: the defaults of `scripts/bca_bootstrap.py:141-142` and `:216-217`. Each interval is recorded with its `ci_method`.
+- **Runs.** Two independent dispatches. A claim needs the same verdict in both, on the same cells in the same direction (`docs/BENCHMARKING.md` rule 18).
+- **What voids a cell or a run.** §12.5 in full, with this section's gates in place of §12.2's; AGENTS.md §8.17's host conditions, from the load snapshots the artifact records; and a row whose `read_ops` does not equal the readers' call count, which the harness already refuses (`writer_scaling.rs:455-501`).
+
+**Silent constants,** all fixed by this section: `MAX_RETRIES` 64; `READ_SET_CAP` 16; the 0.1% Callgrind bound; the 0.1% fallback ceiling; floors 1.0 on ρ and κ; the [0.90, 1.10] comparability band; 8 rounds; 2,000 resamples, seed 42; the pin; 2^20 prefill keys and probes per reader at W = 0 (`writer_scaling.rs:72-73`); the 256-block hot-spot expanse; 24 rounds and at most 64 events per G36.1 history; 50,000 operations per Callgrind arm. Changing any of them after a run relabels that run `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+
+### 36.7 Expected losses
+
+Recorded before any measurement and never reconciled with the outcome (AGENTS.md §8.7). Every reason is a hypothesis; none is measured on the set.
+
+| Cell or use | Expected | Reason (hypothesis) |
+|---|---|---|
+| Any validated read against the plain `ExpanseSet` call (`sync_set_prev` against `set_prev`, `sync_set_next_after_scan` against `set_nav`) | loses, by design | a pin, a version sample and a final validation per call that the single-threaded call does not make. Not a comparison this section gates |
+| A whole scan by `first` + `next_after` against one `with_locked` that iterates the set inside the lock | loses per element | one pin, one sample and one root descent per element against an iterator step; no arm measures this pair, and the remedy is the excluded batch cursor |
+| (0, 1), either probe | smallest ρ of the sweep | nothing waits on anything, so only the per-call cost of the locked route is saved; the map's control read lowest too (§12.9) |
+| Root-leaf sets (at most `ROOT_LEAF_CAP` = 31 keys) and reads answered from an immediate | smallest instruction margin over the locked route; no claim | no branch is visited, so validation removes no work and the walk loads keys one atomic word at a time; no arm covers it (§36.10 question 6) |
+| `hotspot` with writers, most at (4, 4) | ρ far below the `uniform` cells and possibly below 1.0; fallback share nearest the ceiling | every probe backtracks through subtrees the writers are filling, so attempts per read rise as they did on the map (§12.9), and each block's conversion to `FullExpanse` adds a serialised writer section the map's window does not have |
+| `sync_set_next_after_scan/sequential` and `/clustered` against their locked twins | narrowest P36.2 margins | dense terminals make the locked walk short, so the fixed per-call cost is the larger share |
+| Writer throughput in the `prev` cells | not gated; may fall against the same cell's `prev_locked` writers per unit of reader work | writers are no longer the only running threads; reported per cell |
+
+### 36.8 Verdicts, and what each means for shipping
+
+**Correctness** is binary. With any G36 gate unmet, PR B does not merge and no cell is read.
+
+**Instruction counts** are verdicts on a pull request: `HOLDS` or `REFUTED` for P36.1 and P36.2. A refuted P36.1 blocks that pull request until the moved arm is attributed and either restored or accepted as a stated trade-off under AGENTS.md §6. A refuted P36.2 does not block the merge; it is published, and the documentation makes no instruction-count claim.
+
+**Wall clock,** per run and per gate statistic: `SINGLE_RUN_PASS` when the BCa 95% lower bound clears its floor, `REJECTED` when the upper bound is below it, `INCONCLUSIVE` otherwise. Then:
+
+| Verdict | Condition | Consequence |
+|---|---|---|
+| `PASS` | P36.3 holds in both runs, and P36.4 at both gate cells and P36.5 are `SINGLE_RUN_PASS` in both | the documentation may state that set readers gain over `with_locked`, with the intervals and the losing cells of §36.7 beside them |
+| `INTERMEDIATE` | anything between: one run each way, an `INCONCLUSIVE` statistic, a pair outside the comparability band, a constant changed after a run | the methods stay as shipped; the documentation says they do not exclude writers and makes no performance statement; fresh runs are needed for a claim |
+| `REJECTED` | P36.3 refuted in both runs, or P36.4 `REJECTED` at a gate cell in both | see below |
+
+**A rejected performance gate with every correctness gate met.** This registration fixes three things and leaves one open. Fixed: every cell is published, the losing ones included; no document states a gain; and the rejection is not reopened by moving a floor to the measurement (AGENTS.md §8.19). Open, and flagged for the maintainer (§36.10 question 3): whether the methods stay, as surface parity with the map and with guidance to use `with_locked` for the shapes that lost, or are withdrawn before a release carries them. The wall-clock runs come after PR B merges, as §12's did, so the choice is about a release, not about that merge.
+
+### 36.9 Explicitly not predicted
+
+- Magnitudes for P36.2, P36.4 and P36.5.
+- `first`, `last`, `next_at_or_after`, `next_after` and `prev_at_or_before` in wall clock: they derive from the two walks, as in §12.6, and the gates and Callgrind arms cover them.
+- The owned and detached handles in wall clock: they expand the same macro, and G36.2 covers their answers and counters.
+- Reader cells at W ≥ 2 other than (4, 4).
+- Any transfer of the map's figures to the set. §12.9's intervals describe the map.
+- Everything under *Named exclusions* in §36.1.
+
+### 36.10 Open questions for the maintainer
+
+1. **The floor.** P36.4 asks only that validated reads are not slower than locked reads while writers run (floor 1.0). Is that the bar, or should the set have to clear something higher? Whatever is chosen freezes when it is confirmed in #1194 or in review of this section, before any run, as §33.9.2 arranged.
+2. **How many gate cells.** §12 gated one cell, (1, 4) `uniform`. This section gates (4, 4) `uniform` as well. Keep both, or follow §12?
+3. **If the readers do not gain** but every correctness gate holds: keep the methods for parity with the map, or hold them out of a release?
+4. **Bindings.** #1194 asks that the C ABI, Python, Node and WebAssembly surfaces match what is added. Should they follow in the same release, and under a registration of their own or as a mechanical follow-up to PR B?
+5. **Handle forms in one PR.** PR B adds the methods to all three handle types at once because they expand one macro. Split the owned and detached forms into a later PR instead?
+6. **Tiny sets.** No Callgrind arm reads a root-leaf set in order. Add a `leaf` pair (`sync_set_prev_locked/leaf`, then `sync_set_prev/leaf`) in a bench-only PR before PR B, or leave sets of at most 31 keys without a claim, as §36.7 does?
+7. **PR A edits `sync_nav.rs`** under `cfg(test)` and `debug_assert!` only. Is a `debug_assert!` in the shared walk acceptable, given that it also compiles into the map's debug builds?
+8. **Section number.** 36 is the next free number today; it may move at merge.
