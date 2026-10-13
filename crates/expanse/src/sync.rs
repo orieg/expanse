@@ -27262,6 +27262,40 @@ mod ordered_read_tests {
         })
     }
 
+    /// The same interleaving by direct call of the set form. The outer
+    /// `None` is a retry, which the public method above would hide behind a
+    /// second, correct attempt: this is what requires the read to answer on
+    /// its first attempt, and what shows the value word.
+    fn set_branch_sample_direct(
+        c: &BranchSampleCase,
+        header_first: bool,
+    ) -> Option<Option<(u64, u64)>> {
+        let set = Arc::new(SyncExpanseSet::new());
+        for k in bsf::keys() {
+            set.insert(k);
+        }
+        let s = Arc::clone(&set);
+        let new_key = c.new_key;
+        let insert = move || assert!(s.insert(new_key));
+        let rd = set.reader();
+        run_branch_sample(&set.shared, c, header_first, insert, || {
+            let _pin = rd.reader.pin();
+            let ver = set.shared.version();
+            let snap = ver.sample();
+            let root = set.shared.published().load();
+            // SAFETY: pinned, with a version sampled after the pin and a
+            // root copied after the sample.
+            let r = unsafe {
+                if c.forward {
+                    crate::sync_nav::next_validated::<false>(root, c.probe, ver, snap)
+                } else {
+                    crate::sync_nav::prev_validated::<false>(root, c.probe, ver, snap)
+                }
+            };
+            r.ok()
+        })
+    }
+
     /// The batch cursor's seek (`sync_cursor`), which has its own copy of
     /// the linear-branch arm: everything at or after the forward case's
     /// probe.
@@ -27301,6 +27335,12 @@ mod ordered_read_tests {
                 "set, forward = {}",
                 c.forward
             );
+            assert_eq!(
+                set_branch_sample_direct(c, false),
+                Some(Some((want, 0))),
+                "set, first attempt, forward = {}",
+                c.forward
+            );
         }
         let c = &BRANCH_SAMPLE_CASES[0];
         let want: Vec<(u64, u64)> = bsf::keys()
@@ -27333,6 +27373,12 @@ mod ordered_read_tests {
                 set_branch_sample(c, true),
                 Some(c.never_present),
                 "set, forward = {}",
+                c.forward
+            );
+            assert_eq!(
+                set_branch_sample_direct(c, true),
+                Some(Some((c.never_present, 0))),
+                "set, first attempt, forward = {}",
                 c.forward
             );
         }
@@ -27669,6 +27715,52 @@ mod ordered_read_tests {
     fn set_ordered_full_expanse_as_the_top_edge_trips_the_debug_assertion() {
         let top = full_expanse_edge(7);
         let _ = next_under(RootSnapshot::Tree { top }, fx::rep_byte(0x41, 8));
+    }
+
+    /// §36.3, C6, in every build: a full expanse that does not fill the
+    /// level it is read at is never answered from. A debug build panics at
+    /// the check (the two tests above); a release build answers
+    /// `Err(Retry)`, which sends the read to the locked fallback. Without
+    /// the check the walk returns the probe itself, a key the hand-built
+    /// tree does not hold. Both directions, behind a narrow pointer and as
+    /// the top edge. CI runs this in debug builds, where the panic satisfies
+    /// it; `cargo test --release` is what exercises the retry, and
+    /// `tests/test_validated_answers.rs` pins the statements in both arms.
+    #[test]
+    fn set_ordered_full_expanse_that_does_not_fill_its_level_is_not_answered() {
+        let branch = OwnedBranch::over(full_expanse_edge(1));
+        let narrow = (branch.top(), (0x11 << 56) | fx::rep_byte(0x41, 7));
+        let top = (
+            RootSnapshot::Tree {
+                top: full_expanse_edge(7),
+            },
+            fx::rep_byte(0x41, 8),
+        );
+        for (what, (root, probe)) in [("narrow", narrow), ("top edge", top)] {
+            for forward in [true, false] {
+                let walked = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+                    let ver = SeqVersion::new();
+                    let snap = ver.sample();
+                    // SAFETY: the nodes under `root` are private to this
+                    // test and live for the call; `snap` was sampled from
+                    // `ver` before it.
+                    let r = unsafe {
+                        if forward {
+                            crate::sync_nav::next_validated::<false>(root, probe, &ver, snap)
+                        } else {
+                            crate::sync_nav::prev_validated::<false>(root, probe, &ver, snap)
+                        }
+                    };
+                    r.ok()
+                }));
+                // `Err`: the debug assertion. `Ok(None)`: a retry.
+                assert!(
+                    matches!(walked, Err(_) | Ok(None)),
+                    "{what}, forward = {forward}: the walk answered {walked:?} from a full expanse \
+                     that does not fill its level"
+                );
+            }
+        }
     }
 
     /// One uncompressed-branch interleaving (G36.4): the probe, whose digit's
@@ -28633,41 +28725,105 @@ mod validated_answer_tests {
 
     /// §36.3, D2: a set reader whose every optimistic attempt is overtaken
     /// answers under the writer lock after `MAX_RETRIES` attempts, by the
-    /// single-threaded read of its own direction. The key toggled an even
-    /// number of times is absent when the fallback reads, so the two
-    /// directions have different answers and a fallback wired to the other
-    /// direction fails here.
+    /// single-threaded read that means the same as the method called.
+    ///
+    /// All six methods, through the three handle forms, at present keys, at
+    /// an absent key and at both ends of the key space (0 and `u64::MAX`
+    /// are in the set), against a `BTreeSet` that never sees the walk. The
+    /// key the overtaking writes toggle is toggled an even number of times,
+    /// so it is absent when the fallback reads and the oracle is the
+    /// prefill. A present probe is what tells an inclusive fallback from an
+    /// exclusive one: `next_at_or_after(k)` must answer `k`, `next_after(k)`
+    /// the key above it. `next_after(u64::MAX)` and `prev_before(0)` answer
+    /// `None` before any walk, so nothing overtakes them.
     #[test]
     fn set_ordered_reads_fall_back_to_the_locked_read_of_their_direction() {
+        use core::ops::Bound::{Excluded, Included, Unbounded};
         const _: () = assert!(MAX_RETRIES.is_multiple_of(2));
-        for forward in [true, false] {
-            let set = Arc::new(SyncExpanseSet::new());
-            for k in [10u64, 20, 30] {
-                assert!(set.insert(k));
-            }
-            let rd = set.reader();
-            let fired = Arc::new(core::sync::atomic::AtomicUsize::new(0));
-            overtake_every_attempt(Arc::clone(&set), 25, Arc::clone(&fired));
-            let got = if forward {
-                rd.next_at_or_after(27)
-            } else {
-                rd.prev_at_or_before(27)
-            };
-            // Disarm what the last attempt armed.
-            test_hooks::arm_site(test_hooks::Site::OrderedFinal, Box::new(|| {}));
-            test_hooks::at(test_hooks::Site::OrderedFinal);
-            assert_eq!(
-                fired.load(Ordering::Relaxed),
-                MAX_RETRIES,
-                "every optimistic attempt must be overtaken ({forward})"
-            );
-            assert!(!set.contains(25), "the toggled key ends absent");
-            assert_eq!(
-                got,
-                Some(if forward { 30 } else { 20 }),
-                "the locked answer of this direction ({forward})"
-            );
+        const TOGGLED: u64 = 25;
+        let keys = [0u64, 10, 20, 30, u64::MAX];
+        let oracle: std::collections::BTreeSet<u64> = keys.into_iter().collect();
+        let set = Arc::new(SyncExpanseSet::new());
+        for k in keys {
+            assert!(set.insert(k));
         }
+        let (rd, owned, detached) = (set.reader(), set.owned_reader(), set.detached_reader());
+        // (name, the walk is reached, the oracle's answer, the three calls).
+        type Call<'a> = &'a dyn Fn(usize, u64) -> Option<u64>;
+        let first: Call<'_> = &|h, _| match h {
+            0 => rd.first(),
+            1 => owned.first(),
+            _ => detached.first(&set),
+        };
+        let last: Call<'_> = &|h, _| match h {
+            0 => rd.last(),
+            1 => owned.last(),
+            _ => detached.last(&set),
+        };
+        let next_at_or_after: Call<'_> = &|h, k| match h {
+            0 => rd.next_at_or_after(k),
+            1 => owned.next_at_or_after(k),
+            _ => detached.next_at_or_after(&set, k),
+        };
+        let next_after: Call<'_> = &|h, k| match h {
+            0 => rd.next_after(k),
+            1 => owned.next_after(k),
+            _ => detached.next_after(&set, k),
+        };
+        let prev_at_or_before: Call<'_> = &|h, k| match h {
+            0 => rd.prev_at_or_before(k),
+            1 => owned.prev_at_or_before(k),
+            _ => detached.prev_at_or_before(&set, k),
+        };
+        let prev_before: Call<'_> = &|h, k| match h {
+            0 => rd.prev_before(k),
+            1 => owned.prev_before(k),
+            _ => detached.prev_before(&set, k),
+        };
+        let want = |name: &str, k: u64| -> Option<u64> {
+            match name {
+                "first" => oracle.first().copied(),
+                "last" => oracle.last().copied(),
+                "next_at_or_after" => oracle.range((Included(k), Unbounded)).next().copied(),
+                "next_after" => oracle.range((Excluded(k), Unbounded)).next().copied(),
+                "prev_at_or_before" => oracle.range((Unbounded, Included(k))).next_back().copied(),
+                _ => oracle.range((Unbounded, Excluded(k))).next_back().copied(),
+            }
+        };
+        let calls: [(&str, Call<'_>); 6] = [
+            ("first", first),
+            ("last", last),
+            ("next_at_or_after", next_at_or_after),
+            ("next_after", next_after),
+            ("prev_at_or_before", prev_at_or_before),
+            ("prev_before", prev_before),
+        ];
+        let mut fell_back = 0usize;
+        for handle in 0..3usize {
+            for (name, call) in calls {
+                for probe in [0u64, 10, 20, 27, 30, u64::MAX] {
+                    let walks =
+                        !matches!((name, probe), ("next_after", u64::MAX) | ("prev_before", 0));
+                    let fired = Arc::new(core::sync::atomic::AtomicUsize::new(0));
+                    overtake_every_attempt(Arc::clone(&set), TOGGLED, Arc::clone(&fired));
+                    let got = call(handle, probe);
+                    // Disarm what the last attempt armed.
+                    test_hooks::arm_site(test_hooks::Site::OrderedFinal, Box::new(|| {}));
+                    test_hooks::at(test_hooks::Site::OrderedFinal);
+                    let at = format!("handle {handle}, {name}({probe:#x})");
+                    assert_eq!(
+                        fired.load(Ordering::Relaxed),
+                        if walks { MAX_RETRIES } else { 0 },
+                        "{at}: every optimistic attempt must be overtaken"
+                    );
+                    assert!(!set.contains(TOGGLED), "{at}: the toggled key ends absent");
+                    assert_eq!(got, want(name, probe), "{at}: the locked answer");
+                    fell_back += usize::from(walks);
+                }
+            }
+        }
+        // 3 handles x (6 methods x 6 probes - the 2 early answers).
+        assert_eq!(fell_back, 3 * 34);
     }
 
     /// §36.3, C5: the set form's bitmap-leaf arm loads up to four bitmap

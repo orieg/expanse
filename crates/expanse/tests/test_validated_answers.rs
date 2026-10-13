@@ -27,7 +27,12 @@
 //!   and the map form (`MAP = true`) at the map's two wrappers and in
 //!   `sync_nav::seek_submap` and nowhere else (#1194, G36.7).
 //!
-//! The scanners strip `//` comments before matching, and each clause was
+//! - in the two `FullExpanse` arms of `src/sync_nav.rs`, the set form
+//!   answers from the suffix only after checking that the edge fills the
+//!   level it is read at, and answers `Err(Retry)` otherwise (#1194, §36.3
+//!   C6). Debug builds panic at that check, so a debug-build test cannot
+//!   observe the retry; the order of the statements is pinned here.
+//!
 //! shown to fail on its own when the code it guards was broken (PR body of
 //! the change that added this file).
 #![cfg(not(miri))]
@@ -984,6 +989,187 @@ fn flavour_scanner_turns_red_on_the_real_source() {
         faults[0].contains("expected `next_validated::<true>` once"),
         "{faults:?}"
     );
+}
+
+// ---- The full-expanse arm fails safe (#1194, §36.3 C6) ----
+
+/// The `FullExpanse` match arms of `src` in bare form: from each arm's first
+/// line to the line before the next arm at the same depth.
+fn full_expanse_arms(src: &str) -> Vec<Vec<String>> {
+    let bare_src = bare(src);
+    let lines: Vec<&str> = bare_src.lines().collect();
+    let mut arms = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if l.trim() == "EdgeTag::Structural(EdgeType::FullExpanse) => {" {
+            let indent = l.len() - l.trim_start().len();
+            let end = (i + 1..lines.len())
+                .find(|&j| {
+                    let t = lines[j];
+                    !t.trim().is_empty()
+                        && t.len() - t.trim_start().len() == indent
+                        && t.trim() == "}"
+                })
+                .unwrap_or(lines.len() - 1);
+            arms.push(lines[i..=end].iter().map(|s| s.to_string()).collect());
+        }
+    }
+    arms
+}
+
+/// What is wrong with the full-expanse arms of `nav_src`: there must be two;
+/// each must test `!full_expanse_fills(edge, level)` exactly once, outside
+/// any `#[cfg]`; a `return Err(Retry);` must follow that test within four
+/// lines; and the arm's answer (`Ok(Some((suffix`) must come after both.
+fn full_expanse_faults(nav_src: &str) -> Vec<String> {
+    const GUARD: &str = "if !full_expanse_fills(edge, level) {";
+    const RETRY: &str = "return Err(Retry);";
+    const ANSWER: &str = "Ok(Some((suffix";
+    let arms = full_expanse_arms(nav_src);
+    let mut bad = Vec::new();
+    if arms.len() != 2 {
+        bad.push(format!(
+            "expected two FullExpanse arms (next_in, prev_in), found {}",
+            arms.len()
+        ));
+    }
+    for (n, arm) in arms.iter().enumerate() {
+        let at = |pat: &str| -> Vec<usize> {
+            arm.iter()
+                .enumerate()
+                .filter(|(_, l)| l.contains(pat))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        let (guards, answers) = (at(GUARD), at(ANSWER));
+        if guards.len() != 1 {
+            bad.push(format!(
+                "FullExpanse arm {n}: expected the level check once, found {}",
+                guards.len()
+            ));
+            continue;
+        }
+        let g = guards[0];
+        if g > 0 && arm[g - 1].trim().starts_with("#[cfg") {
+            bad.push(format!(
+                "FullExpanse arm {n}: the level check is behind a cfg attribute"
+            ));
+        }
+        // The retry that belongs to the check: within four lines of it.
+        if !at(RETRY).iter().any(|&r| r > g && r <= g + 4) {
+            bad.push(format!(
+                "FullExpanse arm {n}: no `return Err(Retry);` within four lines of the level check"
+            ));
+        }
+        match answers.as_slice() {
+            [a] if *a > g => {}
+            [_] => bad.push(format!(
+                "FullExpanse arm {n}: the arm answers before the level check"
+            )),
+            other => bad.push(format!(
+                "FullExpanse arm {n}: expected one answer from the suffix, found {}",
+                other.len()
+            )),
+        }
+    }
+    bad
+}
+
+/// #1194, §36.3 C6: the set form's full-expanse arms check the level before
+/// they answer, and retry when the check fails.
+#[test]
+fn full_expanse_arms_fail_safe() {
+    let bad = full_expanse_faults(SYNC_NAV);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// The scanner against edited copies of the real source, one clause per
+/// edit: the check removed, the check behind `cfg(debug_assertions)` (the
+/// form it had before it was a release guard), the retry removed, the
+/// answer moved above the check, and an arm removed.
+#[test]
+fn full_expanse_scanner_turns_red_on_the_real_source() {
+    const ARM: &str = "EdgeTag::Structural(EdgeType::FullExpanse) => {";
+    const GUARD: &str = "if !full_expanse_fills(edge, level) {";
+    const RETRY: &str =
+        "                return Err(Retry);\n            }\n            Ok(Some((suffix";
+    let one = |faults: Vec<String>, clause: &str| {
+        assert_eq!(faults.len(), 1, "{faults:?}");
+        assert!(faults[0].contains(clause), "{faults:?}");
+    };
+    assert!(full_expanse_faults(SYNC_NAV).is_empty());
+    // The check removed (commented out), and tested on something else.
+    let src = edited_after(
+        SYNC_NAV,
+        ARM,
+        GUARD,
+        "// if !full_expanse_fills(edge, level) {\n            if false {",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: expected the level check once, found 0",
+    );
+    // The check compiled out of release builds.
+    let src = edited_after(
+        SYNC_NAV,
+        ARM,
+        GUARD,
+        "#[cfg(debug_assertions)]\n            if !full_expanse_fills(edge, level) {",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: the level check is behind a cfg attribute",
+    );
+    // The retry removed: the arm falls through to its answer.
+    let src = edited_after(
+        SYNC_NAV,
+        ARM,
+        RETRY,
+        "            }\n            Ok(Some((suffix",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: no `return Err(Retry);` within four lines",
+    );
+    // The answer above the check.
+    let src = edited_after(
+        SYNC_NAV,
+        ARM,
+        GUARD,
+        "if suffix == u64::MAX {\n                return Ok(Some((suffix, 0)));\n            }\n            if !full_expanse_fills(edge, level) {",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: expected one answer from the suffix, found 2",
+    );
+    // The second arm is read too: its retry removed.
+    let second = SYNC_NAV.find(ARM).expect("the first arm") + ARM.len();
+    let tail = edited_after(
+        &SYNC_NAV[second..],
+        ARM,
+        RETRY,
+        "            }\n            Ok(Some((suffix",
+    );
+    let src = format!("{}{tail}", &SYNC_NAV[..second]);
+    one(
+        full_expanse_faults(&src),
+        "arm 1: no `return Err(Retry);` within four lines",
+    );
+    // An arm removed.
+    let src = edited_after(
+        SYNC_NAV,
+        ARM,
+        "EdgeType::FullExpanse)",
+        "EdgeType::FullExpansf)",
+    );
+    one(full_expanse_faults(&src), "expected two FullExpanse arms");
+    // The same text in a comment is not a check.
+    let src = edited_after(
+        SYNC_NAV,
+        ARM,
+        GUARD,
+        "// if !full_expanse_fills(edge, level) { return Err(Retry); }\n            if !full_expanse_fills(edge, level) {",
+    );
+    assert!(full_expanse_faults(&src).is_empty());
 }
 
 /// The scanners on synthetic input: each clause turns red on its own.
