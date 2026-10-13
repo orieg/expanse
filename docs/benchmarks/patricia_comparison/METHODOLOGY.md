@@ -414,3 +414,129 @@ docs/benchmarks/patricia_comparison/run.sh --quick   # smoke, writes results/qui
 | §3.4.3, clause D2b title | "L3 Miss Invariance" | The clause is a lower bound on the L3-miss difference (60% of D1's), and that is what is evaluated. The count is not invariant: against the 4 KiB arms of the same dispatches it falls by about 30%. |
 | §3.4.4, "If D2 PASS" | "accounts for ≥ 52.50 cycles of the gap" and "an OS/allocator paging configuration cannot resolve the performance gap" | D2 measures the size of the remaining gap, not what fills it: the L3-stall counter is withheld in this event set. Against the 4 KiB arms of the same dispatches, 2 MiB pages remove 26% and 22% of the cycle gap; they do not close it. |
 | `evaluate_d2()` | evaluated any artifact with both arms | It now returns VOID for an artifact that is not the registered measurement: an arm without 10 runs, a per-entry denominator other than 49,934,000, an arm recorded twice, a huge-page fault that fell back, or a counter a clause reads whose status is not `ok`. Neither committed run is affected. |
+
+---
+
+## Errata A5 to Amendment A4: the host condition (appended 2026-10-12, registered before any further D2 data; refs #1096; nothing above is edited)
+
+This errata changes one thing: the host condition of §3.4.2's two-run protocol. A4's condition, `loadavg <= 1.0` and `foreign_busy_cpus == 0`, is **superseded by §A5.3** for dispatches made after this errata merges. Clauses D2a, D2b and D2c, their bounds, the estimator, the arms, the pin, the event set and the sample sizes are exactly as §3.4.2 and §3.4.3 register them. It contains no new measurement.
+
+### A5.1 What the condition is read from
+
+| Quantity | Where it is computed | What it is |
+|---|---|---|
+| `load1` | `scripts/bench_provenance.py:261` (`load_snapshot`, `os.getloadavg()`) | The kernel's one-minute load average at the instant of the snapshot. |
+| `busy_cpus_since_prev` | `scripts/bench_provenance.py:193` | Non-idle time of the aggregate `cpu` line of `/proc/stat` between two snapshots, in core-equivalents over all 24 logical CPUs, rounded to 0.01. |
+| `own_busy_cpus_since_prev` | `scripts/bench_provenance.py:229` | CPU time of the driver's reaped children (`getrusage(RUSAGE_CHILDREN)`) over the same window, rounded to 0.01. |
+| `foreign_busy_cpus_since_prev` | `scripts/bench_provenance.py:250` | The first minus the second, rounded to 0.01. It covers every CPU of the host, pinned or not. Only reaped children are subtracted: the driver process itself and the host watcher are not children of the driver, so their CPU time is in it. |
+
+`scripts/perf_counters.py` takes one snapshot before each cell and one at the end (`:1169`, `:1212`). A D2 artifact therefore holds three snapshots and two windows, and each window contains one arm's cell whole: its build-phase and probe-phase processes for all 10 runs. The first snapshot has no window. The 2 MiB artifact's first snapshot is taken as the 4 KiB invocation of the same dispatch ends.
+
+`scripts/patricia_d2_bounds.py:219` (`host_precondition`) applies A4 to every snapshot: each `load1` at most 1.0, each `foreign_busy_cpus_since_prev` equal to 0. When the clauses are met and it is not, `evaluate_d2` returns `INTERMEDIATE` (`:321`).
+
+Separately from the artifact, the bare-metal workflow runs `scripts/bench_host_guard.py`: `check` before any build (`.github/workflows/bench_baremetal.yml:959`), `watch` for the whole job (`:993`) and `summarize` after the benchmarks (`:1854`). The guard judges the CPU of every task outside the job's process tree plus interrupt time, host-wide and on the pinned CPUs, per window. A window over a void boundary fails the job with `host_contaminated`. Its record is in the run log and is not in the artifact.
+
+### A5.2 Why A4's condition cannot be met
+
+**`loadavg <= 1.0`.** The kernel updates the figure at a fixed interval as `load = load * e + active * (1 - e)`, with `e = 1/exp(5 s / 1 min)` (`include/linux/sched/loadavg.h`, `calc_load` and `EXP_1`). Over a window with a constant number `n` of runnable tasks its closed form is `load(t) = n + (load0 - n) * exp(-t / 60 s)`: the figure moves toward `n` and does not cross it. The measured workload keeps one thread runnable, so `n >= 1` and every snapshot after the first reads at least `min(load0, 1.0)`. The condition then holds only when the dispatch starts below 1.0, and in that case it bounds how long the dispatch has run, not what else ran. `expected_load1` in `scripts/patricia_d2_bounds.py` is that closed form; replayed with `n = 1` over the 12 windows of the committed D1 and D2 counter artifacts it lands within 0.03 of every recorded `load1` (`test_expected_load1_against_committed_snapshots`). That agreement is observational.
+
+In the D2 dispatches the first 4 KiB snapshot follows the release build and reads 1.93 and 2.02. From 2.02 with one runnable task the closed form reaches 1.05 only at `t = ln(1.02 / 0.05) * 60 s = 181 s` and never reaches 1.0; the last snapshot of each dispatch is at `t = 75 s` (derived from the snapshots' `at` fields). D1's two artifacts started at 0.66 and 0.59 and ended at 0.83 and 0.79, still rising toward 1.
+
+**`foreign_busy_cpus == 0`.** The figure is recorded on a 0.01 grid from three roundings, so its rounding error alone reaches 0.015, and by §A5.1 it includes the driver's and the watcher's own CPU time. An exact zero is one grid value inside a band the instrument cannot narrow. What the remainder consists of on this host is unmeasured: the artifact carries no attribution.
+
+**Recorded values** (observational; committed artifacts on the reference host, 12th Gen Intel(R) Core(TM) i9-12900F, 24 threads; the counter artifacts are workload: example_perf_point_lookup):
+
+| Artifact (`results/`) | Commit | Windows | `load1`, all snapshots | `foreign_busy_cpus_since_prev` | A4 met |
+|---|---|---|---|---|---|
+| `counters_prefix_scan_d1.json` | `c3e54ec2` | 2 | 0.66 to 0.83 | 0.01, 0.00 | no (foreign) |
+| `counters_prefix_scan_d1_stalls.json` | `c3e54ec2` | 2 | 0.59 to 0.79 | 0.01, 0.00 | no (foreign) |
+| `counters_prefix_scan_d2_4k_run1.json` | `7243adab` | 2 | 1.52 to 1.93 | 0.02, 0.02 | no (both) |
+| `counters_prefix_scan_d2_2m_run1.json` | `7243adab` | 2 | 1.26 to 1.47 | 0.02, 0.02 | no (both) |
+| `counters_prefix_scan_d2_4k_run2.json` | `052b0a2a` | 2 | 1.52 to 2.02 | 0.02, 0.01 | no (both) |
+| `counters_prefix_scan_d2_2m_run2.json` | `052b0a2a` | 2 | 1.29 to 1.52 | 0.02, 0.01 | no (both) |
+| `baseline_*.json` (six files, one shared load series) | `6000b4a1` | 18 | 1.00 to 2.04 | 0.00 to 0.03 | no (both) |
+
+No committed artifact of this suite meets A4, D1's included. Other suites' artifacts on the same host record the same fields, mostly over multi-threaded cells, where the remainder ranges from −4.87 (`docs/benchmarks/masstree_comparison/results/`) to 16.9 (`docs/benchmarks/concurrency/results/`). Those are differences of a tick-sampled clock and an exact one over many threads; they are not comparable to a one-thread window and are not used here.
+
+Two further dispatches ran at `d2843607` and neither artifact is committed. Run `38153339742` concluded `success`; its log records the guard's start gate as quiet (foreign 0.02, on the pinned CPUs 0.03) and its in-run record as 60 samples, worst foreign 0.15 and worst on the pinned CPUs 0.11. Run `38157345006` concluded `failure`: the guard voided it on two samples, with on-pin foreign load 0.389 and 0.998 against the 0.25 boundary. The snapshot readings of `38153339742` were not read for this errata.
+
+### A5.3 The replacement condition
+
+A dispatch is **admissible** when all three parts hold on **both** of its artifacts, the 2 MiB one the clauses read and the 4 KiB control. Judging the control too is the stricter reading: the two invocations share one job and one host state.
+
+| Part | Quantity | Sampled | Condition |
+|---|---|---|---|
+| H0 | The host guard's verdicts (`bench_host_guard.py check` and `summarize`), as recorded in each artifact's `provenance` (§A5.7) | `check`: before any build. `watch`: every window of the job, from CPUs outside the pin | The start gate was quiet, the in-run record is complete, and no in-run window crossed a void boundary. Constants in §A5.6. |
+| H1 | `foreign_busy_cpus_since_prev` of each artifact | Each of its two cell windows (snapshots 2 and 3), so each arm's cell is covered whole: four windows per dispatch | A number, and `-0.02 <= f <= 0.06` core-equivalents in every window. |
+| H2 | `load1` of each artifact | All three of its snapshots | Each at most `8.0` (half the host's 16 physical cores), and within an artifact the largest minus the smallest at most `2.0`. |
+
+- H0 is `AGENTS.md` §8.17's void rule as the workflow already enforces it: in any one window, a non-target process at 100% of a CPU, foreign load of 1.0 core-equivalent, or of 0.25 on the pinned CPUs.
+- H1 is the condition on the non-lagging busy-CPU delta. "Foreign" in H1 is the snapshot's definition (§A5.1): all 24 logical CPUs, the driver's reaped children subtracted and nothing else. It therefore bounds foreign load on the pinned CPUs from above, up to the instrument's error.
+- H2 is §8.17's load-average floor and nothing more. `load1 <= 1.0` is withdrawn: by §A5.2 it reads the harness. No settle period is registered, because no part of the condition compares a load average with a level that an earlier job could still be decaying from.
+- A reading of `None`, a missing snapshot, a snapshot count other than three, or an artifact without the guard's record leaves the condition not evaluable, which is not met.
+- The start gate is the guard's existing check of measured CPU (three consecutive quiet windows). No rule on which processes are present is registered; an operator's look for known resident workloads before dispatching is a courtesy outside this registration and decides nothing.
+
+**Void rule.** A dispatch that ran its benchmark and is not admissible is `VOID`. A job the start gate refused measured nothing: it is disclosed, and it is neither a dispatch nor a void. Its clauses are not evaluated, its counts are not published, and the record names the run and the reading that voided it (`AGENTS.md` §8.17, §8.1). Admissibility is decided from H0, H1, H2 and §3.4.2's huge-page precondition alone, before any clause is read.
+
+### A5.4 Where the H1 bounds come from
+
+**Upper bound, 0.06.** The principle: foreign load must be too small to carry, by itself, a result that D2c's falsifier describes over D2c's bound. The falsifier reads "paging alone resolved the majority of the cycle gap", so the nearest such result is a surviving gap of half D1's: `85.9445 / 2 = 42.9722` cycles per entry. The registered bound is 52.50, a distance of `9.5278`.
+
+The worst case assumed is a hypothesis, unmeasured: every foreign CPU-second lands on the generator arm alone, and while it runs that arm's cycles per entry at most double (`slowdown = 2`, one foreign thread sharing the workload's physical core). A cell-mean foreign load `f` then inflates the generator-minus-sorted difference by at most `f * (2 - 1) * 158.6335` cycles per entry, with 158.6335 the generator arm's D1 figure from `counters_prefix_scan_d1_stalls.json`. Requiring that to stay below 9.5278:
+
+`f < 9.5278 / 158.6335 = 0.06006`, rounded down to the snapshot's 0.01 grid: `0.06`.
+
+`foreign_load_ceiling` and `a5_host_bounds` in `scripts/patricia_d2_bounds.py` compute it and `test_a5_host_bounds` pins it. Every input is a D1 figure or a registered bound; no D2 reading enters.
+
+What this does and does not carry:
+- The bound is only as good as `slowdown`. At 3 the same arithmetic gives 0.03, and at 4 it gives 0.02. No injected-load measurement of it exists on this host; the experiment meant to set the guard's on-pin boundary was inconclusive (`scripts/bench_provenance.py:129-135`).
+- It is derived for D2c. Under the same assumption D2a is moved toward failing, not passing. For D2b no bound on what foreign load does to an L3-miss difference is derived here: D2b's protection is H0 and H1 as they stand, and its sensitivity to foreign load is unmeasured.
+- The D2 readings in §A5.2 (0.01 to 0.02) were known when this principle was chosen. The value is not a function of them, but the choice of principle was not blind. The bound is registered with that stated. The alternative that needs no principle chosen after the data is H0 alone, whose constants were committed on 2026-09-27 (`8cda40fd4`), before A4. H0 alone admits 0.25 core-equivalents on the pinned CPUs in every window, which under the same worst case is `0.25 * 158.6335 = 39.7` cycles per entry and exceeds the 9.5278 distance. That is why H1 is registered in addition.
+- Reachability is observational: all 30 windows in §A5.2's table read at most 0.03.
+
+**Lower bound, −0.02.** The figure is a difference of two clocks and can read negative. Three roundings of half a grid step each give `3 * 0.005 = 0.015`, which the grid records as 0.02 (`foreign_reading_floor`). A reading below −0.02 is the two operands disagreeing by more than rounding, and a negative remainder can hide a foreign task of the same size (`scripts/bench_host_guard.py:34-37`).
+
+**Resolution.** With `USER_HZ = 100`, one jiffy on one CPU over the shortest committed D2 cell window (`15.779 s`) is `1 / (100 * 15.779) = 0.0006` core-equivalents. The 0.01 rounding grid is the coarser limit, and the 0.06 bound is six grid steps.
+
+### A5.5 What this change costs, and the verdict rule
+
+Changing a registered condition after data was seen is a post hoc change (`AGENTS.md` §8.19). Its price is paid in full:
+
+- Every D2 dispatch made so far keeps its A4 label and is **not re-read under A5**. Runs `37261900492` and `37476779161` stay `INTERMEDIATE` as recorded in the README. Run `38153339742` was dispatched under A4 and run `38157345006` was voided by the guard; their artifacts are not committed retroactively.
+- The verdict comes only from **two new, independent dispatches** of `patricia_d2_paging`.
+  - **Commit rule.** Both run at one commit `S` on `main`, given as a full 40-character SHA in the workflow's `ref` input. `S` contains this errata and the evaluator change of §A5.7. All four artifacts' `provenance.commit` equal `S`.
+  - **Independence.** Each is its own workflow run with its own build, start gate and processes. The second is dispatched after the first has concluded.
+  - **PASS** when both dispatches are admissible (§A5.3) and each meets D2a, D2b and D2c on its own BCa bounds. Nothing is pooled across the two.
+  - **FAIL** when an admissible dispatch does not meet a clause. That is final: an admissible dispatch is never replaced.
+  - **VOID** dispatches are replaced at the same `S`, and each is disclosed. At most `3` replacement dispatches are made in total across the pair. A further void after the third replacement ends D2 as `INTERMEDIATE`, and the record says that the cap was reached and which readings voided each dispatch.
+- **Direction** (`docs/BENCHMARKING.md` rule 18). A statement that a counter's generator-minus-sorted difference moved between 4 KiB and 2 MiB pages is made only for a counter that moved the same way in both dispatches, and levels are quoted as two values.
+- Unchanged from A4: 10 runs per cell, 200 passes, 49,934,000 entries per run, BCa 95% with 2,000 resamples, the three bounds 0.0410, 0.1416 and 52.50, and the void conditions `evaluate_d2` already applies.
+
+### A5.6 Constants
+
+Values as committed at `ed59e8838`. None is changed by this errata.
+
+| Constant | Value | Where |
+|---|---|---|
+| H1 upper bound | `0.06` core-equivalents | `a5_host_bounds()["foreign_cell_max"]` |
+| H1 lower bound | `-0.02` core-equivalents | `a5_host_bounds()["foreign_cell_min"]` |
+| Assumed worst-case slowdown | `2.0` | `foreign_load_ceiling(slowdown=...)` |
+| H1 windows per artifact | `2`, one per arm cell | `scripts/perf_counters.py:1169`, `:1212` |
+| H2 level, spread | `8.0`, `2.0` | `a5_host_bounds()["load1_max"]`, `["load1_spread_max"]`; `AGENTS.md` §8.17 |
+| Load-average time constant | `60.0 s` | `LOAD1_TAU_S` |
+| Snapshot rounding grid | `0.01` | `FOREIGN_GRID`; `scripts/bench_provenance.py:213`, `:247`, `:258` |
+| Shortest window a busy figure is computed over | `MIN_WINDOW_S = 0.1 s` | `scripts/bench_provenance.py:113` |
+| Start gate: foreign, on-pin, one process | `0.5`, `0.1`, `50 %` | `START_FOREIGN_MAX`, `START_ON_PIN_MAX`, `START_PROCESS_MAX_PCT` (`scripts/bench_provenance.py:138-140`) |
+| Start gate: window, consecutive quiet windows | `START_WINDOW_S = 1.0 s`, `3` | `scripts/bench_provenance.py:142-143` |
+| Start gate: longest wait for quiet | `EXPANSE_BENCH_QUIET_WAIT = 300 s` | `.github/workflows/bench_baremetal.yml:753` |
+| In-run void: foreign, on-pin, one process | `1.0`, `0.25`, `100 %` | `RUN_FOREIGN_VOID`, `RUN_ON_PIN_VOID`, `RUN_PROCESS_VOID_PCT` (`scripts/bench_provenance.py:127-135`) |
+| In-run sampling interval, longest gap | `WATCH_INTERVAL_S = 2.0 s`, `3.0` intervals | `scripts/bench_provenance.py:145`; `scripts/bench_host_guard.py:767` |
+| Replacement dispatches across the pair | at most `3` | `a5_host_bounds()["void_replacements_max"]` |
+| Artifacts judged per dispatch | `2` (2 MiB and 4 KiB), four H1 windows | §A5.3 |
+| Settle period | none registered | §A5.3, H2 |
+
+### A5.7 Required before dispatch (not in this change)
+
+1. **Evaluator.** `scripts/patricia_d2_bounds.py` (`host_precondition`, `evaluate_d2`) applies A4. It must apply §A5.3 to both artifacts of a dispatch and return `VOID` when the condition is unmet, and decide the pair by §A5.5, the cap included. A4's check stays available by name only so that the README's `INTERMEDIATE` record of the committed artifacts remains reproducible.
+2. **H0 in the artifact.** The guard's verdict is in the run log only, and the artifact is uploaded whether or not the job failed. The workflow must write the guard's record into each artifact's `provenance` after `summarize` in `.github/workflows/bench_baremetal.yml`: start-gate verdict, sample count, worst foreign and on-pin readings, the number of windows over a boundary, and whether the record is complete. An artifact without it is not evaluable under A5.
+3. **Start gating is already in code.** `check` refuses to start until three consecutive windows are quiet and gives up after `EXPANSE_BENCH_QUIET_WAIT`. It judges measured CPU, never the presence of a process, so a resident but idle workload passes it and can become busy mid-run: run `38157345006` passed the gate and was voided later.
