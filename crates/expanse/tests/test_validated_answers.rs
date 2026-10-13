@@ -22,6 +22,11 @@
 //!   whose registered mutation cannot return a wrong key on a shared set,
 //!   `sync::ordered_read_tests::set_ordered_read_past_a_removed_bitmap_branch_digit_restarts`).
 //!
+//! - outside test modules, the set form of the ordered walk (`MAP = false`)
+//!   is instantiated in `set_ordered_walk!` (`src/sync.rs`) and nowhere else,
+//!   and the map form (`MAP = true`) at the map's two wrappers and in
+//!   `sync_nav::seek_submap` and nowhere else (#1194, G36.7).
+//!
 //! The scanners strip `//` comments before matching, and each clause was
 //! shown to fail on its own when the code it guards was broken (PR body of
 //! the change that added this file).
@@ -589,6 +594,396 @@ fn sample_order_scanners_catch_each_fault() {
     let arms = branch_b_arms(src);
     assert_eq!(arms.len(), 1);
     assert_eq!(arms[0].len(), 4);
+}
+
+// ---- Where each flavour of the ordered walk is instantiated (#1194, G36.7) ----
+
+/// `src` in bare form (see [`bare`]) without the bodies of its test modules:
+/// every `mod` item under a `#[cfg(...)]` that names `test` or `loom`, from
+/// its opening line to its closing brace. Line structure is kept.
+fn without_test_modules(src: &str) -> String {
+    let bare_src = bare(src);
+    let lines: Vec<&str> = bare_src.lines().collect();
+    let is_mod = |l: &str| {
+        let t = l.trim();
+        t.ends_with('{')
+            && ["mod ", "pub mod ", "pub(crate) mod ", "pub(super) mod "]
+                .iter()
+                .any(|p| t.starts_with(p))
+    };
+    let gated = |i: usize| {
+        lines[..i]
+            .iter()
+            .rev()
+            .take_while(|l| l.trim().starts_with("#["))
+            .any(|l| l.contains("cfg(") && (l.contains("test") || l.contains("loom")))
+    };
+    let mut out = String::with_capacity(bare_src.len());
+    let mut i = 0;
+    while i < lines.len() {
+        if is_mod(lines[i]) && gated(i) {
+            let mut depth = 0i64;
+            loop {
+                depth += lines[i].matches('{').count() as i64;
+                depth -= lines[i].matches('}').count() as i64;
+                out.push('\n');
+                i += 1;
+                if depth <= 0 || i >= lines.len() {
+                    break;
+                }
+            }
+        } else {
+            out.push_str(lines[i]);
+            out.push('\n');
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The line range of an item of `lines`: from the first line containing
+/// `opening` to the first later line that is a bare `}` at column 0.
+fn item_range(lines: &[&str], opening: &str) -> Option<(usize, usize)> {
+    let start = lines.iter().position(|l| l.contains(opening))?;
+    let end = (start + 1..lines.len()).find(|&i| lines[i] == "}")?;
+    Some((start, end))
+}
+
+/// The lines of `lines` on which `call`, written with the const argument
+/// `flavour` (`true` or `false`, bare or in braces), occurs. Whitespace is
+/// ignored, so a spelling rustfmt would rewrite is still seen.
+fn flavour_sites(lines: &[&str], call: &str, flavour: &str) -> Vec<usize> {
+    let pats = [
+        format!("{call}::<{flavour}>"),
+        format!("{call}::<{flavour},"),
+        format!("{call}::<{{{flavour}}}>"),
+        format!("{call}::<{{{flavour}}},"),
+    ];
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| {
+            let tight: String = l.chars().filter(|c| !c.is_whitespace()).collect();
+            pats.iter().any(|p| tight.contains(p.as_str()))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// The two entry points of the ordered walk, and the functions under them
+/// that take the flavour.
+const WALK_ENTRIES: [&str; 2] = ["next_validated", "prev_validated"];
+const WALK_INNER: [&str; 4] = ["next_in", "prev_in", "root_leaf", "bitmap_leaf"];
+
+/// G36.7, clause 1: outside test modules, `next_validated::<false>` and
+/// `prev_validated::<false>` each occur once, inside `set_ordered_walk!`,
+/// and no function under them is named with a literal `false`. `others` are
+/// the remaining source files, by name.
+fn set_form_faults(sync_src: &str, nav_src: &str, others: &[(String, String)]) -> Vec<String> {
+    let sync = without_test_modules(sync_src);
+    let sync: Vec<&str> = sync.lines().collect();
+    let mut bad = Vec::new();
+    let Some((lo, hi)) = item_range(&sync, "macro_rules! set_ordered_walk {") else {
+        return vec!["set form: `set_ordered_walk!` not found in sync.rs".to_string()];
+    };
+    for call in WALK_ENTRIES {
+        let sites = flavour_sites(&sync, call, "false");
+        if sites.len() != 1 {
+            bad.push(format!(
+                "set form: expected `{call}::<false>` once in sync.rs outside tests, found {}",
+                sites.len()
+            ));
+        }
+        for at in sites {
+            if !(lo..=hi).contains(&at) {
+                bad.push(format!(
+                    "set form: `{call}::<false>` outside `set_ordered_walk!` (sync.rs line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    let nav = without_test_modules(nav_src);
+    let nav: Vec<&str> = nav.lines().collect();
+    let mut elsewhere: Vec<(&str, Vec<&str>)> = vec![("sync_nav.rs", nav)];
+    let stripped: Vec<(String, String)> = others
+        .iter()
+        .map(|(n, src)| (n.clone(), without_test_modules(src)))
+        .collect();
+    for (n, src) in &stripped {
+        elsewhere.push((n.as_str(), src.lines().collect()));
+    }
+    for (name, lines) in &elsewhere {
+        for call in WALK_ENTRIES.iter().chain(&WALK_INNER) {
+            for at in flavour_sites(lines, call, "false") {
+                bad.push(format!(
+                    "set form: `{call}::<false>` in {name} (line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    for call in WALK_INNER {
+        for at in flavour_sites(&sync, call, "false") {
+            bad.push(format!(
+                "set form: `{call}::<false>` in sync.rs (line {})",
+                at + 1
+            ));
+        }
+    }
+    bad
+}
+
+/// G36.7, clause 2: outside test modules, `next_validated::<true>` occurs
+/// once, in `map_next_with`, and `prev_validated::<true>` once, in
+/// `map_prev_with`; a function under them is named with a literal `true` in
+/// `sync_nav::seek_submap` only.
+fn map_form_faults(sync_src: &str, nav_src: &str, others: &[(String, String)]) -> Vec<String> {
+    let sync = without_test_modules(sync_src);
+    let sync: Vec<&str> = sync.lines().collect();
+    let mut bad = Vec::new();
+    for (call, home) in WALK_ENTRIES
+        .iter()
+        .zip(["fn map_next_with(", "fn map_prev_with("])
+    {
+        let sites = flavour_sites(&sync, call, "true");
+        if sites.len() != 1 {
+            bad.push(format!(
+                "map form: expected `{call}::<true>` once in sync.rs outside tests, found {}",
+                sites.len()
+            ));
+        }
+        let range = item_range(&sync, home);
+        for at in sites {
+            if !range.is_some_and(|(lo, hi)| (lo..=hi).contains(&at)) {
+                bad.push(format!(
+                    "map form: `{call}::<true>` outside `{home}..)` (sync.rs line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    for call in WALK_INNER {
+        for at in flavour_sites(&sync, call, "true") {
+            bad.push(format!(
+                "map form: `{call}::<true>` in sync.rs (line {})",
+                at + 1
+            ));
+        }
+    }
+    let nav = without_test_modules(nav_src);
+    let nav: Vec<&str> = nav.lines().collect();
+    let seek = item_range(&nav, "unsafe fn seek_submap<");
+    if seek.is_none() {
+        bad.push("map form: `seek_submap` not found in sync_nav.rs".to_string());
+    }
+    for call in WALK_ENTRIES.iter().chain(&WALK_INNER) {
+        for at in flavour_sites(&nav, call, "true") {
+            if !seek.is_some_and(|(lo, hi)| (lo..=hi).contains(&at)) {
+                bad.push(format!(
+                    "map form: `{call}::<true>` outside `seek_submap` (sync_nav.rs line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    for (name, src) in others {
+        let src = without_test_modules(src);
+        let lines: Vec<&str> = src.lines().collect();
+        for call in WALK_ENTRIES.iter().chain(&WALK_INNER) {
+            for at in flavour_sites(&lines, call, "true") {
+                bad.push(format!(
+                    "map form: `{call}::<true>` in {name} (line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    bad
+}
+
+/// Every source file of the crate but `sync.rs` and `sync_nav.rs`, read
+/// from disk so a file added later is scanned without being listed here.
+fn other_sources() -> Vec<(String, String)> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).expect("the crate's src directory") {
+        let path = entry.expect("a directory entry").path();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("a UTF-8 file name")
+            .to_string();
+        if name.ends_with(".rs") && name != "sync.rs" && name != "sync_nav.rs" {
+            let src = std::fs::read_to_string(&path).expect("a readable source file");
+            out.push((name, src));
+        }
+    }
+    assert!(
+        out.len() >= 30,
+        "expected the crate's other source files, found {}",
+        out.len()
+    );
+    out
+}
+
+/// #1194, G36.7: the set form of the ordered walk is instantiated in one
+/// place, and the map form where it was.
+#[test]
+fn ordered_walk_flavours_are_instantiated_where_registered() {
+    let others = other_sources();
+    let bad = set_form_faults(SYNC, SYNC_NAV, &others);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+    let bad = map_form_faults(SYNC, SYNC_NAV, &others);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// The two clauses of G36.7 against edited copies of the real source, held
+/// in memory: each clause turns red under its own mutation, and under the
+/// two mutations the gate names (the set macro's constant flipped; a
+/// `::<false>` on a map path), which break both clauses at once.
+#[test]
+fn flavour_scanner_turns_red_on_the_real_source() {
+    const SET_MACRO: &str = "macro_rules! set_ordered_walk {";
+    const SET_NEXT: &str = "crate::sync_nav::next_validated::<false>(root, key, ver, snap)";
+    const MAP_NEXT: &str = "crate::sync_nav::next_validated::<true>(root, key, ver, snap)";
+    const MAP_FN: &str = "fn map_next_with(";
+    let none: Vec<(String, String)> = Vec::new();
+    let set = |sync: &str, nav: &str| set_form_faults(sync, nav, &none);
+    let map = |sync: &str, nav: &str| map_form_faults(sync, nav, &none);
+    assert!(set(SYNC, SYNC_NAV).is_empty());
+    assert!(map(SYNC, SYNC_NAV).is_empty());
+
+    // Clause 1 alone: a second set-form call, outside the macro, in a
+    // non-test function. The map form is untouched.
+    let extra = format!("fn stray() {{ let _ = {SET_NEXT}; }}\n\n{MAP_FN}");
+    let src = edited_after(
+        SYNC,
+        "/// The smallest entry with key `>= key`",
+        MAP_FN,
+        &extra,
+    );
+    let faults = set(&src, SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<false>` once"),
+        "{faults:?}"
+    );
+    assert!(
+        faults[1].contains("outside `set_ordered_walk!`"),
+        "{faults:?}"
+    );
+    assert!(map(&src, SYNC_NAV).is_empty());
+    // The same call in a test module, in a comment or in a string is not a site.
+    let in_tests =
+        format!("#[cfg(test)]\nmod extra_tests {{\n    fn f() {{ let _ = {SET_NEXT}; }}\n}}\n");
+    for inert in [
+        in_tests,
+        format!("// {SET_NEXT}\n"),
+        format!("const _TEXT: &str = \"{SET_NEXT}\";\n"),
+    ] {
+        let src = format!("{SYNC}\n{inert}");
+        assert!(set(&src, SYNC_NAV).is_empty(), "{inert}");
+        assert!(map(&src, SYNC_NAV).is_empty(), "{inert}");
+    }
+    // Clause 1 alone, through an inner function of the walk.
+    let src = edited_after(
+        SYNC_NAV,
+        "pub(crate) unsafe fn next_validated<",
+        "root_leaf::<MAP>",
+        "root_leaf::<false>",
+    );
+    let faults = set(SYNC, &src);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("`root_leaf::<false>` in sync_nav.rs"),
+        "{faults:?}"
+    );
+    assert!(map(SYNC, &src).is_empty());
+
+    // Clause 2 alone: a second map-form call outside the map's wrappers.
+    let extra = format!("fn stray() {{ let _ = {MAP_NEXT}; }}\n\n{MAP_FN}");
+    let src = edited_after(
+        SYNC,
+        "/// The smallest entry with key `>= key`",
+        MAP_FN,
+        &extra,
+    );
+    let faults = map(&src, SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<true>` once"),
+        "{faults:?}"
+    );
+    assert!(
+        faults[1].contains("outside `fn map_next_with(..)`"),
+        "{faults:?}"
+    );
+    assert!(set(&src, SYNC_NAV).is_empty());
+    // Clause 2 alone, in `sync_nav`: a literal `true` outside `seek_submap`.
+    let src = edited_after(
+        SYNC_NAV,
+        "pub(crate) unsafe fn prev_validated<",
+        "root_leaf::<MAP>",
+        "root_leaf::<true>",
+    );
+    let faults = map(SYNC, &src);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("`root_leaf::<true>` outside `seek_submap`"),
+        "{faults:?}"
+    );
+    assert!(set(SYNC, &src).is_empty());
+    // Clause 2 alone, in a third file.
+    let third = vec![(
+        "strmap.rs".to_string(),
+        format!("fn f() {{ let _ = {MAP_NEXT}; }}\n"),
+    )];
+    let faults = map_form_faults(SYNC, SYNC_NAV, &third);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("in strmap.rs"), "{faults:?}");
+    assert!(set_form_faults(SYNC, SYNC_NAV, &third).is_empty());
+
+    // The gate's first mutation: the set macro's constant flipped. The set
+    // form is gone from its macro, and a map-form call sits outside the
+    // map's wrappers.
+    let src = edited_after(
+        SYNC,
+        SET_MACRO,
+        "next_validated::<false>",
+        "next_validated::<true>",
+    );
+    let faults = set(&src, SYNC_NAV);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<false>` once"),
+        "{faults:?}"
+    );
+    let faults = map(&src, SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[1].contains("outside `fn map_next_with(..)`"),
+        "{faults:?}"
+    );
+    // The gate's second mutation: a `::<false>` on a map path.
+    let src = edited_after(
+        SYNC,
+        MAP_FN,
+        "next_validated::<true>",
+        "next_validated::<false>",
+    );
+    let faults = set(&src, SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[1].contains("outside `set_ordered_walk!`"),
+        "{faults:?}"
+    );
+    let faults = map(&src, SYNC_NAV);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<true>` once"),
+        "{faults:?}"
+    );
 }
 
 /// The scanners on synthetic input: each clause turns red on its own.
