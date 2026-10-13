@@ -188,6 +188,8 @@ jobs:
               - 'tests/test_perf_report.py'
               - 'tests/test_sync32_step.py'
               - '.github/workflows/**'
+              # The hashed tool requirements the lint and docs jobs install.
+              - '.github/requirements/**'
               - '.github/bench-suites.json'
               - '.github/superseded-figures.json'
               # `lint` validates the UB-site manifest against `sync::miri_ub_sites`
@@ -278,6 +280,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/python.yml'
+              - '.github/requirements/python-bindings.*'
             node:
               - 'crates/expanse-node/**'
               - 'crates/expanse/**'
@@ -770,7 +773,7 @@ jobs:
       # Pinned so a new ruff release cannot turn a green branch red on its own.
       - name: Python lint (ruff, pyflakes rules)
         run: |
-          python3 -m pip install --quiet --disable-pip-version-check 'ruff==0.16.7'
+          python3 -m pip install --quiet --disable-pip-version-check --require-hashes -r .github/requirements/docs-lint.txt
           python3 -m ruff check .
 
       - name: Generated benchmark tables match the suite READMEs
@@ -900,7 +903,7 @@ jobs:
       - name: Validate the citation record (CITATION.cff / .zenodo.json)
         shell: bash
         run: |
-          python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          python3 -m pip install --quiet --disable-pip-version-check --require-hashes -r .github/requirements/docs-lint.txt
           python3 scripts/validate_citation.py
 
   # The one decision point for whether the slow lanes run at all. Every job
@@ -2531,8 +2534,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install "maturin>=1.5,<2.0" pytest
+          python -m pip install --require-hashes -r .github/requirements/python-bindings.txt
 
       - name: Build and install expanse-trie
         run: pip install .
@@ -3429,7 +3431,7 @@ jobs:
       # of the runtime version, and results/baseline_wasm_fuel.json records
       # the version it was measured with.
       - name: Install wasmtime (pinned to the baseline's version)
-        run: python3 -m pip install --quiet wasmtime==48.0.0
+        run: python3 -m pip install --quiet --require-hashes -r .github/requirements/wasm-fuel.txt
 
       - name: Driver self-test (fail-then-pass pins of the gate policy)
         run: python3 scripts/wasm_fuel.py --self-test

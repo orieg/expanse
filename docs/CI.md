@@ -358,6 +358,27 @@ for action in "actions/checkout" "actions/setup-node" "actions/setup-python" "ac
 done
 ```
 
+### 12.4 Hashed Python requirements
+Every `pip install` of a tool in a workflow reads a requirements file under `.github/requirements/` and passes `--require-hashes`, so a job installs the exact files recorded in the repository and a substituted release fails the install. `scripts/check_release_workflow.py` fails any `pip install` in a workflow or composite action that lacks the flag (`docs-lint` job). The one exception is `pip install .` of the repository itself: `--require-hashes` rejects a local path, and its build requirements come from `pyproject.toml`.
+
+| File | Used by | Compiled on |
+|---|---|---|
+| `docs-lint.txt` | `docs-lint` (ruff, PyYAML) | Python 3.12 |
+| `python-bindings.txt` | `python.yml`, `ci.yml` `test-python`, `nightly.yml`, `bench_baremetal.yml` (maturin, pytest) | Python 3.8 |
+| `wasm-fuel.txt` | `ci.yml` `wasm-fuel` (wasmtime; `scripts/wasm_fuel.py --self-test` compares its pin with the committed baseline) | Python 3.12 |
+
+Each `.txt` is generated from the `.in` beside it, which carries the top-level pins. `python-bindings.txt` is compiled on the oldest Python in the `python.yml` matrix because its dependency set is the widest (`exceptiongroup` and `tomli` are only needed below 3.11), and its `.in` pins pytest to the last series that supports that Python. A compile on a newer Python resolves a different pytest, so recompile it with 3.8.
+
+To refresh after changing a pin or taking an update:
+```bash
+python3.12 -m venv /tmp/pt312 && /tmp/pt312/bin/pip install pip-tools
+python3.8  -m venv /tmp/pt38  && /tmp/pt38/bin/pip install pip-tools
+/tmp/pt312/bin/pip-compile --generate-hashes --allow-unsafe --strip-extras --output-file=.github/requirements/docs-lint.txt .github/requirements/docs-lint.in
+/tmp/pt312/bin/pip-compile --generate-hashes --allow-unsafe --strip-extras --output-file=.github/requirements/wasm-fuel.txt .github/requirements/wasm-fuel.in
+/tmp/pt38/bin/pip-compile  --generate-hashes --allow-unsafe --strip-extras --output-file=.github/requirements/python-bindings.txt .github/requirements/python-bindings.in
+```
+Run the commands from the repository root so the paths in the generated headers stay relative. A `--hash` records every file of the pinned version, so wheels for each OS and Python are covered; the dependency set is what differs by platform, which is why `colorama` (Windows-only dependency of pytest) is listed unconditionally in `python-bindings.in`: `pip-compile` drops a requirement whose marker is false on the compiling machine. Moving the `wasmtime` pin moves `results/baseline_wasm_fuel.json` with it. Dependabot (`pip` ecosystem on this directory) opens grouped updates against the `.in` files.
+
 ---
 
 ## Appendix A — Org-Wide CI/CD Standards & New-Project Checklist
