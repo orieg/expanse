@@ -15,6 +15,13 @@
 //!   the retained read set and the tree version, and every branch version the
 //!   search samples goes through `ReadSet::sample`, which retains it.
 //!
+//! - in `Shared::optimistic_read` (`src/sync.rs`), the tree version is sampled
+//!   once, before the root is loaded (#1194, G36.4);
+//! - in the two `BranchB` arms of `src/sync_nav.rs`, the branch's version is
+//!   sampled once, before any load from the branch (#1194, G36.4: the row
+//!   whose registered mutation cannot return a wrong key on a shared set,
+//!   `sync::ordered_read_tests::set_ordered_read_past_a_removed_bitmap_branch_digit_restarts`).
+//!
 //! The scanners strip `//` comments before matching, and each clause was
 //! shown to fail on its own when the code it guards was broken (PR body of
 //! the change that added this file).
@@ -192,6 +199,194 @@ fn ordered_read_answers_are_validated() {
         "sync_nav.rs samples a branch version outside ReadSet::sample, so the final validation \
          would not see it"
     );
+}
+
+/// The body of `Shared::optimistic_read`: from its signature to the first
+/// line that closes a method (`    }`).
+fn optimistic_read_body(src: &str) -> Vec<&str> {
+    let lines: Vec<&str> = src.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| code(l).trim() == "fn optimistic_read<R>(")
+        .expect("Shared::optimistic_read");
+    let end = (start + 1..lines.len())
+        .find(|&i| lines[i] == "    }")
+        .expect("end of Shared::optimistic_read");
+    lines[start..=end].to_vec()
+}
+
+/// `lines` without the statements a `#[cfg(test)]` attribute gates: the
+/// attribute's line and what follows it, up to the first line whose code
+/// ends a statement. The negative controls in the walk are such statements,
+/// and they load before the sample on purpose.
+fn without_test_statements<'a>(lines: &[&'a str]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut gated = false;
+    for &l in lines {
+        let c = code(l).trim();
+        if gated {
+            gated = !c.ends_with(';');
+            continue;
+        }
+        if c == "#[cfg(test)]" {
+            gated = true;
+            continue;
+        }
+        out.push(l);
+    }
+    out
+}
+
+/// What is wrong with the order of a version sample and the loads it
+/// covers, in `body`: there must be exactly one line matching `sample`, at
+/// least one matching a pattern of `loads`, and no such load above the
+/// sample.
+fn sample_order_faults(body: &[&str], sample: &str, loads: &[&str], name: &str) -> Vec<String> {
+    let at = |pats: &[&str]| -> Vec<usize> {
+        body.iter()
+            .enumerate()
+            .filter(|(_, l)| pats.iter().any(|p| code(l).contains(p)))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let (samples, loads) = (at(&[sample]), at(loads));
+    let mut bad = Vec::new();
+    if samples.len() != 1 {
+        bad.push(format!(
+            "{name}: expected exactly one `{sample}`, found {}",
+            samples.len()
+        ));
+    }
+    if loads.is_empty() {
+        bad.push(format!(
+            "{name}: no load found; the scanner's patterns no longer match"
+        ));
+    }
+    if let (Some(&s), Some(&l)) = (samples.first(), loads.first())
+        && l < s
+    {
+        bad.push(format!(
+            "{name}: `{}` comes before the version sample",
+            code(body[l]).trim()
+        ));
+    }
+    bad
+}
+
+/// How `Shared::optimistic_read` samples the tree version and loads the root.
+const TREE_SAMPLE: &str = "self.version().sample()";
+const ROOT_LOADS: &[&str] = &["self.published().load()", "root_of("];
+
+/// How a `BranchB` arm of `sync_nav` samples the branch and loads from it.
+const BRANCH_SAMPLE: &str = "rs.sample(vp)";
+const BRANCH_B_LOADS: &[&str] = &[
+    "(*node).level",
+    "shared_bitmap::",
+    "branch_b_child(",
+    "Edge::load_at",
+];
+
+/// The `BranchB` match arms of `src`: from each arm's first line to the line
+/// before the next arm at the same depth.
+fn branch_b_arms(src: &str) -> Vec<Vec<&str>> {
+    let lines: Vec<&str> = src.lines().collect();
+    let is_arm = |l: &str| l.starts_with("        EdgeTag::") && code(l).contains("=>");
+    (0..lines.len())
+        .filter(|&i| is_arm(lines[i]) && code(lines[i]).contains("EdgeType::BranchB)"))
+        .map(|i| {
+            let end = (i + 1..lines.len())
+                .find(|&j| is_arm(lines[j]) || lines[j] == "    }")
+                .expect("end of a BranchB arm");
+            lines[i..end].to_vec()
+        })
+        .collect()
+}
+
+/// #1194, G36.4, the root row: an optimistic read samples the tree version
+/// before it loads the root it then validates against that sample.
+#[test]
+fn optimistic_read_samples_the_tree_version_before_the_root() {
+    let body = optimistic_read_body(SYNC);
+    let bad = sample_order_faults(&body, TREE_SAMPLE, ROOT_LOADS, "optimistic_read");
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// #1194, G36.4, the `BranchB` row: both arms sample the branch's version
+/// before any load from the branch.
+#[test]
+fn bitmap_branch_arms_sample_before_they_load() {
+    let arms = branch_b_arms(SYNC_NAV);
+    assert_eq!(
+        arms.len(),
+        2,
+        "sync_nav.rs has one BranchB arm in next_in and one in prev_in"
+    );
+    let mut bad = Vec::new();
+    for (i, arm) in arms.iter().enumerate() {
+        let arm = without_test_statements(arm);
+        bad.extend(sample_order_faults(
+            &arm,
+            BRANCH_SAMPLE,
+            BRANCH_B_LOADS,
+            &format!("BranchB arm {i}"),
+        ));
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// The sample-order scanners on synthetic input: each clause turns red on
+/// its own, a comment does not count as code, and a `#[cfg(test)]`
+/// statement is not read as the walk's own load.
+#[test]
+fn sample_order_scanners_catch_each_fault() {
+    let good = [
+        "    let snap = self.version().sample();",
+        "    let root = self.published().load();",
+    ];
+    assert!(sample_order_faults(&good, TREE_SAMPLE, ROOT_LOADS, "x").is_empty());
+    // The root loaded first.
+    let swapped = [good[1], good[0]];
+    let bad = sample_order_faults(&swapped, TREE_SAMPLE, ROOT_LOADS, "x");
+    assert_eq!(bad.len(), 1, "{bad:?}");
+    assert!(bad[0].contains("comes before the version sample"));
+    // The sample commented out, or made twice.
+    let commented = ["    // let snap = self.version().sample();", good[1]];
+    let bad = sample_order_faults(&commented, TREE_SAMPLE, ROOT_LOADS, "x");
+    assert_eq!(bad.len(), 1, "{bad:?}");
+    assert!(bad[0].contains("expected exactly one"));
+    let twice = [good[0], good[1], good[0]];
+    let bad = sample_order_faults(&twice, TREE_SAMPLE, ROOT_LOADS, "x");
+    assert_eq!(bad.len(), 1, "{bad:?}");
+    assert!(bad[0].contains("expected exactly one"));
+    // No load the patterns recognise.
+    let no_load = [good[0], "    let root = self.fetch_root();"];
+    let bad = sample_order_faults(&no_load, TREE_SAMPLE, ROOT_LOADS, "x");
+    assert_eq!(bad.len(), 1, "{bad:?}");
+    assert!(bad[0].contains("no load found"));
+
+    // A `#[cfg(test)]` statement is dropped whole; the code after it stays.
+    let arm = [
+        "            #[cfg(test)]",
+        "            let early = switch()",
+        "                .then(|| unsafe { (*node).level });",
+        "            let nsnap = unsafe { rs.sample(vp)? };",
+        "            let bl = unsafe { (*node).level };",
+    ];
+    let kept = without_test_statements(&arm);
+    assert_eq!(kept, &arm[3..]);
+    assert!(sample_order_faults(&kept, BRANCH_SAMPLE, BRANCH_B_LOADS, "x").is_empty());
+    // The same early load without the attribute is a fault.
+    let ungated = without_test_statements(&arm[1..]);
+    assert_eq!(
+        sample_order_faults(&ungated, BRANCH_SAMPLE, BRANCH_B_LOADS, "x").len(),
+        1
+    );
+
+    // An arm is cut at the next arm, and only `BranchB` arms are taken.
+    let src = "        EdgeTag::Structural(EdgeType::BranchB) => {\n            a();\n        }\n\n        EdgeTag::Structural(EdgeType::BranchU) => {\n            b();\n        }\n    }\n";
+    let arms = branch_b_arms(src);
+    assert_eq!(arms.len(), 1);
+    assert_eq!(arms[0].len(), 4);
 }
 
 /// The scanners on synthetic input: each clause turns red on its own.

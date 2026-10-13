@@ -24350,6 +24350,12 @@ pub(crate) mod test_hooks {
         /// did not go through: the node is linked and empty until the
         /// exclusive prune that follows this site.
         StrPrunePending,
+        /// Inside the root-leaf binary search of `sync_nav`'s ordered walk,
+        /// after a key load (#1194).
+        OrderedRootLeafProbe,
+        /// `sync_nav`'s ordered walk copied the edge of a set bitmap leaf and
+        /// has not yet loaded a bitmap word (#1194).
+        OrderedSetBitmapLeaf,
     }
 
     /// The negative controls of the string map's validated ordered walk
@@ -24531,7 +24537,36 @@ pub(crate) mod test_hooks {
     }
 
     thread_local! {
+        static DIGIT_BEFORE_SAMPLE: Cell<bool> = const { Cell::new(false) };
+        static CHILD_BEFORE_SAMPLE: Cell<bool> = const { Cell::new(false) };
         static VISITS: Cell<Vec<crate::sync_nav::Visit>> = const { Cell::new(Vec::new()) };
+    }
+
+    /// The negative control for the bitmap-branch sample order (#1194,
+    /// G36.4): while set, this thread's `sync_nav` walks take a `BranchB`'s
+    /// first digit before sampling its version, and load that digit's child
+    /// after it.
+    pub(crate) fn set_digit_before_sample(on: bool) {
+        DIGIT_BEFORE_SAMPLE.with(|c| c.set(on));
+    }
+
+    /// Whether [`set_digit_before_sample`] is on for this thread.
+    #[inline(always)]
+    pub(crate) fn takes_digit_before_sample() -> bool {
+        DIGIT_BEFORE_SAMPLE.with(Cell::get)
+    }
+
+    /// The negative control for the uncompressed-branch sample order (#1194,
+    /// G36.4): while set, this thread's `sync_nav` walks load the probe
+    /// digit's child edge of a `BranchU` before sampling its version.
+    pub(crate) fn set_child_before_sample(on: bool) {
+        CHILD_BEFORE_SAMPLE.with(|c| c.set(on));
+    }
+
+    /// Whether [`set_child_before_sample`] is on for this thread.
+    #[inline(always)]
+    pub(crate) fn loads_child_before_sample() -> bool {
+        CHILD_BEFORE_SAMPLE.with(Cell::get)
     }
 
     /// The most visits one thread's log keeps: above what the largest test
@@ -26481,9 +26516,8 @@ mod ordered_read_tests {
     /// The version fields of P, S and C. Panics unless the fixture has the
     /// shape the interleaving needs (AGENTS.md §5 negative-control
     /// discrimination).
-    fn backtrack_shape(map: &SyncExpanseMap) -> [*const u32; 3] {
-        // SAFETY: no writer is running; the snapshot is read for its shape.
-        let RootSnapshot::Tree { top } = (unsafe { (*map.shared.tree_ptr()).occ_root().0 }) else {
+    fn backtrack_shape(root: RootSnapshot) -> [*const u32; 3] {
+        let RootSnapshot::Tree { top } = root else {
             panic!("root must be a tree")
         };
         let l3 = |e: &Edge| -> *const BranchL3 {
@@ -26545,7 +26579,8 @@ mod ordered_read_tests {
     /// snapshot can tell the reader that its empty answer from C went stale.
     fn run_backtrack_interleaving(write: SiblingWrite, drop_child: bool) -> Option<(u64, u64)> {
         let map = backtrack_fixture();
-        let [p, s, c] = backtrack_shape(&map);
+        // SAFETY: no writer is running; the snapshot is read for its shape.
+        let [p, s, c] = backtrack_shape(unsafe { (*map.shared.tree_ptr()).occ_root().0 });
         let version = |vp: *const u32| {
             // SAFETY: the fixture's nodes are not replaced by the in-place
             // writes below, and the map outlives every read of their versions.
@@ -27013,6 +27048,88 @@ mod ordered_read_tests {
 
     use super::set_ordered_fixtures as fx;
 
+    fn set_backtrack_fixture() -> SyncExpanseSet {
+        let set = SyncExpanseSet::new();
+        for p in [0x10u64, 0x20] {
+            for q in [0x20u64, 0x30] {
+                for i in 0..17u64 {
+                    assert!(set.insert((p << 16) | (q << 8) | (0x10 + 2 * i)));
+                }
+            }
+        }
+        set
+    }
+
+    /// G12.1 on the set form of the walk, through the retry protocol
+    /// (`fx::optimistic_set_read`): the interleaving of `run_backtrack_interleaving`
+    /// on a set of the same keys and the same shape.
+    fn run_set_backtrack_interleaving(write: SiblingWrite, drop_child: bool) -> Option<u64> {
+        let set = set_backtrack_fixture();
+        let [p, s, c] = backtrack_shape(set.shared.published().load());
+        let before = [bsf::version(p), bsf::version(s), bsf::version(c)];
+        let gate = test_hooks::Gate::new();
+        let (got, after) = std::thread::scope(|sc| {
+            let g = Arc::clone(&gate);
+            let set = &set;
+            let reader = sc.spawn(move || {
+                let rd = set.reader();
+                test_hooks::set_drop_child_snapshots(drop_child);
+                test_hooks::arm_ordered_backtrack(g);
+                fx::optimistic_set_read(set, &rd, fx::Op::PrevAtOrBefore, PROBE)
+            });
+            gate.parked.wait();
+            assert!(set.insert(K_PRIME));
+            match write {
+                SiblingWrite::InsertAbove => assert!(set.insert(M)),
+                SiblingWrite::RemoveMax => assert!(set.remove(M0)),
+            }
+            let after = [bsf::version(p), bsf::version(s), bsf::version(c)];
+            gate.release.wait();
+            (reader.join().expect("reader thread"), after)
+        });
+        assert_eq!(
+            after[0], before[0],
+            "P's version must not move, or the interleaving does not need C's snapshot"
+        );
+        assert_ne!(after[1], before[1], "the write to S must move S's version");
+        assert_ne!(
+            after[2], before[2],
+            "the insert into C must move C's version"
+        );
+        got
+    }
+
+    #[test]
+    fn set_ordered_read_restarts_when_a_passed_child_changes_insert_variant() {
+        assert_eq!(
+            run_set_backtrack_interleaving(SiblingWrite::InsertAbove, false),
+            Some(K_PRIME),
+            "the search must restart and find the key inserted into C"
+        );
+    }
+
+    #[test]
+    fn set_ordered_read_restarts_when_a_passed_child_changes_remove_variant() {
+        assert_eq!(
+            run_set_backtrack_interleaving(SiblingWrite::RemoveMax, false),
+            Some(K_PRIME),
+            "the search must restart and find the key inserted into C"
+        );
+    }
+
+    /// The negative control of the two tests above, on the set form.
+    #[test]
+    fn set_ordered_read_that_forgets_a_passed_child_returns_a_key_that_was_never_the_predecessor() {
+        assert_eq!(
+            run_set_backtrack_interleaving(SiblingWrite::InsertAbove, true),
+            Some(M)
+        );
+        assert_eq!(
+            run_set_backtrack_interleaving(SiblingWrite::RemoveMax, true),
+            Some(M1)
+        );
+    }
+
     /// G36.3, the bound: on [`fx::bound_fixture`] a search retains exactly
     /// 13 branch versions, in both directions, and answers on its first
     /// attempt. The same reads through the retry protocol
@@ -27114,6 +27231,234 @@ mod ordered_read_tests {
     fn set_ordered_full_expanse_as_the_top_edge_trips_the_debug_assertion() {
         let top = full_expanse_edge(7);
         let _ = next_under(RootSnapshot::Tree { top }, fx::rep_byte(0x41, 8));
+    }
+
+    /// One uncompressed-branch interleaving (G36.4): the probe, whose digit's
+    /// child holds nothing on the searched side; the key the writer inserts
+    /// below that child, the neighbour from then on; the sibling's extreme
+    /// before the writes, the neighbour until then; and the key the writer
+    /// then inserts below the sibling, which never is the neighbour.
+    struct BranchUCase {
+        forward: bool,
+        probe: u64,
+        k_prime: u64,
+        m0: u64,
+        m: u64,
+    }
+
+    const BRANCH_U_CASES: [BranchUCase; 2] = [
+        BranchUCase {
+            forward: true,
+            probe: fx::key_under(0x30, 1, 0x48),
+            k_prime: fx::key_under(0x30, 1, 0x50),
+            m0: fx::key_under(0x31, 1, 0x40),
+            m: fx::key_under(0x31, 1, 0x05),
+        },
+        BranchUCase {
+            forward: false,
+            probe: fx::key_under(0x30, 1, 0x38),
+            k_prime: fx::key_under(0x30, 1, 0x20),
+            m0: fx::key_under(0x2F, 1, 0x40),
+            m: fx::key_under(0x2F, 1, 0x60),
+        },
+    ];
+
+    /// What one armed read observed: its result (`None` for a retry),
+    /// whether the tree version still validated after the writes, and how
+    /// far the branch's version moved.
+    type Sampled = (Option<Option<(u64, u64)>>, bool, u32);
+
+    /// Runs one direct read of `set` with `write` armed at the version
+    /// sample of its first wide branch, which must have the tag `want` and
+    /// stay the same node. `control` is switched on for the read only.
+    fn run_wide_branch_sample(
+        set: &Arc<SyncExpanseSet>,
+        want: EdgeType,
+        write: impl FnOnce(&SyncExpanseSet) + 'static,
+        control: Option<fn(bool)>,
+        probe: u64,
+        forward: bool,
+    ) -> Sampled {
+        let (tag, node, vp) = fx::first_wide_branch(set);
+        assert_eq!(tag, want, "the fixture's branch form");
+        let version = bsf::version(vp);
+        let tree_snap = set.shared.version().sample();
+        let fired = Arc::new(core::sync::atomic::AtomicUsize::new(0));
+        let (f, s) = (Arc::clone(&fired), Arc::clone(set));
+        test_hooks::arm_branch_sample(
+            node,
+            Box::new(move || {
+                write(&s);
+                f.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            }),
+        );
+        let rd = set.reader();
+        if let Some(c) = control {
+            c(true);
+        }
+        let (got, _) = fx::direct_walk(set, &rd, probe, forward);
+        if let Some(c) = control {
+            c(false);
+        }
+        // Disarm, in case the walk never reached the branch.
+        test_hooks::arm_branch_sample(core::ptr::null(), Box::new(|| {}));
+        test_hooks::before_branch_sample(core::ptr::null());
+        assert_eq!(
+            fired.load(core::sync::atomic::Ordering::Relaxed),
+            1,
+            "the writes must run once, at the branch's version sample"
+        );
+        let (tag_after, node_after, _) = fx::first_wide_branch(set);
+        assert_eq!(
+            (tag_after, node_after),
+            (want, node),
+            "the writes must change the branch in place"
+        );
+        (
+            got,
+            set.shared.version().validate(tree_snap),
+            bsf::version(vp).wrapping_sub(version),
+        )
+    }
+
+    /// Checks the model of a case, and returns the read over it.
+    fn branch_u_sample(c: &BranchUCase, child_first: bool) -> Option<Option<(u64, u64)>> {
+        let mut model: BTreeSet<u64> = fx::branch_u_keys().collect();
+        let at = |m: &BTreeSet<u64>| {
+            if c.forward {
+                m.range(c.probe..).next().copied()
+            } else {
+                m.range(..=c.probe).next_back().copied()
+            }
+        };
+        assert_eq!(at(&model), Some(c.m0), "the neighbour before the writes");
+        assert!(model.insert(c.k_prime));
+        assert_eq!(at(&model), Some(c.k_prime), "after the first write");
+        assert!(model.insert(c.m));
+        assert_eq!(at(&model), Some(c.k_prime), "after the second write");
+
+        let set = Arc::new(fx::build_set(fx::branch_u_keys()).0);
+        let (k_prime, m) = (c.k_prime, c.m);
+        let (got, tree_held, moved) = run_wide_branch_sample(
+            &set,
+            EdgeType::BranchU,
+            move |s| {
+                assert!(s.insert(k_prime));
+                assert!(s.insert(m));
+            },
+            child_first.then_some(test_hooks::set_child_before_sample as fn(bool)),
+            c.probe,
+            c.forward,
+        );
+        assert!(
+            tree_held,
+            "the inserts must not move the tree version, or the tree word alone would catch them"
+        );
+        assert_eq!(moved, 4, "two brackets on the branch");
+        got
+    }
+
+    /// G36.4, `BranchU`: a writer inserts below the probe digit's child and
+    /// then below its sibling, immediately before the walk samples the
+    /// branch. The walk loads every child edge after the sample, so it sees
+    /// the first insert and answers with it.
+    #[test]
+    fn set_ordered_read_samples_an_uncompressed_branch_before_its_child_edges() {
+        for c in &BRANCH_U_CASES {
+            assert_eq!(
+                branch_u_sample(c, false),
+                Some(Some((c.k_prime, 0))),
+                "forward = {}",
+                c.forward
+            );
+        }
+    }
+
+    /// The negative control: a walk that loads the probe digit's child edge
+    /// before the sample finds nothing in the stale child, moves to the
+    /// sibling and answers with its new extreme, which never was the
+    /// neighbour; every check accepts it, because the branch's version was
+    /// sampled after both writes. This is what makes the test above
+    /// discriminating.
+    #[test]
+    fn set_ordered_read_that_loads_a_child_edge_first_returns_a_key_that_was_never_the_neighbour() {
+        for c in &BRANCH_U_CASES {
+            assert_eq!(
+                branch_u_sample(c, true),
+                Some(Some((c.m, 0))),
+                "forward = {}",
+                c.forward
+            );
+        }
+    }
+
+    /// G36.4, `BranchB`, the mutation as registered, and why its row is
+    /// enforced by a source scan instead (`tests/test_validated_answers.rs`,
+    /// `bitmap_branch_arms_sample_before_they_load`).
+    ///
+    /// The registered mutation takes the first digit before the sample; the
+    /// writer then removes that digit's only key and inserts under the next
+    /// digit, so the stale digit's rank indexes the neighbour's child, and
+    /// the composed key (`never`) was never present. On a shared set the
+    /// mutated walk cannot return it: a removal that empties a child of a
+    /// bitmap branch is made by the exclusive path, which moves the tree
+    /// version (asserted), and the walk's final check of the tree version
+    /// then sends it back. The mutation is tried here exactly as worded, in
+    /// both directions, and retries. If the removal ever stops moving the
+    /// tree version, this test fails at that assertion, and the mutation
+    /// has become one that can return `never`.
+    #[test]
+    fn set_ordered_read_past_a_removed_bitmap_branch_digit_restarts() {
+        // (forward, probe, the key inserted under the neighbour, the answer
+        // after both writes, the key a stale digit would compose).
+        let cases = [
+            (
+                true,
+                fx::key_under(0x44, 1, 0x10),
+                fx::key_under(0x46, 1, 0x30),
+                fx::key_under(0x46, 1, 0x30),
+                fx::key_under(0x44, 1, 0x30),
+            ),
+            (
+                false,
+                fx::key_under(0x44, 1, 0x70),
+                fx::key_under(0x42, 1, 0x60),
+                fx::key_under(0x42, 1, 0x60),
+                fx::key_under(0x44, 1, 0x60),
+            ),
+        ];
+        for (forward, probe, inserted, answer, never) in cases {
+            let removed = fx::key_under(0x44, 1, 0x41);
+            for digit_first in [false, true] {
+                let (set, mut model) = fx::build_set(fx::branch_b_keys());
+                let set = Arc::new(set);
+                let (got, tree_held, moved) = run_wide_branch_sample(
+                    &set,
+                    EdgeType::BranchB,
+                    move |s| {
+                        assert!(s.remove(removed));
+                        assert!(s.insert(inserted));
+                    },
+                    digit_first.then_some(test_hooks::set_digit_before_sample as fn(bool)),
+                    probe,
+                    forward,
+                );
+                assert!(moved > 0, "the writes must move the branch's version");
+                assert!(
+                    !tree_held,
+                    "emptying a child of a bitmap branch moves the tree version"
+                );
+                assert_eq!(
+                    got, None,
+                    "the read must retry (forward = {forward}, digit first = {digit_first})"
+                );
+                assert!(model.remove(&removed) && model.insert(inserted));
+                assert!(!model.contains(&never));
+                let rd = set.reader();
+                let (again, _) = fx::direct_walk(&set, &rd, probe, forward);
+                assert_eq!(again, Some(Some((answer, 0))), "forward = {forward}");
+            }
+        }
     }
 }
 
@@ -27756,6 +28101,123 @@ mod validated_answer_tests {
             // retry below comes from the retained branch versions.
             assert!(
                 map.shared.version().validate(snap),
+                "the insert must not move the tree version ({forward})"
+            );
+            assert!(
+                r.is_none(),
+                "an answer the writer overtook must retry ({forward})"
+            );
+        }
+    }
+
+    /// §36.3, C7: the set form's root-leaf search. The writer inserts a
+    /// smaller key between two key loads of the binary search, which shifts
+    /// the keys in place; the walk's final check of the tree version is the
+    /// only validation on this path, and the read must retry.
+    #[test]
+    fn set_ordered_root_leaf_search_is_validated() {
+        for forward in [true, false] {
+            let set = Arc::new(SyncExpanseSet::new());
+            for k in [10u64, 20, 30, 40, 50] {
+                assert!(set.insert(k));
+            }
+            let rd = set.reader();
+            let walk = move |root, ver: &SeqVersion, snap| {
+                // SAFETY: as in `root_leaf_search_answer_is_validated`.
+                unsafe {
+                    if forward {
+                        crate::sync_nav::next_validated::<false>(root, 45, ver, snap)
+                    } else {
+                        crate::sync_nav::prev_validated::<false>(root, 45, ver, snap)
+                    }
+                }
+            };
+            let want = if forward { (50, 0) } else { (40, 0) };
+            let (control, ..) = walk_with(
+                &set.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedRootLeafProbe,
+                || {},
+                walk,
+            );
+            assert_eq!(control, Some(Some(want)), "control ({forward})");
+
+            let s = Arc::clone(&set);
+            let (r, root, _, ran) = walk_with(
+                &set.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedRootLeafProbe,
+                move || {
+                    assert!(s.insert(5));
+                },
+                walk,
+            );
+            assert!(ran, "the walk must reach the root-leaf probe ({forward})");
+            let (RootSnapshot::Leaf { ptr: before, pop }, RootSnapshot::Leaf { ptr: after, .. }) =
+                (root, set.shared.published().load())
+            else {
+                panic!("root must stay a leaf")
+            };
+            assert_eq!(
+                (pop, before),
+                (5, after),
+                "root leaf of 5 keys, edited in place"
+            );
+            assert!(
+                r.is_none(),
+                "a search the writer moved must retry ({forward})"
+            );
+        }
+    }
+
+    /// §36.3, C5: the set form's bitmap-leaf arm loads up to four bitmap
+    /// words with no check of the holder between them. The writer inserts
+    /// the probe's true neighbour into the leaf after the walk copied the
+    /// leaf's edge and before it loads a word; only the retained version of
+    /// the holding branch can see it (the tree version does not move), and
+    /// the read must retry.
+    #[test]
+    fn set_ordered_bitmap_leaf_answer_is_validated() {
+        use super::set_ordered_fixtures as fx;
+        for forward in [true, false] {
+            let set = Arc::new(fx::bitmap_leaf_fixture().0);
+            // Between the leaf's two runs of digits (`fx::bitmap_lows`).
+            let probe = fx::key_under(0x21, 1, 0x60);
+            let walk = move |root, ver: &SeqVersion, snap| {
+                // SAFETY: as in `root_leaf_search_answer_is_validated`.
+                unsafe {
+                    if forward {
+                        crate::sync_nav::next_validated::<false>(root, probe, ver, snap)
+                    } else {
+                        crate::sync_nav::prev_validated::<false>(root, probe, ver, snap)
+                    }
+                }
+            };
+            let want = fx::key_under(0x21, 1, if forward { 0x90 } else { 0x1D });
+            let rd = set.reader();
+            let (control, ..) = walk_with(
+                &set.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedSetBitmapLeaf,
+                || {},
+                walk,
+            );
+            assert_eq!(control, Some(Some((want, 0))), "control ({forward})");
+
+            let s = Arc::clone(&set);
+            let nearer = fx::key_under(0x21, 1, if forward { 0x70 } else { 0x50 });
+            let (r, _, snap, ran) = walk_with(
+                &set.shared,
+                &rd.reader,
+                test_hooks::Site::OrderedSetBitmapLeaf,
+                move || {
+                    assert!(s.insert(nearer));
+                },
+                walk,
+            );
+            assert!(ran, "the walk must reach the set bitmap leaf ({forward})");
+            assert!(
+                set.shared.version().validate(snap),
                 "the insert must not move the tree version ({forward})"
             );
             assert!(
