@@ -5911,12 +5911,13 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
 - **N = 64.** It is the spin budget the engine already uses: the mutation loops' backoff is capped at 64 `spin_loop` calls (`sync.rs:2654-2659`) and `MAX_RETRIES` is 64 (`sync.rs:165`). It was chosen to add no new magnitude, and it was not tuned. Another `N` is another variant and needs its own registration; a sweep over `N` after seeing a result is the tuning AGENTS.md §8.19 prices.
 - **The slow path is out of line.** The first check stays where it is. Everything after its failure is in a `#[cold]`, `#[inline(never)]` function, in the variant build. In the default build the feature's code does not exist.
 - **Under Loom** both builds keep the `loom::thread::yield_now()` the loops have today.
-- **If the verdict is `PASS`** and the maintainer promotes the variant, §2.7 applies in full: the feature inverts (an `ablation-gate-spin-only` feature restores today's loops), the old name becomes a `compile_error!`, and every consumer migrates in the same pull request.
+- **On `PASS` the variant becomes the default,** under §2.7 in full. Two names are fixed now. Before promotion the variant is `ablation-gate-spin-then-yield`. After promotion that name would describe the default, so it is retired to a `compile_error!`, and the inverse feature `ablation-gate-spin-only` restores today's spin-only loops, so the new default stays re-testable. Every consumer (CI jobs, `scripts/gate.sh`, the drivers' feature maps, `.github/bench-suites.json`, the dispatch `case`, the docs) migrates in the same pull request.
 
 **Gates on the pull request that adds the feature,** before any wall-clock run:
 
 - *P37.1, default build.* Every Callgrind arm that exists on the base changes by at most 0.1% (AGENTS.md §6), and the bench binary's disassembly differs from the base's in nothing but anonymous symbol hashes.
-- *P37.2, variant build.* A Callgrind pass of the `instructions` bench built with the feature, against the default build of the same commit: every `sync_*` arm and every plain-tree arm within 0.1%. The benches are single-threaded, so the slow path is never entered; what this checks is that the out-of-line call did not move the callers. Whether an existing job can build that bench with a feature list is unverified; the pull request states how the pass was taken.
+- *P37.2, variant build.* A Callgrind pass of the `instructions` bench built with the feature, against the default build of the same commit: every `sync_*` arm and every plain-tree arm within 0.1%. The benches are single-threaded, so the slow path is never entered; what this checks is that the out-of-line call did not move the callers.
+  - *How it is taken.* No job runs that bench under a feature list today: every `cargo bench --bench instructions` in the workflows is the default build (`.github/workflows/bench_baremetal.yml:1054`, `:1174-1189`, `:1508-1510`), and no `--features` line of `ci.yml` names a bench. The implementation pull request therefore adds a temporary step to its own `instruction-counts` job, on the same runner: the default build saved as a baseline, then `cargo bench --bench instructions -p expanse-trie --features ablation-gate-spin-then-yield` compared against it. That step's log is the cited evidence. The step is removed before merge, with the `allow-gate-weakening: ci-integrity` line the removal of a verification step needs, unless the verdict promotes the variant, in which case the default pass covers it.
 - *Disassembly.* `objdump -d -C` of both builds: the count of `%fs:` reads in `nav::next`, `nav::prev` and `mutate::insert_with_path_flat` is unchanged, and the body of each caller of `enter_writer_blocking` differs only by the call into the slow path.
 - *Loom.* The Loom lane passes with the feature on.
 - **Falsifier:** any arm above 0.1% in either pass. The experiment does not run on a build that fails these.
@@ -5940,7 +5941,12 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
 
 **Second instrument, for harm: `writer_scaling`'s count cell** (§23). (W, R) = (4, 1), `--read-op count_locked`, `--probe uniform`, pin `0,2,4,6,8,10,12,14`: four writers and one reader that calls `count_below` through `with_locked` in a loop. Every count closes the gate for a short section. This is the regime where a yield can only cost: the wait is shorter than a system call. It is cell **H**.
 
-**Harness prerequisites,** each a change to a driver or a bench, none to the engine: `reclaim_stall.py` takes a build list and a pin, runs both builds of a cell in each round, and adds cells O, C, O-large and S; `writer_scaling.py` already builds a feature against the default (its ablation sweeps) and gains this cell pair. Suite wiring merges to `main` before the dispatch, as §36.1 item 4 did.
+**Harness prerequisites,** each a change to a driver or a workflow, none to the engine, all merged to `main` before the dispatch as §36.1 item 4 was:
+
+- *Builds.* `reclaim_stall.py` builds one binary, with no feature list (`docs/benchmarks/concurrency/scripts/reclaim_stall.py:70-73`). It gains a build list (default, and the feature), runs both builds of a cell in each round, and labels every row with its build.
+- *Pin.* The driver pins itself once through `bench_pin.apply` (`reclaim_stall.py:178`), which honours `EXPANSE_BENCH_PIN=<list>` (`scripts/bench_pin.py:28`); the suite's dispatch `case` sets none, so today's runs take the host's P-core list, `0-15` (`bench_baremetal.yml:1502-1504`). Cells O, C and O-large need `0,2,4,6,8,10,12,14` and cell S needs `0-15`, in one run. The driver gains a pin per cell, applied to the child process, recorded in each row and refused if the applied list differs.
+- *Cells.* Its cell table is fixed (`reclaim_stall.py:38-45`) and holds §29's cells. This experiment is a mode of its own with cells O, C, O-large and S, a suite name of its own and an artifact of its own; §29's cells and baseline artifact are not touched.
+- *The harm cell.* `writer_scaling.py` already builds a feature list against the default for its ablation sweeps (`docs/benchmarks/concurrency/scripts/writer_scaling.py:321-331`) and gains this one cell pair.
 
 ### 37.5 Statistics, fixed now
 
@@ -5953,7 +5959,8 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
   - `g_stall` = `S` default ÷ `S` variant, in cells O and C;
   - `g_thr` = `T` variant ÷ `T` default, in cells O and C;
   - `h` = writer throughput variant ÷ default, in cell H.
-- **The primary statistic is `g_stall` in cell O.** The stall is the holder's section, which is the thing a yield is hypothesised to shorten. `g_thr` is reported beside it and decides nothing.
+- **The primary statistic is `g_stall` in cell O:** the stall, the longest pause of the window. It is the holder's section, which is the thing a yield is hypothesised to shorten. Total throughput, `g_thr`, is reported beside it and decides nothing.
+- **One oversubscription level.** Cell O, 12 writers and 2 readers on 8 pinned CPUs, is the only oversubscribed gate cell. No second level is run.
 - **Intervals.** BCa 95% over the 8 per-round ratios, 2,000 resamples, seed 42 (`scripts/bca_bootstrap.py`), recorded with `ci_method`.
 - **The floor for "a gain"** (AGENTS.md §8.20.2: a gain under contention that the uncontended control does not share). In one run: the lower bound of `g_stall` in cell O is above 1.0, **and** the interval of `g_stall` in cell C contains 1.0.
 - **The floor for "no harm".** In one run: the upper bound of `h` is not below 1.0.
@@ -5967,13 +5974,14 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
 1. *Per run, cell O:* `GAIN` when the lower bound of `g_stall` is above 1.0; `LOSS` when its upper bound is below 1.0; `OPEN` otherwise.
 2. *Per run, cell C:* `FLAT` when the interval of `g_stall` contains 1.0; `MOVED` otherwise.
 3. *Per run, cell H:* `HARM` when the upper bound of `h` is below 1.0; `NO_HARM` otherwise.
-4. *Per run:* `RUN_PASS` when O is `GAIN`, C is `FLAT` and H is `NO_HARM`. `RUN_REJECT` when O is `LOSS` or H is `HARM`. `RUN_OPEN` in every other case, which includes a `GAIN` beside a control that `MOVED`.
+4. *Per run,* three conditions, all required for promotion: `RUN_PASS` when O is `GAIN` **and** C is `FLAT` **and** H is `NO_HARM`. `RUN_REJECT` when O is `LOSS` or H is `HARM`, whatever the other cells show. `RUN_OPEN` in every other case, which includes a `GAIN` beside a control that `MOVED`.
+   - The harm cell blocks promotion: a run in which O is `GAIN` and H is `HARM` is `RUN_REJECT`. Its gain is still published, with its interval, beside the harm cell's.
 5. *The pair:* `PASS` for two `RUN_PASS`; `REJECTED` for two `RUN_REJECT`; `INTERMEDIATE` for every other combination and for a pair not valid after its replacement runs.
 
 | Verdict | What it means |
 |---|---|
-| `PASS` | the variant may be promoted, in its own pull request, under AGENTS.md §2.7 and §37.3's gates. The promotion is permitted, not required |
-| `REJECTED` | the loops stay as they are. The outcome is recorded here and on #1479, with every cell, and the feature is removed or kept only as a diagnostic |
+| `PASS` | the variant becomes the default, in its own pull request, under AGENTS.md §2.7 and §37.3's gates and names |
+| `REJECTED` | the variant is not promoted and the loops stay as they are, including when the primary cell gained and the harm cell lost. The outcome is recorded here and on #1479, with every cell, and the feature is removed or kept only as a diagnostic |
 | `INTERMEDIATE`, after the second pair | not promoted. Recorded as inconclusive, with the intervals; the loops stay |
 
 A verdict describes the build it measured (AGENTS.md §8.20.6). The stall this experiment rests on is the compaction's copy; a change that shortens or splits that copy (#1320) removes the long holder, and the verdict then expires and is not carried to the new engine.
@@ -6000,10 +6008,6 @@ Every reason is a hypothesis.
 
 It is decided on #1479 as its own item, by review, on three points this section only lists: what the bound counts (spins or elapsed time: a 300 ms compaction is already millions of spins, so a spin count risks a false panic); whether a panic inside a writer is an acceptable failure for a library; and its gate, which would be P37.1 as worded above plus a test that a gate deliberately left closed produces the named message.
 
-### 37.9 Open questions for the maintainer
+### 37.9 Open questions
 
-1. **Is the stall the right primary?** This registration judges the variant by how long the compaction holds the gate when threads outnumber CPUs. The alternative is total throughput in that cell. One has to be primary before the run.
-2. **Is one oversubscription level enough?** Cell O is 14 threads on 8 CPUs. A second level (for example 14 threads on 4 CPUs) would show whether the effect grows, at the cost of more cells.
-3. **Should cell H be able to reject?** As written, a measured loss on the short-hold cell blocks promotion even when the long-hold cell gains. The alternative is to report it and let the gain decide.
-4. **If the verdict is `PASS`, is promotion wanted,** given that the gain exists only when a process runs more threads than it has CPUs?
-5. **Section number.** 37 is the next free number at lock time and may move at merge.
+None. The section number, 37, is the next free one at lock time and may move at merge.
