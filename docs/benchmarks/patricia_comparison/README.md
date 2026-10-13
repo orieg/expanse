@@ -304,6 +304,42 @@ What the two runs show:
 - Under 2 MiB pages the generator arm varies more between processes than under 4 KiB pages (cycle-gap interval widths of 5.0 and 10.7 against 0.9). The cause is not measured.
 - D2 tests no remedy: child and leaf co-allocation, prefetching and packed suffixes are each unmeasured.
 
+#### D2 under errata A5: `FAIL` on D2b (workload: example_perf_point_lookup)
+
+The A4-era verdict above stands as recorded and is not re-read. `METHODOLOGY.md` errata A5 replaced A4's host condition and registered a verdict from two new dispatches at one commit. Both ran at `256e7736a` (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), 256e7736a). Evaluated by `scripts/patricia_d2_bounds.py --evaluate` and `--verdict` on the four `results/counters_prefix_scan_d2_{2m,4k}_a5_run{1,2}.json` artifacts.
+
+**Pair verdict: `FAIL`, final.** The one admissible dispatch (2) does not meet D2b. Under A5.5 an admissible dispatch that misses a clause is never replaced, so no further dispatch is made. The bound was not moved to the measurement (`AGENTS.md` §8.19).
+
+| Dispatch | Run | Admissible | Verdict | Host readings (`provenance`, both artifacts) |
+|---|---|---|---|---|
+| 1 | [38424662601](https://github.com/orieg/expanse/actions/runs/38424662601) (`a5_run1`) | no: the host condition (H0 to H2) is met, the huge-page precondition of §3.4.2 is not | `VOID`: `strmap_prefix_scan: 12 huge-page fault(s) fell back to small pages` | guard start quiet, in-run undisturbed (61 samples, 0 voids, worst foreign 0.222, worst on-pin 0.167); `load1` 1.24 to 1.43 (2 MiB), 1.43 to 1.83 (4 KiB); foreign 0.02, 0.02 and 0.03, 0.02 |
+| 2 | [38446328899](https://github.com/orieg/expanse/actions/runs/38446328899) (`a5_run2`) | yes | `FAIL` (D2b) | guard start quiet, in-run undisturbed (60 samples, 0 voids, worst foreign 0.108, worst on-pin 0.095); `load1` 1.24 to 1.43 (2 MiB), 1.43 to 1.84 (4 KiB); foreign 0.02 in all four windows |
+
+Dispatch 1's 2 MiB artifact records `thp_fault_fallback` 12 for the generator arm (`thp_fault_alloc` 1,627) and 0 for the sorted arm (1,620). Under A5.3 a void dispatch's clauses are not evaluated and its counts are not published; the artifacts are committed so the void is reproducible. The cause of the fallback is not measured. An operator's observation on the reference host after the run, which is in no artifact: free memory was low with a large page cache, the kernel's `thp_fault_fallback` counter read 12 (equal to the run's), and compaction had failed; the cache was dropped and memory compacted before dispatch 2. The hypothesis it suggests, that memory was too full and fragmented to supply 2 MiB pages, is unmeasured. Dispatch 2 recorded `thp_fault_fallback` 0 in both arms (`thp_fault_alloc` 1,640 and 1,617).
+
+Clauses of dispatch 2, per yielded entry, 10 runs, generator build minus sorted build for D2b and D2c (measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8), 256e7736a):
+
+| Clause | Registered bound | Decided on | Point [95% interval] | `ci_method` | Met |
+|---|---|---|---|---|---|
+| **D2b** `mem_load_retired.l3_miss` difference | lower ≥ 0.1416 | lower | 0.1482 [0.1400, 0.1617] | `bca` | **no** (lower bound 0.0016 below the bound; point above it) |
+| **D2a** `dTLB-load-misses`, generator build | upper ≤ 0.0410 | upper | 0.00016 [0.00012, 0.00022] | `bc` | yes |
+| **D2c** `cycles` difference | lower ≥ 52.50 | lower | 61.4669 [59.4050, 64.6929] | `bca` | yes |
+
+D2a's interval is the bias-corrected construction, not BCa (`ci_method: bc`). The D1 reference for D2b is 0.2360 (above): the point is 62.8% of it, the lower bound 59.3% and the upper bound 68.5% (derived), against the registered 60%.
+
+The 4 KiB control of dispatch 2, same arms, generator minus sorted:
+
+| Counter | 4 KiB | 2 MiB |
+|---|---|---|
+| `cycles` | 86.1969 [84.4773, 87.5085] | 61.4669 [59.4050, 64.6929] |
+| `mem_load_retired.l3_miss` | 0.2322 [0.2237, 0.2384] | 0.1482 [0.1400, 0.1617] |
+| `LLC-load-misses` | 0.2472 [0.2380, 0.2537] | 0.2160 [0.2040, 0.2359] |
+| `dTLB-load-misses` | 0.8092 [0.8077, 0.8106] | -0.0001 [-0.0002, -0.0001] (`bc`) |
+
+From the 4 KiB to the 2 MiB point, the cycle gap falls by 24.7 per entry (28.7%) and the retired-L3-miss difference by 36.2% (derived). Only one admissible dispatch exists, so no statement about the direction of a change between page sizes is made across dispatches (`docs/BENCHMARKING.md` rule 18). The two A4-era runs recorded D2b lower bounds of 0.1585 and 0.1631 at other commits; why dispatch 2's reading is lower is not measured, and those runs keep their label.
+
+What `FAIL` says, in D2's registered terms: D2b's falsifier, a BCa lower bound below 0.1416, holds in the admissible dispatch, so the retired-L3-miss difference under 2 MiB pages could not be shown to retain 60% of D1's. The conclusion §3.4.4 registers for a PASS (translation misses an orthogonal overlay, with a dispersal effect that paging does not resolve) is therefore not supported by D2. §3.4.4's other branch, "If D2c is falsified", is not triggered, because D2c is met. D2 registers no other consequence. D2a and D2c are reported as measured; they do not change the verdict, and the verdict does not say what the remaining cycle gap consists of. D2 tests no remedy.
+
 ### Live heap (workload: patricia_memory)
 
 Requested / usable bytes per key (`malloc_usable_size`); exact counts. Usable size excludes the allocator's per-chunk header, so neither column is the full resident footprint of small nodes. Orders: `u64` generator / shuffled, paths generator / sorted.

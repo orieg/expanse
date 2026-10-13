@@ -540,3 +540,16 @@ Values as committed at `ed59e8838`. None is changed by this errata.
 1. **Evaluator.** `scripts/patricia_d2_bounds.py` (`host_precondition`, `evaluate_d2`) applies A4. It must apply §A5.3 to both artifacts of a dispatch and return `VOID` when the condition is unmet, and decide the pair by §A5.5, the cap included. A4's check stays available by name only so that the README's `INTERMEDIATE` record of the committed artifacts remains reproducible.
 2. **H0 in the artifact.** The guard's verdict is in the run log only, and the artifact is uploaded whether or not the job failed. The workflow must write the guard's record into each artifact's `provenance` after `summarize` in `.github/workflows/bench_baremetal.yml`: start-gate verdict, sample count, worst foreign and on-pin readings, the number of windows over a boundary, and whether the record is complete. An artifact without it is not evaluable under A5.
 3. **Start gating is already in code.** `check` refuses to start until three consecutive windows are quiet and gives up after `EXPANSE_BENCH_QUIET_WAIT`. It judges measured CPU, never the presence of a process, so a resident but idle workload passes it and can become busy mid-run: run `38157345006` passed the gate and was voided later.
+
+---
+
+## A5 outcome: D2 is `FAIL` on D2b (appended after the A5 dispatches; refs #1096; nothing above is edited)
+
+Both dispatches ran at `256e7736a3267e516539817d05f690efdaea1736`, a commit that contains §A5 and the §A5.7 evaluator and guard-record changes. Artifacts: `results/counters_prefix_scan_d2_{2m,4k}_a5_run{1,2}.json`, each with `provenance.host_guard`. Figures, intervals, the 4 KiB control and the host readings are in `README.md`, section "D2 under errata A5".
+
+| Dispatch | Run | §A5.3 | Result |
+|---|---|---|---|
+| 1 | `38424662601` | host condition H0 to H2 met; §3.4.2 huge-page precondition not met | `VOID`: `strmap_prefix_scan: 12 huge-page fault(s) fell back to small pages`. First of at most 3 replacements used. |
+| 2 | `38446328899` | admissible | `FAIL`: D2a met, D2b not met, D2c met. |
+
+D2b, the clause that decides: BCa 95% lower bound 0.1400 against the registered 0.1416, point 0.1482 (`ci_method: bca`, 10 runs). Per §A5.5 an admissible dispatch that does not meet a clause is final and is never replaced, so the pair verdict by `scripts/patricia_d2_bounds.py --verdict` is `FAIL` and no further dispatch is made. The bounds, the estimator and the condition were not changed after the data; the gate is not reopened (`AGENTS.md` §8.19). The void dispatch is disclosed, with its artifacts (§A5.3, `AGENTS.md` §8.17); its counts are not published. The A4-era dispatches keep the labels the README records.
