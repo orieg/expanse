@@ -5714,3 +5714,33 @@ So each node of a shared set is its own allocation of the requested size, on `ma
 What is not detected by anything registered here: a defect that let a set reader hold a node past its pin without changing any answer. This section adds no code on that path, and makes no claim about it.
 
 **Unverified.** Whether an inverted A1 always reads at or past the end of the root leaf's allocation; and ASan's redzone width on this toolchain, which decides how far past a block a read is still reported.
+
+### 36.12 Clarifications before data (appended 2026-10-13; §36.1 to §36.11 are not rewritten)
+
+Wiring the suite (#1495, PR C1 of §36.1) showed four places where §36 can be read two ways. Each is settled here by what the map's suite already does (§12, and the driver `docs/benchmarks/concurrency/scripts/writer_scaling.py`). No run of the suite exists and no artifact has been written. **No threshold, cell, statistic, constant, verdict or shipping rule of §36 changes.** One void condition the workflow already applies to every suite is disclosed in item 4. Code references are to `origin/main` at `4eb0904f7` and to #1495's head as read on this date. Refs #1194.
+
+1. **P36.3 is computed on counters summed over a cell's rounds.**
+   - For each `prev` cell, `read_fallbacks` and `read_ops` are each summed over the cell's 8 counters-role rounds of a run, and the cell holds when the summed ratio is below the ceiling. It is not a per-round test.
+   - The comparison is in integers, `read_fallbacks × 1000 < read_ops`, so a cell at exactly 0.1% does not hold, and P36.3 is `REFUTED` for the run when any of the eight `prev` cells does not hold.
+   - This is the map's P12.4 as implemented (`writer_scaling.py:2766-2790`, ceiling `:1523`) and as §12.9 reports it. #1495's `set_fallback_verdict` does the same.
+2. **`MET`, `MISSED` and `OPEN` (§36.8 item 1), per statistic.** With `[lo, hi]` the BCa 95% interval of a run:
+
+   | Statistic | Floor | `MET` | `MISSED` | `OPEN` |
+   |---|---|---|---|---|
+   | ρ at each of the three gate cells | 1.0 | `lo >= 1.0` | `hi < 1.0` | every other interval |
+   | κ | 1.0 | `lo > 1.0` | `hi < 1.0` | every other interval |
+
+   - `MET` is tested first, so the three labels are disjoint and cover every interval with `lo <= hi`.
+   - κ's floor is excluded from `MET`, and it is excluded from `MISSED` too: an interval whose upper bound equals 1.0 is `OPEN`, and so is the degenerate interval [1.0, 1.0]. For ρ that degenerate interval is `MET`.
+   - An interval that is not a pair of numbers, or has `lo > hi`, is refused, not labelled (AGENTS.md §8.1).
+   - #1495's `set_stat_status` implements exactly this; no mismatch was found.
+3. **Node counts per row, and the form-coverage void (§36.6).**
+   - *Field.* Every throughput and counters row of this suite carries `node_counts_end`: an object with the fields of `ExpanseSet::stats().node_counts` (`null`, `immed`, `leaf_linear`, `leaf_bitmap`, `branch_l3`, `branch_l7`, `branch_b`, `branch_u`, `full_expanse`; `crates/expanse/src/validate.rs:124-143`), read under `with_locked` after the readers have joined and outside the timed region. The field arrives with the harness's set reader mode, in PR B.
+   - *Until then.* #1495 neither requires the field nor reads it: the mode that would emit it does not exist on `main`.
+   - *Obligations of PR B.* (a) The harness emits the field on every row of this suite. (b) The driver's `--set-ordered-readers` mode requires it, and refuses a row without it by name. (c) For a `hotspot` cell with W ≥ 1 whose rows end with `full_expanse` = 0, the driver records `form_coverage: "void"` on that cell with the reason. That marks the cell's form-coverage statement void. It does not void the cell's ρ, the run or the pair, and it does not enter the §36.8 verdict function. (d) The outcome subsection says, per `hotspot` cell with writers, whether its form-coverage statement stands.
+   - *Also for PR B.* The harness's refusals of writers, of `--read-op` other than `get` and of `--probe` other than `uniform` on `--arm set` (`crates/expanse/examples/writer_scaling.rs:3417`, `:3423`, `:3430`) are pinned by the suite's self-tests, and #1495's driver probes for the mode by that refusal. Those assertions change in the same pull request as the mode.
+4. **The host-contention void is decided by the workflow's host guard.**
+   - The driver cannot see other processes. It records each cell's `foreign_busy_cpus` (`scripts/bench_provenance.py:250`, `:324-331`). The single-process clause of §36.6 (a foreign process above 100% of a CPU) is computed by `scripts/bench_host_guard.py`, which `bench_baremetal.yml` runs for every suite: `check` before the benchmarks (`.github/workflows/bench_baremetal.yml:959-961`), `watch` during them (`:993-994`) and `summarize` after (`:1854-1855`). A contaminated record fails the job with `fail_reason=host_contaminated` (`:1864-1867`).
+   - *Rule.* A run whose job the host guard failed is void under §36.6 and is replaced under §36.6's cap. A run is admissible on this clause only if its job passed the guard.
+   - *Disclosure.* The guard judges three boundaries, not two: foreign load of 1.0 core-equivalent, a foreign process above 100%, and foreign load on the pinned CPUs of 0.25 core-equivalent (`RUN_ON_PIN_VOID`, `bench_provenance.py:135`). §36.6 named the first two. The third is applied by the workflow to every suite and so to this one; it is recorded here, not added by this section.
+   - *Where the record lives.* The workflow writes the guard's record into artifact provenance for one suite only, `patricia_d2_paging` (`bench_baremetal.yml:1875-1882`); #1495 does not extend that to this suite. Until it is extended, admissibility on this clause is read from the dispatch's job conclusion and its `host-activity` summary in the run log and uploaded files, and the outcome subsection cites the run for it. Attaching the record to this suite's artifact, so the artifact alone decides, is a follow-up to land on `main` before the first run, since the dispatch reads the workflow from `main`.
