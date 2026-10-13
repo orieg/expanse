@@ -14,8 +14,6 @@
 //! the tree's form between two phases without ordering the operations
 //! inside a phase. Threads without `Sync` steps run free, across every
 //! phase.
-// Each binary uses its own part of this module.
-#![allow(dead_code)]
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Barrier, Mutex};
@@ -285,11 +283,13 @@ fn mixed_scripts(keys: &[u64], threads: usize, per_thread: usize) -> Vec<Vec<Ste
 }
 
 /// `n` reads cycling the six kinds over `probes`, for a free reader thread.
-fn free_reads(probes: &[u64], n: usize, salt: usize) -> Vec<Step> {
+/// `first` is where in both cycles the thread starts, so two free readers
+/// of one history do not issue the same sequence.
+fn free_reads(probes: &[u64], n: usize, first: usize) -> Vec<Step> {
     (0..n)
         .map(|i| {
-            let k = probes[(i + salt) % probes.len()];
-            Step::Op(match (i + salt) % 6 {
+            let k = probes[(i + first) % probes.len()];
+            Step::Op(match (i + first) % 6 {
                 0 => SetOp::PrevAtOrBefore(k),
                 1 => SetOp::NextAtOrAfter(k),
                 2 => SetOp::PrevBefore(k),
@@ -524,16 +524,4 @@ pub fn compact_clear() -> History {
         shape: Shape::Tree,
         scripts,
     }
-}
-
-/// The six histories G36.1 registers.
-pub fn all() -> Vec<History> {
-    vec![
-        tree_rooted(),
-        hotspot(),
-        root_leaf(),
-        bitmap(),
-        full_expanse(),
-        compact_clear(),
-    ]
 }

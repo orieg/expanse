@@ -59,6 +59,12 @@ fn visited(h: &History, forms: &[(&str, &[Stat], u64)]) {
     for _ in 0..ROUNDS {
         let (events, _) = set_ordered_histories::run(h);
         for e in &events {
+            assert!(
+                e.start <= e.end,
+                "{}: {:?} ended before it started",
+                h.name,
+                e.op
+            );
             match (e.op, e.ret) {
                 (op, SetRet::Found(_)) if op.is_read() => answered += 1,
                 (SetOp::Insert(_) | SetOp::Remove(_), SetRet::Changed(_)) => {}

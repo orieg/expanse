@@ -1586,6 +1586,11 @@ fn set_adapter_maps_answers_onto_the_map_model() {
 /// `ROUNDS` live rounds of one G36.1 history, each checked against one
 /// sequential set.
 fn check_set_ordered_history(h: &set_ordered_histories::History) {
+    assert!(
+        h.reads() > 0,
+        "{}: a history without reads checks no read",
+        h.name
+    );
     for round in 0..set_ordered_histories::ROUNDS {
         let (events, initial) = set_ordered_histories::run(h);
         let history: Vec<OrdEvent> = events.iter().map(set_event_as_ordered).collect();
