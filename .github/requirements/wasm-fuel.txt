@@ -4,17 +4,17 @@
 #
 #    pip-compile --allow-unsafe --generate-hashes --output-file=.github/requirements/wasm-fuel.txt --strip-extras .github/requirements/wasm-fuel.in
 #
-wasmtime==48.0.0 \
-    --hash=sha256:09cd5e14df80a3a8d447428a548583181c568ea2e617419d23600deff21d4b82 \
-    --hash=sha256:21fa500e70f3819a8c0539c3f0be6b3b81ec3c630bb90c47dba4d8a2c1d4c698 \
-    --hash=sha256:26fce3613fefbe29a28e9d659dca3326e800593858e5758cad086eb802b3b766 \
-    --hash=sha256:49c9ee43e9cf59ad7453ac65dce0cc4b885837904dd3cfd45faafe930defe14a \
-    --hash=sha256:50e1ea81a3bec537d00e076722dfdc48978a56ea24619d8153aa1f75b11796b9 \
-    --hash=sha256:58544d539053dff7bd4cf30c40d7a540862d683013c0dfa6ba46a063f5b682f7 \
-    --hash=sha256:62b241c8d5dfb59ff8af1ccaa5351f0ab7aba8cc872f7d80e0e3c95d54c13562 \
-    --hash=sha256:77f6b75db20be065e205e7af814d4e4f06784c3a00eb346e8c76148ecb4afe5a \
-    --hash=sha256:a55abf132fe238b843a963c68cd1a30d8f686c1bc75d8fbf042d8b7a1d51ee36 \
-    --hash=sha256:d8e94276ff6c0c5ce73ee16ccbacb00b3512a4b3a664749380705d81ee06a23c \
-    --hash=sha256:dba27d59209fac703e7d5753af78c2af2c1cd1ed735f520ec76dc31c60a05815 \
-    --hash=sha256:ea69889a3c51702e9da5f5f441027ca934f7758f8926a4ed167b0d6877f092e8
-    # via -r .github/requirements/wasm-fuel.in
+wasmtime==49.0.0 \
+    --hash=sha256:0153c9d5fe061dd21e761f47cd65be36bf6656970c52df034e4db4871ad2b11a \
+    --hash=sha256:263b924576d9519c43d5a1acff50a03ab03209d16d26c53543c9ab9a409fb93f \
+    --hash=sha256:376c60e195b22bbe07b10d517ed4a83bbcc1896df0065e523dd4801b22570a8c \
+    --hash=sha256:3afc071340d9bb0cdf0fc0213e670c6c06ac193f2d73caf9b92d928496e49a51 \
+    --hash=sha256:46a4e4220fd1bee45ad9c29a73cadad54373dad840eff104726490527bc7ef89 \
+    --hash=sha256:7198903d53c63673acdbe4753594703d090842c4c9e050d2d4ff14ecfebed00f \
+    --hash=sha256:839225359e01360974795bd7869c25d4305da96627df0af360b0668e20ecf1fb \
+    --hash=sha256:8ab7e74c730bdda9613a8cd28b54aafa9e7f5d64aaff1a808751ccb142a76994 \
+    --hash=sha256:94f0288f9e1c33924995a72bb769f4c4e2885002391589dd6992cdaa35d1990a \
+    --hash=sha256:95ab8d3da870f38202f11c0933650cbdf014885335fcd407d6ae1a6b3d647599 \
+    --hash=sha256:de98d6282c61d5dd4dc1ff1b410936ceb6fff3a27439e9cab51a375b8da2ec2f \
+    --hash=sha256:fe0bf510ebdaf9432b756e320d2da2347f159e241f468c961b95164ab06cfdc1
+    # via -r wasm-fuel.in

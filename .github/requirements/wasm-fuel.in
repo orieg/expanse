@@ -1,4 +1,4 @@
 # Top-level pin for the wasm-fuel job. results/baseline_wasm_fuel.json records
 # the version it was measured with; scripts/wasm_fuel.py --self-test compares.
 # Refresh recipe: docs/CI.md, "Hashed Python requirements".
-wasmtime==48.0.0
+wasmtime==49.0.0

@@ -13,5 +13,5 @@
 #
 # Refresh recipe: docs/CI.md, "Hashed Python requirements".
 maturin==1.15.0
-pytest==8.3.5
+pytest==9.1.1
 colorama==0.4.6
