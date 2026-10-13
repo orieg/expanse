@@ -1238,7 +1238,7 @@ fn map_prev(built: (ExpanseMap, Vec<u64>)) -> u64 {
 }
 
 // The set twins of `map_nav` and `map_prev` (#900): the single-threaded
-// references for the ordered reads a set reader will gain. Same keys, probe
+// references for a set reader's ordered reads (#1194). Same keys, probe
 // stream and ops count as the map arms; every probe is a present key, so every
 // `next_at_or_after` answers and every `prev_before` answers except the one
 // probe that is the minimum, which the count assertions pin.

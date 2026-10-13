@@ -16811,7 +16811,8 @@ mod set_ordered_fixtures {
     /// over the set form of the walk, the walk's `(key, 0)` projected to the
     /// key, the single-threaded read as the locked answer, and no read
     /// operation for the two early answers (§36.3, D1 to D3). Test builds
-    /// only: no reader handle offers these.
+    /// only: an independent statement of what `set_ordered_walk!` expands
+    /// to, read beside the handles' own methods.
     #[cfg(not(miri))]
     pub(super) fn optimistic_set_read(
         set: &SyncExpanseSet,
@@ -28076,8 +28077,9 @@ mod compare_exchange_tests {
 ///
 /// One test, and it reads process-global counters as exact deltas, so it
 /// runs in the single-threaded lib pass of `scripts/test_occ_stats.sh`. It
-/// is a lib test and not an integration target because the set form has no
-/// public caller: `fx::optimistic_set_read` stands where a reader's methods will.
+/// reads through `fx::optimistic_set_read` over the crate-private fixture
+/// table; `tests/test_occ_stats_set_ordered_reads.rs` is its twin through
+/// the public methods of the three handle forms.
 #[cfg(all(test, feature = "occ-stats", not(miri)))]
 mod set_ordered_stats_tests {
     use super::set_ordered_fixtures as fx;
