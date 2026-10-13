@@ -517,6 +517,10 @@ unsafe fn root_leaf<const MAP: bool>(
         let mid = (lo + hi) / 2;
         // SAFETY: `mid < pop`, in bounds of the live root leaf.
         let k = unsafe { shared_word::load::<true>(keys.add(mid)) };
+        // A writer armed here changes the leaf between two key loads; the
+        // entry point's final check of the tree version is what sees it.
+        #[cfg(test)]
+        crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedRootLeafProbe);
         let right = if forward { k < key } else { k <= key };
         if right {
             lo = mid + 1;
@@ -723,6 +727,13 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
             let node = edge.node_ptr().cast::<BranchB>();
             // SAFETY: validated edge copy → live BranchB; field projection.
             let vp = unsafe { &raw const (*node).version };
+            // The negative control takes the first digit before the sample.
+            #[cfg(test)]
+            let early = crate::sync::test_hooks::takes_digit_before_sample()
+                // SAFETY: as for the loads below.
+                .then(|| unsafe { early_branch_b_digit(node, edge, level, suffix, true) });
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: live version field.
             let nsnap = unsafe { rs.sample(vp)? };
             // SAFETY: live node; a torn level is rejected below.
@@ -738,10 +749,17 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
             };
             let d = digit(suffix, bl);
             let here = Holder::Node(vp, nsnap);
+            // The digit search follows the sample, as every load the version
+            // covers does: a digit taken before it can outlive the removal of
+            // its child, and its rank then indexes a neighbour's edge.
             // SAFETY: live node; bitmap loads are validated before use.
             let mut cur = unsafe {
                 crate::bits::shared_bitmap::next_set::<true>(&raw const (*node).bitmap, d)
             };
+            #[cfg(test)]
+            if let Some(e) = early {
+                cur = e;
+            }
             while let Some(bd) = cur {
                 let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: as above.
@@ -772,16 +790,40 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
             let node = edge.node_ptr().cast::<BranchU>();
             // SAFETY: validated edge copy → live BranchU; field projection.
             let vp = unsafe { &raw const (*node).version };
+            // The negative control loads the probe digit's child edge before
+            // the sample.
+            #[cfg(test)]
+            let early = crate::sync::test_hooks::loads_child_before_sample().then(|| {
+                // SAFETY: as for the load in the loop below.
+                unsafe {
+                    Edge::load_at::<true>(
+                        (&raw const (*node).edges)
+                            .cast::<Edge>()
+                            .add(digit(suffix, level) as usize),
+                    )
+                }
+            });
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: live version field.
             let nsnap = unsafe { rs.sample(vp)? };
             let here = Holder::Node(vp, nsnap);
             let d = digit(suffix, level);
             for bd in d..=255u8 {
+                // Every child edge is loaded after the sample: an edge copied
+                // before it can predate an insert below it that the sample
+                // already reflects, and the search would then pass over a key
+                // and answer from a sibling.
                 // SAFETY: direct index into the live 256-slot node.
                 let child = unsafe {
                     Edge::load_at::<true>(
                         (&raw const (*node).edges).cast::<Edge>().add(bd as usize),
                     )
+                };
+                #[cfg(test)]
+                let child = match early {
+                    Some(e) if bd == d => e,
+                    _ => child,
                 };
                 if child.is_null() {
                     continue;
@@ -990,6 +1032,13 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
             let node = edge.node_ptr().cast::<BranchB>();
             // SAFETY: validated edge copy → live BranchB; field projection.
             let vp = unsafe { &raw const (*node).version };
+            // The negative control takes the first digit before the sample.
+            #[cfg(test)]
+            let early = crate::sync::test_hooks::takes_digit_before_sample()
+                // SAFETY: as for the loads below.
+                .then(|| unsafe { early_branch_b_digit(node, edge, level, suffix, false) });
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: live version field.
             let nsnap = unsafe { rs.sample(vp)? };
             // SAFETY: live node; a torn level is rejected below.
@@ -1005,10 +1054,15 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
             };
             let d = digit(suffix, bl);
             let here = Holder::Node(vp, nsnap);
+            // The digit search follows the sample, as in `next_in`.
             // SAFETY: live node; bitmap loads are validated before use.
             let mut cur = unsafe {
                 crate::bits::shared_bitmap::prev_set::<true>(&raw const (*node).bitmap, d)
             };
+            #[cfg(test)]
+            if let Some(e) = early {
+                cur = e;
+            }
             while let Some(bd) = cur {
                 let rem = if bd == d {
                     key_low(suffix, bl - 1)
@@ -1043,16 +1097,40 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
             let node = edge.node_ptr().cast::<BranchU>();
             // SAFETY: validated edge copy → live BranchU; field projection.
             let vp = unsafe { &raw const (*node).version };
+            // The negative control loads the probe digit's child edge before
+            // the sample.
+            #[cfg(test)]
+            let early = crate::sync::test_hooks::loads_child_before_sample().then(|| {
+                // SAFETY: as for the load in the loop below.
+                unsafe {
+                    Edge::load_at::<true>(
+                        (&raw const (*node).edges)
+                            .cast::<Edge>()
+                            .add(digit(suffix, level) as usize),
+                    )
+                }
+            });
+            #[cfg(test)]
+            crate::sync::test_hooks::before_branch_sample(edge.node_ptr().cast_const());
             // SAFETY: live version field.
             let nsnap = unsafe { rs.sample(vp)? };
             let here = Holder::Node(vp, nsnap);
             let d = digit(suffix, level);
             for bd in (0..=d).rev() {
+                // Every child edge is loaded after the sample: an edge copied
+                // before it can predate an insert below it that the sample
+                // already reflects, and the search would then pass over a key
+                // and answer from a sibling.
                 // SAFETY: direct index into the live 256-slot node.
                 let child = unsafe {
                     Edge::load_at::<true>(
                         (&raw const (*node).edges).cast::<Edge>().add(bd as usize),
                     )
+                };
+                #[cfg(test)]
+                let child = match early {
+                    Some(e) if bd == d => e,
+                    _ => child,
                 };
                 if child.is_null() {
                     continue;
@@ -1075,6 +1153,44 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
                 backtrack(rs, mark);
             }
             Ok(None)
+        }
+    }
+}
+
+/// The first digit a `BranchB` search would take, loaded as the walk loads
+/// it. Only the negative control of the bitmap-branch sample order calls it,
+/// before the sample (`sync::test_hooks::set_digit_before_sample`); `None`
+/// when the search would end without taking a digit.
+///
+/// # Safety
+///
+/// `node` is the EBR-live `BranchB` that `edge` names.
+#[cfg(test)]
+unsafe fn early_branch_b_digit(
+    node: *const BranchB,
+    edge: &Edge,
+    level: u8,
+    suffix: u64,
+    forward: bool,
+) -> Option<u8> {
+    use core::cmp::Ordering::{Equal, Greater, Less};
+    // SAFETY: live node per contract.
+    let bl = unsafe { (*node).level };
+    assert!((2..=level).contains(&bl), "a quiescent BranchB");
+    let (ord, _, _) = skip_cmp(edge, bl, level, suffix);
+    let suffix = match (ord, forward) {
+        (Equal, _) => key_low(suffix, bl),
+        (Less, true) => 0,
+        (Greater, false) => pow256(bl) - 1,
+        (Greater, true) | (Less, false) => return None,
+    };
+    let d = digit(suffix, bl);
+    // SAFETY: live node per contract.
+    unsafe {
+        if forward {
+            crate::bits::shared_bitmap::next_set::<true>(&raw const (*node).bitmap, d)
+        } else {
+            crate::bits::shared_bitmap::prev_set::<true>(&raw const (*node).bitmap, d)
         }
     }
 }
@@ -1183,6 +1299,11 @@ unsafe fn bitmap_leaf<const MAP: bool>(
         Ok(Some((d, v)))
     } else {
         let node = edge.node_ptr().cast::<LeafBitmap1>();
+        // A writer armed here changes the leaf after the walk copied its
+        // edge and before it loads a bitmap word; nothing below checks the
+        // holder, so the final validation is what sees it.
+        #[cfg(test)]
+        crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedSetBitmapLeaf);
         // SAFETY: live leaf; covered by the holder's final validation.
         let d = unsafe {
             if forward {
@@ -1476,5 +1597,188 @@ mod loom_tests {
     #[should_panic(expected = "paired with the edge linked under")]
     fn loom_ordered_read_header_before_sample_pairs_a_shifted_edge() {
         branch_model(true);
+    }
+
+    // ---- The set form's terminals (#1194; METHODOLOGY.md §36.4, G36.5) ----
+    //
+    // What these two models cover: the validation rule, on the real
+    // `ReadSet::sample` and `validate_all`, for a terminal read in more than
+    // one load and for a terminal whose holder slot is rewritten. What they
+    // do not cover: `bitmap_leaf::<false>`, `next_in` and `prev_in`
+    // themselves. The search is written by hand over atomics, so a model
+    // stays green if that code is wrong; the direct-call tests in `sync`
+    // are what run it.
+
+    /// Two words of a set bitmap leaf.
+    type Words = [AtomicU64; 2];
+
+    /// The first set bit at or after `from`, read as the walk reads a set
+    /// bitmap leaf: word 0, then word 1 only when word 0 has nothing.
+    fn first_bit(w: &Words, from: u32) -> Option<u64> {
+        let w0 = w[0].load(Ordering::Relaxed) & (u64::MAX << from);
+        if w0 != 0 {
+            return Some(u64::from(w0.trailing_zeros()));
+        }
+        let w1 = w[1].load(Ordering::Relaxed);
+        (w1 != 0).then(|| 64 + u64::from(w1.trailing_zeros()))
+    }
+
+    /// G36.5 (a), the search: a holder branch `h_v` and a set bitmap leaf of
+    /// two words, covered by the holder alone. `validate_final` off is the
+    /// negative control.
+    fn bitmap_terminal_search(
+        h_v: &Arc<VersionCell>,
+        w: &Words,
+        validate_final: bool,
+    ) -> Option<u64> {
+        let mut rs = ReadSet::<1>::new();
+        // SAFETY: the cell outlives the search; under loom the read set
+        // casts the pointer back to it.
+        unsafe { rs.sample(cover(h_v)) }.ok()?;
+        let found = first_bit(w, 0)?;
+        // SAFETY: as above.
+        if validate_final && !unsafe { rs.validate_all() } {
+            return None;
+        }
+        Some(found)
+    }
+
+    /// The successor is bit 64 + 5 until the writer sets bit 3 of word 0,
+    /// and bit 3 from then on. The writer then sets bit 2 of word 1, in the
+    /// same bracket on the holder: a search that read word 0 before the
+    /// bracket and word 1 after it finds bit 64 + 2, which never was the
+    /// successor.
+    fn bitmap_terminal_model(validate_final: bool) {
+        loom::model(move || {
+            let h_v = Arc::new(VersionCell::new(0));
+            let w: Arc<Words> = Arc::new([AtomicU64::new(0), AtomicU64::new(1 << 5)]);
+            let writer = {
+                let (h_v, w) = (Arc::clone(&h_v), Arc::clone(&w));
+                loom::thread::spawn(move || {
+                    version_begin(&h_v);
+                    w[0].store(1 << 3, Ordering::Relaxed);
+                    w[1].store((1 << 5) | (1 << 2), Ordering::Relaxed);
+                    version_end(&h_v);
+                })
+            };
+            if let Some(a) = bitmap_terminal_search(&h_v, &w, validate_final) {
+                assert!(
+                    a == 64 + 5 || a == 3,
+                    "set bitmap search returned bit {a}, never the successor"
+                );
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn loom_set_ordered_bitmap_terminal_is_covered_by_the_final_validation() {
+        bitmap_terminal_model(true);
+    }
+
+    /// The negative control of (a): without the final validation the search
+    /// returns the bit that never was the successor.
+    #[test]
+    #[should_panic(expected = "never the successor")]
+    fn loom_set_ordered_bitmap_terminal_without_the_final_validation_tears() {
+        bitmap_terminal_model(false);
+    }
+
+    const SLOT_BITMAP: u64 = 1;
+    const SLOT_FULL: u64 = 2;
+    /// The probe of (b): the top digit of word 0.
+    const FROM: u32 = 63;
+
+    /// G36.5 (b), the search: the holder's slot names a bitmap leaf or a
+    /// full expanse. `validate_last` off is the negative control, which
+    /// validates the holder after the slot load and before the terminal's
+    /// loads, and not after them.
+    fn replaced_terminal_search(
+        h_v: &Arc<VersionCell>,
+        slot: &AtomicU64,
+        w: &Words,
+        validate_last: bool,
+    ) -> Option<u64> {
+        let mut rs = ReadSet::<1>::new();
+        // SAFETY: the cell outlives the search; under loom the read set
+        // casts the pointer back to it.
+        unsafe { rs.sample(cover(h_v)) }.ok()?;
+        let edge = slot.load(Ordering::Relaxed);
+        // SAFETY: as above.
+        if !validate_last && !unsafe { rs.validate_all() } {
+            return None;
+        }
+        let found = if edge == SLOT_FULL {
+            u64::from(FROM)
+        } else {
+            first_bit(w, FROM)?
+        };
+        // SAFETY: as above.
+        if validate_last && !unsafe { rs.validate_all() } {
+            return None;
+        }
+        Some(found)
+    }
+
+    /// The leaf starts one key short of full: every digit but 63. The
+    /// successor of 63 is 64. The writer sets bit 63 and rewrites the slot
+    /// to a full expanse (successor 63), then, in a second bracket, removes
+    /// digit 64 and rewrites the slot to a bitmap leaf again (successor
+    /// still 63). A search that read word 0 before the first bracket and
+    /// word 1 after the second finds 65, which never was the successor.
+    ///
+    /// **A rule-level check on an address-stable cell, not evidence about
+    /// the engine.** The model keeps the leaf's words at one address across
+    /// the two rewrites. On a shared set the second rewrite builds a new
+    /// node, and the node a pinned search holds is not reused while its pin
+    /// lasts, so the schedule on which the control below fails cannot occur
+    /// there. What protects the engine on this path is the pin and the rule
+    /// that a pinned node is not reused; neither has a test here. The
+    /// positive model checks the validation rule against an adversary
+    /// stronger than the engine; its control shows the model can fail, and
+    /// is not counted as a negative control of the engine
+    /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.13, item 7).
+    fn replaced_terminal_model(validate_last: bool) {
+        loom::model(move || {
+            let h_v = Arc::new(VersionCell::new(0));
+            let slot = Arc::new(AtomicU64::new(SLOT_BITMAP));
+            let w: Arc<Words> = Arc::new([AtomicU64::new(!(1 << FROM)), AtomicU64::new(u64::MAX)]);
+            let writer = {
+                let (h_v, slot, w) = (Arc::clone(&h_v), Arc::clone(&slot), Arc::clone(&w));
+                loom::thread::spawn(move || {
+                    version_begin(&h_v);
+                    w[0].store(u64::MAX, Ordering::Relaxed);
+                    slot.store(SLOT_FULL, Ordering::Relaxed);
+                    version_end(&h_v);
+                    version_begin(&h_v);
+                    w[1].store(u64::MAX & !1, Ordering::Relaxed);
+                    slot.store(SLOT_BITMAP, Ordering::Relaxed);
+                    version_end(&h_v);
+                })
+            };
+            if let Some(a) = replaced_terminal_search(&h_v, &slot, &w, validate_last) {
+                assert!(
+                    a == 64 || a == u64::from(FROM),
+                    "search over a replaced terminal returned {a}, never the successor"
+                );
+            }
+            writer.join().unwrap();
+        });
+    }
+
+    #[test]
+    fn loom_set_ordered_replaced_terminal_is_covered_by_the_final_validation() {
+        replaced_terminal_model(true);
+    }
+
+    /// The model of (b) with its holder validated only before the
+    /// terminal's loads: the search returns 65. It shows that the model
+    /// can fail, on a schedule the engine cannot produce (see
+    /// `replaced_terminal_model`), so it is not a negative control of the
+    /// engine.
+    #[test]
+    #[should_panic(expected = "never the successor")]
+    fn loom_set_ordered_replaced_terminal_validated_only_before_its_loads_tears() {
+        replaced_terminal_model(false);
     }
 }
