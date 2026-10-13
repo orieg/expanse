@@ -28798,6 +28798,10 @@ mod validated_answer_tests {
             ("prev_at_or_before", prev_at_or_before),
             ("prev_before", prev_before),
         ];
+        // Exact deltas of process-global counters: meaningful in the
+        // single-threaded lib pass of `scripts/test_occ_stats.sh`.
+        #[cfg(feature = "occ-stats")]
+        let before = crate::occ_stats::snapshot();
         let mut fell_back = 0usize;
         for handle in 0..3usize {
             for (name, call) in calls {
@@ -28816,7 +28820,12 @@ mod validated_answer_tests {
                         if walks { MAX_RETRIES } else { 0 },
                         "{at}: every optimistic attempt must be overtaken"
                     );
-                    assert!(!set.contains(TOGGLED), "{at}: the toggled key ends absent");
+                    // Under the lock: an optimistic `contains` would count as
+                    // a read operation of its own.
+                    assert!(
+                        set.with_locked(|s| !s.contains(TOGGLED)),
+                        "{at}: the toggled key ends absent"
+                    );
                     assert_eq!(got, want(name, probe), "{at}: the locked answer");
                     fell_back += usize::from(walks);
                 }
@@ -28824,6 +28833,21 @@ mod validated_answer_tests {
         }
         // 3 handles x (6 methods x 6 probes - the 2 early answers).
         assert_eq!(fell_back, 3 * 34);
+        // Every call that reaches the walk is one read operation, makes
+        // `MAX_RETRIES` attempts and falls back once (§36.14 item 9).
+        #[cfg(feature = "occ-stats")]
+        {
+            use crate::occ_stats::Stat;
+            let after = crate::occ_stats::snapshot();
+            let d = |s: Stat| after[s as usize] - before[s as usize];
+            assert_eq!(d(Stat::ReadFallbacks), fell_back as u64, "read fallbacks");
+            assert_eq!(d(Stat::ReadOps), fell_back as u64, "read operations");
+            assert_eq!(
+                d(Stat::ReadAttempts),
+                (fell_back * MAX_RETRIES) as u64,
+                "read attempts"
+            );
+        }
     }
 
     /// §36.3, C5: the set form's bitmap-leaf arm loads up to four bitmap
