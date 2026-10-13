@@ -4142,6 +4142,14 @@ impl Default for SyncExpanseSet {
 
 impl SyncExpanseSet {
     /// Creates an empty concurrent set.
+    ///
+    /// This is the only constructor, and the validated ordered walk
+    /// (`sync_nav`) relies on it: a set grown here makes a full expanse at
+    /// level 1 only, without a skip. Sharing a pre-built `ExpanseSet` would
+    /// bring the full expanses its algebra builders make at any level under
+    /// that walk, whose full-expanse arm compares no skipped prefix; a
+    /// constructor that does so has to settle that first
+    /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.3, C6).
     #[must_use]
     pub fn new() -> Self {
         let shared = Shared::build(ExpanseSet::new(), |s, c| {
@@ -16127,6 +16135,652 @@ impl OrderedBytesExclusive<'_> {
     }
 }
 
+/// The set form of the validated ordered walk (`sync_nav`, `MAP = false`)
+/// by direct call: fixtures, the six reads a set reader is to offer, and the
+/// checks every direct call makes (#1194;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §36.4, G36.2). No wrapper
+/// calls the set form, so the test modules that use this one are the only
+/// code that instantiates it. The items only the threaded and park-point
+/// tests use are `not(miri)`, as those tests are.
+#[cfg(test)]
+mod set_ordered_fixtures {
+    use super::*;
+    pub(super) use crate::sync_nav::Visit;
+    pub(super) use std::collections::BTreeSet;
+
+    /// A shared set and its model.
+    pub(super) type Fixture = (SyncExpanseSet, BTreeSet<u64>);
+
+    /// One direct call of the set form, and what it visited. The outer
+    /// `None` is a retry.
+    pub(super) fn direct_walk(
+        set: &SyncExpanseSet,
+        rd: &SetReader<'_>,
+        key: u64,
+        forward: bool,
+    ) -> (Option<Option<(u64, u64)>>, Vec<Visit>) {
+        drop(test_hooks::take_visits());
+        let _pin = rd.reader.pin();
+        let ver = set.shared.version();
+        let snap = ver.sample();
+        let root = set.shared.published().load();
+        // SAFETY: pinned, with a version sampled after the pin and a root
+        // copied after the sample.
+        let r = unsafe {
+            if forward {
+                crate::sync_nav::next_validated::<false>(root, key, ver, snap)
+            } else {
+                crate::sync_nav::prev_validated::<false>(root, key, ver, snap)
+            }
+        };
+        (r.ok(), test_hooks::take_visits())
+    }
+
+    /// The six ordered reads of `ExpanseSet` (`set.rs`), which a set reader
+    /// is to answer through the walk.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Op {
+        First,
+        Last,
+        NextAtOrAfter,
+        NextAfter,
+        PrevAtOrBefore,
+        PrevBefore,
+    }
+
+    pub(super) const OPS: [Op; 6] = [
+        Op::First,
+        Op::Last,
+        Op::NextAtOrAfter,
+        Op::NextAfter,
+        Op::PrevAtOrBefore,
+        Op::PrevBefore,
+    ];
+
+    /// The walk a read makes: its key and direction. `None` for
+    /// `next_after(u64::MAX)` and `prev_before(0)`, which answer `None`
+    /// before any walk (§36.3, D3).
+    pub(super) fn walk_plan(op: Op, key: u64) -> Option<(u64, bool)> {
+        match op {
+            Op::First => Some((0, true)),
+            Op::Last => Some((u64::MAX, false)),
+            Op::NextAtOrAfter => Some((key, true)),
+            Op::NextAfter => key.checked_add(1).map(|k| (k, true)),
+            Op::PrevAtOrBefore => Some((key, false)),
+            Op::PrevBefore => key.checked_sub(1).map(|k| (k, false)),
+        }
+    }
+
+    /// The model's answer to a read.
+    pub(super) fn model_answer(m: &BTreeSet<u64>, op: Op, key: u64) -> Option<u64> {
+        let (k, forward) = walk_plan(op, key)?;
+        if forward {
+            m.range(k..).next().copied()
+        } else {
+            m.range(..=k).next_back().copied()
+        }
+    }
+
+    /// One read by direct call on a quiescent set, with the three checks of
+    /// G36.2: it answers on its first attempt, its value word is 0, and its
+    /// key is the model's. Returns what the walk visited.
+    pub(super) fn checked_read(
+        set: &SyncExpanseSet,
+        rd: &SetReader<'_>,
+        m: &BTreeSet<u64>,
+        op: Op,
+        key: u64,
+        what: &str,
+    ) -> Vec<Visit> {
+        let Some((k, forward)) = walk_plan(op, key) else {
+            return Vec::new();
+        };
+        let (got, visits) = direct_walk(set, rd, k, forward);
+        let Some(got) = got else {
+            panic!("{what}: {op:?}({key:#x}) retried on a quiescent set")
+        };
+        if let Some((k, v)) = got {
+            assert_eq!(
+                v, 0,
+                "{what}: {op:?}({key:#x}) answered {k:#x} with a non-zero value word"
+            );
+        }
+        assert_eq!(
+            got.map(|(k, _)| k),
+            model_answer(m, op, key),
+            "{what}: {op:?}({key:#x}) against the model"
+        );
+        visits
+    }
+
+    /// Every read over every probe, and every form the walks visited.
+    pub(super) fn checked_reads(
+        set: &SyncExpanseSet,
+        m: &BTreeSet<u64>,
+        probes: &[u64],
+        what: &str,
+    ) -> Vec<Visit> {
+        let rd = set.reader();
+        let mut seen = Vec::new();
+        // `First` and `Last` take no key: once per fixture.
+        let calls = [Op::First, Op::Last].into_iter().map(|op| (op, 0)).chain(
+            probes
+                .iter()
+                .flat_map(|&p| OPS[2..].iter().map(move |&op| (op, p))),
+        );
+        for (op, p) in calls {
+            for v in checked_read(set, &rd, m, op, p, what) {
+                if !seen.contains(&v) {
+                    seen.push(v);
+                }
+            }
+        }
+        seen
+    }
+
+    /// 0, `u64::MAX`, and each of `keys` with its two neighbours.
+    pub(super) fn probes_around(keys: impl IntoIterator<Item = u64>) -> Vec<u64> {
+        let mut p: BTreeSet<u64> = [0, u64::MAX].into_iter().collect();
+        for k in keys {
+            p.extend([k.wrapping_sub(1), k, k.wrapping_add(1)]);
+        }
+        p.into_iter().collect()
+    }
+
+    /// A shared set holding `keys`.
+    pub(super) fn build_set(keys: impl IntoIterator<Item = u64>) -> Fixture {
+        let set = SyncExpanseSet::new();
+        let mut m = BTreeSet::new();
+        for k in keys {
+            assert_eq!(set.insert(k), m.insert(k), "insert {k:#x}");
+        }
+        (set, m)
+    }
+
+    /// Removes `key` from a fixture.
+    pub(super) fn take_key(f: &mut Fixture, key: u64) {
+        assert!(f.1.remove(&key), "the model holds {key:#x}");
+        assert!(f.0.remove(key), "the set holds {key:#x}");
+    }
+
+    /// `b` repeated in the low `n` bytes.
+    pub(super) const fn rep_byte(b: u8, n: u8) -> u64 {
+        let mut k = 0u64;
+        let mut i = 0;
+        while i < n {
+            k = (k << 8) | b as u64;
+            i += 1;
+        }
+        k
+    }
+
+    /// The key whose bytes above level `kb + 1` are `0x11`, whose digit at
+    /// level `kb + 1` is `d`, and whose low `kb` bytes are `low`. With `d`
+    /// and every byte of `low` non-zero, no byte of the key is zero, so key
+    /// bytes read as a value word are non-zero (G36.2, part (i)).
+    pub(super) const fn key_under(d: u8, kb: u8, low: u64) -> u64 {
+        ((rep_byte(0x11, 7 - kb) << 8 | d as u64) << (8 * kb)) | low
+    }
+
+    /// A root leaf of `pop` keys.
+    pub(super) fn root_leaf_fixture(pop: usize) -> Fixture {
+        assert!((1..=crate::types::ROOT_LEAF_CAP).contains(&pop));
+        build_set((1..=pop as u64).map(|i| i * rep_byte(1, 8)))
+    }
+
+    /// Set immediates of 1, 2, 7 and 15 one-byte keys under one level-2
+    /// branch, and one of 2 seven-byte keys under the top branch.
+    pub(super) fn immediates_fixture() -> Fixture {
+        let mut keys = Vec::new();
+        for (d, n) in [(0x21u8, 1u64), (0x22, 2), (0x23, 15), (0x24, 7), (0x25, 15)] {
+            keys.extend((0..n).map(|i| key_under(d, 1, 0x41 + i)));
+        }
+        keys.extend([
+            (0x31 << 56) | rep_byte(0x41, 7),
+            (0x31 << 56) | rep_byte(0x42, 7),
+        ]);
+        build_set(keys)
+    }
+
+    /// The populations of the three `kb`-byte linear leaves of [`leaf_fixtures`]:
+    /// the smallest a shared set makes (one above the immediate capacity of
+    /// the level; a removal from there rebuilds the immediate), a
+    /// capacity-class boundary, and the cap.
+    pub(super) fn leaf_pops(kb: u8) -> [usize; 3] {
+        let cap = if kb == 1 {
+            crate::types::LEAF1_CAP
+        } else {
+            crate::types::LEAF_CAP
+        };
+        [
+            ImmedType::max_count(kb) as usize + 1,
+            if kb == 1 { 24 } else { 16 },
+            cap,
+        ]
+    }
+
+    /// Three `kb`-byte linear leaves in slots of level `kb`, under digits
+    /// `0x21..=0x23` of one branch at level `kb + 1`, at [`leaf_pops`].
+    pub(super) fn leaf_fixtures(kb: u8) -> Fixture {
+        let pops = leaf_pops(kb);
+        let key = |j: usize, i: usize| key_under(0x21 + j as u8, kb, rep_byte(0x41 + i as u8, kb));
+        build_set((0..3).flat_map(|j| (0..pops[j]).map(move |i| key(j, i))))
+    }
+
+    /// A population at which a `kb`-byte linear leaf in a slot of level
+    /// `kb` fills its allocation exactly (`leaf::cap_class(pop) == pop`), so
+    /// that a read one key past its last slot leaves the node: the smallest
+    /// such population above the level's immediate capacity, and 24 at one
+    /// byte, which [`exact_leaves`] needs to keep its lowest branch.
+    pub(super) fn exact_fit_pop(kb: u8) -> usize {
+        let pop = [24, 16, 8, 4, 4, 4, 4][kb as usize - 1];
+        assert_eq!(crate::leaf::cap_class(pop), pop);
+        assert!(pop > ImmedType::max_count(kb) as usize);
+        pop
+    }
+
+    /// The `i`-th key of the `kb`-byte leaf of [`exact_leaves`].
+    pub(super) fn exact_key(kb: u8, i: usize) -> u64 {
+        key_under(0x21, kb, rep_byte(0x41 + i as u8, kb))
+    }
+
+    /// One linear leaf of each key width, each at [`exact_fit_pop`], in one
+    /// set. The keys of width `kb` sit under digit `0x21` of a branch at
+    /// level `kb + 1`, and the narrower widths under that branch's digit
+    /// `0x11`, so the tree is a spine of two-digit branches with a leaf at
+    /// every level. Nine one-byte keys under a second level-2 digit keep
+    /// more than a linear leaf holds below every branch of the spine;
+    /// without them the lowest subtrees would each be one wider leaf.
+    pub(super) fn exact_leaves() -> Fixture {
+        build_set(
+            (1..=7u8)
+                .rev()
+                .flat_map(|kb| (0..exact_fit_pop(kb)).map(move |i| exact_key(kb, i)))
+                .chain((0..9).map(|i| key_under(0x22, 1, 0x41 + i))),
+        )
+    }
+
+    /// The low bytes of [`bitmap_leaf_fixture`]'s keys: two runs of 14 digits, one
+    /// on each side of 128.
+    pub(super) fn bitmap_lows() -> impl Iterator<Item = u64> {
+        (0x10..=0x1Du64).chain(0x90..=0x9D)
+    }
+
+    /// One `LeafBitmap1` of 28 keys in a level-1 slot, beside an immediate
+    /// of five.
+    pub(super) fn bitmap_leaf_fixture() -> Fixture {
+        build_set(
+            bitmap_lows()
+                .map(|low| key_under(0x21, 1, low))
+                .chain((0..5).map(|i| key_under(0x22, 1, 0x41 + i))),
+        )
+    }
+
+    /// Two adjacent full expanses under digits `0x21` and `0x22`, one key
+    /// below them and three above.
+    pub(super) fn full_expanses() -> Fixture {
+        build_set(
+            core::iter::once(key_under(0x20, 1, 0x41))
+                .chain(
+                    (0x21..=0x22u8)
+                        .flat_map(|d| (0..=0xFFu64).map(move |low| key_under(d, 1, low))),
+                )
+                .chain((0..3).map(|i| key_under(0x23, 1, 0x41 + i))),
+        )
+    }
+
+    /// 200 digits under one level-2 branch, one key each: a `BranchU` over
+    /// one-key immediates.
+    pub(super) fn branch_u_keys() -> impl Iterator<Item = u64> {
+        (0..200u8).map(|d| key_under(0x20 + d, 1, 0x40))
+    }
+
+    /// Twelve digits under one level-2 branch, three keys each but for
+    /// digit `0x44`, which has one: a `BranchB` over immediates.
+    pub(super) fn branch_b_keys() -> impl Iterator<Item = u64> {
+        (0..12u8).flat_map(|i| {
+            let d = 0x40 + 2 * i;
+            let n = if d == 0x44 { 1 } else { 3 };
+            (0..n).map(move |j| key_under(d, 1, 0x41 + j))
+        })
+    }
+
+    /// The first branch below the single-digit `BranchL3` chain at the top
+    /// of a tree: its tag, node and version field.
+    pub(super) fn first_wide_branch(set: &SyncExpanseSet) -> (EdgeType, *const u8, *const u32) {
+        let RootSnapshot::Tree { top } = set.shared.published().load() else {
+            panic!("root must be a tree")
+        };
+        let mut edge = top;
+        // SAFETY: live nodes of a tree no writer is changing; fields are
+        // copied out.
+        unsafe {
+            loop {
+                let Some(EdgeTag::Structural(t)) = edge.tag() else {
+                    panic!("a branch chain")
+                };
+                let node = edge.node_ptr().cast_const();
+                match t {
+                    EdgeType::BranchL3 => {
+                        let b = node.cast::<BranchL3>();
+                        if (*b).hdr.num == 1 {
+                            let edges = (*b).edges;
+                            edge = edges[0];
+                            continue;
+                        }
+                        return (t, node, &raw const (*b).hdr.version);
+                    }
+                    EdgeType::BranchL7 => {
+                        return (t, node, &raw const (*node.cast::<BranchL7>()).hdr.version);
+                    }
+                    EdgeType::BranchB => {
+                        return (t, node, &raw const (*node.cast::<BranchB>()).version);
+                    }
+                    EdgeType::BranchU => {
+                        return (t, node, &raw const (*node.cast::<BranchU>()).version);
+                    }
+                    other => panic!("not a branch: {other:?}"),
+                }
+            }
+        }
+    }
+
+    /// The keys of [`narrow_bitmap_leaf`]: 33 that share their upper seven
+    /// bytes, one more than a top-level linear leaf holds, with low bytes
+    /// on both sides of 128.
+    fn narrow_keys() -> impl Iterator<Item = u64> {
+        (0..33u64).map(|i| key_under(0x21, 1, 0x10 + 7 * i))
+    }
+
+    /// One `LeafBitmap1` of 33 keys behind a narrow pointer: every key
+    /// shares its upper seven bytes, so the leaf hangs from a level-7 slot.
+    pub(super) fn narrow_bitmap_leaf() -> Fixture {
+        build_set(narrow_keys())
+    }
+
+    /// A one-byte linear leaf of `pop` keys behind a narrow pointer, which a
+    /// shared set reaches by removals from [`narrow_bitmap_leaf`]: the
+    /// bitmap leaf demotes below `LEAFB1_DOWN` to a `Leaf1` that keeps its
+    /// skip, and a level-7 slot keeps a leaf down to three keys.
+    pub(super) fn narrow_leaf(pop: usize) -> Fixture {
+        assert!((3..crate::types::LEAFB1_DOWN).contains(&pop));
+        let mut f = narrow_bitmap_leaf();
+        for k in narrow_keys().take(33 - pop) {
+            take_key(&mut f, k);
+        }
+        f
+    }
+
+    /// The read-set bound (`scripts/olc_bounds.py::ordered_read_set_branches`):
+    /// a branch at every level on the probe's path and on its sibling's, so
+    /// a search that finds nothing under one top digit and answers under
+    /// the other retains 1 + 6 + 6 = 13 versions.
+    ///
+    /// Under top digit `0x30` the path follows digit `0x02` at levels 7 to
+    /// 3, under `0x40` digit `0x01`; a single key under the other digit
+    /// makes each of those levels a two-digit branch, and 34 keys under two
+    /// level-2 digits make the bottom a branch over two `Leaf1`s.
+    #[cfg(not(miri))]
+    pub(super) fn bound_fixture() -> Fixture {
+        let mut keys = Vec::new();
+        for (top, main, side) in [(0x30u64, 0x02u8, 0x01u64), (0x40, 0x01, 0x02)] {
+            let path = (top << 56) | (rep_byte(main, 5) << 16);
+            for d in [0x01u64, 0x02] {
+                keys.extend((0..17).map(|i| path | (d << 8) | (0x41 + i)));
+            }
+            for j in 3..=7u8 {
+                let above = path >> (8 * j) << (8 * j);
+                keys.push(above | (side << (8 * (j - 1))) | rep_byte(0x01, j - 1));
+            }
+        }
+        build_set(keys)
+    }
+
+    /// The two probes of [`bound_fixture`]: a successor search that finds nothing
+    /// under `0x30`, and a predecessor search that finds nothing under
+    /// `0x40`.
+    #[cfg(not(miri))]
+    pub(super) const BOUND_PROBES: [(Op, u64); 2] = [
+        (
+            Op::NextAtOrAfter,
+            (0x30 << 56) | (rep_byte(0x02, 6) << 8) | 0x7F,
+        ),
+        (
+            Op::PrevAtOrBefore,
+            (0x40 << 56) | (rep_byte(0x01, 6) << 8) | 0x10,
+        ),
+    ];
+
+    /// The set reads as a wrapper would make them: `Shared::optimistic_read`
+    /// over the set form of the walk, the walk's `(key, 0)` projected to the
+    /// key, the single-threaded read as the locked answer, and no read
+    /// operation for the two early answers (§36.3, D1 to D3). Test builds
+    /// only: no reader handle offers these.
+    #[cfg(not(miri))]
+    pub(super) fn optimistic_set_read(
+        set: &SyncExpanseSet,
+        rd: &SetReader<'_>,
+        op: Op,
+        key: u64,
+    ) -> Option<u64> {
+        let (k, forward) = walk_plan(op, key)?;
+        set.shared.optimistic_read(
+            &rd.reader,
+            |s| s.occ_root().0,
+            |root, ver, snap| {
+                // SAFETY: `optimistic_read` calls the walk pinned, with a
+                // version sampled after the pin and a root copied under it.
+                let walked = unsafe {
+                    if forward {
+                        crate::sync_nav::next_validated::<false>(root, k, ver, snap)
+                    } else {
+                        crate::sync_nav::prev_validated::<false>(root, k, ver, snap)
+                    }
+                };
+                walked.map(|found| {
+                    found.map(|(key, v)| {
+                        assert_eq!(v, 0, "the set form's value word");
+                        key
+                    })
+                })
+            },
+            |s| {
+                if forward {
+                    s.next_at_or_after(k)
+                } else {
+                    s.prev_at_or_before(k)
+                }
+            },
+        )
+    }
+
+    /// One row of a table: a name, the fixture, the probes, and the forms
+    /// the reads over it must visit.
+    pub(super) type Row = (String, Fixture, Vec<u64>, Vec<Visit>);
+
+    /// Which rows [`fixture_table`] builds.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Table {
+        /// Every node form once, each linear leaf at a population that
+        /// fills its allocation exactly, and a few probes per row: sized
+        /// for the per-pull-request Miri lane, which interprets each insert
+        /// and each read. It has no full expanse: that arm loads nothing,
+        /// and one costs 256 inserts.
+        ExactFit,
+        /// Every fixture of G36.2's table, at every registered population a
+        /// shared set reaches, and a bitmap and an uncompressed branch,
+        /// probed at each key and its neighbours.
+        Full,
+    }
+
+    /// The first, middle, second-to-last and last keys of a model.
+    fn spread_keys(m: &BTreeSet<u64>) -> Vec<u64> {
+        let keys: Vec<u64> = m.iter().copied().collect();
+        let n = keys.len();
+        let at: BTreeSet<usize> = [0, n / 2, n.saturating_sub(2), n - 1].into_iter().collect();
+        at.into_iter().map(|i| keys[i]).collect()
+    }
+
+    /// The fixtures of G36.2's table and of the ledger's class C rows
+    /// (§36.3): each node form the set has, at the populations a shared set
+    /// reaches.
+    pub(super) fn fixture_table(which: Table) -> Vec<Row> {
+        let full = which == Table::Full;
+        let probes = |f: &Fixture| {
+            if full {
+                probes_around(f.1.iter().copied())
+            } else {
+                spread_keys(&f.1)
+            }
+        };
+        let immed = |key_bytes, count| Visit::Immed {
+            key_bytes,
+            count,
+            map: false,
+        };
+        let leaf = |key_bytes, level| Visit::Leaf { key_bytes, level };
+        let mut rows: Vec<Row> = Vec::new();
+        for pop in [1, 8, crate::types::ROOT_LEAF_CAP] {
+            let f = root_leaf_fixture(pop);
+            let p = probes(&f);
+            rows.push((format!("root leaf of {pop}"), f, p, vec![Visit::RootLeaf]));
+        }
+        // One probe in each immediate when the table is the small one.
+        let f = immediates_fixture();
+        let p = if full {
+            probes(&f)
+        } else {
+            (0x21..=0x25u8)
+                .map(|d| key_under(d, 1, 0x41))
+                .chain([(0x31 << 56) | rep_byte(0x41, 7)])
+                .collect()
+        };
+        rows.push((
+            "immediates".into(),
+            f,
+            p,
+            vec![
+                immed(1, 1),
+                immed(1, 2),
+                immed(1, 7),
+                immed(1, 15),
+                immed(7, 2),
+            ],
+        ));
+        if full {
+            for kb in 1..=7u8 {
+                let f = leaf_fixtures(kb);
+                let p = probes(&f);
+                rows.push((
+                    format!("Leaf{kb} at {:?}", leaf_pops(kb)),
+                    f,
+                    p,
+                    vec![leaf(kb, kb)],
+                ));
+            }
+        }
+        // Every width at its exact-fit population, probed at each leaf's
+        // first and last slots.
+        let f = exact_leaves();
+        let p = (1..=7u8)
+            .flat_map(|kb| [exact_key(kb, 0), exact_key(kb, exact_fit_pop(kb) - 1)])
+            .collect();
+        rows.push((
+            "exact-fit leaves".into(),
+            f,
+            p,
+            (1..=7u8).map(|kb| leaf(kb, kb)).collect(),
+        ));
+        let narrow_pops: &[usize] = if full { &[3, 20] } else { &[20] };
+        for &pop in narrow_pops {
+            let f = narrow_leaf(pop);
+            let p = probes(&f);
+            rows.push((format!("narrow Leaf1 of {pop}"), f, p, vec![leaf(1, 7)]));
+        }
+        let f = bitmap_leaf_fixture();
+        let p = probes(&f);
+        rows.push((
+            "bitmap leaf".into(),
+            f,
+            p,
+            vec![Visit::BitmapLeaf { level: 1 }],
+        ));
+        let f = narrow_bitmap_leaf();
+        let p = probes(&f);
+        rows.push((
+            "narrow bitmap leaf".into(),
+            f,
+            p,
+            vec![Visit::BitmapLeaf { level: 7 }],
+        ));
+        if full {
+            // The walk's recursion through a bitmap branch and through an
+            // uncompressed one, over immediates. A visit names a terminal,
+            // so the branch form is read from the tree.
+            for (what, want, f) in [
+                (
+                    "bitmap branch",
+                    EdgeType::BranchB,
+                    build_set(branch_b_keys()),
+                ),
+                (
+                    "uncompressed branch",
+                    EdgeType::BranchU,
+                    build_set(branch_u_keys()),
+                ),
+            ] {
+                assert_eq!(first_wide_branch(&f.0).0, want, "{what}");
+                let p = probes(&f);
+                rows.push((what.into(), f, p, vec![immed(1, 1)]));
+            }
+            // Probes at, below and above each full expanse and across the
+            // two: every seventeenth key, and both ends of both blocks.
+            let f = full_expanses();
+            let ends = (0x21..=0x22u8).flat_map(|d| [key_under(d, 1, 0), key_under(d, 1, 0xFF)]);
+            let p = probes_around(f.1.iter().copied().step_by(17).chain(ends));
+            rows.push(("full expanses".into(), f, p, vec![Visit::FullExpanse]));
+        }
+        rows
+    }
+
+    /// Runs every read over every row of [`fixture_table`], with the checks of
+    /// [`checked_read`], and asserts each row's forms were visited. Returns the
+    /// number of rows it ran.
+    pub(super) fn run_table(which: Table) -> usize {
+        let rows = fixture_table(which);
+        let n = rows.len();
+        for (what, f, probes, required) in rows {
+            let seen = checked_reads(&f.0, &f.1, &probes, &what);
+            for v in required {
+                assert!(
+                    seen.contains(&v),
+                    "{what}: no read visited {v:?} (visited {seen:?})"
+                );
+            }
+        }
+        n
+    }
+}
+
+/// G36.6's table at full size (#1194;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §36.4): every fixture of
+/// G36.2's table, at every registered population a shared set reaches. It
+/// runs with the lib tests, and under Miri in the nightly `lib-sync` shard,
+/// where interpreting its inserts and reads fits; the per-pull-request lane
+/// runs the exact-fit rows (`miri_tests::set_ordered_reads_under_miri`).
+#[cfg(test)]
+mod set_ordered_table_tests {
+    use super::set_ordered_fixtures as fx;
+
+    #[test]
+    fn set_ordered_reads_over_the_full_table() {
+        // Three root leaves, the immediates, seven leaf widths, the
+        // exact-fit leaves, two narrow leaves, two bitmap leaves, two wide
+        // branches and the full expanses.
+        assert_eq!(fx::run_table(fx::Table::Full), 19);
+    }
+}
+
 /// Miri-visible: the concurrent wrappers on one thread, through the
 /// root-leaf-to-tree promotion, so the aliasing model sees the wrapper's
 /// block, the tree word bound into the allocator and the engine's first read
@@ -16136,6 +16790,27 @@ impl OrderedBytesExclusive<'_> {
 #[cfg(test)]
 mod miri_tests {
     use super::*;
+
+    /// G36.6 (#1194; `docs/benchmarks/concurrency/METHODOLOGY.md` §36.4 and
+    /// §36.11): the set form of the validated ordered walk, by direct call
+    /// on one thread, over every node form the set has. Each node of a
+    /// shared set is its own allocation of the requested size, so Miri
+    /// reports a read past a node, a read of bytes never written and a
+    /// wild dereference here; the value-word and first-attempt checks of
+    /// `set_ordered_fixtures::checked_read` cover a read that stays inside the
+    /// node.
+    ///
+    /// The rows are the exact-fit ones (`Table::ExactFit`), sized for this
+    /// lane; the full table is
+    /// `set_ordered_table_tests::set_ordered_reads_over_the_full_table`,
+    /// which the nightly lane interprets.
+    #[test]
+    fn set_ordered_reads_under_miri() {
+        // Three root leaves, the immediates, the exact-fit leaves, one
+        // narrow leaf and two bitmap leaves.
+        let rows = set_ordered_fixtures::run_table(set_ordered_fixtures::Table::ExactFit);
+        assert_eq!(rows, 8);
+    }
 
     fn splitmix64(i: u64) -> u64 {
         let mut z = i.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -23808,6 +24483,32 @@ pub(crate) mod test_hooks {
     }
 
     thread_local! {
+        static VISITS: Cell<Vec<crate::sync_nav::Visit>> = const { Cell::new(Vec::new()) };
+    }
+
+    /// The most visits one thread's log keeps: above what the largest test
+    /// reads back, so that a thread which never reads its log does not grow
+    /// it without bound.
+    const VISIT_LOG_CAP: usize = 4096;
+
+    /// Appends `v` to this thread's log of what its ordered walks visited
+    /// (#1194, G36.3).
+    pub(crate) fn record_visit(v: crate::sync_nav::Visit) {
+        VISITS.with(|c| {
+            let mut log = c.take();
+            if log.len() < VISIT_LOG_CAP {
+                log.push(v);
+            }
+            c.set(log);
+        });
+    }
+
+    /// This thread's visit log, which it empties.
+    pub(crate) fn take_visits() -> Vec<crate::sync_nav::Visit> {
+        VISITS.with(Cell::take)
+    }
+
+    thread_local! {
         static ARMED_CHILD_EDGE: Cell<Option<Arc<Gate>>> = const { Cell::new(None) };
     }
 
@@ -26260,6 +26961,112 @@ mod ordered_read_tests {
             );
         }
     }
+    // ---- The set form of the walk (#1194; METHODOLOGY.md §36.4) ----
+
+    use super::set_ordered_fixtures as fx;
+
+    /// G36.3, the bound: on [`fx::bound_fixture`] a search retains exactly
+    /// 13 branch versions, in both directions, and answers on its first
+    /// attempt. The same reads through the retry protocol
+    /// ([`fx::optimistic_set_read`]) give the model's answers, with the
+    /// read set below its capacity.
+    #[test]
+    fn set_ordered_read_set_reaches_its_bound_of_13() {
+        let f = fx::bound_fixture();
+        let rd = f.0.reader();
+        for (op, probe) in fx::BOUND_PROBES {
+            let visits = fx::checked_read(&f.0, &rd, &f.1, op, probe, "bound");
+            let want = fx::model_answer(&f.1, op, probe);
+            assert!(
+                want.is_some(),
+                "{op:?}: the sibling subtree must hold the answer"
+            );
+            assert_eq!(
+                visits.last(),
+                Some(&fx::Visit::ReadSet { len: 13 }),
+                "{op:?}: 1 + 6 + 6 branch versions (visited {visits:?})"
+            );
+            assert_eq!(fx::optimistic_set_read(&f.0, &rd, op, probe), want);
+        }
+    }
+
+    /// A `BranchL3` allocated by hand for one test, freed on drop.
+    struct OwnedBranch(*mut BranchL3);
+
+    impl OwnedBranch {
+        /// A level-8 branch whose one child, under digit `0x11`, is `child`.
+        fn over(child: Edge) -> Self {
+            let mut b = Box::new(BranchL3::new(8));
+            b.hdr.num = 1;
+            b.hdr.digits[0] = 0x11;
+            b.edges[0] = child;
+            Self(Box::into_raw(b))
+        }
+
+        fn top(&self) -> RootSnapshot {
+            RootSnapshot::Tree {
+                top: Edge::new_node(self.0.cast(), EdgeType::BranchL3.as_u8()),
+            }
+        }
+    }
+
+    impl Drop for OwnedBranch {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` came from `Box::into_raw` in `over`, and no
+            // walk outlives the guard.
+            drop(unsafe { Box::from_raw(self.0) });
+        }
+    }
+
+    /// A full-expanse edge whose population field says it fills `level`.
+    fn full_expanse_edge(level: u8) -> Edge {
+        let mut e = Edge::NULL;
+        e.set_tag(EdgeType::FullExpanse.as_u8());
+        e.set_pop0(level, crate::mutate::pow256(level) - 1);
+        e
+    }
+
+    /// The set form's successor of `key` under `root`, by direct call on a
+    /// tree no writer exists for.
+    fn next_under(root: RootSnapshot, key: u64) -> Option<(u64, u64)> {
+        let ver = SeqVersion::new();
+        let snap = ver.sample();
+        // SAFETY: the nodes under `root` are private to the calling test and
+        // live for the call; `snap` was sampled from `ver` before it.
+        let r = unsafe { crate::sync_nav::next_validated::<false>(root, key, &ver, snap) };
+        r.ok().expect("a quiescent tree")
+    }
+
+    /// §36.3, C6: a full expanse that fills the level it is read at answers
+    /// from the suffix. The control arm of the two tests below.
+    #[test]
+    fn set_ordered_full_expanse_that_fills_its_level_answers_from_the_suffix() {
+        let branch = OwnedBranch::over(full_expanse_edge(7));
+        let probe = (0x11 << 56) | fx::rep_byte(0x41, 7);
+        assert_eq!(next_under(branch.top(), probe), Some((probe, 0)));
+    }
+
+    /// §36.3, C6, the population clause of the debug assertion: a level-1
+    /// full expanse read in a level-7 slot, as one behind a narrow pointer
+    /// would be, holds 256 keys and not the 2^56 its arm would answer for.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "must hold every key of that level")]
+    fn set_ordered_full_expanse_behind_a_narrow_pointer_trips_the_debug_assertion() {
+        let branch = OwnedBranch::over(full_expanse_edge(1));
+        let probe = (0x11 << 56) | fx::rep_byte(0x41, 7);
+        let _ = next_under(branch.top(), probe);
+    }
+
+    /// §36.3, C6, the level clause: a full expanse as the top edge is read
+    /// at level 8, which no population field describes.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "must hold every key of that level")]
+    fn set_ordered_full_expanse_as_the_top_edge_trips_the_debug_assertion() {
+        let top = full_expanse_edge(7);
+        let _ = next_under(RootSnapshot::Tree { top }, fx::rep_byte(0x41, 8));
+    }
 }
 
 /// `SyncExpanseMap::compare_exchange` against a model, over key families that
@@ -26429,6 +27236,162 @@ mod compare_exchange_tests {
         assert_eq!(plain.get(k1), Some(20));
         assert_eq!(plain.update(k1, |_| None), Some(20));
         assert_eq!(plain.get(k1), None);
+    }
+}
+
+/// G36.3 (#1194; `docs/benchmarks/concurrency/METHODOLOGY.md` §36.4): on
+/// quiescent sets the set form of the ordered walk answers through the
+/// optimistic protocol, never from the lock, and its reads visit every node
+/// form the set has.
+///
+/// One test, and it reads process-global counters as exact deltas, so it
+/// runs in the single-threaded lib pass of `scripts/test_occ_stats.sh`. It
+/// is a lib test and not an integration target because the set form has no
+/// public caller: `fx::optimistic_set_read` stands where a reader's methods will.
+#[cfg(all(test, feature = "occ-stats", not(miri)))]
+mod set_ordered_stats_tests {
+    use super::set_ordered_fixtures as fx;
+    use super::*;
+    use crate::occ_stats::{self, Stat};
+
+    /// The counters of the terminal forms the walk visits.
+    const VISITS: [Stat; 14] = [
+        Stat::OrderedVisitRootLeaf,
+        Stat::OrderedVisitImmed,
+        Stat::OrderedVisitImmedFull,
+        Stat::OrderedVisitLeaf1,
+        Stat::OrderedVisitLeaf2,
+        Stat::OrderedVisitLeaf3,
+        Stat::OrderedVisitLeaf4,
+        Stat::OrderedVisitLeaf5,
+        Stat::OrderedVisitLeaf6,
+        Stat::OrderedVisitLeaf7,
+        Stat::OrderedVisitLeafNarrow,
+        Stat::OrderedVisitBitmapLeaf,
+        Stat::OrderedVisitBitmapLeafNarrow,
+        Stat::OrderedVisitFullExpanse,
+    ];
+
+    /// Every read over every probe, against the model, with the counter
+    /// clauses: of the calls made, the `w` that reach the walk are `w` read
+    /// operations and `w` attempts, and none falls back.
+    fn counted(what: &str, set: &SyncExpanseSet, m: &fx::BTreeSet<u64>, probes: &[u64]) {
+        let rd = set.reader();
+        let before = occ_stats::snapshot();
+        let mut w = 0u64;
+        for &p in probes {
+            for op in fx::OPS {
+                assert_eq!(
+                    fx::optimistic_set_read(set, &rd, op, p),
+                    fx::model_answer(m, op, p),
+                    "{what}: {op:?}({p:#x}) against the model"
+                );
+                w += u64::from(fx::walk_plan(op, p).is_some());
+            }
+        }
+        let after = occ_stats::snapshot();
+        let d = |s: Stat| after[s as usize] - before[s as usize];
+        assert_eq!(
+            d(Stat::ReadFallbacks),
+            0,
+            "{what}: a quiescent read fell back to the lock"
+        );
+        assert_eq!(d(Stat::ReadOps), w, "{what}: read operations");
+        assert_eq!(
+            d(Stat::ReadAttempts),
+            w,
+            "{what}: one attempt per read on a quiescent set"
+        );
+    }
+
+    #[test]
+    fn set_ordered_reads_answer_optimistically_and_visit_every_form() {
+        assert!(occ_stats::enabled());
+        let start = occ_stats::snapshot();
+
+        // The two early answers reach no walk and count no read operation.
+        let (set, m) = fx::root_leaf_fixture(8);
+        counted("boundaries of a root leaf", &set, &m, &[0, u64::MAX]);
+
+        for (what, f, probes, _) in fx::fixture_table(fx::Table::Full) {
+            counted(&what, &f.0, &f.1, &probes);
+        }
+
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut rand = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let random: Vec<u64> = (0..3000).map(|_| rand()).collect();
+        let shapes: Vec<(&str, Vec<u64>)> = vec![
+            ("empty", vec![]),
+            ("sequential", (0..4096).collect()),
+            ("random", random.clone()),
+            (
+                "clustered",
+                (0..2000).map(|i| 0x77_0000_0000 + i * 3).collect(),
+            ),
+            ("sparse top", (0..512).map(|i| i << 48).collect()),
+            (
+                "bitmap branch",
+                (0..48u64)
+                    .flat_map(|d| (0..4u64).map(move |i| ((d * 5) << 16) | i))
+                    .collect(),
+            ),
+            (
+                "uncompressed branch",
+                (0..256u64)
+                    .flat_map(|hi| (0..16u64).map(move |lo| (hi << 8) | lo))
+                    .collect(),
+            ),
+            (
+                "boundaries",
+                vec![0, 1, 0xFF, 0x100, 0xFFFF, 0x1_0000, u64::MAX - 1, u64::MAX],
+            ),
+        ];
+        for (what, keys) in shapes {
+            let mut f = fx::build_set(keys.iter().copied());
+            let probes = fx::probes_around(keys.iter().copied().step_by(7));
+            counted(what, &f.0, &f.1, &probes);
+            // The same set rebuilt by `compact`.
+            f.0.compact();
+            counted(&format!("{what}, compacted"), &f.0, &f.1, &probes);
+            // What `remove` leaves of it: every tenth key.
+            for (i, &k) in keys.iter().enumerate() {
+                if i % 10 != 0 && f.1.contains(&k) {
+                    fx::take_key(&mut f, k);
+                }
+            }
+            counted(&format!("{what}, mostly removed"), &f.0, &f.1, &probes);
+        }
+
+        let visited = occ_stats::snapshot();
+        for s in VISITS {
+            assert!(
+                visited[s as usize] > start[s as usize],
+                "no read visited {}",
+                occ_stats::NAMES[s as usize]
+            );
+        }
+
+        // The bound: one read of each direction retains exactly 13 versions
+        // and answers on its first attempt. The high-water mark is a gauge,
+        // so it is zeroed first.
+        let (set, m) = fx::bound_fixture();
+        let rd = set.reader();
+        for (op, probe) in fx::BOUND_PROBES {
+            occ_stats::reset();
+            assert_eq!(
+                fx::optimistic_set_read(&set, &rd, op, probe),
+                fx::model_answer(&m, op, probe)
+            );
+            let s = occ_stats::snapshot();
+            assert_eq!(s[Stat::OrderedReadSetHwm as usize], 13, "{op:?}");
+            assert_eq!(s[Stat::ReadAttempts as usize], 1, "{op:?}");
+            assert_eq!(s[Stat::ReadFallbacks as usize], 0, "{op:?}");
+        }
     }
 }
 

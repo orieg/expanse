@@ -228,10 +228,51 @@ pub enum Stat {
     /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §33.7.4). Each is also
     /// a [`Stat::ReadFallbacks`].
     StrOrderedOverflows = 51,
+    /// Root leaves an ordered walk of `sync_nav` searched (#1194). This and the
+    /// `OrderedVisit*` counters below record the terminal forms the walk
+    /// answered from or passed over: what a read visited, which a census of
+    /// the tree cannot say. A differential that claims to cover a node form
+    /// is checked against its counter being non-zero
+    /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.4, G36.3).
+    OrderedVisitRootLeaf = 52,
+    /// Immediates an ordered walk read.
+    OrderedVisitImmed = 53,
+    /// The subset of [`Stat::OrderedVisitImmed`] holding as many keys as the
+    /// form allows at its key width.
+    OrderedVisitImmedFull = 54,
+    /// Linear leaves of 1-byte keys an ordered walk read.
+    OrderedVisitLeaf1 = 55,
+    /// Linear leaves of 2-byte keys an ordered walk read.
+    OrderedVisitLeaf2 = 56,
+    /// Linear leaves of 3-byte keys an ordered walk read.
+    OrderedVisitLeaf3 = 57,
+    /// Linear leaves of 4-byte keys an ordered walk read.
+    OrderedVisitLeaf4 = 58,
+    /// Linear leaves of 5-byte keys an ordered walk read.
+    OrderedVisitLeaf5 = 59,
+    /// Linear leaves of 6-byte keys an ordered walk read.
+    OrderedVisitLeaf6 = 60,
+    /// Linear leaves of 7-byte keys an ordered walk read.
+    OrderedVisitLeaf7 = 61,
+    /// Linear leaves an ordered walk read behind a narrow pointer: key bytes
+    /// below the slot's level, so the walk compared a skipped prefix.
+    OrderedVisitLeafNarrow = 62,
+    /// Bitmap leaves an ordered walk read.
+    OrderedVisitBitmapLeaf = 63,
+    /// The subset of [`Stat::OrderedVisitBitmapLeaf`] behind a narrow pointer.
+    OrderedVisitBitmapLeafNarrow = 64,
+    /// Full expanses an ordered walk answered from (set form only).
+    OrderedVisitFullExpanse = 65,
+    /// The largest number of branch versions one `next_validated` or
+    /// `prev_validated` search retained before its final validation: a
+    /// high-water mark, kept global like [`Stat::RetainedGarbageHwm`]. A
+    /// consistent read holds at most 13
+    /// (`scripts/olc_bounds.py::ordered_read_set_branches`).
+    OrderedReadSetHwm = 66,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 52;
+pub const NUM_STATS: usize = 67;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -287,12 +328,29 @@ pub const NAMES: [&str; NUM_STATS] = [
     "str_ordered_answers",
     "str_ordered_cross_level",
     "str_ordered_overflows",
+    "ordered_visit_root_leaf",
+    "ordered_visit_immed",
+    "ordered_visit_immed_full",
+    "ordered_visit_leaf1",
+    "ordered_visit_leaf2",
+    "ordered_visit_leaf3",
+    "ordered_visit_leaf4",
+    "ordered_visit_leaf5",
+    "ordered_visit_leaf6",
+    "ordered_visit_leaf7",
+    "ordered_visit_leaf_narrow",
+    "ordered_visit_bitmap_leaf",
+    "ordered_visit_bitmap_leaf_narrow",
+    "ordered_visit_full_expanse",
+    "ordered_read_set_hwm",
 ];
 
 /// Counters that are gauges (add / subtract / high-water), kept global.
 #[cfg(feature = "occ-stats")]
 const fn is_gauge(i: usize) -> bool {
-    i == Stat::RetainedGarbageBytes as usize || i == Stat::RetainedGarbageHwm as usize
+    i == Stat::RetainedGarbageBytes as usize
+        || i == Stat::RetainedGarbageHwm as usize
+        || i == Stat::OrderedReadSetHwm as usize
 }
 
 #[cfg(feature = "occ-stats")]
@@ -362,6 +420,16 @@ pub fn bump_by(s: Stat, n: u64) {
     let _ = (s, n);
     #[cfg(feature = "occ-stats")]
     cells::shard().0[s as usize].fetch_add(n, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Raises the high-water mark `s` to `v` when `v` is above it. `s` is a
+/// gauge (`is_gauge`). Exists only with `occ-stats`: its one caller is
+/// compiled with the feature.
+#[cfg(feature = "occ-stats")]
+#[inline(always)]
+pub(crate) fn raise(s: Stat, v: u64) {
+    debug_assert!(is_gauge(s as usize));
+    cells::GLOBAL[s as usize].fetch_max(v, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// Records retired garbage bytes and updates the high-water mark. A no-op without `occ-stats`.
@@ -565,7 +633,19 @@ mod tests {
     #[test]
     fn names_cover_every_stat() {
         assert_eq!(NAMES.len(), NUM_STATS);
-        assert_eq!(Stat::StrOrderedOverflows as usize + 1, NUM_STATS);
+        assert_eq!(Stat::OrderedReadSetHwm as usize + 1, NUM_STATS);
+        assert_eq!(
+            NAMES[Stat::OrderedVisitRootLeaf as usize],
+            "ordered_visit_root_leaf"
+        );
+        assert_eq!(
+            NAMES[Stat::OrderedVisitLeaf7 as usize],
+            "ordered_visit_leaf7"
+        );
+        assert_eq!(
+            NAMES[Stat::OrderedReadSetHwm as usize],
+            "ordered_read_set_hwm"
+        );
         assert_eq!(
             NAMES[Stat::StrOrderedAnswers as usize],
             "str_ordered_answers"

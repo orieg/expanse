@@ -45,6 +45,111 @@ use core::mem::MaybeUninit;
 /// consistent-read bound of 13, so only a read of a moving tree reaches it.
 const READ_SET_CAP: usize = 16;
 
+/// A terminal form an ordered walk answered from or passed over, and the
+/// number of branch versions a search retained (#1194;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §36.4, G36.3). It describes
+/// the read, which a census of the tree cannot. Exists in test builds, where
+/// the walk logs it per thread, and with `occ-stats`, where it is counted;
+/// the default build has neither.
+#[cfg(any(test, feature = "occ-stats"))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Visit {
+    /// The root leaf.
+    RootLeaf,
+    /// An immediate of `count` keys of `key_bytes` bytes, of the map form
+    /// when `map` is set.
+    Immed {
+        /// Bytes per key: the level the immediate is read at.
+        key_bytes: u8,
+        /// Keys held.
+        count: u8,
+        /// The map form, whose capacity is `7 / key_bytes`.
+        map: bool,
+    },
+    /// A linear leaf of `key_bytes`-byte keys in a slot of `level`; a narrow
+    /// pointer when `key_bytes < level`.
+    Leaf {
+        /// Bytes per key.
+        key_bytes: u8,
+        /// The slot's level.
+        level: u8,
+    },
+    /// A bitmap leaf in a slot of `level`; a narrow pointer above level 1.
+    BitmapLeaf {
+        /// The slot's level.
+        level: u8,
+    },
+    /// A full expanse.
+    FullExpanse,
+    /// A search that reached its final validation with `len` branch
+    /// versions retained.
+    ReadSet {
+        /// Versions retained.
+        len: usize,
+    },
+}
+
+/// Records `v`: logged on this thread in test builds, counted with
+/// `occ-stats`.
+#[cfg(any(test, feature = "occ-stats"))]
+fn visit(v: Visit) {
+    #[cfg(feature = "occ-stats")]
+    {
+        use crate::occ_stats::{Stat, bump, raise};
+        match v {
+            Visit::RootLeaf => bump(Stat::OrderedVisitRootLeaf),
+            Visit::Immed {
+                key_bytes,
+                count,
+                map,
+            } => {
+                bump(Stat::OrderedVisitImmed);
+                let cap = if map {
+                    crate::mutate::map_immed_max(key_bytes)
+                } else {
+                    crate::types::ImmedType::max_count(key_bytes) as usize
+                };
+                if count as usize == cap {
+                    bump(Stat::OrderedVisitImmedFull);
+                }
+            }
+            Visit::Leaf { key_bytes, level } => {
+                bump(match key_bytes {
+                    1 => Stat::OrderedVisitLeaf1,
+                    2 => Stat::OrderedVisitLeaf2,
+                    3 => Stat::OrderedVisitLeaf3,
+                    4 => Stat::OrderedVisitLeaf4,
+                    5 => Stat::OrderedVisitLeaf5,
+                    6 => Stat::OrderedVisitLeaf6,
+                    _ => Stat::OrderedVisitLeaf7,
+                });
+                if key_bytes < level {
+                    bump(Stat::OrderedVisitLeafNarrow);
+                }
+            }
+            Visit::BitmapLeaf { level } => {
+                bump(Stat::OrderedVisitBitmapLeaf);
+                if level > 1 {
+                    bump(Stat::OrderedVisitBitmapLeafNarrow);
+                }
+            }
+            Visit::FullExpanse => bump(Stat::OrderedVisitFullExpanse),
+            Visit::ReadSet { len } => raise(Stat::OrderedReadSetHwm, len as u64),
+        }
+    }
+    #[cfg(test)]
+    crate::sync::test_hooks::record_visit(v);
+}
+
+/// [`visit`] at a site of the walk. Expands to nothing in the default build,
+/// so the walk compiles as it did without it.
+macro_rules! visit {
+    ($v:expr) => {
+        #[cfg(any(test, feature = "occ-stats"))]
+        visit($v);
+    };
+}
+
 /// Every version a search sampled, kept until the final validation.
 ///
 /// Generic over its capacity by monomorphisation: the u64 searches use
@@ -261,6 +366,20 @@ fn skip_cmp(
     }
 }
 
+/// True when a full-expanse `edge` read in a slot of `level` holds every
+/// key of that level: its population field is the level's full count.
+///
+/// The walk's full-expanse arm answers from the suffix alone and compares no
+/// skipped prefix, which is right only then. On a shared set the form is
+/// made at level 1 without a skip; a full expanse behind a narrow pointer,
+/// which the algebra builders make on a plain set, would be read wrongly
+/// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.3, C6). Debug builds
+/// only: the release walk does not load the population field here.
+#[cfg(debug_assertions)]
+fn full_expanse_fills(edge: &Edge, level: u8) -> bool {
+    (1..=7).contains(&level) && edge.pop0(level) == pow256(level) - 1
+}
+
 /// Smallest key `>= key` under `root`, with its value (0 for sets).
 ///
 /// # Safety
@@ -288,6 +407,7 @@ pub(crate) unsafe fn next_validated<const MAP: bool>(
             unsafe { next_in::<MAP, READ_SET_CAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
         }
     };
+    visit!(Visit::ReadSet { len: rs.len });
     #[cfg(test)]
     crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedFinal);
     // The answer is returned only after this check (`docs/ARCHITECTURE.md`
@@ -323,6 +443,7 @@ pub(crate) unsafe fn prev_validated<const MAP: bool>(
             unsafe { prev_in::<MAP, READ_SET_CAP>(&top, key, 8, Holder::Tree(ver, snap), &mut rs)? }
         }
     };
+    visit!(Visit::ReadSet { len: rs.len });
     #[cfg(test)]
     crate::sync::test_hooks::at(crate::sync::test_hooks::Site::OrderedFinal);
     // The answer is returned only after this check (`docs/ARCHITECTURE.md`
@@ -389,6 +510,7 @@ unsafe fn root_leaf<const MAP: bool>(
     key: Key,
     forward: bool,
 ) -> Option<(u64, u64)> {
+    visit!(Visit::RootLeaf);
     let keys = ptr.cast::<u64>();
     let (mut lo, mut hi) = (0usize, pop);
     while lo < hi {
@@ -453,6 +575,11 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
             } else {
                 crate::mutate::immed_keys(edge, im)
             };
+            visit!(Visit::Immed {
+                key_bytes: level,
+                count: im.key_count(),
+                map: MAP,
+            });
             let slot = keys.partition_point(|&k| k < suffix);
             let Some(&k) = keys.get(slot) else {
                 return Ok(None);
@@ -479,6 +606,10 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
             if kb > level {
                 return Err(Retry);
             }
+            visit!(Visit::Leaf {
+                key_bytes: kb,
+                level,
+            });
             let (ord, dv, shift) = skip_cmp(edge, kb, level, suffix);
             let low = match ord {
                 Less => 0,
@@ -510,6 +641,7 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
+            visit!(Visit::BitmapLeaf { level });
             let (ord, dv, shift) = skip_cmp(edge, 1, level, suffix);
             let from = match ord {
                 Less => 0,
@@ -525,6 +657,12 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
             if MAP {
                 return Err(Retry);
             }
+            visit!(Visit::FullExpanse);
+            #[cfg(debug_assertions)]
+            debug_assert!(
+                full_expanse_fills(edge, level),
+                "a full expanse read at level {level} must hold every key of that level"
+            );
             Ok(Some((suffix, 0)))
         }
 
@@ -698,6 +836,11 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
             } else {
                 crate::mutate::immed_keys(edge, im)
             };
+            visit!(Visit::Immed {
+                key_bytes: level,
+                count: im.key_count(),
+                map: MAP,
+            });
             let Some(slot) = keys.partition_point(|&k| k <= suffix).checked_sub(1) else {
                 return Ok(None);
             };
@@ -723,6 +866,10 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
             if kb > level {
                 return Err(Retry);
             }
+            visit!(Visit::Leaf {
+                key_bytes: kb,
+                level,
+            });
             let (ord, dv, shift) = skip_cmp(edge, kb, level, suffix);
             let low = match ord {
                 Less => return Ok(None),
@@ -757,6 +904,7 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
+            visit!(Visit::BitmapLeaf { level });
             let (ord, dv, shift) = skip_cmp(edge, 1, level, suffix);
             let from = match ord {
                 Less => return Ok(None),
@@ -772,6 +920,12 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
             if MAP {
                 return Err(Retry);
             }
+            visit!(Visit::FullExpanse);
+            #[cfg(debug_assertions)]
+            debug_assert!(
+                full_expanse_fills(edge, level),
+                "a full expanse read at level {level} must hold every key of that level"
+            );
             Ok(Some((suffix.min(pow256(level) - 1), 0)))
         }
 
