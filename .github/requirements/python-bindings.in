@@ -1,17 +1,26 @@
 # Top-level pins for the Python binding jobs: python.yml, ci.yml test-python,
 # nightly.yml and bench_baremetal.yml.
 #
-# One file serves every Python and OS those jobs run on. Compile it on the
-# OLDEST Python in the python.yml matrix (3.8), the one whose dependency set is
-# the widest: pytest 9 needs Python 3.10+, so pytest is pinned to the last
-# series that supports 3.8, and the resolved set (exceptiongroup, tomli,
-# typing-extensions) is a superset of what 3.10 and 3.12 need. pytest asks for
-# colorama on Windows only, and pip-compile drops a requirement whose marker is
-# false on the machine that compiles, so a macOS or Linux compile would omit it
-# and the Windows install would fail under --require-hashes. It is therefore
-# listed unconditionally: a pure-Python wheel that is harmless elsewhere.
+# One file serves every Python and OS those jobs run on, and pip-compile drops
+# a requirement whose environment marker is false on the machine that compiles.
+# So every dependency that holds only on some Python or OS is listed here
+# unconditionally, with an exact pin: a pure-Python wheel that is harmless where
+# the marker is false. Any compile of this file, on any Python (Dependabot
+# compiles on its own), then resolves the same package set, and
+# scripts/check_release_workflow.py fails a .txt whose set differs.
+#   colorama         pytest, Windows only
+#   exceptiongroup   pytest, Python < 3.11
+#   tomli            pytest and maturin, Python < 3.11
+#   typing-extensions  exceptiongroup, Python < 3.13
+# Compile it on the OLDEST Python in the python.yml matrix (3.8) anyway: pytest
+# 8.4 needs Python 3.9+ and pytest 9 needs 3.10+, so pytest is pinned to the
+# last series that supports 3.8, and typing-extensions to the last release that
+# does (4.13.2). .github/dependabot.yml holds both back.
 #
 # Refresh recipe: docs/CI.md, "Hashed Python requirements".
 maturin==1.15.0
 pytest==8.3.5
 colorama==0.4.6
+exceptiongroup==1.3.1
+tomli==2.5.0
+typing-extensions==4.13.2

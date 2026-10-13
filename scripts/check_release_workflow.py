@@ -425,6 +425,91 @@ def all_pip_problems(root: Path = REPO_ROOT) -> list[str]:
     return out
 
 
+# The resolved set of python-bindings.txt, which must hold on every Python and
+# OS python.yml tests. pip-compile drops a requirement whose environment marker
+# is false on the compiling machine, and Dependabot compiles on its own Python,
+# so the conditional ones (colorama: Windows; exceptiongroup, tomli: Python <
+# 3.11; typing-extensions: exceptiongroup on Python < 3.13) are listed in the
+# .in unconditionally and the set below is compared with the .txt exactly. A
+# change to this set is a change to what every matrix leg installs.
+PYTHON_BINDINGS_EXPECTED = frozenset({
+    "colorama", "exceptiongroup", "iniconfig", "maturin", "packaging", "pluggy",
+    "pytest", "tomli", "typing-extensions",
+})
+PYTHON_BINDINGS_UNCONDITIONAL = frozenset({"colorama", "exceptiongroup", "tomli", "typing-extensions"})
+# First release of a pinned package that needs a newer Python than the oldest
+# one in python.yml's matrix: (first release, the Python it requires), read
+# from the package's `requires_python` on PyPI. The `.in` pin stays below it
+# while the matrix floor is older than that Python.
+PYTHON_FLOOR_CEILINGS = {
+    "pytest": ((8, 4), (3, 9)),
+    "typing-extensions": ((4, 14), (3, 9)),
+}
+REQUIREMENT_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==(\d+(?:\.\d+)*)\b")
+
+
+def requirement_pins(text: str) -> dict[str, tuple[int, ...]]:
+    """`name==version` lines of a requirements `.in` or `.txt` file, names normalised."""
+    out: dict[str, tuple[int, ...]] = {}
+    for line in text.splitlines():
+        found = REQUIREMENT_RE.match(line)
+        if found:
+            name = re.sub(r"[-_.]+", "-", found.group(1)).lower()
+            out[name] = tuple(int(x) for x in found.group(2).split("."))
+    return out
+
+
+def matrix_python_floor(workflow: dict) -> tuple[int, ...] | None:
+    """The oldest `python-version` in any job matrix of `workflow`, or None."""
+    versions = []
+    for job in (workflow.get("jobs") or {}).values():
+        matrix = ((job.get("strategy") or {}).get("matrix") or {})
+        for v in matrix.get("python-version") or []:
+            versions.append(tuple(int(x) for x in str(v).split(".")))
+    return min(versions) if versions else None
+
+
+def dotted(version: tuple[int, ...]) -> str:
+    return ".".join(map(str, version))
+
+
+def python_requirements_problems(in_text: str, txt_text: str, floor: tuple[int, ...] | None,
+                                 where: str = "python-bindings") -> list[str]:
+    """python-bindings.in and .txt agree, hold the whole matrix, and respect the Python floor."""
+    out: list[str] = []
+    pins_in, pins_txt = requirement_pins(in_text), requirement_pins(txt_text)
+    missing = sorted(PYTHON_BINDINGS_EXPECTED - pins_txt.keys())
+    extra = sorted(pins_txt.keys() - PYTHON_BINDINGS_EXPECTED)
+    if missing or extra:
+        out.append(f"{where}.txt resolves {sorted(pins_txt)}, not the expected set: "
+                   f"missing {missing}, unexpected {extra}; a compile on a newer Python drops the "
+                   f"requirements whose marker is false there, so list them in {where}.in")
+    for name in sorted(PYTHON_BINDINGS_UNCONDITIONAL - pins_in.keys()):
+        out.append(f"{where}.in does not list `{name}`, a dependency that holds only on some Python or OS")
+    for name, version in sorted(pins_in.items()):
+        if pins_txt.get(name) != version:
+            have = dotted(pins_txt[name]) if name in pins_txt else "nothing"
+            out.append(f"{where}.in pins {name}=={dotted(version)} but {where}.txt has {have}")
+    if floor is None:
+        out.append(f"python.yml has no python-version matrix, so the Python floor of {where}.in is unknown")
+        return out
+    for name, (first, needs_python) in sorted(PYTHON_FLOOR_CEILINGS.items()):
+        pinned = pins_in.get(name)
+        if pinned is not None and floor < needs_python and pinned[:2] >= first:
+            out.append(f"{where}.in pins {name}=={dotted(pinned)}, which needs Python "
+                       f"{dotted(needs_python)}+, but python.yml tests {dotted(floor)}: "
+                       f"keep {name} below {dotted(first)}")
+    return out
+
+
+def all_requirements_problems(root: Path = REPO_ROOT) -> list[str]:
+    req = root / ".github" / "requirements"
+    workflow = yaml.safe_load((root / ".github" / "workflows" / "python.yml").read_text(encoding="utf-8"))
+    return python_requirements_problems((req / "python-bindings.in").read_text(encoding="utf-8"),
+                                        (req / "python-bindings.txt").read_text(encoding="utf-8"),
+                                        matrix_python_floor(workflow))
+
+
 def lock_problems(text: str, where: str) -> list[str]:
     """Every `cargo build` and `cargo publish` in `text` names `--locked` on its own line."""
     out: list[str] = []
@@ -933,6 +1018,48 @@ def self_test() -> int:
         if len(got) != want:
             failures.append(f"pip rule, {label}: got {got}, want {want} problem(s)")
 
+    # --- python-bindings requirements: set, pins and Python floor -----------
+    req_in = (REPO_ROOT / ".github" / "requirements" / "python-bindings.in").read_text(encoding="utf-8")
+    req_txt = (REPO_ROOT / ".github" / "requirements" / "python-bindings.txt").read_text(encoding="utf-8")
+    floor = matrix_python_floor(real_py)
+    if floor != (3, 8):
+        failures.append(f"the Python floor read from python.yml is {floor}, not (3, 8)")
+    got = python_requirements_problems(req_in, req_txt, floor)
+    if got:
+        failures.append(f"the real python-bindings requirements have problems: {got}")
+
+    def drop_pin(text: str, name: str) -> str:
+        return "\n".join(l for l in text.splitlines() if not l.startswith(f"{name}==")) + "\n"
+
+    for label, in_t, txt_t, fl, needle in (
+        ("a recompile that dropped tomli from the .txt", req_in, drop_pin(req_txt, "tomli"),
+         floor, "missing ['tomli']"),
+        ("a recompile that dropped exceptiongroup and typing-extensions", req_in,
+         drop_pin(drop_pin(req_txt, "exceptiongroup"), "typing-extensions"), floor,
+         "missing ['exceptiongroup', 'typing-extensions']"),
+        ("a package added to the .txt", req_in, req_txt + "zipp==3.0.0 \\\n", floor, "unexpected ['zipp']"),
+        ("tomli no longer listed in the .in", drop_pin(req_in, "tomli"), req_txt, floor,
+         "does not list `tomli`"),
+        ("a pin moved in the .in only", req_in.replace("maturin==1.15.0", "maturin==1.16.0"), req_txt, floor,
+         "pins maturin==1.16.0 but python-bindings.txt has 1.15.0"),
+        ("pytest 8.4 with Python 3.8 in the matrix", req_in.replace("pytest==8.3.5", "pytest==8.4.2"),
+         req_txt.replace("pytest==8.3.5", "pytest==8.4.2"), floor,
+         "pins pytest==8.4.2, which needs Python 3.9+, but python.yml tests 3.8"),
+        ("typing-extensions 4.14 with Python 3.8 in the matrix",
+         req_in.replace("typing-extensions==4.13.2", "typing-extensions==4.14.0"),
+         req_txt.replace("typing-extensions==4.13.2", "typing-extensions==4.14.0"), floor,
+         "pins typing-extensions==4.14.0"),
+        ("no matrix in python.yml", req_in, req_txt, None, "Python floor"),
+    ):
+        got = python_requirements_problems(in_t, txt_t, fl)
+        if not any(needle in p for p in got):
+            failures.append(f"{label}: not reported (got {got})")
+    if python_requirements_problems(req_in.replace("pytest==8.3.5", "pytest==8.4.2"),
+                                    req_txt.replace("pytest==8.3.5", "pytest==8.4.2"), (3, 9)):
+        failures.append("pytest 8.4 was reported although the matrix floor is Python 3.9")
+    if matrix_python_floor({"jobs": {"a": {"strategy": {"matrix": {"python-version": ["3.12", "3.10"]}}}}}) != (3, 10):
+        failures.append("matrix_python_floor does not compare versions numerically")
+
     if failures:
         for f in failures:
             print(f"::error::check_release_workflow self-test: {f}")
@@ -956,7 +1083,7 @@ def main() -> int:
         py_text = PYTHON_WORKFLOW.read_text(encoding="utf-8")
         found += python_pin_problems(yaml.safe_load(py_text), PYTHON_WORKFLOW.name)
     tree_found, n_files = all_pin_problems()
-    found += tree_found + all_npm_problems() + all_pip_problems()
+    found += tree_found + all_npm_problems() + all_pip_problems() + all_requirements_problems()
     for p in found:
         print(f"::error::{p}")
     if found:
@@ -965,7 +1092,8 @@ def main() -> int:
           f"every job is behind the gate; {len(CALL_SITES)} call sites are as written; "
           f"actions are pinned by commit in release.yml, python.yml and {n_files - len(PIN_COVERED_ELSEWHERE)} "
           f"other workflow/action files, checkouts drop the token, the toolchain is exact; "
-          f"global tools use pinned versions, pip installs carry --require-hashes, cargo build carries --locked")
+          f"global tools use pinned versions, pip installs carry --require-hashes, cargo build carries --locked, "
+          f"python-bindings.txt resolves the expected set and respects the matrix Python floor")
     return 0
 
 
