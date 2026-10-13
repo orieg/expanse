@@ -3536,9 +3536,9 @@ def build_set_ordered_readers_artifact(
             "void": void,
             "run_valid": not void,
             "process_rule": "a single foreign process above 100% of a CPU is judged from the runner's host guard "
-                            "(host-guard.json, host-activity.jsonl); this driver samples no per-process CPU. The "
-                            "workflow attaches the guard's record to this artifact's provenance as host_guard "
-                            "(METHODOLOGY.md §36.12 item 4)",
+                            "(host-guard.json, host-activity.jsonl); this driver samples no per-process CPU. Where "
+                            "the workflow attaches the guard's record, it is this artifact's provenance.host_guard "
+                            "(METHODOLOGY.md §36.12 item 4); this driver neither writes nor removes that key",
             "form_coverage": {
                 "rule": "a hotspot cell with writers whose rows include one ending with full_expanse = 0 is void "
                         "for any statement about form coverage (METHODOLOGY.md §36.6, §36.12 item 3)",
