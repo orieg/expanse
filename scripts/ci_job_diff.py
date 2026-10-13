@@ -24,6 +24,14 @@ i.e. the old behaviour, plus a `::notice::` naming the reason:
     `concurrency:`, `defaults:`), since those affect every job.
 The narrowing only ever happens when the comparison fully succeeds.
 
+A selected job also selects its prerequisites. `changed-jobs` is the set of
+jobs whose definition moved, closed upward over `needs:`: GitHub skips a job
+whose prerequisite was skipped, so a changed `pack-java` whose `test-java` did
+not change would be named here and then skipped, which the gate floor reports as
+a matrix narrowed by something other than the gate. A job whose `if:` is
+`always()` (the `ci-gate` rollup) runs whatever its prerequisites did, so its
+`needs:` are observed, not required, and the closure does not climb through it.
+
 Run:  ci_job_diff.py --base <sha> --head <sha> [--file PATH]
       ci_job_diff.py --self-test
 """
@@ -92,6 +100,38 @@ def _read(rev: str, path: str) -> str | None:
     return out.stdout
 
 
+def _runs_regardless_of_needs(body) -> bool:
+    """`if: always()` runs whatever its prerequisites did, skipped included."""
+    expr = str((body or {}).get("if") or "").strip()
+    if expr.startswith("${{") and expr.endswith("}}"):
+        expr = expr[3:-2].strip()
+    return expr == "always()"
+
+
+def close_over_needs(jobs: dict, seeds) -> list[str]:
+    """`seeds` plus every job they transitively need.
+
+    Does not climb through a job that runs regardless of its prerequisites.
+    A `needs:` entry naming no job is ignored; GitHub rejects such a workflow
+    before any job runs.
+    """
+    selected: set[str] = set()
+    pending = [name for name in seeds if name in jobs]
+    while pending:
+        name = pending.pop()
+        if name in selected:
+            continue
+        selected.add(name)
+        body = jobs[name]
+        if _runs_regardless_of_needs(body):
+            continue
+        needs = (body or {}).get("needs") or []
+        for dep in ([needs] if isinstance(needs, str) else needs):
+            if dep in jobs:
+                pending.append(dep)
+    return sorted(selected)
+
+
 def diff_jobs(base_text: str | None, head_text: str | None) -> tuple[bool, list[str], str]:
     """Returns (all_changed, changed_job_ids, reason)."""
     if base_text is None or head_text is None:
@@ -127,7 +167,7 @@ def diff_jobs(base_text: str | None, head_text: str | None) -> tuple[bool, list[
         return True, [], f"workflow-level key(s) changed ({', '.join(keys)}) -- running everything"
 
     changed = [name for name in head_jobs if base_jobs[name] != head_jobs[name]]
-    return False, changed, ""
+    return False, close_over_needs(head_jobs, changed), ""
 
 
 def self_test() -> int:
@@ -199,6 +239,43 @@ jobs:
     # the #870 shape: a step added to `lint` and nothing else
     check("870 shape narrows to lint", diff_jobs(A, B)[1], ["lint"])
 
+    # A selected job selects what it needs, transitively; a prerequisite's
+    # own edit does not select its dependants.
+    N = """
+on: [push]
+jobs:
+  detect:
+    steps:
+      - run: echo d
+  test:
+    needs: [detect]
+    steps:
+      - run: echo t
+  pack:
+    needs: [detect, test]
+    steps:
+      - run: echo p
+  other:
+    needs: detect
+    steps:
+      - run: echo o
+  gate:
+    if: always()
+    needs: [detect, test, pack, other]
+    steps:
+      - run: echo g
+"""
+    check("downstream edit pulls in its prerequisites",
+          diff_jobs(N, N.replace("echo p", "echo p2"))[1], ["detect", "pack", "test"])
+    check("upstream edit does not force its dependants",
+          diff_jobs(N, N.replace("echo t", "echo t2"))[1], ["detect", "test"])
+    check("a rollup edit does not select the whole matrix",
+          diff_jobs(N, N.replace("echo g", "echo g2"))[1], ["gate"])
+    check("a string `needs:` is followed",
+          diff_jobs(N, N.replace("echo o", "echo o2"))[1], ["detect", "other"])
+    check("closure ignores a need that names no job",
+          close_over_needs({"a": {"needs": ["ghost"]}}, ["a"]), ["a"])
+
     if failures:
         for f in failures:
             print(f"::error::ci_job_diff self-test: {f}")
@@ -232,7 +309,8 @@ def main() -> int:
     if not all_changed and not jobs:
         reason = "workflow unchanged in this diff"
     elif not all_changed:
-        reason = f"narrowed to {len(jobs)} changed job definition(s): {' '.join(sorted(jobs))}"
+        reason = (f"narrowed to {len(jobs)} job(s), the changed definitions and "
+                  f"their prerequisites: {' '.join(sorted(jobs))}")
     _write_output(_emit(all_changed, jobs))
     _notice(reason)
     return 0
