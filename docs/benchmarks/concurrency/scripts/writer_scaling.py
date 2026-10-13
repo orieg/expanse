@@ -3108,8 +3108,14 @@ SET_STAT_STATUSES = ("MET", "MISSED", "OPEN")
 SET_RUN_VERDICTS = ("RUN_PASS", "RUN_REJECT", "RUN_OPEN")
 SET_PAIR_VERDICTS = ("PASS", "REJECTED", "INTERMEDIATE")
 SET_VOID_RUN = "VOID"
-# A cell only the engine change's harness accepts: writers, `--read-op prev`, `--probe hotspot`
-# on `--arm set`. The harness on main refuses all three (`readers_only_main`).
+# The fields of `ExpanseSet::stats().node_counts`, which every row of this suite carries as
+# `node_counts_end` (METHODOLOGY.md §36.12 item 3).
+SET_NODE_COUNT_FIELDS = (
+    "null", "immed", "leaf_linear", "leaf_bitmap", "branch_l3", "branch_l7", "branch_b", "branch_u", "full_expanse",
+)
+SET_FORM_COVERAGE = ("stands", "void", "not_applicable")
+# A cell only the harness with the set reader mode accepts: writers, `--read-op prev`,
+# `--probe hotspot` on `--arm set`. A harness without the mode refuses all three.
 SET_READER_MODE_PROBE = {
     "round": 0, "block": 0, "probe": "hotspot", "position": 0,
     "read_op": "prev", "writers": 4, "readers": 4,
@@ -3361,6 +3367,97 @@ def set_void_reasons(
     return void
 
 
+def set_node_counts_end(row: dict[str, Any]) -> dict[str, int]:
+    """A row's `node_counts_end`, required of every row of this suite (§36.12 item 3 b).
+
+    A row without the field, or with one that is not exactly the nine counts of
+    `ExpanseSet::stats().node_counts` as non-negative integers, is refused by
+    name: a cell whose forms cannot be read is not silently reported (§8.1).
+    """
+    ctx = f"{row.get('cell')} {row.get('role')} round {row.get('round')}"
+    if "node_counts_end" not in row:
+        raise ValueError(
+            f"{ctx}: the row lacks node_counts_end, which every row of the set ordered-readers suite carries "
+            f"(METHODOLOGY.md §36.12 item 3)"
+        )
+    counts = row["node_counts_end"]
+    if not isinstance(counts, dict) or set(counts) != set(SET_NODE_COUNT_FIELDS):
+        raise ValueError(f"{ctx}: node_counts_end must carry exactly {SET_NODE_COUNT_FIELDS}, got {counts!r}")
+    bad = {k: v for k, v in counts.items() if not isinstance(v, int) or isinstance(v, bool) or v < 0}
+    if bad:
+        raise ValueError(f"{ctx}: node_counts_end holds a value that is not a non-negative integer: {bad!r}")
+    return {k: counts[k] for k in SET_NODE_COUNT_FIELDS}
+
+
+def attach_set_node_counts(
+    cells: list[dict[str, Any]],
+    throughput_rows: list[dict[str, Any]],
+    counters_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Put each row's `node_counts_end` on its raw entry and the form-coverage statement on its cell.
+
+    §36.6 expects a `hotspot` cell with writers to end with full expanses (its
+    writers fill every 256-key block). §36.12 item 3 c: such a cell with a row
+    that ends with `full_expanse` = 0 has `form_coverage: "void"`, with the
+    rows named. That voids the cell's statement about form coverage only. It
+    does not void the cell's rho, the run or the pair, and nothing here is read
+    by the verdict function. Every other cell is `not_applicable`: no statement
+    about full expanses is registered for a `uniform` cell or for W = 0.
+
+    Returns the statements of the `hotspot` cells with writers.
+    """
+    statements: list[dict[str, Any]] = []
+    for c in cells:
+        key = (c["probe"], c["read_op"], c["writers"], c["readers"])
+        label = f"{c['probe']} {c['read_op']} W={c['writers']} R={c['readers']}"
+
+        def rows_of(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return sorted(
+                (x for x in rows
+                 if (x["probe"], x["read_op"], int(x["writers"]), int(x["readers"])) == key),
+                key=lambda x: int(x["round"]),
+            )
+
+        empty: list[str] = []
+        full: list[int] = []
+        for role, rows, raw_key in (
+            ("throughput", rows_of(throughput_rows), "rounds_raw"),
+            ("counters", rows_of(counters_rows), "counters_raw"),
+        ):
+            if len(rows) != len(c[raw_key]):
+                raise ValueError(f"{label}: {len(rows)} {role} rows for {len(c[raw_key])} raw entries")
+            for raw, row in zip(c[raw_key], rows):
+                counts = set_node_counts_end(row)
+                raw["node_counts_end"] = counts
+                full.append(counts["full_expanse"])
+                if counts["full_expanse"] == 0:
+                    empty.append(f"{role} round {row['round']}")
+        c["full_expanse_end"] = {"min": min(full), "max": max(full)} if full else None
+        if c["probe"] == "hotspot" and c["writers"] >= 1:
+            if empty:
+                c["form_coverage"] = "void"
+                c["form_coverage_reason"] = (
+                    f"a hotspot cell with writers is expected to end with full expanses (METHODOLOGY.md §36.6); "
+                    f"these rows ended with full_expanse = 0: {', '.join(empty)}"
+                )
+            else:
+                c["form_coverage"] = "stands"
+                c["form_coverage_reason"] = (
+                    f"every row ended with full expanses (between {min(full)} and {max(full)})"
+                )
+            statements.append({
+                "cell": label, "form_coverage": c["form_coverage"], "reason": c["form_coverage_reason"],
+                "full_expanse_end": c["full_expanse_end"],
+            })
+        else:
+            c["form_coverage"] = "not_applicable"
+            c["form_coverage_reason"] = (
+                "no form-coverage statement is registered for a uniform cell or for a cell without writers "
+                "(METHODOLOGY.md §36.6)"
+            )
+    return statements
+
+
 def attach_round_loads(cells: list[dict[str, Any]], throughput_rows: list[dict[str, Any]]) -> None:
     """Put each round's load window on its `rounds_raw` entry, and the worst one on the cell.
 
@@ -3404,12 +3501,14 @@ def build_set_ordered_readers_artifact(
     prov: dict[str, Any],
     cells: list[dict[str, Any]],
     throughput_rows: list[dict[str, Any]],
+    counters_rows: list[dict[str, Any]],
     rounds: int,
     applied_pin: str,
     quick: bool,
 ) -> dict[str, Any]:
     """The committed shape: provenance, the cells, every statistic with its status, and the run verdict."""
     attach_round_loads(cells, throughput_rows)
+    coverage = attach_set_node_counts(cells, throughput_rows, counters_rows)
     void = set_void_reasons(throughput_rows, applied_pin, quick)
     stats = set_statistics(throughput_rows, rounds)
     fallback = set_fallback_verdict(cells)
@@ -3437,7 +3536,15 @@ def build_set_ordered_readers_artifact(
             "void": void,
             "run_valid": not void,
             "process_rule": "a single foreign process above 100% of a CPU is judged from the runner's host guard "
-                            "(host-guard.json, host-activity.jsonl); this driver samples no per-process CPU",
+                            "(host-guard.json, host-activity.jsonl); this driver samples no per-process CPU. The "
+                            "workflow attaches the guard's record to this artifact's provenance as host_guard "
+                            "(METHODOLOGY.md §36.12 item 4)",
+            "form_coverage": {
+                "rule": "a hotspot cell with writers whose rows include one ending with full_expanse = 0 is void "
+                        "for any statement about form coverage (METHODOLOGY.md §36.6, §36.12 item 3)",
+                "enters_verdict": False,
+                "per_cell": coverage,
+            },
             "soundness_gates": "not evaluated by this driver: a cell read before every G36 gate passed on the "
                                "measured head is void (METHODOLOGY.md §36.8)",
             "statistics": stats,
@@ -3461,13 +3568,13 @@ def build_set_ordered_readers_artifact(
 def require_set_reader_mode(throughput_bin: Path, counters_bin: Path) -> None:
     """Refuse a harness that cannot run the set's reader cells, before any cell is timed.
 
-    The harness on main takes `--arm set` only as the readers-only `get` cell
-    and refuses writers, any other read op and any other probe. The mode that
-    runs the §36.6 cells arrives with the engine change, so this suite is
+    A harness without the mode takes `--arm set` only as the readers-only `get`
+    cell and refuses writers, any other read op and any other probe. The mode
+    that runs the §36.6 cells is the engine change's, so this suite is
     dispatched on `main` with `ref` set to that change's head. One quick cell
-    that only that mode accepts is run in each role; a harness that refuses it
-    stops the run here, with the harness's own refusal quoted and no artifact
-    written (AGENTS.md §8.1).
+    that only that mode accepts is run in each role; a harness that refuses it,
+    answers in another row family, or answers without `node_counts_end` stops
+    the run here, with the reason named and no artifact written (AGENTS.md §8.1).
     """
     for role, binary in (("throughput", throughput_bin), ("counters", counters_bin)):
         cmd = reader_cell_argv(binary, role, SET_READER_MODE_PROBE, True, SET_ORDERED_READERS_ARM)
@@ -3491,6 +3598,15 @@ def require_set_reader_mode(throughput_bin: Path, counters_bin: Path) -> None:
                 f"the probe cell but emitted no {SET_ORDERED_READERS_WORKLOAD_ID} row (workload ids seen: "
                 f"{seen}). No cell was run and no artifact is written"
             )
+        for r in answered:
+            if r.get("role") == role and r.get("workload_id") == SET_ORDERED_READERS_WORKLOAD_ID:
+                try:
+                    set_node_counts_end(r)
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"the harness's set reader mode does not report node counts: {exc}. "
+                        f"No cell was run and no artifact is written"
+                    ) from exc
 
 
 def run_set_ordered_readers(args: argparse.Namespace) -> int:
@@ -3559,7 +3675,8 @@ def run_set_ordered_readers(args: argparse.Namespace) -> int:
         pass_load = {"since": "per-round windows", "note": "each round's window is on its rounds_raw entry"}
         cells = summarize_ordered_readers(t_rows, c_rows, args.rounds, pass_load,
                                           arm=SET_ORDERED_READERS_ARM, workload_id=SET_ORDERED_READERS_WORKLOAD_ID)
-        artifact = build_set_ordered_readers_artifact(prov, cells, t_rows, args.rounds, applied, bool(args.quick))
+        artifact = build_set_ordered_readers_artifact(
+            prov, cells, t_rows, c_rows, args.rounds, applied, bool(args.quick))
     except (RuntimeError, ValueError) as exc:
         sys.stderr.write(f"set ordered readers failed: {exc} (AGENTS.md §8.1)\n")
         return 1
@@ -3577,6 +3694,13 @@ def run_set_ordered_readers(args: argparse.Namespace) -> int:
     p363 = report["p36_3"]
     print(f"  P36.3: {p363['verdict']}" + (f" in {', '.join(p363['refuted_cells'])}" if p363["refuted_cells"] else ""))
     print(f"  Run verdict: {report['run_verdict']}")
+    for entry in report["form_coverage"]["per_cell"]:
+        print(f"  Form coverage, {entry['cell']}: {entry['form_coverage']} ({entry['reason']})")
+        if entry["form_coverage"] == "void":
+            sys.stderr.write(
+                f"::warning:: form coverage of {entry['cell']} is void: {entry['reason']}. "
+                f"This voids that cell's coverage statement only, not its rho, the run or the pair\n"
+            )
     for reason in report["void"]:
         sys.stderr.write(f"::warning:: this run is void as a §36.6 measurement: {reason}\n")
 
@@ -5749,13 +5873,15 @@ def _synthetic_reader_rows(
     pin: str,
     reader_ops: int = 100_000,
     workload_id: str = ORDERED_READERS_WORKLOAD_ID,
+    full_expanse: Any = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Rows in the harness's reader-mode schema for every scheduled run.
 
     `mops(run)` gives a throughput row's `reader_mops`, and `fallbacks(run)` a
     `prev` counters row's `read_fallbacks`. Every counter identity holds, so
     the statistics can be driven to a chosen verdict through the production
-    functions.
+    functions. `full_expanse(run, role)`, when given, adds the set suite's
+    `node_counts_end` to both rows with that many full expanses.
     """
     t_rows: list[dict[str, Any]] = []
     c_rows: list[dict[str, Any]] = []
@@ -5768,7 +5894,15 @@ def _synthetic_reader_rows(
             "fresh_keys": fresh, "write_ops": fresh, "cpu_pin": pin, "tsc_hz": 1,
             "population_after": 4096 + 256 + fresh, **run,
         }
+
+        def counts(role: str, run: dict[str, Any] = run) -> dict[str, Any]:
+            if full_expanse is None:
+                return {}
+            return {"node_counts_end": {**{k: 1 for k in SET_NODE_COUNT_FIELDS},
+                                        "full_expanse": full_expanse(run, role)}}
+
         t_rows.append({
+            **counts("throughput"),
             **base, "role": "throughput",
             "writer_elapsed_s": 1.0 if fresh else None, "writer_mops": fresh / 1e6 if fresh else None,
             "reader_ops": reader_ops, "reader_elapsed_s": 1.0, "reader_mops": mops(run),
@@ -5777,6 +5911,7 @@ def _synthetic_reader_rows(
         fb = fallbacks(run) if optimistic else 0
         locked = fb if optimistic else reader_ops
         c_rows.append({
+            **counts("counters"),
             **base, "role": "counters", "reader_ops": reader_ops,
             "read_ops": reader_ops if optimistic else 0,
             # A fallen-back read made MAX_RETRIES (64) failed attempts; every
@@ -6538,7 +6673,13 @@ def _self_test_readers_only(throughput_bin: Path, counters_bin: Path, pin: str) 
     # The harness refuses what the readers-only cells do not measure, by name.
     for extra, needle in (
         (["--arm", "str", "--writers", "1", "--readers", "2"], "--writers 0 only"),
-        (["--arm", "set", "--writers", "0", "--readers", "2", "--read-op", "prev"], "--read-op get only"),
+        (["--arm", "set", "--writers", "1", "--readers", "2"], "--writers 0 only"),
+        # `prev` and `prev_locked` on the set arm are its ordered-reader cells (#1194); every other
+        # read op is still refused there, and the string arm still takes `get` alone.
+        (["--arm", "set", "--writers", "0", "--readers", "2", "--read-op", "scan"],
+         "prev or prev_locked (the ordered-reader cells)"),
+        (["--arm", "str", "--writers", "0", "--readers", "2", "--read-op", "prev"], "--read-op get only"),
+        (["--arm", "set", "--writers", "0", "--readers", "2", "--probe", "hotspot"], "--probe uniform only"),
         (["--arm", "str", "--writers", "0", "--readers", "2", "--probe", "hotspot"], "--probe uniform only"),
     ):
         proc = subprocess.run([str(throughput_bin), "--role", "throughput", *extra, "--quick"],
@@ -8360,10 +8501,15 @@ def _self_test_set_ordered_readers_no_build() -> None:
     _expect_value_error(lambda: set_pair_verdict("PASS", rp), "is not one of")
     _expect_value_error(lambda: set_pair_verdict(rp, "VOID"), "is not one of")
 
+    # What a hotspot cell with writers ends with: one full expanse per 256-key block (§36.6).
+    def full_blocks(run: dict[str, Any], _role: str = "") -> int:
+        return 256 if run["probe"] == "hotspot" and run["writers"] >= 1 else 0
+
     # The statistics and the run verdict through the production functions, from rows in the harness's schema.
     def sweep(factors: dict[tuple[str, int, int], Any], fallbacks: Any = None, workload: str = SET_ORDERED_READERS_WORKLOAD_ID
               ) -> tuple[Any, Any, Any]:
-        t, c = _synthetic_reader_rows(rounds, _set_scenario_mops(factors), fallbacks or (lambda run: 0), pin, workload_id=workload)
+        t, c = _synthetic_reader_rows(rounds, _set_scenario_mops(factors), fallbacks or (lambda run: 0), pin,
+                                      workload_id=workload, full_expanse=full_blocks)
         for x in t:
             x["load"] = {"foreign_busy_cpus": 0.0, "busy_cpus_since_prev": 1.0, "own_busy_cpus": 1.0, "wall_s": 1.0}
         cells = summarize_ordered_readers(t, c, rounds, {"since": "self-test"}, arm=SET_ORDERED_READERS_ARM,
@@ -8488,8 +8634,8 @@ def _self_test_set_ordered_readers_no_build() -> None:
                           core_pin=pin, estimators=estimators("self-test"))
     rel = SET_ORDERED_READERS_RESULTS_PATH.relative_to(cbp.BENCH).as_posix()
     assert any(Path(rel).match(g) for g in cbp.ARTIFACT_GLOBS), (rel, cbp.ARTIFACT_GLOBS)
-    t, _, cells = sweep(all_met)
-    art = build_set_ordered_readers_artifact(prov, cells, t, rounds, pin, quick=False)
+    t, c, cells = sweep(all_met)
+    art = build_set_ordered_readers_artifact(prov, cells, t, c, rounds, pin, quick=False)
     sec = art["set_ordered_readers"]
     assert sec["void"] == [] and sec["run_valid"] is True and sec["run_verdict"] == "RUN_PASS" == sec["run_verdict_if_valid"], sec
     assert list(sec["statistics"]["gated"]) == list(SET_GATED_STATS) and sec["p36_3"]["verdict"] == "HOLDS"
@@ -8499,10 +8645,55 @@ def _self_test_set_ordered_readers_no_build() -> None:
     assert all("load" in raw for c in art["throughput"] for raw in c["rounds_raw"]), "per-round load windows"
     assert cbp.findings_for(rel, art) == [], cbp.findings_for(rel, art)
     assert str(REPO_ROOT) not in json.dumps(art), "absolute repo path leaked into the artifact (AGENTS.md §7)"
-    quick_art = build_set_ordered_readers_artifact(prov, cells, t, rounds, pin, quick=True)
+    quick_art = build_set_ordered_readers_artifact(prov, cells, t, c, rounds, pin, quick=True)
     assert quick_art["set_ordered_readers"]["run_verdict"] == "VOID" and quick_art["set_ordered_readers"]["run_verdict_if_valid"] == "RUN_PASS"
     contended = [dict(x, load={"foreign_busy_cpus": 1.0}) if x["round"] == 3 and x["writers"] == 4 else x for x in t]
-    assert build_set_ordered_readers_artifact(prov, cells, contended, rounds, pin, False)["set_ordered_readers"]["run_verdict"] == "VOID"
+    assert build_set_ordered_readers_artifact(prov, cells, contended, c, rounds, pin, False)["set_ordered_readers"]["run_verdict"] == "VOID"
+
+    # Node counts per row, and the form-coverage statement (§36.12 item 3). Every row's node_counts_end is on
+    # its raw entry; the three hotspot cells with writers, in each read op, state their coverage; no other cell does.
+    assert all(raw["node_counts_end"]["full_expanse"] == full_blocks(cl)
+               for cl in art["throughput"] for raw in (*cl["rounds_raw"], *cl["counters_raw"])), "node counts per raw entry"
+    cov = sec["form_coverage"]
+    assert cov["enters_verdict"] is False and len(cov["per_cell"]) == 4, cov
+    assert sorted(e["cell"] for e in cov["per_cell"]) == sorted(
+        f"hotspot {op} W={w} R=4" for op in ("prev", "prev_locked") for w in (1, 4)), cov
+    assert all(e["form_coverage"] == "stands" and e["full_expanse_end"] == {"min": 256, "max": 256} for e in cov["per_cell"]), cov
+    for cl in art["throughput"]:
+        want_cov = "stands" if cl["probe"] == "hotspot" and cl["writers"] >= 1 else "not_applicable"
+        assert cl["form_coverage"] == want_cov and cl["form_coverage"] in SET_FORM_COVERAGE, (cl["probe"], cl["writers"], cl["form_coverage"])
+    # One row of one hotspot cell with writers ending with no full expanse voids that cell's coverage statement,
+    # names the row, and changes neither the run's validity nor its verdict. Each role's rows are read.
+    for role_rows, role in ((0, "throughput"), (1, "counters")):
+        t2, c2, cells2 = sweep(all_met)
+        hit = next(x for x in (t2, c2)[role_rows]
+                   if (x["probe"], x["read_op"], x["writers"], x["round"]) == ("hotspot", "prev", 4, 5))
+        hit["node_counts_end"]["full_expanse"] = 0
+        art2 = build_set_ordered_readers_artifact(prov, cells2, t2, c2, rounds, pin, quick=False)
+        sec2 = art2["set_ordered_readers"]
+        voided = [e for e in sec2["form_coverage"]["per_cell"] if e["form_coverage"] == "void"]
+        assert [e["cell"] for e in voided] == ["hotspot prev W=4 R=4"], sec2["form_coverage"]
+        assert f"{role} round 5" in voided[0]["reason"] and voided[0]["full_expanse_end"] == {"min": 0, "max": 256}, voided
+        assert sec2["void"] == [] and sec2["run_valid"] is True and sec2["run_verdict"] == "RUN_PASS", (role, sec2["run_verdict"])
+        assert sec2["statistics"] == sec["statistics"] and sec2["p36_3"] == sec["p36_3"], "coverage must not move a statistic"
+    # A uniform cell or a W = 0 cell ending without full expanses states nothing: that is what is expected of it.
+    assert all(e["form_coverage"] == "not_applicable" for e in art["throughput"] if e["writers"] == 0 or e["probe"] == "uniform")
+    # A row without the field is refused by name, in either role; so is a malformed one.
+    for role_rows in (0, 1):
+        t3, c3, cells3 = sweep(all_met)
+        del (t3, c3)[role_rows][7]["node_counts_end"]
+        _expect_value_error(lambda: build_set_ordered_readers_artifact(prov, cells3, t3, c3, rounds, pin, False),
+                            "lacks node_counts_end")
+    for broken, needle in (
+        ({"full_expanse": 256}, "must carry exactly"),
+        ({**{k: 1 for k in SET_NODE_COUNT_FIELDS}, "extra": 1}, "must carry exactly"),
+        ({**{k: 1 for k in SET_NODE_COUNT_FIELDS}, "full_expanse": -1}, "not a non-negative integer"),
+        ({**{k: 1 for k in SET_NODE_COUNT_FIELDS}, "immed": True}, "not a non-negative integer"),
+        ({**{k: 1 for k in SET_NODE_COUNT_FIELDS}, "leaf_linear": 1.5}, "not a non-negative integer"),
+        (None, "must carry exactly"),
+    ):
+        _expect_value_error(lambda b=broken: set_node_counts_end({"cell": "c", "role": "r", "round": 0, "node_counts_end": b}), needle)
+    assert set_node_counts_end({"node_counts_end": {k: 3 for k in SET_NODE_COUNT_FIELDS}}) == {k: 3 for k in SET_NODE_COUNT_FIELDS}
     no_rounds = json.loads(json.dumps(art))
     del no_rounds["throughput"][0]["rounds_raw"]
     assert cbp.findings_for(rel, no_rounds), "the provenance gate must see a cell without rounds_raw"
@@ -8560,11 +8751,13 @@ def _self_test_set_ordered_readers_no_build() -> None:
             "row['position'] = int(flag('--position'))\n"
             "if os.environ['FAKE_MODE'] == 'wrong_family':\n"
             "    row['workload_id'] = 'concurrency_readers_set_63bit'\n"
+            "if os.environ['FAKE_MODE'] == 'no_counts':\n"
+            "    row.pop('node_counts_end')\n"
             "print(json.dumps(row))\n"
         )
         fake.chmod(0o755)
         t_rows, c_rows = _synthetic_reader_rows(rounds, _set_scenario_mops(all_met), lambda run: 0, "off",
-                                                workload_id=SET_ORDERED_READERS_WORKLOAD_ID)
+                                                workload_id=SET_ORDERED_READERS_WORKLOAD_ID, full_expanse=full_blocks)
         by_key = {}
         for x in (*t_rows, *c_rows):
             by_key["|".join(str(x[k]) for k in ("role", "probe", "read_op", "writers", "readers", "round"))] = x
@@ -8598,6 +8791,12 @@ def _self_test_set_ordered_readers_no_build() -> None:
         out_wrong = Path(tmp) / "wrong.json"
         rc, err = drive("wrong_family", out_wrong)
         assert rc == 1 and not out_wrong.exists() and "emitted no concurrency_ordered_readers_set_63bit row" in err, (rc, err)
+        # A harness with the mode whose rows carry no node counts is refused on the probe cell, by name.
+        out_bare = Path(tmp) / "bare_rows.json"
+        rc, err = drive("no_counts", out_bare)
+        assert rc == 1 and not out_bare.exists(), (rc, err)
+        assert "does not report node counts" in err and "lacks node_counts_end" in err, err
+        assert len([line for line in log.read_text().splitlines() if line]) == 1, "the probe cell must stop the run"
         # A harness with the mode: the whole sweep runs through it and the artifact is the shape above.
         out_new = Path(tmp) / "new.json"
         rc, err = drive("new", out_new)
@@ -8613,10 +8812,59 @@ def _self_test_set_ordered_readers_no_build() -> None:
         assert e2e["set_ordered_readers"]["quick"] is True and e2e["set_ordered_readers"]["run_verdict"] == "VOID"
         assert e2e["set_ordered_readers"]["run_verdict_if_valid"] == "RUN_PASS", e2e["set_ordered_readers"]
         assert len(e2e["throughput"]) == 16 and e2e["provenance"]["cell_isolation"] == CELL_ISOLATION
+        assert all("node_counts_end" in raw for c in e2e["throughput"] for raw in (*c["rounds_raw"], *c["counters_raw"]))
+        assert [e["form_coverage"] for e in e2e["set_ordered_readers"]["form_coverage"]["per_cell"]] == ["stands"] * 4
         assert all("load" in raw for c in e2e["throughput"] for raw in c["rounds_raw"])
         # A smoke run lands where the caller says; the committed path is refused without --force-quick-out.
         assert not str(out_new.resolve()).startswith(str((REPO_ROOT / "docs" / "benchmarks").resolve()))
     sys.stderr.write("Set ordered-reader instrument (no-build part) PASSED\n")
+
+def _self_test_set_ordered_readers_built(throughput_bin: Path, counters_bin: Path) -> None:
+    """The set ordered-reader instrument against the built harness (#1194, METHODOLOGY.md §36.6, §36.12).
+
+    The seam the no-build part stands in for with fake binaries: the real
+    harness has the set reader mode, its rows pass the driver's row checks in
+    both roles and carry `node_counts_end`, a hotspot cell with a writer ends
+    with one full expanse per block and no other cell with any, and what the
+    mode does not define is refused by name.
+    """
+    sys.stderr.write("Testing the set ordered-reader instrument against the built harness (#1194)...\n")
+    require_set_reader_mode(throughput_bin, counters_bin)
+    for probe, read_op, writers, readers, want_full in (
+        ("hotspot", "prev", 1, 2, 256),
+        ("hotspot", "prev_locked", 1, 2, 256),
+        ("hotspot", "prev", 0, 2, 0),
+        ("uniform", "prev", 1, 2, 0),
+        ("uniform", "prev_locked", 0, 1, 0),
+    ):
+        run = {"round": 0, "block": 0, "probe": probe, "position": 3,
+               "read_op": read_op, "writers": writers, "readers": readers}
+        for role, binary, check in (
+            ("throughput", throughput_bin, check_reader_throughput_row),
+            ("counters", counters_bin, check_reader_counters_row),
+        ):
+            row = run_reader_invocation(binary, role, run, True, SET_ORDERED_READERS_ARM,
+                                        SET_ORDERED_READERS_WORKLOAD_ID)
+            check(row)
+            ctx = (probe, read_op, writers, role)
+            assert row["keyspace_bits"] == 63 and row["hotspot_prefill"] == 256 and row["prefill"] == 4096, (ctx, row)
+            assert row["cell"] == f"set_w{writers}_r{readers}_{read_op}_{probe}", (ctx, row["cell"])
+            assert row["fresh_keys"] == row["write_ops"] == (0 if writers == 0 else 65_280 if probe == "hotspot" else 4096), (ctx, row)
+            counts = set_node_counts_end(row)
+            assert counts["full_expanse"] == want_full, (ctx, counts)
+            assert row["population_after"] == 4096 + 256 + row["fresh_keys"], (ctx, row)
+            if writers == 0:
+                assert row["reader_ops"] == readers * 4096, (ctx, row["reader_ops"])
+    for extra, needle in (
+        (["--read-op", "prev", "--probe", "one_top_byte"], "--probe uniform or hotspot"),
+        (["--read-op", "prev_locked", "--probe", "one_top_byte"], "--probe uniform or hotspot"),
+    ):
+        proc = subprocess.run(
+            [str(throughput_bin), "--role", "throughput", "--arm", "set", "--writers", "1", "--readers", "2",
+             *extra, "--quick"], capture_output=True, text=True, check=False)
+        assert proc.returncode != 0 and needle in proc.stderr, (extra, proc.returncode, proc.stderr)
+    sys.stderr.write("Set ordered-reader instrument (built harness) PASSED\n")
+
 
 def self_test() -> int:
     eprintln = sys.stderr.write
@@ -9244,6 +9492,7 @@ def self_test() -> int:
     _self_test_count_cells(throughput_bin, counters_bin, pin)
     _self_test_band_cells(throughput_bin, counters_bin, pin)
     _self_test_readers_only(throughput_bin, counters_bin, pin)
+    _self_test_set_ordered_readers_built(throughput_bin, counters_bin)
     _self_test_scan_cells(throughput_bin, counters_bin, pin)
 
     eprintln("writer_scaling.py self-test PASSED\n")
