@@ -125,12 +125,23 @@ def self_test() -> int:
         # `--cleanup=whitespace`, as tag_release.py passes: git's default
         # cleanup drops every line starting with `#`, Markdown headings included.
         git("tag", "-a", "--cleanup=whitespace", "-F", str(notes), "v1.2.3")
+        # The message `tag_release.py --notes-from-pr` builds from a release PR
+        # body: only the marked section follows the subject line.
+        import tag_release
+        pr_body = ("Release mechanics, never published.\r\n"
+                   f"{tag_release.NOTES_BEGIN}\r\n## Added\r\n\r\n- an entry from @someone\r\n"
+                   f"{tag_release.NOTES_END}\r\nMore mechanics.\r\n")
+        from_pr = repo / "from-pr.md"
+        from_pr.write_text(tag_release.notes_text_from_pr_body("1.2.7", pr_body))
+        git("tag", "-a", "--cleanup=whitespace", "-F", str(from_pr), "v1.2.7")
         git("tag", "-a", "-m", "Release v1.2.4", "v1.2.4")
         git("tag", "-a", "-m", "Release v1.3.0-rc.1", "v1.3.0-rc.1")
         git("tag", "v1.2.5")
 
         check("notes read from the tag", notes_for(repo, "v1.2.3"),
               "## Fixed\n\n- a thing, reported by `@someone`")
+        check("notes from a marked PR body", notes_for(repo, "v1.2.7"),
+              "## Added\n\n- an entry from `@someone`")
         check("a pre-release may have none", notes_for(repo, "v1.3.0-rc.1"), "")
         for label, tag, needle in (
             ("stable tag without notes", "v1.2.4", "carries no release notes"),
