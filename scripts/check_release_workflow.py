@@ -343,11 +343,31 @@ def toolchain_problems(workflow: dict, text: str | None) -> list[str]:
     out: list[str] = []
     if text is None:
         return out
-    for match in NPM_GLOBAL_RE.finditer(text):
-        spec = match.group(1)
-        if not EXACT_NPM_SPEC_RE.match(spec):
-            out.append(f"`npm install -g {spec}` is not pinned to an exact X.Y.Z version")
+    out += npm_global_problems(text, "")
     return out + lock_problems(text, "release.yml")
+
+
+def npm_global_problems(text: str, where: str) -> list[str]:
+    """Every `npm install -g` in `text` names an exact X.Y.Z version."""
+    prefix = f"{where}: " if where else ""
+    return [f"{prefix}`npm install -g {m.group(1)}` is not pinned to an exact X.Y.Z version"
+            for m in NPM_GLOBAL_RE.finditer(text) if not EXACT_NPM_SPEC_RE.match(m.group(1))]
+
+
+def all_npm_problems(root: Path = REPO_ROOT) -> list[str]:
+    """`npm_global_problems` over every workflow and composite action but release.yml.
+
+    release.yml is read by `toolchain_problems`; reporting it here too would
+    repeat the line.
+    """
+    paths = sorted((root / ".github" / "workflows").glob("*.yml"))
+    paths += sorted((root / ".github" / "actions").glob("*/action.yml"))
+    out: list[str] = []
+    for path in paths:
+        if path.parent.name == "workflows" and path.name == "release.yml":
+            continue
+        out += npm_global_problems(path.read_text(encoding="utf-8"), str(path.relative_to(root)))
+    return out
 
 
 def lock_problems(text: str, where: str) -> list[str]:
@@ -813,6 +833,15 @@ def self_test() -> int:
         if not any(p.startswith(".github/workflows/nightly.yml: ") and "`actions/checkout@v7` is not pinned by commit" in p
                    for p in got):
             failures.append(f"an unpinned checkout in nightly.yml: not reported (got {got})")
+        # An unpinned global npm tool in a workflow other than release.yml.
+        if all_npm_problems(tree):
+            failures.append(f"a clean copy of .github was reported by the npm rule: {all_npm_problems(tree)}")
+        target.write_text(target.read_text(encoding="utf-8").replace(
+            "npm install -g wasm-pack@0.15.0", "npm install -g wasm-pack"), encoding="utf-8")
+        got = all_npm_problems(tree)
+        if not any(p == ".github/workflows/nightly.yml: `npm install -g wasm-pack` is not pinned to an exact X.Y.Z version"
+                   for p in got):
+            failures.append(f"an unpinned wasm-pack in nightly.yml: not reported (got {got})")
 
     if failures:
         for f in failures:
@@ -837,7 +866,7 @@ def main() -> int:
         py_text = PYTHON_WORKFLOW.read_text(encoding="utf-8")
         found += python_pin_problems(yaml.safe_load(py_text), PYTHON_WORKFLOW.name)
     tree_found, n_files = all_pin_problems()
-    found += tree_found
+    found += tree_found + all_npm_problems()
     for p in found:
         print(f"::error::{p}")
     if found:
