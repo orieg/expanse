@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` builds 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
 //! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), and `sync32_map_get` (50%) |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -2973,6 +2973,82 @@ fn built_sync_set_leaf(_: &str) -> (SyncExpanseSet, Vec<u64>) {
     (set, probes)
 }
 
+/// Keys per terminal of the `immed` variants. Twelve single-byte keys fit one
+/// immediate (`ImmedType::max_count(1)` is 15) and, being more than
+/// `ImmedType::max_count(2)` (7), would not fit one if their terminal sat a
+/// level higher.
+const IMMED_GROUP: u64 = 12;
+
+/// Keys whose every terminal is an immediate: `IMMED_GROUP` consecutive low
+/// bytes under each value of byte 1. A terminal is an immediate (rather than
+/// a leaf) only where one undecoded byte remains, `key_bytes == 1`; that needs
+/// a branch at byte 1, which consecutive group numbers supply (256 terminals
+/// per such branch). Twelve keys that differ only in byte 0 and share bytes
+/// 1 to 3 with no sibling at byte 1 sit under a longer skip: measured as
+/// linear leaves, not immediates, when each group differs from the next
+/// above byte 3.
+fn immed_keys() -> Vec<u64> {
+    (0..POP as u64)
+        .map(|i| ((i / IMMED_GROUP) << 8) | (i % IMMED_GROUP))
+        .collect()
+}
+
+/// A set held by a tree whose every terminal is an immediate: the node form
+/// the `immed` variants of `sync_set_prev_locked` name. The form is asserted
+/// from `stats().node_counts` here, in setup, so a change to the immediate
+/// capacity or to the promotion rule fails the arm instead of silently
+/// measuring another shape.
+fn built_sync_set_immed(_: &str) -> (SyncExpanseSet, Vec<u64>) {
+    let ks = immed_keys();
+    let set = SyncExpanseSet::new();
+    for &k in &ks {
+        set.insert(k);
+    }
+    let counts = set.with_locked(|s| s.stats().node_counts);
+    let terminals = POP.div_ceil(IMMED_GROUP as usize);
+    assert_eq!(
+        counts.immed, terminals,
+        "every group of the immed variant must be one immediate edge"
+    );
+    assert_eq!(
+        (counts.leaf_linear, counts.leaf_bitmap, counts.full_expanse),
+        (0, 0, 0),
+        "no terminal of the immed variant may be a leaf or a full expanse"
+    );
+    assert!(
+        counts.branch_l3 + counts.branch_l7 + counts.branch_b + counts.branch_u > 0,
+        "the immed variant must be tree-rooted, not a root leaf"
+    );
+    (set, shuffled(ks))
+}
+
+/// `built_sync_set_leaf` plus the form assertion the leaf variants of the
+/// ordered arms rely on: one linear leaf and no branch, the root leaf. The
+/// probe stream is `POP` long over `LEAF_POP` keys, so the minimum, whose
+/// predecessor query answers `None`, is probed `POP / LEAF_POP` times; the
+/// seeded draw puts it at cycle position 8, past the `POP % LEAF_POP` (8)
+/// positions that would probe it once more, and this asserts that.
+fn built_sync_set_leaf_prev(dist: &str) -> (SyncExpanseSet, Vec<u64>) {
+    let (set, probes) = built_sync_set_leaf(dist);
+    let counts = set.with_locked(|s| s.stats().node_counts);
+    assert_eq!(
+        (
+            counts.leaf_linear,
+            counts.immed,
+            counts.branch_l3 + counts.branch_l7 + counts.branch_b + counts.branch_u
+        ),
+        (1, 0, 0),
+        "the leaf variant must be a root leaf"
+    );
+    let min = *probes.iter().min().expect("probes are not empty");
+    assert_eq!(
+        probes.iter().filter(|&&k| k == min).count(),
+        POP / LEAF_POP,
+        "the minimum is probed POP / LEAF_POP times"
+    );
+    (set, probes)
+}
+
 fn built_sync_set(dist: &str) -> (SyncExpanseSet, Vec<u64>) {
     let ks = keys(dist);
     let set = SyncExpanseSet::new();
@@ -3120,8 +3196,16 @@ fn sync_map_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
 // `_locked` suffix: it keeps `sync_set_prev` and `sync_set_next_after_scan`
 // free for the optimistic reads, which are compared against these arms. Same
 // keys, probe stream and ops count as the map twins.
+//
+// `leaf` and `immed` are the tiny-set shapes no other ordered arm reads
+// (METHODOLOGY.md of the concurrency suite, 36.5): a set held in the root
+// leaf, and a tree whose every terminal is an immediate. Each is asserted in
+// its setup. `leaf` shares `sync_set_contains/leaf`'s keys and probe stream;
+// every probe is a present key.
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_set)]
+#[bench::leaf(args = ("leaf",), setup = built_sync_set_leaf_prev)]
+#[bench::immed(args = ("immed",), setup = built_sync_set_immed)]
 fn sync_set_prev_locked(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
     let (set, probes) = built;
     let pop = set.len();
@@ -3133,9 +3217,14 @@ fn sync_set_prev_locked(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
             found += 1;
         }
     }
+    // The stream visits each present key `probes.len() / pop` times (once for
+    // `random` and `immed`, `POP / LEAF_POP` for `leaf`, whose setup asserts
+    // that the minimum gets no extra visit), and the minimum alone has no
+    // predecessor.
+    let len = probes.len() as u64;
     assert_eq!(
         found,
-        pop - 1,
+        len - len / pop,
         "every present key but the minimum has a predecessor"
     );
     // Leaked — see `map_get`.
