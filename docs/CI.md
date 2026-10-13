@@ -250,7 +250,7 @@ A green test suite only proves that what is present passes, not that what should
   | `lib-cursor` | 12 | 873 s | 22 min | `random_and_zipfian` at 2 of its 12 rounds, `cursor32_matches_model` unchanged |
   | `lib-map` | 41 | 1,951 s | 49 min | `map::batch_lane_occupancy_profile` and the two `batch_width_parity_*` tests are the map half; the map32 models are Miri-sized |
   | `lib-rest` | 115 | 537 s | 15 min | 20 modules; `validate::node_bytes_sum_to_mem_used` stops at 5,000 keys under Miri |
-  | `lib-sync` | 9 | 348 s (E-core) | 4 min | `sync::tests` is `cfg(all(test, not(miri)))` in full, so this shard is `sync32` alone under the interpreter |
+  | `lib-sync` | 159 | 348 s (E-core) | 4 min | `sync::tests` is `cfg(all(test, not(miri)))` in full. The count is what `cargo miri test -p expanse-trie --lib -- --list` names in `sync` (135) and `sync32` (24) at the change that added `sync::set_ordered_table_tests::set_ordered_reads_over_the_full_table`, the 19-row table of the set form of the ordered walk (#1194). The two measured columns date from when the shard was `sync32` alone, 9 tests, and are not re-measured; what the full table costs in this shard is unmeasured until the first nightly run that includes it (#1194) |
   | `lib-blobmap-bits` | 31 | 74 s (E-core) | 2 min | |
   | `no_heap_churn` | | 278 s | 9 min | |
   | `test_boundary_invariants` | | 48 s | 2 min | |
