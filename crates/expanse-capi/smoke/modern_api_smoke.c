@@ -26,8 +26,36 @@ int main(void) {
     expanse_sync_map_reader_t *r = expanse_sync_map_reader_new(s);
     assert(expanse_sync_map_reader_get(r, 7, &v) && v == 77);
     expanse_sync_map_reader_free(r);
+
+    /* Atomic RMW: compare_exchange / get_or_insert, and "update" as the
+     * loop documented in expanse.h. */
+    bool seen_present = false;
+    uint64_t seen = 0;
+    assert(expanse_sync_map_compare_exchange(s, 8, false, 0, true, 1, &seen_present, &seen));
+    assert(!seen_present);
+    assert(!expanse_sync_map_compare_exchange(s, 8, true, 9, true, 2, &seen_present, &seen));
+    assert(seen_present && seen == 1);
+    assert(expanse_sync_map_compare_exchange(s, 8, true, 1, false, 0, NULL, NULL));
+    assert(!expanse_sync_map_get(s, 8, &v));
+    assert(expanse_sync_map_get_or_insert(s, 9, 5, NULL));
+    assert(!expanse_sync_map_get_or_insert(s, 9, 6, &v) && v == 5);
+    {
+        uint64_t cur = 0;
+        bool present = expanse_sync_map_get(s, 7, &cur);
+        for (;;) {
+            uint64_t nv = cur + 1; /* f(current) */
+            bool sp;
+            uint64_t sv;
+            if (expanse_sync_map_compare_exchange(s, 7, present, cur, true, nv, &sp, &sv))
+                break;
+            present = sp;
+            cur = sv;
+        }
+    }
+    assert(expanse_sync_map_get(s, 7, &v) && v == 78);
+
     expanse_sync_map_free(s);
-    printf("sync: concurrent reader ok\n");
+    printf("sync: concurrent reader, compare_exchange, get_or_insert ok\n");
 
     expanse_bytesmap_t *b = expanse_bytesmap_new();
     expanse_bytesmap_insert(b, "a\0b", 3, 5, NULL);

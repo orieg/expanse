@@ -6,7 +6,9 @@ expanse_sync_set_mem_held, expanse_sync_set_shrink_to_fit, \
 expanse_sync_set_reader_new, expanse_sync_set_reader_free, \
 expanse_sync_set_reader_contains, expanse_sync_map_new, \
 expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_get, \
-expanse_sync_map_remove, expanse_sync_map_len, expanse_sync_map_mem_used, \
+expanse_sync_map_remove, expanse_sync_map_compare_exchange, \
+expanse_sync_map_get_or_insert, expanse_sync_map_len, \
+expanse_sync_map_mem_used, \
 expanse_sync_map_mem_held, expanse_sync_map_shrink_to_fit, \
 expanse_sync_map_reader_new, expanse_sync_map_reader_free, \
 expanse_sync_map_reader_get, expanse_sync_map_reader_first, \
@@ -74,6 +76,16 @@ expanse_sync_map_reader_prev_before \
 .BI "bool                expanse_sync_map_remove(expanse_sync_map_t *" map ","
 .BI "                                            uint64_t " key ","
 .BI "                                            uint64_t *" old_out ");"
+.br
+.BI "bool                expanse_sync_map_compare_exchange("
+.BI "    expanse_sync_map_t *" map ", uint64_t " key ","
+.BI "    bool " expected_present ", uint64_t " expected_value ","
+.BI "    bool " new_present ", uint64_t " new_value ","
+.BI "    bool *" observed_present_out ", uint64_t *" observed_out ");"
+.br
+.BI "bool                expanse_sync_map_get_or_insert("
+.BI "    expanse_sync_map_t *" map ", uint64_t " key ","
+.BI "    uint64_t " value ", uint64_t *" existing_out ");"
 .br
 .BI "uint64_t            expanse_sync_map_len(const expanse_sync_map_t *"
 .BI "map" ");"
@@ -156,6 +168,53 @@ container has been freed, is undefined.
 .PP
 The one-shot functions (\fBexpanse_sync_map_get\fR) implicitly register and
 deregister epoch participation on each invocation.
+.SH ATOMIC READ-MODIFY-WRITE
+.B expanse_sync_map_compare_exchange
+stores
+.I new_value
+under
+.I key
+only if the key's current word is
+.IR expected_value ,
+as one linearizable step, and may be called from any thread on the shared
+handle.
+Absence is a flag, never a value, so every
+.B uint64_t
+is a legal value:
+.I expected_present
+false means only if the key is absent, and
+.I new_present
+false removes the key.
+It returns true when the store happened.
+On both outcomes the word the compare saw is reported through
+.I observed_present_out
+and
+.I observed_out
+(either may be NULL;
+.I observed_out
+is written only when that word was present), so a failed call hands the
+caller the word to retry against.
+A NULL
+.I map
+returns false and writes nothing.
+.PP
+.B expanse_sync_map_get_or_insert
+stores
+.I value
+under
+.I key
+only if the key is absent, and returns true.
+If the key was present it returns false, leaves it untouched and writes its
+value through
+.I existing_out
+(may be NULL).
+Of any number of callers racing on one absent key, exactly one gets true.
+.PP
+There is no callback form.
+An update is a loop over
+.BR expanse_sync_map_compare_exchange ,
+which may run the computation several times, so it must be free of side
+effects; the EXAMPLES section gives the loop.
 .SH ORDERED READS
 .BR expanse_sync_map_reader_first ,
 .BR expanse_sync_map_reader_last ,
@@ -245,6 +304,22 @@ int main(void) {
     }
 
     expanse_sync_map_reader_free(reader);
+
+    /* update(42, v + 1) as a loop over compare_exchange */
+    uint64_t cur = val;
+    bool present = true;
+    for (;;) {
+        bool seen_present;
+        uint64_t seen;
+        if (expanse_sync_map_compare_exchange(sync_map, 42,
+                present, cur, true, cur + 1, &seen_present, &seen))
+            break;
+        present = seen_present;
+        cur = seen;
+    }
+    expanse_sync_map_get(sync_map, 42, &val);
+    printf("After update: 42 -> %" PRIu64 "\\n", val);
+
     expanse_sync_map_free(sync_map);
     return 0;
 }
@@ -252,6 +327,7 @@ int main(void) {
 .SS Example Output
 .nf
 Concurrent read: 42 -> 1000
+After update: 42 -> 1001
 .fi
 .SH SEE ALSO
 .BR expanse (3),

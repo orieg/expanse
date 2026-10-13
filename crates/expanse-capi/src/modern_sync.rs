@@ -264,6 +264,83 @@ pub unsafe extern "C" fn expanse_sync_map_remove(
     true
 }
 
+/// Stores `new_value` under `key` only if the key's current word is
+/// `expected_value`, as one linearizable step. An absent key is expressed by
+/// the `_present` flag being false, on the input and the output side alike
+/// (`new_present == false` removes the key; `expected_present == false`
+/// stores only if the key is absent), so every `u64` stays a legal value.
+///
+/// Returns true when the store happened. On both outcomes the observed
+/// word, the one the compare saw, is reported through `observed_present_out`
+/// and `observed_out` (each null or writable; `observed_out` is written only
+/// when the key was present), so a failed call hands the caller the word to
+/// retry against. A NULL `map` returns false and writes nothing.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `observed_present_out` and
+/// `observed_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_compare_exchange(
+    map: *const SyncExpanseMap,
+    key: u64,
+    expected_present: bool,
+    expected_value: u64,
+    new_present: bool,
+    new_value: u64,
+    observed_present_out: *mut bool,
+    observed_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return false;
+    };
+    let expected = expected_present.then_some(expected_value);
+    let new = new_present.then_some(new_value);
+    let (exchanged, observed) = match m.compare_exchange(key, expected, new) {
+        Ok(prev) => (true, prev),
+        Err(seen) => (false, seen),
+    };
+    // SAFETY: both outputs null or writable per contract.
+    unsafe {
+        put(observed_present_out, observed.is_some());
+        if let Some(v) = observed {
+            put(observed_out, v);
+        }
+    }
+    exchanged
+}
+
+/// Stores `value` under `key` only if `key` is absent, as one linearizable
+/// step. Returns true when it was stored. Returns false when the key was
+/// present, leaving it untouched and reporting its value through
+/// `existing_out` (return convention as [`expanse_sync_map_insert`]); a NULL
+/// `map` also returns false and writes nothing.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `existing_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_map_get_or_insert(
+    map: *const SyncExpanseMap,
+    key: u64,
+    value: u64,
+    existing_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return false;
+    };
+    match m.get_or_insert(key, value) {
+        // SAFETY: `existing_out` null or writable per contract.
+        Some(existing) => unsafe {
+            put(existing_out, existing);
+            false
+        },
+        None => true,
+    }
+}
+
 /// Number of entries.
 ///
 /// # Safety
