@@ -370,6 +370,61 @@ def all_npm_problems(root: Path = REPO_ROOT) -> list[str]:
     return out
 
 
+PIP_INSTALL_RE = re.compile(r"(?<![\w-])pip3? install\b(.*)")
+
+
+def pip_hash_problems(text: str, where: str) -> list[str]:
+    """Every `pip install` in `text` carries `--require-hashes`.
+
+    A requirement without a hash is resolved against the index on the day, so a
+    rebuilt job need not install what its last run did, and a substituted
+    release is not noticed. The tools come from `.github/requirements/*.txt`,
+    compiled with `--generate-hashes`. The one install that cannot take hashes
+    is the repository itself (`pip install .`): `--require-hashes` rejects a
+    local path, and its build requirements come from `pyproject.toml`. A line
+    that names anything else besides the path, or any `-r` file, is held to the
+    rule. Backslash continuations are joined first; comments and `echo` lines
+    are skipped.
+    """
+    out: list[str] = []
+    logical = re.sub(r"\\\n\s*", " ", text)
+    for line in logical.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("#", "echo ", "printf ")):
+            continue
+        found = PIP_INSTALL_RE.search(stripped)
+        if not found:
+            continue
+        args = found.group(1).split("#")[0].split()
+        if "--require-hashes" in args:
+            continue
+        operands: list[str] = []
+        skip = False
+        for a in args:
+            if skip:
+                skip = False
+            elif a in ("-r", "-c", "--requirement", "--constraint"):
+                operands.append(a)
+                skip = True
+            elif not a.startswith("-"):
+                operands.append(a)
+        if operands and all(o == "." or o.startswith(("./", "../")) for o in operands):
+            continue
+        prefix = f"{where}: " if where else ""
+        out.append(f"{prefix}`pip install` without `--require-hashes`: {stripped}")
+    return out
+
+
+def all_pip_problems(root: Path = REPO_ROOT) -> list[str]:
+    """`pip_hash_problems` over every workflow and composite action."""
+    paths = sorted((root / ".github" / "workflows").glob("*.yml"))
+    paths += sorted((root / ".github" / "actions").glob("*/action.yml"))
+    out: list[str] = []
+    for path in paths:
+        out += pip_hash_problems(path.read_text(encoding="utf-8"), str(path.relative_to(root)))
+    return out
+
+
 def lock_problems(text: str, where: str) -> list[str]:
     """Every `cargo build` and `cargo publish` in `text` names `--locked` on its own line."""
     out: list[str] = []
@@ -843,6 +898,41 @@ def self_test() -> int:
                    for p in got):
             failures.append(f"an unpinned wasm-pack in nightly.yml: not reported (got {got})")
 
+        # `pip install` without `--require-hashes`, through the file walk: the
+        # clean copy is silent, and dropping the flag from one line of each of
+        # ci.yml, python.yml and nightly.yml is reported by path with the line.
+        if all_pip_problems(tree):
+            failures.append(f"a clean copy of .github was reported by the pip rule: {all_pip_problems(tree)}")
+        for name in ("ci.yml", "python.yml", "nightly.yml"):
+            wf = tree / ".github" / "workflows" / name
+            original = wf.read_text(encoding="utf-8")
+            mutated, n = re.subn(r"(pip install )(?:--quiet )?(?:--disable-pip-version-check )?--require-hashes ",
+                                 r"\1", original, count=1)
+            if n != 1:
+                failures.append(f"{name} has no `pip install --require-hashes` to mutate")
+                continue
+            wf.write_text(mutated, encoding="utf-8")
+            got = all_pip_problems(tree)
+            if not any(p.startswith(f".github/workflows/{name}: `pip install` without `--require-hashes`: ")
+                       for p in got):
+                failures.append(f"{name} with the flag dropped: not reported (got {got})")
+            wf.write_text(original, encoding="utf-8")
+    for label, line, want in (
+        ("an unpinned tool", "run: python -m pip install ruff", 1),
+        ("an upgrade of pip itself", "run: python -m pip install --upgrade pip", 1),
+        ("a requirements file without the flag", "run: pip install -r requirements.txt", 1),
+        ("a requirements file with the flag", "run: pip install --require-hashes -r requirements.txt", 0),
+        ("the flag on a continuation line", "run: |\n  pip install \\\n    --require-hashes -r r.txt", 0),
+        ("a missing flag on a continuation line", "run: |\n  pip install \\\n    -r r.txt", 1),
+        ("the local project", "run: pip install .", 0),
+        ("the local project in a venv", 'run: "$VENV/bin/python" -m pip install --quiet .', 0),
+        ("the local project and a package", "run: pip install . pytest", 1),
+        ("a comment", "# pip install ruff", 0),
+    ):
+        got = pip_hash_problems(line, "x.yml")
+        if len(got) != want:
+            failures.append(f"pip rule, {label}: got {got}, want {want} problem(s)")
+
     if failures:
         for f in failures:
             print(f"::error::check_release_workflow self-test: {f}")
@@ -866,7 +956,7 @@ def main() -> int:
         py_text = PYTHON_WORKFLOW.read_text(encoding="utf-8")
         found += python_pin_problems(yaml.safe_load(py_text), PYTHON_WORKFLOW.name)
     tree_found, n_files = all_pin_problems()
-    found += tree_found + all_npm_problems()
+    found += tree_found + all_npm_problems() + all_pip_problems()
     for p in found:
         print(f"::error::{p}")
     if found:
@@ -875,7 +965,7 @@ def main() -> int:
           f"every job is behind the gate; {len(CALL_SITES)} call sites are as written; "
           f"actions are pinned by commit in release.yml, python.yml and {n_files - len(PIN_COVERED_ELSEWHERE)} "
           f"other workflow/action files, checkouts drop the token, the toolchain is exact; "
-          f"global tools use pinned versions, cargo build carries --locked")
+          f"global tools use pinned versions, pip installs carry --require-hashes, cargo build carries --locked")
     return 0
 
 

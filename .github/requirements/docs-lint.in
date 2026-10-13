@@ -1,0 +1,4 @@
+# Top-level pins for the docs-lint job (ruff and PyYAML).
+# Refresh recipe: docs/CI.md, "Hashed Python requirements".
+ruff==0.16.7
+pyyaml

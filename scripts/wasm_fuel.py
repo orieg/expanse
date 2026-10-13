@@ -25,12 +25,12 @@ is setup plus the arm's loop; the arm is the difference. Gate policy mirrors
 fuel has no noise, the floor exists so a one-unit codegen ripple on an
 unrelated arm is reported but does not fail a PR on its own.
 
-Requires the `wasmtime` Python package (`pip install wasmtime`); the script
+Requires the `wasmtime` Python package (`pip install wasmtime`, or `.github/requirements/wasm-fuel.txt` for the CI pin); the script
 exits non-zero with that hint if it is missing. Never falls back to a mock.
 
 Fuel is deterministic for a given module and runtime, so the runtime version
 and the compilers are part of a number's provenance and are recorded in the
-result. CI pins all three: `wasmtime==<version>`, an exact stable release for
+result. CI pins all three: `wasmtime==<version>` in `.github/requirements/wasm-fuel.txt`, an exact stable release for
 wasm32 and a dated nightly for wasm64 (see `WASM_FUEL_NIGHTLY`). `--self-test`
 fails when the job's wasm32 compiler or wasmtime pin disagrees with the
 committed baseline, and a baseline check reports when either differs from what
@@ -47,7 +47,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -372,7 +372,13 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 CI_JOB = "wasm-fuel"
 
 
-def pin_problems(ci_yml: str, baseline: List[Dict[str, Any]]) -> List[str]:
+def read_requirements(rel: str) -> str:
+    """A requirements file named by the job, relative to the repository root."""
+    return (REPO_ROOT / rel).read_text(encoding="utf-8")
+
+
+def pin_problems(ci_yml: str, baseline: List[Dict[str, Any]],
+                 read: Callable[[str], str] = read_requirements) -> List[str]:
     """The `wasm-fuel` job's pinned wasm32 compiler and wasmtime against the
     versions the committed baseline was measured with.
 
@@ -402,9 +408,21 @@ def pin_problems(ci_yml: str, baseline: List[Dict[str, Any]]) -> List[str]:
             rustc = by_target.get(TARGETS["wasm32"], {}).get("rustc", "")
             if not rustc.startswith(f"rustc {pin} "):
                 problems.append(f"`{CI_JOB}` pins rustc {pin} but the wasm32 baseline was measured with {rustc!r}: move the pin and the baseline together")
-    wt = re.findall(r"wasmtime==(\S+)", job)
+    # The runtime is installed from a hashed requirements file the job names
+    # with `-r`; its `wasmtime==<version>` line is the pin.
+    reqs = re.findall(r"--require-hashes\s+-r\s+(\S+)", job)
+    wt: List[str] = []
+    if len(reqs) != 1:
+        problems.append(f"expected one `--require-hashes -r <file>` install in `{CI_JOB}`, found {reqs}")
+    else:
+        try:
+            wt = re.findall(r"^wasmtime==(\S+)", read(reqs[0]), re.M)
+        except OSError as e:
+            problems.append(f"`{CI_JOB}` installs from {reqs[0]}, which cannot be read: {e}")
+            return problems
     if len(wt) != 1:
-        problems.append(f"expected one wasmtime==<version> pin in `{CI_JOB}`, found {wt}")
+        if len(reqs) == 1:
+            problems.append(f"expected one wasmtime==<version> pin in {reqs[0]}, found {wt}")
     else:
         for target, e in sorted(by_target.items()):
             if e.get("wasmtime") != wt[0]:
@@ -562,17 +580,22 @@ def self_test() -> None:
             "jobs:\n  wasm-fuel:\n    steps:\n"
             f"      - uses: dtolnay/rust-toolchain@{'0' * 40} # {toolchain}\n"
             f"        with:\n          toolchain: {toolchain}\n"
-            f"      - run: python3 -m pip install wasmtime=={wasmtime}\n"
+            "      - run: python3 -m pip install --require-hashes -r .github/requirements/wasm-fuel.txt\n"
             "  test-go:\n    steps:\n      - uses: dtolnay/rust-toolchain@stable\n"
         )
 
-    assert pin_problems(job_yml("1.98.1", "48.0.0"), pin_base) == []
-    assert any("not an exact release" in p for p in pin_problems(job_yml("stable", "48.0.0"), pin_base))
-    assert any("move the pin and the baseline" in p for p in pin_problems(job_yml("1.99.0", "48.0.0"), pin_base))
-    assert any("pins wasmtime 49.0.0" in p for p in pin_problems(job_yml("1.98.1", "49.0.0"), pin_base))
+    def reqs(wasmtime: str) -> Callable[[str], str]:
+        return lambda rel: f"wasmtime=={wasmtime} \\\n    --hash=sha256:00\n"
+
+    assert pin_problems(job_yml("1.98.1", "48.0.0"), pin_base, reqs("48.0.0")) == []
+    assert any("not an exact release" in p for p in pin_problems(job_yml("stable", "48.0.0"), pin_base, reqs("48.0.0")))
+    assert any("move the pin and the baseline" in p for p in pin_problems(job_yml("1.99.0", "48.0.0"), pin_base, reqs("48.0.0")))
+    assert any("pins wasmtime 49.0.0" in p for p in pin_problems(job_yml("1.98.1", "48.0.0"), pin_base, reqs("49.0.0")))
     no_input = job_yml("1.98.1", "48.0.0").replace("          toolchain: 1.98.1\n", "          targets: wasm32-unknown-unknown\n")
-    assert any("<no toolchain input>" in p for p in pin_problems(no_input, pin_base))
-    assert any("no `wasm-fuel` job" in p for p in pin_problems("jobs:\n  other:\n", pin_base))
+    assert any("<no toolchain input>" in p for p in pin_problems(no_input, pin_base, reqs("48.0.0")))
+    unhashed = job_yml("1.98.1", "48.0.0").replace("--require-hashes -r .github/requirements/wasm-fuel.txt", "wasmtime==48.0.0")
+    assert any("expected one `--require-hashes -r <file>`" in p for p in pin_problems(unhashed, pin_base, reqs("48.0.0")))
+    assert any("no `wasm-fuel` job" in p for p in pin_problems("jobs:\n  other:\n", pin_base, reqs("48.0.0")))
     real = pin_problems(
         CI_WORKFLOW.read_text(encoding="utf-8"),
         json.loads((REPO_ROOT / "results" / "baseline_wasm_fuel.json").read_text(encoding="utf-8")),
