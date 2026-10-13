@@ -629,7 +629,11 @@ Bench targets deliberately **not** reachable from a slash command:
      when any sample shows foreign load above `RUN_FOREIGN_VOID` = 1.0,
      on-pin foreign load above `RUN_ON_PIN_VOID` = 0.25, a foreign process at
      or above `RUN_PROCESS_VOID_PCT` = 100 %, or a governor change on the
-     pinned CPUs. The values live in `scripts/bench_provenance.py` and are
+     pinned CPUs. For the `patricia_d2_paging` suite, `attach` then writes
+     the start gate's verdict and `summarize`'s judgement into each
+     artifact's `provenance.host_guard`, which is what that suite's evaluator
+     admits a dispatch on (`docs/benchmarks/patricia_comparison/METHODOLOGY.md`,
+     errata A5). The values live in `scripts/bench_provenance.py` and are
      fixed before any run they judge (AGENTS.md section 8.19). The workflow
      runs all three; `bench_baremetal.yml` publishes the guard's sample and
      the run's host-activity record with the report, and uploads both as

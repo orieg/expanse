@@ -1850,9 +1850,10 @@ jobs:
             echo "::error::the host watcher was not running when the benchmarks finished; its record is incomplete"
             HOST_WATCH_OK=0
           fi
+          rm -f host-activity.json
           set +e
           python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" summarize \
-            --in host-activity.jsonl --md host-activity.md
+            --in host-activity.jsonl --md host-activity.md --json host-activity.json
           HOST_STATUS=$?
           set -e
           if [ "$HOST_WATCH_OK" -ne 1 ]; then
@@ -1864,6 +1865,21 @@ jobs:
           if [ "$HOST_STATUS" -ne 0 ]; then
             echo "fail_reason=host_contaminated" >> "$GITHUB_OUTPUT"
             INTEGRITY_FAIL=1
+          fi
+          # D2 (#1096, patricia_comparison METHODOLOGY errata A5): the guard's
+          # record goes into both artifacts' provenance, so whether the host
+          # admitted the dispatch is decided from the artifact and not from
+          # this log. The artifacts are uploaded even when the job fails, and
+          # a voided run's artifact then says that it was voided. A record
+          # that cannot be written fails the job: an artifact without one is
+          # not evaluable.
+          if [ "$SUITE" = "patricia_d2_paging" ]; then
+            if ! python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" attach \
+              --check host-guard.json --summary host-activity.json --watcher-ok "$HOST_WATCH_OK" \
+              docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_4k.json \
+              docs/benchmarks/patricia_comparison/results/counters_prefix_scan_d2_2m.json; then
+              INTEGRITY_FAIL=1
+            fi
           fi
 
           # Report Generation Step

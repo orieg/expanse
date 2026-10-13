@@ -626,6 +626,39 @@ def window_problems(rel: str, obj: dict) -> list[str]:
     return []
 
 
+# Diagnostic D2 (#1096, patricia_comparison METHODOLOGY errata A5): whether the
+# host admitted a dispatch is decided from the host guard's record in the
+# artifact, so a D2 counter artifact without one is not evaluable. The four
+# artifacts dispatched under A4, before the workflow wrote the record, are
+# named here; they keep their A4 label and any other D2 artifact owes it.
+D2_GUARD_PREFIX = "patricia_comparison/results/counters_prefix_scan_d2_"
+D2_GUARD_GRANDFATHERED = frozenset(
+    f"{D2_GUARD_PREFIX}{pages}_run{run}.json" for pages in ("4k", "2m") for run in (1, 2))
+
+
+def guard_record_problems(rel: str, prov: dict) -> list[str]:
+    """Findings when a D2 artifact lacks a well-formed `provenance.host_guard`."""
+    if not rel.startswith(D2_GUARD_PREFIX) or rel in D2_GUARD_GRANDFATHERED:
+        return []
+    g = prov.get("host_guard")
+    if not isinstance(g, dict):
+        return [f"{rel}: `provenance.host_guard` missing — a D2 dispatch is admitted on the host "
+                f"guard's record (bench_host_guard.py attach), not on the run log"]
+    start, run = g.get("start"), g.get("run")
+    missing = []
+    if not isinstance(start, dict) or not isinstance(start.get("verdict"), str):
+        missing.append("start.verdict")
+    if not isinstance(run, dict) or not _number(run.get("samples")):
+        missing.append("run.samples")
+    if not isinstance(run, dict) or not _number(run.get("voids")):
+        missing.append("run.voids")
+    if not isinstance(g.get("watcher_ok"), bool):
+        missing.append("watcher_ok")
+    if missing:
+        return [f"{rel}: `provenance.host_guard` lacks {', '.join(missing)}"]
+    return []
+
+
 def check_artifact(rel: str, obj) -> list[str]:
     """Findings for one artifact, already known to be non-grandfathered."""
     problems = []
@@ -653,6 +686,7 @@ def check_artifact(rel: str, obj) -> list[str]:
             f"(begin_cell / end_cell)")
     if prov.get("load_windows"):
         problems.extend(window_problems(rel, obj))
+    problems.extend(guard_record_problems(rel, prov))
 
     if rel in NO_ROUNDS:
         return problems
@@ -1935,6 +1969,32 @@ def _self_test() -> int:
     iv, _ = ci_method_keys(not_intervals)
     if iv:
         failures.append(f"only a pair of two numbers is an interval, got {iv}")
+
+    # D2 errata A5: a D2 counter artifact owes the host guard's record; the
+    # four dispatched under A4 are named, and no other suite's artifact owes it.
+    d2 = copy.deepcopy(_GOOD)
+    d2["rounds_raw"] = [{"round": 0}]
+    d2_rel = D2_GUARD_PREFIX + "2m_a5_run1.json"
+    expect("a D2 artifact without the guard record", copy.deepcopy(d2), "`provenance.host_guard` missing", rel=d2_rel)
+    d2["provenance"]["host_guard"] = {"start": {"verdict": "quiet"}, "watcher_ok": True,
+                                      "run": {"samples": 60, "voids": 0}}
+    expect("a D2 artifact with the guard record", copy.deepcopy(d2), None, rel=d2_rel)
+    for drop, want in ((("start", "verdict"), "start.verdict"), (("run", "samples"), "run.samples"),
+                       (("run", "voids"), "run.voids"), (("watcher_ok",), "watcher_ok")):
+        broken = copy.deepcopy(d2)
+        node = broken["provenance"]["host_guard"]
+        for k in drop[:-1]:
+            node = node[k]
+        del node[drop[-1]]
+        expect(f"a D2 guard record without {want}", broken, f"lacks {want}", rel=d2_rel)
+    bare = copy.deepcopy(d2)
+    del bare["provenance"]["host_guard"]
+    for rel in sorted(D2_GUARD_GRANDFATHERED):
+        expect(f"an A4-era D2 artifact ({rel})", copy.deepcopy(bare), None, rel=rel)
+    expect("another suite's counter artifact", copy.deepcopy(bare), None,
+           rel="patricia_comparison/results/counters_prefix_scan_d1.json")
+    if len(D2_GUARD_GRANDFATHERED) != 4 or not all(artifact_path(r).is_file() for r in D2_GUARD_GRANDFATHERED):
+        failures.append(f"the A4-era D2 artifacts named must be the four committed ones: {sorted(D2_GUARD_GRANDFATHERED)}")
 
     for msg in failures:
         print(f"  FAIL {msg}")
