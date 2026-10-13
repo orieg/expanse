@@ -201,8 +201,83 @@ fn ordered_read_answers_are_validated() {
     );
 }
 
-/// The body of `Shared::optimistic_read`: from its signature to the first
-/// line that closes a method (`    }`).
+/// `src` with its comments and the contents of its string and character
+/// literals removed, and its line structure kept. The sample-order scanners
+/// read this, so a pattern inside a `//` comment, a `/* */` comment or a
+/// literal is not counted as code.
+fn bare(src: &str) -> String {
+    let b: Vec<char> = src.chars().collect();
+    let at = |i: usize| b.get(i).copied();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == '/' && at(i + 1) == Some('/') {
+            while i < b.len() && b[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && at(i + 1) == Some('*') {
+            let mut depth = 1;
+            i += 2;
+            while i < b.len() && depth > 0 {
+                if b[i] == '/' && at(i + 1) == Some('*') {
+                    depth += 1;
+                    i += 2;
+                } else if b[i] == '*' && at(i + 1) == Some('/') {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    if b[i] == '\n' {
+                        out.push('\n');
+                    }
+                    i += 1;
+                }
+            }
+        } else if c == '"' {
+            // A string literal, or the quoted part of a raw one whose `r`
+            // and hashes were copied as code: close on the same hashes.
+            let mut hashes = 0;
+            while hashes < i && b[i - 1 - hashes] == '#' {
+                hashes += 1;
+            }
+            let raw = hashes < i && b[i - 1 - hashes] == 'r' || hashes > 0;
+            out.push('"');
+            i += 1;
+            while i < b.len() {
+                if !raw && b[i] == '\\' {
+                    i += 1;
+                } else if b[i] == '"' && (0..hashes).all(|h| at(i + 1 + h) == Some('#')) {
+                    break;
+                }
+                if at(i) == Some('\n') {
+                    out.push('\n');
+                }
+                i += 1;
+            }
+            out.push('"');
+            i += 1;
+        } else if c == '\'' && at(i + 1) == Some('\\') {
+            // An escaped character literal.
+            i += 2;
+            while i < b.len() && b[i] != '\'' {
+                i += 1;
+            }
+            out.push_str("' '");
+            i += 1;
+        } else if c == '\'' && at(i + 2) == Some('\'') {
+            // A one-character literal; a lifetime has no closing quote.
+            out.push_str("' '");
+            i += 3;
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The body of `Shared::optimistic_read` in bare source: from its signature
+/// to the first line that closes a method (`    }`).
 fn optimistic_read_body(src: &str) -> Vec<&str> {
     let lines: Vec<&str> = src.lines().collect();
     let start = lines
@@ -278,6 +353,16 @@ const TREE_SAMPLE: &str = "self.version().sample()";
 const ROOT_LOADS: &[&str] = &["self.published().load()", "root_of("];
 
 /// How a `BranchB` arm of `sync_nav` samples the branch and loads from it.
+///
+/// The scanner recognises these spellings and no others: the sample as
+/// `rs.sample(vp)`, and a load from the branch as a read of
+/// `(*node).level`, a call into `shared_bitmap::`, a call of
+/// `branch_b_child(` or an `Edge::load_at`. It reads source order, not
+/// behaviour: a load written another way above the sample (through a new
+/// helper, a different projection of `node`, a macro) passes, and
+/// `sample_order_scanners_turn_red_on_the_real_source` pins one such case
+/// as a stated limit (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.13,
+/// item 5).
 const BRANCH_SAMPLE: &str = "rs.sample(vp)";
 const BRANCH_B_LOADS: &[&str] = &[
     "(*node).level",
@@ -302,26 +387,25 @@ fn branch_b_arms(src: &str) -> Vec<Vec<&str>> {
         .collect()
 }
 
-/// #1194, G36.4, the root row: an optimistic read samples the tree version
-/// before it loads the root it then validates against that sample.
-#[test]
-fn optimistic_read_samples_the_tree_version_before_the_root() {
-    let body = optimistic_read_body(SYNC);
-    let bad = sample_order_faults(&body, TREE_SAMPLE, ROOT_LOADS, "optimistic_read");
-    assert!(bad.is_empty(), "{}", bad.join("\n"));
+/// The faults of `Shared::optimistic_read` in `sync_src`.
+fn optimistic_read_faults(sync_src: &str) -> Vec<String> {
+    let src = bare(sync_src);
+    let body = optimistic_read_body(&src);
+    sample_order_faults(&body, TREE_SAMPLE, ROOT_LOADS, "optimistic_read")
 }
 
-/// #1194, G36.4, the `BranchB` row: both arms sample the branch's version
-/// before any load from the branch.
-#[test]
-fn bitmap_branch_arms_sample_before_they_load() {
-    let arms = branch_b_arms(SYNC_NAV);
-    assert_eq!(
-        arms.len(),
-        2,
-        "sync_nav.rs has one BranchB arm in next_in and one in prev_in"
-    );
+/// The faults of the `BranchB` arms in `nav_src`: there must be two arms,
+/// and each must sample once, above every load it makes from the branch.
+fn branch_b_faults(nav_src: &str) -> Vec<String> {
+    let src = bare(nav_src);
+    let arms = branch_b_arms(&src);
     let mut bad = Vec::new();
+    if arms.len() != 2 {
+        bad.push(format!(
+            "expected one BranchB arm in next_in and one in prev_in, found {}",
+            arms.len()
+        ));
+    }
     for (i, arm) in arms.iter().enumerate() {
         let arm = without_test_statements(arm);
         bad.extend(sample_order_faults(
@@ -331,7 +415,117 @@ fn bitmap_branch_arms_sample_before_they_load() {
             &format!("BranchB arm {i}"),
         ));
     }
+    bad
+}
+
+/// #1194, G36.4, the root row: an optimistic read samples the tree version
+/// before it loads the root it then validates against that sample.
+#[test]
+fn optimistic_read_samples_the_tree_version_before_the_root() {
+    let bad = optimistic_read_faults(SYNC);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// #1194, G36.4, the `BranchB` row: both arms sample the branch's version
+/// before any load from the branch.
+#[test]
+fn bitmap_branch_arms_sample_before_they_load() {
+    let bad = branch_b_faults(SYNC_NAV);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// `src` with the first `old` after the first `anchor` replaced by `new`.
+fn edited_after(src: &str, anchor: &str, old: &str, new: &str) -> String {
+    let a = src
+        .find(anchor)
+        .unwrap_or_else(|| panic!("anchor {anchor:?}"));
+    let at = a + src[a..]
+        .find(old)
+        .unwrap_or_else(|| panic!("{old:?} after {anchor:?}"));
+    format!("{}{new}{}", &src[..at], &src[at + old.len()..])
+}
+
+/// The two scanners against edited copies of the real source, held in
+/// memory: the sample commented out both ways, a load moved above it, and a
+/// second sample. Each edit yields the one fault of its clause. The edits
+/// are made here and not on disk because a tree with the sample commented
+/// out does not compile, so no test of it could run.
+#[test]
+fn sample_order_scanners_turn_red_on_the_real_source() {
+    const ARM: &str = "EdgeTag::Structural(EdgeType::BranchB) => {";
+    const SAMPLE: &str = "let nsnap = unsafe { rs.sample(vp)? };";
+    let one = |faults: Vec<String>, clause: &str| {
+        assert_eq!(faults.len(), 1, "{faults:?}");
+        assert!(faults[0].contains(clause), "{faults:?}");
+    };
+    assert!(branch_b_faults(SYNC_NAV).is_empty());
+
+    // The sample commented out: with `//`, and with `/* */`.
+    for commented in [format!("// {SAMPLE}"), format!("/* {SAMPLE} */")] {
+        let src = edited_after(SYNC_NAV, ARM, SAMPLE, &commented);
+        one(branch_b_faults(&src), "BranchB arm 0: expected exactly one");
+    }
+    // Sampled twice.
+    let twice = format!("{SAMPLE}\n            let _again = unsafe {{ rs.sample(vp)? }};");
+    let src = edited_after(SYNC_NAV, ARM, SAMPLE, &twice);
+    one(branch_b_faults(&src), "BranchB arm 0: expected exactly one");
+    // A load above the sample, in each recognised spelling.
+    for load in [
+        "let _early = unsafe { (*node).level };",
+        "let _early = unsafe { crate::bits::shared_bitmap::next_set::<true>(&raw const (*node).bitmap, 0) };",
+        "let _early = unsafe { branch_b_child(node, 0, holder) };",
+        "let _early = unsafe { Edge::load_at::<true>(core::ptr::null()) };",
+    ] {
+        let src = edited_after(
+            SYNC_NAV,
+            ARM,
+            SAMPLE,
+            &format!("{load}\n            {SAMPLE}"),
+        );
+        one(branch_b_faults(&src), "comes before the version sample");
+    }
+    // The same text inside a comment or a string literal is not a load.
+    for inert in [
+        "/* let _early = unsafe { (*node).level }; */",
+        "let _text = \"(*node).level shared_bitmap:: branch_b_child( Edge::load_at\";",
+    ] {
+        let src = edited_after(
+            SYNC_NAV,
+            ARM,
+            SAMPLE,
+            &format!("{inert}\n            {SAMPLE}"),
+        );
+        assert!(branch_b_faults(&src).is_empty(), "{inert}");
+    }
+    // The stated limit: an early load in a spelling the scanner does not
+    // know passes. This assertion records the limit; it is not a property
+    // to keep.
+    let unseen = "let _early = unsafe { node.cast::<u8>().add(4).read() };";
+    let src = edited_after(
+        SYNC_NAV,
+        ARM,
+        SAMPLE,
+        &format!("{unseen}\n            {SAMPLE}"),
+    );
+    assert!(branch_b_faults(&src).is_empty());
+    // An arm removed: the count of arms is its own clause.
+    let src = edited_after(SYNC_NAV, ARM, "EdgeType::BranchB)", "EdgeType::BranchC)");
+    one(branch_b_faults(&src), "expected one BranchB arm in next_in");
+
+    // `optimistic_read`: the sample commented out, and the root loaded first.
+    const READ: &str = "fn optimistic_read<R>(";
+    const TREE: &str = "let snap = self.version().sample();";
+    assert!(optimistic_read_faults(SYNC).is_empty());
+    for commented in [format!("// {TREE}"), format!("/* {TREE} */")] {
+        let src = edited_after(SYNC, READ, TREE, &commented);
+        one(optimistic_read_faults(&src), "expected exactly one");
+    }
+    let early = format!("let _early = self.published().load();\n            {TREE}");
+    let src = edited_after(SYNC, READ, TREE, &early);
+    one(
+        optimistic_read_faults(&src),
+        "comes before the version sample",
+    );
 }
 
 /// The sample-order scanners on synthetic input: each clause turns red on
@@ -380,6 +574,14 @@ fn sample_order_scanners_catch_each_fault() {
     assert_eq!(
         sample_order_faults(&ungated, BRANCH_SAMPLE, BRANCH_B_LOADS, "x").len(),
         1
+    );
+
+    // Comments of both kinds and literal contents are removed, lines kept.
+    let text =
+        "a(); // b()\n/* c()\n d() */ e(\"f() \\\" g()\", '\"', r#\"h()\"#);\nlet x: &'a str;\n";
+    assert_eq!(
+        bare(text),
+        "a(); \n\n e(\"\", ' ', r#\"\"#);\nlet x: &'a str;\n"
     );
 
     // An arm is cut at the next arm, and only `BranchB` arms are taken.

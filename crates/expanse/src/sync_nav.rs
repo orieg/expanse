@@ -1727,11 +1727,17 @@ mod loom_tests {
     /// still 63). A search that read word 0 before the first bracket and
     /// word 1 after the second finds 65, which never was the successor.
     ///
-    /// The model keeps the leaf's words at one address across the two
-    /// rewrites. On a shared set the second rewrite builds a new node, and
-    /// the node the search holds is not reused while its pin lasts, so this
-    /// model is stricter than the engine: it shows that the holder must be
-    /// validated after the terminal's loads without relying on the pin.
+    /// **A rule-level check on an address-stable cell, not evidence about
+    /// the engine.** The model keeps the leaf's words at one address across
+    /// the two rewrites. On a shared set the second rewrite builds a new
+    /// node, and the node a pinned search holds is not reused while its pin
+    /// lasts, so the schedule on which the control below fails cannot occur
+    /// there. What protects the engine on this path is the pin and the rule
+    /// that a pinned node is not reused; neither has a test here. The
+    /// positive model checks the validation rule against an adversary
+    /// stronger than the engine; its control shows the model can fail, and
+    /// is not counted as a negative control of the engine
+    /// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.13, item 7).
     fn replaced_terminal_model(validate_last: bool) {
         loom::model(move || {
             let h_v = Arc::new(VersionCell::new(0));
@@ -1765,8 +1771,11 @@ mod loom_tests {
         replaced_terminal_model(true);
     }
 
-    /// The negative control of (b): a holder validated only before the
-    /// terminal's loads lets the search return 65.
+    /// The model of (b) with its holder validated only before the
+    /// terminal's loads: the search returns 65. It shows that the model
+    /// can fail, on a schedule the engine cannot produce (see
+    /// `replaced_terminal_model`), so it is not a negative control of the
+    /// engine.
     #[test]
     #[should_panic(expected = "never the successor")]
     fn loom_set_ordered_replaced_terminal_validated_only_before_its_loads_tears() {
