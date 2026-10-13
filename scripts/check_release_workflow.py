@@ -19,7 +19,11 @@ whose id starts with `publish-` or `package-`, must be in it.
 Three further properties are about what a job can leak or pull in:
 
   3. **Every action is pinned by commit.** A `uses:` names a 40-hex commit,
-     never a tag or a branch, which their owner can move.
+     never a tag or a branch, which their owner can move. This holds for every
+     file under `.github/workflows/` and every composite action under
+     `.github/actions/`, not only `release.yml` (`all_pin_problems`); a
+     `dtolnay/rust-toolchain` pinned by commit also carries a `toolchain:`
+     input, because the action reads the channel from its ref otherwise.
   4. **No checkout leaves the token behind.** Every `actions/checkout` sets
      `persist-credentials: false`, except the one in `promote`, which pushes
      the Go module tag with it.
@@ -63,6 +67,7 @@ from __future__ import annotations
 import argparse
 import copy
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -272,6 +277,53 @@ def python_pin_problems(workflow: dict, where: str = "python.yml") -> list[str]:
                 if toolchain is not None and toolchain != TOOLCHAIN_REF:
                     out.append(f"{prefix}`{name}`: step `{label}` installs toolchain {toolchain!r}, not RELEASE_TOOLCHAIN")
     return out
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+# release.yml and python.yml are held to the same rule, with more, by
+# `supply_chain_problems` and `python_pin_problems`; reporting a tag there twice
+# would only repeat the line.
+PIN_COVERED_ELSEWHERE = frozenset({"release.yml", "python.yml"})
+
+
+def pin_problems_in(doc: dict, where: str) -> list[str]:
+    """Every `uses:` in one workflow or composite action is pinned by commit.
+
+    A reusable-workflow call (`jobs.<id>.uses`) and a composite action's
+    `runs.steps` are covered with the ordinary `jobs.<id>.steps`. A local
+    `./path` action is repository content, not a third-party ref.
+    """
+    out: list[str] = []
+    units: list[tuple[str, list[dict]]] = []
+    for name, job in sorted((doc.get("jobs") or {}).items()):
+        if isinstance(job.get("uses"), str):
+            units.append((name, [{"uses": job["uses"]}]))
+        units.append((name, job.get("steps") or []))
+    units.append(("runs", (doc.get("runs") or {}).get("steps") or []))
+    for name, steps in units:
+        for step in steps:
+            uses = step.get("uses", "")
+            if not uses or uses.startswith("./"):
+                continue
+            if not SHA_PINNED_RE.match(uses):
+                out.append(f"{where}: `{name}`: `{uses}` is not pinned by commit")
+            elif uses.startswith("dtolnay/rust-toolchain@") and not (step.get("with") or {}).get("toolchain"):
+                out.append(f"{where}: `{name}`: `{uses}` has no `toolchain:` input; "
+                           f"a commit pin carries no channel for the action to read")
+    return out
+
+
+def all_pin_problems(root: Path = REPO_ROOT) -> tuple[list[str], int]:
+    """Pin problems over every workflow and composite action; also the file count."""
+    paths = sorted((root / ".github" / "workflows").glob("*.yml"))
+    paths += sorted((root / ".github" / "actions").glob("*/action.yml"))
+    out: list[str] = []
+    for path in paths:
+        if path.parent.name == "workflows" and path.name in PIN_COVERED_ELSEWHERE:
+            continue
+        out += pin_problems_in(yaml.safe_load(path.read_text(encoding="utf-8")) or {},
+                               str(path.relative_to(root)))
+    return out, len(paths)
 
 
 NPM_GLOBAL_RE = re.compile(r"npm install -g (\S+)")
@@ -711,6 +763,57 @@ def self_test() -> int:
              lambda w: w["env"].__setitem__("RELEASE_TOOLCHAIN", "stable"),
              "not an exact version")
 
+    # --- every workflow and composite action: pinned by commit ---------------
+    all_found, _ = all_pin_problems()
+    if all_found:
+        failures.append(f"the tree has unpinned actions: {all_found}")
+    sha = "0" * 40
+    fixture = {"jobs": {"build": {"steps": [{"uses": f"actions/checkout@{sha}"},
+                                            {"uses": "./.github/actions/valgrind"}, {"run": "true"}]}}}
+    if pin_problems_in(fixture, "x.yml"):
+        failures.append(f"a pinned fixture was reported: {pin_problems_in(fixture, 'x.yml')}")
+    for label, doc, needle in (
+        ("a tag in a non-release workflow",
+         {"jobs": {"build": {"steps": [{"uses": "actions/checkout@v7"}]}}},
+         "x.yml: `build`: `actions/checkout@v7` is not pinned by commit"),
+        ("a branch ref",
+         {"jobs": {"build": {"steps": [{"uses": "dtolnay/rust-toolchain@master", "with": {"toolchain": "stable"}}]}}},
+         "`dtolnay/rust-toolchain@master` is not pinned by commit"),
+        ("an abbreviated sha",
+         {"jobs": {"build": {"steps": [{"uses": "actions/checkout@3d3c42e"}]}}},
+         "is not pinned by commit"),
+        ("a reusable workflow call by tag",
+         {"jobs": {"call": {"uses": "o/r/.github/workflows/w.yml@v1"}}},
+         "`call`: `o/r/.github/workflows/w.yml@v1` is not pinned by commit"),
+        ("a composite action step by tag",
+         {"runs": {"using": "composite", "steps": [{"uses": "actions/cache@v6"}]}},
+         "`runs`: `actions/cache@v6` is not pinned by commit"),
+        ("a commit-pinned rust-toolchain with no toolchain input",
+         {"jobs": {"build": {"steps": [{"uses": f"dtolnay/rust-toolchain@{sha}"}]}}},
+         "has no `toolchain:` input"),
+    ):
+        got = pin_problems_in(doc, "x.yml")
+        if not any(needle in p for p in got):
+            failures.append(f"{label}: not reported (got {got})")
+    # The same mutation through the file walk: one tag in a temp copy of the
+    # tree is reported by path, and an unmutated copy is not.
+    with tempfile.TemporaryDirectory() as tmp:
+        tree = Path(tmp)
+        shutil.copytree(REPO_ROOT / ".github", tree / ".github")
+        clean, _ = all_pin_problems(tree)
+        if clean:
+            failures.append(f"a clean copy of .github was reported: {clean}")
+        target = tree / ".github" / "workflows" / "nightly.yml"
+        mutated, n = re.subn(r"(uses: actions/checkout)@[0-9a-f]{40} # v[\d.]+", r"\1@v7",
+                             target.read_text(encoding="utf-8"), count=1)
+        if n != 1:
+            failures.append("nightly.yml has no pinned actions/checkout to mutate")
+        target.write_text(mutated, encoding="utf-8")
+        got, _ = all_pin_problems(tree)
+        if not any(p.startswith(".github/workflows/nightly.yml: ") and "`actions/checkout@v7` is not pinned by commit" in p
+                   for p in got):
+            failures.append(f"an unpinned checkout in nightly.yml: not reported (got {got})")
+
     if failures:
         for f in failures:
             print(f"::error::check_release_workflow self-test: {f}")
@@ -733,13 +836,16 @@ def main() -> int:
     if PYTHON_WORKFLOW.is_file():
         py_text = PYTHON_WORKFLOW.read_text(encoding="utf-8")
         found += python_pin_problems(yaml.safe_load(py_text), PYTHON_WORKFLOW.name)
+    tree_found, n_files = all_pin_problems()
+    found += tree_found
     for p in found:
         print(f"::error::{p}")
     if found:
         return 1
     print(f"check_release_workflow: {len(PUBLISH_JOBS)} publishing jobs wait for promote and skip a pre-release tag; "
           f"every job is behind the gate; {len(CALL_SITES)} call sites are as written; "
-          f"actions are pinned by commit, checkouts drop the token, the toolchain is exact; "
+          f"actions are pinned by commit in release.yml, python.yml and {n_files - len(PIN_COVERED_ELSEWHERE)} "
+          f"other workflow/action files, checkouts drop the token, the toolchain is exact; "
           f"global tools use pinned versions, cargo build carries --locked")
     return 0
 

@@ -46,14 +46,14 @@ jobs:
         # Tier 3); `lib-rest` is every module the other five do not name. The map lives in scripts/check_miri_shards.py.
         shard: [lib-cursor, lib-set, lib-map, lib-sync, lib-blobmap-bits, lib-rest, linearizability, no_heap_churn, test_blobmap, test_boundary_invariants, test_domain, test_mem_used_order_invariant, test_ordered_bytesmap, test_snapshot_clone, test_value_compression]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: ./.github/actions/rust-toolchain
         with:
           toolchain: nightly
           components: miri
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # Lib shards select tests by exact name from the module map in
       # scripts/check_miri_shards.py (libtest filters are substring matches:
@@ -80,7 +80,7 @@ jobs:
 
       - name: Report or Update Nightly Failure Issue
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const title = '🚨 [Nightly CI Failure] Full Miri Model Verification Failed on main (shard ${{ matrix.shard }})';
@@ -124,7 +124,7 @@ jobs:
 
       - name: Auto-Close Resolved Nightly Issue on Success
         if: success() && github.event_name == 'schedule'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -155,12 +155,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust-toolchain
         with:
           toolchain: nightly
           components: rust-src
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Verify ThreadSanitizer canary catches unsuppressed races (negative control)
         run: |
           cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test tsan_canary > canary.log 2>&1 || true
@@ -185,7 +185,7 @@ jobs:
 
       - name: Report or Update Nightly Failure Issue
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const title = '🚨 [Nightly CI Failure] ThreadSanitizer (TSan) Verification Failed on main';
@@ -231,7 +231,7 @@ jobs:
 
       - name: Comment on Nightly Issue on Success
         if: success() && github.event_name == 'schedule'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -284,19 +284,19 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/rust-toolchain
         with:
           toolchain: nightly-2026-09-05
           components: miri
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Every Sync* UB site is in the state the manifest records
         run: python3 scripts/miri_ub_sites.py --check --shard ${{ matrix.shard }}/14
 
       # A job that hits its timeout ends cancelled, so that is reported too.
       - name: Report or Update Nightly Failure Issue
         if: (failure() || cancelled()) && github.event_name == 'schedule'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const title = '🚨 [Nightly CI Failure] Miri UB-site census changed on main';
@@ -346,7 +346,7 @@ jobs:
       # `miri-full` does (AGENTS.md §8.11.9).
       - name: Auto-Close Resolved Nightly Issue on Success
         if: success() && github.event_name == 'schedule'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -375,14 +375,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
+          toolchain: stable
           # wasm32 target for the nightly wasm-pack build of crates/expanse-wasm
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # Go, Java 22+, and .NET toolchains for the go/java/dotnet bindings benchmark
       # runners in scripts/bench_bindings.py (#304) — without these, bench_bindings.py
@@ -407,12 +408,12 @@ jobs:
             9.0.x
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
@@ -509,7 +510,7 @@ jobs:
             --save-baseline concurrency-baseline.json | tee -a bench-report.txt
 
       - name: Upload new concurrency baseline
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: concurrency-baseline
           path: concurrency-baseline.json
@@ -591,14 +592,14 @@ jobs:
       # next run compares against the same stale one and nothing ever refreshes.
       - name: Upload new bindings baseline
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bindings-baseline
           path: bindings-baseline.json
           if-no-files-found: warn
 
       - name: Upload report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bench-report
           path: bench-report.txt
@@ -612,7 +613,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Go module tags match the release tags
         run: python3 scripts/check_go_tags.py
@@ -628,16 +629,16 @@ jobs:
         # ci.yml discovers them via `cargo fuzz list`; this matrix is hand-listed).
         target: [set_ops, set_algebra, map_ops, bytesmap_ops, strmap_ops, blobmap_image_corrupt, set32_ops, map32_ops]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: ./.github/actions/rust-toolchain
         with:
           toolchain: nightly
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Restore fuzz corpus
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: fuzz/corpus/${{ matrix.target }}
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
@@ -651,7 +652,7 @@ jobs:
 
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/
