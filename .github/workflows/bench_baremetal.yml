@@ -188,7 +188,7 @@ jobs:
 
       - name: Check permissions
         if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
@@ -202,7 +202,7 @@ jobs:
 
       - name: Resolve suite
         id: resolve
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
@@ -530,7 +530,7 @@ jobs:
         id: ack
         if: needs.resolve.outputs.pr_number != ''
         continue-on-error: true
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           SUITE: ${{ needs.resolve.outputs.suite }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -2316,7 +2316,7 @@ jobs:
       # than overwriting fresher numbers with stale ones.
       - name: Publish benchmark comment
         if: always() && needs.resolve.outputs.pr_number != ''
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           SUITE: ${{ needs.resolve.outputs.suite }}
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}

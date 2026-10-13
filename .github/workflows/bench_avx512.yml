@@ -64,7 +64,7 @@ jobs:
     steps:
       - name: Check permissions
         if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: permission } =
@@ -79,7 +79,7 @@ jobs:
 
       - name: Resolve ref
         id: resolve
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             if (context.eventName === 'workflow_dispatch') {
@@ -205,7 +205,7 @@ jobs:
     # hold the host indefinitely.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.sha }}
           fetch-depth: 0
@@ -285,7 +285,7 @@ jobs:
       # The lock wrapper comes from the workflow's commit, not the ref under
       # test, so a ref that predates it is still measured under the lock.
       - name: Check out the benchmark lock from the workflow commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: _bench_tools
@@ -350,7 +350,7 @@ jobs:
 
       - name: Upload artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: avx512-bitmap-${{ github.run_id }}
           path: |
@@ -363,7 +363,7 @@ jobs:
 
       - name: Post results
         if: always() && needs.resolve.outputs.pr_number != ''
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           HOST_DESC: ${{ steps.host.outputs.host_desc }}

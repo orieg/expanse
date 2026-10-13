@@ -645,7 +645,7 @@ jobs:
 
       # Cargo.toml declares rust-version = "1.88" (AGENTS.md §5); every other
       # job builds on `stable`, which never exercises the floor. This job does.
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.120.0
 
       - uses: Swatinem/rust-cache@v2
 
@@ -821,7 +821,7 @@ jobs:
       # option discipline's own guide prefers.
       - name: Diff Gates (orieg/discipline)
         if: github.event_name == 'pull_request'
-        uses: orieg/discipline@388c1a2f8b707217a49b35bdc6c90fe8bec91dcb # v0.16.0
+        uses: orieg/discipline@1c8ea1b2d5e0b90d17779060ff93154c2e2f46a3 # v0.19.0
 
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
         # These ship `--self-test` suites and were invoked by no workflow and
@@ -2125,7 +2125,7 @@ jobs:
 
       - name: Post or Update Benchmark PR Comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -2529,7 +2529,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
 
@@ -2729,7 +2729,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up JDK 22
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v6.0.1
         with:
           java-version: '22'
           distribution: 'temurin'
@@ -2770,7 +2770,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up JDK 22
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v6.0.1
         with:
           java-version: '22'
           distribution: 'temurin'
@@ -3305,7 +3305,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Node.js 24
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: 24
 
@@ -3339,7 +3339,7 @@ jobs:
       # `@stable` fails the guard on a Rust release with no engine change.
       # Move the pin and the baseline together; `wasm_fuel.py --self-test`
       # fails when they disagree.
-      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: wasm32-unknown-unknown
 
@@ -3354,7 +3354,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -3409,7 +3409,7 @@ jobs:
             [ -f "$f" ] && cat "$f" >> "$GITHUB_STEP_SUMMARY"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: wasm-fuel
@@ -3691,7 +3691,7 @@ jobs:
       # the advisory input goes and the script is retired.
       # discipline:advisory shadow of check_gate_floor.py until the two agree on live skip runs
       - name: Gate Floor Shadow (orieg/discipline ci-skip-set, advisory)
-        uses: orieg/discipline@388c1a2f8b707217a49b35bdc6c90fe8bec91dcb # v0.16.0
+        uses: orieg/discipline@1c8ea1b2d5e0b90d17779060ff93154c2e2f46a3 # v0.19.0
         with:
           suite: integrity
           advisory: true
