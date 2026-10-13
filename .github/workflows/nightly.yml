@@ -80,7 +80,7 @@ jobs:
 
       - name: Report or Update Nightly Failure Issue
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const title = '🚨 [Nightly CI Failure] Full Miri Model Verification Failed on main (shard ${{ matrix.shard }})';
@@ -124,7 +124,7 @@ jobs:
 
       - name: Auto-Close Resolved Nightly Issue on Success
         if: success() && github.event_name == 'schedule'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -185,7 +185,7 @@ jobs:
 
       - name: Report or Update Nightly Failure Issue
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const title = '🚨 [Nightly CI Failure] ThreadSanitizer (TSan) Verification Failed on main';
@@ -231,7 +231,7 @@ jobs:
 
       - name: Comment on Nightly Issue on Success
         if: success() && github.event_name == 'schedule'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -296,7 +296,7 @@ jobs:
       # A job that hits its timeout ends cancelled, so that is reported too.
       - name: Report or Update Nightly Failure Issue
         if: (failure() || cancelled()) && github.event_name == 'schedule'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const title = '🚨 [Nightly CI Failure] Miri UB-site census changed on main';
@@ -346,7 +346,7 @@ jobs:
       # `miri-full` does (AGENTS.md §8.11.9).
       - name: Auto-Close Resolved Nightly Issue on Success
         if: success() && github.event_name == 'schedule'
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -395,7 +395,7 @@ jobs:
           cache: false
 
       - name: Set up JDK 22
-        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           java-version: '22'
           distribution: 'temurin'
@@ -408,7 +408,7 @@ jobs:
             9.0.x
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
@@ -509,7 +509,7 @@ jobs:
             --save-baseline concurrency-baseline.json | tee -a bench-report.txt
 
       - name: Upload new concurrency baseline
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: concurrency-baseline
           path: concurrency-baseline.json
@@ -591,14 +591,14 @@ jobs:
       # next run compares against the same stale one and nothing ever refreshes.
       - name: Upload new bindings baseline
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bindings-baseline
           path: bindings-baseline.json
           if-no-files-found: warn
 
       - name: Upload report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-report
           path: bench-report.txt
@@ -651,7 +651,7 @@ jobs:
 
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/
