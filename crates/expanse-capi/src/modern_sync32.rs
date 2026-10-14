@@ -18,11 +18,14 @@
 //! handles (plain data) and then the container; every handle pointer
 //! dangles from that point, as the header states.
 
-use core::ffi::{c_char, c_int};
+use core::ffi::{c_char, c_int, c_void};
 
 #[cfg(not(feature = "std"))]
 use crate::core_alloc::{boxed::Box, vec::Vec};
+#[cfg(target_pointer_width = "32")]
 use crate::modern::CWord;
+#[cfg(not(target_pointer_width = "32"))]
+type CWord = u32;
 use expanse_trie::sync32::{
     Busy, MUTATION_HEADROOM, Reader32, Sync32, SyncExpanseMap32, SyncExpanseSet32, WriteError,
     Writer32,
@@ -423,6 +426,160 @@ pub unsafe extern "C" fn expanse_sync32_map_writer_try_remove(
     }
 }
 
+/// Callback type for [`expanse_sync32_map_writer_update`]: receives
+/// `(current_present, current_value, new_value_out, user_ctx)` with
+/// `*new_value_out` pre-filled to `current_value` (or `0` when absent).
+/// Returning `true` stores `*new_value_out`; returning `false` removes `key`.
+pub type ExpanseSync32MapUpdateFn = unsafe extern "C" fn(
+    current_present: bool,
+    current_value: CWord,
+    new_value_out: *mut CWord,
+    user_ctx: *mut c_void,
+) -> bool;
+
+/// Compares the entry at `key` with `(expected_present, expected_value)` and,
+/// on match, replaces it with `(new_present, new_value)` inside at most one
+/// write bracket (`!new_present` removes; a match where `new` equals the
+/// observed entry is a no-op that opens no bracket and consults no headroom).
+///
+/// On `OK`, writes `*exchanged_out` (`true` on match, `false` on mismatch),
+/// `*observed_present_out` (`true` if `key` was present before the call), and,
+/// when present, `*observed_out`. Returns `ARENA_FULL` or `RECLAIM_BACKLOG`
+/// (tree untouched) when a mutating match lacks headroom, or `NULL_HANDLE`.
+///
+/// # Safety
+///
+/// `w` must be null or the live writer handle, used from one execution
+/// context; out-pointers null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_writer_compare_exchange(
+    w: *mut SyncMap32Writer,
+    key: CWord,
+    expected_present: bool,
+    expected_value: CWord,
+    new_present: bool,
+    new_value: CWord,
+    exchanged_out: *mut bool,
+    observed_present_out: *mut bool,
+    observed_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!w.is_null(), "expanse_sync32: null writer");
+    // SAFETY: null or live per contract.
+    let Some(w) = (unsafe { w.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let expected = expected_present.then_some(expected_value);
+    let new = new_present.then_some(new_value);
+    match w.0.compare_exchange(key, expected, new) {
+        Ok(outcome) => {
+            let (exchanged, observed) = match outcome {
+                Ok(prev) => (true, prev),
+                Err(seen) => (false, seen),
+            };
+            // SAFETY: out-pointers null or writable per contract.
+            unsafe {
+                crate::modern::put(exchanged_out, exchanged);
+                crate::modern::put(observed_present_out, observed.is_some());
+                if let Some(v) = observed {
+                    crate::modern::put(observed_out, v);
+                }
+            }
+            ExpanseSync32Status::Ok
+        }
+        Err(e) => write_status(e),
+    }
+}
+
+/// Applies `callback` to the current entry at `key` and stores the result
+/// inside at most one write bracket. Headroom is checked before `callback`
+/// runs, so `callback` is never invoked when `ARENA_FULL` or `RECLAIM_BACKLOG`
+/// is returned. On `OK`, `*old_present_out` and (when present) `*old_out`
+/// receive the entry as it stood before `callback` ran. Returns `NULL_HANDLE`
+/// when `w` or `callback` is null.
+///
+/// # Safety
+///
+/// `w` must be null or the live writer handle, used from one execution
+/// context; `callback` must not touch `w` or its owning map and must return
+/// normally; out-pointers null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_writer_update(
+    w: *mut SyncMap32Writer,
+    key: CWord,
+    callback: Option<ExpanseSync32MapUpdateFn>,
+    user_ctx: *mut c_void,
+    old_present_out: *mut bool,
+    old_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!w.is_null(), "expanse_sync32: null writer");
+    // SAFETY: null or live per contract.
+    let Some(w) = (unsafe { w.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let Some(cb) = callback else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    let res = w.0.update(key, |current| {
+        let (present, cur_val) = match current {
+            Some(v) => (true, v),
+            None => (false, 0),
+        };
+        let mut next_val: CWord = cur_val;
+        // SAFETY: `cb` is caller-supplied and `next_val` is a valid local.
+        let keep = unsafe { cb(present, cur_val, &raw mut next_val, user_ctx) };
+        keep.then_some(next_val)
+    });
+    match res {
+        Ok(old) => {
+            // SAFETY: out-pointers null or writable per contract.
+            unsafe {
+                crate::modern::put(old_present_out, old.is_some());
+                if let Some(v) = old {
+                    crate::modern::put(old_out, v);
+                }
+            }
+            ExpanseSync32Status::Ok
+        }
+        Err(e) => write_status(e),
+    }
+}
+
+/// Returns the existing value for `key` without opening a write bracket or
+/// consulting headroom (`*inserted_out = false`, `*value_out = existing`), or
+/// inserts `value` in one write bracket when absent (`*inserted_out = true`,
+/// `*value_out = value`). Returns `OK`, `ARENA_FULL` / `RECLAIM_BACKLOG` (tree
+/// untouched, only when `key` is absent), or `NULL_HANDLE`.
+///
+/// # Safety
+///
+/// `w` must be null or the live writer handle, used from one execution
+/// context; out-pointers null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync32_map_writer_get_or_insert(
+    w: *mut SyncMap32Writer,
+    key: CWord,
+    value: CWord,
+    inserted_out: *mut bool,
+    value_out: *mut CWord,
+) -> ExpanseSync32Status {
+    debug_assert!(!w.is_null(), "expanse_sync32: null writer");
+    // SAFETY: null or live per contract.
+    let Some(w) = (unsafe { w.as_mut() }) else {
+        return ExpanseSync32Status::NullHandle;
+    };
+    match w.0.get_or_insert(key, value) {
+        Ok(existing) => {
+            // SAFETY: out-pointers null or writable per contract.
+            unsafe {
+                crate::modern::put(inserted_out, existing.is_none());
+                crate::modern::put(value_out, existing.unwrap_or(value));
+            }
+            ExpanseSync32Status::Ok
+        }
+        Err(e) => write_status(e),
+    }
+}
+
 /// The writer's own consistent read (no bracket, never `BUSY`): true with
 /// `value_out` written when present. Never allocates.
 ///
@@ -740,5 +897,451 @@ pub unsafe extern "C" fn expanse_sync32_set_reader_try_contains(
         Ok(true) => ExpanseSync32Status::Ok,
         Ok(false) => ExpanseSync32Status::NotFound,
         Err(Busy) => ExpanseSync32Status::Busy,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct UpdatePlan {
+        seen_present: bool,
+        seen_val: CWord,
+        prefilled_val: CWord,
+        write_next: Option<CWord>,
+        keep: bool,
+        calls: u32,
+    }
+
+    unsafe extern "C" fn apply_plan(
+        current_present: bool,
+        current_value: CWord,
+        new_value_out: *mut CWord,
+        user_ctx: *mut c_void,
+    ) -> bool {
+        // SAFETY: `user_ctx` points to a live `UpdatePlan` and `new_value_out`
+        // points to a live local in `expanse_sync32_map_writer_update`.
+        unsafe {
+            let plan = &mut *user_ctx.cast::<UpdatePlan>();
+            plan.seen_present = current_present;
+            plan.seen_val = current_value;
+            plan.prefilled_val = *new_value_out;
+            plan.calls += 1;
+            if let Some(next) = plan.write_next {
+                *new_value_out = next;
+            }
+            plan.keep
+        }
+    }
+
+    #[test]
+    fn map_writer_rmw_compare_exchange_update_and_get_or_insert() {
+        // SAFETY: all handles come from `m`, are used on this thread only, and
+        // `m` is freed last.
+        unsafe {
+            let m = expanse_sync32_map_new(4096, 1);
+            assert!(!m.is_null());
+            let w = expanse_sync32_map_writer(m);
+            let r = expanse_sync32_map_reader(m, 0);
+
+            // ---- compare_exchange ----
+            let (mut exchanged, mut obs_present, mut obs_val) = (false, true, 0xDEAD_BEEFu32);
+            // Expect Some(1) on absent key 10 -> mismatch, observed_out untouched.
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    10,
+                    true,
+                    1,
+                    true,
+                    100,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!exchanged);
+            assert!(!obs_present);
+            assert_eq!(obs_val, 0xDEAD_BEEF);
+
+            // Expect None -> None on absent key 10 -> no-op match.
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    10,
+                    false,
+                    999,
+                    false,
+                    999,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(exchanged);
+            assert!(!obs_present);
+
+            // Expect None -> Some(100) on absent key 10 -> inserts 100.
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    10,
+                    false,
+                    0,
+                    true,
+                    100,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(exchanged);
+            assert!(!obs_present);
+            let mut got = 0u32;
+            assert!(expanse_sync32_map_writer_get(w, 10, &raw mut got) && got == 100);
+
+            // Expect None -> Some(200) on present key 10 -> mismatch, observes Some(100).
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    10,
+                    false,
+                    0,
+                    true,
+                    200,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!exchanged);
+            assert!(obs_present);
+            assert_eq!(obs_val, 100);
+
+            // Expect Some(99) -> Some(200) on present key 10 -> mismatch, observes Some(100).
+            obs_val = 0;
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    10,
+                    true,
+                    99,
+                    true,
+                    200,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!exchanged);
+            assert!(obs_present);
+            assert_eq!(obs_val, 100);
+
+            // Expect Some(100) -> Some(200) -> overwrites with 200.
+            obs_val = 0;
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    10,
+                    true,
+                    100,
+                    true,
+                    200,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(exchanged);
+            assert!(obs_present);
+            assert_eq!(obs_val, 100);
+            assert_eq!(
+                expanse_sync32_map_reader_try_get(r, 10, &raw mut got),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(got, 200);
+
+            // Expect Some(200) -> None with null out-pointers -> removes key 10.
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    10,
+                    true,
+                    200,
+                    false,
+                    0,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!expanse_sync32_map_writer_get(w, 10, &raw mut got));
+
+            // ---- update ----
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    20,
+                    None,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                ),
+                ExpanseSync32Status::NullHandle
+            );
+
+            let (mut old_present, mut old_val) = (true, 0xCAFE_BABEu32);
+            let mut plan = UpdatePlan {
+                seen_present: true,
+                seen_val: 99,
+                prefilled_val: 99,
+                write_next: Some(300),
+                keep: true,
+                calls: 0,
+            };
+            // Insert via update on absent key 20.
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    20,
+                    Some(apply_plan),
+                    (&raw mut plan).cast(),
+                    &raw mut old_present,
+                    &raw mut old_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(plan.calls, 1);
+            assert!(!plan.seen_present && plan.seen_val == 0 && plan.prefilled_val == 0);
+            assert!(!old_present);
+            assert_eq!(old_val, 0xCAFE_BABE, "old_out untouched when absent");
+            assert!(expanse_sync32_map_writer_get(w, 20, &raw mut got) && got == 300);
+
+            // Modify existing key 20 -> 350.
+            plan.write_next = Some(350);
+            plan.keep = true;
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    20,
+                    Some(apply_plan),
+                    (&raw mut plan).cast(),
+                    &raw mut old_present,
+                    &raw mut old_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(plan.calls, 2);
+            assert!(plan.seen_present && plan.seen_val == 300 && plan.prefilled_val == 300);
+            assert!(old_present && old_val == 300);
+            assert!(expanse_sync32_map_writer_get(w, 20, &raw mut got) && got == 350);
+
+            // Keep existing value without writing *new_value_out (pre-filled to 350).
+            plan.write_next = None;
+            plan.keep = true;
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    20,
+                    Some(apply_plan),
+                    (&raw mut plan).cast(),
+                    &raw mut old_present,
+                    &raw mut old_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(old_present && old_val == 350);
+            assert!(expanse_sync32_map_writer_get(w, 20, &raw mut got) && got == 350);
+
+            // Remove existing key 20 by returning false.
+            plan.keep = false;
+            old_val = 0;
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    20,
+                    Some(apply_plan),
+                    (&raw mut plan).cast(),
+                    &raw mut old_present,
+                    &raw mut old_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(old_present && old_val == 350);
+            assert!(!expanse_sync32_map_writer_get(w, 20, &raw mut got));
+
+            // ---- get_or_insert ----
+            let (mut inserted, mut val_out) = (false, 0u32);
+            assert_eq!(
+                expanse_sync32_map_writer_get_or_insert(
+                    w,
+                    30,
+                    777,
+                    &raw mut inserted,
+                    &raw mut val_out,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(inserted && val_out == 777);
+            assert_eq!(
+                expanse_sync32_map_writer_get_or_insert(
+                    w,
+                    30,
+                    888,
+                    &raw mut inserted,
+                    &raw mut val_out,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!inserted && val_out == 777);
+            assert!(expanse_sync32_map_writer_get(w, 30, &raw mut got) && got == 777);
+
+            expanse_sync32_map_free(m);
+        }
+    }
+
+    #[test]
+    fn map_writer_rmw_headroom_refusals() {
+        let headroom = expanse_sync32_mutation_headroom();
+        // SAFETY: `m` is live for the block and freed once at the end.
+        unsafe {
+            let m = expanse_sync32_map_new(headroom, 1);
+            assert!(!m.is_null());
+            let w = expanse_sync32_map_writer(m);
+
+            // Key 0 fits in the root immediate edge; keys that force node
+            // allocation exhaust the `headroom`-sized arena after one split.
+            assert_eq!(
+                expanse_sync32_map_writer_try_insert(
+                    w,
+                    1,
+                    10,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                ),
+                ExpanseSync32Status::Ok
+            );
+            for k in 2..64u32 {
+                let st = expanse_sync32_map_writer_try_insert(
+                    w,
+                    k * 257,
+                    k,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                );
+                if st == ExpanseSync32Status::ArenaFull {
+                    break;
+                }
+                assert_eq!(st, ExpanseSync32Status::Ok);
+            }
+
+            // Now free_slots < headroom:
+            // 1. get_or_insert on present key 1 succeeds without consulting headroom.
+            let (mut inserted, mut val_out) = (true, 0u32);
+            assert_eq!(
+                expanse_sync32_map_writer_get_or_insert(
+                    w,
+                    1,
+                    999,
+                    &raw mut inserted,
+                    &raw mut val_out,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!inserted && val_out == 10);
+
+            // 2. get_or_insert on absent key 0xFFFF_FFFE is refused with ArenaFull.
+            assert_eq!(
+                expanse_sync32_map_writer_get_or_insert(
+                    w,
+                    0xFFFF_FFFE,
+                    999,
+                    &raw mut inserted,
+                    &raw mut val_out,
+                ),
+                ExpanseSync32Status::ArenaFull
+            );
+
+            // 3. compare_exchange mismatch and no-op match succeed without headroom;
+            //    mutating match is refused with ArenaFull.
+            let (mut exchanged, mut obs_present, mut obs_val) = (true, false, 0u32);
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    1,
+                    true,
+                    999,
+                    true,
+                    20,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!exchanged && obs_present && obs_val == 10);
+
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    1,
+                    true,
+                    10,
+                    true,
+                    10,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(exchanged && obs_present && obs_val == 10);
+
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    1,
+                    true,
+                    10,
+                    true,
+                    20,
+                    &raw mut exchanged,
+                    &raw mut obs_present,
+                    &raw mut obs_val,
+                ),
+                ExpanseSync32Status::ArenaFull
+            );
+
+            // 4. update checks headroom before invoking the callback.
+            let mut plan = UpdatePlan {
+                seen_present: false,
+                seen_val: 0,
+                prefilled_val: 0,
+                write_next: Some(20),
+                keep: true,
+                calls: 0,
+            };
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    1,
+                    Some(apply_plan),
+                    (&raw mut plan).cast(),
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
+                ),
+                ExpanseSync32Status::ArenaFull
+            );
+            assert_eq!(plan.calls, 0, "callback must not run on ArenaFull refusal");
+
+            expanse_sync32_map_free(m);
+        }
     }
 }

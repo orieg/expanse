@@ -2,7 +2,11 @@
 .SH NAME
 expanse_sync32_map_new, expanse_sync32_map_free, expanse_sync32_map_writer, \
 expanse_sync32_map_reader, expanse_sync32_map_writer_try_insert, \
-expanse_sync32_map_writer_try_remove, expanse_sync32_map_writer_try_reclaim, \
+expanse_sync32_map_writer_try_remove, \
+expanse_sync32_map_writer_compare_exchange, \
+expanse_sync32_map_writer_update, \
+expanse_sync32_map_writer_get_or_insert, \
+expanse_sync32_map_writer_try_reclaim, \
 expanse_sync32_map_writer_get, expanse_sync32_map_writer_stats, \
 expanse_sync32_map_reader_try_get, expanse_sync32_map_reader_try_len, \
 expanse_sync32_map_reader_try_first, expanse_sync32_map_reader_try_last, \
@@ -29,6 +33,10 @@ expanse_sync32_mutation_headroom, expanse_sync32_status_str \
 .BI "typedef struct expanse_sync32_map_writer expanse_sync32_map_writer_t;"
 .br
 .BI "typedef struct expanse_sync32_map_reader expanse_sync32_map_reader_t;"
+.br
+.BI "typedef bool (*expanse_sync32_map_update_fn)("
+.BI "        bool " current_present ", expanse_word_t " current_value ","
+.BI "        expanse_word_t *" new_value_out ", void *" user_ctx ");"
 .PP
 .BI "size_t      expanse_sync32_mutation_headroom(void);"
 .br
@@ -53,6 +61,23 @@ expanse_sync32_mutation_headroom, expanse_sync32_status_str \
 .BI "expanse_sync32_status_t expanse_sync32_map_writer_try_remove("
 .BI "        expanse_sync32_map_writer_t *" w ", expanse_word_t " key ","
 .BI "        expanse_word_t *" old_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_writer_compare_exchange("
+.BI "        expanse_sync32_map_writer_t *" w ", expanse_word_t " key ","
+.BI "        bool " expected_present ", expanse_word_t " expected_value ","
+.BI "        bool " new_present ", expanse_word_t " new_value ","
+.BI "        bool *" exchanged_out ", bool *" observed_present_out ","
+.BI "        expanse_word_t *" observed_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_writer_update("
+.BI "        expanse_sync32_map_writer_t *" w ", expanse_word_t " key ","
+.BI "        expanse_sync32_map_update_fn " callback ", void *" user_ctx ","
+.BI "        bool *" old_present_out ", expanse_word_t *" old_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_writer_get_or_insert("
+.BI "        expanse_sync32_map_writer_t *" w ", expanse_word_t " key ","
+.BI "        expanse_word_t " value ", bool *" inserted_out ","
+.BI "        expanse_word_t *" value_out ");"
 .br
 .BI "expanse_sync32_status_t expanse_sync32_map_writer_try_reclaim("
 .BI "        expanse_sync32_map_writer_t *" w ");"
@@ -202,6 +227,46 @@ bytes of an append-only struct: pass
 .BI "expanse_sync32_map_writer_try_remove(" w ", " key ", " old_out ")"
 Headroom is checked before the lookup, so an absent key can still be
 refused with a capacity status.
+.TP
+.BR expanse_sync32_map_writer_compare_exchange ", " \
+expanse_sync32_map_writer_update ", " \
+expanse_sync32_map_writer_get_or_insert
+Single-key read-modify-write through the writer handle, atomic against
+other writers by construction and published inside at most one write
+bracket.
+.B _compare_exchange
+checks the current entry against
+.RI ( expected_present ", " expected_value ),
+reports match or mismatch through
+.I exchanged_out
+and the prior entry through
+.IR observed_present_out / observed_out ,
+and consults headroom only when the entry matches and changes.
+.B _update
+checks headroom before invoking
+.I callback
+(with
+.I *new_value_out
+pre-filled to
+.I current_value
+or 0; returning true stores
+.IR *new_value_out ,
+false removes
+.IR key ;
+the callback must not touch
+.I w
+or its map and must return normally) and reports the prior entry through
+.IR old_present_out / old_out .
+.B _get_or_insert
+returns an existing value without opening a bracket or consulting
+headroom
+.RI ( *inserted_out " = false),"
+or inserts
+.I value
+in one bracket when absent
+.RI ( *inserted_out " = true),"
+writing the resulting value to
+.IR *value_out .
 .TP
 .BR expanse_sync32_map_reader_try_first " and the other ordered reads"
 The smallest entry

@@ -67,7 +67,7 @@ fn remove_range_reports_ascending_and_counts() {
 // ---- expanse_sync32_*: the 32-bit concurrent surface ----
 
 mod sync32_surface {
-    use core::ffi::CStr;
+    use core::ffi::{CStr, c_void};
     use expanse::modern_sync32::{
         ExpanseSync32Stats, ExpanseSync32Status, expanse_sync32_map_free, expanse_sync32_map_new,
         expanse_sync32_map_reader, expanse_sync32_map_reader_try_first,
@@ -75,9 +75,11 @@ mod sync32_surface {
         expanse_sync32_map_reader_try_len, expanse_sync32_map_reader_try_next_after,
         expanse_sync32_map_reader_try_next_at_or_after,
         expanse_sync32_map_reader_try_prev_at_or_before, expanse_sync32_map_reader_try_prev_before,
-        expanse_sync32_map_writer, expanse_sync32_map_writer_get, expanse_sync32_map_writer_stats,
-        expanse_sync32_map_writer_try_insert, expanse_sync32_map_writer_try_reclaim,
-        expanse_sync32_map_writer_try_remove, expanse_sync32_mutation_headroom,
+        expanse_sync32_map_writer, expanse_sync32_map_writer_compare_exchange,
+        expanse_sync32_map_writer_get, expanse_sync32_map_writer_get_or_insert,
+        expanse_sync32_map_writer_stats, expanse_sync32_map_writer_try_insert,
+        expanse_sync32_map_writer_try_reclaim, expanse_sync32_map_writer_try_remove,
+        expanse_sync32_map_writer_update, expanse_sync32_mutation_headroom,
         expanse_sync32_set_free, expanse_sync32_set_new, expanse_sync32_set_reader,
         expanse_sync32_set_reader_try_contains, expanse_sync32_set_writer,
         expanse_sync32_set_writer_contains, expanse_sync32_set_writer_try_insert,
@@ -531,20 +533,60 @@ mod sync32_surface {
             }
             // SAFETY: the writer handle is used from this thread only.
             unsafe {
+                unsafe extern "C" fn bump_or_drop(
+                    present: bool,
+                    cur: u32,
+                    next_out: *mut u32,
+                    ctx: *mut c_void,
+                ) -> bool {
+                    let step = ctx as usize as u32;
+                    if present && (cur & 1) == 1 {
+                        false
+                    } else {
+                        unsafe { *next_out = cur.wrapping_add(step) };
+                        true
+                    }
+                }
+
                 let w = expanse_sync32_map_writer(m_addr as *mut _);
                 let mut refused = 0u32;
                 for i in 0..40_000u32 {
                     let k = STABLE + (i.wrapping_mul(2_654_435_761) % 4096);
-                    let st = if i % 3 == 2 {
-                        expanse_sync32_map_writer_try_remove(w, k, core::ptr::null_mut())
-                    } else {
-                        expanse_sync32_map_writer_try_insert(
+                    let st = match i % 5 {
+                        0 => expanse_sync32_map_writer_try_insert(
                             w,
                             k,
                             i,
                             core::ptr::null_mut(),
                             core::ptr::null_mut(),
-                        )
+                        ),
+                        1 => expanse_sync32_map_writer_try_remove(w, k, core::ptr::null_mut()),
+                        2 => expanse_sync32_map_writer_compare_exchange(
+                            w,
+                            k,
+                            (i & 1) == 0,
+                            i.wrapping_sub(5),
+                            (i & 2) == 0,
+                            i,
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                        ),
+                        3 => expanse_sync32_map_writer_update(
+                            w,
+                            k,
+                            Some(bump_or_drop),
+                            i as usize as *mut c_void,
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                        ),
+                        _ => expanse_sync32_map_writer_get_or_insert(
+                            w,
+                            k,
+                            i,
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                        ),
                     };
                     match st {
                         ExpanseSync32Status::Ok | ExpanseSync32Status::NotFound => {}
@@ -561,6 +603,147 @@ mod sync32_surface {
         });
         // SAFETY: every thread that held a handle has been joined.
         unsafe { expanse_sync32_map_free(m) };
+    }
+
+    #[test]
+    fn map_writer_rmw() {
+        unsafe extern "C" fn add_delta(
+            present: bool,
+            cur: u32,
+            next_out: *mut u32,
+            ctx: *mut c_void,
+        ) -> bool {
+            let delta = unsafe { *ctx.cast::<Option<u32>>() };
+            match delta {
+                Some(d) => {
+                    unsafe { *next_out = if present { cur + d } else { d } };
+                    true
+                }
+                None => false,
+            }
+        }
+
+        // SAFETY: handles belong to `m`, used from this thread only, freed last.
+        unsafe {
+            let m = expanse_sync32_map_new(4096, 1);
+            let w = expanse_sync32_map_writer(m);
+
+            let (mut ex, mut obs_p, mut obs_v) = (false, true, 0u32);
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    42,
+                    false,
+                    0,
+                    true,
+                    10,
+                    &raw mut ex,
+                    &raw mut obs_p,
+                    &raw mut obs_v,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(ex && !obs_p);
+
+            assert_eq!(
+                expanse_sync32_map_writer_compare_exchange(
+                    w,
+                    42,
+                    true,
+                    99,
+                    true,
+                    20,
+                    &raw mut ex,
+                    &raw mut obs_p,
+                    &raw mut obs_v,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!ex && obs_p && obs_v == 10);
+
+            let mut delta: Option<u32> = Some(5);
+            let (mut old_p, mut old_v) = (false, 0u32);
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    42,
+                    Some(add_delta),
+                    (&raw mut delta).cast(),
+                    &raw mut old_p,
+                    &raw mut old_v,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(old_p && old_v == 10);
+
+            let (mut ins, mut val) = (true, 0u32);
+            assert_eq!(
+                expanse_sync32_map_writer_get_or_insert(w, 42, 999, &raw mut ins, &raw mut val),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!ins && val == 15);
+
+            assert_eq!(
+                expanse_sync32_map_writer_get_or_insert(w, 43, 77, &raw mut ins, &raw mut val),
+                ExpanseSync32Status::Ok
+            );
+            assert!(ins && val == 77);
+
+            delta = None;
+            assert_eq!(
+                expanse_sync32_map_writer_update(
+                    w,
+                    42,
+                    Some(add_delta),
+                    (&raw mut delta).cast(),
+                    &raw mut old_p,
+                    &raw mut old_v,
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert!(old_p && old_v == 15);
+            assert!(!expanse_sync32_map_writer_get(w, 42, &raw mut val));
+
+            if cfg!(not(debug_assertions)) {
+                assert_eq!(
+                    expanse_sync32_map_writer_compare_exchange(
+                        core::ptr::null_mut(),
+                        1,
+                        false,
+                        0,
+                        true,
+                        1,
+                        core::ptr::null_mut(),
+                        core::ptr::null_mut(),
+                        core::ptr::null_mut(),
+                    ),
+                    ExpanseSync32Status::NullHandle
+                );
+                assert_eq!(
+                    expanse_sync32_map_writer_update(
+                        core::ptr::null_mut(),
+                        1,
+                        Some(add_delta),
+                        (&raw mut delta).cast(),
+                        core::ptr::null_mut(),
+                        core::ptr::null_mut(),
+                    ),
+                    ExpanseSync32Status::NullHandle
+                );
+                assert_eq!(
+                    expanse_sync32_map_writer_get_or_insert(
+                        core::ptr::null_mut(),
+                        1,
+                        1,
+                        core::ptr::null_mut(),
+                        core::ptr::null_mut(),
+                    ),
+                    ExpanseSync32Status::NullHandle
+                );
+            }
+
+            expanse_sync32_map_free(m);
+        }
     }
 }
 
