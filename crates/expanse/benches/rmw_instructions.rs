@@ -53,8 +53,10 @@
 //!   collector's reader mutex twice. An instruction count prices a locked
 //!   instruction as one instruction;
 //! - more than one writer slot in a quiesce drain. `sync_bytesmap_cas_remove`
-//!   takes the serialised path on every operation (a bucket's last entry),
-//!   which stops every writer; here there is only one;
+//!   drains all 50,000 single-entry buckets to empty via
+//!   `olc_cas_remove_bucket_cas_map` (#1396), taking the serialised structural
+//!   fallback only when unlinking a compressed-branch child or demoting a
+//!   branch; where that stops writers, here there is only one;
 //! - reclamation: the maps are leaked and nothing drains, and
 //!   `sync_blobmap_cas` appends 50,000 records to an arena that only grows.
 //!
@@ -392,10 +394,11 @@ fn sync_bytesmap_update_rmw(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>
     sync_bytesmap_update_rmw_body(built)
 }
 
-// `SyncExpanseBytesMap::compare_exchange` (sync.rs:13813), value to absent:
-// the key is the last (here, only) entry of its bucket, so the exchange
-// removes the bucket, the serialised path #1381 introduced. The 50k keys hash
-// to distinct 64-bit values, so every bucket holds one entry.
+// `SyncExpanseBytesMap::compare_exchange`, value to absent: the key is the
+// last (here, only) entry of its bucket, so the exchange unlinks the bucket
+// through `olc_cas_remove_bucket_cas_map` (#1396, replacing the unconditional
+// serialised fallback of #1381). The 50k keys hash to distinct 64-bit values,
+// so every bucket holds one entry.
 #[inline(always)]
 fn sync_bytesmap_cas_remove_body(
     built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>, u64)>),
