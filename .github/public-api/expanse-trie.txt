@@ -2676,6 +2676,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::is_empty(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_used(&self) -> usize
+pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_used_estimate(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBlobMap::new() -> Self
 pub fn expanse_trie::sync::SyncExpanseBlobMap::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedBlobReader
 pub fn expanse_trie::sync::SyncExpanseBlobMap::reader(&self) -> expanse_trie::sync::BlobReader<'_>

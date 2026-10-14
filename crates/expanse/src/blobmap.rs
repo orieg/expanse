@@ -669,6 +669,12 @@ std::thread_local! {
     /// tree bracket read the map from another thread inside it (#1300 item 2).
     pub(crate) static PREPARE_HOOK: core::cell::RefCell<Option<Box<dyn FnOnce()>>> =
         const { core::cell::RefCell::new(None) };
+    /// Runs once at the end of the next [`BlobArena::prepare_compaction`] on
+    /// this thread that succeeds: the copy is complete and nothing a reader
+    /// loads has changed yet, which is the point between a staged
+    /// compaction's two halves (#1478).
+    pub(crate) static COPIED_HOOK: core::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { core::cell::RefCell::new(None) };
 }
 
 /// An insert's retry after the reclaim rule compacted the arena: a refusal
@@ -793,6 +799,37 @@ pub(crate) unsafe fn resolve_meta_in_table(
     // access against `capacity`, and the caller discards the result unless
     // its seqlock snapshot validates.
     unsafe { read_record(entry.ptr, off, entry.capacity, entry.generation) }
+}
+
+/// Sum of the chunk capacities a published chunk table names: what
+/// [`BlobArena::mem_used`] returned when the table was published, since every
+/// change to the chunk set republishes it in the same exclusive section that
+/// updates the arena's total (#1478). Zero for a null table. O(chunks).
+///
+/// # Safety
+///
+/// As [`resolve_meta_in_table`]: `table` is null or was published by a
+/// deferred [`BlobArena`], and the caller holds an epoch pin taken before
+/// loading it.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-unsharded-alloc")
+))]
+pub(crate) unsafe fn published_table_bytes(table: *const ChunkTable) -> usize {
+    if table.is_null() {
+        return 0;
+    }
+    // SAFETY: non-null published table, EBR-live under the caller's pin; its
+    // header and its `len` trailing entries are immutable once published.
+    unsafe {
+        let len = (*table).len;
+        let entries = table
+            .cast::<u8>()
+            .add(core::mem::size_of::<ChunkTable>())
+            .cast::<ChunkRef>();
+        (0..len).fold(0usize, |sum, i| sum + (*entries.add(i)).capacity)
+    }
 }
 
 /// Multi-writer private arena (Refs #929, AGENTS.md §2.7): the geometry of a
@@ -1327,6 +1364,10 @@ impl BlobArena {
         }
         rewrites.truncate(kept);
 
+        #[cfg(all(test, feature = "std"))]
+        if let Some(hook) = COPIED_HOOK.with(|h| h.borrow_mut().take()) {
+            hook();
+        }
         Ok(PreparedCompaction {
             new_arena,
             rewrites,
@@ -2477,6 +2518,17 @@ impl ExpanseBlobMap {
     #[must_use]
     pub fn index(&self) -> &ExpanseMap {
         &self.index
+    }
+
+    /// The index allocator's accounting cell, for the concurrent wrapper's
+    /// unlocked memory estimate (#1478); `None` until the index is deferred.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-unsharded-alloc")
+    ))]
+    pub(crate) fn index_acct_cell(&self) -> Option<crate::alloc::AcctCell> {
+        self.index.occ_root().1.acct_cell()
     }
 
     /// Binds the wrapper's tree-level version word to the index trie's

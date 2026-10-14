@@ -496,6 +496,83 @@ impl Deferred {
     }
 }
 
+/// A wrapper's handle to its tree's [`Deferred`] cell, for reading the byte
+/// accounting without reaching into the allocator (#1478).
+///
+/// The shards are atomics on the heap, in the box [`NodeAlloc::defer_to`]
+/// published. A concurrent wrapper's quiesced sections hold a unique
+/// reference to the engine struct the allocator sits in, so a thread outside
+/// those sections cannot read through the allocator; it can read the boxed
+/// cell, which no reference to the engine covers. Nothing on an allocation or
+/// free path changes for this: the handle is taken once, at construction.
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-unsharded-alloc")
+))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AcctCell(NonNull<Deferred>);
+
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-unsharded-alloc")
+))]
+// SAFETY: the handle only ever loads the cell's atomic shard counters, which
+// any thread may do; the holder upholds the cell's lifetime (see
+// `AcctCell::bytes_in_use`).
+unsafe impl Send for AcctCell {}
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-unsharded-alloc")
+))]
+// SAFETY: as for `Send`: shared access is atomic loads only.
+unsafe impl Sync for AcctCell {}
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-unsharded-alloc")
+))]
+impl core::panic::UnwindSafe for AcctCell {}
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-unsharded-alloc")
+))]
+impl core::panic::RefUnwindSafe for AcctCell {}
+
+#[cfg(all(
+    target_pointer_width = "64",
+    feature = "std",
+    not(feature = "ablation-unsharded-alloc")
+))]
+impl AcctCell {
+    /// The shards' net `bytes_in_use`, clamped at zero as
+    /// [`NodeAlloc::bytes_in_use`] clamps it: one relaxed load per shard, no
+    /// lock. It equals `NodeAlloc::bytes_in_use` for an allocator that was
+    /// deferred before its first allocation (its inline counter is then zero
+    /// for good) whenever no allocation or free is in flight. While some are,
+    /// the loads are not one snapshot, and the sum can differ from every
+    /// instantaneous value by at most the bytes those calls charge.
+    ///
+    /// # Safety
+    ///
+    /// The allocator this handle was taken from must still be alive.
+    #[must_use]
+    pub(crate) unsafe fn bytes_in_use(self) -> usize {
+        // SAFETY: the cell lives as long as its allocator (a `OnceLock` that
+        // is never reset), which the caller keeps alive. Only the atomic
+        // shard counters are read, through a pointer derived from a shared
+        // reference to the cell.
+        let shards = unsafe { &(*self.0.as_ptr()).shards };
+        let total = shards.iter().fold(0isize, |acc, s| {
+            acc.saturating_add(s.bytes_in_use.load(Ordering::Relaxed))
+        });
+        if total < 0 { 0 } else { total as usize }
+    }
+}
+
 /// `NodeAlloc::root_cover`: the wrapper brackets whole operations.
 #[cfg(feature = "std")]
 const ROOT_COVER_WRAPPER: u8 = 0;
@@ -1052,6 +1129,20 @@ impl NodeAlloc {
             });
         }
         inline
+    }
+
+    /// The accounting cell [`Self::defer_to`] published, for a concurrent
+    /// wrapper to hold (#1478); `None` on an undeferred allocator.
+    #[cfg(all(
+        target_pointer_width = "64",
+        feature = "std",
+        not(feature = "ablation-unsharded-alloc")
+    ))]
+    pub(crate) fn acct_cell(&self) -> Option<AcctCell> {
+        self.deferred
+            .get()
+            .map(|d| -> &Deferred { d })
+            .map(|d| AcctCell(NonNull::from(d)))
     }
 
     /// The deferred cell when this call may act on it: `None` on every
