@@ -12643,6 +12643,16 @@ fn blob_copy_into(
     Ok((bytes.len(), hot_meta))
 }
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// Runs once in the next `blob_get_walk!` on this thread that reaches an
+    /// arena slot, between the validated read of the slot word and the load
+    /// of the chunk table: the test that pins the tree-version validation
+    /// after the table load compacts the map there. Test builds only.
+    static BLOB_TABLE_LOAD_HOOK: core::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { core::cell::RefCell::new(None) };
+}
+
 /// The validated payload lookup shared by [`BlobReadGuard::get`] and the
 /// copying reads of [`BlobReader`], [`OwnedBlobReader`] and
 /// [`DetachedBlobReader`] (#1194).
@@ -12730,6 +12740,10 @@ macro_rules! blob_get_walk {
                     continue 'outer;
                 }
                 let $meta = slot.arena_meta_meta();
+                #[cfg(all(test, feature = "std"))]
+                if let Some(hook) = BLOB_TABLE_LOAD_HOOK.with(|h| h.borrow_mut().take()) {
+                    hook();
+                }
                 // A single atomic load of the published table pointer, through
                 // the arena's shared cell rather than the arena (#1086).
                 let table = map.tables.reader_table();
@@ -12740,6 +12754,13 @@ macro_rules! blob_get_walk {
                 };
                 match resolved {
                     Some((ptr, len)) => {
+                        // Required, not redundant with the walk's own
+                        // validation: a compaction between the slot read and
+                        // the table load republishes the table, and the old
+                        // locator then resolves in the new table to whichever
+                        // record was repacked at that offset, stamped with
+                        // the current generation (`BlobArena::compact_with_index`).
+                        // Only this check rejects it.
                         if shared.version().validate(snap) {
                             // No writer overlapped: the resolution used the
                             // table consistent with `snap`, so `ptr..ptr+len` is
@@ -29596,6 +29617,155 @@ mod blob_reader_forms_tests {
             "output buffer too small: required 24 bytes, provided 4 bytes"
         );
         let _: &dyn std::error::Error = &refused;
+    }
+
+    /// A map whose compaction moves `STALE_NEXT`'s record to the offset
+    /// `STALE_KEY`'s record had: equal-length arena records written in key
+    /// order, and the first key removed, so the repack shifts every record
+    /// down by one. `STALE_KEY` is among the keys written while the root is
+    /// still a leaf: those share the arena's first chunk, where the compacted
+    /// records start, and the later ones go to the writer's own chunk.
+    const STALE_KEYS: u64 = 3 * ROOT_LEAF_CAP as u64;
+    const STALE_KEY: Key = 10;
+    const _: () = assert!(STALE_NEXT < ROOT_LEAF_CAP as u64);
+    const STALE_NEXT: Key = STALE_KEY + 1;
+
+    fn stale_payload(k: u64) -> Vec<u8> {
+        (0..24u8).map(|i| 0x80 | (k as u8 ^ i)).collect()
+    }
+
+    fn stale_locator_map() -> Arc<SyncExpanseBlobMap> {
+        let map = Arc::new(SyncExpanseBlobMap::with_chunk_size(1 << 16));
+        for k in 1..=STALE_KEYS {
+            map.insert(k, &stale_payload(k), k as u32).expect("insert");
+        }
+        assert!(map.shared.published().is_tree());
+        assert!(map.remove(1));
+        map
+    }
+
+    /// Runs `read` for `STALE_KEY` on a fresh map with a compaction forced
+    /// between the read of the slot word and the load of the chunk table, and
+    /// returns what the read answered. The compaction runs on the reading
+    /// thread, inside the read, so the interleaving is the same every run.
+    fn read_across_a_compaction(
+        read: impl FnOnce(&Arc<SyncExpanseBlobMap>) -> (Vec<u8>, u32),
+    ) -> (Vec<u8>, u32) {
+        let map = stale_locator_map();
+        let g0 = map.with_locked(|t| t.arena().generation());
+        let compactor = Arc::clone(&map);
+        BLOB_TABLE_LOAD_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                compactor.compact().expect("compaction");
+            }));
+        });
+        let got = read(&map);
+        assert!(
+            BLOB_TABLE_LOAD_HOOK
+                .with(|h| h.borrow_mut().take())
+                .is_none(),
+            "the read never reached the table load of an arena slot"
+        );
+        assert_ne!(
+            map.with_locked(|t| t.arena().generation()),
+            g0,
+            "the hook must have compacted the arena"
+        );
+        got
+    }
+
+    /// The tree-version validation after the table load (`blob_get_walk!`) is
+    /// what rejects a locator read before a compaction and resolved after it.
+    /// Without it the old locator resolves, in the republished table, to the
+    /// record repacked at its offset: another key's payload, stamped with the
+    /// current generation. Every read form must answer with the key's own
+    /// value. The premise is checked first: with no retry, the stale locator
+    /// does name the next key's record.
+    #[test]
+    fn blob_reads_reject_a_locator_resolved_after_a_compaction() {
+        // The premise, on the plain arena: the old locator, resolved in the
+        // compacted table, is the next key's record.
+        let map = stale_locator_map();
+        let old = map.with_locked(|t| t.index().get(STALE_KEY).expect("present"));
+        map.compact().expect("compaction");
+        let table = map.tables.reader_table();
+        // SAFETY: the table is the map's published one and the map is alive
+        // and unshared here, so the table and its chunks are live.
+        let stale = unsafe {
+            crate::blobmap::resolve_meta_in_table(
+                table,
+                ValueSlot::from_raw(old).arena_meta_locator(),
+            )
+        };
+        let (ptr, len) = stale.expect("the stale locator still resolves");
+        // SAFETY: `resolve_meta_in_table` returned an in-bounds record of a
+        // live chunk, and nothing writes the map here.
+        let landed = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(
+            landed,
+            &stale_payload(STALE_NEXT)[..],
+            "the fixture must repack the next key's record at the old offset"
+        );
+
+        let own = (stale_payload(STALE_KEY), STALE_KEY as u32);
+        let into = |r: Result<Option<(usize, u32)>, BlobBufferTooSmall>, buf: &[u8]| {
+            let (len, meta) = r.expect("64 bytes hold the payload").expect("present");
+            (buf[..len].to_vec(), meta)
+        };
+        type Read = Box<dyn Fn(&Arc<SyncExpanseBlobMap>) -> (Vec<u8>, u32)>;
+        let forms: [(&str, Read); 7] = [
+            (
+                "guard get",
+                Box::new(|m| {
+                    let mut rd = m.reader();
+                    let guard = rd.pin();
+                    let (view, meta) = guard.get(STALE_KEY).expect("present");
+                    (view.as_bytes().to_vec(), meta)
+                }),
+            ),
+            (
+                "borrowed get",
+                Box::new(|m| m.reader().get(STALE_KEY).expect("present")),
+            ),
+            (
+                "borrowed get_into",
+                Box::new(move |m| {
+                    let mut buf = [SENTINEL; 64];
+                    into(m.reader().get_into(STALE_KEY, &mut buf), &buf)
+                }),
+            ),
+            (
+                "owned get",
+                Box::new(|m| m.owned_reader().get(STALE_KEY).expect("present")),
+            ),
+            (
+                "owned get_into",
+                Box::new(move |m| {
+                    let mut buf = [SENTINEL; 64];
+                    into(m.owned_reader().get_into(STALE_KEY, &mut buf), &buf)
+                }),
+            ),
+            (
+                "detached get",
+                Box::new(|m| m.detached_reader().get(m, STALE_KEY).expect("present")),
+            ),
+            (
+                "detached get_into",
+                Box::new(move |m| {
+                    let mut buf = [SENTINEL; 64];
+                    into(m.detached_reader().get_into(m, STALE_KEY, &mut buf), &buf)
+                }),
+            ),
+        ];
+        for (name, read) in &forms {
+            let got = read_across_a_compaction(|m| read(m));
+            assert_ne!(
+                got.0,
+                stale_payload(STALE_NEXT),
+                "{name}: answered key {STALE_KEY} with key {STALE_NEXT}'s record"
+            );
+            assert_eq!(got, own, "{name}: not the key's own value");
+        }
     }
 
     /// Sets its flag when dropped, so the writer stops waiting for a reader

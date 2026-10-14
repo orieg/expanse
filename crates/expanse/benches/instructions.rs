@@ -4224,7 +4224,9 @@ fn sync_blobmap_get(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
 // `sync_blobmap_get` through the caller-buffer read (#1194): one pin per
 // probe, the same validated walk, and the payload copied into a stack buffer
 // under the pin. No allocation: the buffer is the 16 bytes every payload of
-// `built_sync_blobmap` has, so no probe is refused. The owned and detached
+// `built_sync_blobmap` has, so no probe is refused: the count of hits is
+// asserted after the loop, since a refused or absent probe would otherwise
+// leave the arm measuring a shorter path unnoticed. The owned and detached
 // readers expand the same macro as `BlobReader::get_into`.
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_sync_blobmap)]
@@ -4233,11 +4235,18 @@ fn sync_blobmap_get_into(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     let mut rd = map.reader();
     let mut buf = [0u8; 16];
     let mut sink = 0u64;
+    let mut hits = 0usize;
     for &k in &probes {
         if let Ok(Some((len, meta))) = rd.get_into(black_box(k), black_box(&mut buf)) {
             sink ^= u64::from(meta) ^ len as u64 ^ u64::from(buf[0]);
+            hits += 1;
         }
     }
+    assert_eq!(
+        hits,
+        probes.len(),
+        "every probe is a present key whose payload fits the buffer"
+    );
     // Both leaked — see `sync_map_get`.
     core::mem::forget(rd);
     core::mem::forget(map);

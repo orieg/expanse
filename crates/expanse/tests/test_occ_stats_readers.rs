@@ -229,6 +229,36 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
         }
     });
 
+    // A detached blob reader handed a map of another collector panics before
+    // its walk counts a read op or an attempt (#1194). For `get_meta` and
+    // `contains` the attempt is counted before the pin, so an unchanged count
+    // also places the check before the first pin; for `get` and `get_into`
+    // the pin precedes the counters, and that order is read from the source.
+    let foreign = SyncExpanseBlobMap::new();
+    foreign.insert(1, &payload, 7).expect("arena insert");
+    let rejected = |what: &str, call: &mut dyn FnMut()| {
+        let (ops0, att0) = (read_ops(), read_attempts());
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(call));
+        assert!(caught.is_err(), "{what}: a foreign map was read");
+        assert_eq!(
+            (read_ops(), read_attempts()),
+            (ops0, att0),
+            "{what}: the walk started before the foreign map was rejected"
+        );
+    };
+    rejected("DetachedBlobReader::get", &mut || {
+        let _ = detached.get(&foreign, 1);
+    });
+    rejected("DetachedBlobReader::get_into", &mut || {
+        let _ = detached.get_into(&foreign, 1, &mut [0u8; 64]);
+    });
+    rejected("DetachedBlobReader::get_meta", &mut || {
+        let _ = detached.get_meta(&foreign, 1);
+    });
+    rejected("DetachedBlobReader::contains", &mut || {
+        let _ = detached.contains(&foreign, 1);
+    });
+
     // Nothing above ran a concurrent writer, so no walk could have been
     // invalidated: every read op took exactly one attempt and none reached
     // the writer-mutex fallback. This is what makes the equality above a
