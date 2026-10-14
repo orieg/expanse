@@ -1,26 +1,27 @@
-# Top-level pins for the Python binding jobs: python.yml, ci.yml test-python,
-# nightly.yml and bench_baremetal.yml.
+# Top-level pins for the Python binding jobs on Python 3.10 and newer:
+# python.yml (3.10 and 3.12 rows), ci.yml test-python and nightly.yml.
+# The Python 3.8 row of python.yml installs py38/python-bindings-py38.txt
+# instead, because the pytest releases that fix GHSA-6w46-j5rx-g56g (9.0.3 and
+# later) need Python 3.10+.
 #
-# One file serves every Python and OS those jobs run on, and pip-compile drops
-# a requirement whose environment marker is false on the machine that compiles.
-# So every dependency that holds only on some Python or OS is listed here
-# unconditionally, with an exact pin: a pure-Python wheel that is harmless where
-# the marker is false. Any compile of this file, on any Python (Dependabot
-# compiles on its own), then resolves the same package set, and
-# scripts/check_release_workflow.py fails a .txt whose set differs.
-#   colorama         pytest, Windows only
-#   exceptiongroup   pytest, Python < 3.11
-#   tomli            pytest and maturin, Python < 3.11
+# One file serves every Python (3.10 to the newest matrix row) and OS those
+# jobs run on, and pip-compile drops a requirement whose environment marker is
+# false on the machine that compiles. So every dependency that holds only on
+# some Python or OS is listed here unconditionally, with an exact pin: a
+# pure-Python wheel that is harmless where the marker is false. Any compile of
+# this file, on any Python (Dependabot compiles on its own), then resolves the
+# same package set, and scripts/check_release_workflow.py fails a .txt whose set
+# differs.
+#   colorama           pytest, Windows only
+#   exceptiongroup     pytest, Python < 3.11
+#   tomli              pytest and maturin, Python < 3.11
 #   typing-extensions  exceptiongroup, Python < 3.13
-# Compile it on the OLDEST Python in the python.yml matrix (3.8) anyway: pytest
-# 8.4 needs Python 3.9+ and pytest 9 needs 3.10+, so pytest is pinned to the
-# last series that supports 3.8, and typing-extensions to the last release that
-# does (4.13.2). .github/dependabot.yml holds both back.
+# Compile it on the OLDEST Python it serves (3.10).
 #
 # Refresh recipe: docs/CI.md, "Hashed Python requirements".
 maturin==1.15.0
-pytest==8.3.5
+pytest==9.1.1
 colorama==0.4.6
 exceptiongroup==1.3.1
 tomli==2.5.0
-typing-extensions==4.13.2
+typing-extensions==4.16.0
