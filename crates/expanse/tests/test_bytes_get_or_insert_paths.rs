@@ -2,12 +2,14 @@
 //! removals on.
 //!
 //! `tests/linearizability.rs` runs `SyncExpanseBytesMap::get_or_insert` against
-//! concurrent `compare_exchange(.., Some(v), None)` on three keys. That mix is
-//! only a test of the #1381 path if a compare-and-remove of one of its keys
-//! takes the serialised last-entry path, and only a test of the
-//! shorter-bucket path if the keys share a bucket. A linearizability check
-//! passes either way, so this test reads the fallback counter on the same
-//! map construction, single-threaded, and pins both preconditions.
+//! concurrent `compare_exchange(.., Some(v), None)` on three keys: with each
+//! key alone in its bucket (`tree_last_entry`, exercising
+//! `olc_cas_remove_bucket_cas_map`, #1396) and with all three keys sharing one
+//! collision bucket (`tree_shared_bucket`, exercising
+//! `olc_cas_replace_bucket_map`). A linearizability check passes even if a path
+//! falls back to the lock, so this test reads the fallback counter on the same
+//! map constructions, single-threaded, and pins that both mixes stay on the
+//! optimistic OLC path.
 // The counter is process-wide: one test, so nothing else moves it.
 #![cfg(not(miri))]
 #![cfg(all(feature = "occ-stats", feature = "std", target_pointer_width = "64"))]
@@ -62,11 +64,12 @@ fn fallbacks(f: impl FnOnce()) -> u64 {
     occ_stats::snapshot()[Stat::LockFallbacks as usize] - before
 }
 
-/// Fills a map past `ROOT_LEAF_CAP` hashes, inserts the mix keys with
+/// Fills a map past `BITMAP_TO_UNCOMPRESSED_THRESHOLD` top-level digits so the
+/// root is an uncompressed branch (`BranchU`), inserts the mix keys with
 /// `get_or_insert` (value 1 each), then compare-and-removes each. Returns the
 /// lock fallbacks the three removals took.
 fn removal_fallbacks<S: BuildHasher + Clone + Send + Sync>(map: &SyncExpanseBytesMap<S>) -> u64 {
-    for i in 0..256u64 {
+    for i in 0..1024u64 {
         map.insert(format!("filler/{i}").as_bytes(), i);
     }
     for k in MIX_KEYS {
@@ -82,15 +85,16 @@ fn removal_fallbacks<S: BuildHasher + Clone + Send + Sync>(map: &SyncExpanseByte
 #[test]
 fn mix_removals_take_the_path_the_mix_is_named_for() {
     // Distinct buckets (the `tree_last_entry` mix): each removal is a
-    // bucket's last entry, serialised by design (#1381).
+    // bucket's last entry, unlinked optimistically by
+    // `olc_cas_remove_bucket_cas_map` (#1396).
     let n = removal_fallbacks(&SyncExpanseBytesMap::new());
     assert_eq!(
-        n, 3,
-        "last-entry removals took the serialised path {n} time(s) of 3"
+        n, 0,
+        "last-entry removals took the serialised path {n} time(s), expected 0"
     );
-    // One shared bucket (the `tree_shared_bucket` mix): measured to take
-    // the optimistic path on all three removals, the last entry included, so
-    // that mix covers the shorter-bucket publish and not the serialised path.
+    // One shared bucket (the `tree_shared_bucket` mix): takes the optimistic
+    // shorter-bucket replacement path (`olc_cas_replace_bucket_map`) on all
+    // three removals.
     let n = removal_fallbacks(&SyncExpanseBytesMap::with_hasher(SharedBucketState));
     assert_eq!(
         n, 0,

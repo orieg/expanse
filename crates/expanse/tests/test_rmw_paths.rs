@@ -155,17 +155,39 @@ fn rmw_arms_take_the_paths_they_are_named_for() {
         "sync_bytesmap_update_rmw took the serialised path {n} time(s)"
     );
 
-    // sync_bytesmap_cas_remove: value to absent on a bucket's last entry is
-    // serialised by design, so the fallback is the path the arm is named for,
-    // on every one of its operations.
+    // sync_bytesmap_cas_remove: value to absent on a bucket's last entry runs
+    // `olc_cas_remove_bucket_cas_map` (#1396), taking the same optimistic OLC
+    // removal body as `SyncExpanseBytesMap::remove`: zero contention fallbacks
+    // (which #1381's unconditional `break` bumped on all `pop` operations), and
+    // when draining all 50,000 keys to empty its structural `FallbackBranchSplit`
+    // count matches `remove` on the same map (`n < pop`).
+    let remove_bmap = SyncExpanseBytesMap::with_hasher(DetHasher::default());
+    for (i, k) in sk.iter().enumerate() {
+        remove_bmap.insert(k, i as u64 + 2);
+    }
+    let remove_fallbacks = fallbacks(|| {
+        for k in &sk {
+            assert!(remove_bmap.remove(k).is_some());
+        }
+    });
+    let contention_before = occ_stats::snapshot()[Stat::FallbackContention as usize];
     let n = fallbacks(|| {
         for (i, k) in sk.iter().enumerate() {
             assert!(bmap.compare_exchange(k, Some(i as u64 + 2), None).is_ok());
         }
     });
+    let contention_n = occ_stats::snapshot()[Stat::FallbackContention as usize] - contention_before;
     assert_eq!(
-        n, pop,
-        "sync_bytesmap_cas_remove took the serialised path {n} time(s) of {pop}"
+        contention_n, 0,
+        "sync_bytesmap_cas_remove took a contention fallback {contention_n} time(s)"
+    );
+    assert!(
+        n < pop,
+        "sync_bytesmap_cas_remove took the serialised path on all {n} of {pop} ops"
+    );
+    assert_eq!(
+        n, remove_fallbacks,
+        "sync_bytesmap_cas_remove fallback count ({n}) must match remove ({remove_fallbacks})"
     );
     assert!(
         sk.iter().all(|k| bmap.get(k).is_none()),
