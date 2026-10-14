@@ -343,6 +343,53 @@ expanse_sync32_status_t expanse_sync32_map_writer_try_insert(
  * is checked before the lookup) | NULL_HANDLE. Allocates. */
 expanse_sync32_status_t expanse_sync32_map_writer_try_remove(
     expanse_sync32_map_writer_t *w, expanse_word_t key, expanse_word_t *old_out);
+/*
+ * Single-key read-modify-write through the writer handle (#1194). Atomic
+ * against other writers by construction (one writer handle per container) and
+ * published inside at most one write bracket so readers never observe a
+ * half-applied change; needs no compare-and-swap (riscv32imc-compatible).
+ *
+ * compare_exchange: compares the current entry at `key` with
+ * `(expected_present, expected_value)` (`expected_value` is ignored when
+ * `!expected_present`). On EXPANSE_SYNC32_OK, `*exchanged_out` is set to true
+ * when the entry matched and `(new_present, new_value)` took effect (insert,
+ * overwrite, remove when `!new_present`, or a no-op when `new` equals the
+ * observed entry), or false on mismatch; `*observed_present_out` is set to
+ * whether `key` was present before the call and, when present, `*observed_out`
+ * receives that previous value. Mismatches and no-op matches open no bracket
+ * and consult no headroom. Returns OK | ARENA_FULL | RECLAIM_BACKLOG |
+ * NULL_HANDLE. Allocates on a mutating match.
+ *
+ * update: checks mutation headroom first (so `callback` is never called on
+ * ARENA_FULL or RECLAIM_BACKLOG), reads the current entry (`current_present`,
+ * `current_value`, with `*new_value_out` pre-filled to `current_value` or 0
+ * when absent), and invokes `callback` once. Returning true stores
+ * `*new_value_out`; returning false removes `key` (no-op if `new` equals the
+ * observed entry, opening no bracket). On OK, `*old_present_out` and (when
+ * present) `*old_out` report the entry before `callback` ran. The callback
+ * must not touch `w` or its owning map and must return normally (see the
+ * callback note above). Returns OK | ARENA_FULL | RECLAIM_BACKLOG |
+ * NULL_HANDLE (null `w` or null `callback`). Allocates when the entry changes.
+ *
+ * get_or_insert: if `key` is already present, returns OK with
+ * `*inserted_out = false` and `*value_out` set to the existing value without
+ * opening a bracket or consulting headroom; if absent, checks headroom,
+ * inserts `value` in one bracket, and returns OK with `*inserted_out = true`
+ * and `*value_out = value`. Returns OK | ARENA_FULL | RECLAIM_BACKLOG |
+ * NULL_HANDLE. Allocates on insert.
+ */
+typedef bool (*expanse_sync32_map_update_fn)(bool current_present, expanse_word_t current_value,
+                                             expanse_word_t *new_value_out, void *user_ctx);
+expanse_sync32_status_t expanse_sync32_map_writer_compare_exchange(
+    expanse_sync32_map_writer_t *w, expanse_word_t key, bool expected_present,
+    expanse_word_t expected_value, bool new_present, expanse_word_t new_value,
+    bool *exchanged_out, bool *observed_present_out, expanse_word_t *observed_out);
+expanse_sync32_status_t expanse_sync32_map_writer_update(
+    expanse_sync32_map_writer_t *w, expanse_word_t key, expanse_sync32_map_update_fn callback,
+    void *user_ctx, bool *old_present_out, expanse_word_t *old_out);
+expanse_sync32_status_t expanse_sync32_map_writer_get_or_insert(
+    expanse_sync32_map_writer_t *w, expanse_word_t key, expanse_word_t value,
+    bool *inserted_out, expanse_word_t *value_out);
 /* OK (drained, or nothing pending) | RECLAIM_BACKLOG | NULL_HANDLE. */
 expanse_sync32_status_t expanse_sync32_map_writer_try_reclaim(expanse_sync32_map_writer_t *w);
 /* The writer's own consistent read: never BUSY, never allocates. */
