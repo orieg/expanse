@@ -30355,6 +30355,54 @@ mod str_empty_child_tests {
         assert_eq!(got, want);
     }
 
+    /// Prefixes on both sides of, into and past the emptied child, and the
+    /// whole map: `cursor_prefix` shares the walk of `StrCursor`.
+    const PREFIXES: [&[u8]; 9] = [
+        b"",
+        b"a",
+        b"aaaaaaaa",
+        b"aaaaaaaaA",
+        b"b",
+        b"mmmmmmmm",
+        b"x",
+        b"z",
+        b"zzzzzzzz",
+    ];
+
+    /// Every entry a `StrPrefixCursor` yields for each prefix, in order, each
+    /// scan closed by a `None`.
+    fn prefix_scans(m: &ExpanseStrMap) -> Vec<Answer> {
+        let mut out = Vec::new();
+        for p in PREFIXES {
+            let mut c = m.cursor_prefix(nf(p));
+            while let Some((k, v)) = c.next_entry() {
+                out.push(Some((k.to_vec(), v)));
+            }
+            out.push(None);
+        }
+        out
+    }
+
+    fn model_prefix_scans(model: &BTreeMap<Vec<u8>, u64>) -> Vec<Answer> {
+        let mut out = Vec::new();
+        for p in PREFIXES {
+            for (k, v) in model.iter().filter(|(k, _)| k.starts_with(p)) {
+                out.push(Some((k.clone(), *v)));
+            }
+            out.push(None);
+        }
+        out
+    }
+
+    /// `StrPrefixCursor` passes over the emptied child at each position.
+    #[test]
+    fn locked_prefix_scans_pass_over_an_emptied_child() {
+        for c in [b"aaaaaaaa", b"mmmmmmmm", b"zzzzzzzz"] {
+            let (got, want) = run_with(c, prefix_scans, model_prefix_scans);
+            assert_eq!(got, want, "emptied child {}", String::from_utf8_lossy(c));
+        }
+    }
+
     /// Seeded scans from every probe, at each position of the emptied child.
     #[test]
     fn locked_cursor_seeks_pass_over_an_emptied_child() {
