@@ -1861,6 +1861,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | `cost` | `sync_blobmap_compact` | `random` | 50,000 |
 | `cost` | `sync_blobmap_compare_exchange` | `random` | 50,000 |
 | `cost` | `sync_blobmap_get` | `random` | 50,000 |
+| `cost` | `sync_blobmap_get_into` | `random` | 50,000 |
 | `cost` | `sync_blobmap_insert` | `random` | 50,000 |
 | `cost` | `sync_blobmap_insert_reclaiming` | `random` | 1,000 |
 | `cost` | `sync_blobmap_overwrite` | `random` | 50,000 |

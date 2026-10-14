@@ -2334,6 +2334,29 @@ impl<'g> core::marker::Unpin for expanse_trie::sync::SyncBlobView<'g>
 impl<'g> core::marker::UnsafeUnpin for expanse_trie::sync::SyncBlobView<'g>
 impl<'g> core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::SyncBlobView<'g>
 impl<'g> core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::SyncBlobView<'g>
+#[non_exhaustive] pub struct expanse_trie::sync::BlobBufferTooSmall
+pub expanse_trie::sync::BlobBufferTooSmall::hot_meta: u32
+pub expanse_trie::sync::BlobBufferTooSmall::provided: usize
+pub expanse_trie::sync::BlobBufferTooSmall::required: usize
+impl core::clone::Clone for expanse_trie::sync::BlobBufferTooSmall
+pub fn expanse_trie::sync::BlobBufferTooSmall::clone(&self) -> expanse_trie::sync::BlobBufferTooSmall
+impl core::cmp::Eq for expanse_trie::sync::BlobBufferTooSmall
+impl core::cmp::PartialEq for expanse_trie::sync::BlobBufferTooSmall
+pub fn expanse_trie::sync::BlobBufferTooSmall::eq(&self, &expanse_trie::sync::BlobBufferTooSmall) -> bool
+impl core::error::Error for expanse_trie::sync::BlobBufferTooSmall
+impl core::fmt::Debug for expanse_trie::sync::BlobBufferTooSmall
+pub fn expanse_trie::sync::BlobBufferTooSmall::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for expanse_trie::sync::BlobBufferTooSmall
+pub fn expanse_trie::sync::BlobBufferTooSmall::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for expanse_trie::sync::BlobBufferTooSmall
+impl core::marker::StructuralPartialEq for expanse_trie::sync::BlobBufferTooSmall
+impl core::marker::Freeze for expanse_trie::sync::BlobBufferTooSmall
+impl core::marker::Send for expanse_trie::sync::BlobBufferTooSmall
+impl core::marker::Sync for expanse_trie::sync::BlobBufferTooSmall
+impl core::marker::Unpin for expanse_trie::sync::BlobBufferTooSmall
+impl core::marker::UnsafeUnpin for expanse_trie::sync::BlobBufferTooSmall
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BlobBufferTooSmall
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BlobBufferTooSmall
 pub struct expanse_trie::sync::BlobReadGuard<'g>
 impl expanse_trie::sync::BlobReadGuard<'_>
 pub fn expanse_trie::sync::BlobReadGuard<'_>::get(&self, expanse_trie::types::Key) -> core::option::Option<(expanse_trie::sync::SyncBlobView<'_>, u32)>
@@ -2348,6 +2371,7 @@ pub struct expanse_trie::sync::BlobReader<'a>
 impl expanse_trie::sync::BlobReader<'_>
 pub fn expanse_trie::sync::BlobReader<'_>::contains(&mut self, expanse_trie::types::Key) -> bool
 pub fn expanse_trie::sync::BlobReader<'_>::get(&mut self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
+pub fn expanse_trie::sync::BlobReader<'_>::get_into(&mut self, expanse_trie::types::Key, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u32)>, expanse_trie::sync::BlobBufferTooSmall>
 pub fn expanse_trie::sync::BlobReader<'_>::get_meta(&mut self, expanse_trie::types::Key) -> core::option::Option<u32>
 pub fn expanse_trie::sync::BlobReader<'_>::pin(&mut self) -> expanse_trie::sync::BlobReadGuard<'_>
 impl<'a> core::marker::Freeze for expanse_trie::sync::BlobReader<'a>
@@ -2385,6 +2409,19 @@ impl<'a, S> core::marker::Unpin for expanse_trie::sync::BytesReader<'a, S> where
 impl<'a, S> core::marker::UnsafeUnpin for expanse_trie::sync::BytesReader<'a, S> where &'a expanse_trie::sync::SyncExpanseBytesMap<S>: core::marker::UnsafeUnpin
 impl<'a, S> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::BytesReader<'a, S>
 impl<'a, S> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::BytesReader<'a, S>
+pub struct expanse_trie::sync::DetachedBlobReader
+impl expanse_trie::sync::DetachedBlobReader
+pub fn expanse_trie::sync::DetachedBlobReader::contains(&mut self, &expanse_trie::sync::SyncExpanseBlobMap, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::DetachedBlobReader::get(&mut self, &expanse_trie::sync::SyncExpanseBlobMap, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
+pub fn expanse_trie::sync::DetachedBlobReader::get_into(&mut self, &expanse_trie::sync::SyncExpanseBlobMap, expanse_trie::types::Key, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u32)>, expanse_trie::sync::BlobBufferTooSmall>
+pub fn expanse_trie::sync::DetachedBlobReader::get_meta(&mut self, &expanse_trie::sync::SyncExpanseBlobMap, expanse_trie::types::Key) -> core::option::Option<u32>
+impl core::marker::Freeze for expanse_trie::sync::DetachedBlobReader
+impl core::marker::Send for expanse_trie::sync::DetachedBlobReader
+impl !core::marker::Sync for expanse_trie::sync::DetachedBlobReader
+impl core::marker::Unpin for expanse_trie::sync::DetachedBlobReader
+impl core::marker::UnsafeUnpin for expanse_trie::sync::DetachedBlobReader
+impl core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::DetachedBlobReader
+impl core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::DetachedBlobReader
 pub struct expanse_trie::sync::DetachedBytesReader
 impl expanse_trie::sync::DetachedBytesReader
 pub fn expanse_trie::sync::DetachedBytesReader::contains<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>(&self, &expanse_trie::sync::SyncExpanseBytesMap<S>, &[u8]) -> bool
@@ -2489,6 +2526,19 @@ impl<'a> core::marker::Unpin for expanse_trie::sync::OrderedBytesReader<'a>
 impl<'a> core::marker::UnsafeUnpin for expanse_trie::sync::OrderedBytesReader<'a>
 impl<'a> !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OrderedBytesReader<'a>
 impl<'a> !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OrderedBytesReader<'a>
+pub struct expanse_trie::sync::OwnedBlobReader
+impl expanse_trie::sync::OwnedBlobReader
+pub fn expanse_trie::sync::OwnedBlobReader::contains(&mut self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::OwnedBlobReader::get(&mut self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
+pub fn expanse_trie::sync::OwnedBlobReader::get_into(&mut self, expanse_trie::types::Key, &mut [u8]) -> core::result::Result<core::option::Option<(usize, u32)>, expanse_trie::sync::BlobBufferTooSmall>
+pub fn expanse_trie::sync::OwnedBlobReader::get_meta(&mut self, expanse_trie::types::Key) -> core::option::Option<u32>
+impl core::marker::Freeze for expanse_trie::sync::OwnedBlobReader
+impl core::marker::Send for expanse_trie::sync::OwnedBlobReader
+impl !core::marker::Sync for expanse_trie::sync::OwnedBlobReader
+impl core::marker::Unpin for expanse_trie::sync::OwnedBlobReader
+impl core::marker::UnsafeUnpin for expanse_trie::sync::OwnedBlobReader
+impl !core::panic::unwind_safe::RefUnwindSafe for expanse_trie::sync::OwnedBlobReader
+impl !core::panic::unwind_safe::UnwindSafe for expanse_trie::sync::OwnedBlobReader
 pub struct expanse_trie::sync::OwnedBytesReader<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync>
 impl<S: core::hash::BuildHasher + core::marker::Send + core::marker::Sync> expanse_trie::sync::OwnedBytesReader<S>
 pub fn expanse_trie::sync::OwnedBytesReader<S>::contains(&self, &[u8]) -> bool
@@ -2598,6 +2648,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::compact(&self) -> core::result::R
 pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange(&self, expanse_trie::types::Key, core::option::Option<(&[u8], u32)>, core::option::Option<(&[u8], u32)>) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<(alloc::vec::Vec<u8>, u32)>>>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::compare_exchange_meta(&self, expanse_trie::types::Key, core::option::Option<u32>, core::option::Option<u32>) -> core::result::Result<core::option::Option<u32>, expanse_trie::blobmap::CompareExchangeError<core::option::Option<u32>>>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::contains_key(&self, expanse_trie::types::Key) -> bool
+pub fn expanse_trie::sync::SyncExpanseBlobMap::detached_reader(&self) -> expanse_trie::sync::DetachedBlobReader
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get(&self, expanse_trie::types::Key) -> core::option::Option<(alloc::vec::Vec<u8>, u32)>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get_meta(&self, expanse_trie::types::Key) -> core::option::Option<u32>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::get_or_insert(&self, expanse_trie::types::Key, &[u8], u32) -> core::result::Result<core::option::Option<(alloc::vec::Vec<u8>, u32)>, expanse_trie::blobmap::ArenaError>
@@ -2608,6 +2659,7 @@ pub fn expanse_trie::sync::SyncExpanseBlobMap::len(&self) -> u64
 pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_held(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBlobMap::mem_used(&self) -> usize
 pub fn expanse_trie::sync::SyncExpanseBlobMap::new() -> Self
+pub fn expanse_trie::sync::SyncExpanseBlobMap::owned_reader(&alloc::sync::Arc<Self>) -> expanse_trie::sync::OwnedBlobReader
 pub fn expanse_trie::sync::SyncExpanseBlobMap::reader(&self) -> expanse_trie::sync::BlobReader<'_>
 pub fn expanse_trie::sync::SyncExpanseBlobMap::reclaim_at_cap(&self) -> bool
 pub fn expanse_trie::sync::SyncExpanseBlobMap::remove(&self, expanse_trie::types::Key) -> bool

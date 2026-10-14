@@ -140,7 +140,8 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
         }
     });
 
-    // --- blob map: three counted entry points, two distinct retry loops. ---
+    // --- blob map: four counted entry points per reader form, two distinct
+    // retry loops. ---
 
     // Longer than the inline capacity, so the payload lives in the arena and
     // `get_meta` reports the stored metadata rather than the inline `0`.
@@ -150,7 +151,7 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
         blobmap.insert(k, &payload, 7).expect("arena insert");
     }
     let mut blob_reader = blobmap.reader();
-    // `BlobReadGuard::get` — the payload-resolving loop.
+    // `blob_get_walk!` — the payload-resolving loop of `BlobReadGuard::get`.
     assert_counted("BlobReader::get", N, || {
         for k in 0..N {
             let (bytes, meta) = blob_reader.get(k).expect("key present");
@@ -158,7 +159,7 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
             assert_eq!(meta, 7);
         }
     });
-    // `BlobReader::lookup_slot` — the slot-word loop, shared by both of these.
+    // `blob_slot_walk!` — the slot-word loop, shared by both of these.
     assert_counted("BlobReader::get_meta", N, || {
         for k in 0..N {
             assert_eq!(blob_reader.get_meta(k), Some(7));
@@ -167,6 +168,64 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
     assert_counted("BlobReader::contains", N, || {
         for k in 0..N {
             assert!(blob_reader.contains(k));
+        }
+    });
+    assert_counted("BlobReader::get_into", N, || {
+        let mut buf = [0u8; 64];
+        for k in 0..N {
+            assert_eq!(blob_reader.get_into(k, &mut buf), Ok(Some((64, 7))));
+            assert_eq!(buf[..], payload[..]);
+        }
+    });
+    drop(blob_reader);
+
+    // The owned and detached blob readers (#1194) expand the same two loops:
+    // four entry points each, one read op per call.
+    let blobmap = std::sync::Arc::new(blobmap);
+    let mut owned = blobmap.owned_reader();
+    let mut detached = blobmap.detached_reader();
+    assert_counted("OwnedBlobReader::get", N, || {
+        for k in 0..N {
+            assert_eq!(owned.get(k), Some((payload.clone(), 7)));
+        }
+    });
+    assert_counted("OwnedBlobReader::get_into", N, || {
+        let mut buf = [0u8; 64];
+        for k in 0..N {
+            assert_eq!(owned.get_into(k, &mut buf), Ok(Some((64, 7))));
+            assert_eq!(buf[..], payload[..]);
+        }
+    });
+    assert_counted("OwnedBlobReader::get_meta", N, || {
+        for k in 0..N {
+            assert_eq!(owned.get_meta(k), Some(7));
+        }
+    });
+    assert_counted("OwnedBlobReader::contains", N, || {
+        for k in 0..N {
+            assert!(owned.contains(k));
+        }
+    });
+    assert_counted("DetachedBlobReader::get", N, || {
+        for k in 0..N {
+            assert_eq!(detached.get(&blobmap, k), Some((payload.clone(), 7)));
+        }
+    });
+    assert_counted("DetachedBlobReader::get_into", N, || {
+        let mut buf = [0u8; 64];
+        for k in 0..N {
+            assert_eq!(detached.get_into(&blobmap, k, &mut buf), Ok(Some((64, 7))));
+            assert_eq!(buf[..], payload[..]);
+        }
+    });
+    assert_counted("DetachedBlobReader::get_meta", N, || {
+        for k in 0..N {
+            assert_eq!(detached.get_meta(&blobmap, k), Some(7));
+        }
+    });
+    assert_counted("DetachedBlobReader::contains", N, || {
+        for k in 0..N {
+            assert!(detached.contains(&blobmap, k));
         }
     });
 

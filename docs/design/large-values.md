@@ -954,6 +954,24 @@ both handed to one epoch `Collector` at construction (`BlobArena::defer_to`).
   blocks; long-lived views use `BlobReader::get` (owned copy) or `view.as_bytes().to_vec()`.
   Retained garbage under concurrency is observable via `occ_stats` (`retained_bytes`,
   `retained_hwm`) and `Collector::retained_bytes()` (#525).
+- **Copying reads, and the handles that have nothing else.** `get` returns an
+  owned copy and `get_into(key, buf)` copies into the caller's buffer without
+  allocating; both pin inside the call and copy under the pin, after the
+  validation that accepted the read, so the bytes, the length and the
+  metadata are one value the key held
+  (`sync::blob_reader_forms_tests::blob_readers_see_whole_values_beside_overwrites_in_tree_state`).
+  `get_into` returns `Ok(Some((len, hot_meta)))` with the payload in
+  `buf[..len]` and the rest of `buf` untouched, `Ok(None)` for an absent key,
+  and `Err(BlobBufferTooSmall { required, provided, hot_meta })` when the
+  payload is longer than `buf`, with nothing copied. It is the Rust form of
+  `expanse_blob_map_get_into`, which copies what fits and reports the full
+  length through `out_len`; in Rust the short buffer is an error of its own
+  instead of a length to compare. `BlobReader` has both reads beside `pin()`.
+  `OwnedBlobReader` (holds an `Arc` of the map) and `DetachedBlobReader`
+  (holds only the epoch slot; the map is passed to each call and checked
+  against the reader's collector before the first pin) have the copying reads,
+  `get_meta` and `contains`, and no `pin()` and no view: a handle kept in a
+  struct or moved to another thread cannot hold an epoch pin between calls.
 - **Compaction under concurrency.** `compact_with_index` installs the
   compacted chunk set piecewise, republishes the table, then retires the old
   chunks — never `*self = new_arena` (which would free them immediately).

@@ -10117,6 +10117,8 @@ pub use crate::sync_cursor::SyncMapCursor;
 /// assert_send::<OwnedBytesReader>();
 /// assert_send::<DetachedBytesReader>();
 /// assert_send::<BlobReader<'static>>();
+/// assert_send::<OwnedBlobReader>();
+/// assert_send::<DetachedBlobReader>();
 /// ```
 pub struct MapReader<'a> {
     map: &'a SyncExpanseMap,
@@ -10248,6 +10250,8 @@ const _: fn() = || {
     assert_send::<OwnedBytesReader>();
     assert_send::<DetachedBytesReader>();
     assert_send::<BlobReader<'static>>();
+    assert_send::<OwnedBlobReader>();
+    assert_send::<DetachedBlobReader>();
     // The guard borrows its reader `&mut`, so no sibling pin can exist while
     // it lives and dropping it on another thread is sound (see `occ::Pin`).
     assert_send::<BlobReadGuard<'static>>();
@@ -10266,6 +10270,8 @@ crate::occ::assert_not_sync!(
     OwnedBytesReader,
     DetachedBytesReader,
     BlobReader<'static>,
+    OwnedBlobReader,
+    DetachedBlobReader,
 );
 
 impl DetachedMapReader {
@@ -12370,6 +12376,43 @@ impl SyncExpanseBlobMap {
         }
     }
 
+    /// Registers a reader that owns a handle on this map, for a cache whose
+    /// lifetime is not a borrow's (#554, #1194). See [`OwnedBlobReader`].
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync` (see
+    /// [`Reader`]).
+    #[must_use]
+    pub fn owned_reader(self: &Arc<Self>) -> OwnedBlobReader {
+        OwnedBlobReader {
+            map: Arc::clone(self),
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Registers a reader that holds no reference to this map.
+    ///
+    /// Use this where the reader is cached somewhere whose lifetime is not the
+    /// map's -- a per-thread cache, say -- and pass the map back in at lookup
+    /// time. See [`DetachedBlobReader`].
+    ///
+    /// One handle per thread: the handle is `Send`, not `Sync` (see [`Reader`]).
+    #[must_use]
+    pub fn detached_reader(&self) -> DetachedBlobReader {
+        DetachedBlobReader {
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// Returns `reader` if it was registered on this map's collector, and
+    /// panics otherwise (#1194). See [`SyncExpanseMap::registered`].
+    #[inline(always)]
+    pub(crate) fn registered<'r>(&self, reader: &'r Reader) -> &'r Reader {
+        if !Arc::ptr_eq(&reader.collector, &self.shared.collector) {
+            foreign_reader();
+        }
+        reader
+    }
+
     /// One-shot owned-copy lookup (registers a throwaway reader; use
     /// [`Self::reader`] + [`BlobReader::pin`] in hot loops for zero-copy).
     #[must_use]
@@ -12549,6 +12592,276 @@ fn blob_slot_meta(raw: u64) -> Option<u32> {
     }
 }
 
+/// The caller's buffer cannot hold the payload: the error of the `get_into`
+/// reads on [`BlobReader`], [`OwnedBlobReader`] and [`DetachedBlobReader`]
+/// (#1194).
+///
+/// The key is present. Nothing was copied and the buffer is as the caller
+/// passed it. `required` and `hot_meta` come from the same validated read a
+/// successful call would have answered from, so a retry with a buffer of
+/// `required` bytes succeeds unless a writer has replaced the value since.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BlobBufferTooSmall {
+    /// The payload's length in bytes: the buffer length that would have held it.
+    pub required: usize,
+    /// The length of the buffer that was passed.
+    pub provided: usize,
+    /// The value's hot metadata (`0` for an inline payload).
+    pub hot_meta: u32,
+}
+
+impl core::fmt::Display for BlobBufferTooSmall {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "output buffer too small: required {} bytes, provided {} bytes",
+            self.required, self.provided
+        )
+    }
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for BlobBufferTooSmall {}
+
+/// The copy step of the `get_into` reads: `bytes` into the front of `buf`
+/// when it fits, and the refusal otherwise, with `buf` untouched.
+#[inline]
+fn blob_copy_into(
+    bytes: &[u8],
+    buf: &mut [u8],
+    hot_meta: u32,
+) -> Result<(usize, u32), BlobBufferTooSmall> {
+    let Some(dst) = buf.get_mut(..bytes.len()) else {
+        return Err(BlobBufferTooSmall {
+            required: bytes.len(),
+            provided: buf.len(),
+            hot_meta,
+        });
+    };
+    dst.copy_from_slice(bytes);
+    Ok((bytes.len(), hot_meta))
+}
+
+/// The validated payload lookup shared by [`BlobReadGuard::get`] and the
+/// copying reads of [`BlobReader`], [`OwnedBlobReader`] and
+/// [`DetachedBlobReader`] (#1194).
+///
+/// One source for the walk, the slot decode, the arena resolution and the
+/// locked fallback, so the zero-copy read and the copying reads cannot drift.
+/// A macro and not a function for the reason `set_contains_walk!`,
+/// `str_get_walk!` and `bytes_get_walk!` are: a plain function and
+/// `#[inline(always)]` each changed the instruction count of the set's
+/// `contains` on #1465, and expanding in place left the body as it was.
+///
+/// The caller holds an epoch pin taken through a reader of `$map`'s collector
+/// for the whole expansion, and for as long as it uses what `$hit` produced.
+/// `$map` is the map read and `$key` the key. `|$view, $meta| $hit` is
+/// expanded at each accepted optimistic hit, with `$view` a [`SyncBlobView`]
+/// and `$meta` the hot metadata; `|$m| $locked` is the fallback, run under the
+/// writer lock on the plain map after `MAX_RETRIES` attempts, and yields the
+/// whole `Option`. Evaluates to `Option<T>` for `$hit: T`.
+///
+/// Every `$hit` site sits after the validation that accepted the read. An
+/// inline payload is decoded from the validated slot word, by value. An arena
+/// payload's `(ptr, len)` is resolved first and turned into a slice only once
+/// the tree version validates against the sample: from then on the bytes are
+/// a published record, which no writer rewrites in place, in a chunk the
+/// caller's pin keeps mapped. A copy made in `$hit` therefore reads one whole
+/// record, never a record a writer is still filling.
+macro_rules! blob_get_walk {
+    ($map:expr, $key:expr, |$view:ident, $meta:ident| $hit:expr, |$m:ident| $locked:expr) => {
+        'blob: {
+            let map: &SyncExpanseBlobMap = $map;
+            let key: Key = $key;
+            let shared = &map.shared;
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+            'outer: for _ in 0..MAX_RETRIES {
+                crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+                let snap = shared.version().sample();
+                // The published root, loaded after the sample (#1086).
+                let root = shared.published().load();
+                // SAFETY: the caller's pin is on this map's collector and
+                // predates the sample; the root is loaded after the sample,
+                // and every load of the walk is validated against it.
+                let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
+                let Ok(found) = walked else {
+                    continue 'outer;
+                };
+                // If the walk observed an absence, only accept it if the tree-level
+                // version remained unchanged throughout; otherwise a concurrent
+                // top-level reorganization or quiesced write may have caused a false
+                // absence.
+                let Some(raw) = found else {
+                    if shared.version().validate(snap) {
+                        break 'blob None;
+                    }
+                    continue 'outer;
+                };
+                let slot = ValueSlot::from_raw(raw);
+                let tag = slot.tag();
+                if tag.is_raw_inline() {
+                    let (raw_buf, len) = slot.inline_payload();
+                    let mut buf = [0u8; 16];
+                    buf[..7].copy_from_slice(&raw_buf);
+                    let $view = SyncBlobView::Inline {
+                        buf,
+                        len: len as u8,
+                    };
+                    let $meta = 0u32;
+                    break 'blob Some($hit);
+                }
+                if tag.is_compressed_inline() {
+                    let mut buf = [0u8; 16];
+                    if let Some(len) = crate::codec::decompress_inline(slot, &mut buf) {
+                        let $view = SyncBlobView::Inline {
+                            buf,
+                            len: len as u8,
+                        };
+                        let $meta = 0u32;
+                        break 'blob Some($hit);
+                    }
+                }
+                if tag != SlotTag::ArenaMeta {
+                    // Mirrors `ExpanseBlobMap::get`: non-payload tags read as absent.
+                    if shared.version().validate(snap) {
+                        break 'blob None;
+                    }
+                    continue 'outer;
+                }
+                let $meta = slot.arena_meta_meta();
+                // A single atomic load of the published table pointer, through
+                // the arena's shared cell rather than the arena (#1086).
+                let table = map.tables.reader_table();
+                // SAFETY: the caller's pin predates the table load, so the
+                // table and every chunk it references are EBR-live.
+                let resolved = unsafe {
+                    crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator())
+                };
+                match resolved {
+                    Some((ptr, len)) => {
+                        if shared.version().validate(snap) {
+                            // No writer overlapped: the resolution used the
+                            // table consistent with `snap`, so `ptr..ptr+len` is
+                            // the record's live payload. Arena records are never
+                            // rewritten in place and retired chunks stay mapped
+                            // under the caller's pin, so the borrow is
+                            // byte-stable for as long as the pin is held.
+                            // SAFETY: in-bounds of an EBR-live chunk (see
+                            // `resolve_meta_in_table`), immutable while pinned.
+                            let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+                            let $view = SyncBlobView::Arena(bytes);
+                            break 'blob Some($hit);
+                        }
+                        continue 'outer;
+                    }
+                    None => {
+                        // Check if the chunk table was superseded (chunk appended or arena compacted)
+                        // while reading. If so, retry under the fresh table instead of falsely reporting
+                        // a present key as absent (Refs #929).
+                        let table_now = map.tables.reader_table();
+                        if table_now != table {
+                            continue 'outer;
+                        }
+                        if shared.version().validate(snap) {
+                            // Validated dangling locator — mirrors the
+                            // single-threaded `get` returning `None`.
+                            break 'blob None;
+                        }
+                        continue 'outer;
+                    }
+                }
+            }
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+            shared.read_locked(|$m| $locked)
+        }
+    };
+}
+
+/// The owned-copy read of the three blob reader forms: one pin for the call,
+/// the payload copied to a `Vec` while it is held.
+///
+/// `$reader` is evaluated once, before the pin, so a detached reader's
+/// identity check runs first. Evaluates to `Option<(Vec<u8>, u32)>`.
+macro_rules! blob_copy_get {
+    ($map:expr, $reader:expr, $key:expr) => {{
+        let map: &SyncExpanseBlobMap = $map;
+        let reader: &Reader = $reader;
+        let key: Key = $key;
+        let _pin = reader.pin();
+        blob_get_walk!(
+            map,
+            key,
+            |view, meta| (view.as_bytes().to_vec(), meta),
+            |m| m
+                .get(key)
+                .map(|(view, meta)| (view.as_bytes().to_vec(), meta))
+        )
+    }};
+}
+
+/// The caller-buffer read of the three blob reader forms: one pin for the
+/// call, the payload copied into `$buf` while it is held, no allocation on
+/// either the optimistic path or the locked fallback.
+///
+/// `$reader` is evaluated once, before the pin. Evaluates to
+/// `Result<Option<(usize, u32)>, BlobBufferTooSmall>`.
+macro_rules! blob_copy_get_into {
+    ($map:expr, $reader:expr, $key:expr, $buf:expr) => {{
+        let map: &SyncExpanseBlobMap = $map;
+        let reader: &Reader = $reader;
+        let key: Key = $key;
+        let buf: &mut [u8] = $buf;
+        let _pin = reader.pin();
+        let copied: Option<Result<(usize, u32), BlobBufferTooSmall>> = blob_get_walk!(
+            map,
+            key,
+            |view, meta| blob_copy_into(view.as_bytes(), buf, meta),
+            |m| m
+                .get(key)
+                .map(|(view, meta)| blob_copy_into(view.as_bytes(), buf, meta))
+        );
+        copied.transpose()
+    }};
+}
+
+/// The validated slot-word lookup shared by `get_meta` and `contains` of
+/// [`BlobReader`], [`OwnedBlobReader`] and [`DetachedBlobReader`]: the word
+/// alone answers both, so no payload memory is read.
+///
+/// `$reader` is evaluated once, before the first pin. `|$found| $hit` turns an
+/// accepted `Option<u64>` slot word into the answer; `|$m| $locked` answers
+/// under the writer lock after `MAX_RETRIES` attempts.
+macro_rules! blob_slot_walk {
+    ($map:expr, $reader:expr, $key:expr, |$found:ident| $hit:expr, |$m:ident| $locked:expr) => {
+        'slot: {
+            let map: &SyncExpanseBlobMap = $map;
+            let reader: &Reader = $reader;
+            let key: Key = $key;
+            let shared = &map.shared;
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+            for _ in 0..MAX_RETRIES {
+                crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+                let _pin = reader.pin();
+                let snap = shared.version().sample();
+                // The published root, loaded after the sample (#1086).
+                let root = shared.published().load();
+                // SAFETY: pinned on this map's collector before the sample,
+                // the root loaded after it; every load of the walk is
+                // validated against the sample.
+                let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
+                if let Ok($found) = walked
+                    && ($found.is_some() || shared.version().validate(snap))
+                {
+                    break 'slot $hit;
+                }
+            }
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+            shared.read_locked(|$m| $locked)
+        }
+    };
+}
+
 impl BlobReader<'_> {
     /// Pins the current epoch: payload borrows obtained through the returned
     /// guard stay valid (and byte-stable) until the guard drops.
@@ -12583,33 +12896,34 @@ impl BlobReader<'_> {
     /// Optimistic owned-copy lookup (pins only for the duration of the call).
     #[must_use]
     pub fn get(&mut self, key: Key) -> Option<(Vec<u8>, u32)> {
-        let guard = self.pin();
-        guard
-            .get(key)
-            .map(|(view, meta)| (view.as_bytes().to_vec(), meta))
+        blob_copy_get!(self.map, &self.reader, key)
     }
 
-    /// Bounded validated optimistic slot-word lookup shared by the word-level
-    /// reads; `Err(Retry)` after retry exhaustion (the caller then falls
-    /// back under the writer lock).
-    fn lookup_slot(&mut self, key: Key) -> Result<Option<u64>, Retry> {
-        let shared = &self.map.shared;
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        for _ in 0..MAX_RETRIES {
-            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let _pin = self.reader.pin();
-            let snap = shared.version().sample();
-            // The published root, loaded after the sample (#1086).
-            let root = shared.published().load();
-            // SAFETY: same pin + snapshot contract as the line above.
-            let walked = unsafe { walk_validated::<true>(root, key, shared.version(), snap) };
-            if let Ok(found) = walked
-                && (found.is_some() || shared.version().validate(snap))
-            {
-                return Ok(found);
-            }
-        }
-        Err(Retry)
+    /// Optimistic lookup that copies the payload into `buf` and allocates
+    /// nothing (pins only for the duration of the call).
+    ///
+    /// Returns `Ok(Some((len, hot_meta)))` with the payload in `buf[..len]`
+    /// and the rest of `buf` as the caller passed it, and `Ok(None)` for an
+    /// absent key, with `buf` untouched. The payload is one whole value the
+    /// key held: the copy is taken from a validated read, under the pin.
+    ///
+    /// This is the Rust form of `expanse_blob_map_get_into` in
+    /// `include/expanse.h`. The C entry point copies what fits and reports
+    /// the full length through `out_len`, so a caller detects truncation by
+    /// comparing; here a buffer that is too small is an error of its own and
+    /// nothing is copied.
+    ///
+    /// # Errors
+    ///
+    /// [`BlobBufferTooSmall`] when the key is present and its payload is
+    /// longer than `buf`: `required` is the payload's length, `hot_meta` its
+    /// metadata, and `buf` is untouched.
+    pub fn get_into(
+        &mut self,
+        key: Key,
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u32)>, BlobBufferTooSmall> {
+        blob_copy_get_into!(self.map, &self.reader, key, buf)
     }
 
     /// Optimistic metadata lookup: the validated slot word alone answers it —
@@ -12619,27 +12933,190 @@ impl BlobReader<'_> {
     /// only in a corrupted image) still reports its stored metadata.
     #[must_use]
     pub fn get_meta(&mut self, key: Key) -> Option<u32> {
-        match self.lookup_slot(key) {
-            Ok(found) => found.and_then(blob_slot_meta),
-            Err(Retry) => {
-                crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-                self.map
-                    .shared
-                    .read_locked(|m| m.index().get(key).and_then(blob_slot_meta))
-            }
-        }
+        blob_slot_walk!(
+            self.map,
+            &self.reader,
+            key,
+            |found| found.and_then(blob_slot_meta),
+            |m| m.index().get(key).and_then(blob_slot_meta)
+        )
     }
 
     /// Optimistic membership test.
     #[must_use]
     pub fn contains(&mut self, key: Key) -> bool {
-        match self.lookup_slot(key) {
-            Ok(found) => found.is_some(),
-            Err(Retry) => {
-                crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-                self.map.shared.read_locked(|m| m.contains_key(key))
-            }
-        }
+        blob_slot_walk!(self.map, &self.reader, key, |found| found.is_some(), |m| m
+            .contains_key(key))
+    }
+}
+
+/// A reader that **owns** its map handle instead of borrowing it.
+///
+/// [`BlobReader`] borrows, which makes it impossible to cache: a
+/// `#[pyclass]`, a thread-local, or any struct outliving the call cannot hold
+/// it. This is the blob map's counterpart of [`OwnedMapReader`] (#554, #1194).
+///
+/// **Copying reads only.** Every read pins inside the call and unpins before
+/// it returns, and nothing it returns borrows the pin: [`Self::get`] hands
+/// back an owned `Vec`, [`Self::get_into`] fills the caller's buffer. There is
+/// no `pin` and no zero-copy view here. A [`BlobReadGuard`] defers
+/// reclamation for the whole map while it lives, and a handle that is stored
+/// in a struct or moved to another thread must not be able to keep one across
+/// calls. For a zero-copy read, borrow: [`SyncExpanseBlobMap::reader`] and
+/// [`BlobReader::pin`].
+///
+/// The reads take `&mut self`, as [`BlobReader`]'s do: one [`Reader`] owns a
+/// single epoch slot and its pins are not reentrant, so the exclusive borrow
+/// is what keeps two pins through one handle from overlapping. For the same
+/// reason an `OwnedBlobReader` is `Send`, not `Sync`: give each thread its
+/// own.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::OwnedBlobReader>();
+/// ```
+pub struct OwnedBlobReader {
+    map: Arc<SyncExpanseBlobMap>,
+    reader: Reader,
+}
+
+impl OwnedBlobReader {
+    /// Optimistic owned-copy lookup, without the per-call registry lock
+    /// [`SyncExpanseBlobMap::get`] pays. See [`BlobReader::get`].
+    #[must_use]
+    pub fn get(&mut self, key: Key) -> Option<(Vec<u8>, u32)> {
+        blob_copy_get!(&self.map, &self.reader, key)
+    }
+
+    /// Optimistic lookup that copies the payload into `buf` and allocates
+    /// nothing. See [`BlobReader::get_into`] for the contract: `buf[..len]`
+    /// holds the payload on `Ok(Some((len, hot_meta)))`, and `buf` is
+    /// untouched on `Ok(None)` and on an error.
+    ///
+    /// # Errors
+    ///
+    /// [`BlobBufferTooSmall`] when the key is present and its payload is
+    /// longer than `buf`.
+    pub fn get_into(
+        &mut self,
+        key: Key,
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u32)>, BlobBufferTooSmall> {
+        blob_copy_get_into!(&self.map, &self.reader, key, buf)
+    }
+
+    /// Optimistic metadata lookup from the slot word alone. See
+    /// [`BlobReader::get_meta`].
+    #[must_use]
+    pub fn get_meta(&mut self, key: Key) -> Option<u32> {
+        blob_slot_walk!(
+            &self.map,
+            &self.reader,
+            key,
+            |found| found.and_then(blob_slot_meta),
+            |m| m.index().get(key).and_then(blob_slot_meta)
+        )
+    }
+
+    /// Optimistic membership test. See [`BlobReader::contains`].
+    #[must_use]
+    pub fn contains(&mut self, key: Key) -> bool {
+        blob_slot_walk!(&self.map, &self.reader, key, |found| found.is_some(), |m| m
+            .contains_key(key))
+    }
+}
+
+/// A reader that owns neither its map nor a reference to it.
+///
+/// The blob map's counterpart of [`DetachedMapReader`]: it holds only the
+/// epoch slot, so caching one says nothing about how long the map lives, and
+/// the caller supplies the map at lookup time.
+///
+/// **Copying reads only**, for the reason [`OwnedBlobReader`] gives: every
+/// read pins and unpins inside the call, and there is no `pin` and no
+/// zero-copy view. The reads take `&mut self`, as [`BlobReader`]'s do, and
+/// the handle is `Send`, not `Sync`.
+///
+/// Every entry compares the reader's collector with the map's before the
+/// first pin and panics on a mismatch: a pin on another map's collector does
+/// not hold off this map's reclamation (#1194).
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::DetachedBlobReader>();
+/// ```
+pub struct DetachedBlobReader {
+    reader: Reader,
+}
+
+impl DetachedBlobReader {
+    /// Optimistic owned-copy lookup against `map`, without the per-call
+    /// registry lock [`SyncExpanseBlobMap::get`] pays.
+    ///
+    /// `map` must be the map this reader was registered against; the check
+    /// is made on every call. See [`BlobReader::get`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any node
+    /// of `map` is read.
+    #[must_use]
+    pub fn get(&mut self, map: &SyncExpanseBlobMap, key: Key) -> Option<(Vec<u8>, u32)> {
+        blob_copy_get!(map, map.registered(&self.reader), key)
+    }
+
+    /// Optimistic lookup against `map` that copies the payload into `buf` and
+    /// allocates nothing. See [`BlobReader::get_into`] for the contract.
+    ///
+    /// # Errors
+    ///
+    /// [`BlobBufferTooSmall`] when the key is present and its payload is
+    /// longer than `buf`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any node
+    /// of `map` is read and before `buf` is written.
+    pub fn get_into(
+        &mut self,
+        map: &SyncExpanseBlobMap,
+        key: Key,
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u32)>, BlobBufferTooSmall> {
+        blob_copy_get_into!(map, map.registered(&self.reader), key, buf)
+    }
+
+    /// Optimistic metadata lookup against `map`, from the slot word alone.
+    /// See [`BlobReader::get_meta`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector.
+    #[must_use]
+    pub fn get_meta(&mut self, map: &SyncExpanseBlobMap, key: Key) -> Option<u32> {
+        blob_slot_walk!(
+            map,
+            map.registered(&self.reader),
+            key,
+            |found| found.and_then(blob_slot_meta),
+            |m| m.index().get(key).and_then(blob_slot_meta)
+        )
+    }
+
+    /// Optimistic membership test against `map`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector.
+    #[must_use]
+    pub fn contains(&mut self, map: &SyncExpanseBlobMap, key: Key) -> bool {
+        blob_slot_walk!(
+            map,
+            map.registered(&self.reader),
+            key,
+            |found| found.is_some(),
+            |m| m.contains_key(key)
+        )
     }
 }
 
@@ -12670,109 +13147,12 @@ impl BlobReadGuard<'_> {
     /// lock after bounded retries.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<(SyncBlobView<'_>, u32)> {
-        let shared = &self.map.shared;
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        'outer: for _ in 0..MAX_RETRIES {
-            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let snap = shared.version().sample();
-            // The published root, loaded after the sample (#1086).
-            let root = shared.published().load();
-            // SAFETY: same pin + snapshot contract as the line above.
-            let Ok(found) = (unsafe { walk_validated::<true>(root, key, shared.version(), snap) })
-            else {
-                continue 'outer;
-            };
-            // If the walk observed an absence, only accept it if the tree-level
-            // version remained unchanged throughout; otherwise a concurrent
-            // top-level reorganization or quiesced write may have caused a false
-            // absence.
-            let Some(raw) = found else {
-                if shared.version().validate(snap) {
-                    return None;
-                }
-                continue 'outer;
-            };
-            let slot = ValueSlot::from_raw(raw);
-            let tag = slot.tag();
-            if tag.is_raw_inline() {
-                let (raw_buf, len) = slot.inline_payload();
-                let mut buf = [0u8; 16];
-                buf[..7].copy_from_slice(&raw_buf);
-                return Some((
-                    SyncBlobView::Inline {
-                        buf,
-                        len: len as u8,
-                    },
-                    0,
-                ));
-            }
-            if tag.is_compressed_inline() {
-                let mut buf = [0u8; 16];
-                if let Some(len) = crate::codec::decompress_inline(slot, &mut buf) {
-                    return Some((
-                        SyncBlobView::Inline {
-                            buf,
-                            len: len as u8,
-                        },
-                        0,
-                    ));
-                }
-            }
-            if tag != SlotTag::ArenaMeta {
-                // Mirrors `ExpanseBlobMap::get`: non-payload tags read as absent.
-                if shared.version().validate(snap) {
-                    return None;
-                }
-                continue 'outer;
-            }
-            let meta = slot.arena_meta_meta();
-            // A single atomic load of the published table pointer, through
-            // the arena's shared cell rather than the arena (#1086).
-            let table = self.map.tables.reader_table();
-            // SAFETY: the guard's pin predates the table load, so the table
-            // and every chunk it references are EBR-live.
-            let resolved =
-                // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                unsafe { crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator()) };
-            match resolved {
-                Some((ptr, len)) => {
-                    if shared.version().validate(snap) {
-                        // No writer overlapped: the resolution used the
-                        // table consistent with `snap`, so `ptr..ptr+len` is
-                        // the record's live payload. Arena records are never
-                        // rewritten in place and retired chunks stay mapped
-                        // under this guard's pin, so the borrow is
-                        // byte-stable for the guard's lifetime.
-                        // SAFETY: in-bounds of an EBR-live chunk (see
-                        // `resolve_meta_in_table`), immutable while pinned.
-                        // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
-                        let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
-                        return Some((SyncBlobView::Arena(bytes), meta));
-                    }
-                    continue 'outer;
-                }
-                None => {
-                    // Check if the chunk table was superseded (chunk appended or arena compacted)
-                    // while reading. If so, retry under the fresh table instead of falsely reporting
-                    // a present key as absent (Refs #929).
-                    let table_now = self.map.tables.reader_table();
-                    if table_now != table {
-                        continue 'outer;
-                    }
-                    if shared.version().validate(snap) {
-                        // Validated dangling locator — mirrors the
-                        // single-threaded `get` returning `None`.
-                        return None;
-                    }
-                    continue 'outer;
-                }
-            }
-        }
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        shared.read_locked(|m| {
-            m.get(key)
-                .map(|(view, meta)| (SyncBlobView::Owned(view.as_bytes().to_vec()), meta))
-        })
+        blob_get_walk!(self.map, key, |view, meta| (view, meta), |m| m
+            .get(key)
+            .map(|(view, meta)| (
+                SyncBlobView::Owned(view.as_bytes().to_vec()),
+                meta
+            )))
     }
 }
 
@@ -17012,6 +17392,60 @@ mod miri_tests {
         }
         for k in 32..LIVE {
             assert_eq!(guard.get(k).unwrap().0.as_bytes(), &payload(k, 0)[..]);
+        }
+    }
+
+    /// #1194, the copying reads of the owned and detached blob readers under
+    /// Miri in the Tier-1 filter, on one thread: `get` and `get_into` over raw
+    /// inline, compressed inline and arena payloads of a tree-rooted map,
+    /// after overwrites that change a key's storage class and a compaction.
+    /// Each arena record is read through a slice of exactly its length and
+    /// copied into a buffer of exactly that length, so Miri reports a copy
+    /// that reads past a record or writes past the caller's buffer.
+    #[test]
+    fn blob_owned_and_detached_readers_copy_whole_payloads_under_miri() {
+        const LIVE: u64 = 40;
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
+        // Digits, so the 12-byte payloads with metadata 0 compress inline.
+        let payload = |k: u64, round: u64| -> Vec<u8> {
+            let len = [0, 5, 12, 40, 128][((k + round) % 5) as usize];
+            (0..len)
+                .map(|i| b'0' + ((k + round + i) % 10) as u8)
+                .collect()
+        };
+        for k in 0..LIVE {
+            m.insert(k, &payload(k, 0), (k % 3) as u32).unwrap();
+        }
+        assert!(m.shared.published().is_tree());
+        for k in 0..LIVE / 2 {
+            m.insert(k, &payload(k, 1), (k % 3) as u32).unwrap();
+        }
+        m.compact().expect("compaction");
+        let mut owned = m.owned_reader();
+        let mut detached = m.detached_reader();
+        for k in 0..LIVE + 4 {
+            let want = m.with_locked(|t| t.get(k).map(|(v, meta)| (v.as_bytes().to_vec(), meta)));
+            assert_eq!(owned.get(k), want, "owned get {k}");
+            assert_eq!(detached.get(&m, k), want, "detached get {k}");
+            assert_eq!(owned.get_meta(k), want.as_ref().map(|w| w.1));
+            assert_eq!(detached.contains(&m, k), want.is_some());
+            let Some((bytes, meta)) = want else {
+                assert_eq!(owned.get_into(k, &mut []), Ok(None));
+                continue;
+            };
+            let hit = Ok(Some((bytes.len(), meta)));
+            let mut exact = vec![0xEEu8; bytes.len()];
+            assert_eq!(owned.get_into(k, &mut exact), hit);
+            assert_eq!(exact, bytes, "owned get_into {k}");
+            let mut exact = vec![0xEEu8; bytes.len()];
+            assert_eq!(detached.get_into(&m, k, &mut exact), hit);
+            assert_eq!(exact, bytes, "detached get_into {k}");
+            if let Some(short) = bytes.len().checked_sub(1) {
+                let mut small = vec![0xEEu8; short];
+                let refused = owned.get_into(k, &mut small).expect_err("one byte short");
+                assert_eq!((refused.required, refused.provided), (bytes.len(), short));
+                assert!(small.iter().all(|&b| b == 0xEE));
+            }
         }
     }
 
@@ -28906,6 +29340,502 @@ mod bytes_reader_forms_tests {
     #[should_panic(expected = "reader was registered on a different collector")]
     fn bytes_registered_rejects_unowned_collector_reader() {
         let map = fixture(RandomState::new(), 8);
+        let raw = Arc::new(Collector::new()).register();
+        let _ = map.registered(&raw);
+    }
+}
+
+/// The owned and detached blob readers (#1194): equal to the plain
+/// [`ExpanseBlobMap`] and to [`BlobReader`] on the same map, over every
+/// storage class and in root-leaf and tree state; the `get_into` contract;
+/// whole values beside a writer; one registered slot per owned or detached
+/// reader; and the identity check at every detached entry.
+///
+/// Not built under Miri: two of the tests race a writer against readers, the
+/// seqlock race the module docs describe. Miri runs the copying reads on one
+/// thread in `miri_tests`.
+#[cfg(all(test, not(miri)))]
+mod blob_reader_forms_tests {
+    use super::*;
+    use crate::blobmap::BlobView;
+    use crate::types::ROOT_LEAF_CAP;
+    use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Barrier;
+
+    /// Fills every buffer handed to `get_into`; no payload here holds it.
+    const SENTINEL: u8 = 0xEE;
+
+    /// The payload and the metadata stored at `k`, one storage class per
+    /// residue of 16: raw inline of each length 0 to 7, the three inline
+    /// compressions, and arena records with zero and non-zero metadata.
+    fn value(k: u64) -> (Vec<u8>, u32) {
+        let fill = |n: usize| -> Vec<u8> { (0..n).map(|i| 0x80 | (k as u8 ^ i as u8)).collect() };
+        match k % 16 {
+            n @ 0..=7 => (fill(n as usize), (k as u32 >> 4) & 3),
+            8 => ((k & 0xFFFF).to_le_bytes().to_vec(), 0),
+            9 => (format!("{:014}", k % 1_000_000).into_bytes(), 0),
+            10 => (format!("{:08}", k % 1_000_000).into_bytes(), 0),
+            11 => (format!("key{:06}", k % 1_000_000).into_bytes(), 0),
+            // Compressible bytes with metadata: an arena record.
+            12 => (format!("{:014}", k % 1_000_000).into_bytes(), 9),
+            13 => (fill(8), 0),
+            14 => (fill(24), (k as u32 % ValueSlot::ARENA_META_MAX) + 1),
+            _ => (fill(300), ValueSlot::ARENA_META_MAX),
+        }
+    }
+
+    /// The same `n` entries in a plain map and a shared one.
+    fn fixture(n: u64) -> (ExpanseBlobMap, Arc<SyncExpanseBlobMap>) {
+        let mut plain = ExpanseBlobMap::new();
+        let map = Arc::new(SyncExpanseBlobMap::new());
+        for k in 0..n {
+            let (p, meta) = value(k);
+            plain.insert(k, &p, meta).expect("plain insert");
+            map.insert(k, &p, meta).expect("shared insert");
+        }
+        (plain, map)
+    }
+
+    /// Every storage class is in the population: each raw inline length, a
+    /// compressed inline value, and arena records with and without metadata.
+    fn assert_every_class_present(plain: &ExpanseBlobMap, n: u64) {
+        let mut raw = [false; 8];
+        let (mut compressed, mut arena_zero, mut arena_meta) = (0, 0, 0);
+        for k in 0..n {
+            match plain.get(k).expect("present") {
+                (BlobView::Inline(b), 0) => raw[b.len()] = true,
+                (BlobView::CompressedInline { .. }, 0) => compressed += 1,
+                (BlobView::Arena(_), 0) => arena_zero += 1,
+                (BlobView::Arena(_), _) => arena_meta += 1,
+                other => panic!("key {k}: an inline value with metadata: {other:?}"),
+            }
+        }
+        assert_eq!(raw, [true; 8], "each raw inline length 0 to 7");
+        assert!(compressed >= 3 && arena_zero >= 1 && arena_meta >= 3);
+    }
+
+    /// `get`, `get_into`, `get_meta` and `contains` of the three reader forms
+    /// and the one-shot `get` equal the plain map's answer for every probe.
+    fn check_forms(
+        plain: &ExpanseBlobMap,
+        map: &Arc<SyncExpanseBlobMap>,
+        probes: impl Iterator<Item = u64>,
+        when: &str,
+    ) {
+        let mut borrowed = map.reader();
+        let mut owned = map.owned_reader();
+        let mut detached = map.detached_reader();
+        for k in probes {
+            let want = plain.get(k).map(|(v, meta)| (v.as_bytes().to_vec(), meta));
+            assert_eq!(borrowed.get(k), want, "{when}: borrowed get {k}");
+            assert_eq!(owned.get(k), want, "{when}: owned get {k}");
+            assert_eq!(detached.get(map, k), want, "{when}: detached get {k}");
+            assert_eq!(map.get(k), want, "{when}: one-shot get {k}");
+
+            let meta = want.as_ref().map(|w| w.1);
+            assert_eq!(borrowed.get_meta(k), meta, "{when}: borrowed meta {k}");
+            assert_eq!(owned.get_meta(k), meta, "{when}: owned meta {k}");
+            assert_eq!(detached.get_meta(map, k), meta, "{when}: det meta {k}");
+
+            let present = want.is_some();
+            assert_eq!(borrowed.contains(k), present, "{when}: borrowed has {k}");
+            assert_eq!(owned.contains(k), present, "{when}: owned has {k}");
+            assert_eq!(detached.contains(map, k), present, "{when}: det has {k}");
+
+            let want_into = want.as_ref().map(|(p, meta)| (p.len(), *meta));
+            let payload = want.as_ref().map_or(&[][..], |w| &w.0[..]);
+            for form in 0..3 {
+                let mut buf = [SENTINEL; 512];
+                let got = match form {
+                    0 => borrowed.get_into(k, &mut buf),
+                    1 => owned.get_into(k, &mut buf),
+                    _ => detached.get_into(map, k, &mut buf),
+                };
+                assert_eq!(got, Ok(want_into), "{when}: form {form} get_into {k}");
+                assert_eq!(&buf[..payload.len()], payload, "{when}: form {form} {k}");
+                assert!(
+                    buf[payload.len()..].iter().all(|&b| b == SENTINEL),
+                    "{when}: form {form} wrote past the payload of {k}"
+                );
+            }
+        }
+    }
+
+    /// Root leaf: every storage class, present and absent keys.
+    #[test]
+    fn blob_readers_match_the_plain_map_in_root_leaf_state() {
+        let n = 16;
+        let (plain, map) = fixture(n);
+        assert!(!map.shared.published().is_tree());
+        assert_every_class_present(&plain, n);
+        check_forms(&plain, &map, (0..n + 8).chain([u64::MAX]), "root leaf");
+    }
+
+    /// Tree: every storage class; then after removals, overwrites that change
+    /// a key's storage class, and a compaction. The forms register nothing
+    /// per lookup.
+    #[test]
+    fn blob_readers_match_the_plain_map_in_tree_state() {
+        let n = 4 * ROOT_LEAF_CAP as u64;
+        let (mut plain, map) = fixture(n);
+        assert!(map.shared.published().is_tree());
+        assert_every_class_present(&plain, n);
+        let probes = || (0..n + 16).chain([1 << 40, u64::MAX]);
+        check_forms(&plain, &map, probes(), "populated");
+
+        let (mut owned, mut detached) = (map.owned_reader(), map.detached_reader());
+        let before = map.shared.collector.registrations();
+        for k in 0..n {
+            assert!(owned.contains(k) && detached.contains(&map, k));
+            assert!(owned.get(k).is_some() && detached.get(&map, k).is_some());
+        }
+        assert_eq!(map.shared.collector.registrations(), before);
+
+        for k in (0..n).step_by(3) {
+            assert!(plain.remove(k));
+            assert!(map.remove(k));
+        }
+        for k in (1..n).step_by(3) {
+            // The value of another residue: the key changes storage class.
+            let (p, meta) = value(k + 5);
+            plain.insert(k, &p, meta).expect("plain overwrite");
+            map.insert(k, &p, meta).expect("shared overwrite");
+        }
+        check_forms(&plain, &map, probes(), "after removals and overwrites");
+        map.compact().expect("compaction");
+        check_forms(&plain, &map, probes(), "after compaction");
+        assert_eq!(owned.get(0), None);
+        assert_eq!(detached.get(&map, 0), None);
+        assert_eq!(owned.get(2), Some(value(2)));
+    }
+
+    /// One `get_into` through reader form `form` (borrowed, owned, detached).
+    fn get_into_by(
+        form: usize,
+        map: &Arc<SyncExpanseBlobMap>,
+        key: Key,
+        buf: &mut [u8],
+    ) -> Result<Option<(usize, u32)>, BlobBufferTooSmall> {
+        match form {
+            0 => map.reader().get_into(key, buf),
+            1 => map.owned_reader().get_into(key, buf),
+            _ => map.detached_reader().get_into(map, key, buf),
+        }
+    }
+
+    /// The `get_into` contract, for each reader form and for a raw inline, a
+    /// compressed inline, an arena and an empty payload: an exact-fit buffer
+    /// is filled; a larger one is filled at the front and untouched past the
+    /// payload; a buffer one byte short is refused with the payload's length
+    /// and metadata and is untouched; an absent key leaves the buffer
+    /// untouched.
+    #[test]
+    fn blob_get_into_fills_refuses_and_leaves_the_rest_untouched() {
+        const EMPTY: Key = 3;
+        const ABSENT: Key = 99;
+        let map = Arc::new(SyncExpanseBlobMap::new());
+        // (key, payload, metadata written, metadata read back)
+        let cases: [(Key, Vec<u8>, u32, u32); 4] = [
+            (0, b"\x01\x02\x03\x04\x05".to_vec(), 7, 0),
+            (1, b"12345678901234".to_vec(), 0, 0),
+            (
+                2,
+                (0..24u8).map(|i| 0x80 | i).collect(),
+                0x00AB_CDEF,
+                0x00AB_CDEF,
+            ),
+            (EMPTY, Vec::new(), 0, 0),
+        ];
+        for fill in [0u64, 2 * ROOT_LEAF_CAP as u64] {
+            for i in 0..fill {
+                map.insert(1_000 + i, &[i as u8; 16], 1).expect("filler");
+            }
+            assert_eq!(map.shared.published().is_tree(), fill > 0);
+            for (k, p, meta, _) in &cases {
+                map.insert(*k, p, *meta).expect("insert");
+            }
+            for form in 0..3 {
+                for (k, p, _, read_meta) in &cases {
+                    let hit = Ok(Some((p.len(), *read_meta)));
+                    let mut exact = vec![SENTINEL; p.len()];
+                    assert_eq!(get_into_by(form, &map, *k, &mut exact), hit, "exact {k}");
+                    assert_eq!(&exact, p, "form {form} exact-fit bytes of {k}");
+
+                    let mut larger = vec![SENTINEL; p.len() + 9];
+                    assert_eq!(get_into_by(form, &map, *k, &mut larger), hit, "larger {k}");
+                    assert_eq!(&larger[..p.len()], &p[..]);
+                    assert_eq!(&larger[p.len()..], &[SENTINEL; 9], "form {form} tail {k}");
+
+                    if let Some(short) = p.len().checked_sub(1) {
+                        let mut small = vec![SENTINEL; short];
+                        let refused = get_into_by(form, &map, *k, &mut small)
+                            .expect_err("a buffer one byte short must be refused");
+                        assert_eq!(
+                            (refused.required, refused.provided, refused.hot_meta),
+                            (p.len(), short, *read_meta),
+                            "form {form} refusal for {k}"
+                        );
+                        assert!(
+                            small.iter().all(|&b| b == SENTINEL),
+                            "form {form}: a refused buffer was written for {k}"
+                        );
+                    }
+                }
+                // A zero-length payload in a zero-length buffer is a hit.
+                assert_eq!(get_into_by(form, &map, EMPTY, &mut []), Ok(Some((0, 0))));
+                // Absent: not an error, whatever the buffer.
+                let mut buf = [SENTINEL; 8];
+                assert_eq!(get_into_by(form, &map, ABSENT, &mut buf), Ok(None));
+                assert_eq!(buf, [SENTINEL; 8], "form {form}: an absent key wrote");
+                assert_eq!(get_into_by(form, &map, ABSENT, &mut []), Ok(None));
+            }
+        }
+        let refused = get_into_by(1, &map, 2, &mut [0u8; 4]).expect_err("too small");
+        assert_eq!(
+            refused.to_string(),
+            "output buffer too small: required 24 bytes, provided 4 bytes"
+        );
+        let _: &dyn std::error::Error = &refused;
+    }
+
+    /// Sets its flag when dropped, so the writer stops waiting for a reader
+    /// that panicked.
+    struct Gone<'a>(&'a AtomicBool);
+    impl Drop for Gone<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    /// A writer overwrites one key with values of different lengths and
+    /// storage classes, and compacts each round, beside one reader per form.
+    /// Every `get` and `get_into` result must be one whole value the key
+    /// held: its bytes, its length and its metadata from the same write. A
+    /// 64-byte buffer is either filled with a whole value or refused with a
+    /// held value's length and metadata, untouched. The writer starts a round
+    /// only after every reader has finished a pass during the previous one.
+    fn readers_see_whole_values_beside_overwrites(fillers: u64) {
+        const ROUNDS: u64 = 40;
+        const WRITES: u64 = 60;
+        const KEY: Key = 0x1234_5678;
+        // (payload, metadata written, metadata read back): every byte of a
+        // payload is that value's own tag, so a mix of two values shows.
+        let states: Vec<(Vec<u8>, u32, u32)> = vec![
+            (vec![0xA1; 96], 1, 1),
+            (vec![0xB2; 160], 2, 2),
+            (vec![0xC3; 5], 3, 0),
+            (Vec::new(), 0, 0),
+            (vec![b'7'; 12], 0, 0),
+            (vec![0xD4; 33], 4, 4),
+        ];
+        let is_state =
+            |bytes: &[u8], meta: u32| states.iter().any(|(p, _, m)| p == bytes && *m == meta);
+        let map = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
+        for i in 0..fillers {
+            map.insert(0x9000_0000 + i, &[i as u8; 16], 1)
+                .expect("filler");
+        }
+        assert_eq!(map.shared.published().is_tree(), fillers > 0);
+        map.insert(KEY, &states[0].0, states[0].1).expect("insert");
+
+        let passes = [const { AtomicU64::new(0) }; 3];
+        let (stop, gone) = (AtomicBool::new(false), AtomicBool::new(false));
+        let start = Barrier::new(4);
+        std::thread::scope(|s| {
+            for form in 0..3usize {
+                let (map, states, is_state) = (&map, &states, &is_state);
+                let (passes, stop, gone, start) = (&passes, &stop, &gone, &start);
+                s.spawn(move || {
+                    let _gone = Gone(gone);
+                    let mut borrowed = map.reader();
+                    let mut owned = map.owned_reader();
+                    let mut detached = map.detached_reader();
+                    start.wait();
+                    loop {
+                        let finished = stop.load(Ordering::Acquire);
+                        let (bytes, meta) = match form {
+                            0 => borrowed.get(KEY),
+                            1 => owned.get(KEY),
+                            _ => detached.get(map, KEY),
+                        }
+                        .expect("the key is always present");
+                        assert!(
+                            is_state(&bytes, meta),
+                            "form {form} get: len {} first {:?} meta {meta}: no value written",
+                            bytes.len(),
+                            bytes.first()
+                        );
+
+                        let mut buf = [SENTINEL; 192];
+                        let (len, meta) = match form {
+                            0 => borrowed.get_into(KEY, &mut buf),
+                            1 => owned.get_into(KEY, &mut buf),
+                            _ => detached.get_into(map, KEY, &mut buf),
+                        }
+                        .expect("192 bytes hold every value")
+                        .expect("the key is always present");
+                        assert!(
+                            is_state(&buf[..len], meta),
+                            "form {form} get_into: len {len} first {:?} meta {meta}: no value written",
+                            buf.first()
+                        );
+                        assert!(buf[len..].iter().all(|&b| b == SENTINEL));
+
+                        let mut small = [SENTINEL; 64];
+                        let got = match form {
+                            0 => borrowed.get_into(KEY, &mut small),
+                            1 => owned.get_into(KEY, &mut small),
+                            _ => detached.get_into(map, KEY, &mut small),
+                        };
+                        match got {
+                            Ok(Some((len, meta))) => {
+                                assert!(is_state(&small[..len], meta), "form {form} small hit");
+                                assert!(small[len..].iter().all(|&b| b == SENTINEL));
+                            }
+                            Ok(None) => panic!("form {form}: the key is always present"),
+                            Err(e) => {
+                                let held = states
+                                    .iter()
+                                    .any(|(p, _, m)| p.len() == e.required && *m == e.hot_meta);
+                                assert!(
+                                    e.provided == 64 && e.required > 64 && held,
+                                    "form {form}: {e:?} names no value written"
+                                );
+                                assert_eq!(small, [SENTINEL; 64], "a refused buffer was written");
+                            }
+                        }
+                        passes[form].fetch_add(1, Ordering::Release);
+                        if finished {
+                            break;
+                        }
+                    }
+                });
+            }
+            start.wait();
+            'rounds: for round in 0..ROUNDS {
+                let before: Vec<u64> = passes.iter().map(|p| p.load(Ordering::Acquire)).collect();
+                for i in 0..WRITES {
+                    let at = ((round * WRITES + i) % states.len() as u64) as usize;
+                    let (p, meta, _) = &states[at];
+                    map.insert(KEY, p, *meta).expect("overwrite");
+                }
+                map.compact().expect("compaction");
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+                for (form, was) in before.iter().enumerate() {
+                    while passes[form].load(Ordering::Acquire) == *was {
+                        if gone.load(Ordering::Acquire) {
+                            // A reader panicked; the scope reports it.
+                            break 'rounds;
+                        }
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "reader form {form} finished no pass during round {round}"
+                        );
+                        std::thread::yield_now();
+                    }
+                }
+            }
+            stop.store(true, Ordering::Release);
+        });
+        for (form, p) in passes.iter().enumerate() {
+            assert!(
+                p.load(Ordering::Acquire) >= ROUNDS,
+                "reader form {form} did not run beside every round"
+            );
+        }
+    }
+
+    /// Root-leaf state: every overwrite is a quiesced write.
+    #[test]
+    fn blob_readers_see_whole_values_beside_overwrites_in_root_leaf_state() {
+        readers_see_whole_values_beside_overwrites(0);
+    }
+
+    /// Tree state: the overwrites take the optimistic writer.
+    #[test]
+    fn blob_readers_see_whole_values_beside_overwrites_in_tree_state() {
+        readers_see_whole_values_beside_overwrites(2 * ROOT_LEAF_CAP as u64);
+    }
+
+    /// One owned reader adds one strong reference and one registered slot, a
+    /// detached reader a registered slot only; the map is freed when the last
+    /// owner goes (#1194).
+    #[test]
+    fn blob_owned_reader_keeps_map_alive_and_detached_holds_nothing() {
+        let (_, map) = fixture(50);
+        let strong = Arc::strong_count(&map);
+        let regs = map.shared.collector.registered_readers();
+
+        let detached = map.detached_reader();
+        assert_eq!(Arc::strong_count(&map), strong, "detached takes no ref");
+        assert_eq!(map.shared.collector.registered_readers(), regs + 1);
+
+        let mut owned = map.owned_reader();
+        assert_eq!(Arc::strong_count(&map), strong + 1, "owned takes one ref");
+        assert_eq!(map.shared.collector.registered_readers(), regs + 2);
+
+        let weak = Arc::downgrade(&map);
+        drop(map);
+        assert!(weak.upgrade().is_some(), "owned reader keeps the map alive");
+        assert_eq!(weak.strong_count(), 1);
+        for k in 0..50u64 {
+            let (p, meta) = value(k);
+            let read_meta = if p.len() <= 7 { 0 } else { meta };
+            assert_eq!(owned.get(k), Some((p, read_meta)));
+        }
+        drop(detached);
+        assert_eq!(weak.strong_count(), 1, "a detached reader frees no ref");
+        drop(owned);
+        assert!(weak.upgrade().is_none(), "last owner dropped: map freed");
+    }
+
+    /// One `should_panic` test per detached entry: a map registered on
+    /// another collector is rejected before the first pin (#1194).
+    macro_rules! blob_detached_rejects_foreign_map {
+        ($($name:ident: |$r:ident, $b:ident| $call:expr;)*) => {$(
+            #[test]
+            #[should_panic(expected = "reader was registered on a different collector")]
+            fn $name() {
+                let (a, $b) = (fixture(8).1, fixture(8).1);
+                assert!(!Arc::ptr_eq(&a.shared.collector, &$b.shared.collector));
+                let mut $r = a.detached_reader();
+                let _ = $call;
+            }
+        )*};
+    }
+
+    blob_detached_rejects_foreign_map! {
+        blob_detached_get_rejects_foreign_map: |r, b| r.get(&b, 1);
+        blob_detached_get_into_rejects_foreign_map: |r, b| r.get_into(&b, 1, &mut [0u8; 8]);
+        blob_detached_get_meta_rejects_foreign_map: |r, b| r.get_meta(&b, 1);
+        blob_detached_contains_rejects_foreign_map: |r, b| r.contains(&b, 1);
+    }
+
+    /// The same rejection for present and absent keys, with the caller's
+    /// buffer untouched; the right map still answers.
+    #[test]
+    fn blob_detached_rejects_foreign_map_for_every_key() {
+        let (a, b) = (fixture(8).1, fixture(8).1);
+        let mut r = a.detached_reader();
+        for k in [0u64, 7, 12, 500] {
+            let caught = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| r.get(&b, k)));
+            assert!(caught.is_err(), "{k} was answered from a foreign map");
+            let mut buf = [SENTINEL; 32];
+            let caught = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+                r.get_into(&b, k, &mut buf)
+            }));
+            assert!(caught.is_err(), "{k} was copied from a foreign map");
+            assert_eq!(buf, [SENTINEL; 32], "a rejected read wrote the buffer");
+            assert_eq!(r.get(&a, k), a.get(k));
+        }
+    }
+
+    /// A reader from a bare `Collector` belongs to no map and is rejected by
+    /// the same check.
+    #[test]
+    #[should_panic(expected = "reader was registered on a different collector")]
+    fn blob_registered_rejects_unowned_collector_reader() {
+        let map = SyncExpanseBlobMap::new();
         let raw = Arc::new(Collector::new()).register();
         let _ = map.registered(&raw);
     }
