@@ -783,6 +783,13 @@ jobs:
           # the checker, and refusal of outcomes its prose does not describe.
           python3 docs/benchmarks/hot_comparison/scripts/concurrent_tables.py --self-test
           python3 scripts/check_readme_tables.py
+          # patricia_comparison's full-README generator (including Diagnostic D1
+          # and Diagnostic D2 under Amendment A4 and errata A5) must match
+          # docs/benchmarks/patricia_comparison/README.md byte-for-byte, and
+          # patricia_d2_bounds.py's unit tests pin that check and D2's dynamic
+          # derivation from the committed counter JSON artifacts.
+          python3 docs/benchmarks/patricia_comparison/scripts/generate_readme.py --check
+          (cd scripts && python3 -m unittest patricia_d2_bounds)
       - name: Verify Benchmark Artifact Provenance
         run: |
           python3 scripts/check_bench_provenance.py --self-test
