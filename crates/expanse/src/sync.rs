@@ -10842,6 +10842,13 @@ pub struct SyncExpanseBlobMap {
     /// Boxed, as the other cold state is, so the wrapper holds no interior
     /// mutability inline.
     reclaim_latch: Box<ReclaimLatch>,
+    /// The index allocator's accounting cell, read by
+    /// [`Self::mem_used_estimate`] without reaching into the engine (#1478).
+    /// Valid for the life of `shared`: the cell is boxed in the index's
+    /// allocator, and nothing replaces the index after `from_map`. Declared
+    /// last so the fields above keep their offsets.
+    #[cfg(not(feature = "ablation-unsharded-alloc"))]
+    index_acct: crate::alloc::AcctCell,
 }
 
 /// How many fast refusals [`ReclaimLatch`] allows between two quiesced
@@ -10891,6 +10898,14 @@ impl ReclaimLatch {
             .store(0, core::sync::atomic::Ordering::Release);
     }
 }
+
+#[cfg(all(
+    test,
+    not(feature = "ablation-unsharded-alloc"),
+    not(feature = "ablation-blob-shared-arena"),
+    not(feature = "ablation-blob-serial-writers")
+))]
+mod blob_mem_estimate_tests;
 
 impl Default for SyncExpanseBlobMap {
     fn default() -> Self {
@@ -10950,8 +10965,17 @@ impl SyncExpanseBlobMap {
             feature = "std"
         ))]
         let chunk_size = map.arena().chunk_size();
+        let shared = Shared::with_collector(map, collector);
+        // Taken from the engine at its final address, before any other thread
+        // can see the map. The index was rebuilt through a pre-deferred
+        // allocator above, so every byte it accounts is on the cell's shards.
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        let index_acct = shared
+            .inner_ref()
+            .index_acct_cell()
+            .expect("the index was deferred by `rebuild_index_deferred`");
         Self {
-            shared: Shared::with_collector(map, collector),
+            shared,
             tables,
             #[cfg(feature = "std")]
             arena_write: Box::new(line(Mutex::new(()))),
@@ -10970,6 +10994,8 @@ impl SyncExpanseBlobMap {
                 has_writer_deltas: core::sync::atomic::AtomicBool::new(false),
             }),
             reclaim_latch: Box::default(),
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
+            index_acct,
         }
     }
 
@@ -12560,9 +12586,86 @@ impl SyncExpanseBlobMap {
     /// the epoch collector (by a compaction or [`Self::clear`]) but not yet
     /// reclaimed — e.g. while a reader guard pins the epoch — are no longer
     /// included even though their allocations are still resident.
+    ///
+    /// **It waits.** The read excludes every writer (it takes the fallback
+    /// mutex, closes the writer gate and takes the writer mutex), and a
+    /// compaction holds all three from before its payload copy until its
+    /// index rewrite ends. A call made while [`Self::compact`] or a
+    /// reclaiming [`Self::insert`] runs therefore returns only after the
+    /// whole compaction, and every call makes writers wait for it. A thread
+    /// that polls memory should call [`Self::mem_used_estimate`], which does
+    /// neither.
     #[must_use]
     pub fn mem_used(&self) -> usize {
-        self.shared.read_locked(ExpanseBlobMap::mem_used)
+        self.shared.read_locked(|m| {
+            // The estimate's handle must name this index's cell for as long
+            // as the map lives (#1478): a path that replaced the index would
+            // leave it dangling.
+            #[cfg(not(feature = "ablation-unsharded-alloc"))]
+            debug_assert_eq!(m.index_acct_cell(), Some(self.index_acct));
+            m.mem_used()
+        })
+    }
+
+    /// [`Self::mem_used`] without the wait: an estimate that returns at once,
+    /// whatever else is running on the map.
+    ///
+    /// It takes none of the map's locks and does not close the writer gate,
+    /// so it neither waits for a compaction nor makes a writer wait. It pins
+    /// an epoch as a lookup does (the calling thread's first call registers
+    /// with the collector), and its cost is one load per writer slot plus one
+    /// per arena chunk.
+    ///
+    /// **What it sums.** The index's bytes from the per-writer accounting
+    /// counters its allocator already keeps, and the arena's bytes from the
+    /// chunk table readers resolve payloads through, each chunk at its
+    /// capacity. No insert, removal or allocation does any work for it.
+    ///
+    /// **How far it can be from [`Self::mem_used`].**
+    /// - With no insert, removal, clear or compaction in flight the two are
+    ///   equal.
+    /// - The arena term is the arena's size at its last chunk-set change. A
+    ///   compaction changes the chunk set once, at its end: while it copies
+    ///   and while it rewrites the index, the estimate is the figure from
+    ///   before the compaction, and from the table republish on it is the
+    ///   figure after it. It never counts the old and the new chunks
+    ///   together. The copy's new chunks are not counted until they replace
+    ///   the old ones, as `mem_used` does not count them either; the process
+    ///   holds both sets for the length of the copy.
+    /// - The index term is read counter by counter while writers run, so it
+    ///   can differ from the index's size at any one instant by at most the
+    ///   bytes of the index nodes that inserts and removals overlapping the
+    ///   call allocate or free. A compaction allocates no index node.
+    /// - The two terms are not read at one instant: a writer that adds a
+    ///   chunk and an index node around the call may be counted in one term
+    ///   and not the other.
+    ///
+    /// It counts no chunk twice. Like `mem_used`, it leaves out what the
+    /// epoch collector holds; [`Self::mem_held`] counts that, and waits as
+    /// `mem_used` does. With the diagnostic `ablation-unsharded-alloc`
+    /// feature the index has no per-writer counters to read and this is
+    /// [`Self::mem_used`], wait included.
+    #[must_use]
+    pub fn mem_used_estimate(&self) -> usize {
+        #[cfg(not(feature = "ablation-unsharded-alloc"))]
+        {
+            // SAFETY: the cell belongs to the index allocator of the engine
+            // `self.shared` owns, which lives until `self` drops; the index
+            // is never replaced after construction (`mem_used` asserts it in
+            // debug builds).
+            let index = unsafe { self.index_acct.bytes_in_use() };
+            let arena = self.shared.with_writer_pin(|| {
+                let table = self.tables.reader_table();
+                // SAFETY: the pin predates the load, so the table is
+                // EBR-live; it was published by this map's deferred arena.
+                unsafe { crate::blobmap::published_table_bytes(table) }
+            });
+            index + arena
+        }
+        #[cfg(feature = "ablation-unsharded-alloc")]
+        {
+            self.mem_used()
+        }
     }
 
     /// Heap bytes the blob map holds from the global allocator: the map's
@@ -12577,8 +12680,11 @@ impl SyncExpanseBlobMap {
     /// into the collector, not onto per-tree freelists, and carves no slab
     /// pages (`defer_to` asserts both). The arena's chunks are counted at
     /// their capacity, whatever part of them is live. Compare this, not
-    /// `mem_used`, with resident memory. Writers wait for it, so it does not
-    /// belong in a hot loop.
+    /// `mem_used`, with resident memory. Writers wait for it, and it waits
+    /// for any running compaction, as [`Self::mem_used`] does, so it does not
+    /// belong in a hot loop. It has no unlocked form: the collector's
+    /// freelists are counted by walking each under its lock.
+    /// [`Self::mem_used_estimate`] gives the map's own share without waiting.
     #[must_use]
     pub fn mem_held(&self) -> usize {
         self.shared.read_locked(ExpanseBlobMap::mem_used) + self.shared.collector_held()
