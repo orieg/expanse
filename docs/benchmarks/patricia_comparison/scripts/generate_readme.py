@@ -15,7 +15,10 @@ the prose below is a stamped constant about the results.
 
 from __future__ import annotations
 
+import argparse
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
@@ -23,6 +26,7 @@ BASE = Path(__file__).resolve().parent.parent
 RESULTS = BASE / "results"
 REPO = BASE.parent.parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import patricia_d2_bounds as pd2  # noqa: E402
 import patricia_envelope as pe  # noqa: E402
 
 TWINS = ("patricia_tree", "fast_radix_trie", "qp_trie")
@@ -310,6 +314,356 @@ def d1_section() -> list[str]:
     return lines + [""]
 
 
+def d2_section(results_dir: Path = RESULTS) -> list[str]:
+    """Diagnostic D2 (METHODOLOGY.md Amendment A4 and errata A5), derived from its counter artifacts.
+
+    Every number, ratio, interval, ci_method, THP fault count, host-guard reading and
+    verdict is computed here from the committed counter artifacts and patricia_d2_bounds.py.
+    """
+    r1_2m_path = results_dir / "counters_prefix_scan_d2_2m_run1.json"
+    if not r1_2m_path.exists():
+        return []
+
+    def load_counter(name: str) -> dict:
+        return json.loads((results_dir / name).read_text())
+
+    def short_host(prov: dict) -> str:
+        return re.sub(r"Linux (\d+\.\d+)\.[^)]+", r"Linux \1", prov["host_description"])
+
+    def fmt_ci(v: dict, fmt: str = ".4f", show_non_bca: bool = False) -> str:
+        lo, hi = v["ci"]
+        s = f"{v['point']:{fmt}} [{lo:{fmt}}, {hi:{fmt}}]"
+        if show_non_bca and v.get("ci_method") and v["ci_method"] != "bca":
+            s += f" (`{v['ci_method']}`)"
+        return s
+
+    def fmt_bound(c: dict, fmt: str) -> str:
+        op = "≤" if c["decided_on"] == "upper" else "≥"
+        return f"{c['decided_on']} {op} {c['bound']:{fmt}}"
+
+    r1_2m = load_counter("counters_prefix_scan_d2_2m_run1.json")
+    r2_2m = load_counter("counters_prefix_scan_d2_2m_run2.json")
+    r1_4k = load_counter("counters_prefix_scan_d2_4k_run1.json")
+    r2_4k = load_counter("counters_prefix_scan_d2_4k_run2.json")
+
+    a4_1 = pd2.evaluate_d2(r1_2m, registration="A4")
+    a4_2 = pd2.evaluate_d2(r2_2m, registration="A4")
+    diff_4k_1 = pd2.arm_differences(r1_4k)
+    diff_2m_1 = pd2.arm_differences(r1_2m)
+    diff_4k_2 = pd2.arm_differences(r2_4k)
+    diff_2m_2 = pd2.arm_differences(r2_2m)
+
+    runs_n = r1_2m["cells"][0]["counters"]["cycles"]["n"]
+    pmu_name = r1_2m["pmu"]["selected"]
+    pmu_cpus = r1_2m["pmu"]["cpus"]
+    conf_pct = int(round(r1_2m["statistics"]["confidence"] * 100))
+
+    a4_verdict = a4_1["verdict"] if a4_1["verdict"] == a4_2["verdict"] else f"{a4_1['verdict']} / {a4_2['verdict']}"
+    a4_clauses_ok = all(c["met"] for c in a4_1["clauses"].values()) and all(c["met"] for c in a4_2["clauses"].values())
+    a4_host_ok = a4_1["host_precondition"]["met"] and a4_2["host_precondition"]["met"]
+    load1_r1 = a4_1["host_precondition"]["load1_max"]
+    load1_r2 = a4_2["host_precondition"]["load1_max"]
+    foreign_a4_max = max(a4_1["host_precondition"]["foreign_busy_cpus_max"],
+                         a4_2["host_precondition"]["foreign_busy_cpus_max"])
+    tag_r1 = f"(measured: {short_host(r1_2m['provenance'])}, {r1_2m['provenance']['commit'][:8]})"
+    tag_r2 = f"(measured: {short_host(r2_2m['provenance'])}, {r2_2m['provenance']['commit'][:8]})"
+
+    clause_meta = (
+        ("D2a", "**D2a** `dTLB-load-misses`, generator build", ".4f"),
+        ("D2b", "**D2b** `mem_load_retired.l3_miss` difference", ".4f"),
+        ("D2c", "**D2c** `cycles` difference", ".2f"),
+    )
+
+    lines = [
+        "### Diagnostic D2: the build-order gap under 2 MiB pages (workload: example_perf_point_lookup)",
+        "",
+        f"Pre-registered in `METHODOLOGY.md` Amendment A4. Same arms and counters as D1, with the heap backed "
+        f"by 2 MiB transparent huge pages. Counts per yielded entry over {runs_n} paired runs on the "
+        f"`{pmu_name}` PMU, pinned `{pmu_cpus}`, BCa {conf_pct}% interval. D2b and D2c are the generator-build "
+        f"count minus the sorted-build count, taken run by run in recorded order; the two arms are separate "
+        f"blocks of processes, so that order pairs nothing. Evaluated under A4 by "
+        f"`scripts/patricia_d2_bounds.py --evaluate-a4` on `results/counters_prefix_scan_d2_2m_run1.json` "
+        f"and `_run2.json`.",
+        "",
+        f"**Verdict: `{a4_verdict}` in both runs.** "
+        + ("All three clauses are met in both runs" if a4_clauses_ok else "Not all clauses are met")
+        + (", and A4's registered host condition is not met as written. " if not a4_host_ok else ". ")
+        + f"A4 registers `loadavg <= {pd2.REGISTERED_LOAD1_MAX:.1f}` and "
+        f"`foreign_busy_cpus == {pd2.REGISTERED_FOREIGN_MAX:g}`; the artifacts record a one-minute load "
+        f"average of up to {load1_r1:.2f} and {load1_r2:.2f} and foreign CPU of up to {foreign_a4_max:.2f} "
+        f"core-equivalents. The condition was mis-specified: the measured workload is one thread, which reads "
+        f"a load average near 1 by itself, and the host guard judged both runs quiet. A PASS needs an amended "
+        f"condition and fresh runs (`AGENTS.md` §8.19). This section first recorded the runs as PASS without "
+        f"stating the condition.",
+        "",
+        f"| Clause | Bound | Run 1 {tag_r1} | Run 2 {tag_r2} |",
+        "|---|---|---|---|",
+    ]
+    for cid, label, bfmt in clause_meta:
+        c1, c2 = a4_1["clauses"][cid], a4_2["clauses"][cid]
+        lines.append(f"| {label} | {fmt_bound(c1, bfmt)} | {fmt_ci(c1)} | {fmt_ci(c2)} |")
+
+    lines += [
+        "",
+        "The same two dispatches ran the arms on 4 KiB pages (`counters_prefix_scan_d2_4k_run1.json`, `_run2.json`). Generator minus sorted, per entry:",
+        "",
+        "| Counter | 4 KiB, run 1 | 2 MiB, run 1 | 4 KiB, run 2 | 2 MiB, run 2 |",
+        "|---|---|---|---|---|",
+    ]
+    diff_counters = ("cycles", "mem_load_retired.l3_miss", "LLC-load-misses", "dTLB-load-misses")
+    for counter in diff_counters:
+        lines.append(
+            f"| `{counter}` | {fmt_ci(diff_4k_1[counter])} | {fmt_ci(diff_2m_1[counter])} | "
+            f"{fmt_ci(diff_4k_2[counter])} | {fmt_ci(diff_2m_2[counter])} |"
+        )
+
+    c4k_1, c2m_1 = diff_4k_1["cycles"]["point"], diff_2m_1["cycles"]["point"]
+    c4k_2, c2m_2 = diff_4k_2["cycles"]["point"], diff_2m_2["cycles"]["point"]
+    cdrop_1, cdrop_2 = c4k_1 - c2m_1, c4k_2 - c2m_2
+    cpct_1, cpct_2 = cdrop_1 / c4k_1 * 100, cdrop_2 / c4k_2 * 100
+    rem_floor = math.floor(min(a4_1["clauses"]["D2c"]["ci"][0], a4_2["clauses"]["D2c"]["ci"][0]))
+
+    l3_4k_1, l3_2m_1 = diff_4k_1["mem_load_retired.l3_miss"]["point"], diff_2m_1["mem_load_retired.l3_miss"]["point"]
+    l3_4k_2, l3_2m_2 = diff_4k_2["mem_load_retired.l3_miss"]["point"], diff_2m_2["mem_load_retired.l3_miss"]["point"]
+    l3_drop_pct = int(round(((l3_4k_1 - l3_2m_1) / l3_4k_1 + (l3_4k_2 - l3_2m_2) / l3_4k_2) / 2 * 100, -1))
+    llc_4k_1, llc_2m_1 = diff_4k_1["LLC-load-misses"]["point"], diff_2m_1["LLC-load-misses"]["point"]
+    llc_4k_2, llc_2m_2 = diff_4k_2["LLC-load-misses"]["point"], diff_2m_2["LLC-load-misses"]["point"]
+    llc_pct_1 = (llc_4k_1 - llc_2m_1) / llc_4k_1 * 100
+    llc_pct_2 = (llc_4k_2 - llc_2m_2) / llc_4k_2 * 100
+    d2b_a4_met = a4_1["clauses"]["D2b"]["met"] and a4_2["clauses"]["D2b"]["met"]
+    r2_d2a_method = a4_2["clauses"]["D2a"]["ci_method"]
+
+    w_2m_1 = diff_2m_1["cycles"]["ci"][1] - diff_2m_1["cycles"]["ci"][0]
+    w_2m_2 = diff_2m_2["cycles"]["ci"][1] - diff_2m_2["cycles"]["ci"][0]
+    w_4k = max(diff_4k_1["cycles"]["ci"][1] - diff_4k_1["cycles"]["ci"][0],
+               diff_4k_2["cycles"]["ci"][1] - diff_4k_2["cycles"]["ci"][0])
+
+    lines += [
+        "",
+        "What the two runs show:",
+        "",
+        f"- **Huge pages remove the dTLB misses and part of the gap, not all of it.** The cycle gap falls "
+        f"from {c4k_1:.1f} and {c4k_2:.1f} per entry on 4 KiB pages to {c2m_1:.1f} and {c2m_2:.1f} on "
+        f"2 MiB pages: {cdrop_1:.1f} and {cdrop_2:.1f} cycles per entry, {cpct_1:.0f}% and {cpct_2:.0f}% "
+        f"of it. At least {rem_floor} cycles per entry remain in both runs.",
+        f"- **The retired-L3-miss count is not invariant under paging.** `mem_load_retired.l3_miss` falls "
+        f"by about {l3_drop_pct}% ({l3_4k_1:.3f} to {l3_2m_1:.3f}, {l3_4k_2:.3f} to {l3_2m_2:.3f}) while "
+        f"`LLC-load-misses` falls by about {llc_pct_1:.0f}% and {llc_pct_2:.0f}%. Clause D2b's bound is "
+        + ("still met." if d2b_a4_met else "not met.")
+        + " Why the two events diverge is not measured.",
+        "- **Nothing here says what the remaining cycles are spent on.** D2c's bound is D1's L3-stall "
+        "figure, and meeting it shows the gap is at least that large. The stall counter itself was not "
+        "counted in these runs (`cycle_activity.stalls_l3_miss` reads 0 in this event set and is withheld), "
+        "so no share of the remaining gap is attributed to L3 misses.",
+        f"- Run 2's D2a interval, and its `dTLB-load-misses` difference, are the bias-corrected construction "
+        f"(`ci_method: {r2_d2a_method}`); every other interval above is BCa.",
+        "- The two runs are at different commits. Between them `strmap.rs` changed by one documentation "
+        "comment, and no other file on the plain string map's scan path changed.",
+        f"- Under 2 MiB pages the generator arm varies more between processes than under 4 KiB pages "
+        f"(cycle-gap interval widths of {w_2m_1:.1f} and {w_2m_2:.1f} against {w_4k:.1f}). The cause is "
+        f"not measured.",
+        "- D2 tests no remedy: child and leaf co-allocation, prefetching and packed suffixes are each unmeasured.",
+    ]
+
+    a5_2m_1_path = results_dir / "counters_prefix_scan_d2_2m_a5_run1.json"
+    if not a5_2m_1_path.exists():
+        return lines + [""]
+
+    a5_2m_1 = load_counter("counters_prefix_scan_d2_2m_a5_run1.json")
+    a5_4k_1 = load_counter("counters_prefix_scan_d2_4k_a5_run1.json")
+    a5_2m_2 = load_counter("counters_prefix_scan_d2_2m_a5_run2.json")
+    a5_4k_2 = load_counter("counters_prefix_scan_d2_4k_a5_run2.json")
+
+    ev_a5_1 = pd2.evaluate_d2(a5_2m_1, a5_4k_1)
+    ev_a5_2 = pd2.evaluate_d2(a5_2m_2, a5_4k_2)
+    pair_a5 = pd2.d2_verdict([ev_a5_1, ev_a5_2])
+
+    dispatches = [(1, ev_a5_1, a5_2m_1, a5_4k_1), (2, ev_a5_2, a5_2m_2, a5_4k_2)]
+    admissible = [(idx, ev, d2m, d4k) for idx, ev, d2m, d4k in dispatches if ev["verdict"] != "VOID"]
+    adm_idx, adm_ev, adm_2m, adm_4k = admissible[-1]
+    failed_clauses = [k for k, v in adm_ev["clauses"].items() if not v["met"]]
+    failed_str = ", ".join(failed_clauses)
+    heading_suffix = f" on {failed_str}" if failed_clauses else ""
+
+    a5_commit = pair_a5["commit"][:9]
+    a5_tag = f"(measured: {short_host(adm_2m['provenance'])}, {a5_commit})"
+
+    lines += [
+        "",
+        f"#### D2 under errata A5: `{pair_a5['verdict']}`{heading_suffix} (workload: example_perf_point_lookup)",
+        "",
+        f"The A4-era verdict above stands as recorded and is not re-read. `METHODOLOGY.md` errata A5 replaced "
+        f"A4's host condition and registered a verdict from two new dispatches at one commit. Both ran at "
+        f"`{a5_commit}` {a5_tag}. Evaluated by `scripts/patricia_d2_bounds.py --evaluate` and `--verdict` on "
+        f"the four `results/counters_prefix_scan_d2_{{2m,4k}}_a5_run{{1,2}}.json` artifacts.",
+        "",
+        f"**Pair verdict: `{pair_a5['verdict']}`, final.** "
+        + (f"The one admissible dispatch ({adm_idx}) does not meet {failed_str}. " if failed_clauses else "All clauses are met. ")
+        + "Under A5.5 an admissible dispatch that misses a clause is never replaced, so no further dispatch "
+        "is made. The bound was not moved to the measurement (`AGENTS.md` §8.19).",
+        "",
+        "| Dispatch | Run | Admissible | Verdict | Host readings (`provenance`, both artifacts) |",
+        "|---|---|---|---|---|",
+    ]
+
+    for idx, ev, d2m, d4k in dispatches:
+        run_url = d2m["provenance"]["run_id"]
+        run_num = run_url.rsplit("/", 1)[-1]
+        run_col = f"[{run_num}]({run_url}) (`a5_run{idx}`)"
+        if ev["verdict"] != "VOID":
+            adm_col = "yes"
+        elif ev["host_precondition"]["met"]:
+            adm_col = "no: the host condition (H0 to H2) is met, the huge-page precondition of §3.4.2 is not"
+        else:
+            adm_col = "no"
+
+        if ev["verdict"] == "VOID":
+            verdict_col = f"`VOID`: `{'; '.join(ev['voids'])}`"
+        elif ev["verdict"] == "FAIL":
+            missed = ", ".join(k for k, v in ev["clauses"].items() if not v["met"])
+            verdict_col = f"`FAIL` ({missed})"
+        else:
+            verdict_col = f"`{ev['verdict']}`"
+
+        g = d2m["provenance"]["host_guard"]
+        g_start = g["start"]["verdict"]
+        g_run = g["run"]["verdict"]
+        g_samples = g["run"]["samples"]
+        g_voids = g["run"]["voids"]
+        g_wf = g["run"]["worst_foreign_busy_cpus"]
+        g_wp = g["run"]["worst_on_pin_foreign_busy_cpus"]
+        l2m = [x["load1"] for x in d2m["provenance"]["loads"]]
+        l4k = [x["load1"] for x in d4k["provenance"]["loads"]]
+        f2m = [x["foreign_busy_cpus_since_prev"] for x in d2m["provenance"]["loads"][1:]]
+        f4k = [x["foreign_busy_cpus_since_prev"] for x in d4k["provenance"]["loads"][1:]]
+        if len(set(f2m + f4k)) == 1:
+            f_str = f"foreign {f2m[0]:.2f} in all four windows"
+        else:
+            f_str = f"foreign {', '.join(f'{x:.2f}' for x in f2m)} and {', '.join(f'{x:.2f}' for x in f4k)}"
+        host_col = (
+            f"guard start {g_start}, in-run {g_run} ({g_samples} samples, {g_voids} voids, "
+            f"worst foreign {g_wf:.3f}, worst on-pin {g_wp:.3f}); "
+            f"`load1` {min(l2m):.2f} to {max(l2m):.2f} (2 MiB), {min(l4k):.2f} to {max(l4k):.2f} (4 KiB); {f_str}"
+        )
+        lines.append(f"| {idx} | {run_col} | {adm_col} | {verdict_col} | {host_col} |")
+
+    c1_cells = {c["arm"]: c for c in a5_2m_1["cells"]}
+    c2_cells = {c["arm"]: c for c in a5_2m_2["cells"]}
+    c1_gen_thp = c1_cells[pd2.GENERATOR_ARM]["thp_delta"]
+    c1_srt_thp = c1_cells[pd2.SORTED_ARM]["thp_delta"]
+    c2_gen_thp = c2_cells[pd2.GENERATOR_ARM]["thp_delta"]
+    c2_srt_thp = c2_cells[pd2.SORTED_ARM]["thp_delta"]
+    c2_fb_max = max(c2_gen_thp["thp_fault_fallback"], c2_srt_thp["thp_fault_fallback"])
+
+    adm_runs = adm_2m["cells"][0]["counters"]["cycles"]["n"]
+    lines += [
+        "",
+        f"Dispatch 1's 2 MiB artifact records `thp_fault_fallback` {c1_gen_thp['thp_fault_fallback']} for "
+        f"the generator arm (`thp_fault_alloc` {c1_gen_thp['thp_fault_alloc']:,}) and "
+        f"{c1_srt_thp['thp_fault_fallback']} for the sorted arm ({c1_srt_thp['thp_fault_alloc']:,}). Under "
+        f"A5.3 a void dispatch's clauses are not evaluated and its counts are not published; the artifacts "
+        f"are committed so the void is reproducible. The cause of the fallback is not measured. An "
+        f"operator's observation on the reference host after the run, which is in no artifact: free memory "
+        f"was low with a large page cache, the kernel's `thp_fault_fallback` counter read "
+        f"{c1_gen_thp['thp_fault_fallback']} (equal to the run's), and compaction had failed; the cache was "
+        f"dropped and memory compacted before dispatch 2. The hypothesis it suggests, that memory was too "
+        f"full and fragmented to supply 2 MiB pages, is unmeasured. Dispatch 2 recorded `thp_fault_fallback` "
+        f"{c2_fb_max} in both arms (`thp_fault_alloc` {c2_gen_thp['thp_fault_alloc']:,} and "
+        f"{c2_srt_thp['thp_fault_alloc']:,}).",
+        "",
+        f"Clauses of dispatch {adm_idx}, per yielded entry, {adm_runs} runs, generator build minus sorted "
+        f"build for D2b and D2c {a5_tag}:",
+        "",
+        "| Clause | Registered bound | Decided on | Point [95% interval] | `ci_method` | Met |",
+        "|---|---|---|---|---|---|",
+    ]
+
+    a5_clause_order = (
+        ("D2b", "**D2b** `mem_load_retired.l3_miss` difference", ".4f", ".4f"),
+        ("D2a", "**D2a** `dTLB-load-misses`, generator build", ".4f", ".5f"),
+        ("D2c", "**D2c** `cycles` difference", ".2f", ".4f"),
+    )
+    for cid, label, bfmt, vfmt in a5_clause_order:
+        c = adm_ev["clauses"][cid]
+        if c["met"]:
+            met_str = "yes"
+        elif c["decided_on"] == "lower":
+            gap = c["bound"] - c["ci"][0]
+            rel_pt = "above" if c["point"] >= c["bound"] else "below"
+            met_str = f"**no** (lower bound {gap:.4f} below the bound; point {rel_pt} it)"
+        else:
+            gap = c["ci"][1] - c["bound"]
+            rel_pt = "below" if c["point"] <= c["bound"] else "above"
+            met_str = f"**no** (upper bound {gap:.4f} above the bound; point {rel_pt} it)"
+        lines.append(
+            f"| {label} | {fmt_bound(c, bfmt)} | {c['decided_on']} | {fmt_ci(c, vfmt)} | "
+            f"`{c['ci_method']}` | {met_str} |"
+        )
+
+    d2a_c = adm_ev["clauses"]["D2a"]
+    d2b_c = adm_ev["clauses"]["D2b"]
+    d1_l3 = pd2.D1_GEN_L3_POINT
+    d1_l3_delta = pd2.D1_GEN_L3_POINT - pd2.D1_SORTED_L3_POINT
+    reg_ret_pct = int(round(d2b_c["bound"] / d1_l3_delta * 100))
+    pt_pct = d2b_c["point"] / d1_l3 * 100
+    lo_pct = d2b_c["ci"][0] / d1_l3 * 100
+    hi_pct = d2b_c["ci"][1] / d1_l3 * 100
+
+    adm_diff_4k = pd2.arm_differences(adm_4k)
+    adm_diff_2m = pd2.arm_differences(adm_2m)
+
+    lines += [
+        "",
+        f"D2a's interval is the bias-corrected construction, not BCa (`ci_method: {d2a_c['ci_method']}`). "
+        f"The D1 reference for D2b is {d1_l3:.4f} (above): the point is {pt_pct:.1f}% of it, the lower bound "
+        f"{lo_pct:.1f}% and the upper bound {hi_pct:.1f}% (derived), against the registered {reg_ret_pct}%.",
+        "",
+        f"The 4 KiB control of dispatch {adm_idx}, same arms, generator minus sorted:",
+        "",
+        "| Counter | 4 KiB | 2 MiB |",
+        "|---|---|---|",
+    ]
+    for counter in diff_counters:
+        lines.append(
+            f"| `{counter}` | {fmt_ci(adm_diff_4k[counter], show_non_bca=True)} | "
+            f"{fmt_ci(adm_diff_2m[counter], show_non_bca=True)} |"
+        )
+
+    adm_c_4k, adm_c_2m = adm_diff_4k["cycles"]["point"], adm_diff_2m["cycles"]["point"]
+    adm_c_drop = adm_c_4k - adm_c_2m
+    adm_c_pct = adm_c_drop / adm_c_4k * 100
+    adm_l3_4k = adm_diff_4k["mem_load_retired.l3_miss"]["point"]
+    adm_l3_2m = adm_diff_2m["mem_load_retired.l3_miss"]["point"]
+    adm_l3_pct = (adm_l3_4k - adm_l3_2m) / adm_l3_4k * 100
+    a4_1_d2b_lo = a4_1["clauses"]["D2b"]["ci"][0]
+    a4_2_d2b_lo = a4_2["clauses"]["D2b"]["ci"][0]
+    d2c_met = adm_ev["clauses"]["D2c"]["met"]
+
+    lines += [
+        "",
+        f"From the 4 KiB to the 2 MiB point, the cycle gap falls by {adm_c_drop:.1f} per entry "
+        f"({adm_c_pct:.1f}%) and the retired-L3-miss difference by {adm_l3_pct:.1f}% (derived). Only one "
+        f"admissible dispatch exists, so no statement about the direction of a change between page sizes is "
+        f"made across dispatches (`docs/BENCHMARKING.md` rule 18). The two A4-era runs recorded D2b lower "
+        f"bounds of {a4_1_d2b_lo:.4f} and {a4_2_d2b_lo:.4f} at other commits; why dispatch {adm_idx}'s "
+        f"reading is lower is not measured, and those runs keep their label.",
+        "",
+        f"What `{pair_a5['verdict']}` says, in D2's registered terms: D2b's falsifier, a BCa lower bound "
+        f"below {d2b_c['bound']:.4f}, "
+        + ("holds" if not d2b_c["met"] else "does not hold")
+        + " in the admissible dispatch, so the retired-L3-miss difference under 2 MiB pages "
+        + ("could not be shown to retain" if not d2b_c["met"] else "retains")
+        + f" {reg_ret_pct}% of D1's. The conclusion §3.4.4 registers for a PASS (translation misses an "
+        "orthogonal overlay, with a dispersal effect that paging does not resolve) is therefore "
+        + ("not supported" if pair_a5["verdict"] != "PASS" else "supported")
+        + " by D2. §3.4.4's other branch, \"If D2c is falsified\", is "
+        + ("not triggered, because D2c is met." if d2c_met else "triggered, because D2c is not met.")
+        + " D2 registers no other consequence. D2a and D2c are reported as measured; they do not change the "
+        "verdict, and the verdict does not say what the remaining cycle gap consists of. D2 tests no remedy.",
+    ]
+    return lines + [""]
+
+
 def memory_table(mem: dict) -> list[str]:
     arms = ("expanse",) + TWINS
     lines = ["### Live heap (workload: patricia_memory)", "",
@@ -404,15 +758,23 @@ def render() -> str:
                      lambda t: [f"ratio_expanse_over_{t}"]),
         *surface_table(scan),
         *d1_section(),
+        *d2_section(),
         *memory_table(mem),
     ]
     return "\n".join(md).rstrip() + "\n"
 
 
-def main() -> int:
+README_PATH = BASE / "README.md"
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--check", action="store_true",
+                    help="exit non-zero if README.md differs from what the artifacts produce")
+    args = ap.parse_args(argv)
     text = render()
-    target = BASE / "README.md"
-    if "--check" in sys.argv:
+    target = README_PATH
+    if args.check:
         if target.read_text() != text:
             print("README.md is stale; run generate_readme.py", file=sys.stderr)
             return 1

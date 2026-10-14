@@ -128,6 +128,7 @@ python3 scripts/check_bench_suites.py
 python3 scripts/check_bench_shapes.py
 python3 scripts/check_bench_pin.py
 python3 scripts/check_readme_tables.py
+python3 docs/benchmarks/patricia_comparison/scripts/generate_readme.py --check
 python3 scripts/check_bench_provenance.py
 python3 scripts/check_man_pages.py
 python3 scripts/check_deletion_rationale.py

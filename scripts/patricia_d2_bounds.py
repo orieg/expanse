@@ -495,6 +495,30 @@ def load_d1_reference_values(repo_root: Path) -> dict[str, float]:
     }
 
 
+def arm_differences(
+    artifact: dict,
+    counters: tuple[str, ...] = ("cycles", "mem_load_retired.l3_miss", "LLC-load-misses", "dTLB-load-misses"),
+    expected_entries: int = D1_OPS,
+) -> dict[str, dict]:
+    """Per-entry (generator - sorted) differences and BCa 95% intervals for `counters`."""
+    cells = {c["arm"]: c for c in artifact["cells"]}
+    missing = [a for a in (GENERATOR_ARM, SORTED_ARM) if a not in cells]
+    if missing:
+        raise ValueError(f"artifact has no cell for arm(s) {missing}")
+
+    def per_entry(arm: str, counter: str) -> list[float]:
+        return [x / expected_entries for x in cells[arm]["counters"][counter]["samples"]]
+
+    out = {}
+    for counter in counters:
+        data = [a - b for a, b in zip(per_entry(GENERATOR_ARM, counter), per_entry(SORTED_ARM, counter), strict=True)]
+        point, lo, hi, method = bca_bootstrap_ci_with_method(data, confidence=0.95)
+        out[counter] = {
+            "n": len(data), "point": point, "ci": [lo, hi], "ci_method": method,
+        }
+    return out
+
+
 class TestPatriciaD2Bounds(unittest.TestCase):
     def test_pinned_d1_constants(self):
         self.assertAlmostEqual(D1_GEN_DTLB_POINT, 0.820341, places=5)
@@ -886,6 +910,125 @@ class TestPatriciaD2Bounds(unittest.TestCase):
             self.assertAlmostEqual(r["clauses"]["D2c"]["ci"][0], d2c_lower, places=2)
             self.assertFalse(r["host_precondition"]["met"])
             self.assertGreater(r["host_precondition"]["load1_max"], 1.0)
+
+        with open(results / "counters_prefix_scan_d2_2m_a5_run1.json", encoding="utf-8") as fh:
+            a5_2m_1 = json.load(fh)
+        with open(results / "counters_prefix_scan_d2_4k_a5_run1.json", encoding="utf-8") as fh:
+            a5_4k_1 = json.load(fh)
+        with open(results / "counters_prefix_scan_d2_2m_a5_run2.json", encoding="utf-8") as fh:
+            a5_2m_2 = json.load(fh)
+        with open(results / "counters_prefix_scan_d2_4k_a5_run2.json", encoding="utf-8") as fh:
+            a5_4k_2 = json.load(fh)
+
+        r_a5_1 = evaluate_d2(a5_2m_1, a5_4k_1)
+        self.assertEqual(r_a5_1["verdict"], "VOID")
+        self.assertTrue(r_a5_1["host_precondition"]["met"])
+        self.assertTrue(any("fell back to small pages" in v for v in r_a5_1["voids"]))
+
+        r_a5_2 = evaluate_d2(a5_2m_2, a5_4k_2)
+        self.assertEqual(r_a5_2["verdict"], "FAIL")
+        self.assertTrue(r_a5_2["host_precondition"]["met"])
+        self.assertTrue(r_a5_2["clauses"]["D2a"]["met"])
+        self.assertFalse(r_a5_2["clauses"]["D2b"]["met"])
+        self.assertTrue(r_a5_2["clauses"]["D2c"]["met"])
+        self.assertAlmostEqual(r_a5_2["clauses"]["D2b"]["ci"][0], 0.1400, places=4)
+        self.assertEqual(d2_verdict([r_a5_1, r_a5_2])["verdict"], "FAIL")
+
+    def test_arm_differences(self):
+        gen, srt = self._good()
+        gen["LLC-load-misses"] = [65.0 + j / 10 for j in self.JITTER]
+        srt["LLC-load-misses"] = [5.0] * 10
+        art = self._artifact(gen, srt)
+        diffs = arm_differences(art, expected_entries=100)
+        self.assertEqual(set(diffs.keys()), {"cycles", "mem_load_retired.l3_miss", "LLC-load-misses", "dTLB-load-misses"})
+        self.assertAlmostEqual(diffs["LLC-load-misses"]["point"], (65.0 - 5.0) / 100.0, places=6)
+        self.assertEqual(diffs["LLC-load-misses"]["ci_method"], "bca")
+        self.assertLessEqual(diffs["LLC-load-misses"]["ci"][0], diffs["LLC-load-misses"]["point"])
+        self.assertGreaterEqual(diffs["LLC-load-misses"]["ci"][1], diffs["LLC-load-misses"]["point"])
+        with self.assertRaises(ValueError):
+            arm_differences({"cells": []}, expected_entries=100)
+
+    def test_generate_readme_check_and_d2_dynamic_derivation(self):
+        import importlib.util
+        import shutil
+        import subprocess
+        import tempfile
+
+        repo_root = Path(__file__).resolve().parent.parent
+        gen_path = repo_root / "docs/benchmarks/patricia_comparison/scripts/generate_readme.py"
+        readme_path = repo_root / "docs/benchmarks/patricia_comparison/README.md"
+        results_dir = repo_root / "docs/benchmarks/patricia_comparison/results"
+
+        spec = importlib.util.spec_from_file_location("patricia_generate_readme", gen_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        # 1. Committed README matches generate_readme.py --check byte-for-byte.
+        self.assertEqual(mod.main(["--check"]), 0)
+
+        # 2. --help and unknown flags do not overwrite README.md.
+        orig_readme = readme_path.read_text(encoding="utf-8")
+        help_proc = subprocess.run(
+            [sys.executable, str(gen_path), "--help"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(help_proc.returncode, 0)
+        self.assertIn("--check", help_proc.stdout)
+        bad_flag_proc = subprocess.run(
+            [sys.executable, str(gen_path), "--unknown-flag"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(bad_flag_proc.returncode, 2)
+        self.assertEqual(readme_path.read_text(encoding="utf-8"), orig_readme)
+
+        # 3. --check fails (exit 1) when any D2 number in README.md is stale.
+        with tempfile.TemporaryDirectory() as tmp:
+            stale_readme = Path(tmp) / "README.md"
+            stale_readme.write_text(
+                orig_readme.replace("0.1482 [0.1400, 0.1617]", "0.1483 [0.1400, 0.1617]", 1),
+                encoding="utf-8",
+            )
+            orig_out = mod.README_PATH
+            try:
+                mod.README_PATH = stale_readme
+                self.assertEqual(mod.main(["--check"]), 1)
+            finally:
+                mod.README_PATH = orig_out
+
+        # 4. d2_section() dynamically derives every D2 number and verdict from the JSON files.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_results = Path(tmp)
+            for p in results_dir.glob("counters_prefix_scan_d2_*.json"):
+                shutil.copy2(p, tmp_results / p.name)
+
+            a4_2m_r1 = json.loads((tmp_results / "counters_prefix_scan_d2_2m_run1.json").read_text(encoding="utf-8"))
+            a4_2m_r1["provenance"]["loads"][1]["load1"] = 1.88
+            (tmp_results / "counters_prefix_scan_d2_2m_run1.json").write_text(json.dumps(a4_2m_r1), encoding="utf-8")
+
+            for run in (1, 2):
+                p_a5 = tmp_results / f"counters_prefix_scan_d2_2m_a5_run{run}.json"
+                a5_2m = json.loads(p_a5.read_text(encoding="utf-8"))
+                if run == 1:
+                    a5_2m["provenance"]["host_guard"]["run"]["samples"] = 999
+                if run == 2:
+                    a5_2m["cells"][0]["thp_delta"]["thp_fault_alloc"] = 1999
+                for cell in a5_2m["cells"]:
+                    cell["thp_delta"]["thp_fault_fallback"] = 0
+                    if cell["arm"] == GENERATOR_ARM:
+                        cell["counters"]["mem_load_retired.l3_miss"]["samples"] = [
+                            v + 1_500_000.0 for v in cell["counters"]["mem_load_retired.l3_miss"]["samples"]
+                        ]
+                p_a5.write_text(json.dumps(a5_2m), encoding="utf-8")
+
+            rendered = "\n".join(mod.d2_section(tmp_results))
+            self.assertIn("of up to 1.88 and 1.52", rendered)
+            self.assertNotIn("of up to 1.47 and 1.52", rendered)
+            self.assertIn("1,999 and 1,617", rendered)
+            self.assertIn("999 samples, 0 voids", rendered)
+            self.assertIn("#### D2 under errata A5: `PASS` (workload: example_perf_point_lookup)", rendered)
+            self.assertIn("**Pair verdict: `PASS`, final.** All clauses are met.", rendered)
+            self.assertIn("is therefore supported by D2.", rendered)
+
 
 
 def main() -> int:
