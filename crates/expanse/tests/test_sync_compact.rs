@@ -8,15 +8,22 @@
 
 use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 static SUITE_LOCK: Mutex<()> = Mutex::new(());
 
+fn lock_suite() -> Result<std::sync::MutexGuard<'static, ()>, std::convert::Infallible> {
+    Ok(SUITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
 #[test]
 fn test_sync_map_compact_empty() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let map = SyncExpanseMap::new();
     assert_eq!(map.len(), 0);
     assert!(map.is_empty());
@@ -103,7 +110,7 @@ fn test_sync_set_compact_identity_large() {
 
 #[test]
 fn test_sync_map_post_compact_optimistic_insert_takes_olc_path() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let map = SyncExpanseMap::new();
     // Insert past ROOT_LEAF_CAP so the root is a Tree
     for i in 0..128 {
@@ -147,7 +154,7 @@ fn test_sync_map_post_compact_optimistic_insert_takes_olc_path() {
 
 #[test]
 fn test_sync_set_post_compact_optimistic_insert_takes_olc_path() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let set = SyncExpanseSet::new();
     for i in 0..128 {
         set.insert(i * 2);
@@ -188,7 +195,7 @@ fn test_sync_set_post_compact_optimistic_insert_takes_olc_path() {
 
 #[test]
 fn test_sync_map_compact_reclaims_memory() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let map = SyncExpanseMap::new();
     const TOTAL: u64 = 20_000;
     const REMOVE: u64 = 16_000;
@@ -259,7 +266,7 @@ fn test_sync_map_compact_reclaims_memory() {
 
 #[test]
 fn test_sync_set_compact_reclaims_memory() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let set = SyncExpanseSet::new();
     const TOTAL: u64 = 20_000;
     const REMOVE: u64 = 16_000;
@@ -324,7 +331,7 @@ fn test_sync_set_compact_reclaims_memory() {
 
 #[test]
 fn test_sync_map_concurrent_readers_during_compact() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let map = Arc::new(SyncExpanseMap::new());
     const COUNT: u64 = 5_000;
     for i in 0..COUNT {
@@ -384,7 +391,7 @@ fn test_sync_map_concurrent_readers_during_compact() {
 
 #[test]
 fn test_sync_set_concurrent_readers_during_compact() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let set = Arc::new(SyncExpanseSet::new());
     const COUNT: u64 = 5_000;
     for i in 0..COUNT {
@@ -440,9 +447,13 @@ fn test_sync_set_concurrent_readers_during_compact() {
 
 #[test]
 fn test_sync_map_concurrent_writers_during_compact() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     // Model test falsifying point 3: writers executing during compact must be serialized,
     // and no writes must be dropped.
+    const W: usize = 2;
+    const ROUNDS: u64 = 10;
+    const DEADLINE: Duration = Duration::from_secs(30);
+
     let map = Arc::new(SyncExpanseMap::new());
     let model = Arc::new(Mutex::new(BTreeMap::<u64, u64>::new()));
 
@@ -453,17 +464,19 @@ fn test_sync_map_concurrent_writers_during_compact() {
     }
 
     let done = Arc::new(AtomicBool::new(false));
+    let progress: Arc<[AtomicU64; W]> = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
     let mut writer_handles = Vec::new();
 
     // Spawn 2 concurrent writer threads
-    for t in 0..2 {
+    for t in 0..W {
         let m = Arc::clone(&map);
         let mdl = Arc::clone(&model);
         let d = Arc::clone(&done);
+        let prog = Arc::clone(&progress);
         writer_handles.push(thread::spawn(move || {
             let mut step = 0u64;
-            while !d.load(Ordering::Relaxed) {
-                let k = 10_000 + t * 10_000 + (step % 500);
+            while !d.load(Ordering::Acquire) {
+                let k = 10_000 + (t as u64) * 10_000 + (step % 500);
                 if step.is_multiple_of(2) {
                     let old_m = m.insert(k, step);
                     let mut lock = mdl.lock().unwrap();
@@ -476,18 +489,35 @@ fn test_sync_map_concurrent_writers_during_compact() {
                     assert_eq!(old_m, old_mdl);
                 }
                 step += 1;
+                prog[t].store(step, Ordering::Release);
             }
             step
         }));
     }
 
-    // Interleave compact calls from the main thread
-    for _ in 0..10 {
+    // Interleave compact calls from the main thread, waiting outside the
+    // serialized compact section for each writer to advance so compaction does
+    // not outrun unscheduled writers on loaded runners (Refs #1480 #1222).
+    for c in 1..=ROUNDS {
+        for (t, writer_prog) in progress.iter().enumerate() {
+            let paused = Instant::now();
+            while writer_prog.load(Ordering::Acquire) < c {
+                if paused.elapsed() >= DEADLINE {
+                    done.store(true, Ordering::Release);
+                    panic!(
+                        "timed out waiting for writer progress during compact \
+                         (writer {t} at {} of {c} ops before compact round {c} after {DEADLINE:?})",
+                        writer_prog.load(Ordering::Relaxed)
+                    );
+                }
+                thread::yield_now();
+            }
+        }
         map.compact();
         thread::yield_now();
     }
 
-    done.store(true, Ordering::Relaxed);
+    done.store(true, Ordering::Release);
 
     for handle in writer_handles {
         let ops = handle.join().expect("writer thread should not panic");
@@ -505,7 +535,7 @@ fn test_sync_map_concurrent_writers_during_compact() {
 
 #[test]
 fn test_sync_map_writers_running_during_old_tree_drop() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let map = Arc::new(SyncExpanseMap::new());
     const PREFILL: u64 = 15_000;
     for i in 0..PREFILL {
@@ -554,7 +584,7 @@ fn test_sync_map_writers_running_during_old_tree_drop() {
 
 #[test]
 fn test_sync_set_writers_running_during_old_tree_drop() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let set = Arc::new(SyncExpanseSet::new());
     const PREFILL: u64 = 15_000;
     for i in 0..PREFILL {
@@ -706,7 +736,7 @@ fn check_sync_map_g_peak(name: &str, keys: &[u64], keep_indices: &[usize]) {
 
 #[test]
 fn test_sync_g_peak_retention_uniform_random() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
     let mask = (1u64 << 28) - 1;
     let mut seen = std::collections::HashSet::with_capacity(20_000);
@@ -724,7 +754,7 @@ fn test_sync_g_peak_retention_uniform_random() {
 
 #[test]
 fn test_sync_g_peak_retention_clustered() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let mut keys = Vec::with_capacity(32 * 256);
     for c in 0..32u64 {
         let prefix = (c << 16) | 0xAA00;
@@ -739,7 +769,7 @@ fn test_sync_g_peak_retention_clustered() {
 
 #[test]
 fn test_sync_g_peak_retention_sequential() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let keys: Vec<u64> = (0..10_000u64).collect();
     let keep_indices: Vec<usize> = (0..keys.len()).filter(|i| i % 20 == 0).collect();
     check_sync_set_g_peak("sequential", &keys, &keep_indices);
@@ -748,9 +778,23 @@ fn test_sync_g_peak_retention_sequential() {
 
 #[test]
 fn test_sync_g_peak_retention_sparse() {
-    let _lock = SUITE_LOCK.lock().unwrap();
+    let _lock = lock_suite().unwrap();
     let keys: Vec<u64> = (0..2_000u64).map(|i| (i << 24) | (i & 0xFF)).collect();
     let keep_indices: Vec<usize> = (0..keys.len()).filter(|i| i % 10 == 0).collect();
     check_sync_set_g_peak("sparse", &keys, &keep_indices);
     check_sync_map_g_peak("sparse", &keys, &keep_indices);
+}
+
+#[test]
+fn test_suite_lock_recovers_from_poison() {
+    let res = thread::spawn(|| {
+        let _lock = lock_suite().unwrap();
+        panic!("simulated test failure while holding SUITE_LOCK");
+    })
+    .join();
+    assert!(res.is_err(), "poisoning thread must have panicked");
+    assert!(SUITE_LOCK.is_poisoned(), "SUITE_LOCK must be poisoned");
+
+    // Subsequent lock_suite() calls must recover the guard rather than cascading PoisonError
+    let _guard = lock_suite().unwrap();
 }
