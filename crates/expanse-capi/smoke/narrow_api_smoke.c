@@ -56,6 +56,14 @@ static bool on_visited(expanse_word_t key, expanse_word_t value, void *ctx) {
     return a->n < 5u; /* stop after five, to prove the stop is honoured */
 }
 
+static bool on_s32_update(bool current_present, expanse_word_t current_value,
+                          expanse_word_t *new_value_out, void *user_ctx) {
+    const expanse_word_t *delta = user_ctx;
+    if (!delta) return false;
+    *new_value_out = (current_present ? current_value : 0u) + *delta;
+    return true;
+}
+
 static void *s32_reader(void *p) {
     struct s32_reader_arg *a = p;
     expanse_sync32_map_reader_t *r = expanse_sync32_map_reader(a->map, a->idx);
@@ -111,6 +119,33 @@ static void sync32_smoke(void) {
         assert(expanse_sync32_map_reader_try_prev_before(r0, 0, &k, &v) == EXPANSE_SYNC32_NOT_FOUND);
     }
 
+    /* Single-key RMW (#1194) on a scratch key above the stable range before
+     * reader threads start, then rotated into the concurrent churn loop below. */
+    {
+        const expanse_word_t rk = S32_STABLE + 5000u;
+        bool ex = false, obs_p = true, ins = false, old_p = true;
+        expanse_word_t obs_v = 0, val = 0, old_v = 0, delta = 5u;
+        assert(expanse_sync32_map_writer_get_or_insert(w, rk, 10u, &ins, &val) == EXPANSE_SYNC32_OK);
+        assert(ins && val == 10u);
+        assert(expanse_sync32_map_writer_get_or_insert(w, rk, 99u, &ins, &val) == EXPANSE_SYNC32_OK);
+        assert(!ins && val == 10u);
+        assert(expanse_sync32_map_writer_compare_exchange(
+            w, rk, true, 99u, true, 20u, &ex, &obs_p, &obs_v) == EXPANSE_SYNC32_OK);
+        assert(!ex && obs_p && obs_v == 10u);
+        assert(expanse_sync32_map_writer_compare_exchange(
+            w, rk, true, 10u, true, 20u, &ex, &obs_p, &obs_v) == EXPANSE_SYNC32_OK);
+        assert(ex && obs_p && obs_v == 10u);
+        assert(expanse_sync32_map_writer_update(w, rk, on_s32_update, &delta, &old_p, &old_v) ==
+               EXPANSE_SYNC32_OK);
+        assert(old_p && old_v == 20u);
+        assert(expanse_sync32_map_writer_update(w, rk, NULL, NULL, &old_p, &old_v) ==
+               EXPANSE_SYNC32_NULL_HANDLE);
+        assert(expanse_sync32_map_writer_compare_exchange(
+            w, rk, true, 25u, false, 0u, &ex, &obs_p, &obs_v) == EXPANSE_SYNC32_OK);
+        assert(ex && obs_p && obs_v == 25u);
+        assert(!expanse_sync32_map_writer_get(w, rk, &val));
+    }
+
     volatile int stop = 0;
     pthread_t tids[S32_READERS];
     struct s32_reader_arg args[S32_READERS];
@@ -123,9 +158,27 @@ static void sync32_smoke(void) {
     struct timespec pace = { 0, 10000 };
     for (uint32_t i = 0; i < 20000u; i++) {
         uint32_t k = S32_STABLE + (i * 2654435761u) % 4096u;
-        expanse_sync32_status_t s = (i % 3 == 2)
-            ? expanse_sync32_map_writer_try_remove(w, k, NULL)
-            : expanse_sync32_map_writer_try_insert(w, k, i, NULL, NULL);
+        expanse_word_t d = i;
+        expanse_sync32_status_t s;
+        switch (i % 5u) {
+        case 0:
+            s = expanse_sync32_map_writer_try_insert(w, k, i, NULL, NULL);
+            break;
+        case 1:
+            s = expanse_sync32_map_writer_try_remove(w, k, NULL);
+            break;
+        case 2:
+            s = expanse_sync32_map_writer_compare_exchange(
+                w, k, (i & 1u) == 0u, i - 5u, (i & 2u) == 0u, i, NULL, NULL, NULL);
+            break;
+        case 3:
+            s = expanse_sync32_map_writer_update(
+                w, k, on_s32_update, (i & 1u) ? &d : NULL, NULL, NULL);
+            break;
+        default:
+            s = expanse_sync32_map_writer_get_or_insert(w, k, i, NULL, NULL);
+            break;
+        }
         if (s == EXPANSE_SYNC32_ARENA_FULL || s == EXPANSE_SYNC32_RECLAIM_BACKLOG) {
             refused++;
             expanse_sync32_map_writer_try_reclaim(w);

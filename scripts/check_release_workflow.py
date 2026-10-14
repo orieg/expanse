@@ -425,27 +425,50 @@ def all_pip_problems(root: Path = REPO_ROOT) -> list[str]:
     return out
 
 
-# The resolved set of python-bindings.txt, which must hold on every Python and
-# OS python.yml tests. pip-compile drops a requirement whose environment marker
-# is false on the compiling machine, and Dependabot compiles on its own Python,
-# so the conditional ones (colorama: Windows; exceptiongroup, tomli: Python <
-# 3.11; typing-extensions: exceptiongroup on Python < 3.13) are listed in the
-# .in unconditionally and the set below is compared with the .txt exactly. A
-# change to this set is a change to what every matrix leg installs.
-PYTHON_BINDINGS_EXPECTED = frozenset({
-    "colorama", "exceptiongroup", "iniconfig", "maturin", "packaging", "pluggy",
-    "pytest", "tomli", "typing-extensions",
-})
+# The resolved sets of the python-bindings requirements, which must hold on
+# every Python and OS the jobs that install them run on. pip-compile drops a
+# requirement whose environment marker is false on the compiling machine, and
+# Dependabot compiles on its own Python, so the dependencies that hold only on
+# some Python or OS (colorama: Windows; exceptiongroup, tomli: Python < 3.11;
+# typing-extensions: exceptiongroup on Python < 3.13) are listed in each .in
+# unconditionally, and the set of each .txt is compared with the one declared
+# here exactly. A change to a set is a change to what every job on that file
+# installs.
+#
+# Two files: the main one serves Python 3.10 and newer with a pytest that
+# carries the fix for GHSA-6w46-j5rx-g56g; the py38 one serves only the
+# Python 3.8 row of python.yml and goes away with it.
+REQUIREMENTS_DIR_NAME = ".github/requirements"
+PYTHON_BINDINGS_MAIN = "python-bindings"
+PYTHON_BINDINGS_PY38 = "py38/python-bindings-py38"
 PYTHON_BINDINGS_UNCONDITIONAL = frozenset({"colorama", "exceptiongroup", "tomli", "typing-extensions"})
-# First release of a pinned package that needs a newer Python than the oldest
-# one in python.yml's matrix: (first release, the Python it requires), read
-# from the package's `requires_python` on PyPI. The `.in` pin stays below it
-# while the matrix floor is older than that Python.
+PYTHON_BINDINGS_COMMON = frozenset({"colorama", "exceptiongroup", "iniconfig", "maturin", "packaging",
+                                    "pluggy", "pytest", "tomli", "typing-extensions"})
+PYTHON_BINDINGS_EXPECTED = {
+    PYTHON_BINDINGS_MAIN: PYTHON_BINDINGS_COMMON | {"pygments"},  # pytest 8.4+ requires pygments
+    PYTHON_BINDINGS_PY38: PYTHON_BINDINGS_COMMON,
+}
+# The oldest Python the main file serves. The py38 file serves the oldest
+# python-version in python.yml's matrix, read from the workflow.
+MAIN_PYTHON_FLOOR = (3, 10)
+# First pytest release with the fix for GHSA-6w46-j5rx-g56g (CVE-2025-71176):
+# the main file must not pin an older one.
+PYTEST_FIXED = (9, 0, 3)
+# Releases of a pinned package that need a newer Python than the file serves:
+# (first release, the Python it requires), from the package's `requires_python`
+# on PyPI. A pin stays below the first release whose Python is above the
+# file's floor.
 PYTHON_FLOOR_CEILINGS = {
-    "pytest": ((8, 4), (3, 9)),
-    "typing-extensions": ((4, 14), (3, 9)),
+    "pytest": (((8, 4), (3, 9)), ((9, 0), (3, 10))),
+    "typing-extensions": (((4, 14), (3, 9)),),
+}
+# Install sites outside python.yml that take the py38 file, with the reason:
+# a site whose interpreter the workflow does not set cannot take the main file.
+PY38_FILE_SITES = {
+    "bench_baremetal.yml": "the benchmark host's python3 is not set by the workflow; no pytest runs there",
 }
 REQUIREMENT_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==(\d+(?:\.\d+)*)\b")
+REQUIREMENT_PATH_RE = re.compile(r"\.github/requirements/((?:py38/)?python-bindings(?:-py38)?)\.txt")
 
 
 def requirement_pins(text: str) -> dict[str, tuple[int, ...]]:
@@ -459,13 +482,16 @@ def requirement_pins(text: str) -> dict[str, tuple[int, ...]]:
     return out
 
 
+def python_versions(value) -> list[tuple[int, ...]]:
+    return [tuple(int(x) for x in str(v).split(".")) for v in (value or [])]
+
+
 def matrix_python_floor(workflow: dict) -> tuple[int, ...] | None:
     """The oldest `python-version` in any job matrix of `workflow`, or None."""
-    versions = []
+    versions: list[tuple[int, ...]] = []
     for job in (workflow.get("jobs") or {}).values():
         matrix = ((job.get("strategy") or {}).get("matrix") or {})
-        for v in matrix.get("python-version") or []:
-            versions.append(tuple(int(x) for x in str(v).split(".")))
+        versions += python_versions(matrix.get("python-version"))
     return min(versions) if versions else None
 
 
@@ -474,12 +500,14 @@ def dotted(version: tuple[int, ...]) -> str:
 
 
 def python_requirements_problems(in_text: str, txt_text: str, floor: tuple[int, ...] | None,
-                                 where: str = "python-bindings") -> list[str]:
-    """python-bindings.in and .txt agree, hold the whole matrix, and respect the Python floor."""
+                                 which: str = PYTHON_BINDINGS_MAIN) -> list[str]:
+    """One requirements pair agrees with itself, holds every Python it serves, and respects its Python floor."""
     out: list[str] = []
+    where = which.rsplit("/", 1)[-1]
+    expected = PYTHON_BINDINGS_EXPECTED[which]
     pins_in, pins_txt = requirement_pins(in_text), requirement_pins(txt_text)
-    missing = sorted(PYTHON_BINDINGS_EXPECTED - pins_txt.keys())
-    extra = sorted(pins_txt.keys() - PYTHON_BINDINGS_EXPECTED)
+    missing = sorted(expected - pins_txt.keys())
+    extra = sorted(pins_txt.keys() - expected)
     if missing or extra:
         out.append(f"{where}.txt resolves {sorted(pins_txt)}, not the expected set: "
                    f"missing {missing}, unexpected {extra}; a compile on a newer Python drops the "
@@ -493,21 +521,87 @@ def python_requirements_problems(in_text: str, txt_text: str, floor: tuple[int, 
     if floor is None:
         out.append(f"python.yml has no python-version matrix, so the Python floor of {where}.in is unknown")
         return out
-    for name, (first, needs_python) in sorted(PYTHON_FLOOR_CEILINGS.items()):
+    for name, ceilings in sorted(PYTHON_FLOOR_CEILINGS.items()):
         pinned = pins_in.get(name)
-        if pinned is not None and floor < needs_python and pinned[:2] >= first:
-            out.append(f"{where}.in pins {name}=={dotted(pinned)}, which needs Python "
-                       f"{dotted(needs_python)}+, but python.yml tests {dotted(floor)}: "
-                       f"keep {name} below {dotted(first)}")
+        for first, needs_python in ceilings:
+            if pinned is not None and floor < needs_python and pinned[:len(first)] >= first:
+                out.append(f"{where}.in pins {name}=={dotted(pinned)}, which needs Python "
+                           f"{dotted(needs_python)}+, but the file serves Python {dotted(floor)}: "
+                           f"keep {name} below {dotted(first)}")
+    if which == PYTHON_BINDINGS_MAIN:
+        pytest_pin = pins_in.get("pytest")
+        if pytest_pin is None or pytest_pin < PYTEST_FIXED:
+            out.append(f"{where}.in pins pytest=={dotted(pytest_pin) if pytest_pin else 'nothing'}, below "
+                       f"{dotted(PYTEST_FIXED)}, the first release that fixes GHSA-6w46-j5rx-g56g")
+    return out
+
+
+def python_requirements_sites_problems(workflows: dict[str, dict], texts: dict[str, str]) -> list[str]:
+    """Each install site of the python-bindings requirements takes the file that matches its Python.
+
+    `workflows` maps a workflow file name to its parsed YAML, `texts` to its text.
+    In python.yml the file is chosen by the matrix value: the oldest version gets
+    the py38 file and every other row the main one; no row between them may
+    exist. Every other site takes the main file and sets up a Python at or
+    above its floor, unless it is a declared py38 site.
+    """
+    out: list[str] = []
+    py_wf = workflows.get("python.yml") or {}
+    floor = matrix_python_floor(py_wf)
+    for name, text in sorted(texts.items()):
+        refs = sorted(set(REQUIREMENT_PATH_RE.findall(text)))
+        if not refs:
+            continue
+        if name == "python.yml":
+            if floor is None:
+                out.append("python.yml installs python-bindings requirements but has no python-version matrix")
+                continue
+            selector = (f"matrix.python-version == '{dotted(floor)}' && "
+                        f"'{REQUIREMENTS_DIR_NAME}/{PYTHON_BINDINGS_PY38}.txt' || "
+                        f"'{REQUIREMENTS_DIR_NAME}/{PYTHON_BINDINGS_MAIN}.txt'")
+            if selector not in text:
+                out.append(f"python.yml does not choose the requirements file by the matrix value as "
+                           f"`{selector}`: the Python {dotted(floor)} row takes the py38 file and every other row the main one")
+            for version in {v for job in (py_wf.get("jobs") or {}).values()
+                            for v in python_versions(((job.get("strategy") or {}).get("matrix") or {}).get("python-version"))}:
+                if floor < version < MAIN_PYTHON_FLOOR:
+                    out.append(f"python.yml tests Python {dotted(version)}, which neither the py38 file "
+                               f"(Python {dotted(floor)} only) nor the main file (Python {dotted(MAIN_PYTHON_FLOOR)}+) serves")
+            continue
+        for ref in refs:
+            if ref == PYTHON_BINDINGS_PY38 and name not in PY38_FILE_SITES:
+                out.append(f"{name} installs the py38 requirements file, which only the Python {dotted(floor or (3, 8))} "
+                           f"row of python.yml may use")
+            if ref == PYTHON_BINDINGS_MAIN and name in PY38_FILE_SITES:
+                out.append(f"{name} installs the main requirements file, but {PY38_FILE_SITES[name]}")
+        if PYTHON_BINDINGS_MAIN in refs and name not in PY38_FILE_SITES:
+            for job_name, job in sorted((workflows.get(name) or {}).get("jobs", {}).items()):
+                steps = job.get("steps") or []
+                if not any(f"{PYTHON_BINDINGS_MAIN}.txt" in str(s.get("run", "")) for s in steps):
+                    continue
+                versions = [v for s in steps if str(s.get("uses", "")).startswith("actions/setup-python@")
+                            for v in python_versions([(s.get("with") or {}).get("python-version")])]
+                if not versions or min(versions) < MAIN_PYTHON_FLOOR:
+                    out.append(f"{name}: `{job_name}` installs the main requirements file, which serves Python "
+                               f"{dotted(MAIN_PYTHON_FLOOR)}+, on Python {[dotted(v) for v in versions] or 'unset'}")
     return out
 
 
 def all_requirements_problems(root: Path = REPO_ROOT) -> list[str]:
     req = root / ".github" / "requirements"
-    workflow = yaml.safe_load((root / ".github" / "workflows" / "python.yml").read_text(encoding="utf-8"))
-    return python_requirements_problems((req / "python-bindings.in").read_text(encoding="utf-8"),
-                                        (req / "python-bindings.txt").read_text(encoding="utf-8"),
-                                        matrix_python_floor(workflow))
+    wf_dir = root / ".github" / "workflows"
+    workflow = yaml.safe_load((wf_dir / "python.yml").read_text(encoding="utf-8"))
+    floor = matrix_python_floor(workflow)
+    pairs = {w: ((req / f"{w}.in").read_text(encoding="utf-8"), (req / f"{w}.txt").read_text(encoding="utf-8"))
+             for w in (PYTHON_BINDINGS_MAIN, PYTHON_BINDINGS_PY38)}
+    out = python_requirements_problems(*pairs[PYTHON_BINDINGS_MAIN], MAIN_PYTHON_FLOOR, PYTHON_BINDINGS_MAIN)
+    out += python_requirements_problems(*pairs[PYTHON_BINDINGS_PY38], floor, PYTHON_BINDINGS_PY38)
+    maturin = {w: requirement_pins(pairs[w][0]).get("maturin") for w in pairs}
+    if len(set(maturin.values())) != 1:
+        out.append(f"the two python-bindings files pin different maturin versions: {maturin}")
+    paths = sorted(wf_dir.glob("*.yml"))
+    texts = {p.name: p.read_text(encoding="utf-8") for p in paths}
+    return out + python_requirements_sites_problems({n: yaml.safe_load(t) or {} for n, t in texts.items()}, texts)
 
 
 def lock_problems(text: str, where: str) -> list[str]:
@@ -1018,47 +1112,92 @@ def self_test() -> int:
         if len(got) != want:
             failures.append(f"pip rule, {label}: got {got}, want {want} problem(s)")
 
-    # --- python-bindings requirements: set, pins and Python floor -----------
-    req_in = (REPO_ROOT / ".github" / "requirements" / "python-bindings.in").read_text(encoding="utf-8")
-    req_txt = (REPO_ROOT / ".github" / "requirements" / "python-bindings.txt").read_text(encoding="utf-8")
+    # --- python-bindings requirements: sets, pins, Python floors, install sites ---
+    req_dir = REPO_ROOT / ".github" / "requirements"
+    MAIN, P38 = PYTHON_BINDINGS_MAIN, PYTHON_BINDINGS_PY38
+    pairs = {w: ((req_dir / f"{w}.in").read_text(encoding="utf-8"), (req_dir / f"{w}.txt").read_text(encoding="utf-8"))
+             for w in (MAIN, P38)}
     floor = matrix_python_floor(real_py)
     if floor != (3, 8):
         failures.append(f"the Python floor read from python.yml is {floor}, not (3, 8)")
-    got = python_requirements_problems(req_in, req_txt, floor)
+    got = all_requirements_problems()
     if got:
         failures.append(f"the real python-bindings requirements have problems: {got}")
 
     def drop_pin(text: str, name: str) -> str:
         return "\n".join(l for l in text.splitlines() if not l.startswith(f"{name}==")) + "\n"
 
-    for label, in_t, txt_t, fl, needle in (
-        ("a recompile that dropped tomli from the .txt", req_in, drop_pin(req_txt, "tomli"),
-         floor, "missing ['tomli']"),
-        ("a recompile that dropped exceptiongroup and typing-extensions", req_in,
-         drop_pin(drop_pin(req_txt, "exceptiongroup"), "typing-extensions"), floor,
+    def swap(which: str, old: str, new: str) -> tuple[str, str]:
+        return pairs[which][0].replace(old, new), pairs[which][1].replace(old, new)
+
+    for label, which, in_t, txt_t, fl, needle in (
+        ("main: a recompile that dropped tomli from the .txt", MAIN, pairs[MAIN][0], drop_pin(pairs[MAIN][1], "tomli"),
+         MAIN_PYTHON_FLOOR, "missing ['tomli']"),
+        ("main: a recompile that dropped pygments", MAIN, pairs[MAIN][0], drop_pin(pairs[MAIN][1], "pygments"),
+         MAIN_PYTHON_FLOOR, "missing ['pygments']"),
+        ("py38: a recompile that dropped exceptiongroup and typing-extensions", P38, pairs[P38][0],
+         drop_pin(drop_pin(pairs[P38][1], "exceptiongroup"), "typing-extensions"), floor,
          "missing ['exceptiongroup', 'typing-extensions']"),
-        ("a package added to the .txt", req_in, req_txt + "zipp==3.0.0 \\\n", floor, "unexpected ['zipp']"),
-        ("tomli no longer listed in the .in", drop_pin(req_in, "tomli"), req_txt, floor,
-         "does not list `tomli`"),
-        ("a pin moved in the .in only", req_in.replace("maturin==1.15.0", "maturin==1.16.0"), req_txt, floor,
-         "pins maturin==1.16.0 but python-bindings.txt has 1.15.0"),
-        ("pytest 8.4 with Python 3.8 in the matrix", req_in.replace("pytest==8.3.5", "pytest==8.4.2"),
-         req_txt.replace("pytest==8.3.5", "pytest==8.4.2"), floor,
-         "pins pytest==8.4.2, which needs Python 3.9+, but python.yml tests 3.8"),
-        ("typing-extensions 4.14 with Python 3.8 in the matrix",
-         req_in.replace("typing-extensions==4.13.2", "typing-extensions==4.14.0"),
-         req_txt.replace("typing-extensions==4.13.2", "typing-extensions==4.14.0"), floor,
+        ("py38: a package added to the .txt", P38, pairs[P38][0], pairs[P38][1] + "zipp==3.0.0 \\\n", floor,
+         "unexpected ['zipp']"),
+        ("main: tomli no longer listed in the .in", MAIN, drop_pin(pairs[MAIN][0], "tomli"), pairs[MAIN][1],
+         MAIN_PYTHON_FLOOR, "does not list `tomli`"),
+        ("main: a pin moved in the .in only", MAIN, pairs[MAIN][0].replace("maturin==1.15.0", "maturin==1.16.0"),
+         pairs[MAIN][1], MAIN_PYTHON_FLOOR, "pins maturin==1.16.0 but python-bindings.txt has 1.15.0"),
+        ("py38: pytest 8.4 with Python 3.8 served", P38, *swap(P38, "pytest==8.3.5", "pytest==8.4.2"), floor,
+         "pins pytest==8.4.2, which needs Python 3.9+, but the file serves Python 3.8"),
+        ("py38: typing-extensions 4.14 with Python 3.8 served", P38,
+         *swap(P38, "typing-extensions==4.13.2", "typing-extensions==4.14.0"), floor,
          "pins typing-extensions==4.14.0"),
-        ("no matrix in python.yml", req_in, req_txt, None, "Python floor"),
+        ("main: pytest 9 on a file that served Python 3.9", MAIN, pairs[MAIN][0], pairs[MAIN][1], (3, 9),
+         "which needs Python 3.10+, but the file serves Python 3.9"),
+        ("main: pytest back at the vulnerable 8.3.5", MAIN, *swap(MAIN, "pytest==9.1.1", "pytest==8.3.5"),
+         MAIN_PYTHON_FLOOR, "below 9.0.3, the first release that fixes GHSA-6w46-j5rx-g56g"),
+        ("main: pytest 9.0.2, one release before the fix", MAIN, *swap(MAIN, "pytest==9.1.1", "pytest==9.0.2"),
+         MAIN_PYTHON_FLOOR, "below 9.0.3"),
+        ("py38: no matrix in python.yml", P38, pairs[P38][0], pairs[P38][1], None, "Python floor"),
     ):
-        got = python_requirements_problems(in_t, txt_t, fl)
+        got = python_requirements_problems(in_t, txt_t, fl, which)
         if not any(needle in p for p in got):
             failures.append(f"{label}: not reported (got {got})")
-    if python_requirements_problems(req_in.replace("pytest==8.3.5", "pytest==8.4.2"),
-                                    req_txt.replace("pytest==8.3.5", "pytest==8.4.2"), (3, 9)):
-        failures.append("pytest 8.4 was reported although the matrix floor is Python 3.9")
+    if python_requirements_problems(*swap(P38, "pytest==8.3.5", "pytest==8.4.2"), (3, 9), P38):
+        failures.append("pytest 8.4 was reported although the file serves Python 3.9")
     if matrix_python_floor({"jobs": {"a": {"strategy": {"matrix": {"python-version": ["3.12", "3.10"]}}}}}) != (3, 10):
         failures.append("matrix_python_floor does not compare versions numerically")
+
+    # install sites: every workflow, then one mutation per clause
+    wf_dir = REPO_ROOT / ".github" / "workflows"
+    site_texts = {p.name: p.read_text(encoding="utf-8") for p in sorted(wf_dir.glob("*.yml"))}
+
+    def site_check(label: str, name: str, old: str, new: str, needle: str) -> None:
+        if site_texts[name].count(old) < 1:
+            failures.append(f"{label}: the fixture text {old!r} is not in {name}")
+            return
+        texts = dict(site_texts)
+        texts[name] = texts[name].replace(old, new)
+        got = python_requirements_sites_problems({n: yaml.safe_load(t) or {} for n, t in texts.items()}, texts)
+        if not any(needle in p for p in got):
+            failures.append(f"{label}: not reported (got {got})")
+
+    py38_file = ".github/requirements/py38/python-bindings-py38.txt"
+    main_file = ".github/requirements/python-bindings.txt"
+    selector = f"matrix.python-version == '3.8' && '{py38_file}' || '{main_file}'"
+    site_check("python.yml installing the main file on every row", "python.yml", selector, f"'{main_file}'",
+               "does not choose the requirements file by the matrix value")
+    site_check("python.yml selecting on the wrong version", "python.yml", "matrix.python-version == '3.8'",
+               "matrix.python-version == '3.10'", "does not choose the requirements file by the matrix value")
+    site_check("python.yml with a 3.9 row", "python.yml", 'python-version: ["3.8", "3.10", "3.12"]',
+               'python-version: ["3.8", "3.9", "3.10", "3.12"]', "tests Python 3.9, which neither")
+    site_check("ci.yml on the py38 file", "ci.yml", "-r .github/requirements/python-bindings.txt",
+               f"-r {py38_file}", "installs the py38 requirements file")
+    site_check("nightly.yml on the py38 file", "nightly.yml", "-r .github/requirements/python-bindings.txt",
+               f"-r {py38_file}", "installs the py38 requirements file")
+    site_check("nightly.yml on Python 3.9", "nightly.yml", '          python-version: "3.12"\n',
+               '          python-version: "3.9"\n', "installs the main requirements file")
+    site_check("bench_baremetal.yml on the main file", "bench_baremetal.yml", f"-r {py38_file}",
+               f"-r {main_file}", "installs the main requirements file")
+    site_check("ci.yml test-python on Python 3.9", "ci.yml", 'python-version: "3.12"',
+               'python-version: "3.9"', "installs the main requirements file")
 
     if failures:
         for f in failures:

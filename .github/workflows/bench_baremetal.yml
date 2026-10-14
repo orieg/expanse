@@ -1542,7 +1542,10 @@ jobs:
                   echo "fail_reason=missing_python_venv" >> "$GITHUB_OUTPUT"
                   exit 1
                 fi
-                "$BENCH_VENV/bin/python" -m pip install --quiet --require-hashes -r .github/requirements/python-bindings.txt
+                # The host's python3 version is not set by this workflow, so the
+                # install takes the set that resolves on Python 3.8 and newer.
+                # No pytest runs here: only maturin is used.
+                "$BENCH_VENV/bin/python" -m pip install --quiet --require-hashes -r .github/requirements/py38/python-bindings-py38.txt
                 "$BENCH_VENV/bin/python" -m pip install --quiet .
                 "$BENCH_VENV/bin/python" bindings/python/bench_concurrency.py \
                   --out baseline-python_concurrency.json | tee python-concurrency.txt

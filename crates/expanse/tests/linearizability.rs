@@ -2208,8 +2208,10 @@ where
                 let key = ((t_id * 7 + i * 5) % 3) as u64;
                 let op = match get_or_insert_mix_op(t_id, i, key) {
                     // Half the removals are a compare-and-remove on a guessed
-                    // value: the entry point whose last-entry path #1381 made
-                    // serialised, racing the exchange of `get_or_insert`.
+                    // value: the optimistic last-entry removal path (#1396,
+                    // `olc_cas_remove_bucket_cas_map`) when each key has its own
+                    // bucket, or the shorter-bucket replacement when keys share
+                    // a bucket, racing the exchange of `get_or_insert`.
                     Op::Remove(k) if i % 2 == 0 => {
                         Op::CompareExchange(k, Some(((t_id + i) % 3 + 1) as u64), None)
                     }
@@ -2293,9 +2295,9 @@ fn test_sync_bytesmap_get_or_insert_linearizability_root_leaf() {
 }
 
 /// The same mix on the optimistic tree paths. The three mix keys hash to
-/// distinct buckets, so every compare-and-remove of a present key takes a
-/// bucket's last entry: the serialised remove path of #1381, racing the
-/// exchange (`test_bytes_get_or_insert_paths` pins that with the fallback
+/// distinct buckets, so every compare-and-remove of a present key removes a
+/// bucket's last entry through `olc_cas_remove_bucket_cas_map` (#1396), racing
+/// the exchange (`test_bytes_get_or_insert_paths` pins that with the fallback
 /// counter).
 #[test]
 #[cfg_attr(
@@ -2305,7 +2307,7 @@ fn test_sync_bytesmap_get_or_insert_linearizability_root_leaf() {
 fn test_sync_bytesmap_get_or_insert_linearizability_tree_last_entry() {
     run_bytes_get_or_insert_mix(|| {
         let map = Arc::new(SyncExpanseBytesMap::new());
-        for i in 0..64u64 {
+        for i in 0..1024u64 {
             map.insert(format!("filler/{i}").as_bytes(), i);
         }
         map
@@ -2313,8 +2315,8 @@ fn test_sync_bytesmap_get_or_insert_linearizability_tree_last_entry() {
 }
 
 /// The same mix with the three keys in one collision bucket of a tree. Measured in
-/// `test_bytes_get_or_insert_paths`: all its removals stay optimistic, so this
-/// mix covers the shorter-bucket publish and not the serialised path.
+/// `test_bytes_get_or_insert_paths`: all its removals stay optimistic, covering
+/// the shorter-bucket replacement path (`olc_cas_replace_bucket_map`).
 #[test]
 #[cfg_attr(
     miri,

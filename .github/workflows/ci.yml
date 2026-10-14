@@ -783,6 +783,13 @@ jobs:
           # the checker, and refusal of outcomes its prose does not describe.
           python3 docs/benchmarks/hot_comparison/scripts/concurrent_tables.py --self-test
           python3 scripts/check_readme_tables.py
+          # patricia_comparison's full-README generator (including Diagnostic D1
+          # and Diagnostic D2 under Amendment A4 and errata A5) must match
+          # docs/benchmarks/patricia_comparison/README.md byte-for-byte, and
+          # patricia_d2_bounds.py's unit tests pin that check and D2's dynamic
+          # derivation from the committed counter JSON artifacts.
+          python3 docs/benchmarks/patricia_comparison/scripts/generate_readme.py --check
+          (cd scripts && python3 -m unittest patricia_d2_bounds)
       - name: Verify Benchmark Artifact Provenance
         run: |
           python3 scripts/check_bench_provenance.py --self-test
@@ -830,7 +837,7 @@ jobs:
       # option discipline's own guide prefers.
       - name: Diff Gates (orieg/discipline)
         if: github.event_name == 'pull_request'
-        uses: orieg/discipline@1c8ea1b2d5e0b90d17779060ff93154c2e2f46a3 # v0.19.0
+        uses: orieg/discipline@fb2a195da5b4568a12e8697625ca32e944a8b6c5 # v0.20.1
 
       - name: Unrun Gate Self-Tests (bounds, ablations, suite drivers)
         # These ship `--self-test` suites and were invoked by no workflow and
@@ -3788,7 +3795,7 @@ jobs:
       # the advisory input goes and the script is retired.
       # discipline:advisory shadow of check_gate_floor.py until the two agree on live skip runs
       - name: Gate Floor Shadow (orieg/discipline ci-skip-set, advisory)
-        uses: orieg/discipline@1c8ea1b2d5e0b90d17779060ff93154c2e2f46a3 # v0.19.0
+        uses: orieg/discipline@fb2a195da5b4568a12e8697625ca32e944a8b6c5 # v0.20.1
         with:
           suite: integrity
           advisory: true

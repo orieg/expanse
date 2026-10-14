@@ -1316,14 +1316,16 @@ unsafe fn branch_u_digits_pre_lock(node: *mut BranchU) -> usize {
 /// `parent` is the frame of an EBR-live `BranchU` whose slot at
 /// `edge_ptr` the descent loaded `edge` from under `parent.version_snap`,
 /// and the caller holds its writer pin. `under_lock` may rely on the
-/// branch being locked and the slot still holding `edge`.
+/// branch being locked and the slot still holding `edge`; returning
+/// `Err(kept)` unlocks the branch unmodified and returns
+/// `Err(OlcOutcome::Done(kept))` without nulling the slot.
 #[cfg(feature = "std")]
 #[inline(always)]
 unsafe fn null_branch_u_slot<T, R>(
     parent: &AncestorFrame,
     edge_ptr: *mut Edge,
     edge: &Edge,
-    under_lock: impl FnOnce() -> R,
+    under_lock: impl FnOnce() -> Result<R, T>,
 ) -> Result<R, OlcOutcome<T>> {
     debug_assert_eq!(parent.edge_type, EdgeType::BranchU);
     let branch = parent.node.cast::<BranchU>();
@@ -1358,7 +1360,13 @@ unsafe fn null_branch_u_slot<T, R>(
         version_unlock_timed(p_cell, old_v, false, lock_t0);
         return Err(OlcOutcome::Retry);
     }
-    let r = under_lock();
+    let r = match under_lock() {
+        Ok(r) => r,
+        Err(kept) => {
+            version_unlock_timed(p_cell, old_v, false, lock_t0);
+            return Err(OlcOutcome::Done(kept));
+        }
+    };
     // A branch built before its tree was shared carries no valid count:
     // count its slots once, under the lock, and keep the count from here on
     // (#1202).
@@ -5701,7 +5709,7 @@ impl SyncExpanseSet {
                             // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
                             // from at `edge_ptr`, under this writer's pin.
                             let nulled =
-                                unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || ()) };
+                                unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || Ok(())) };
                             if let Err(o) = nulled {
                                 return o;
                             }
@@ -5999,7 +6007,8 @@ impl SyncExpanseSet {
                     if parent.edge_type == EdgeType::BranchU {
                         // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
                         // from at `edge_ptr`, under this writer's pin.
-                        let nulled = unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || ()) };
+                        let nulled =
+                            unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || Ok(())) };
                         if let Err(o) = nulled {
                             return o;
                         }
@@ -6043,7 +6052,7 @@ impl SyncExpanseSet {
                             // SAFETY: `parent` is the validated BranchU frame `edge` was loaded
                             // from at `edge_ptr`, under this writer's pin.
                             let nulled =
-                                unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || ()) };
+                                unsafe { null_branch_u_slot(&parent, edge_ptr, &edge, || Ok(())) };
                             if let Err(o) = nulled {
                                 return o;
                             }
@@ -8735,9 +8744,14 @@ macro_rules! olc_insert_map_body {
 }
 
 /// The OLC remove body; see `olc_insert_map_body!`.
+///
+/// `$keep_locked` is an additional keep condition evaluated **under the
+/// terminal's parent version lock** (after `Edge::bits_eq` confirms the edge)
+/// before any unlink or trie mutation. Callers that do not need a post-lock
+/// check pass `false`, which compiles out.
 #[cfg(feature = "std")]
 macro_rules! olc_remove_map_body {
-    ($host:expr, $cond:expr, $old:ident => $keep:expr, $key:ident) => {{
+    ($host:expr, $cond:expr, $old:ident => $keep:expr, $keep_locked:expr, $key:ident) => {{
     if !$host.tree_word_even() {
         return OlcOutcome::Retry;
     }
@@ -9013,7 +9027,12 @@ macro_rules! olc_remove_map_body {
                         let (old_arr, old) = match unsafe {
                             null_branch_u_slot(&parent, edge_ptr, &edge, || {
                                 let old_arr = (*node).values[sub];
-                                (old_arr, *old_arr.add(rank))
+                                let old = *old_arr.add(rank);
+                                if $keep_locked {
+                                    Err(Some(old))
+                                } else {
+                                    Ok((old_arr, old))
+                                }
                             })
                         } {
                             Ok(read) => read,
@@ -9079,6 +9098,10 @@ macro_rules! olc_remove_map_body {
                             }
                             // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
+                                if $keep_locked {
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                    return OlcOutcome::Done(Some(old));
+                                }
                                 let (low, v) = entries.as_slice()[0];
                                 let full_k = (dv << 8) | low;
                                 let mut aux = [0u8; 7];
@@ -9141,6 +9164,14 @@ macro_rules! olc_remove_map_body {
                             }
                             // SAFETY: node, edge, and new_vals pointers are valid and EBR-live under the OLC protocol.
                             unsafe {
+                                if $keep_locked {
+                                    version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                    alloc.free_bytes_unpublished(
+                                        core::ptr::NonNull::new_unchecked(new_vals.cast()),
+                                        new_size,
+                                    );
+                                    return OlcOutcome::Done(Some(old));
+                                }
                                 let mut aux = [0u8; 7];
                                 for (slot, &(low, v)) in entries.as_slice().iter().enumerate() {
                                     let full_k = (dv << 8) | low;
@@ -9203,6 +9234,14 @@ macro_rules! olc_remove_map_body {
                         }
                         // SAFETY: node, edge, and new_buf pointers are valid and EBR-live under the OLC protocol.
                         unsafe {
+                            if $keep_locked {
+                                version_unlock_timed(p_cell, old_v, false, lock_t0);
+                                alloc.free_bytes_unpublished(
+                                    core::ptr::NonNull::new_unchecked(new_buf),
+                                    new_size,
+                                );
+                                return OlcOutcome::Done(Some(old));
+                            }
                             let nv = new_buf.cast::<u64>();
                             let nk = new_buf.add(crate::leaf::map_keys_offset(entries.len));
                             for (slot, &(low, v)) in entries.as_slice().iter().enumerate() {
@@ -9249,6 +9288,10 @@ macro_rules! olc_remove_map_body {
                     unsafe {
                         let old_arr = (*node).values[sub];
                         let old = *old_arr.add(rank);
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Done(Some(old));
+                        }
                         crate::bits::shared_word::store_ptr::<true, u64>((&raw mut (*node).values).cast::<*mut u64>().add(sub), core::ptr::null_mut());
                         crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 - 1) as u64);
@@ -9277,6 +9320,10 @@ macro_rules! olc_remove_map_body {
                     unsafe {
                         let arr = (*node).values[sub];
                         let old = arr.add(rank).read();
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Done(Some(old));
+                        }
                         crate::bits::shared_word::shift_down::<true>(arr, rank, old_n - 1 - rank);
                         crate::bits::shared_bitmap::clear::<true>(&raw mut (*node).bitmap, d);
                         Edge::set_pop0_at(edge_ptr, 1, (pop0 - 1) as u64);
@@ -9317,6 +9364,14 @@ macro_rules! olc_remove_map_body {
                     unsafe {
                         let old_arr = (*node).values[sub];
                         let old = *old_arr.add(rank);
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            alloc.free_bytes_unpublished(
+                                core::ptr::NonNull::new_unchecked(new_vals.cast()),
+                                new_size,
+                            );
+                            return OlcOutcome::Done(Some(old));
+                        }
                         new_vals.copy_from_nonoverlapping(old_arr, rank);
                         new_vals
                             .add(rank)
@@ -9409,6 +9464,10 @@ macro_rules! olc_remove_map_body {
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         let old = base.cast::<u64>().add(pos).read();
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Done(Some(old));
+                        }
                         crate::leaf::shared_keys::map_remove_at(base, kb as u8, pop, pos);
                         Edge::set_pop0_at(edge_ptr, kb as u8, (pop - 2) as u64);
                         version_unlock_timed(p_cell, old_v, true, lock_t0);
@@ -9448,6 +9507,14 @@ macro_rules! olc_remove_map_body {
                     // SAFETY: node, edge, and new_buf pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
                         let old = base.cast::<u64>().add(pos).read();
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            alloc.free_bytes_unpublished(
+                                core::ptr::NonNull::new_unchecked(new_buf),
+                                new_size,
+                            );
+                            return OlcOutcome::Done(Some(old));
+                        }
                         crate::leaf::map_realloc_remove(base, new_buf, kb as u8, pop, pos);
                         let saved_aux = *edge.aux_bytes();
                         let mut new_edge = Edge::new_node(new_buf, edge.tag_byte());
@@ -9470,7 +9537,12 @@ macro_rules! olc_remove_map_body {
                         // leaf the slot still names while the branch lock excludes its writers.
                         let old = match unsafe {
                             null_branch_u_slot(&parent, edge_ptr, &edge, || {
-                                base.cast::<u64>().read()
+                                let old = base.cast::<u64>().read();
+                                if $keep_locked {
+                                    Err(Some(old))
+                                } else {
+                                    Ok(old)
+                                }
                             })
                         } {
                             Ok(old) => old,
@@ -9532,6 +9604,10 @@ macro_rules! olc_remove_map_body {
                     }
                     // SAFETY: node, edge, and version pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Done(Some(old));
+                        }
                         let mut new_edge = Edge::NULL;
                         new_edge.set_imm_bytes(entries[0].1.to_le_bytes());
                         new_edge.set_aux_bytes(aux);
@@ -9577,6 +9653,14 @@ macro_rules! olc_remove_map_body {
                     }
                     // SAFETY: node, edge, and new_vals pointers are valid and EBR-live under the OLC protocol.
                     unsafe {
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            alloc.free_bytes_unpublished(
+                                core::ptr::NonNull::new_unchecked(new_vals.cast()),
+                                new_size,
+                            );
+                            return OlcOutcome::Done(Some(old));
+                        }
                         for (slot, &(_, v)) in entries[..rem_pop].iter().enumerate() {
                             new_vals.add(slot).write(v);
                         }
@@ -9643,7 +9727,12 @@ macro_rules! olc_remove_map_body {
                         // slot's value word while the branch lock excludes its writers.
                         let old = match unsafe {
                             null_branch_u_slot(&parent, edge_ptr, &edge, || {
-                                Edge::word0_at(edge_ptr)
+                                let old = Edge::word0_at(edge_ptr);
+                                if $keep_locked {
+                                    Err(Some(old))
+                                } else {
+                                    Ok(old)
+                                }
                             })
                         } {
                             Ok(old) => old,
@@ -9701,6 +9790,10 @@ macro_rules! olc_remove_map_body {
                     unsafe {
                         let vals = edge.node_ptr().cast::<u64>();
                         let old = *vals.add(p);
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Done(Some(old));
+                        }
                         let remain_slot = 1 - p;
                         let remain_val = *vals.add(remain_slot);
                         let mut new_aux = [0u8; 7];
@@ -9739,6 +9832,10 @@ macro_rules! olc_remove_map_body {
                     unsafe {
                         let vals = edge.node_ptr().cast::<u64>();
                         let old = vals.add(p).read();
+                        if $keep_locked {
+                            version_unlock_timed(p_cell, old_v, false, lock_t0);
+                            return OlcOutcome::Done(Some(old));
+                        }
                         if p + 1 < n {
                             crate::bits::shared_word::shift_down::<true>(vals, p, n - 1 - p);
                         }
@@ -9788,6 +9885,14 @@ macro_rules! olc_remove_map_body {
                 unsafe {
                     let vals = edge.node_ptr().cast::<u64>();
                     let old = *vals.add(p);
+                    if $keep_locked {
+                        version_unlock_timed(p_cell, old_v, false, lock_t0);
+                        alloc.free_bytes_unpublished(
+                            core::ptr::NonNull::new_unchecked(new_vals.cast()),
+                            new_size,
+                        );
+                        return OlcOutcome::Done(Some(old));
+                    }
                     if p > 0 {
                         core::ptr::copy_nonoverlapping(vals, new_vals, p);
                     }
@@ -9865,7 +9970,7 @@ pub(crate) fn olc_insert_map<H: OlcHost, const KEEP: bool>(
     ))
 ))]
 pub(crate) fn olc_remove_map<H: OlcHost>(host: &H, key: Key) -> OlcOutcome<Option<u64>> {
-    olc_remove_map_body!(host, false, _old => false, key)
+    olc_remove_map_body!(host, false, _old => false, false, key)
 }
 
 /// The conditional publish over any [`OlcHost`]: `olc_insert_map_body!` storing
@@ -9897,7 +10002,7 @@ pub(crate) fn olc_cas_remove_map<H: OlcHost>(
     key: Key,
     expected: u64,
 ) -> OlcOutcome<Option<u64>> {
-    olc_remove_map_body!(host, true, old => old != expected, key)
+    olc_remove_map_body!(host, true, old => old != expected, false, key)
 }
 
 // ---------------------------------------------------------------------
@@ -10158,7 +10263,51 @@ pub(crate) fn olc_cas_remove_bucket_map<H: OlcHost>(
     key: Key,
     expected: u64,
 ) -> OlcOutcome<Option<u64>> {
-    olc_remove_map_body!(host, true, old => old != expected, key)
+    olc_remove_map_body!(host, true, old => old != expected, false, key)
+}
+
+/// [`olc_cas_remove_bucket_map`] for a compare-and-remove of the bucket's sole
+/// entry (#1396): the terminal is unlinked only while entry `0` of the
+/// published bucket at `expected` still holds `expected_val`, compared **under
+/// the terminal's parent version lock** (`$keep_locked`) for the reason
+/// [`olc_bucket_value_cas_map`] gives.
+///
+/// The pre-lock `$keep` (`old != expected`) exits early when the bucket pointer
+/// itself moved; once the parent version lock is acquired at `parent.version_snap`
+/// and the edge is re-checked, the trie word is still `expected` (every bucket
+/// replacement or removal unlocks the parent modified) and no concurrent
+/// [`olc_bucket_value_inplace_map`] or [`olc_bucket_value_cas_map`] can run.
+///
+/// `Done(seen)` with `seen == Some(expected)`: `prev` holds the entry's value,
+/// and the terminal was unlinked iff `prev == expected_val`.
+///
+/// SAFETY (for the call inside `$keep_locked`): the macro holds the terminal's
+/// parent version lock at `parent.version_snap` after confirming `old == expected`
+/// at that snapshot, and the caller's writer pin keeps `expected` EBR-live with
+/// `len == 1`.
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[cfg(all(
+    feature = "std",
+    target_pointer_width = "64",
+    not(feature = "ablation-bytes-serial-writers")
+))]
+pub(crate) fn olc_cas_remove_bucket_cas_map<H: OlcHost>(
+    host: &H,
+    key: Key,
+    expected: u64,
+    expected_val: u64,
+    prev: &mut u64,
+) -> OlcOutcome<Option<u64>> {
+    olc_remove_map_body!(
+        host,
+        true,
+        old => old != expected,
+        {
+            *prev = crate::bytesmap::read_entry_value(expected, 0);
+            *prev != expected_val
+        },
+        key
+    )
 }
 
 /// The colliding-remove publish: the conditional store of a replacement
@@ -10260,7 +10409,7 @@ impl SyncExpanseMap {
     #[allow(clippy::undocumented_unsafe_blocks)]
     #[cfg(feature = "std")]
     fn olc_remove_map(&self, key: Key) -> OlcOutcome<Option<u64>> {
-        olc_remove_map_body!(self.shared, false, _old => false, key)
+        olc_remove_map_body!(self.shared, false, _old => false, false, key)
     }
 }
 
@@ -15145,12 +15294,43 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                                             }
                                         }
                                         None if len == 1 => {
-                                            // Removing the last entry removes the terminal, and
-                                            // the remove body compares the bucket word between
-                                            // two validations, not under the lock: it cannot
-                                            // carry a value compare. The serialised path below
-                                            // compares and removes with every writer excluded.
-                                            break;
+                                            let mut prev = 0u64;
+                                            match olc_cas_remove_bucket_cas_map(
+                                                &*self.shared,
+                                                h,
+                                                word,
+                                                expected_val,
+                                                &mut prev,
+                                            ) {
+                                                OlcOutcome::Done(Some(seen))
+                                                    if seen == word && prev == expected_val =>
+                                                {
+                                                    self.shared.tree_pop.add(guard.slot_id(), -1);
+                                                    self.entry_pop.add(guard.slot_id(), -1);
+                                                    dispose_bucket(
+                                                        word as *mut Bucket,
+                                                        true,
+                                                        Some(&self.shared.collector),
+                                                    );
+                                                    guard.tick_advance(&self.shared.collector);
+                                                    crate::occ_stats::op_end();
+                                                    return Ok(Some(prev));
+                                                }
+                                                OlcOutcome::Done(Some(seen)) if seen == word => {
+                                                    // The value moved under the lock: nothing
+                                                    // was unlinked.
+                                                    crate::occ_stats::op_end();
+                                                    return Ok(Some(prev));
+                                                }
+                                                OlcOutcome::Done(_) | OlcOutcome::Retry => {
+                                                    stall!();
+                                                    continue;
+                                                }
+                                                OlcOutcome::Fallback(c) => {
+                                                    cause = c;
+                                                    break;
+                                                }
+                                            }
                                         }
                                         None => {
                                             // SAFETY: `word` is a valid Bucket pointer and `at` was found within bounds.
@@ -23005,6 +23185,374 @@ mod tests {
             let map = SyncExpanseBytesMap::with_hasher(FewBuckets::default());
             bytes_failed_exchange_changes_nothing(&map, remove);
         }
+    }
+
+    // -----------------------------------------------------------------
+    // #1396: optimistic compare-and-remove of a bucket's last entry.
+    // -----------------------------------------------------------------
+
+    /// A `BuildHasher` that reads an 8-byte little-endian `u64` key directly
+    /// as its 64-bit hash, so a test can place single-entry buckets into
+    /// exact terminal forms (`LeafB1`, `Leaf1..=Leaf7`, `Immed`).
+    #[derive(Default, Clone)]
+    struct DirectU64Hasher(u64);
+    impl std::hash::Hasher for DirectU64Hasher {
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            let mut buf = [0u8; 8];
+            let n = bytes.len().min(8);
+            buf[..n].copy_from_slice(&bytes[..n]);
+            self.0 = u64::from_le_bytes(buf);
+        }
+    }
+    impl BuildHasher for DirectU64Hasher {
+        type Hasher = DirectU64Hasher;
+        fn build_hasher(&self) -> DirectU64Hasher {
+            DirectU64Hasher(0)
+        }
+    }
+
+    /// Exercises `olc_cas_remove_bucket_cas_map` and `compare_exchange(.., None)`
+    /// on a single-entry bucket at `target` across all terminal forms that
+    /// `olc_remove_map_body!` locks:
+    /// 1. Direct call to `olc_cas_remove_bucket_cas_map` with a mismatched
+    ///    `expected_val` so `$keep_locked` fires *after* the parent version lock
+    ///    is acquired (and after any pre-allocated replacement buffer is built):
+    ///    returns `OlcOutcome::Done(Some(expected_bucket))`, sets `prev` to the
+    ///    stored value, leaves `mem_used()` unchanged (no leaked unpublished
+    ///    `new_vals` / `new_buf`), and keeps the key in the map.
+    /// 2. `compare_exchange` with a mismatched expected value returns
+    ///    `Err(Some(actual))` and leaves the key in place.
+    /// 3. `compare_exchange` with the matching expected value removes the
+    ///    single-entry bucket optimistically (`LockFallbacks == 0` under
+    ///    `occ-stats`), and `update(.., |_| None)` on `second_target` does the
+    ///    same.
+    #[cfg(not(miri))]
+    fn check_last_entry_cas_remove_fixture(
+        label: &str,
+        setup_hashes: &[u64],
+        pre_remove: &[u64],
+        target: u64,
+        second_target: u64,
+    ) {
+        let map = SyncExpanseBytesMap::with_hasher(DirectU64Hasher::default());
+        for (i, &h) in setup_hashes.iter().enumerate() {
+            assert_eq!(
+                map.insert(&h.to_le_bytes(), 100 + i as u64),
+                None,
+                "{label}: insert {h:#x}"
+            );
+        }
+        for &h in pre_remove {
+            assert!(
+                map.remove(&h.to_le_bytes()).is_some(),
+                "{label}: pre-remove {h:#x}"
+            );
+        }
+        assert!(
+            map.with_locked(ExpanseBytesMap::root_is_tree),
+            "{label}: fixture must be in tree state"
+        );
+
+        let target_bytes = target.to_le_bytes();
+        let second_bytes = second_target.to_le_bytes();
+        let actual_val = map
+            .get(&target_bytes)
+            .unwrap_or_else(|| panic!("{label}: target {target:#x} must be present"));
+        let second_val = map
+            .get(&second_bytes)
+            .unwrap_or_else(|| panic!("{label}: second_target {second_target:#x} must be present"));
+        let len_before = map.len();
+
+        // Look up the published bucket pointer for `target` so we can invoke
+        // `olc_cas_remove_bucket_cas_map` directly with a mismatched
+        // `expected_val`, forcing `$keep_locked` to abort under the parent's
+        // version lock.
+        #[cfg(not(feature = "ablation-bytes-serial-writers"))]
+        {
+            let bucket_word = map.shared.with_writer_pin(|| {
+                let snap = map.shared.version().sample();
+                let root = map.shared.published().load();
+                // SAFETY: pinned, version sampled before root load.
+                unsafe { walk_validated::<true>(root, target, map.shared.version(), snap) }
+                    .ok()
+                    .expect("quiescent walk")
+                    .expect("target hash present")
+            });
+            let mem_before = map.mem_used();
+            let mut prev = 0u64;
+            let outcome = map.shared.with_writer_pin(|| {
+                olc_cas_remove_bucket_cas_map(
+                    &*map.shared,
+                    target,
+                    bucket_word,
+                    actual_val ^ 0xDEAD_BEEF,
+                    &mut prev,
+                )
+            });
+            assert!(
+                matches!(outcome, OlcOutcome::Done(Some(w)) if w == bucket_word),
+                "{label}: post-lock value mismatch must return Done(Some(bucket_word))"
+            );
+            assert_eq!(
+                prev, actual_val,
+                "{label}: post-lock value mismatch must report the current value"
+            );
+            assert_eq!(
+                map.mem_used(),
+                mem_before,
+                "{label}: aborting under `$keep_locked` must free any unpublished buffer"
+            );
+            assert_eq!(
+                map.get(&target_bytes),
+                Some(actual_val),
+                "{label}: post-lock abort must leave the key untouched"
+            );
+            assert_eq!(map.len(), len_before, "{label}: census unchanged on abort");
+        }
+
+        #[cfg(all(feature = "occ-stats", not(feature = "ablation-bytes-serial-writers")))]
+        let fb_before =
+            crate::occ_stats::snapshot()[crate::occ_stats::Stat::LockFallbacks as usize];
+
+        // Public API: mismatched expected value.
+        assert_eq!(
+            map.compare_exchange(&target_bytes, Some(actual_val + 999), None),
+            Err(Some(actual_val)),
+            "{label}: mismatched compare_exchange"
+        );
+        assert_eq!(map.get(&target_bytes), Some(actual_val));
+        assert_eq!(map.len(), len_before);
+
+        // Public API: matching compare-and-remove of the bucket's sole entry.
+        assert_eq!(
+            map.compare_exchange(&target_bytes, Some(actual_val), None),
+            Ok(Some(actual_val)),
+            "{label}: matching compare_exchange(.., None)"
+        );
+        assert_eq!(map.get(&target_bytes), None, "{label}: target removed");
+        assert_eq!(map.len(), len_before - 1);
+
+        // Public API: `update(.., |_| None)` delegates to `compare_exchange(.., None)`.
+        assert_eq!(
+            map.update(&second_bytes, |_| None),
+            Some(second_val),
+            "{label}: update(.., |_| None)"
+        );
+        assert_eq!(
+            map.get(&second_bytes),
+            None,
+            "{label}: second_target removed"
+        );
+        assert_eq!(map.len(), len_before - 2);
+
+        #[cfg(all(feature = "occ-stats", not(feature = "ablation-bytes-serial-writers")))]
+        {
+            let fb_after =
+                crate::occ_stats::snapshot()[crate::occ_stats::Stat::LockFallbacks as usize];
+            assert_eq!(
+                fb_after - fb_before,
+                0,
+                "{label}: single-entry bucket removal fell back to the lock"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(not(miri))]
+    fn bytes_cas_remove_last_entry_optimistic_across_terminal_forms() {
+        // 1. Narrow `LeafB1` as the root's `top` edge (35 keys in 0..35, above
+        //    `ROOT_LEAF_CAP = 31` and well above `LEAFB1_DOWN = 21`).
+        let root_narrow_leafb1: Vec<u64> = (0..35u64).collect();
+        check_last_entry_cas_remove_fixture("root narrow LeafB1", &root_narrow_leafb1, &[], 5, 6);
+
+        // 2. Narrow `LeafB1` under a branch (`0..35` under top byte 0, plus top
+        //    byte 1 so the root is a `BranchL3`).
+        let mut branch_narrow_leafb1: Vec<u64> = (0..35u64).collect();
+        branch_narrow_leafb1.push(1u64 << 56);
+        check_last_entry_cas_remove_fixture(
+            "branch narrow LeafB1",
+            &branch_narrow_leafb1,
+            &[],
+            7,
+            8,
+        );
+
+        // 3. Direct (non-narrow) `LeafB1` under a level-2 branch (`0..35` at
+        //    byte 0, plus `1 << 8` so level 2 branches, plus `1 << 56`).
+        let mut branch_direct_leafb1: Vec<u64> = (0..35u64).collect();
+        branch_direct_leafb1.push(1u64 << 8);
+        branch_direct_leafb1.push(1u64 << 56);
+        check_last_entry_cas_remove_fixture(
+            "branch direct LeafB1",
+            &branch_direct_leafb1,
+            &[],
+            9,
+            10,
+        );
+
+        // 4. `Leaf7` under a branch, same capacity class (`pop == 10 -> 9`,
+        //    `cap_class(9) == cap_class(10) == 16`).
+        let mut branch_leaf7_same_cap: Vec<u64> = (1..=10u64).map(|i| i << 48).collect();
+        branch_leaf7_same_cap.extend((1..=30u64).map(|d| d << 56));
+        check_last_entry_cas_remove_fixture(
+            "branch Leaf7 (same cap_class, pop 10 -> 9)",
+            &branch_leaf7_same_cap,
+            &[],
+            2 << 48,
+            3 << 48,
+        );
+
+        // 5. `Leaf7` under a branch at a capacity-class boundary (`pop == 9 -> 8`,
+        //    `cap_class(9) == 16 -> cap_class(8) == 8`), exercising the
+        //    pre-allocated `new_buf` free on `$keep_locked` abort.
+        let mut branch_leaf7_realloc: Vec<u64> = (1..=9u64).map(|i| i << 48).collect();
+        branch_leaf7_realloc.extend((1..=30u64).map(|d| d << 56));
+        check_last_entry_cas_remove_fixture(
+            "branch Leaf7 (realloc cap_class, pop 9 -> 8)",
+            &branch_leaf7_realloc,
+            &[],
+            1 << 48,
+            2 << 48,
+        );
+
+        // 6. `Leaf7` (`pop == 2 -> rem_pop == 1`) demoting to a 1-key `Immed`,
+        //    and `Immed` (`n == 1`) under `BranchU` unlinking via
+        //    `null_branch_u_slot`.
+        let mut branch_u_leaf7_and_immed1: Vec<u64> = (0..200u64).map(|d| d << 56).collect();
+        branch_u_leaf7_and_immed1.push(1 << 48);
+        check_last_entry_cas_remove_fixture(
+            "BranchU Leaf7 (rem_pop == 1) and Immed (n == 1)",
+            &branch_u_leaf7_and_immed1,
+            &[],
+            1 << 48,
+            10 << 56,
+        );
+
+        // 7. `Leaf2` (`pop == 4 -> rem_pop == 3 <= map_immed_max(2)`) demoting
+        //    to a 3-key `Immed` (pre-allocating `new_vals`), followed by `Immed`
+        //    (`n == 3 -> 2`, also pre-allocating `new_vals`).
+        let mut branch_leaf2_to_immed3: Vec<u64> = (1..=4u64).map(|i| i << 8).collect();
+        branch_leaf2_to_immed3.push(1 << 16);
+        branch_leaf2_to_immed3.extend((1..=30u64).map(|d| d << 56));
+        check_last_entry_cas_remove_fixture(
+            "branch Leaf2 (rem_pop == 3) and Immed (n == 3 -> 2)",
+            &branch_leaf2_to_immed3,
+            &[],
+            1 << 8,
+            2 << 8,
+        );
+
+        // 8. Level-1 `Immed` under a level-2 branch: `n == 4 -> 3` (same
+        //    `cap_class(3) == cap_class(4) == 4`, in-place shift) and `n == 3 -> 2`
+        //    (pre-allocated `new_vals`), then `n == 2 -> 1` (demoting to inline
+        //    1-key `Immed`).
+        let mut branch_immed1_four: Vec<u64> = (1..=4u64).collect();
+        branch_immed1_four.push(1 << 8);
+        branch_immed1_four.extend((1..=30u64).map(|d| d << 56));
+        check_last_entry_cas_remove_fixture(
+            "branch Immed (n == 4 -> 3 and n == 3 -> 2)",
+            &branch_immed1_four,
+            &[],
+            1,
+            2,
+        );
+
+        let mut branch_immed1_two: Vec<u64> = vec![1, 2, 1 << 8, 2 << 8];
+        branch_immed1_two.extend((1..=30u64).map(|d| d << 56));
+        check_last_entry_cas_remove_fixture(
+            "branch Immed (n == 2 -> 1)",
+            &branch_immed1_two,
+            &[],
+            1,
+            1 << 8,
+        );
+    }
+
+    /// Concurrent compare-and-remove of a bucket's sole entry racing in-place
+    /// value overwrites (`insert`) and a colliding sibling key in the same
+    /// bucket:
+    /// - A failed `compare_exchange(hot, Some(seen), None)` never removes `hot`
+    ///   or its colliding sibling.
+    /// - When a colliding sibling is present, `compare_exchange(hot, Some(seen), None)`
+    ///   removes only `hot` (leaving the sibling intact); when the sibling is
+    ///   absent, it unlinks the single-entry bucket via `olc_cas_remove_bucket_cas_map`.
+    #[test]
+    #[cfg(not(miri))]
+    fn bytes_cas_remove_last_entry_races_overwrite_and_collision() {
+        const ROUNDS: u64 = 30_000;
+        let hot = b"hot-cas-remove";
+        let sibling = b"sibling-in-same-bucket";
+
+        let map = SyncExpanseBytesMap::with_hasher(FewBuckets::default());
+        fill_with_hot_key(&map, hot);
+        let done = AtomicBool::new(false);
+
+        std::thread::scope(|s| {
+            // Thread 1: overwrites `hot` with odd values whenever it is present,
+            // or re-inserts it with an odd value when Thread 2 just removed it.
+            s.spawn(|| {
+                for i in 0..ROUNDS {
+                    let odd = 2 * i + 3;
+                    map.insert(hot, odd);
+                }
+                done.store(true, Ordering::Release);
+            });
+
+            // Thread 2: reads `hot`, compare-and-removes it if odd, then
+            // re-inserts an odd value so `hot` keeps cycling between 1-entry
+            // unlink, shorter-bucket publish, and in-place value mismatch.
+            s.spawn(|| {
+                for round in 0..ROUNDS {
+                    if let Some(seen) = map.get(hot) {
+                        assert_eq!(seen & 1, 1, "round {round}: saw even value {seen}");
+                        match map.compare_exchange(hot, Some(seen), None) {
+                            Ok(prev) => {
+                                assert_eq!(prev, Some(seen));
+                                let _ = map.get_or_insert(hot, seen);
+                            }
+                            Err(Some(cur)) => {
+                                assert_eq!(
+                                    cur & 1,
+                                    1,
+                                    "round {round}: failed remove observed even value {cur}"
+                                );
+                            }
+                            Err(None) => {}
+                        }
+                    }
+                }
+            });
+
+            // Thread 3: repeatedly inserts and compare-and-removes a key that
+            // hashes to the same bucket as `hot` under `FewBuckets` when their
+            // hashes match, or another bucket in the 96-bucket tree.
+            s.spawn(|| {
+                let mut v = 10u64;
+                while !done.load(Ordering::Acquire) {
+                    assert_eq!(map.insert(sibling, v), None);
+                    assert_eq!(map.compare_exchange(sibling, Some(v), None), Ok(Some(v)));
+                    v += 2;
+                }
+            });
+        });
+
+        // Re-ensure `hot` is present and verify census.
+        map.insert(hot, 1);
+        assert_eq!(map.get(sibling), None);
+        assert_eq!(map.get(hot), Some(1));
+        let counted = map.with_locked(|inner| {
+            let mut n = 0u64;
+            inner.for_each(|_, _| n += 1);
+            n
+        });
+        assert_eq!(
+            map.len(),
+            counted,
+            "sharded entry_pop must match walked census"
+        );
     }
 
     const SHARED_KEYS: usize = 64;

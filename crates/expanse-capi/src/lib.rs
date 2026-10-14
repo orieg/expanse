@@ -42,8 +42,8 @@ pub use compat::*;
 pub mod modern;
 // The 32-bit-only concurrent surface: `sync32` needs no `std`, so this is
 // present in every 32-bit build (see the `!EXPANSE_WIDE_SURFACE` block of
-// `include/expanse.h`).
-#[cfg(target_pointer_width = "32")]
+// `include/expanse.h`), and in `cfg(test)` so unit tests run on 64-bit hosts.
+#[cfg(any(target_pointer_width = "32", test))]
 pub mod modern_sync32;
 
 #[cfg(target_pointer_width = "64")]

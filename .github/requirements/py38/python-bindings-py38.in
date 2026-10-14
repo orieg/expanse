@@ -1,0 +1,29 @@
+# Top-level pins for the Python 3.8 row of python.yml, and nowhere else. This
+# file exists only for that row and goes away with it; every other job installs
+# ../python-bindings.txt (Python 3.10 and newer, fixed pytest).
+#
+# It lives in its own directory so that .github/dependabot.yml can hold pytest
+# and typing-extensions back for this file alone: ignore rules apply per
+# dependency name across a whole directory.
+#
+# pip-compile drops a requirement whose environment marker is false on the
+# machine that compiles. So every dependency that holds only on some Python or
+# OS is listed here unconditionally, with an exact pin: a pure-Python wheel that
+# is harmless where the marker is false. Any compile of this file, on any
+# Python (Dependabot compiles on its own), then resolves the same package set,
+# and scripts/check_release_workflow.py fails a .txt whose set differs.
+#   colorama           pytest, Windows only
+#   exceptiongroup     pytest, Python < 3.11
+#   tomli              pytest and maturin, Python < 3.11
+#   typing-extensions  exceptiongroup, Python < 3.13
+# Compile it on Python 3.8. pytest 8.4 needs Python 3.9+, so pytest is pinned
+# to 8.3.5, and typing-extensions to the last release that supports 3.8
+# (4.13.2).
+#
+# Refresh recipe: docs/CI.md, "Hashed Python requirements".
+maturin==1.15.0
+pytest==8.3.5
+colorama==0.4.6
+exceptiongroup==1.3.1
+tomli==2.5.0
+typing-extensions==4.13.2
