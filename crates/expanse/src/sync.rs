@@ -22824,47 +22824,50 @@ mod tests {
         // `olc_cas_remove_bucket_cas_map` directly with a mismatched
         // `expected_val`, forcing `$keep_locked` to abort under the parent's
         // version lock.
-        let bucket_word = map.shared.with_writer_pin(|| {
-            let snap = map.shared.version().sample();
-            let root = map.shared.published().load();
-            // SAFETY: pinned, version sampled before root load.
-            unsafe { walk_validated::<true>(root, target, map.shared.version(), snap) }
-                .ok()
-                .expect("quiescent walk")
-                .expect("target hash present")
-        });
-        let mem_before = map.mem_used();
-        let mut prev = 0u64;
-        let outcome = map.shared.with_writer_pin(|| {
-            olc_cas_remove_bucket_cas_map(
-                &*map.shared,
-                target,
-                bucket_word,
-                actual_val ^ 0xDEAD_BEEF,
-                &mut prev,
-            )
-        });
-        assert!(
-            matches!(outcome, OlcOutcome::Done(Some(w)) if w == bucket_word),
-            "{label}: post-lock value mismatch must return Done(Some(bucket_word))"
-        );
-        assert_eq!(
-            prev, actual_val,
-            "{label}: post-lock value mismatch must report the current value"
-        );
-        assert_eq!(
-            map.mem_used(),
-            mem_before,
-            "{label}: aborting under `$keep_locked` must free any unpublished buffer"
-        );
-        assert_eq!(
-            map.get(&target_bytes),
-            Some(actual_val),
-            "{label}: post-lock abort must leave the key untouched"
-        );
-        assert_eq!(map.len(), len_before, "{label}: census unchanged on abort");
+        #[cfg(not(feature = "ablation-bytes-serial-writers"))]
+        {
+            let bucket_word = map.shared.with_writer_pin(|| {
+                let snap = map.shared.version().sample();
+                let root = map.shared.published().load();
+                // SAFETY: pinned, version sampled before root load.
+                unsafe { walk_validated::<true>(root, target, map.shared.version(), snap) }
+                    .ok()
+                    .expect("quiescent walk")
+                    .expect("target hash present")
+            });
+            let mem_before = map.mem_used();
+            let mut prev = 0u64;
+            let outcome = map.shared.with_writer_pin(|| {
+                olc_cas_remove_bucket_cas_map(
+                    &*map.shared,
+                    target,
+                    bucket_word,
+                    actual_val ^ 0xDEAD_BEEF,
+                    &mut prev,
+                )
+            });
+            assert!(
+                matches!(outcome, OlcOutcome::Done(Some(w)) if w == bucket_word),
+                "{label}: post-lock value mismatch must return Done(Some(bucket_word))"
+            );
+            assert_eq!(
+                prev, actual_val,
+                "{label}: post-lock value mismatch must report the current value"
+            );
+            assert_eq!(
+                map.mem_used(),
+                mem_before,
+                "{label}: aborting under `$keep_locked` must free any unpublished buffer"
+            );
+            assert_eq!(
+                map.get(&target_bytes),
+                Some(actual_val),
+                "{label}: post-lock abort must leave the key untouched"
+            );
+            assert_eq!(map.len(), len_before, "{label}: census unchanged on abort");
+        }
 
-        #[cfg(feature = "occ-stats")]
+        #[cfg(all(feature = "occ-stats", not(feature = "ablation-bytes-serial-writers")))]
         let fb_before =
             crate::occ_stats::snapshot()[crate::occ_stats::Stat::LockFallbacks as usize];
 
@@ -22899,7 +22902,7 @@ mod tests {
         );
         assert_eq!(map.len(), len_before - 2);
 
-        #[cfg(feature = "occ-stats")]
+        #[cfg(all(feature = "occ-stats", not(feature = "ablation-bytes-serial-writers")))]
         {
             let fb_after =
                 crate::occ_stats::snapshot()[crate::occ_stats::Stat::LockFallbacks as usize];
