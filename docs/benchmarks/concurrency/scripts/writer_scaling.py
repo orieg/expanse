@@ -8643,7 +8643,22 @@ def _self_test_set_ordered_readers_no_build() -> None:
     assert all(c["arm"] == "set" and c["workload_id"] == SET_ORDERED_READERS_WORKLOAD_ID for c in art["throughput"])
     assert len(art["throughput"]) == 16 and all(len(c["rounds_raw"]) == rounds for c in art["throughput"])
     assert all("load" in raw for c in art["throughput"] for raw in c["rounds_raw"]), "per-round load windows"
-    assert cbp.findings_for(rel, art) == [], cbp.findings_for(rel, art)
+    # The driver's artifact owes one thing more, which the workflow adds after the run: the host guard's record
+    # (§36.12 item 4; `bench_host_guard.py attach`). Without it the provenance gate names exactly that; with a
+    # record attached the way `attach` does, on top of what the driver wrote, it finds nothing. The driver neither
+    # writes that key nor removes one: an artifact rebuilt from the same provenance keeps it.
+    owed = cbp.findings_for(rel, art)
+    assert len(owed) == 1 and "`provenance.host_guard` missing" in owed[0], owed
+    assert "host_guard" not in art["provenance"], "the driver must not write the guard's record itself"
+    guarded = json.loads(json.dumps(art))
+    guarded["provenance"]["host_guard"] = {
+        "start": {"verdict": "clean", "windows": 1, "loadavg": [0.0, 0.0, 0.0], "thresholds": {}},
+        "run": {"verdict": "clean", "samples": 3, "voids": 0},
+        "watcher_ok": True,
+    }
+    assert cbp.findings_for(rel, guarded) == [], cbp.findings_for(rel, guarded)
+    kept = build_set_ordered_readers_artifact(guarded["provenance"], cells, t, c, rounds, pin, quick=False)
+    assert kept["provenance"]["host_guard"] == guarded["provenance"]["host_guard"], "an existing record must survive"
     assert str(REPO_ROOT) not in json.dumps(art), "absolute repo path leaked into the artifact (AGENTS.md §7)"
     quick_art = build_set_ordered_readers_artifact(prov, cells, t, c, rounds, pin, quick=True)
     assert quick_art["set_ordered_readers"]["run_verdict"] == "VOID" and quick_art["set_ordered_readers"]["run_verdict_if_valid"] == "RUN_PASS"
