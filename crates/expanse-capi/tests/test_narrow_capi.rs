@@ -543,6 +543,7 @@ mod sync32_surface {
                     if present && (cur & 1) == 1 {
                         false
                     } else {
+                        // SAFETY: `next_out` points to a live local in `expanse_sync32_map_writer_update`.
                         unsafe { *next_out = cur.wrapping_add(step) };
                         true
                     }
@@ -613,9 +614,11 @@ mod sync32_surface {
             next_out: *mut u32,
             ctx: *mut c_void,
         ) -> bool {
+            // SAFETY: `ctx` points to the caller's live `delta: Option<u32>` local.
             let delta = unsafe { *ctx.cast::<Option<u32>>() };
             match delta {
                 Some(d) => {
+                    // SAFETY: `next_out` points to a live local in `expanse_sync32_map_writer_update`.
                     unsafe { *next_out = if present { cur + d } else { d } };
                     true
                 }
