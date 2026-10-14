@@ -150,6 +150,8 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_map_prev": 50_000,
     "sync_set_prev_locked": 50_000,
     "sync_set_next_after_scan_locked": 50_000,
+    "sync_set_prev": 50_000,
+    "sync_set_next_after_scan": 50_000,
     # Full ascending scans (#1142): one step per entry of the 50k-key map.
     "sync_map_next_after_scan": 50_000,
     "sync_map_scan": 50_000,
@@ -433,6 +435,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "sync_map_prev",
             "sync_set_prev_locked",
             "sync_set_next_after_scan_locked",
+            "sync_set_prev",
+            "sync_set_next_after_scan",
             "map_cursor_scan",
             "map_range_cursor_scan",
             "sync_map_next_after_scan",

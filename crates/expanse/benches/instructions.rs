@@ -26,9 +26,9 @@
 //! |---|---|
 //! | `workload_id` | `core_instructions` |
 //! | `group` | 2 |
-//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` builds 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates |
+//! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` and its optimistic twin `sync_set_prev/immed` build 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` and `sync_set_prev` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
 //! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), and `sync32_map_get` (50%) |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -1238,7 +1238,7 @@ fn map_prev(built: (ExpanseMap, Vec<u64>)) -> u64 {
 }
 
 // The set twins of `map_nav` and `map_prev` (#900): the single-threaded
-// references for the ordered reads a set reader will gain. Same keys, probe
+// references for a set reader's ordered reads (#1194). Same keys, probe
 // stream and ops count as the map arms; every probe is a present key, so every
 // `next_at_or_after` answers and every `prev_before` answers except the one
 // probe that is the minimum, which the count assertions pin.
@@ -3192,11 +3192,10 @@ fn sync_map_scan(built: (SyncExpanseMap, Vec<u64>)) -> u64 {
 }
 
 // The set twins of `sync_map_prev_locked` and `sync_map_next_after_scan`
-// (#900), on the only ordered route the concurrent set has today:
-// `with_locked`, which runs each call with every writer excluded. Hence the
-// `_locked` suffix: it keeps `sync_set_prev` and `sync_set_next_after_scan`
-// free for the optimistic reads, which are compared against these arms. Same
-// keys, probe stream and ops count as the map twins.
+// (#900), on the locked route: `with_locked`, which runs each call with every
+// writer excluded. Hence the `_locked` suffix: `sync_set_prev` and
+// `sync_set_next_after_scan` are the optimistic reads, which are compared
+// against these arms. Same keys, probe stream and ops count as the map twins.
 //
 // `leaf` and `immed` are the tiny-set shapes no other ordered arm reads
 // (METHODOLOGY.md of the concurrency suite, 36.5): a set held in the root
@@ -3253,6 +3252,65 @@ fn sync_set_next_after_scan_locked(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
     }
     assert_eq!(n, POP, "the scan visits every entry once");
     // Leaked — see `sync_map_get`.
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+// The optimistic twins of `sync_set_prev_locked` (#1194, #900): the same
+// keys, probe stream and ops count, through a `SetReader` handle that does
+// not exclude writers. P36.2 (`docs/benchmarks/concurrency/METHODOLOGY.md`
+// §36.5) compares each cell with its `_locked` twin on the same head.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_set)]
+#[bench::leaf(args = ("leaf",), setup = built_sync_set_leaf_prev)]
+#[bench::immed(args = ("immed",), setup = built_sync_set_immed)]
+fn sync_set_prev(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let pop = set.len();
+    let rd = set.reader();
+    let mut sink = 0u64;
+    let mut found = 0u64;
+    for &k in &probes {
+        if let Some(pk) = rd.prev_before(black_box(k)) {
+            sink ^= pk;
+            found += 1;
+        }
+    }
+    // As in `sync_set_prev_locked`: the minimum alone has no predecessor.
+    let len = probes.len() as u64;
+    assert_eq!(
+        found,
+        len - len / pop,
+        "every present key but the minimum has a predecessor"
+    );
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+// The optimistic twin of `sync_set_next_after_scan_locked` (#1194, #900): a
+// full ascending scan, `first` then one `next_after` per key, each a pin, a
+// version sample and a descent from the root. `sync_map_next_after_scan` is
+// its map twin.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_set)]
+#[bench::sequential(args = ("sequential",), setup = built_sync_set)]
+#[bench::clustered(args = ("clustered",), setup = built_sync_set)]
+fn sync_set_next_after_scan(built: (SyncExpanseSet, Vec<u64>)) -> u64 {
+    let (set, _probes) = built;
+    let rd = set.reader();
+    let mut sink = 0u64;
+    let mut n = 0usize;
+    let mut at = rd.first();
+    while let Some(k) = at {
+        sink ^= k;
+        n += 1;
+        at = rd.next_after(black_box(k));
+    }
+    assert_eq!(n, POP, "the scan visits every entry once");
+    // Both leaked — see `sync_map_get`.
+    core::mem::forget(rd);
     core::mem::forget(set);
     black_box(sink)
 }
@@ -4508,6 +4566,8 @@ library_benchmark_group!(
         sync_map_scan,
         sync_set_prev_locked,
         sync_set_next_after_scan_locked,
+        sync_set_prev,
+        sync_set_next_after_scan,
         sync_map_count_locked,
         sync_map_write_twin,
         sync_map_count_after_write,
