@@ -45,6 +45,15 @@ Sections emitted, in README order:
   prints one. METHODOLOGY §16.3's floors are read as constants (AGENTS.md
   section 8.19).
 
+- `33` the #1194 ordered readers on `SyncExpanseSet` at `0f88b715`
+  (METHODOLOGY §36.6, §36.8; outcome §36.15): every dispatch with the host
+  guard's record, the gated statistics and their status, rho per cell, P36.3
+  and attempts per cell, form coverage and the `prev_locked` control, from
+  `results/ordered_readers_set_writer_scaling{,_run2,_void1,_void2}.json`.
+  Admissibility is read from each artifact's `provenance.host_guard`
+  (§36.12 item 4); the statistics and verdicts are the driver's own, read
+  from the artifacts and not recomputed.
+
 A missing artifact renders the section's rows as `pending` citing the open
 tracking issue, so the README is correct before the run exists and
 `scripts/check_readme_tables.py` can enforce it either way. A present
@@ -1316,6 +1325,137 @@ def readers_only_remeasure() -> list[str]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# 33. Ordered readers on SyncExpanseSet (#1194, METHODOLOGY §36.6, §36.8, §36.15)
+# ---------------------------------------------------------------------------
+
+ISSUE_1194 = "[#1194](https://github.com/orieg/expanse/issues/1194)"
+SET_ORDERED_COMMIT = "0f88b715"
+# Every dispatch of the pair, in dispatch order: (artifact stem, CI run, role in the pair).
+SET_ORDERED_DISPATCHES = [
+    ("ordered_readers_set_writer_scaling", 38595664300, "run 1"),
+    ("ordered_readers_set_writer_scaling_void1", 38601123152, "void"),
+    ("ordered_readers_set_writer_scaling_void2", 38609023513, "void"),
+    ("ordered_readers_set_writer_scaling_run2", 38622944190, "run 2"),
+]
+SET_ORDERED_RHO_ROLES = {
+    ("uniform", 0, 1): "control (kappa's denominator)",
+    ("uniform", 1, 4): "gate",
+    ("uniform", 4, 4): "gate",
+    ("hotspot", 4, 4): "gate",
+}
+
+
+def _set_ordered_artifacts() -> dict[str, dict] | None:
+    arts = {}
+    for stem, _, _ in SET_ORDERED_DISPATCHES:
+        path = SUITE / "results" / f"{stem}.json"
+        if not path.is_file():
+            return None
+        arts[stem] = json.loads(path.read_text())
+    return arts
+
+
+def _iv(e: dict, mean: str = "mean", lo: str = "ci_lower", hi: str = "ci_upper", digits: int = 2) -> str:
+    return f"{e[mean]:,.{digits}f} [{e[lo]:,.{digits}f}, {e[hi]:,.{digits}f}]"
+
+
+def set_ordered_readers_outcome() -> list[str]:
+    arts = _set_ordered_artifacts()
+    head = "#### 33.1 Dispatches, all at `0f88b715`"
+    if arts is None:
+        return [head, "", "| dispatch | artifact |", "|---|---|", f"| all | pending ({ISSUE_1194}) |"]
+    out = [head, "",
+           "| dispatch | CI run | artifact | host guard, start | host guard, run | worst foreign load on the pinned CPUs "
+           "| guard voids | admissible | driver's run verdict |",
+           "|--:|---|---|---|---|--:|--:|---|---|"]
+    admissible = []
+    for i, (stem, rid, role) in enumerate(SET_ORDERED_DISPATCHES, 1):
+        art = arts[stem]
+        prov = art["provenance"]
+        if prov.get("commit") != SET_ORDERED_COMMIT:
+            raise ValueError(f"{stem}: commit {prov.get('commit')!r}, expected {SET_ORDERED_COMMIT}")
+        g = need(prov, "host_guard", stem)
+        run = g["run"]
+        ok = g["start"]["verdict"] == "quiet" and run["verdict"] == "undisturbed" and g["watcher_ok"] is True
+        if ok != (role != "void"):
+            raise ValueError(f"{stem}: the guard says admissible={ok}, the dispatch table says {role}")
+        if ok:
+            admissible.append(stem)
+        sec = art["set_ordered_readers"]
+        out.append(f"| {i} | [{rid}](https://github.com/orieg/expanse/actions/runs/{rid}) | `results/{stem}.json` | "
+                   f"`{g['start']['verdict']}` | `{run['verdict']}` | {run['worst_on_pin_foreign_busy_cpus']:.3f} | "
+                   f"{run['voids']} | {'yes, ' + role if ok else 'no, void'} | `{sec['run_verdict']}`"
+                   f"{'' if ok else ' (not read: the guard voids the run)'} |")
+    if len(admissible) != 2:
+        raise ValueError(f"expected two admissible dispatches, found {len(admissible)}")
+    r1, r2 = (arts[s]["set_ordered_readers"] for s in admissible)
+    out.append("")
+
+    out += ["#### 33.2 Gated statistics, BCa 95%, 2,000 resamples, seed 42", "",
+            "| statistic | floor | run 1 | `ci_method` | status | run 2 | `ci_method` | status |",
+            "|---|--:|--:|---|---|--:|---|---|"]
+    for name, e1 in r1["statistics"]["gated"].items():
+        e2 = r2["statistics"]["gated"][name]
+        out.append(f"| `{name}` | {e1['floor']:.1f} | {_iv(e1)} | `{e1['ci_method']}` | `{e1['status']}` | "
+                   f"{_iv(e2)} | `{e2['ci_method']}` | `{e2['status']}` |")
+    out.append(f"| run verdict | | `{r1['run_verdict']}` | | | `{r2['run_verdict']}` | | |")
+    out.append("")
+
+    out += ["#### 33.3 Reader throughput per cell and rho = `prev` / `prev_locked`, paired per round", "",
+            "| probe | W | R | `prev_locked` Mops/s, run 1 | `prev` Mops/s, run 1 | rho, run 1 "
+            "| `prev_locked` Mops/s, run 2 | `prev` Mops/s, run 2 | rho, run 2 | role |",
+            "|---|--:|--:|--:|--:|--:|--:|--:|--:|---|"]
+    stats = []
+    for r in (r1, r2):
+        by = {e["name"]: e for e in r["statistics"]["reported"]}
+        by.update(r["statistics"]["gated"])
+        stats.append(by)
+    cells = [{(c["probe"], c["read_op"], c["writers"], c["readers"]): c for c in arts[s]["throughput"]} for s in admissible]
+    for probe in ("uniform", "hotspot"):
+        for w, rr in ((0, 1), (0, 4), (1, 4), (4, 4)):
+            row = [probe, str(w), str(rr)]
+            for i in range(2):
+                lk, op = cells[i][(probe, "prev_locked", w, rr)], cells[i][(probe, "prev", w, rr)]
+                rho = stats[i][f"rho_{probe}_W{w}_R{rr}"]
+                row += [_iv(lk, "reader_mops_mean", "reader_ci_lower", "reader_ci_upper", 3),
+                        _iv(op, "reader_mops_mean", "reader_ci_lower", "reader_ci_upper", 3), _iv(rho)]
+            row.append(SET_ORDERED_RHO_ROLES.get((probe, w, rr), "reported"))
+            out.append("| " + " | ".join(row) + " |")
+    out.append("")
+
+    out += ["#### 33.4 P36.3: fallbacks and attempts in the `prev` cells, counters summed over 8 rounds", "",
+            "| cell | fallbacks / read ops, run 1 | attempts per op, run 1 | fallbacks / read ops, run 2 "
+            "| attempts per op, run 2 | below 0.1% in both |",
+            "|---|--:|--:|--:|--:|---|"]
+    att = [{e["cell"]: e for e in r["attempts_per_op"]["per_cell"]} for r in (r1, r2)]
+    for c1, c2 in zip(r1["p36_3"]["per_cell"], r2["p36_3"]["per_cell"]):
+        if c1["cell"] != c2["cell"]:
+            raise ValueError(f"P36.3 cells out of order: {c1['cell']} / {c2['cell']}")
+        out.append(f"| {c1['cell']} | {c1['read_fallbacks']:,} / {c1['read_ops']:,} | "
+                   f"{att[0][c1['cell']]['attempts_per_op']:.3f} | {c2['read_fallbacks']:,} / {c2['read_ops']:,} | "
+                   f"{att[1][c2['cell']]['attempts_per_op']:.3f} | {'yes' if c1['holds'] and c2['holds'] else 'no'} |")
+    out.append(f"| P36.3 | `{r1['p36_3']['verdict']}` | | `{r2['p36_3']['verdict']}` | | |")
+    out.append("")
+
+    out += ["#### 33.5 Form coverage of the `hotspot` cells with writers, and the `prev_locked` control", "",
+            "| cell | `full_expanse` at the end, run 1 (min – max) | coverage, run 1 "
+            "| `full_expanse` at the end, run 2 (min – max) | coverage, run 2 |",
+            "|---|--:|---|--:|---|"]
+    cov = [{e["cell"]: e for e in r["form_coverage"]["per_cell"]} for r in (r1, r2)]
+    for cell in cov[0]:
+        e1, e2 = cov[0][cell], cov[1][cell]
+        out.append(f"| {cell} | {e1['full_expanse_end']['min']} – {e1['full_expanse_end']['max']} | "
+                   f"`{e1['form_coverage']}` | {e2['full_expanse_end']['min']} – {e2['full_expanse_end']['max']} | "
+                   f"`{e2['form_coverage']}` |")
+    out.append("")
+    out += ["| control, not gated | run 1 Mops/s | run 2 Mops/s |", "|---|--:|--:|"]
+    c1, c2 = r1["control_prev_locked"], r2["control_prev_locked"]
+    out.append(f"| {c1['cell']} | {_iv(c1, 'reader_mops_mean', 'reader_ci_lower', 'reader_ci_upper', 3)} | "
+               f"{_iv(c2, 'reader_mops_mean', 'reader_ci_lower', 'reader_ci_upper', 3)} |")
+    return out
+
+
 def main() -> int:
     import fine_grained_brackets_gate  # the §8 fine-grained write brackets verdicts, beside this file
     import multi_writer_olc_gate  # the §9 multi-writer OLC verdicts, beside this file
@@ -1337,6 +1477,7 @@ def main() -> int:
         string_wrapper_baselines(),
         wrapper_contention_ranking(),
         readers_only_remeasure(),
+        set_ordered_readers_outcome(),
     ]
     print("\n\n".join("\n".join(b) for b in blocks))
     return 0

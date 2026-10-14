@@ -22,13 +22,39 @@
 //!   whose registered mutation cannot return a wrong key on a shared set,
 //!   `sync::ordered_read_tests::set_ordered_read_past_a_removed_bitmap_branch_digit_restarts`).
 //!
-//! The scanners strip `//` comments before matching, and each clause was
+//! - outside test modules, the set form of the ordered walk (`MAP = false`)
+//!   is instantiated in `set_ordered_walk!` (`src/sync.rs`) and nowhere else,
+//!   and the map form (`MAP = true`) at the map's two wrappers and in
+//!   `sync_nav::seek_submap` and nowhere else (#1194, G36.7).
+//!
+//! - in the two `FullExpanse` arms of `src/sync_nav.rs`, the set form
+//!   answers from the suffix only after checking that the edge fills the
+//!   level it is read at, and answers `Err(Retry)` otherwise (#1194, §36.3
+//!   C6). Debug builds panic at that check, so a debug-build test cannot
+//!   observe the retry; the order of the statements is pinned here.
+//!
 //! shown to fail on its own when the code it guards was broken (PR body of
 //! the change that added this file).
 #![cfg(not(miri))]
 
-const SYNC: &str = include_str!("../src/sync.rs");
-const SYNC_NAV: &str = include_str!("../src/sync_nav.rs");
+use std::sync::LazyLock;
+
+/// The sources as checked out. Read only through [`SYNC`] and [`SYNC_NAV`].
+const SYNC_RAW: &str = include_str!("../src/sync.rs");
+const SYNC_NAV_RAW: &str = include_str!("../src/sync_nav.rs");
+
+/// `src` with CRLF line endings turned into LF. A Windows checkout gives the
+/// included sources CRLF endings, and every scanner and edit in this file
+/// matches multi-line text and bare `}` lines written with `\n` alone, so
+/// each source is normalized once, where it is loaded.
+fn normalized(src: &str) -> String {
+    src.replace("\r\n", "\n")
+}
+
+/// `src/sync.rs`, normalized.
+static SYNC: LazyLock<String> = LazyLock::new(|| normalized(SYNC_RAW));
+/// `src/sync_nav.rs`, normalized.
+static SYNC_NAV: LazyLock<String> = LazyLock::new(|| normalized(SYNC_NAV_RAW));
 
 /// `return Ok(` sites in `walk_validated_body!`. A change that adds or
 /// removes one updates this count, and so is reviewed against the rule.
@@ -175,7 +201,7 @@ fn node_sample_calls(src: &str) -> usize {
 
 #[test]
 fn walk_validated_answers_are_validated() {
-    let body = walk_body(SYNC);
+    let body = walk_body(&SYNC);
     assert_eq!(
         walk_return_sites(&body),
         WALK_RETURN_SITES,
@@ -190,11 +216,11 @@ fn walk_validated_answers_are_validated() {
 fn ordered_read_answers_are_validated() {
     let mut bad = Vec::new();
     for name in ["next_validated", "prev_validated"] {
-        bad.extend(ordered_entry_faults(&fn_body(SYNC_NAV, name), name));
+        bad.extend(ordered_entry_faults(&fn_body(&SYNC_NAV, name), name));
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
     assert_eq!(
-        node_sample_calls(SYNC_NAV),
+        node_sample_calls(&SYNC_NAV),
         1,
         "sync_nav.rs samples a branch version outside ReadSet::sample, so the final validation \
          would not see it"
@@ -422,7 +448,7 @@ fn branch_b_faults(nav_src: &str) -> Vec<String> {
 /// before it loads the root it then validates against that sample.
 #[test]
 fn optimistic_read_samples_the_tree_version_before_the_root() {
-    let bad = optimistic_read_faults(SYNC);
+    let bad = optimistic_read_faults(&SYNC);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
@@ -430,7 +456,7 @@ fn optimistic_read_samples_the_tree_version_before_the_root() {
 /// before any load from the branch.
 #[test]
 fn bitmap_branch_arms_sample_before_they_load() {
-    let bad = branch_b_faults(SYNC_NAV);
+    let bad = branch_b_faults(&SYNC_NAV);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
@@ -458,16 +484,16 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
         assert_eq!(faults.len(), 1, "{faults:?}");
         assert!(faults[0].contains(clause), "{faults:?}");
     };
-    assert!(branch_b_faults(SYNC_NAV).is_empty());
+    assert!(branch_b_faults(&SYNC_NAV).is_empty());
 
     // The sample commented out: with `//`, and with `/* */`.
     for commented in [format!("// {SAMPLE}"), format!("/* {SAMPLE} */")] {
-        let src = edited_after(SYNC_NAV, ARM, SAMPLE, &commented);
+        let src = edited_after(&SYNC_NAV, ARM, SAMPLE, &commented);
         one(branch_b_faults(&src), "BranchB arm 0: expected exactly one");
     }
     // Sampled twice.
     let twice = format!("{SAMPLE}\n            let _again = unsafe {{ rs.sample(vp)? }};");
-    let src = edited_after(SYNC_NAV, ARM, SAMPLE, &twice);
+    let src = edited_after(&SYNC_NAV, ARM, SAMPLE, &twice);
     one(branch_b_faults(&src), "BranchB arm 0: expected exactly one");
     // A load above the sample, in each recognised spelling.
     for load in [
@@ -477,7 +503,7 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
         "let _early = unsafe { Edge::load_at::<true>(core::ptr::null()) };",
     ] {
         let src = edited_after(
-            SYNC_NAV,
+            &SYNC_NAV,
             ARM,
             SAMPLE,
             &format!("{load}\n            {SAMPLE}"),
@@ -490,7 +516,7 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
         "let _text = \"(*node).level shared_bitmap:: branch_b_child( Edge::load_at\";",
     ] {
         let src = edited_after(
-            SYNC_NAV,
+            &SYNC_NAV,
             ARM,
             SAMPLE,
             &format!("{inert}\n            {SAMPLE}"),
@@ -502,26 +528,26 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
     // to keep.
     let unseen = "let _early = unsafe { node.cast::<u8>().add(4).read() };";
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         SAMPLE,
         &format!("{unseen}\n            {SAMPLE}"),
     );
     assert!(branch_b_faults(&src).is_empty());
     // An arm removed: the count of arms is its own clause.
-    let src = edited_after(SYNC_NAV, ARM, "EdgeType::BranchB)", "EdgeType::BranchC)");
+    let src = edited_after(&SYNC_NAV, ARM, "EdgeType::BranchB)", "EdgeType::BranchC)");
     one(branch_b_faults(&src), "expected one BranchB arm in next_in");
 
     // `optimistic_read`: the sample commented out, and the root loaded first.
     const READ: &str = "fn optimistic_read<R>(";
     const TREE: &str = "let snap = self.version().sample();";
-    assert!(optimistic_read_faults(SYNC).is_empty());
+    assert!(optimistic_read_faults(&SYNC).is_empty());
     for commented in [format!("// {TREE}"), format!("/* {TREE} */")] {
-        let src = edited_after(SYNC, READ, TREE, &commented);
+        let src = edited_after(&SYNC, READ, TREE, &commented);
         one(optimistic_read_faults(&src), "expected exactly one");
     }
     let early = format!("let _early = self.published().load();\n            {TREE}");
-    let src = edited_after(SYNC, READ, TREE, &early);
+    let src = edited_after(&SYNC, READ, TREE, &early);
     one(
         optimistic_read_faults(&src),
         "comes before the version sample",
@@ -589,6 +615,630 @@ fn sample_order_scanners_catch_each_fault() {
     let arms = branch_b_arms(src);
     assert_eq!(arms.len(), 1);
     assert_eq!(arms[0].len(), 4);
+}
+
+// ---- Where each flavour of the ordered walk is instantiated (#1194, G36.7) ----
+
+/// `src` in bare form (see [`bare`]) without the bodies of its test modules:
+/// every `mod` item under a `#[cfg(...)]` that names `test` or `loom`, from
+/// its opening line to its closing brace. Line structure is kept.
+fn without_test_modules(src: &str) -> String {
+    let bare_src = bare(src);
+    let lines: Vec<&str> = bare_src.lines().collect();
+    let is_mod = |l: &str| {
+        let t = l.trim();
+        t.ends_with('{')
+            && ["mod ", "pub mod ", "pub(crate) mod ", "pub(super) mod "]
+                .iter()
+                .any(|p| t.starts_with(p))
+    };
+    let gated = |i: usize| {
+        lines[..i]
+            .iter()
+            .rev()
+            .take_while(|l| l.trim().starts_with("#["))
+            .any(|l| l.contains("cfg(") && (l.contains("test") || l.contains("loom")))
+    };
+    let mut out = String::with_capacity(bare_src.len());
+    let mut i = 0;
+    while i < lines.len() {
+        if is_mod(lines[i]) && gated(i) {
+            let mut depth = 0i64;
+            loop {
+                depth += lines[i].matches('{').count() as i64;
+                depth -= lines[i].matches('}').count() as i64;
+                out.push('\n');
+                i += 1;
+                if depth <= 0 || i >= lines.len() {
+                    break;
+                }
+            }
+        } else {
+            out.push_str(lines[i]);
+            out.push('\n');
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The line range of an item of `lines`: from the first line containing
+/// `opening` to the first later line that is a bare `}` at column 0.
+fn item_range(lines: &[&str], opening: &str) -> Option<(usize, usize)> {
+    let start = lines.iter().position(|l| l.contains(opening))?;
+    let end = (start + 1..lines.len()).find(|&i| lines[i] == "}")?;
+    Some((start, end))
+}
+
+/// The lines of `lines` on which `call`, written with the const argument
+/// `flavour` (`true` or `false`, bare or in braces), occurs. Whitespace is
+/// ignored, so a spelling rustfmt would rewrite is still seen.
+fn flavour_sites(lines: &[&str], call: &str, flavour: &str) -> Vec<usize> {
+    let pats = [
+        format!("{call}::<{flavour}>"),
+        format!("{call}::<{flavour},"),
+        format!("{call}::<{{{flavour}}}>"),
+        format!("{call}::<{{{flavour}}},"),
+    ];
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| {
+            let tight: String = l.chars().filter(|c| !c.is_whitespace()).collect();
+            pats.iter().any(|p| tight.contains(p.as_str()))
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// The two entry points of the ordered walk, and the functions under them
+/// that take the flavour.
+const WALK_ENTRIES: [&str; 2] = ["next_validated", "prev_validated"];
+const WALK_INNER: [&str; 4] = ["next_in", "prev_in", "root_leaf", "bitmap_leaf"];
+
+/// G36.7, clause 1: outside test modules, `next_validated::<false>` and
+/// `prev_validated::<false>` each occur once, inside `set_ordered_walk!`,
+/// and no function under them is named with a literal `false`. `others` are
+/// the remaining source files, by name.
+fn set_form_faults(sync_src: &str, nav_src: &str, others: &[(String, String)]) -> Vec<String> {
+    let sync = without_test_modules(sync_src);
+    let sync: Vec<&str> = sync.lines().collect();
+    let mut bad = Vec::new();
+    let Some((lo, hi)) = item_range(&sync, "macro_rules! set_ordered_walk {") else {
+        return vec!["set form: `set_ordered_walk!` not found in sync.rs".to_string()];
+    };
+    for call in WALK_ENTRIES {
+        let sites = flavour_sites(&sync, call, "false");
+        if sites.len() != 1 {
+            bad.push(format!(
+                "set form: expected `{call}::<false>` once in sync.rs outside tests, found {}",
+                sites.len()
+            ));
+        }
+        for at in sites {
+            if !(lo..=hi).contains(&at) {
+                bad.push(format!(
+                    "set form: `{call}::<false>` outside `set_ordered_walk!` (sync.rs line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    let nav = without_test_modules(nav_src);
+    let nav: Vec<&str> = nav.lines().collect();
+    let mut elsewhere: Vec<(&str, Vec<&str>)> = vec![("sync_nav.rs", nav)];
+    let stripped: Vec<(String, String)> = others
+        .iter()
+        .map(|(n, src)| (n.clone(), without_test_modules(src)))
+        .collect();
+    for (n, src) in &stripped {
+        elsewhere.push((n.as_str(), src.lines().collect()));
+    }
+    for (name, lines) in &elsewhere {
+        for call in WALK_ENTRIES.iter().chain(&WALK_INNER) {
+            for at in flavour_sites(lines, call, "false") {
+                bad.push(format!(
+                    "set form: `{call}::<false>` in {name} (line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    for call in WALK_INNER {
+        for at in flavour_sites(&sync, call, "false") {
+            bad.push(format!(
+                "set form: `{call}::<false>` in sync.rs (line {})",
+                at + 1
+            ));
+        }
+    }
+    bad
+}
+
+/// G36.7, clause 2: outside test modules, `next_validated::<true>` occurs
+/// once, in `map_next_with`, and `prev_validated::<true>` once, in
+/// `map_prev_with`; a function under them is named with a literal `true` in
+/// `sync_nav::seek_submap` only.
+fn map_form_faults(sync_src: &str, nav_src: &str, others: &[(String, String)]) -> Vec<String> {
+    let sync = without_test_modules(sync_src);
+    let sync: Vec<&str> = sync.lines().collect();
+    let mut bad = Vec::new();
+    for (call, home) in WALK_ENTRIES
+        .iter()
+        .zip(["fn map_next_with(", "fn map_prev_with("])
+    {
+        let sites = flavour_sites(&sync, call, "true");
+        if sites.len() != 1 {
+            bad.push(format!(
+                "map form: expected `{call}::<true>` once in sync.rs outside tests, found {}",
+                sites.len()
+            ));
+        }
+        let range = item_range(&sync, home);
+        for at in sites {
+            if !range.is_some_and(|(lo, hi)| (lo..=hi).contains(&at)) {
+                bad.push(format!(
+                    "map form: `{call}::<true>` outside `{home}..)` (sync.rs line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    for call in WALK_INNER {
+        for at in flavour_sites(&sync, call, "true") {
+            bad.push(format!(
+                "map form: `{call}::<true>` in sync.rs (line {})",
+                at + 1
+            ));
+        }
+    }
+    let nav = without_test_modules(nav_src);
+    let nav: Vec<&str> = nav.lines().collect();
+    let seek = item_range(&nav, "unsafe fn seek_submap<");
+    if seek.is_none() {
+        bad.push("map form: `seek_submap` not found in sync_nav.rs".to_string());
+    }
+    for call in WALK_ENTRIES.iter().chain(&WALK_INNER) {
+        for at in flavour_sites(&nav, call, "true") {
+            if !seek.is_some_and(|(lo, hi)| (lo..=hi).contains(&at)) {
+                bad.push(format!(
+                    "map form: `{call}::<true>` outside `seek_submap` (sync_nav.rs line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    for (name, src) in others {
+        let src = without_test_modules(src);
+        let lines: Vec<&str> = src.lines().collect();
+        for call in WALK_ENTRIES.iter().chain(&WALK_INNER) {
+            for at in flavour_sites(&lines, call, "true") {
+                bad.push(format!(
+                    "map form: `{call}::<true>` in {name} (line {})",
+                    at + 1
+                ));
+            }
+        }
+    }
+    bad
+}
+
+/// Every source file of the crate but `sync.rs` and `sync_nav.rs`, read
+/// from disk so a file added later is scanned without being listed here.
+fn other_sources() -> Vec<(String, String)> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).expect("the crate's src directory") {
+        let path = entry.expect("a directory entry").path();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("a UTF-8 file name")
+            .to_string();
+        if name.ends_with(".rs") && name != "sync.rs" && name != "sync_nav.rs" {
+            let src = normalized(&std::fs::read_to_string(&path).expect("a readable source file"));
+            out.push((name, src));
+        }
+    }
+    assert!(
+        out.len() >= 30,
+        "expected the crate's other source files, found {}",
+        out.len()
+    );
+    out
+}
+
+/// #1194, G36.7: the set form of the ordered walk is instantiated in one
+/// place, and the map form where it was.
+#[test]
+fn ordered_walk_flavours_are_instantiated_where_registered() {
+    let others = other_sources();
+    let bad = set_form_faults(&SYNC, &SYNC_NAV, &others);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+    let bad = map_form_faults(&SYNC, &SYNC_NAV, &others);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// The two clauses of G36.7 against edited copies of the real source, held
+/// in memory: each clause turns red under its own mutation, and under the
+/// two mutations the gate names (the set macro's constant flipped; a
+/// `::<false>` on a map path), which break both clauses at once.
+#[test]
+fn flavour_scanner_turns_red_on_the_real_source() {
+    const SET_MACRO: &str = "macro_rules! set_ordered_walk {";
+    const SET_NEXT: &str = "crate::sync_nav::next_validated::<false>(root, key, ver, snap)";
+    const MAP_NEXT: &str = "crate::sync_nav::next_validated::<true>(root, key, ver, snap)";
+    const MAP_FN: &str = "fn map_next_with(";
+    let none: Vec<(String, String)> = Vec::new();
+    let set = |sync: &str, nav: &str| set_form_faults(sync, nav, &none);
+    let map = |sync: &str, nav: &str| map_form_faults(sync, nav, &none);
+    assert!(set(&SYNC, &SYNC_NAV).is_empty());
+    assert!(map(&SYNC, &SYNC_NAV).is_empty());
+
+    // Clause 1 alone: a second set-form call, outside the macro, in a
+    // non-test function. The map form is untouched.
+    let extra = format!("fn stray() {{ let _ = {SET_NEXT}; }}\n\n{MAP_FN}");
+    let src = edited_after(
+        &SYNC,
+        "/// The smallest entry with key `>= key`",
+        MAP_FN,
+        &extra,
+    );
+    let faults = set(&src, &SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<false>` once"),
+        "{faults:?}"
+    );
+    assert!(
+        faults[1].contains("outside `set_ordered_walk!`"),
+        "{faults:?}"
+    );
+    assert!(map(&src, &SYNC_NAV).is_empty());
+    // The same call in a test module, in a comment or in a string is not a site.
+    let in_tests =
+        format!("#[cfg(test)]\nmod extra_tests {{\n    fn f() {{ let _ = {SET_NEXT}; }}\n}}\n");
+    for inert in [
+        in_tests,
+        format!("// {SET_NEXT}\n"),
+        format!("const _TEXT: &str = \"{SET_NEXT}\";\n"),
+    ] {
+        let src = format!("{}\n{inert}", *SYNC);
+        assert!(set(&src, &SYNC_NAV).is_empty(), "{inert}");
+        assert!(map(&src, &SYNC_NAV).is_empty(), "{inert}");
+    }
+    // Clause 1 alone, through an inner function of the walk.
+    let src = edited_after(
+        &SYNC_NAV,
+        "pub(crate) unsafe fn next_validated<",
+        "root_leaf::<MAP>",
+        "root_leaf::<false>",
+    );
+    let faults = set(&SYNC, &src);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("`root_leaf::<false>` in sync_nav.rs"),
+        "{faults:?}"
+    );
+    assert!(map(&SYNC, &src).is_empty());
+
+    // Clause 2 alone: a second map-form call outside the map's wrappers.
+    let extra = format!("fn stray() {{ let _ = {MAP_NEXT}; }}\n\n{MAP_FN}");
+    let src = edited_after(
+        &SYNC,
+        "/// The smallest entry with key `>= key`",
+        MAP_FN,
+        &extra,
+    );
+    let faults = map(&src, &SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<true>` once"),
+        "{faults:?}"
+    );
+    assert!(
+        faults[1].contains("outside `fn map_next_with(..)`"),
+        "{faults:?}"
+    );
+    assert!(set(&src, &SYNC_NAV).is_empty());
+    // Clause 2 alone, in `sync_nav`: a literal `true` outside `seek_submap`.
+    let src = edited_after(
+        &SYNC_NAV,
+        "pub(crate) unsafe fn prev_validated<",
+        "root_leaf::<MAP>",
+        "root_leaf::<true>",
+    );
+    let faults = map(&SYNC, &src);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("`root_leaf::<true>` outside `seek_submap`"),
+        "{faults:?}"
+    );
+    assert!(set(&SYNC, &src).is_empty());
+    // Clause 2 alone, in a third file.
+    let third = vec![(
+        "strmap.rs".to_string(),
+        format!("fn f() {{ let _ = {MAP_NEXT}; }}\n"),
+    )];
+    let faults = map_form_faults(&SYNC, &SYNC_NAV, &third);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("in strmap.rs"), "{faults:?}");
+    assert!(set_form_faults(&SYNC, &SYNC_NAV, &third).is_empty());
+
+    // The gate's first mutation: the set macro's constant flipped. The set
+    // form is gone from its macro, and a map-form call sits outside the
+    // map's wrappers.
+    let src = edited_after(
+        &SYNC,
+        SET_MACRO,
+        "next_validated::<false>",
+        "next_validated::<true>",
+    );
+    let faults = set(&src, &SYNC_NAV);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<false>` once"),
+        "{faults:?}"
+    );
+    let faults = map(&src, &SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[1].contains("outside `fn map_next_with(..)`"),
+        "{faults:?}"
+    );
+    // The gate's second mutation: a `::<false>` on a map path.
+    let src = edited_after(
+        &SYNC,
+        MAP_FN,
+        "next_validated::<true>",
+        "next_validated::<false>",
+    );
+    let faults = set(&src, &SYNC_NAV);
+    assert_eq!(faults.len(), 2, "{faults:?}");
+    assert!(
+        faults[1].contains("outside `set_ordered_walk!`"),
+        "{faults:?}"
+    );
+    let faults = map(&src, &SYNC_NAV);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("expected `next_validated::<true>` once"),
+        "{faults:?}"
+    );
+}
+
+// ---- The full-expanse arm fails safe (#1194, §36.3 C6) ----
+
+/// The `FullExpanse` match arms of `src` in bare form: from each arm's first
+/// line to the line before the next arm at the same depth.
+fn full_expanse_arms(src: &str) -> Vec<Vec<String>> {
+    let bare_src = bare(src);
+    let lines: Vec<&str> = bare_src.lines().collect();
+    let mut arms = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if l.trim() == "EdgeTag::Structural(EdgeType::FullExpanse) => {" {
+            let indent = l.len() - l.trim_start().len();
+            let end = (i + 1..lines.len())
+                .find(|&j| {
+                    let t = lines[j];
+                    !t.trim().is_empty()
+                        && t.len() - t.trim_start().len() == indent
+                        && t.trim() == "}"
+                })
+                .unwrap_or(lines.len() - 1);
+            arms.push(lines[i..=end].iter().map(|s| s.to_string()).collect());
+        }
+    }
+    arms
+}
+
+/// What is wrong with the full-expanse arms of `nav_src`: there must be two;
+/// each must test `!full_expanse_fills(edge, level)` exactly once, outside
+/// any `#[cfg]`; a `return Err(Retry);` must follow that test within four
+/// lines; and the arm's answer (`Ok(Some((suffix`) must come after both.
+fn full_expanse_faults(nav_src: &str) -> Vec<String> {
+    const GUARD: &str = "if !full_expanse_fills(edge, level) {";
+    const RETRY: &str = "return Err(Retry);";
+    const ANSWER: &str = "Ok(Some((suffix";
+    let arms = full_expanse_arms(nav_src);
+    let mut bad = Vec::new();
+    if arms.len() != 2 {
+        bad.push(format!(
+            "expected two FullExpanse arms (next_in, prev_in), found {}",
+            arms.len()
+        ));
+    }
+    for (n, arm) in arms.iter().enumerate() {
+        let at = |pat: &str| -> Vec<usize> {
+            arm.iter()
+                .enumerate()
+                .filter(|(_, l)| l.contains(pat))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        let (guards, answers) = (at(GUARD), at(ANSWER));
+        if guards.len() != 1 {
+            bad.push(format!(
+                "FullExpanse arm {n}: expected the level check once, found {}",
+                guards.len()
+            ));
+            continue;
+        }
+        let g = guards[0];
+        if g > 0 && arm[g - 1].trim().starts_with("#[cfg") {
+            bad.push(format!(
+                "FullExpanse arm {n}: the level check is behind a cfg attribute"
+            ));
+        }
+        // The retry that belongs to the check: within four lines of it.
+        if !at(RETRY).iter().any(|&r| r > g && r <= g + 4) {
+            bad.push(format!(
+                "FullExpanse arm {n}: no `return Err(Retry);` within four lines of the level check"
+            ));
+        }
+        match answers.as_slice() {
+            [a] if *a > g => {}
+            [_] => bad.push(format!(
+                "FullExpanse arm {n}: the arm answers before the level check"
+            )),
+            other => bad.push(format!(
+                "FullExpanse arm {n}: expected one answer from the suffix, found {}",
+                other.len()
+            )),
+        }
+    }
+    bad
+}
+
+/// #1194, §36.3 C6: the set form's full-expanse arms check the level before
+/// they answer, and retry when the check fails.
+#[test]
+fn full_expanse_arms_fail_safe() {
+    let bad = full_expanse_faults(&SYNC_NAV);
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// The scanner against edited copies of the real source, one clause per
+/// edit: the check removed, the check behind `cfg(debug_assertions)` (the
+/// form it had before it was a release guard), the retry removed, the
+/// answer moved above the check, and an arm removed.
+#[test]
+fn full_expanse_scanner_turns_red_on_the_real_source() {
+    const ARM: &str = "EdgeTag::Structural(EdgeType::FullExpanse) => {";
+    const GUARD: &str = "if !full_expanse_fills(edge, level) {";
+    const RETRY: &str =
+        "                return Err(Retry);\n            }\n            Ok(Some((suffix";
+    let one = |faults: Vec<String>, clause: &str| {
+        assert_eq!(faults.len(), 1, "{faults:?}");
+        assert!(faults[0].contains(clause), "{faults:?}");
+    };
+    assert!(full_expanse_faults(&SYNC_NAV).is_empty());
+    // The check removed (commented out), and tested on something else.
+    let src = edited_after(
+        &SYNC_NAV,
+        ARM,
+        GUARD,
+        "// if !full_expanse_fills(edge, level) {\n            if false {",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: expected the level check once, found 0",
+    );
+    // The check compiled out of release builds.
+    let src = edited_after(
+        &SYNC_NAV,
+        ARM,
+        GUARD,
+        "#[cfg(debug_assertions)]\n            if !full_expanse_fills(edge, level) {",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: the level check is behind a cfg attribute",
+    );
+    // The retry removed: the arm falls through to its answer.
+    let src = edited_after(
+        &SYNC_NAV,
+        ARM,
+        RETRY,
+        "            }\n            Ok(Some((suffix",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: no `return Err(Retry);` within four lines",
+    );
+    // The answer above the check.
+    let src = edited_after(
+        &SYNC_NAV,
+        ARM,
+        GUARD,
+        "if suffix == u64::MAX {\n                return Ok(Some((suffix, 0)));\n            }\n            if !full_expanse_fills(edge, level) {",
+    );
+    one(
+        full_expanse_faults(&src),
+        "arm 0: expected one answer from the suffix, found 2",
+    );
+    // The second arm is read too: its retry removed.
+    let second = SYNC_NAV.find(ARM).expect("the first arm") + ARM.len();
+    let tail = edited_after(
+        &SYNC_NAV[second..],
+        ARM,
+        RETRY,
+        "            }\n            Ok(Some((suffix",
+    );
+    let src = format!("{}{tail}", &SYNC_NAV[..second]);
+    one(
+        full_expanse_faults(&src),
+        "arm 1: no `return Err(Retry);` within four lines",
+    );
+    // An arm removed.
+    let src = edited_after(
+        &SYNC_NAV,
+        ARM,
+        "EdgeType::FullExpanse)",
+        "EdgeType::FullExpansf)",
+    );
+    one(full_expanse_faults(&src), "expected two FullExpanse arms");
+    // The same text in a comment is not a check.
+    let src = edited_after(
+        &SYNC_NAV,
+        ARM,
+        GUARD,
+        "// if !full_expanse_fills(edge, level) { return Err(Retry); }\n            if !full_expanse_fills(edge, level) {",
+    );
+    assert!(full_expanse_faults(&src).is_empty());
+}
+
+/// A Windows checkout: the same sources with CRLF line endings, as
+/// `include_str!` reads them there. Normalized, they scan as an LF checkout
+/// does and accept the multi-line edits the negative controls make; raw,
+/// an edit whose needle spans a line end finds nothing, and a scanner that
+/// looks for a bare `}` line finds no end to an arm.
+#[test]
+fn crlf_checkouts_scan_as_lf_checkouts() {
+    const ARM: &str = "EdgeTag::Structural(EdgeType::FullExpanse) => {";
+    const RETRY: &str =
+        "                return Err(Retry);\n            }\n            Ok(Some((suffix";
+    let crlf_nav = SYNC_NAV.replace('\n', "\r\n");
+    let crlf_sync = SYNC.replace('\n', "\r\n");
+    assert!(crlf_nav.contains("\r\n") && crlf_sync.contains("\r\n"));
+    let nav = normalized(&crlf_nav);
+    let sync = normalized(&crlf_sync);
+    assert_eq!(
+        nav, *SYNC_NAV,
+        "normalizing a CRLF copy gives the LF text back"
+    );
+    assert!(full_expanse_faults(&nav).is_empty());
+    assert!(branch_b_faults(&nav).is_empty());
+    assert!(optimistic_read_faults(&sync).is_empty());
+    let none: Vec<(String, String)> = Vec::new();
+    assert!(set_form_faults(&sync, &nav, &none).is_empty());
+    assert!(map_form_faults(&sync, &nav, &none).is_empty());
+    let edited = edited_after(
+        &nav,
+        ARM,
+        RETRY,
+        "            }\n            Ok(Some((suffix",
+    );
+    let faults = full_expanse_faults(&edited);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("arm 0: no `return Err(Retry);`"),
+        "{faults:?}"
+    );
+    // The raw CRLF text is what the normalization is for: a needle with a
+    // line end in it is not found there.
+    let raw = std::panic::catch_unwind(|| {
+        edited_after(
+            &crlf_nav,
+            ARM,
+            RETRY,
+            "            }\n            Ok(Some((suffix",
+        )
+    });
+    assert!(
+        raw.is_err(),
+        "a multi-line needle must not match CRLF text unnormalized"
+    );
 }
 
 /// The scanners on synthetic input: each clause turns red on its own.

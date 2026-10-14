@@ -17,6 +17,8 @@ use expanse_trie::types::{BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCHU_TO_B_DOWN};
 #[path = "../benches/ycsb_common/mod.rs"]
 mod ycsb_common;
 
+mod set_ordered_histories;
+
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
     Insert(u64, u64),
@@ -1014,6 +1016,10 @@ enum OrdOp {
     Remove(u64),
     PrevAtOrBefore(u64),
     NextAtOrAfter(u64),
+    /// Empties the container (#1194, G36.1).
+    Clear,
+    /// Rebuilds the container; its contents are unchanged (#1194, G36.1).
+    Compact,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1021,6 +1027,8 @@ enum OrdRet {
     Insert(Option<u64>),
     Remove(Option<u64>),
     Found(Option<(u64, u64)>),
+    /// `Clear` or `Compact` returned.
+    Done,
 }
 
 #[derive(Clone, Debug)]
@@ -1050,6 +1058,8 @@ fn ord_apply(state: &BTreeMap<u64, u64>, op: &OrdOp, ret: &OrdRet) -> Option<BTr
         (OrdOp::NextAtOrAfter(k), OrdRet::Found(got)) => {
             (state.range(*k..).next().map(|(a, b)| (*a, *b)) == *got).then(|| state.clone())
         }
+        (OrdOp::Clear, OrdRet::Done) => Some(BTreeMap::new()),
+        (OrdOp::Compact, OrdRet::Done) => Some(state.clone()),
         _ => None,
     }
 }
@@ -1218,6 +1228,14 @@ fn test_sync_map_ordered_linearizability_through_with_locked() {
                     OrdOp::NextAtOrAfter(k) => {
                         OrdRet::Found(map.with_locked(|m| m.next_at_or_after(*k)))
                     }
+                    OrdOp::Clear => {
+                        map.clear();
+                        OrdRet::Done
+                    }
+                    OrdOp::Compact => {
+                        map.compact();
+                        OrdRet::Done
+                    }
                 };
                 let end = Instant::now();
                 local.push(OrdEvent {
@@ -1278,6 +1296,14 @@ fn optimistic_ordered_history(
                     OrdOp::Remove(k) => OrdRet::Remove(map.remove(*k)),
                     OrdOp::PrevAtOrBefore(k) => OrdRet::Found(rd.prev_at_or_before(*k)),
                     OrdOp::NextAtOrAfter(k) => OrdRet::Found(rd.next_at_or_after(*k)),
+                    OrdOp::Clear => {
+                        map.clear();
+                        OrdRet::Done
+                    }
+                    OrdOp::Compact => {
+                        map.compact();
+                        OrdRet::Done
+                    }
                 };
                 let end = Instant::now();
                 local.push(OrdEvent {
@@ -1350,6 +1376,291 @@ fn test_sync_map_ordered_linearizability_optimistic_hotspot() {
             "round {round}: an optimistic hot-spot ordered history is not linearizable"
         );
     }
+}
+
+// ---- Ordered reads on the shared set (#1194, METHODOLOGY §36.4, G36.1) ------
+//
+// The set plugs into the whole-map checker through an adapter, not a second
+// checker: a set is a map whose every value is 0. The histories themselves
+// live in `set_ordered_histories`, which a second binary runs to read the
+// node forms the walk visited.
+
+/// The checker's two container-wide operations, each with a rejecting case:
+/// a read that starts after `Clear` returned cannot see a key from before
+/// it, and a read after `Compact` sees the keys from before it.
+#[test]
+fn ordered_checker_models_clear_and_compact() {
+    let initial: BTreeMap<u64, u64> = [(10, 0), (20, 0)].into_iter().collect();
+    let t = increasing_instants(6);
+    let whole = |op, start, end| OrdEvent {
+        op,
+        ret: OrdRet::Done,
+        start,
+        end,
+    };
+    let read = |got: Option<u64>, start, end| OrdEvent {
+        op: OrdOp::PrevAtOrBefore(u64::MAX),
+        ret: OrdRet::Found(got.map(|k| (k, 0))),
+        start,
+        end,
+    };
+
+    // `Clear`: empty afterwards; either answer while it runs.
+    let clear = whole(OrdOp::Clear, t[1], t[2]);
+    assert!(check_ordered_linearizability(
+        &[clear.clone(), read(None, t[3], t[4])],
+        &initial
+    ));
+    assert!(
+        !check_ordered_linearizability(&[clear.clone(), read(Some(20), t[3], t[4])], &initial),
+        "a read that starts after clear returned must not see a cleared key"
+    );
+    for got in [None, Some(20)] {
+        assert!(
+            check_ordered_linearizability(&[clear.clone(), read(got, t[0], t[5])], &initial),
+            "{got:?} was the largest key at some instant of the read"
+        );
+    }
+    assert!(
+        !check_ordered_linearizability(&[clear.clone(), read(Some(10), t[0], t[5])], &initial),
+        "10 was never the largest key"
+    );
+
+    // `Compact`: the contents are unchanged, before, during and after.
+    let compact = whole(OrdOp::Compact, t[1], t[2]);
+    assert!(check_ordered_linearizability(
+        &[compact.clone(), read(Some(20), t[3], t[4])],
+        &initial
+    ));
+    for (start, end) in [(t[3], t[4]), (t[0], t[5])] {
+        assert!(
+            !check_ordered_linearizability(&[compact.clone(), read(None, start, end)], &initial),
+            "compact must not be modelled as emptying the set"
+        );
+    }
+
+    // A return value of the wrong kind is rejected, not ignored.
+    let wrong = OrdEvent {
+        op: OrdOp::Clear,
+        ret: OrdRet::Found(None),
+        start: t[1],
+        end: t[2],
+    };
+    assert!(!check_ordered_linearizability(&[wrong], &initial));
+}
+
+/// A set event as the whole-map checker's: every value is 0, `insert`
+/// returning `true` is a map insert that found nothing, and each of the six
+/// reads is the bounded search it is defined as.
+fn set_event_as_ordered(e: &set_ordered_histories::SetEvent) -> OrdEvent {
+    use set_ordered_histories::{SetOp, SetRet};
+    let found = |r: &SetRet| match r {
+        SetRet::Found(k) => OrdRet::Found(k.map(|k| (k, 0))),
+        other => panic!("a read returned {other:?}"),
+    };
+    let changed = |r: &SetRet| match r {
+        SetRet::Changed(c) => *c,
+        other => panic!("a write returned {other:?}"),
+    };
+    let (op, ret) = match e.op {
+        SetOp::Insert(k) => (
+            OrdOp::Insert(k, 0),
+            OrdRet::Insert((!changed(&e.ret)).then_some(0)),
+        ),
+        SetOp::Remove(k) => (
+            OrdOp::Remove(k),
+            OrdRet::Remove(changed(&e.ret).then_some(0)),
+        ),
+        SetOp::First => (OrdOp::NextAtOrAfter(0), found(&e.ret)),
+        SetOp::Last => (OrdOp::PrevAtOrBefore(u64::MAX), found(&e.ret)),
+        SetOp::NextAtOrAfter(k) => (OrdOp::NextAtOrAfter(k), found(&e.ret)),
+        SetOp::NextAfter(k) => (
+            OrdOp::NextAtOrAfter(k.checked_add(1).expect("no history probes u64::MAX")),
+            found(&e.ret),
+        ),
+        SetOp::PrevAtOrBefore(k) => (OrdOp::PrevAtOrBefore(k), found(&e.ret)),
+        SetOp::PrevBefore(k) => (
+            OrdOp::PrevAtOrBefore(k.checked_sub(1).expect("no history probes 0")),
+            found(&e.ret),
+        ),
+        SetOp::Clear => {
+            assert_eq!(e.ret, SetRet::Done);
+            (OrdOp::Clear, OrdRet::Done)
+        }
+        SetOp::Compact => {
+            assert_eq!(e.ret, SetRet::Done);
+            (OrdOp::Compact, OrdRet::Done)
+        }
+    };
+    OrdEvent {
+        op,
+        ret,
+        start: e.start,
+        end: e.end,
+    }
+}
+
+/// The adapter maps each set answer to the map answer the model gives, and
+/// a wrong set answer to one the checker rejects.
+#[test]
+fn set_adapter_maps_answers_onto_the_map_model() {
+    use set_ordered_histories::{SetEvent, SetOp, SetRet};
+    let initial: BTreeMap<u64, u64> = [(10, 0), (20, 0)].into_iter().collect();
+    let t = increasing_instants(2);
+    let ok = |op, ret| {
+        let e = SetEvent {
+            op,
+            ret,
+            start: t[0],
+            end: t[1],
+        };
+        check_ordered_linearizability(&[set_event_as_ordered(&e)], &initial)
+    };
+    for (op, right, wrong) in [
+        (
+            SetOp::Insert(15),
+            SetRet::Changed(true),
+            SetRet::Changed(false),
+        ),
+        (
+            SetOp::Insert(10),
+            SetRet::Changed(false),
+            SetRet::Changed(true),
+        ),
+        (
+            SetOp::Remove(10),
+            SetRet::Changed(true),
+            SetRet::Changed(false),
+        ),
+        (
+            SetOp::Remove(15),
+            SetRet::Changed(false),
+            SetRet::Changed(true),
+        ),
+        (
+            SetOp::First,
+            SetRet::Found(Some(10)),
+            SetRet::Found(Some(20)),
+        ),
+        (
+            SetOp::Last,
+            SetRet::Found(Some(20)),
+            SetRet::Found(Some(10)),
+        ),
+        (
+            SetOp::NextAtOrAfter(10),
+            SetRet::Found(Some(10)),
+            SetRet::Found(Some(20)),
+        ),
+        (
+            SetOp::NextAfter(10),
+            SetRet::Found(Some(20)),
+            SetRet::Found(Some(10)),
+        ),
+        (
+            SetOp::PrevAtOrBefore(20),
+            SetRet::Found(Some(20)),
+            SetRet::Found(Some(10)),
+        ),
+        (
+            SetOp::PrevBefore(20),
+            SetRet::Found(Some(10)),
+            SetRet::Found(Some(20)),
+        ),
+        (
+            SetOp::NextAfter(20),
+            SetRet::Found(None),
+            SetRet::Found(Some(20)),
+        ),
+        (
+            SetOp::PrevBefore(10),
+            SetRet::Found(None),
+            SetRet::Found(Some(10)),
+        ),
+    ] {
+        assert!(ok(op, right), "{op:?} -> {right:?} is the model's answer");
+        assert!(!ok(op, wrong), "{op:?} -> {wrong:?} must be rejected");
+    }
+}
+
+/// `ROUNDS` live rounds of one G36.1 history, each checked against one
+/// sequential set.
+fn check_set_ordered_history(h: &set_ordered_histories::History) {
+    assert!(
+        h.reads() > 0,
+        "{}: a history without reads checks no read",
+        h.name
+    );
+    for round in 0..set_ordered_histories::ROUNDS {
+        let (events, initial) = set_ordered_histories::run(h);
+        let history: Vec<OrdEvent> = events.iter().map(set_event_as_ordered).collect();
+        let initial: BTreeMap<u64, u64> = initial.into_iter().map(|k| (k, 0)).collect();
+        assert!(
+            check_ordered_linearizability(&history, &initial),
+            "{}, round {round}: an optimistic ordered history on the set is not linearizable",
+            h.name
+        );
+    }
+}
+
+/// G36.1: the set twin of the map's tree-rooted history.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_ordered_linearizability_optimistic_tree_rooted() {
+    check_set_ordered_history(&set_ordered_histories::tree_rooted());
+}
+
+/// G36.1: the set twin of the map's hot-spot history.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_ordered_linearizability_optimistic_hotspot() {
+    check_set_ordered_history(&set_ordered_histories::hotspot());
+}
+
+/// G36.1: the root leaf crossing `ROOT_LEAF_CAP` in both directions.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_ordered_linearizability_optimistic_root_leaf() {
+    check_set_ordered_history(&set_ordered_histories::root_leaf());
+}
+
+/// G36.1: a bitmap leaf written across `LEAFB1_DOWN`.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_ordered_linearizability_optimistic_bitmap_leaf() {
+    check_set_ordered_history(&set_ordered_histories::bitmap());
+}
+
+/// G36.1: a leaf converted to a full expanse and back.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_ordered_linearizability_optimistic_full_expanse() {
+    check_set_ordered_history(&set_ordered_histories::full_expanse());
+}
+
+/// G36.1: `compact` and `clear` interleaved with the others' reads.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
+fn test_sync_set_ordered_linearizability_optimistic_compact_clear() {
+    check_set_ordered_history(&set_ordered_histories::compact_clear());
 }
 
 // ---------------------------------------------------------------------------

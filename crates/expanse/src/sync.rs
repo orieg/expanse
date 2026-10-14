@@ -6396,12 +6396,123 @@ macro_rules! set_contains_walk {
     };
 }
 
+/// The validated ordered search shared by every ordered read of
+/// [`SetReader`], [`OwnedSetReader`] and [`DetachedSetReader`] (#1194, #900;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §36).
+///
+/// It is the set form (`MAP = false`) of the walk the map's readers run
+/// (`sync_nav`), and the only place outside tests that instantiates it
+/// (`tests/test_validated_answers.rs` pins that). A macro and not a function
+/// for the reason `set_contains_walk!` is one: the three handles expand
+/// the same source, and neither a plain function nor an `#[inline(always)]`
+/// one left `SetReader::contains` unchanged on #1465.
+///
+/// `$set` is the set read and `$reader` the epoch reader pinned; `$reader` is
+/// evaluated first, so a detached handle's collector check runs before
+/// `$key`, which may return from the calling method (`next_after(u64::MAX)`,
+/// `prev_before(0)`), and before the first pin. `$forward` is a literal: the
+/// direction is chosen where the macro expands, never by a flag the walk
+/// tests. Expanded as the tail of a method returning `Option<u64>`.
+macro_rules! set_ordered_walk {
+    ($set:expr, $reader:expr, $key:expr, $forward:literal) => {{
+        let reader: &Reader = $reader;
+        let key: Key = $key;
+        $set.shared.optimistic_read(
+            reader,
+            |s| s.occ_root().0,
+            |root, ver, snap| {
+                // SAFETY: `optimistic_read` calls the walk pinned, with a
+                // version sampled after the pin and a root copied under it
+                // (`sync_nav::next_validated`).
+                let walked = unsafe {
+                    if $forward {
+                        crate::sync_nav::next_validated::<false>(root, key, ver, snap)
+                    } else {
+                        crate::sync_nav::prev_validated::<false>(root, key, ver, snap)
+                    }
+                };
+                walked.map(|found| {
+                    found.map(|(k, v)| {
+                        // A set node has no value word: the set form of the
+                        // walk reports 0 for it, and a non-zero word means
+                        // a map load ran on a set node.
+                        debug_assert_eq!(v, 0, "set ordered walk read a value word");
+                        k
+                    })
+                })
+            },
+            |s| {
+                if $forward {
+                    s.next_at_or_after(key)
+                } else {
+                    s.prev_at_or_before(key)
+                }
+            },
+        )
+    }};
+}
+
+/// The ordered reads of a set reader handle that holds its set, over
+/// `set_ordered_walk!` (#1194, #900).
+///
+/// Each call is one optimistic read that does not exclude writers: it walks
+/// the tree validating every node it depends on, retries when a concurrent
+/// write overlaps, and after `MAX_RETRIES` attempts answers under the writer
+/// lock. Each call is linearizable on its own (the history checker in
+/// `tests/linearizability.rs` runs them); a sequence of calls is not a
+/// snapshot, so a scan built from them sees each key present throughout it,
+/// and may or may not see keys inserted or removed while it runs.
+macro_rules! set_reader_ordered_reads {
+    ($($set:ident).+) => {
+        /// Smallest key, without excluding writers.
+        ///
+        /// One validated read, linearizable on its own; a sequence of
+        /// ordered reads is not a snapshot.
+        #[must_use]
+        pub fn first(&self) -> Option<u64> {
+            set_ordered_walk!(self.$($set).+, &self.reader, 0, true)
+        }
+
+        /// Largest key, without excluding writers.
+        #[must_use]
+        pub fn last(&self) -> Option<u64> {
+            set_ordered_walk!(self.$($set).+, &self.reader, u64::MAX, false)
+        }
+
+        /// Smallest key `>= key`, without excluding writers.
+        #[must_use]
+        pub fn next_at_or_after(&self, key: Key) -> Option<u64> {
+            set_ordered_walk!(self.$($set).+, &self.reader, key, true)
+        }
+
+        /// Smallest key `> key`, without excluding writers.
+        #[must_use]
+        pub fn next_after(&self, key: Key) -> Option<u64> {
+            set_ordered_walk!(self.$($set).+, &self.reader, key.checked_add(1)?, true)
+        }
+
+        /// Largest key `<= key`, without excluding writers.
+        #[must_use]
+        pub fn prev_at_or_before(&self, key: Key) -> Option<u64> {
+            set_ordered_walk!(self.$($set).+, &self.reader, key, false)
+        }
+
+        /// Largest key `< key`, without excluding writers.
+        #[must_use]
+        pub fn prev_before(&self, key: Key) -> Option<u64> {
+            set_ordered_walk!(self.$($set).+, &self.reader, key.checked_sub(1)?, false)
+        }
+    };
+}
+
 impl SetReader<'_> {
     /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
         set_contains_walk!(self.set, &self.reader, key)
     }
+
+    set_reader_ordered_reads!(set);
 }
 
 /// A reader that **owns** its set handle instead of borrowing it.
@@ -6429,6 +6540,8 @@ impl OwnedSetReader {
     pub fn contains(&self, key: Key) -> bool {
         set_contains_walk!(self.set, &self.reader, key)
     }
+
+    set_reader_ordered_reads!(set);
 }
 
 /// A reader that owns neither its set nor a reference to it.
@@ -6461,6 +6574,83 @@ impl DetachedSetReader {
     #[must_use]
     pub fn contains(&self, set: &SyncExpanseSet, key: Key) -> bool {
         set_contains_walk!(set, set.registered(&self.reader), key)
+    }
+
+    // The ordered reads of `set_reader_ordered_reads!`, taking the set at
+    // call time, with the same contract. The `set` requirement of
+    // `contains`, and its panic, apply to each: the collector check is the
+    // first thing every one of them does, before the early `None` of
+    // `next_after(u64::MAX)` and `prev_before(0)` and before the first pin.
+
+    /// Smallest key of `set`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `set` does not share this reader's collector (see
+    /// [`Self::contains`]).
+    #[must_use]
+    pub fn first(&self, set: &SyncExpanseSet) -> Option<u64> {
+        set_ordered_walk!(set, set.registered(&self.reader), 0, true)
+    }
+
+    /// Largest key of `set`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `set` does not share this reader's collector (see
+    /// [`Self::contains`]).
+    #[must_use]
+    pub fn last(&self, set: &SyncExpanseSet) -> Option<u64> {
+        set_ordered_walk!(set, set.registered(&self.reader), u64::MAX, false)
+    }
+
+    /// Smallest key of `set` that is `>= key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `set` does not share this reader's collector (see
+    /// [`Self::contains`]).
+    #[must_use]
+    pub fn next_at_or_after(&self, set: &SyncExpanseSet, key: Key) -> Option<u64> {
+        set_ordered_walk!(set, set.registered(&self.reader), key, true)
+    }
+
+    /// Smallest key of `set` that is `> key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `set` does not share this reader's collector (see
+    /// [`Self::contains`]), for every `key`, `u64::MAX` included.
+    #[must_use]
+    pub fn next_after(&self, set: &SyncExpanseSet, key: Key) -> Option<u64> {
+        set_ordered_walk!(set, set.registered(&self.reader), key.checked_add(1)?, true)
+    }
+
+    /// Largest key of `set` that is `<= key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `set` does not share this reader's collector (see
+    /// [`Self::contains`]).
+    #[must_use]
+    pub fn prev_at_or_before(&self, set: &SyncExpanseSet, key: Key) -> Option<u64> {
+        set_ordered_walk!(set, set.registered(&self.reader), key, false)
+    }
+
+    /// Largest key of `set` that is `< key`, without excluding writers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `set` does not share this reader's collector (see
+    /// [`Self::contains`]), for every `key`, `0` included.
+    #[must_use]
+    pub fn prev_before(&self, set: &SyncExpanseSet, key: Key) -> Option<u64> {
+        set_ordered_walk!(
+            set,
+            set.registered(&self.reader),
+            key.checked_sub(1)?,
+            false
+        )
     }
 }
 
@@ -16430,6 +16620,19 @@ mod set_ordered_fixtures {
         })
     }
 
+    /// One read through the borrowed handle's public method (§36.3, class
+    /// D): the wrapper a caller reaches the walk by.
+    pub(super) fn reader_read(rd: &SetReader<'_>, op: Op, key: u64) -> Option<u64> {
+        match op {
+            Op::First => rd.first(),
+            Op::Last => rd.last(),
+            Op::NextAtOrAfter => rd.next_at_or_after(key),
+            Op::NextAfter => rd.next_after(key),
+            Op::PrevAtOrBefore => rd.prev_at_or_before(key),
+            Op::PrevBefore => rd.prev_before(key),
+        }
+    }
+
     /// One read by direct call on a quiescent set, with the three checks of
     /// G36.2: it answers on its first attempt, its value word is 0, and its
     /// key is the model's. Returns what the walk visited.
@@ -16447,6 +16650,14 @@ mod set_ordered_fixtures {
             locked_answer(set, op, key),
             want,
             "{what}: {op:?}({key:#x}): the locked set against the model"
+        );
+        // The public method, before the direct call below: `direct_walk`
+        // clears the visit log first, so this read's visits are not counted
+        // twice.
+        assert_eq!(
+            reader_read(rd, op, key),
+            want,
+            "{what}: SetReader, {op:?}({key:#x}) against the model"
         );
         let Some((k, forward)) = walk_plan(op, key) else {
             assert_eq!(
@@ -16780,7 +16991,8 @@ mod set_ordered_fixtures {
     /// over the set form of the walk, the walk's `(key, 0)` projected to the
     /// key, the single-threaded read as the locked answer, and no read
     /// operation for the two early answers (§36.3, D1 to D3). Test builds
-    /// only: no reader handle offers these.
+    /// only: an independent statement of what `set_ordered_walk!` expands
+    /// to, read beside the handles' own methods.
     #[cfg(not(miri))]
     pub(super) fn optimistic_set_read(
         set: &SyncExpanseSet,
@@ -18193,6 +18405,146 @@ mod miri_ub_sites {
             });
         });
         assert_eq!(set.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
+    /// [`ordered_passes`] for a set reader (#1194; `METHODOLOGY.md` §36.4,
+    /// G36.6): one ascending pass by `first` / `next_after` and one
+    /// descending pass by `last` / `prev_before`, through the set form of
+    /// the validated ordered walk. Asserts each pass is strictly monotone
+    /// and returns the keys the ascending pass saw.
+    fn set_ordered_passes(rd: &SetReader<'_>) -> std::vec::Vec<u64> {
+        let mut up = std::vec::Vec::new();
+        let mut at = rd.first();
+        while let Some(k) = at {
+            assert!(up.last().is_none_or(|&p| p < k), "ascending pass");
+            up.push(k);
+            at = rd.next_after(k);
+        }
+        let mut last_seen: Option<u64> = None;
+        let mut at = rd.last();
+        while let Some(k) = at {
+            assert!(last_seen.is_none_or(|p| p > k), "descending pass");
+            last_seen = Some(k);
+            at = rd.prev_before(k);
+        }
+        up
+    }
+
+    /// The set's ordered reads over a root leaf a writer appends to: the
+    /// root-leaf search of the set form, whose keys are loaded one word at
+    /// a time beside the writer's stores.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_ordered_leaf_reader_writer() {
+        let set = SyncExpanseSet::new();
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..LEAF_KEYS {
+                    assert!(set.insert(key(0, i)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = set.reader();
+                read_until(&done, || {
+                    set_ordered_passes(&rd);
+                });
+            });
+        });
+        assert_eq!(set.len(), LEAF_KEYS);
+    }
+
+    /// The set's ordered reads over a tree a writer inserts into: every
+    /// prefilled key is present for the whole run, so every ascending pass
+    /// sees all of them.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_ordered_tree_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for i in 0..TREE_PREFILL {
+            set.insert(splitmix64(i));
+        }
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..TREE_KEYS {
+                    assert!(set.insert(key(0, i)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = set.reader();
+                read_until(&done, || {
+                    let seen = set_ordered_passes(&rd);
+                    for i in 0..TREE_PREFILL {
+                        assert!(seen.binary_search(&splitmix64(i)).is_ok());
+                    }
+                });
+            });
+        });
+        assert_eq!(set.len(), TREE_PREFILL + TREE_KEYS);
+    }
+
+    /// Keys prefilled under one terminal byte in the bitmap workload: above
+    /// `LEAF1_CAP`, so they sit in a `LeafBitmap1`, and above
+    /// `ROOT_LEAF_CAP`, so the root is a tree.
+    const BITMAP_PREFILL: u64 = 40;
+    /// Keys the writer sets in that bitmap leaf, in place.
+    const BITMAP_KEYS: u64 = 24;
+
+    const _: () = assert!(BITMAP_PREFILL > crate::types::LEAF1_CAP as u64);
+    const _: () = assert!(BITMAP_PREFILL > ROOT_LEAF_CAP as u64);
+    const _: () = assert!(2 * BITMAP_PREFILL < 256 && 2 * BITMAP_KEYS < 256);
+
+    /// The `i`-th key of the bitmap workload's terminal byte: even low
+    /// bytes are prefilled, odd ones are the writer's.
+    fn bitmap_key(i: u64) -> u64 {
+        0x5A5A_5A5A_5A5A_5A00 | i
+    }
+
+    /// The set's ordered reads over a `LeafBitmap1` a writer sets bits in:
+    /// the set-only bitmap arm, which loads the leaf's words one at a time
+    /// with nothing but the final validation between them (§36.3, C5). The
+    /// form is asserted before and after, so the workload cannot pass by
+    /// reading some other node.
+    #[test]
+    #[cfg_attr(miri, ignore = "UB site tracked by .github/miri-ub-sites.json (#1086)")]
+    fn set_ordered_bitmap_reader_writer() {
+        let set = SyncExpanseSet::new();
+        for i in 0..BITMAP_PREFILL {
+            set.insert(bitmap_key(2 * i));
+        }
+        let bitmap_leaves = || set.with_locked(|s| s.stats().node_counts.leaf_bitmap);
+        assert_eq!(
+            bitmap_leaves(),
+            1,
+            "the prefill must sit in one bitmap leaf"
+        );
+        let done = AtomicBool::new(false);
+        thread::scope(|s| {
+            s.spawn(|| {
+                for i in 0..BITMAP_KEYS {
+                    assert!(set.insert(bitmap_key(2 * i + 1)));
+                }
+                done.store(true, Ordering::Release);
+            });
+            s.spawn(|| {
+                let rd = set.reader();
+                read_until(&done, || {
+                    let seen = set_ordered_passes(&rd);
+                    for i in 0..BITMAP_PREFILL {
+                        assert!(seen.binary_search(&bitmap_key(2 * i)).is_ok());
+                    }
+                });
+            });
+        });
+        assert_eq!(set.len(), BITMAP_PREFILL + BITMAP_KEYS);
+        assert_eq!(
+            bitmap_leaves(),
+            1,
+            "the writes must stay in the bitmap leaf"
+        );
     }
 
     // --- Covered writes into published nodes -----------------------------
@@ -19999,6 +20351,100 @@ mod tests {
         assert!(!Arc::ptr_eq(&a.shared.collector, &b.shared.collector));
         let r = a.detached_reader();
         let _ = r.contains(&b, 2);
+    }
+
+    /// G36.8 (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.4): every
+    /// ordered read of the detached set reader rejects a set registered on
+    /// another collector, before any node of that set is read. Without the
+    /// check each of these calls returns normally, so `should_panic` with
+    /// the message is what fails when `registered` is removed from a
+    /// method. `next_after(u64::MAX)` and `prev_before(0)` answer `None`
+    /// without walking; they pin that the check precedes that early return
+    /// (§36.3, D4).
+    macro_rules! set_foreign_reader_rejected {
+        ($($name:ident: |$b:ident, $r:ident| $call:expr;)+) => {$(
+            #[test]
+            #[should_panic(expected = "reader was registered on a different collector")]
+            fn $name() {
+                let (a, $b) = (even_set(8), even_set(8));
+                assert!(!Arc::ptr_eq(&a.shared.collector, &$b.shared.collector));
+                let $r = a.detached_reader();
+                let _ = $call;
+            }
+        )+};
+    }
+
+    set_foreign_reader_rejected! {
+        set_detached_first_rejects_foreign_set: |b, r| r.first(&b);
+        set_detached_last_rejects_foreign_set: |b, r| r.last(&b);
+        set_detached_next_at_or_after_rejects_foreign_set: |b, r| r.next_at_or_after(&b, 3);
+        set_detached_next_after_rejects_foreign_set: |b, r| r.next_after(&b, 3);
+        set_detached_next_after_max_rejects_foreign_set: |b, r| r.next_after(&b, u64::MAX);
+        set_detached_prev_at_or_before_rejects_foreign_set: |b, r| r.prev_at_or_before(&b, 3);
+        set_detached_prev_before_rejects_foreign_set: |b, r| r.prev_before(&b, 3);
+        set_detached_prev_before_zero_rejects_foreign_set: |b, r| r.prev_before(&b, 0);
+    }
+
+    /// The owned and detached handles answer every ordered read as the
+    /// borrowed one does and as the locked set does (§36.3, class D), on a
+    /// root leaf and on a tree, at present and absent keys and at both ends
+    /// of the key space.
+    #[test]
+    fn set_owned_and_detached_ordered_reads_match_the_locked_set() {
+        for n in [0u64, 8, 300] {
+            let set = even_set(n);
+            let (rd, owned, detached) = (set.reader(), set.owned_reader(), set.detached_reader());
+            let last = (n * 2).saturating_sub(2);
+            let want = |f: &dyn Fn(&ExpanseSet) -> Option<u64>| set.with_locked(|s| f(s));
+            assert_eq!(rd.first(), want(&|s| s.first()), "n = {n}");
+            assert_eq!(owned.first(), rd.first(), "n = {n}");
+            assert_eq!(detached.first(&set), rd.first(), "n = {n}");
+            assert_eq!(rd.last(), want(&|s| s.last()), "n = {n}");
+            assert_eq!(owned.last(), rd.last(), "n = {n}");
+            assert_eq!(detached.last(&set), rd.last(), "n = {n}");
+            for k in [0u64, 1, 2, 7, last, last + 1, u64::MAX - 1, u64::MAX] {
+                let w = want(&|s| s.next_at_or_after(k));
+                assert_eq!(
+                    rd.next_at_or_after(k),
+                    w,
+                    "next_at_or_after, n = {n}, key = {k}"
+                );
+                assert_eq!(owned.next_at_or_after(k), w, "owned, n = {n}, key = {k}");
+                assert_eq!(
+                    detached.next_at_or_after(&set, k),
+                    w,
+                    "detached, n = {n}, key = {k}"
+                );
+                let w = want(&|s| s.next_after(k));
+                assert_eq!(rd.next_after(k), w, "next_after, n = {n}, key = {k}");
+                assert_eq!(owned.next_after(k), w, "owned, n = {n}, key = {k}");
+                assert_eq!(
+                    detached.next_after(&set, k),
+                    w,
+                    "detached, n = {n}, key = {k}"
+                );
+                let w = want(&|s| s.prev_at_or_before(k));
+                assert_eq!(
+                    rd.prev_at_or_before(k),
+                    w,
+                    "prev_at_or_before, n = {n}, key = {k}"
+                );
+                assert_eq!(owned.prev_at_or_before(k), w, "owned, n = {n}, key = {k}");
+                assert_eq!(
+                    detached.prev_at_or_before(&set, k),
+                    w,
+                    "detached, n = {n}, key = {k}"
+                );
+                let w = want(&|s| s.prev_before(k));
+                assert_eq!(rd.prev_before(k), w, "prev_before, n = {n}, key = {k}");
+                assert_eq!(owned.prev_before(k), w, "owned, n = {n}, key = {k}");
+                assert_eq!(
+                    detached.prev_before(&set, k),
+                    w,
+                    "detached, n = {n}, key = {k}"
+                );
+            }
+        }
     }
 
     /// The same, for present, absent and extreme keys; the right set still
@@ -27343,9 +27789,35 @@ mod ordered_read_tests {
         })
     }
 
-    /// The set form of the shared walk (`MAP = false`), called directly:
-    /// `SetReader` has no ordered reads yet. `None` is a retry.
-    fn set_branch_sample(c: &BranchSampleCase, header_first: bool) -> Option<Option<(u64, u64)>> {
+    /// `SetReader::next_at_or_after` / `prev_at_or_before` over the
+    /// interleaving: the set form of the shared walk (`MAP = false`),
+    /// through the handle that instantiates it (§36.4, G36.4).
+    fn set_branch_sample(c: &BranchSampleCase, header_first: bool) -> Option<u64> {
+        let set = Arc::new(SyncExpanseSet::new());
+        for k in bsf::keys() {
+            set.insert(k);
+        }
+        let s = Arc::clone(&set);
+        let new_key = c.new_key;
+        let insert = move || assert!(s.insert(new_key));
+        let rd = set.reader();
+        run_branch_sample(&set.shared, c, header_first, insert, || {
+            if c.forward {
+                rd.next_at_or_after(c.probe)
+            } else {
+                rd.prev_at_or_before(c.probe)
+            }
+        })
+    }
+
+    /// The same interleaving by direct call of the set form. The outer
+    /// `None` is a retry, which the public method above would hide behind a
+    /// second, correct attempt: this is what requires the read to answer on
+    /// its first attempt, and what shows the value word.
+    fn set_branch_sample_direct(
+        c: &BranchSampleCase,
+        header_first: bool,
+    ) -> Option<Option<(u64, u64)>> {
         let set = Arc::new(SyncExpanseSet::new());
         for k in bsf::keys() {
             set.insert(k);
@@ -27407,8 +27879,14 @@ mod ordered_read_tests {
             );
             assert_eq!(
                 set_branch_sample(c, false),
-                Some(Some((want, 0))),
+                Some(want),
                 "set, forward = {}",
+                c.forward
+            );
+            assert_eq!(
+                set_branch_sample_direct(c, false),
+                Some(Some((want, 0))),
+                "set, first attempt, forward = {}",
                 c.forward
             );
         }
@@ -27441,8 +27919,14 @@ mod ordered_read_tests {
             );
             assert_eq!(
                 set_branch_sample(c, true),
-                Some(Some((c.never_present, 0))),
+                Some(c.never_present),
                 "set, forward = {}",
+                c.forward
+            );
+            assert_eq!(
+                set_branch_sample_direct(c, true),
+                Some(Some((c.never_present, 0))),
+                "set, first attempt, forward = {}",
                 c.forward
             );
         }
@@ -27779,6 +28263,52 @@ mod ordered_read_tests {
     fn set_ordered_full_expanse_as_the_top_edge_trips_the_debug_assertion() {
         let top = full_expanse_edge(7);
         let _ = next_under(RootSnapshot::Tree { top }, fx::rep_byte(0x41, 8));
+    }
+
+    /// §36.3, C6, in every build: a full expanse that does not fill the
+    /// level it is read at is never answered from. A debug build panics at
+    /// the check (the two tests above); a release build answers
+    /// `Err(Retry)`, which sends the read to the locked fallback. Without
+    /// the check the walk returns the probe itself, a key the hand-built
+    /// tree does not hold. Both directions, behind a narrow pointer and as
+    /// the top edge. CI runs this in debug builds, where the panic satisfies
+    /// it; `cargo test --release` is what exercises the retry, and
+    /// `tests/test_validated_answers.rs` pins the statements in both arms.
+    #[test]
+    fn set_ordered_full_expanse_that_does_not_fill_its_level_is_not_answered() {
+        let branch = OwnedBranch::over(full_expanse_edge(1));
+        let narrow = (branch.top(), (0x11 << 56) | fx::rep_byte(0x41, 7));
+        let top = (
+            RootSnapshot::Tree {
+                top: full_expanse_edge(7),
+            },
+            fx::rep_byte(0x41, 8),
+        );
+        for (what, (root, probe)) in [("narrow", narrow), ("top edge", top)] {
+            for forward in [true, false] {
+                let walked = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+                    let ver = SeqVersion::new();
+                    let snap = ver.sample();
+                    // SAFETY: the nodes under `root` are private to this
+                    // test and live for the call; `snap` was sampled from
+                    // `ver` before it.
+                    let r = unsafe {
+                        if forward {
+                            crate::sync_nav::next_validated::<false>(root, probe, &ver, snap)
+                        } else {
+                            crate::sync_nav::prev_validated::<false>(root, probe, &ver, snap)
+                        }
+                    };
+                    r.ok()
+                }));
+                // `Err`: the debug assertion. `Ok(None)`: a retry.
+                assert!(
+                    matches!(walked, Err(_) | Ok(None)),
+                    "{what}, forward = {forward}: the walk answered {walked:?} from a full expanse \
+                     that does not fill its level"
+                );
+            }
+        }
     }
 
     /// One uncompressed-branch interleaving (G36.4): the probe, whose digit's
@@ -28187,8 +28717,9 @@ mod compare_exchange_tests {
 ///
 /// One test, and it reads process-global counters as exact deltas, so it
 /// runs in the single-threaded lib pass of `scripts/test_occ_stats.sh`. It
-/// is a lib test and not an integration target because the set form has no
-/// public caller: `fx::optimistic_set_read` stands where a reader's methods will.
+/// reads through `fx::optimistic_set_read` over the crate-private fixture
+/// table; `tests/test_occ_stats_set_ordered_reads.rs` is its twin through
+/// the public methods of the three handle forms.
 #[cfg(all(test, feature = "occ-stats", not(miri)))]
 mod set_ordered_stats_tests {
     use super::set_ordered_fixtures as fx;
@@ -28714,6 +29245,155 @@ mod validated_answer_tests {
             assert!(
                 r.is_none(),
                 "a search the writer moved must retry ({forward})"
+            );
+        }
+    }
+
+    /// Arms this thread's next ordered read to be overtaken at its final
+    /// validation, on every attempt: the write there toggles `key` in the
+    /// root leaf, which moves the tree version, and re-arms itself.
+    fn overtake_every_attempt(
+        set: Arc<SyncExpanseSet>,
+        key: u64,
+        fired: Arc<core::sync::atomic::AtomicUsize>,
+    ) {
+        test_hooks::arm_site(
+            test_hooks::Site::OrderedFinal,
+            Box::new(move || {
+                let n = fired.fetch_add(1, Ordering::Relaxed);
+                if n.is_multiple_of(2) {
+                    assert!(set.insert(key));
+                } else {
+                    assert!(set.remove(key));
+                }
+                overtake_every_attempt(set, key, fired);
+            }),
+        );
+    }
+
+    /// §36.3, D2: a set reader whose every optimistic attempt is overtaken
+    /// answers under the writer lock after `MAX_RETRIES` attempts, by the
+    /// single-threaded read that means the same as the method called.
+    ///
+    /// All six methods, through the three handle forms, at present keys, at
+    /// an absent key and at both ends of the key space (0 and `u64::MAX`
+    /// are in the set), against a `BTreeSet` that never sees the walk. The
+    /// key the overtaking writes toggle is toggled an even number of times,
+    /// so it is absent when the fallback reads and the oracle is the
+    /// prefill. A present probe is what tells an inclusive fallback from an
+    /// exclusive one: `next_at_or_after(k)` must answer `k`, `next_after(k)`
+    /// the key above it. `next_after(u64::MAX)` and `prev_before(0)` answer
+    /// `None` before any walk, so nothing overtakes them.
+    #[test]
+    fn set_ordered_reads_fall_back_to_the_locked_read_of_their_direction() {
+        use core::ops::Bound::{Excluded, Included, Unbounded};
+        const _: () = assert!(MAX_RETRIES.is_multiple_of(2));
+        const TOGGLED: u64 = 25;
+        let keys = [0u64, 10, 20, 30, u64::MAX];
+        let oracle: std::collections::BTreeSet<u64> = keys.into_iter().collect();
+        let set = Arc::new(SyncExpanseSet::new());
+        for k in keys {
+            assert!(set.insert(k));
+        }
+        let (rd, owned, detached) = (set.reader(), set.owned_reader(), set.detached_reader());
+        // (name, the walk is reached, the oracle's answer, the three calls).
+        type Call<'a> = &'a dyn Fn(usize, u64) -> Option<u64>;
+        let first: Call<'_> = &|h, _| match h {
+            0 => rd.first(),
+            1 => owned.first(),
+            _ => detached.first(&set),
+        };
+        let last: Call<'_> = &|h, _| match h {
+            0 => rd.last(),
+            1 => owned.last(),
+            _ => detached.last(&set),
+        };
+        let next_at_or_after: Call<'_> = &|h, k| match h {
+            0 => rd.next_at_or_after(k),
+            1 => owned.next_at_or_after(k),
+            _ => detached.next_at_or_after(&set, k),
+        };
+        let next_after: Call<'_> = &|h, k| match h {
+            0 => rd.next_after(k),
+            1 => owned.next_after(k),
+            _ => detached.next_after(&set, k),
+        };
+        let prev_at_or_before: Call<'_> = &|h, k| match h {
+            0 => rd.prev_at_or_before(k),
+            1 => owned.prev_at_or_before(k),
+            _ => detached.prev_at_or_before(&set, k),
+        };
+        let prev_before: Call<'_> = &|h, k| match h {
+            0 => rd.prev_before(k),
+            1 => owned.prev_before(k),
+            _ => detached.prev_before(&set, k),
+        };
+        let want = |name: &str, k: u64| -> Option<u64> {
+            match name {
+                "first" => oracle.first().copied(),
+                "last" => oracle.last().copied(),
+                "next_at_or_after" => oracle.range((Included(k), Unbounded)).next().copied(),
+                "next_after" => oracle.range((Excluded(k), Unbounded)).next().copied(),
+                "prev_at_or_before" => oracle.range((Unbounded, Included(k))).next_back().copied(),
+                _ => oracle.range((Unbounded, Excluded(k))).next_back().copied(),
+            }
+        };
+        let calls: [(&str, Call<'_>); 6] = [
+            ("first", first),
+            ("last", last),
+            ("next_at_or_after", next_at_or_after),
+            ("next_after", next_after),
+            ("prev_at_or_before", prev_at_or_before),
+            ("prev_before", prev_before),
+        ];
+        // Exact deltas of process-global counters: meaningful in the
+        // single-threaded lib pass of `scripts/test_occ_stats.sh`.
+        #[cfg(feature = "occ-stats")]
+        let before = crate::occ_stats::snapshot();
+        let mut fell_back = 0usize;
+        for handle in 0..3usize {
+            for (name, call) in calls {
+                for probe in [0u64, 10, 20, 27, 30, u64::MAX] {
+                    let walks =
+                        !matches!((name, probe), ("next_after", u64::MAX) | ("prev_before", 0));
+                    let fired = Arc::new(core::sync::atomic::AtomicUsize::new(0));
+                    overtake_every_attempt(Arc::clone(&set), TOGGLED, Arc::clone(&fired));
+                    let got = call(handle, probe);
+                    // Disarm what the last attempt armed.
+                    test_hooks::arm_site(test_hooks::Site::OrderedFinal, Box::new(|| {}));
+                    test_hooks::at(test_hooks::Site::OrderedFinal);
+                    let at = format!("handle {handle}, {name}({probe:#x})");
+                    assert_eq!(
+                        fired.load(Ordering::Relaxed),
+                        if walks { MAX_RETRIES } else { 0 },
+                        "{at}: every optimistic attempt must be overtaken"
+                    );
+                    // Under the lock: an optimistic `contains` would count as
+                    // a read operation of its own.
+                    assert!(
+                        set.with_locked(|s| !s.contains(TOGGLED)),
+                        "{at}: the toggled key ends absent"
+                    );
+                    assert_eq!(got, want(name, probe), "{at}: the locked answer");
+                    fell_back += usize::from(walks);
+                }
+            }
+        }
+        // 3 handles x (6 methods x 6 probes - the 2 early answers).
+        assert_eq!(fell_back, 3 * 34);
+        // Every call that reaches the walk is one read operation, makes
+        // `MAX_RETRIES` attempts and falls back once (§36.14 item 9).
+        #[cfg(feature = "occ-stats")]
+        {
+            use crate::occ_stats::Stat;
+            let after = crate::occ_stats::snapshot();
+            let d = |s: Stat| after[s as usize] - before[s as usize];
+            assert_eq!(d(Stat::ReadFallbacks), fell_back as u64, "read fallbacks");
+            assert_eq!(d(Stat::ReadOps), fell_back as u64, "read operations");
+            assert_eq!(
+                d(Stat::ReadAttempts),
+                (fell_back * MAX_RETRIES) as u64,
+                "read attempts"
             );
         }
     }

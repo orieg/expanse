@@ -371,11 +371,21 @@ fn skip_cmp(
 ///
 /// The walk's full-expanse arm answers from the suffix alone and compares no
 /// skipped prefix, which is right only then. On a shared set the form is
-/// made at level 1 without a skip; a full expanse behind a narrow pointer,
-/// which the algebra builders make on a plain set, would be read wrongly
-/// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.3, C6). Debug builds
-/// only: the release walk does not load the population field here.
-#[cfg(debug_assertions)]
+/// made at level 1 without a skip (`mutate.rs`, the two `FullExpanse`
+/// conversions of a 256-key `LeafBitmap1`; `algebra_build.rs`, reached on a
+/// shared set only through `compact`'s sorted build), and
+/// `SyncExpanseSet::new` is the only constructor, so no shared set holds
+/// another kind today. A full expanse behind a narrow pointer, which the
+/// algebra builders make on a plain set, would be read wrongly
+/// (`docs/benchmarks/concurrency/METHODOLOGY.md` §36.3, C6).
+///
+/// The set arm therefore checks it in every build and answers `Err(Retry)`
+/// when it does not hold: the read then ends in the locked fallback, which
+/// answers by the single-threaded walk, instead of returning a key that was
+/// never present. Debug builds also panic there, so the case is loud where
+/// tests run. The check reads the population field of the walk's own copy
+/// of the edge; it loads nothing shared. The map form returns before it.
+#[inline(always)]
 fn full_expanse_fills(edge: &Edge, level: u8) -> bool {
     (1..=7).contains(&level) && edge.pop0(level) == pow256(level) - 1
 }
@@ -662,11 +672,10 @@ unsafe fn next_in<const MAP: bool, const CAP: usize>(
                 return Err(Retry);
             }
             visit!(Visit::FullExpanse);
-            #[cfg(debug_assertions)]
-            debug_assert!(
-                full_expanse_fills(edge, level),
-                "a full expanse read at level {level} must hold every key of that level"
-            );
+            if !full_expanse_fills(edge, level) {
+                debug_assert!(false, "a full expanse must hold every key of that level");
+                return Err(Retry);
+            }
             Ok(Some((suffix, 0)))
         }
 
@@ -963,11 +972,10 @@ unsafe fn prev_in<const MAP: bool, const CAP: usize>(
                 return Err(Retry);
             }
             visit!(Visit::FullExpanse);
-            #[cfg(debug_assertions)]
-            debug_assert!(
-                full_expanse_fills(edge, level),
-                "a full expanse read at level {level} must hold every key of that level"
-            );
+            if !full_expanse_fills(edge, level) {
+                debug_assert!(false, "a full expanse must hold every key of that level");
+                return Err(Retry);
+            }
             Ok(Some((suffix.min(pow256(level) - 1), 0)))
         }
 
