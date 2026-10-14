@@ -279,6 +279,7 @@ BENCH_N_MAP: Dict[str, int] = {
     "sync_bytesmap_update": 50_000,
     "sync_bytesmap_compare_exchange": 50_000,
     "sync_blobmap_get": 50_000,
+    "sync_blobmap_get_into": 50_000,
     "sync_blobmap_overwrite": 50_000,
     "sync_blobmap_compare_exchange": 50_000,
     # One compaction each, counted per live record it moves (POP = 50,000).
@@ -412,6 +413,7 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "blobmap_get",
             "sync_bytesmap_get",
             "sync_blobmap_get",
+            "sync_blobmap_get_into",
         },
     ),
     (

@@ -140,7 +140,8 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
         }
     });
 
-    // --- blob map: three counted entry points, two distinct retry loops. ---
+    // --- blob map: four counted entry points per reader form, two distinct
+    // retry loops. ---
 
     // Longer than the inline capacity, so the payload lives in the arena and
     // `get_meta` reports the stored metadata rather than the inline `0`.
@@ -150,7 +151,7 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
         blobmap.insert(k, &payload, 7).expect("arena insert");
     }
     let mut blob_reader = blobmap.reader();
-    // `BlobReadGuard::get` — the payload-resolving loop.
+    // `blob_get_walk!` — the payload-resolving loop of `BlobReadGuard::get`.
     assert_counted("BlobReader::get", N, || {
         for k in 0..N {
             let (bytes, meta) = blob_reader.get(k).expect("key present");
@@ -158,7 +159,7 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
             assert_eq!(meta, 7);
         }
     });
-    // `BlobReader::lookup_slot` — the slot-word loop, shared by both of these.
+    // `blob_slot_walk!` — the slot-word loop, shared by both of these.
     assert_counted("BlobReader::get_meta", N, || {
         for k in 0..N {
             assert_eq!(blob_reader.get_meta(k), Some(7));
@@ -168,6 +169,94 @@ fn every_sync_reader_family_counts_its_optimistic_reads() {
         for k in 0..N {
             assert!(blob_reader.contains(k));
         }
+    });
+    assert_counted("BlobReader::get_into", N, || {
+        let mut buf = [0u8; 64];
+        for k in 0..N {
+            assert_eq!(blob_reader.get_into(k, &mut buf), Ok(Some((64, 7))));
+            assert_eq!(buf[..], payload[..]);
+        }
+    });
+    drop(blob_reader);
+
+    // The owned and detached blob readers (#1194) expand the same two loops:
+    // four entry points each, one read op per call.
+    let blobmap = std::sync::Arc::new(blobmap);
+    let mut owned = blobmap.owned_reader();
+    let mut detached = blobmap.detached_reader();
+    assert_counted("OwnedBlobReader::get", N, || {
+        for k in 0..N {
+            assert_eq!(owned.get(k), Some((payload.clone(), 7)));
+        }
+    });
+    assert_counted("OwnedBlobReader::get_into", N, || {
+        let mut buf = [0u8; 64];
+        for k in 0..N {
+            assert_eq!(owned.get_into(k, &mut buf), Ok(Some((64, 7))));
+            assert_eq!(buf[..], payload[..]);
+        }
+    });
+    assert_counted("OwnedBlobReader::get_meta", N, || {
+        for k in 0..N {
+            assert_eq!(owned.get_meta(k), Some(7));
+        }
+    });
+    assert_counted("OwnedBlobReader::contains", N, || {
+        for k in 0..N {
+            assert!(owned.contains(k));
+        }
+    });
+    assert_counted("DetachedBlobReader::get", N, || {
+        for k in 0..N {
+            assert_eq!(detached.get(&blobmap, k), Some((payload.clone(), 7)));
+        }
+    });
+    assert_counted("DetachedBlobReader::get_into", N, || {
+        let mut buf = [0u8; 64];
+        for k in 0..N {
+            assert_eq!(detached.get_into(&blobmap, k, &mut buf), Ok(Some((64, 7))));
+            assert_eq!(buf[..], payload[..]);
+        }
+    });
+    assert_counted("DetachedBlobReader::get_meta", N, || {
+        for k in 0..N {
+            assert_eq!(detached.get_meta(&blobmap, k), Some(7));
+        }
+    });
+    assert_counted("DetachedBlobReader::contains", N, || {
+        for k in 0..N {
+            assert!(detached.contains(&blobmap, k));
+        }
+    });
+
+    // A detached blob reader handed a map of another collector panics before
+    // its walk counts a read op or an attempt (#1194). For `get_meta` and
+    // `contains` the attempt is counted before the pin, so an unchanged count
+    // also places the check before the first pin; for `get` and `get_into`
+    // the pin precedes the counters, and that order is read from the source.
+    let foreign = SyncExpanseBlobMap::new();
+    foreign.insert(1, &payload, 7).expect("arena insert");
+    let rejected = |what: &str, call: &mut dyn FnMut()| {
+        let (ops0, att0) = (read_ops(), read_attempts());
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(call));
+        assert!(caught.is_err(), "{what}: a foreign map was read");
+        assert_eq!(
+            (read_ops(), read_attempts()),
+            (ops0, att0),
+            "{what}: the walk started before the foreign map was rejected"
+        );
+    };
+    rejected("DetachedBlobReader::get", &mut || {
+        let _ = detached.get(&foreign, 1);
+    });
+    rejected("DetachedBlobReader::get_into", &mut || {
+        let _ = detached.get_into(&foreign, 1, &mut [0u8; 64]);
+    });
+    rejected("DetachedBlobReader::get_meta", &mut || {
+        let _ = detached.get_meta(&foreign, 1);
+    });
+    rejected("DetachedBlobReader::contains", &mut || {
+        let _ = detached.contains(&foreign, 1);
     });
 
     // Nothing above ran a concurrent writer, so no walk could have been
