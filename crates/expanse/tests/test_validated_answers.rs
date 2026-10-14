@@ -37,8 +37,24 @@
 //! the change that added this file).
 #![cfg(not(miri))]
 
-const SYNC: &str = include_str!("../src/sync.rs");
-const SYNC_NAV: &str = include_str!("../src/sync_nav.rs");
+use std::sync::LazyLock;
+
+/// The sources as checked out. Read only through [`SYNC`] and [`SYNC_NAV`].
+const SYNC_RAW: &str = include_str!("../src/sync.rs");
+const SYNC_NAV_RAW: &str = include_str!("../src/sync_nav.rs");
+
+/// `src` with CRLF line endings turned into LF. A Windows checkout gives the
+/// included sources CRLF endings, and every scanner and edit in this file
+/// matches multi-line text and bare `}` lines written with `\n` alone, so
+/// each source is normalized once, where it is loaded.
+fn normalized(src: &str) -> String {
+    src.replace("\r\n", "\n")
+}
+
+/// `src/sync.rs`, normalized.
+static SYNC: LazyLock<String> = LazyLock::new(|| normalized(SYNC_RAW));
+/// `src/sync_nav.rs`, normalized.
+static SYNC_NAV: LazyLock<String> = LazyLock::new(|| normalized(SYNC_NAV_RAW));
 
 /// `return Ok(` sites in `walk_validated_body!`. A change that adds or
 /// removes one updates this count, and so is reviewed against the rule.
@@ -185,7 +201,7 @@ fn node_sample_calls(src: &str) -> usize {
 
 #[test]
 fn walk_validated_answers_are_validated() {
-    let body = walk_body(SYNC);
+    let body = walk_body(&SYNC);
     assert_eq!(
         walk_return_sites(&body),
         WALK_RETURN_SITES,
@@ -200,11 +216,11 @@ fn walk_validated_answers_are_validated() {
 fn ordered_read_answers_are_validated() {
     let mut bad = Vec::new();
     for name in ["next_validated", "prev_validated"] {
-        bad.extend(ordered_entry_faults(&fn_body(SYNC_NAV, name), name));
+        bad.extend(ordered_entry_faults(&fn_body(&SYNC_NAV, name), name));
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
     assert_eq!(
-        node_sample_calls(SYNC_NAV),
+        node_sample_calls(&SYNC_NAV),
         1,
         "sync_nav.rs samples a branch version outside ReadSet::sample, so the final validation \
          would not see it"
@@ -432,7 +448,7 @@ fn branch_b_faults(nav_src: &str) -> Vec<String> {
 /// before it loads the root it then validates against that sample.
 #[test]
 fn optimistic_read_samples_the_tree_version_before_the_root() {
-    let bad = optimistic_read_faults(SYNC);
+    let bad = optimistic_read_faults(&SYNC);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
@@ -440,7 +456,7 @@ fn optimistic_read_samples_the_tree_version_before_the_root() {
 /// before any load from the branch.
 #[test]
 fn bitmap_branch_arms_sample_before_they_load() {
-    let bad = branch_b_faults(SYNC_NAV);
+    let bad = branch_b_faults(&SYNC_NAV);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
@@ -468,16 +484,16 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
         assert_eq!(faults.len(), 1, "{faults:?}");
         assert!(faults[0].contains(clause), "{faults:?}");
     };
-    assert!(branch_b_faults(SYNC_NAV).is_empty());
+    assert!(branch_b_faults(&SYNC_NAV).is_empty());
 
     // The sample commented out: with `//`, and with `/* */`.
     for commented in [format!("// {SAMPLE}"), format!("/* {SAMPLE} */")] {
-        let src = edited_after(SYNC_NAV, ARM, SAMPLE, &commented);
+        let src = edited_after(&SYNC_NAV, ARM, SAMPLE, &commented);
         one(branch_b_faults(&src), "BranchB arm 0: expected exactly one");
     }
     // Sampled twice.
     let twice = format!("{SAMPLE}\n            let _again = unsafe {{ rs.sample(vp)? }};");
-    let src = edited_after(SYNC_NAV, ARM, SAMPLE, &twice);
+    let src = edited_after(&SYNC_NAV, ARM, SAMPLE, &twice);
     one(branch_b_faults(&src), "BranchB arm 0: expected exactly one");
     // A load above the sample, in each recognised spelling.
     for load in [
@@ -487,7 +503,7 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
         "let _early = unsafe { Edge::load_at::<true>(core::ptr::null()) };",
     ] {
         let src = edited_after(
-            SYNC_NAV,
+            &SYNC_NAV,
             ARM,
             SAMPLE,
             &format!("{load}\n            {SAMPLE}"),
@@ -500,7 +516,7 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
         "let _text = \"(*node).level shared_bitmap:: branch_b_child( Edge::load_at\";",
     ] {
         let src = edited_after(
-            SYNC_NAV,
+            &SYNC_NAV,
             ARM,
             SAMPLE,
             &format!("{inert}\n            {SAMPLE}"),
@@ -512,26 +528,26 @@ fn sample_order_scanners_turn_red_on_the_real_source() {
     // to keep.
     let unseen = "let _early = unsafe { node.cast::<u8>().add(4).read() };";
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         SAMPLE,
         &format!("{unseen}\n            {SAMPLE}"),
     );
     assert!(branch_b_faults(&src).is_empty());
     // An arm removed: the count of arms is its own clause.
-    let src = edited_after(SYNC_NAV, ARM, "EdgeType::BranchB)", "EdgeType::BranchC)");
+    let src = edited_after(&SYNC_NAV, ARM, "EdgeType::BranchB)", "EdgeType::BranchC)");
     one(branch_b_faults(&src), "expected one BranchB arm in next_in");
 
     // `optimistic_read`: the sample commented out, and the root loaded first.
     const READ: &str = "fn optimistic_read<R>(";
     const TREE: &str = "let snap = self.version().sample();";
-    assert!(optimistic_read_faults(SYNC).is_empty());
+    assert!(optimistic_read_faults(&SYNC).is_empty());
     for commented in [format!("// {TREE}"), format!("/* {TREE} */")] {
-        let src = edited_after(SYNC, READ, TREE, &commented);
+        let src = edited_after(&SYNC, READ, TREE, &commented);
         one(optimistic_read_faults(&src), "expected exactly one");
     }
     let early = format!("let _early = self.published().load();\n            {TREE}");
-    let src = edited_after(SYNC, READ, TREE, &early);
+    let src = edited_after(&SYNC, READ, TREE, &early);
     one(
         optimistic_read_faults(&src),
         "comes before the version sample",
@@ -820,7 +836,7 @@ fn other_sources() -> Vec<(String, String)> {
             .expect("a UTF-8 file name")
             .to_string();
         if name.ends_with(".rs") && name != "sync.rs" && name != "sync_nav.rs" {
-            let src = std::fs::read_to_string(&path).expect("a readable source file");
+            let src = normalized(&std::fs::read_to_string(&path).expect("a readable source file"));
             out.push((name, src));
         }
     }
@@ -837,9 +853,9 @@ fn other_sources() -> Vec<(String, String)> {
 #[test]
 fn ordered_walk_flavours_are_instantiated_where_registered() {
     let others = other_sources();
-    let bad = set_form_faults(SYNC, SYNC_NAV, &others);
+    let bad = set_form_faults(&SYNC, &SYNC_NAV, &others);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
-    let bad = map_form_faults(SYNC, SYNC_NAV, &others);
+    let bad = map_form_faults(&SYNC, &SYNC_NAV, &others);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
@@ -856,19 +872,19 @@ fn flavour_scanner_turns_red_on_the_real_source() {
     let none: Vec<(String, String)> = Vec::new();
     let set = |sync: &str, nav: &str| set_form_faults(sync, nav, &none);
     let map = |sync: &str, nav: &str| map_form_faults(sync, nav, &none);
-    assert!(set(SYNC, SYNC_NAV).is_empty());
-    assert!(map(SYNC, SYNC_NAV).is_empty());
+    assert!(set(&SYNC, &SYNC_NAV).is_empty());
+    assert!(map(&SYNC, &SYNC_NAV).is_empty());
 
     // Clause 1 alone: a second set-form call, outside the macro, in a
     // non-test function. The map form is untouched.
     let extra = format!("fn stray() {{ let _ = {SET_NEXT}; }}\n\n{MAP_FN}");
     let src = edited_after(
-        SYNC,
+        &SYNC,
         "/// The smallest entry with key `>= key`",
         MAP_FN,
         &extra,
     );
-    let faults = set(&src, SYNC_NAV);
+    let faults = set(&src, &SYNC_NAV);
     assert_eq!(faults.len(), 2, "{faults:?}");
     assert!(
         faults[0].contains("expected `next_validated::<false>` once"),
@@ -878,7 +894,7 @@ fn flavour_scanner_turns_red_on_the_real_source() {
         faults[1].contains("outside `set_ordered_walk!`"),
         "{faults:?}"
     );
-    assert!(map(&src, SYNC_NAV).is_empty());
+    assert!(map(&src, &SYNC_NAV).is_empty());
     // The same call in a test module, in a comment or in a string is not a site.
     let in_tests =
         format!("#[cfg(test)]\nmod extra_tests {{\n    fn f() {{ let _ = {SET_NEXT}; }}\n}}\n");
@@ -887,34 +903,34 @@ fn flavour_scanner_turns_red_on_the_real_source() {
         format!("// {SET_NEXT}\n"),
         format!("const _TEXT: &str = \"{SET_NEXT}\";\n"),
     ] {
-        let src = format!("{SYNC}\n{inert}");
-        assert!(set(&src, SYNC_NAV).is_empty(), "{inert}");
-        assert!(map(&src, SYNC_NAV).is_empty(), "{inert}");
+        let src = format!("{}\n{inert}", *SYNC);
+        assert!(set(&src, &SYNC_NAV).is_empty(), "{inert}");
+        assert!(map(&src, &SYNC_NAV).is_empty(), "{inert}");
     }
     // Clause 1 alone, through an inner function of the walk.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         "pub(crate) unsafe fn next_validated<",
         "root_leaf::<MAP>",
         "root_leaf::<false>",
     );
-    let faults = set(SYNC, &src);
+    let faults = set(&SYNC, &src);
     assert_eq!(faults.len(), 1, "{faults:?}");
     assert!(
         faults[0].contains("`root_leaf::<false>` in sync_nav.rs"),
         "{faults:?}"
     );
-    assert!(map(SYNC, &src).is_empty());
+    assert!(map(&SYNC, &src).is_empty());
 
     // Clause 2 alone: a second map-form call outside the map's wrappers.
     let extra = format!("fn stray() {{ let _ = {MAP_NEXT}; }}\n\n{MAP_FN}");
     let src = edited_after(
-        SYNC,
+        &SYNC,
         "/// The smallest entry with key `>= key`",
         MAP_FN,
         &extra,
     );
-    let faults = map(&src, SYNC_NAV);
+    let faults = map(&src, &SYNC_NAV);
     assert_eq!(faults.len(), 2, "{faults:?}");
     assert!(
         faults[0].contains("expected `next_validated::<true>` once"),
@@ -924,47 +940,47 @@ fn flavour_scanner_turns_red_on_the_real_source() {
         faults[1].contains("outside `fn map_next_with(..)`"),
         "{faults:?}"
     );
-    assert!(set(&src, SYNC_NAV).is_empty());
+    assert!(set(&src, &SYNC_NAV).is_empty());
     // Clause 2 alone, in `sync_nav`: a literal `true` outside `seek_submap`.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         "pub(crate) unsafe fn prev_validated<",
         "root_leaf::<MAP>",
         "root_leaf::<true>",
     );
-    let faults = map(SYNC, &src);
+    let faults = map(&SYNC, &src);
     assert_eq!(faults.len(), 1, "{faults:?}");
     assert!(
         faults[0].contains("`root_leaf::<true>` outside `seek_submap`"),
         "{faults:?}"
     );
-    assert!(set(SYNC, &src).is_empty());
+    assert!(set(&SYNC, &src).is_empty());
     // Clause 2 alone, in a third file.
     let third = vec![(
         "strmap.rs".to_string(),
         format!("fn f() {{ let _ = {MAP_NEXT}; }}\n"),
     )];
-    let faults = map_form_faults(SYNC, SYNC_NAV, &third);
+    let faults = map_form_faults(&SYNC, &SYNC_NAV, &third);
     assert_eq!(faults.len(), 1, "{faults:?}");
     assert!(faults[0].contains("in strmap.rs"), "{faults:?}");
-    assert!(set_form_faults(SYNC, SYNC_NAV, &third).is_empty());
+    assert!(set_form_faults(&SYNC, &SYNC_NAV, &third).is_empty());
 
     // The gate's first mutation: the set macro's constant flipped. The set
     // form is gone from its macro, and a map-form call sits outside the
     // map's wrappers.
     let src = edited_after(
-        SYNC,
+        &SYNC,
         SET_MACRO,
         "next_validated::<false>",
         "next_validated::<true>",
     );
-    let faults = set(&src, SYNC_NAV);
+    let faults = set(&src, &SYNC_NAV);
     assert_eq!(faults.len(), 1, "{faults:?}");
     assert!(
         faults[0].contains("expected `next_validated::<false>` once"),
         "{faults:?}"
     );
-    let faults = map(&src, SYNC_NAV);
+    let faults = map(&src, &SYNC_NAV);
     assert_eq!(faults.len(), 2, "{faults:?}");
     assert!(
         faults[1].contains("outside `fn map_next_with(..)`"),
@@ -972,18 +988,18 @@ fn flavour_scanner_turns_red_on_the_real_source() {
     );
     // The gate's second mutation: a `::<false>` on a map path.
     let src = edited_after(
-        SYNC,
+        &SYNC,
         MAP_FN,
         "next_validated::<true>",
         "next_validated::<false>",
     );
-    let faults = set(&src, SYNC_NAV);
+    let faults = set(&src, &SYNC_NAV);
     assert_eq!(faults.len(), 2, "{faults:?}");
     assert!(
         faults[1].contains("outside `set_ordered_walk!`"),
         "{faults:?}"
     );
-    let faults = map(&src, SYNC_NAV);
+    let faults = map(&src, &SYNC_NAV);
     assert_eq!(faults.len(), 1, "{faults:?}");
     assert!(
         faults[0].contains("expected `next_validated::<true>` once"),
@@ -1078,7 +1094,7 @@ fn full_expanse_faults(nav_src: &str) -> Vec<String> {
 /// they answer, and retry when the check fails.
 #[test]
 fn full_expanse_arms_fail_safe() {
-    let bad = full_expanse_faults(SYNC_NAV);
+    let bad = full_expanse_faults(&SYNC_NAV);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 
@@ -1096,10 +1112,10 @@ fn full_expanse_scanner_turns_red_on_the_real_source() {
         assert_eq!(faults.len(), 1, "{faults:?}");
         assert!(faults[0].contains(clause), "{faults:?}");
     };
-    assert!(full_expanse_faults(SYNC_NAV).is_empty());
+    assert!(full_expanse_faults(&SYNC_NAV).is_empty());
     // The check removed (commented out), and tested on something else.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         GUARD,
         "// if !full_expanse_fills(edge, level) {\n            if false {",
@@ -1110,7 +1126,7 @@ fn full_expanse_scanner_turns_red_on_the_real_source() {
     );
     // The check compiled out of release builds.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         GUARD,
         "#[cfg(debug_assertions)]\n            if !full_expanse_fills(edge, level) {",
@@ -1121,7 +1137,7 @@ fn full_expanse_scanner_turns_red_on_the_real_source() {
     );
     // The retry removed: the arm falls through to its answer.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         RETRY,
         "            }\n            Ok(Some((suffix",
@@ -1132,7 +1148,7 @@ fn full_expanse_scanner_turns_red_on_the_real_source() {
     );
     // The answer above the check.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         GUARD,
         "if suffix == u64::MAX {\n                return Ok(Some((suffix, 0)));\n            }\n            if !full_expanse_fills(edge, level) {",
@@ -1156,7 +1172,7 @@ fn full_expanse_scanner_turns_red_on_the_real_source() {
     );
     // An arm removed.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         "EdgeType::FullExpanse)",
         "EdgeType::FullExpansf)",
@@ -1164,12 +1180,65 @@ fn full_expanse_scanner_turns_red_on_the_real_source() {
     one(full_expanse_faults(&src), "expected two FullExpanse arms");
     // The same text in a comment is not a check.
     let src = edited_after(
-        SYNC_NAV,
+        &SYNC_NAV,
         ARM,
         GUARD,
         "// if !full_expanse_fills(edge, level) { return Err(Retry); }\n            if !full_expanse_fills(edge, level) {",
     );
     assert!(full_expanse_faults(&src).is_empty());
+}
+
+/// A Windows checkout: the same sources with CRLF line endings, as
+/// `include_str!` reads them there. Normalized, they scan as an LF checkout
+/// does and accept the multi-line edits the negative controls make; raw,
+/// an edit whose needle spans a line end finds nothing, and a scanner that
+/// looks for a bare `}` line finds no end to an arm.
+#[test]
+fn crlf_checkouts_scan_as_lf_checkouts() {
+    const ARM: &str = "EdgeTag::Structural(EdgeType::FullExpanse) => {";
+    const RETRY: &str =
+        "                return Err(Retry);\n            }\n            Ok(Some((suffix";
+    let crlf_nav = SYNC_NAV.replace('\n', "\r\n");
+    let crlf_sync = SYNC.replace('\n', "\r\n");
+    assert!(crlf_nav.contains("\r\n") && crlf_sync.contains("\r\n"));
+    let nav = normalized(&crlf_nav);
+    let sync = normalized(&crlf_sync);
+    assert_eq!(
+        nav, *SYNC_NAV,
+        "normalizing a CRLF copy gives the LF text back"
+    );
+    assert!(full_expanse_faults(&nav).is_empty());
+    assert!(branch_b_faults(&nav).is_empty());
+    assert!(optimistic_read_faults(&sync).is_empty());
+    let none: Vec<(String, String)> = Vec::new();
+    assert!(set_form_faults(&sync, &nav, &none).is_empty());
+    assert!(map_form_faults(&sync, &nav, &none).is_empty());
+    let edited = edited_after(
+        &nav,
+        ARM,
+        RETRY,
+        "            }\n            Ok(Some((suffix",
+    );
+    let faults = full_expanse_faults(&edited);
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(
+        faults[0].contains("arm 0: no `return Err(Retry);`"),
+        "{faults:?}"
+    );
+    // The raw CRLF text is what the normalization is for: a needle with a
+    // line end in it is not found there.
+    let raw = std::panic::catch_unwind(|| {
+        edited_after(
+            &crlf_nav,
+            ARM,
+            RETRY,
+            "            }\n            Ok(Some((suffix",
+        )
+    });
+    assert!(
+        raw.is_err(),
+        "a multi-line needle must not match CRLF text unnormalized"
+    );
 }
 
 /// The scanners on synthetic input: each clause turns red on its own.
