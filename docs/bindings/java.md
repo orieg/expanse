@@ -251,6 +251,16 @@ try (SyncExpanseMap.Reader reader = concurrentMap.reader()) {
 }
 ```
 
+`SyncExpanseMap` also has atomic read-modify-write (#1194), each call one linearizable step. An empty `OptionalLong` is "absent" on both sides, so every `long` stays a legal value:
+
+- `compareExchange(key, expected, newValue)` stores `newValue` only if the key's current word is `expected` (`(empty, v)` inserts if absent, `(e, empty)` removes if equal) and returns an `Exchange(stored, observed)`; `observed` is the word the compare saw on both outcomes, so a failed call hands back the word to retry against.
+- `getOrInsert(key, value)` stores `value` only if the key is absent and returns the existing value, or empty when it stored.
+- `update(key, fn)` stores `fn(current)` (an empty result removes the key) and returns the replaced value. It is a loop over `compareExchange` written in Java, because the C ABI exports no callback form (`docs/COMPAT.md`, Atomic RMW row): `fn` runs again with the observed word whenever a concurrent writer wins, so it may run several times per call and must be free of side effects, and an exception thrown by `fn` propagates with the key unchanged.
+
+```java
+concurrentMap.update(7, cur -> OptionalLong.of(cur.orElse(0) + 1)); // atomic increment
+```
+
 ---
 
 ## 7. Scala Language Integration

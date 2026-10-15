@@ -199,4 +199,138 @@ class SyncExpanseConcurrentTest {
             }
         }
     }
+
+    private static final OptionalLong ABSENT = OptionalLong.empty();
+
+    private static void assertExchange(SyncExpanseMap.Exchange got, boolean stored, OptionalLong observed) {
+        assertEquals(new SyncExpanseMap.Exchange(stored, observed), got);
+    }
+
+    @Test
+    @DisplayName("SyncExpanseMap.compareExchange covers every branch")
+    void compareExchangeBranches() {
+        try (SyncExpanseMap m = new SyncExpanseMap()) {
+            // absent == absent with nothing to store: succeeds, observes absent.
+            assertExchange(m.compareExchange(1, ABSENT, ABSENT), true, ABSENT);
+            assertFalse(m.containsKey(1));
+            // insert-if-absent on an absent key.
+            assertExchange(m.compareExchange(1, ABSENT, OptionalLong.of(10)), true, ABSENT);
+            assertEquals(OptionalLong.of(10), m.get(1));
+            // insert-if-absent against a present key fails and reports the word seen.
+            assertExchange(m.compareExchange(1, ABSENT, OptionalLong.of(99)), false, OptionalLong.of(10));
+            // absent == absent against a present key fails.
+            assertExchange(m.compareExchange(1, ABSENT, ABSENT), false, OptionalLong.of(10));
+            // expected present, wrong value: fails, value unchanged.
+            assertExchange(m.compareExchange(1, OptionalLong.of(11), OptionalLong.of(12)), false, OptionalLong.of(10));
+            assertEquals(OptionalLong.of(10), m.get(1));
+            // expected present against an absent key: fails, observes absent.
+            assertExchange(m.compareExchange(2, OptionalLong.of(5), OptionalLong.of(6)), false, ABSENT);
+            assertFalse(m.containsKey(2));
+            // replace on match.
+            assertExchange(m.compareExchange(1, OptionalLong.of(10), OptionalLong.of(20)), true, OptionalLong.of(10));
+            assertEquals(OptionalLong.of(20), m.get(1));
+            // remove-if-equals: mismatch leaves it, match removes it.
+            assertExchange(m.compareExchange(1, OptionalLong.of(21), ABSENT), false, OptionalLong.of(20));
+            assertEquals(OptionalLong.of(20), m.get(1));
+            assertExchange(m.compareExchange(1, OptionalLong.of(20), ABSENT), true, OptionalLong.of(20));
+            assertFalse(m.containsKey(1));
+            // Every long is a legal value, 0 and -1 (all bits set) included.
+            assertExchange(m.compareExchange(3, ABSENT, OptionalLong.of(0)), true, ABSENT);
+            assertExchange(m.compareExchange(3, OptionalLong.of(0), OptionalLong.of(-1L)), true, OptionalLong.of(0));
+            assertEquals(OptionalLong.of(-1L), m.get(3));
+        }
+    }
+
+    @Test
+    @DisplayName("SyncExpanseMap.getOrInsert stores only into an absent key")
+    void getOrInsertStoresOnlyIfAbsent() {
+        try (SyncExpanseMap m = new SyncExpanseMap()) {
+            assertEquals(ABSENT, m.getOrInsert(7, 70));
+            assertEquals(OptionalLong.of(70), m.get(7));
+            assertEquals(OptionalLong.of(70), m.getOrInsert(7, 71));
+            assertEquals(OptionalLong.of(70), m.get(7));
+            // Zero is a value, not absence.
+            assertEquals(ABSENT, m.getOrInsert(8, 0));
+            assertEquals(OptionalLong.of(0), m.getOrInsert(8, 5));
+        }
+    }
+
+    @Test
+    @DisplayName("SyncExpanseMap.update stores, removes and propagates exceptions")
+    void updateStoresRemovesAndPropagates() {
+        try (SyncExpanseMap m = new SyncExpanseMap()) {
+            List<OptionalLong> seen = new ArrayList<>();
+            java.util.function.UnaryOperator<OptionalLong> inc = cur -> {
+                seen.add(cur);
+                return OptionalLong.of(cur.orElse(0) + 1);
+            };
+            assertEquals(ABSENT, m.update(5, inc));
+            assertEquals(OptionalLong.of(1), m.update(5, inc));
+            assertEquals(OptionalLong.of(2), m.get(5));
+            assertEquals(List.of(ABSENT, OptionalLong.of(1)), seen);
+            // An empty result removes the key and reports the replaced value.
+            assertEquals(OptionalLong.of(2), m.update(5, cur -> ABSENT));
+            assertFalse(m.containsKey(5));
+            assertEquals(ABSENT, m.update(5, cur -> ABSENT));
+            // An exception from fn propagates and leaves the key unchanged.
+            m.insert(6, 60);
+            assertThrows(IllegalStateException.class, () -> m.update(6, cur -> {
+                throw new IllegalStateException("fn failed");
+            }));
+            assertEquals(OptionalLong.of(60), m.get(6));
+        }
+    }
+
+    @Test
+    @DisplayName("SyncExpanseMap.update retries on interference")
+    void updateRetriesOnInterference() {
+        try (SyncExpanseMap m = new SyncExpanseMap()) {
+            m.insert(1, 100);
+            List<OptionalLong> calls = new ArrayList<>();
+            OptionalLong prev = m.update(1, cur -> {
+                calls.add(cur);
+                if (calls.size() == 1) {
+                    m.insert(1, 200); // a competing write lands between read and exchange
+                }
+                return OptionalLong.of(cur.getAsLong() + 1);
+            });
+            assertEquals(OptionalLong.of(200), prev);
+            assertEquals(List.of(OptionalLong.of(100), OptionalLong.of(200)), calls);
+            assertEquals(OptionalLong.of(201), m.get(1));
+        }
+    }
+
+    @Test
+    @DisplayName("SyncExpanseMap.update from many threads ends at the exact total")
+    void updateConcurrentCounterIsExact() throws Exception {
+        int threads = 8;
+        int perThread = 5000;
+        try (SyncExpanseMap m = new SyncExpanseMap()) {
+            ExecutorService executor = Executors.newFixedThreadPool(threads);
+            CountDownLatch start = new CountDownLatch(1);
+            AtomicInteger winners = new AtomicInteger();
+            List<Future<?>> futures = new ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                final long id = t;
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    for (int i = 0; i < perThread; i++) {
+                        m.update(0, cur -> OptionalLong.of(cur.orElse(0) + 1));
+                    }
+                    // Of any number of threads racing on one absent key, exactly one stores.
+                    if (m.getOrInsert(42, id).isEmpty()) {
+                        winners.incrementAndGet();
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (Future<?> f : futures) {
+                f.get(60, TimeUnit.SECONDS);
+            }
+            executor.shutdown();
+            assertEquals(OptionalLong.of((long) threads * perThread), m.get(0));
+            assertEquals(1, winners.get());
+        }
+    }
 }

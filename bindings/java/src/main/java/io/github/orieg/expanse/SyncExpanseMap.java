@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Multithreaded concurrent ordered map with lock-free readers (OCC).
@@ -179,6 +180,92 @@ public final class SyncExpanseMap implements AutoCloseable {
                     handle, key, MemorySegment.NULL);
         } catch (Throwable t) {
             throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * The outcome of {@link #compareExchange}.
+     *
+     * @param stored true when the new word was stored
+     * @param observed the word the compare saw (equal to the expected word when {@code stored});
+     *                 empty if the key was absent
+     */
+    public record Exchange(boolean stored, OptionalLong observed) {}
+
+    /**
+     * Atomic compare-and-swap on one key, as one linearizable step: stores {@code newValue}
+     * only if the key's current word is {@code expected}. An empty {@link OptionalLong} is
+     * "absent" on both sides, so every {@code long} stays a legal value:
+     * {@code (empty, v)} inserts if absent and {@code (e, empty)} removes if equal.
+     * The result reports the word the compare saw on both outcomes, so a failed call hands
+     * back the word to retry against.
+     *
+     * @param key 64-bit key
+     * @param expected the word the key must currently hold, or empty for "only if absent"
+     * @param newValue the word to store, or empty to remove the key
+     * @return whether the store happened and the word the compare saw
+     */
+    public Exchange compareExchange(long key, OptionalLong expected, OptionalLong newValue) {
+        checkOpen();
+        MemorySegment scratch = SCRATCH.get();
+        try {
+            boolean stored = (boolean) ExpanseNative.MH_expanse_sync_map_compare_exchange.invokeExact(
+                    handle, key,
+                    expected.isPresent(), expected.orElse(0L),
+                    newValue.isPresent(), newValue.orElse(0L),
+                    scratch.asSlice(8, 1), scratch);
+            boolean seenPresent = scratch.get(ValueLayout.JAVA_BYTE, 8) != 0;
+            return new Exchange(stored,
+                    seenPresent ? OptionalLong.of(scratch.get(ValueLayout.JAVA_LONG, 0)) : OptionalLong.empty());
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Stores {@code value} under {@code key} only if the key is absent, as one linearizable
+     * step. Of any number of callers racing on one absent key, exactly one stores.
+     *
+     * @param key 64-bit key
+     * @param value 64-bit value
+     * @return the value already present (left untouched), or empty when {@code value} was stored
+     */
+    public OptionalLong getOrInsert(long key, long value) {
+        checkOpen();
+        MemorySegment scratch = SCRATCH.get();
+        try {
+            boolean stored = (boolean) ExpanseNative.MH_expanse_sync_map_get_or_insert.invokeExact(
+                    handle, key, value, scratch);
+            return stored ? OptionalLong.empty() : OptionalLong.of(scratch.get(ValueLayout.JAVA_LONG, 0));
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Replaces the value for {@code key} with {@code fn(current)}: a non-empty result stores
+     * that value and an empty result removes the key. {@code current} is empty if the key is
+     * absent.
+     * <p>
+     * This is a loop over {@link #compareExchange} written in Java, as
+     * {@code SyncExpanseMap::update} is in Rust (the C ABI exports no callback form):
+     * {@code fn} runs again with the observed word whenever a concurrent writer wins, so it
+     * may run several times for one call and must be free of side effects. An exception
+     * thrown by {@code fn} propagates and leaves the key unchanged.
+     *
+     * @param key 64-bit key
+     * @param fn maps the current word to the word to store
+     * @return the value that was replaced, or empty if the key was absent
+     */
+    public OptionalLong update(long key, UnaryOperator<OptionalLong> fn) {
+        OptionalLong expected = get(key);
+        while (true) {
+            OptionalLong next = fn.apply(expected);
+            Exchange x = compareExchange(key, expected, next);
+            if (x.stored()) {
+                return x.observed();
+            }
+            expected = x.observed();
         }
     }
 
