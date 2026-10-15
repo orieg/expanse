@@ -155,7 +155,7 @@ Add `expanse` to your project's `main/idf_component.yml`:
 ```yaml
 dependencies:
   expanse:
-    version: "^0.12.0"
+    version: "^0.13.0"
 ```
 
 ### Via local submodule / component copy
