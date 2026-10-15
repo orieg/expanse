@@ -967,6 +967,117 @@ expanse_str_nav_status expanse_sync_strmap_reader_prev_before(
     const expanse_sync_strmap_reader_t *reader, const char *key, char *key_out, size_t buf_len,
     size_t *required_len, uint64_t *value_out);
 
+/*
+ * expanse_sync_bytesmap_t and expanse_sync_ordered_bytesmap_t: the concurrent
+ * byte-string -> uint64_t maps (the shared forms of expanse_bytesmap_t, which
+ * is unordered, and expanse_ordered_bytesmap_t). Same protocol, thread rules
+ * and reader-handle ownership as expanse_sync_map_t above: the container
+ * handle is safe from any number of threads at once except _free, which
+ * needs no call in progress and every reader freed first; a reader handle is
+ * used by one thread at a time, may be freed from another thread once no
+ * call on it is in progress, and is freed before its map.
+ *
+ * Keys are (key, len) byte strings, as expanse_bytesmap_* takes them: opaque
+ * bytes, embedded NULs ordinary, NULL with len 0 the empty key. A NULL key
+ * with a non-zero len behaves like a NULL handle: false (or 0), nothing
+ * written. Values, out-pointers and return conventions are those of
+ * expanse_sync_strmap_* above; mem_used and mem_held read with writers
+ * excluded.
+ */
+typedef struct expanse_sync_bytesmap expanse_sync_bytesmap_t;
+typedef struct expanse_sync_bytesmap_reader expanse_sync_bytesmap_reader_t;
+
+expanse_sync_bytesmap_t *expanse_sync_bytesmap_new(void);
+void     expanse_sync_bytesmap_free(expanse_sync_bytesmap_t *map);
+bool     expanse_sync_bytesmap_insert(expanse_sync_bytesmap_t *map, const void *key, size_t len,
+                                      uint64_t value, uint64_t *old_out);
+bool     expanse_sync_bytesmap_get(const expanse_sync_bytesmap_t *map, const void *key, size_t len,
+                                   uint64_t *value_out);
+bool     expanse_sync_bytesmap_contains(const expanse_sync_bytesmap_t *map, const void *key,
+                                        size_t len);
+bool     expanse_sync_bytesmap_remove(expanse_sync_bytesmap_t *map, const void *key, size_t len,
+                                      uint64_t *old_out);
+uint64_t expanse_sync_bytesmap_len(const expanse_sync_bytesmap_t *map);
+size_t   expanse_sync_bytesmap_mem_used(const expanse_sync_bytesmap_t *map);
+size_t   expanse_sync_bytesmap_mem_held(const expanse_sync_bytesmap_t *map);
+size_t   expanse_sync_bytesmap_shrink_to_fit(const expanse_sync_bytesmap_t *map);
+
+expanse_sync_bytesmap_reader_t *expanse_sync_bytesmap_reader_new(const expanse_sync_bytesmap_t *map);
+void expanse_sync_bytesmap_reader_free(expanse_sync_bytesmap_reader_t *reader);
+bool expanse_sync_bytesmap_reader_get(const expanse_sync_bytesmap_reader_t *reader,
+                                      const void *key, size_t len, uint64_t *value_out);
+bool expanse_sync_bytesmap_reader_contains(const expanse_sync_bytesmap_reader_t *reader,
+                                           const void *key, size_t len);
+
+typedef struct expanse_sync_ordered_bytesmap expanse_sync_ordered_bytesmap_t;
+typedef struct expanse_sync_ordered_bytesmap_reader expanse_sync_ordered_bytesmap_reader_t;
+
+expanse_sync_ordered_bytesmap_t *expanse_sync_ordered_bytesmap_new(void);
+void     expanse_sync_ordered_bytesmap_free(expanse_sync_ordered_bytesmap_t *map);
+bool     expanse_sync_ordered_bytesmap_insert(expanse_sync_ordered_bytesmap_t *map, const void *key,
+                                              size_t len, uint64_t value, uint64_t *old_out);
+bool     expanse_sync_ordered_bytesmap_get(const expanse_sync_ordered_bytesmap_t *map,
+                                           const void *key, size_t len, uint64_t *value_out);
+bool     expanse_sync_ordered_bytesmap_contains(const expanse_sync_ordered_bytesmap_t *map,
+                                                const void *key, size_t len);
+bool     expanse_sync_ordered_bytesmap_remove(expanse_sync_ordered_bytesmap_t *map, const void *key,
+                                              size_t len, uint64_t *old_out);
+uint64_t expanse_sync_ordered_bytesmap_len(const expanse_sync_ordered_bytesmap_t *map);
+size_t   expanse_sync_ordered_bytesmap_mem_used(const expanse_sync_ordered_bytesmap_t *map);
+size_t   expanse_sync_ordered_bytesmap_mem_held(const expanse_sync_ordered_bytesmap_t *map);
+size_t   expanse_sync_ordered_bytesmap_shrink_to_fit(const expanse_sync_ordered_bytesmap_t *map);
+
+expanse_sync_ordered_bytesmap_reader_t *expanse_sync_ordered_bytesmap_reader_new(
+    const expanse_sync_ordered_bytesmap_t *map);
+void expanse_sync_ordered_bytesmap_reader_free(expanse_sync_ordered_bytesmap_reader_t *reader);
+bool expanse_sync_ordered_bytesmap_reader_get(const expanse_sync_ordered_bytesmap_reader_t *reader,
+                                              const void *key, size_t len, uint64_t *value_out);
+bool expanse_sync_ordered_bytesmap_reader_contains(
+    const expanse_sync_ordered_bytesmap_reader_t *reader, const void *key, size_t len);
+
+/*
+ * Ordered reads of the shared ordered-bytes map: the smallest entry, the
+ * largest, and the nearest entry at-or-after / after / at-or-before / before
+ * `key`. They are calls on the MAP handle, not on a reader, and they BLOCK
+ * WRITERS for their duration: each runs with every writer excluded (it
+ * quiesces writers and takes the writer mutex), so the entry returned is the
+ * answer at one instant, and every write waits for the call. They are not
+ * calls for a hot loop beside writers. A walk built from repeated next_after
+ * calls is not a snapshot: it sees every key present throughout it, in
+ * order, and may or may not see keys inserted or removed between calls.
+ *
+ * Status and outputs follow the expanse_ordered_bytesmap_* navigation
+ * contract above. OK: the key is in key_out[0 .. *required_len) (nothing for
+ * the empty key), *required_len (if non-NULL) is its length, and *value_out
+ * (if non-NULL) its value. BUFFER_TOO_SMALL: a key was found but buf_len is
+ * below its length (or key_out is NULL; NULL with 0 is a valid length probe,
+ * which returns OK with *required_len == 0 when the key found is empty); only
+ * *required_len is written, and key_out is untouched. NOT_FOUND: no such
+ * entry, which includes prev_before of the empty key, or a NULL map, or a
+ * NULL key with a non-zero len; nothing is written. A retry after
+ * BUFFER_TOO_SMALL is a new read, so it may return a different key if a
+ * writer ran in between. In the functions that take a search `key`, `key`
+ * and `key_out` may be the same buffer.
+ */
+expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_first(
+    const expanse_sync_ordered_bytesmap_t *map, void *key_out, size_t buf_len,
+    size_t *required_len, uint64_t *value_out);
+expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_last(
+    const expanse_sync_ordered_bytesmap_t *map, void *key_out, size_t buf_len,
+    size_t *required_len, uint64_t *value_out);
+expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_next_at_or_after(
+    const expanse_sync_ordered_bytesmap_t *map, const void *key, size_t len, void *key_out,
+    size_t buf_len, size_t *required_len, uint64_t *value_out);
+expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_next_after(
+    const expanse_sync_ordered_bytesmap_t *map, const void *key, size_t len, void *key_out,
+    size_t buf_len, size_t *required_len, uint64_t *value_out);
+expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_prev_at_or_before(
+    const expanse_sync_ordered_bytesmap_t *map, const void *key, size_t len, void *key_out,
+    size_t buf_len, size_t *required_len, uint64_t *value_out);
+expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_prev_before(
+    const expanse_sync_ordered_bytesmap_t *map, const void *key, size_t len, void *key_out,
+    size_t buf_len, size_t *required_len, uint64_t *value_out);
+
 /* ---- ExpanseBlobMap: polymorphic large-value map with inline/arena backing ---- */
 
 typedef struct ExpanseBlobMap ExpanseBlobMap;

@@ -488,6 +488,48 @@ STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
         "expanse_sync_strmap_reader_prev_before",
     )
 }
+# The shared bytes and ordered-bytes maps' C handles (#1538), deferred in every
+# checked binding for the same reason as the string map's.
+STATED_DEFERRALS.update(
+    {
+        f"expanse_sync_{kind}_{op}": {
+            "issue": "#1538",
+            "reason": "shared bytes and ordered-bytes map C handles shipped ahead of their binding wrappers (docs/COMPAT.md, Planned: shared-map C handles, section 6)",
+            "ecosystems": {"java", "dotnet", "python", "node", "go"},
+        }
+        for kind, ops in (
+            ("bytesmap", ()),
+            (
+                "ordered_bytesmap",
+                (
+                    "first",
+                    "last",
+                    "next_at_or_after",
+                    "next_after",
+                    "prev_at_or_before",
+                    "prev_before",
+                ),
+            ),
+        )
+        for op in (
+            "new",
+            "free",
+            "insert",
+            "get",
+            "contains",
+            "remove",
+            "len",
+            "mem_used",
+            "mem_held",
+            "shrink_to_fit",
+            "reader_new",
+            "reader_free",
+            "reader_get",
+            "reader_contains",
+        )
+        + ops
+    }
+)
 
 def validate_stated_deferrals(
     deferrals: Dict[str, Dict[str, Any]], wide_symbols: List[CSymbol]

@@ -121,7 +121,7 @@ one that does not link, and a link error names the gap at build time.
 
 | Configuration | Cargo invocation | Exported C symbols |
 |---|---|---|
-| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 215 |
+| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 249 |
 | 64-bit, `no_std` | `--no-default-features` | 164 |
 | 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 70 |
 
@@ -157,22 +157,27 @@ to 209 (`nm -gU` on an arm64 macOS release dylib; 195 on their parent,
 `eb351703`, by the same method); the 64-bit `no_std` and 32-bit rows are
 unchanged by construction, as for the other concurrent entry points. The six
 `expanse_sync_strmap_reader_*` ordered reads took the 64-bit `std` row from 209
-to 215 by the same method.
+to 215 by the same method. The thirty-four `expanse_sync_bytesmap_*` and
+`expanse_sync_ordered_bytesmap_*` entry points (#1538) took it from 215 to 249
+(`nm -gU` on an arm64 macOS release dylib; 215 on their parent, `2eff5bb4`, by
+the same method).
 Reproduce with the invocations above; the 32-bit row needs
 `--features embedded-panic-handler`, as the CI job does.)
 
 **Two exported symbols are declared in no header.** `expanse_validate(const void *array, int is_map)` and `expanse_stats(const void *array, int is_map, CExpanseStats *out)` (`crates/expanse-capi/src/lib.rs`, 64-bit only) are `#[no_mangle] extern "C"` and are counted in both 64-bit rows above, but neither `expanse.h` nor `Judy.h` declares them, so `scripts/check_abi_parity.py` does not see them and no binding wraps them. They take a `Judy1`/`JudyL` array pointer. They are not part of the supported surface until a header declares them; that is a code change, not a documentation one.
 
-**64-bit `no_std` drops only the concurrent containers** — the 51
+**64-bit `no_std` drops only the concurrent containers** — the 85
 `expanse_sync_*` entry points (`nm -gU` count on the arm64 macOS release
 dylib). `expanse_trie::sync` needs `std::sync`, so a
 bare-metal 64-bit build has no one-writer/many-reader surface. Everything
 else, the entire legacy `Judy*` drop-in included, is present and unchanged.
 
-The shared string map has a C handle with point operations and ordered reads
-(`expanse_sync_strmap_*`, 64-bit `std` only); the shared bytes, ordered-bytes
-and blob maps have none in any configuration. The rest of the surface planned
-for them, which adds to the 64-bit `std` row only, is in
+The shared string, bytes and ordered-bytes maps have C handles with point
+operations and ordered reads (`expanse_sync_strmap_*`,
+`expanse_sync_bytesmap_*`, `expanse_sync_ordered_bytesmap_*`, 64-bit `std`
+only); the shared blob map has none in any configuration, and no shared map
+but the `u64` map has a C read-modify-write. The rest of the surface planned,
+which adds to the 64-bit `std` row only, is in
 [Planned: shared-map C handles](#planned-shared-map-c-handles-not-shipped).
 
 **32-bit drops the legacy `Judy*` families entirely**, plus the byte-string,
@@ -333,7 +338,7 @@ None is declared in `Judy.h`, which has no blob map.
 
 ### Reader-handle ownership (64-bit `expanse_sync_*`)
 
-The contract for `expanse_sync_set_reader_t`, `expanse_sync_map_reader_t` and `expanse_sync_strmap_reader_t`, stated next to the declarations in `include/expanse.h` and in `expanse_sync(3)`:
+The contract for `expanse_sync_set_reader_t`, `expanse_sync_map_reader_t`, `expanse_sync_strmap_reader_t`, `expanse_sync_bytesmap_reader_t` and `expanse_sync_ordered_bytesmap_reader_t`, stated next to the declarations in `include/expanse.h` and in `expanse_sync(3)`:
 
 | Operation | Contract |
 |---|---|
@@ -344,7 +349,7 @@ The contract for `expanse_sync_set_reader_t`, `expanse_sync_map_reader_t` and `e
 
 In Rust the *Use* row is enforced by the type system: `occ::Reader` and every `sync` reader handle are `Send` and not `Sync`, so safe code cannot call through one handle from two threads (`docs/ARCHITECTURE.md` §4.1, *One reader handle per thread*). A C handle is a raw pointer and carries no such bound, and neither do the FFI bindings built on it (Go `SyncMapReader`/`SyncSetReader`, Java `SyncExpanseMap.Reader`/`SyncExpanseSet.Reader`, .NET `ExpanseSyncMapReader`/`ExpanseSyncSetReader`, C++ `sync_map_reader`/`sync_set_reader`): there the row stays a caller obligation. The bindings that never hand a reader to the caller are not exposed to it — Python keeps one reader per thread in a thread-local cache, and Node registers one per call.
 
-The cross-thread free rests on the handle types being `Send`. That bound is auto-derived from their fields, so it is asserted at compile time on the C handle types (`SyncSetReader`, `SyncMapReader` and `SyncStrMapReader` in `crates/expanse-capi/src/modern_sync.rs`), on `MapReader`, `OwnedMapReader`, `DetachedMapReader`, `SetReader`, `OwnedSetReader`, `DetachedSetReader`, `StrReader`, `OwnedStrReader`, `DetachedStrReader`, `BytesReader`, `OwnedBytesReader`, `DetachedBytesReader`, `BlobReader`, `OwnedBlobReader` and `DetachedBlobReader` (`crates/expanse/src/sync.rs`) and on `occ::Reader` (`crates/expanse/src/occ.rs`): a future `!Send` field fails the build. `test_sync_reader_handles_freed_on_another_thread` (`crates/expanse-capi/tests/test_modern_capi.rs`) and, for the string map, `reader_handles_freed_on_another_thread` (`crates/expanse-capi/tests/test_sync_strmap_capi.rs`) create handles on worker threads, read through them, and free them on the main thread before the containers. The 32-bit `expanse_sync32_*` family has its own, index-addressed reader contract (see the 32-bit concurrent story above).
+The cross-thread free rests on the handle types being `Send`. That bound is auto-derived from their fields, so it is asserted at compile time on the C handle types (`SyncSetReader`, `SyncMapReader`, `SyncStrMapReader`, `SyncBytesMapReader` and `SyncOrderedBytesMapReader` in `crates/expanse-capi/src/modern_sync.rs`), on `MapReader`, `OwnedMapReader`, `DetachedMapReader`, `SetReader`, `OwnedSetReader`, `DetachedSetReader`, `StrReader`, `OwnedStrReader`, `DetachedStrReader`, `BytesReader`, `OwnedBytesReader`, `DetachedBytesReader`, `BlobReader`, `OwnedBlobReader` and `DetachedBlobReader` (`crates/expanse/src/sync.rs`) and on `occ::Reader` (`crates/expanse/src/occ.rs`): a future `!Send` field fails the build. `test_sync_reader_handles_freed_on_another_thread` (`crates/expanse-capi/tests/test_modern_capi.rs`) and, for the string, bytes and ordered-bytes maps, `reader_handles_freed_on_another_thread` (`crates/expanse-capi/tests/test_sync_strmap_capi.rs`) and its two counterparts in `test_sync_bytesmap_capi.rs` create handles on worker threads, read through them, and free them on the main thread before the containers. The 32-bit `expanse_sync32_*` family has its own, index-addressed reader contract (see the 32-bit concurrent story above).
 
 ### Shared string map C handle (`expanse_sync_strmap_*`)
 
@@ -398,6 +403,73 @@ the `u64` shared map's conventions throughout
   and runs a pthread writer against four reader threads, each of which also
   walks the map in order.
 
+### Shared bytes and ordered-bytes map C handles (`expanse_sync_bytesmap_*`, `expanse_sync_ordered_bytesmap_*`)
+
+`expanse_sync_bytesmap_t` is the C handle of `SyncExpanseBytesMap` (default
+`RandomState` hasher) and `expanse_sync_ordered_bytesmap_t` that of
+`SyncExpanseOrderedBytesMap`; their readers wrap the borrowed `BytesReader`
+and `OrderedBytesReader` (`crates/expanse-capi/src/modern_sync.rs`,
+`include/expanse.h`, `expanse_sync(3)`, #1538). Each map has fourteen entry
+points with the string map's names and conventions (`_new`, `_free`,
+`_insert`, `_get`, `_contains`, `_remove`, `_len`, `_mem_used`, `_mem_held`,
+`_shrink_to_fit`, `_reader_new`, `_reader_free`, `_reader_get`,
+`_reader_contains`); the ordered-bytes map adds six ordered reads on its
+container handle, `_first`, `_last`, `_next_at_or_after`, `_next_after`,
+`_prev_at_or_before` and `_prev_before`: thirty-four entry points.
+
+- **Handles** follow the [string map's](#shared-string-map-c-handle-expanse_sync_strmap_):
+  boxed container callable from any number of threads at once except `_free`,
+  borrowed reader with its lifetime extended to `'static`, no owned, detached
+  or pinned form across the boundary, and the
+  [reader-handle contract](#reader-handle-ownership-64-bit-expanse_sync_).
+- **Keys** are `(const void *key, size_t len)`, as `expanse_bytesmap_*` and
+  `expanse_ordered_bytesmap_*` take them: opaque bytes, embedded NULs ordinary,
+  `NULL` with `0` the empty key. A `NULL` key with a non-zero length behaves
+  like a `NULL` handle: `false` or `0`, nothing written. The ordered-bytes map
+  escapes NULs itself.
+- **Values and returns** are those of `expanse_sync_strmap_*`.
+- **Ordered reads of the ordered-bytes map block writers.**
+  `SyncExpanseOrderedBytesMap` has no optimistic ordered read: its navigation
+  runs under `with_locked`, so the six calls take the map handle, not a reader,
+  and each quiesces writers and takes the writer mutex for its duration
+  (section 9, decision 3 of the plan below). The key goes to a caller buffer
+  under the `expanse_ordered_bytesmap_*` navigation contract and its
+  `expanse_ordered_bytes_nav_status`: `OK` writes the key, `required_len` (its
+  length; an empty key needs no buffer) and the value; `BUFFER_TOO_SMALL`
+  writes only `required_len` and leaves the buffer untouched, and `NULL` with
+  `0` is a length probe; `NOT_FOUND` (no such entry, a `NULL` map, or a `NULL`
+  key with a non-zero length) writes nothing. `key` and `key_out` may be one
+  buffer. A retry after `BUFFER_TOO_SMALL` is a new read.
+- **How a call keeps the buffer contract.** Each call is one `with_locked`
+  hold in which the single-threaded map's `*_decode_into` form runs into an
+  empty buffer for the length and then, if the caller's buffer holds the key,
+  into that buffer; both runs see one map, so the length reported and the key
+  written agree. One decode straight into the caller's buffer would not do:
+  `escape_decode_into` (`crates/expanse/src/domain.rs`) writes the prefix that
+  fits before it reports `BufferTooSmall`, so a too-small buffer would be
+  written for a key holding a `0x00` or `0x01` byte. The wrapper's own
+  `SyncExpanseOrderedBytesMap::*_decode_into` methods take the lock once per
+  call, so a probe-then-decode pair over them could see two different maps.
+  The search key is copied before the hold, which is what lets `key` and
+  `key_out` share a buffer. A decode error other than `BufferTooSmall` is
+  unreachable for keys the map encoded and is a `debug_assert!`, not a silent
+  `NOT_FOUND` (§8.1).
+- **Tests.** `crates/expanse-capi/tests/test_sync_bytesmap_capi.rs` runs the
+  fourteen shared entry points of each map through one table of function
+  pointers (return conventions, keys with NULs and `0x01`, the `NULL`
+  conventions, the reader lifecycle, readers that never see a wrong value
+  under a churning writer, cross-thread reader frees), and the ordered reads:
+  keys with embedded NULs round-trip through insert, get and every ordered
+  read, including a walk that reuses its output buffer as the search key; the
+  buffer contract (probe, one byte short with an escaped key and the buffer
+  untouched, exact fit, `NULL` inputs, the empty key, an empty map); and a
+  walk under concurrent inserts and removes that returns every stable key in
+  order with the too-small retry taken. Its single-threaded tests run under
+  Miri (`ci.yml` job `miri`, shard 3) and the whole target under ASan (job
+  `test-asan`). `crates/expanse-capi/smoke/modern_api_smoke.c` calls every
+  entry point once and runs a pthread writer against four reader threads on
+  each map; on the ordered-bytes map each reader also walks the map in order.
+
 ### Planned: shared-map C handles (not shipped)
 
 > **This is a plan, not shipped surface.** Nothing below is declared in
@@ -411,14 +483,14 @@ the `u64` shared map's conventions throughout
 
 `include/expanse.h` gives C a shared handle for the `u64` map and the set
 (`expanse_sync_map_t`, `expanse_sync_set_t` and their readers), and for the
-string map's point operations and ordered reads (`expanse_sync_strmap_t`, [shipped](#shared-string-map-c-handle-expanse_sync_strmap_)).
-The string map's read-modify-write has no C entry point, and the Rust shared
-maps `SyncExpanseBytesMap`
-(`crates/expanse/src/sync.rs:15020`),
-`SyncExpanseOrderedBytesMap` (`:16575`) and `SyncExpanseBlobMap` (`:11063`)
-have no handle, so no shared map's read-modify-write but the `u64` map's
-reaches C (the Atomic RMW row of
-the parity table below). This plan fits them to the existing
+string, bytes and ordered-bytes maps' point operations and ordered reads
+(`expanse_sync_strmap_t`, [shipped](#shared-string-map-c-handle-expanse_sync_strmap_);
+`expanse_sync_bytesmap_t` and `expanse_sync_ordered_bytesmap_t`,
+[shipped](#shared-bytes-and-ordered-bytes-map-c-handles-expanse_sync_bytesmap_-expanse_sync_ordered_bytesmap_)).
+Their read-modify-write has no C entry point, and the Rust shared map
+`SyncExpanseBlobMap` (`crates/expanse/src/sync.rs:11063`) has no handle, so no
+shared map's read-modify-write but the `u64` map's reaches C (the Atomic RMW
+row of the parity table below). This plan fits them to the existing
 `expanse_sync_*` conventions.
 
 #### What the existing shared surface does, which this plan copies
@@ -438,14 +510,11 @@ the parity table below). This plan fits them to the existing
 
 #### 1. Handles, readers and thread rules
 
-New opaque types, one owning handle and one reader per map kind (the string
-map's, `expanse_sync_strmap_t` and `expanse_sync_strmap_reader_t`, have
-shipped):
+New opaque types, one owning handle and one reader per map kind (the string,
+bytes and ordered-bytes maps' handles and readers have shipped):
 
 | Map kind | Owning handle | Reader handle (wraps) |
 |---|---|---|
-| `SyncExpanseBytesMap` (default `RandomState` hasher, `sync.rs:15038-15043`) | `expanse_sync_bytesmap_t` | `expanse_sync_bytesmap_reader_t` (`BytesReader<'static>`, `sync.rs:16425`) |
-| `SyncExpanseOrderedBytesMap` | `expanse_sync_ordered_bytesmap_t` | `expanse_sync_ordered_bytesmap_reader_t` (`OrderedBytesReader<'static>`, `sync.rs:16969`; point reads only) |
 | `SyncExpanseBlobMap` | `expanse_sync_blob_map_t` | `expanse_sync_blob_map_reader_t` (`BlobReader<'static>`, `sync.rs:13062`) |
 
 - **Reader form: borrowed only**, as the `u64` map does. C has no `Arc`, so
@@ -480,10 +549,10 @@ shipped):
 
 | Operation | str | bytes | ordered-bytes | blob |
 |---|:-:|:-:|:-:|:-:|
-| `_new`, `_free`, `_len`, `_mem_used`, `_mem_held`, `_shrink_to_fit` | shipped | yes | yes | yes, plus `_new_with_capacity` |
-| `_insert`, `_remove`, one-shot `_get`, `_contains` | shipped | yes | yes | `_insert` returns a status; `_get_into` and `_get_meta` instead of `_get` |
-| `_reader_new`, `_reader_free`, `_reader_get`, `_reader_contains` | shipped | yes | yes | `_reader_get_into`, `_reader_get_meta`, `_reader_contains` |
-| Ordered reads (`first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before`, `prev_before`) | shipped, on the reader | none (unordered) | on the **container**, writer-excluding (`sync.rs:16561-16568`, `:16836-16929`) | none in v1 |
+| `_new`, `_free`, `_len`, `_mem_used`, `_mem_held`, `_shrink_to_fit` | shipped | shipped | shipped | yes, plus `_new_with_capacity` |
+| `_insert`, `_remove`, one-shot `_get`, `_contains` | shipped | shipped | shipped | `_insert` returns a status; `_get_into` and `_get_meta` instead of `_get` |
+| `_reader_new`, `_reader_free`, `_reader_get`, `_reader_contains` | shipped | shipped | shipped | `_reader_get_into`, `_reader_get_meta`, `_reader_contains` |
+| Ordered reads (`first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before`, `prev_before`) | shipped, on the reader | none (unordered) | shipped, on the **container**, writer-excluding | none in v1 |
 | `_compare_exchange`, `_get_or_insert` | yes (`sync.rs:13985`, `:14041`) | yes (`:15529`, `:15581`) | `compare_exchange` (`:16668`); `get_or_insert` in the shim as `compare_exchange(absent, value)`, since the Rust type has no `get_or_insert` (none in `sync.rs:16585-16947`) | `compare_exchange` (`:12253`), `compare_exchange_meta` (`:11990`), `get_or_insert` (`:12612`) |
 | `_mem_used_estimate` | — | — | — | yes (`sync.rs:12924`): `_mem_used` waits for a compaction and makes writers wait (`sync.rs:12858-12872`) |
 | `_set_reclaim_at_cap`, `_compact` | — | — | — | yes (`sync.rs:12741`, `:12703`); the shared C surface hands out no zero-copy view, so `_compact` invalidates nothing a C caller holds |
@@ -507,25 +576,15 @@ Left out of the first version, with the reason:
 
 #### 3. Keys and values
 
-- **Bytes and ordered-bytes keys** are `(const void *key, size_t len)` with
-  the header's existing rule: opaque bytes, embedded NULs ordinary, `NULL`
-  with `0` the empty key (`include/expanse.h:28-30`). The ordered-bytes map
-  escapes NULs itself (`with_encoded_key`, `sync.rs:16976-16985`).
+- **Bytes and ordered-bytes keys** are `(const void *key, size_t len)`
+  (shipped).
 - **String keys** are NUL-terminated `const char *` (shipped; section 9,
   decision 1).
 - **Values** of the three word-valued maps are `uint64_t`, in and out,
   exactly as `expanse_sync_map_*`.
 - **Ordered-read keys out** go to a caller buffer with the existing
-  `_ex`/ordered-bytes contract (`OK` / `NOT_FOUND` / `BUFFER_TOO_SMALL` +
-  `required_len`, nothing written on too-small, `NULL`/`0` probe), as the
-  shipped string-map reads do; the header states that a retry after
-  `BUFFER_TOO_SMALL` is a new read and may return a different key if a writer
-  ran in between. The ordered-bytes reads use the zero-allocation
-  `*_decode_into` forms. The single-threaded shim maps every
-  decode error other than `BufferTooSmall` to `NOT_FOUND`
-  (`modern_wide.rs:924-930`); for keys the map encoded those errors are
-  unreachable, and the shared shim adds a `debug_assert!` there instead of a
-  silent mapping (§8.1).
+  `_ex`/ordered-bytes contract (shipped for the string and ordered-bytes
+  maps).
 - **Blob values never leave as a borrowed pointer.** No `ExpanseBlobView` on
   the shared surface, no thread-local or rotating buffer (AGENTS.md §2.3 item
   4, §2.4). Reads copy into a caller buffer, mirroring `BlobReader::get_into`
@@ -634,7 +693,7 @@ shipped:
   (`buf` untouched, required length exact).
 - **Miri and ASan coverage of the FFI layer**: the `miri` job (shard 3) runs
   the single-threaded tests of `crates/expanse-capi/tests/test_sync_strmap_capi.rs`
-  and the `test-asan` job the whole target (the `'static` transmute and the
+  and `test_sync_bytesmap_capi.rs`, and the `test-asan` job the whole targets (the `'static` transmute and the
   `Box` round trip are what Miri checks); each later PR adds its target to
   both, and to the `expanse-capi` Miri line of AGENTS.md §5 and
   `scripts/gate.sh`.
@@ -648,14 +707,13 @@ shipped:
 
 | PR | Ships | Depends on | Gate (one each) |
 |---|---|---|---|
-| 3 | `expanse_sync_bytesmap_*` (14) and `expanse_sync_ordered_bytesmap_*` incl. its container ordered reads (20) | 1 | ordered-bytes keys with embedded NULs round-trip through insert, get and every ordered read |
 | 4 | `expanse_sync_blob_map_*` with caller buffers and the new status values (20) | 1 | the get-into contract: absent, exact fit, one byte short (buffer untouched, required exact), probe, under a concurrent writer |
 | 5 | RMW across the four: `compare_exchange` and `get_or_insert` per kind, blob `compare_exchange_meta` (9) | 1, 3, 4 | a threaded `compare_exchange` increment loop per kind loses no update, and the blob loop stops on a refusal |
 
 PRs 1 and 2, the string map's handle, reader, point operations, memory calls
-and ordered reads (20 symbols), have shipped. Symbol counts are derived from
-the operation table above (34 + 20 + 9 = 63 still planned); the shipped header
-is the authority. PRs 3 and 4 can run in parallel.
+and ordered reads (20 symbols), and PR 3, the bytes and ordered-bytes maps'
+(34 symbols), have shipped. Symbol counts are derived from the operation table
+above (20 + 9 = 29 still planned); the shipped header is the authority.
 
 #### 9. Decisions
 
@@ -712,7 +770,7 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 
 ## Cross-Language Feature & Container Parity
 
-`scripts/check_abi_parity.py` checks C ABI symbol coverage in CI for the Java, .NET, Python, Node.js and Go bindings (the 64-bit surface; the `!EXPANSE_WIDE_SURFACE` block is excluded). Java, .NET and Go are checked by symbol name; Python and Node, which bind the Rust API, by a per-symbol `// abi-parity:` marker at the implementing site. The per-family function counts below are the declarations in `include/expanse.h`, and the parity row is `check_abi_parity.py --check` output: 171 symbols on the 64-bit surface, 151/171 for each of Java, .NET, Python, Node.js and Go, the other 20 (`expanse_sync_strmap_*`) stated deferrals citing #1538; the 35 declarations of the `!EXPANSE_WIDE_SURFACE` block are listed separately. The PHP and Ruby bindings are not checked by it, and the Rust column is the implementation, not a binding:
+`scripts/check_abi_parity.py` checks C ABI symbol coverage in CI for the Java, .NET, Python, Node.js and Go bindings (the 64-bit surface; the `!EXPANSE_WIDE_SURFACE` block is excluded). Java, .NET and Go are checked by symbol name; Python and Node, which bind the Rust API, by a per-symbol `// abi-parity:` marker at the implementing site. The per-family function counts below are the declarations in `include/expanse.h`, and the parity row is `check_abi_parity.py --check` output: 205 symbols on the 64-bit surface, 151/205 for each of Java, .NET, Python, Node.js and Go, the other 54 (`expanse_sync_strmap_*`, `expanse_sync_bytesmap_*`, `expanse_sync_ordered_bytesmap_*`) stated deferrals citing #1538; the 35 declarations of the `!EXPANSE_WIDE_SURFACE` block are listed separately. The PHP and Ruby bindings are not checked by it, and the Rust column is the implementation, not a binding:
 
 | Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) | PHP (`orieg/expanse`) | Ruby (`expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -725,15 +783,16 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with
 | **`SyncExpanseSet` (OCC Set)**| `expanse_sync_set_*` (11 fns; none is an ordered read: the Rust reader-handle ordered reads of #1194 have no C entry point, and the bindings none) | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncSet` | Via C ABI |
 | **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (20 fns, 6 of them reader-handle ordered reads) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncMap` | Via C ABI |
 | **`SyncExpanseStrMap` (OCC StrMap)**| `expanse_sync_strmap_*` (20 fns: point ops and a reader handle, 6 of them reader-handle ordered reads; RMW [planned](#planned-shared-map-c-handles-not-shipped)) | `SyncExpanseStrMap` | Deferred (#1538) | Deferred (#1538) | Deferred (#1538) | Deferred (#1538) | Follow-up | Follow-up |
-| **`SyncExpanseOrderedBytesMap` (#808)**| Follow-up (`expanse_sync_ordered_bytesmap_*`, [planned](#planned-shared-map-c-handles-not-shipped)) | `SyncExpanseOrderedBytesMap` | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up |
+| **`SyncExpanseBytesMap` (OCC BytesMap)**| `expanse_sync_bytesmap_*` (14 fns: point ops and a reader handle; RMW [planned](#planned-shared-map-c-handles-not-shipped)) | `SyncExpanseBytesMap` | Deferred (#1538) | Deferred (#1538) | Deferred (#1538) | Deferred (#1538) | Follow-up | Follow-up |
+| **`SyncExpanseOrderedBytesMap` (#808)**| `expanse_sync_ordered_bytesmap_*` (20 fns: point ops and a reader handle, 6 of them writer-excluding ordered reads on the container; RMW [planned](#planned-shared-map-c-handles-not-shipped)) | `SyncExpanseOrderedBytesMap` | Deferred (#1538) | Deferred (#1538) | Deferred (#1538) | Deferred (#1538) | Follow-up | Follow-up |
 | **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (17 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `BlobMap` / `ExpanseBlobMap` | `Expanse::BlobMap` |
-| **Atomic RMW (`compare_exchange` / `update`) (#1194)** | `expanse_sync_map_compare_exchange` and `expanse_sync_map_get_or_insert` (`SyncExpanseMap`); `update` is not exported (see below). The other shared maps are follow-ups; the 32-bit `expanse_sync32_map_writer_{compare_exchange,update,get_or_insert}` block is a separate surface with its own forms (a callback `update` in the narrow block); a blob form needs a status for an unstorable `new` distinct from its mismatch status, as the Rust `CompareExchangeError` has The string map's C handle exports point operations and ordered reads only, and the bytes, ordered-bytes and blob shared maps have no C handle yet, so their C read-modify-write waits on that surface (#1538). | `compare_exchange` (Map/Str/Bytes/Blob), `update` (Map/Str/Bytes) | `compareExchange`, `getOrInsert`, `update` (`SyncExpanseMap`) | `CompareExchange`, `GetOrInsert`, `Update` (`ExpanseSyncMap`) | `compare_exchange`, `get_or_insert`, `update_with` (`SyncExpanseMap`; `update` names the bulk merge there) | `compareExchange`, `getOrInsert`, `update` (`SyncExpanseMap`) | Follow-up | Follow-up |
+| **Atomic RMW (`compare_exchange` / `update`) (#1194)** | `expanse_sync_map_compare_exchange` and `expanse_sync_map_get_or_insert` (`SyncExpanseMap`); `update` is not exported (see below). The other shared maps are follow-ups; the 32-bit `expanse_sync32_map_writer_{compare_exchange,update,get_or_insert}` block is a separate surface with its own forms (a callback `update` in the narrow block); a blob form needs a status for an unstorable `new` distinct from its mismatch status, as the Rust `CompareExchangeError` has The string, bytes and ordered-bytes maps' C handles export point operations and ordered reads only, and the blob shared map has no C handle yet, so their C read-modify-write waits on that surface (#1538). | `compare_exchange` (Map/Str/Bytes/Blob), `update` (Map/Str/Bytes) | `compareExchange`, `getOrInsert`, `update` (`SyncExpanseMap`) | `CompareExchange`, `GetOrInsert`, `Update` (`ExpanseSyncMap`) | `compare_exchange`, `get_or_insert`, `update_with` (`SyncExpanseMap`; `update` names the bulk merge there) | `compareExchange`, `getOrInsert`, `update` (`SyncExpanseMap`) | Follow-up | Follow-up |
 | **Compaction (`compact`) (#1200)** | Follow-up | ✅ Set/Map, Set32/Map32, SyncSet/SyncMap | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up | Follow-up |
 | **32-bit direct emission (`from_sorted_iter`) (#1357)** | N/A (32-bit embedded) | ✅ `from_sorted_iter` (Set32/Map32) | N/A | N/A | N/A | N/A | N/A | N/A |
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
 | **Metadata Filtering** | ✅ Predicate callbacks | ✅ Scalar per-entry predicate closure (`scan_filtered`) | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
 | **Optimistic Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe | ✅ Optimistic OCC | ✅ GVL-safe FFI |
-| **C ABI Symbol Parity** | **171 declared** | implementation (not checked) | **151 / 171 (20 deferred, #1538)** | **151 / 171 (20 deferred, #1538)** | **151 / 171 (20 deferred, #1538)** | **151 / 171 (20 deferred, #1538)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
+| **C ABI Symbol Parity** | **205 declared** | implementation (not checked) | **151 / 205 (54 deferred, #1538)** | **151 / 205 (54 deferred, #1538)** | **151 / 205 (54 deferred, #1538)** | **151 / 205 (54 deferred, #1538)** | not checked by `check_abi_parity.py` | not checked by `check_abi_parity.py` |
 
-**Atomic read-modify-write across the C boundary (#1194).** The C ABI exports `compare_exchange` and `get_or_insert`; it does not export `update`. A callback form would cost an upcall per retry, and an exception or `longjmp` thrown inside the callback cannot unwind through C (D6). Each language binding instead implements `update` as a native retry loop over `compare_exchange`, as `SyncExpanseMap::update` does in Rust: read the key, compute the new word, `compare_exchange` against the word read, and on a mismatch retry with the observed word. The computation may therefore run several times and must be free of side effects. Absence is a flag on both sides (`expected_present`, `new_present`, `observed_present_out`), so every `u64` stays a legal value. `expanse_sync_map_compare_exchange` returns true when the store happened and reports the word the compare saw on both outcomes; `expanse_sync_map_get_or_insert` follows the `expanse_sync_map_insert` convention (true when stored, otherwise false with the existing value written through the out-pointer). The loop is written out in the `include/expanse.h` comment and in `expanse_sync(3)`. Only `SyncExpanseMap` has the C form; the string, bytes, ordered-bytes and blob shared maps and then the language bindings follow in that order; the 32-bit `expanse_sync32_map_writer_*` block is a separate surface with its own forms. Python and Node.js wrap the two symbols through the Rust methods and write the loop as `update_with(key, fn)` and `update(key, fn)` (Python's `update(other)` is the bulk merge); Go wraps them as `CompareExchange` and `GetOrInsert` with an absent-capable `Word` and writes the loop as `Update`; Java wraps them as `compareExchange` (an `Exchange` record) and `getOrInsert` over `OptionalLong` and writes the loop as `update`; .NET wraps them as `CompareExchange` and `GetOrInsert` over `ulong?` and writes the loop as `Update`. The twenty `expanse_sync_strmap_*` symbols are stated deferrals in `scripts/check_abi_parity.py` for all five checked bindings, citing #1538.
+**Atomic read-modify-write across the C boundary (#1194).** The C ABI exports `compare_exchange` and `get_or_insert`; it does not export `update`. A callback form would cost an upcall per retry, and an exception or `longjmp` thrown inside the callback cannot unwind through C (D6). Each language binding instead implements `update` as a native retry loop over `compare_exchange`, as `SyncExpanseMap::update` does in Rust: read the key, compute the new word, `compare_exchange` against the word read, and on a mismatch retry with the observed word. The computation may therefore run several times and must be free of side effects. Absence is a flag on both sides (`expected_present`, `new_present`, `observed_present_out`), so every `u64` stays a legal value. `expanse_sync_map_compare_exchange` returns true when the store happened and reports the word the compare saw on both outcomes; `expanse_sync_map_get_or_insert` follows the `expanse_sync_map_insert` convention (true when stored, otherwise false with the existing value written through the out-pointer). The loop is written out in the `include/expanse.h` comment and in `expanse_sync(3)`. Only `SyncExpanseMap` has the C form; the string, bytes, ordered-bytes and blob shared maps and then the language bindings follow in that order; the 32-bit `expanse_sync32_map_writer_*` block is a separate surface with its own forms. Python and Node.js wrap the two symbols through the Rust methods and write the loop as `update_with(key, fn)` and `update(key, fn)` (Python's `update(other)` is the bulk merge); Go wraps them as `CompareExchange` and `GetOrInsert` with an absent-capable `Word` and writes the loop as `Update`; Java wraps them as `compareExchange` (an `Exchange` record) and `getOrInsert` over `OptionalLong` and writes the loop as `update`; .NET wraps them as `CompareExchange` and `GetOrInsert` over `ulong?` and writes the loop as `Update`. The fifty-four `expanse_sync_strmap_*`, `expanse_sync_bytesmap_*` and `expanse_sync_ordered_bytesmap_*` symbols are stated deferrals in `scripts/check_abi_parity.py` for all five checked bindings, citing #1538.
 
