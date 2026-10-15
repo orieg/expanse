@@ -80,20 +80,64 @@ def build() -> Path:
     return Path(exes[0])
 
 
-def run_one(exe: Path, c: dict[str, Any], r: int) -> dict[str, Any]:
+def probe(exe: Path, counters: bool = False) -> dict[str, Any]:
+    """Refuses a binary that lacks `--mode identify` or is not the build expected (§8.1).
+
+    `occ_stats` is the one build property the driver distinguishes: a timed
+    pass runs the default build, and a binary built with `occ-stats` times
+    something else.
+    """
+    proc = subprocess.run([str(exe), "--map", "sync", "--mode", "identify"],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+    lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("{")]
+    if proc.returncode != 0 or len(lines) != 1:
+        raise DriverError(
+            f"the reclaim_stall harness at {exe} has no `--mode identify` (exit {proc.returncode}): "
+            f"it predates the probe, so no cell can run on it.\n{proc.stderr.strip()[-400:]}")
+    row = json.loads(lines[0])
+    if row.get("occ_stats") is not counters:
+        raise DriverError(f"the build at {exe} reports occ_stats={row.get('occ_stats')!r}, expected {counters!r}")
+    return row
+
+
+def child_pin(applied: str) -> str | None:
+    """The CPU list to confine each child to, or None where the driver holds none.
+
+    `applied` is what `bench_pin.apply` returned: a list, or `none`/`off` where
+    no pin was taken. Platforms without `sched_setaffinity` cannot confine a child.
+    """
+    if applied in ("none", "off") or not hasattr(os, "sched_setaffinity"):
+        return None
+    return applied
+
+
+def check_affinity(row: dict[str, Any], pin: str | None, where: str) -> None:
+    """Refuses a row whose process ran on CPUs other than the pin the driver asked for (§8.1)."""
+    if pin is None:
+        return
+    got = row.get("cpu_affinity")
+    if got is None or bench_pin.expand(str(got)) != bench_pin.expand(pin):
+        raise DriverError(f"{where}: the process ran on CPUs {got!r}, not the requested pin {pin}")
+
+
+def run_one(exe: Path, c: dict[str, Any], r: int, pin: str | None = None) -> dict[str, Any]:
     argv = [str(exe), "--map", c["map"], "--mode", c["mode"], "--writers", str(c["writers"]),
             "--readers", str(c["readers"]), "--round", str(r), "--seed", str(0x1300_0000 + 97 * r + CELLS.index(c))]
     if c["live"] is not None:
         argv += ["--live", str(c["live"])]
     if c["mode"] == "full":
         argv += ["--seconds", str(c["seconds"])]
-    out = subprocess.run(argv, check=True, stdout=subprocess.PIPE, text=True).stdout.strip().splitlines()
+    preexec = (bench_pin.child_affinity(pin)
+               if pin is not None and hasattr(os, "sched_setaffinity") else None)
+    out = subprocess.run(argv, check=True, stdout=subprocess.PIPE, text=True,
+                         preexec_fn=preexec).stdout.strip().splitlines()
     if len(out) != 1:
         raise DriverError(f"{cell_id(c)} round {r}: expected one JSON row, got {len(out)} lines")
     row = json.loads(out[0])
     for k in ("map", "mode", "writers", "readers"):
         if row[k] != c[k]:
             raise DriverError(f"{cell_id(c)} round {r}: the row reports {k}={row[k]!r}")
+    check_affinity(row, pin, f"{cell_id(c)} round {r}")
     return row
 
 
@@ -179,12 +223,14 @@ def measure(rounds: int, out_path: Path) -> dict[str, Any]:
     prov = new_provenance("concurrency", 1300, "§29 reclaim stall (no ratio gate)", REPO_ROOT,
                           cell_isolation="process", rounds=rounds, core_pin_applied=applied)
     exe = build()
+    probe(exe)
+    pin = child_pin(applied)
     by_cell: dict[str, dict[str, Any]] = {}
     for r in range(rounds):
         for c in rotated(CELLS, r):
             cid = cell_id(c)
             start = begin_cell(prov, f"cell:{cid}:r{r}")
-            row = run_one(exe, c, r)
+            row = run_one(exe, c, r, pin)
             row["load"] = end_cell(start)
             cell = by_cell.setdefault(cid, {"cell": cid, **{k: c[k] for k in ("map", "mode", "live", "writers", "readers")},
                                             "rounds_raw": []})
@@ -230,6 +276,48 @@ def _synthetic(stall_small: float, stall_large: float, read_share: float, peak_r
     return cells
 
 
+def _refused(fn, *args) -> str:
+    try:
+        fn(*args)
+    except DriverError as e:
+        return str(e)
+    raise AssertionError(f"{fn.__name__}{args} was not refused")
+
+
+def self_test_identity_and_pin() -> None:
+    import tempfile
+    # The probe: a binary reporting the wrong build, or without the mode, is refused.
+    with tempfile.TemporaryDirectory() as d:
+        def fake(name: str, body: str) -> Path:
+            p = Path(d) / name
+            p.write_text("#!/bin/sh\n" + body + "\n")
+            p.chmod(0o755)
+            return p
+        on = fake("on", """echo '{"mode":"identify","occ_stats":true,"cpu_affinity":"0"}'""")
+        off = fake("off", """echo '{"mode":"identify","occ_stats":false,"cpu_affinity":"0"}'""")
+        old = fake("old", "echo 'missing --mode' >&2; exit 101")
+        assert probe(off)["occ_stats"] is False and probe(on, counters=True)["occ_stats"] is True
+        assert "occ_stats" in _refused(probe, on)
+        assert "occ_stats" in _refused(probe, off, True)
+        assert "no `--mode identify`" in _refused(probe, old)
+        # The call site: run_one itself refuses a row whose CPUs differ from the pin it was given.
+        c = CELLS[0]
+        row = {"map": c["map"], "mode": c["mode"], "writers": c["writers"], "readers": c["readers"],
+               "cpu_affinity": "999"}
+        liar = fake("liar", "echo '" + json.dumps(row) + "'")
+        mine = str(min(os.sched_getaffinity(0))) if hasattr(os, "sched_getaffinity") else "0"
+        assert "ran on CPUs '999'" in _refused(run_one, liar, c, 0, mine)
+        assert run_one(liar, c, 0, None)["cpu_affinity"] == "999"
+    # The pin: a row whose CPUs differ from the requested list is refused; an equal list in another spelling is not.
+    check_affinity({"cpu_affinity": "0-3"}, "0,1,2,3", "x")
+    check_affinity({"cpu_affinity": "5"}, None, "x")
+    assert "ran on CPUs '0-7'" in _refused(check_affinity, {"cpu_affinity": "0-7"}, "0-3", "x")
+    assert "ran on CPUs None" in _refused(check_affinity, {}, "0-3", "x")
+    assert child_pin("none") is None and child_pin("off") is None
+    if hasattr(os, "sched_setaffinity"):
+        assert child_pin("0-3") == "0-3"
+
+
 def self_test() -> int:
     assert len(CELLS) == 10 and len({cell_id(c) for c in CELLS}) == 10
     assert rotated(CELLS, 3)[0] is CELLS[3] and sorted(map(cell_id, rotated(CELLS, 7))) == sorted(map(cell_id, CELLS))
@@ -258,6 +346,7 @@ def self_test() -> int:
     cells[0]["rounds_raw"][2]["compactions"] = 1
     assert evaluate(cells)["checks"][0]["rounds_without_two_compactions_or_with_refusals"] == [2]
     assert CI_METHOD_BCA
+    self_test_identity_and_pin()
     print("reclaim_stall.py self-test PASSED")
     return 0
 

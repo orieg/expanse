@@ -68,7 +68,8 @@ DIRECT_HARNESSES = {
         "the #1191 AArch64 default-vs-+rcpc A/B, dispatched on a hosted arm runner; "
         "a by-hand run on a hybrid host would otherwise take no pin",
     "docs/benchmarks/concurrency/scripts/reclaim_stall.py":
-        "the #1300 reclaim stall measurement (METHODOLOGY §29); applies the pin itself and records it",
+        "the #1300 reclaim stall measurement (METHODOLOGY §29); applies the pin itself, confines each "
+        "cell's process to it through bench_pin.child_affinity, and refuses a row whose CPUs differ",
     "docs/benchmarks/concurrency/scripts/ycsb_concurrent.py":
         "the concurrent YCSB scaling instrument across physical P-cores (#1006)",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py":
@@ -705,6 +706,22 @@ def self_test() -> None:
             assert r.returncode == 0, (name, r.returncode, r.stderr)
             assert r.stdout == "", f"apply() wrote to stdout ({name}): {r.stdout!r}"
             assert status in r.stderr, (name, r.stderr)
+
+    # ---- child_affinity: the child's mask is the list asked for -----------
+    # Runs `_pin()` in a child as `preexec_fn`, reads the mask back from the
+    # child, and checks an empty list is refused at construction.
+    try:
+        _pin_py.child_affinity("")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("child_affinity accepted an empty CPU list")
+    if hasattr(os, "sched_getaffinity"):
+        mine = sorted(os.sched_getaffinity(0))[0]
+        r = subprocess.run(
+            [sys.executable, "-c", "import os; print(sorted(os.sched_getaffinity(0)))"],
+            capture_output=True, text=True, preexec_fn=_pin_py.child_affinity(str(mine)))
+        assert r.returncode == 0 and r.stdout.strip() == f"[{mine}]", (r.returncode, r.stdout, r.stderr)
 
     _self_test_lock()
 

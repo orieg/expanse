@@ -14,6 +14,10 @@
 //!   insert is refused (the waste guard then declines every compaction), then
 //!   `--writers` threads insert fresh keys for `--seconds` while `--readers`
 //!   read.
+//! - `--mode identify`: no measurement; one row naming the build (whether
+//!   `occ-stats` is compiled in) and the CPUs the process may run on. The
+//!   driver probes the binary with it before any cell, and every measured row
+//!   carries the same two fields.
 //!
 //! # Workload shape
 //!
@@ -239,10 +243,36 @@ fn reader_loop(m: &SyncExpanseBlobMap, live: u64, seed: u64, stop: &AtomicBool) 
     h
 }
 
+/// The CPUs this process may run on, as the kernel lists them
+/// (`Cpus_allowed_list` in `/proc/self/status`), or `None` where there is no
+/// such file. The driver confines each child and refuses a row whose list
+/// differs, so a cell never runs under a pin other than the one it records.
+fn cpu_affinity() -> Option<String> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status
+        .lines()
+        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
+        .map(|v| v.trim().to_string())
+}
+
+/// What this binary was built as, so the driver can refuse a build that is
+/// not the one it expects.
+fn identity(row: &mut serde_json::Value) {
+    row["occ_stats"] = cfg!(feature = "occ-stats").into();
+    row["cpu_affinity"] = cpu_affinity().into();
+}
+
 fn main() {
     let a = Args::parse();
     let map = a.get("map").to_string();
     let mode = a.get("mode").to_string();
+    if mode == "identify" {
+        // The driver's probe: one row naming the build, no measurement.
+        let mut row = serde_json::json!({"workload_id": "reclaim_stall", "mode": "identify"});
+        identity(&mut row);
+        println!("{row}");
+        return;
+    }
     let writers = a.num("writers").max(1);
     let readers = a.num("readers");
     let round = a.num("round");
@@ -252,6 +282,7 @@ fn main() {
         "writers": writers, "readers": readers, "round": round, "seed": seed,
         "payload_len": PAYLOAD_LEN,
     });
+    identity(&mut row);
 
     match (map.as_str(), mode.as_str()) {
         ("plain", "overwrite") => {
