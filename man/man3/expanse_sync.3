@@ -15,7 +15,14 @@ expanse_sync_map_reader_get, expanse_sync_map_reader_first, \
 expanse_sync_map_reader_last, expanse_sync_map_reader_next_at_or_after, \
 expanse_sync_map_reader_next_after, \
 expanse_sync_map_reader_prev_at_or_before, \
-expanse_sync_map_reader_prev_before \
+expanse_sync_map_reader_prev_before, \
+expanse_sync_strmap_new, expanse_sync_strmap_free, \
+expanse_sync_strmap_insert, expanse_sync_strmap_get, \
+expanse_sync_strmap_contains, expanse_sync_strmap_remove, \
+expanse_sync_strmap_len, expanse_sync_strmap_mem_used, \
+expanse_sync_strmap_mem_held, expanse_sync_strmap_shrink_to_fit, \
+expanse_sync_strmap_reader_new, expanse_sync_strmap_reader_free, \
+expanse_sync_strmap_reader_get, expanse_sync_strmap_reader_contains \
 \- concurrent sets and maps with optimistic readers (OCC)
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -27,6 +34,11 @@ expanse_sync_map_reader_prev_before \
 .BI "typedef struct expanse_sync_map expanse_sync_map_t;"
 .br
 .BI "typedef struct expanse_sync_map_reader expanse_sync_map_reader_t;"
+.br
+.BI "typedef struct expanse_sync_strmap expanse_sync_strmap_t;"
+.br
+.BI "typedef struct expanse_sync_strmap_reader"
+.BI "    expanse_sync_strmap_reader_t;"
 .PP
 .BI "expanse_sync_set_t *expanse_sync_set_new(void);"
 .br
@@ -131,6 +143,47 @@ expanse_sync_map_reader_prev_before \
 .BI "bool expanse_sync_map_reader_prev_before("
 .BI "    const expanse_sync_map_reader_t *" reader ", uint64_t " key ","
 .BI "    uint64_t *" key_out ", uint64_t *" value_out ");"
+.PP
+.BI "expanse_sync_strmap_t *expanse_sync_strmap_new(void);"
+.br
+.BI "void expanse_sync_strmap_free(expanse_sync_strmap_t *" map ");"
+.br
+.BI "bool expanse_sync_strmap_insert(expanse_sync_strmap_t *" map ","
+.BI "    const char *" key ", uint64_t " value ", uint64_t *" old_out ");"
+.br
+.BI "bool expanse_sync_strmap_get(const expanse_sync_strmap_t *" map ","
+.BI "    const char *" key ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_strmap_contains("
+.BI "    const expanse_sync_strmap_t *" map ", const char *" key ");"
+.br
+.BI "bool expanse_sync_strmap_remove(expanse_sync_strmap_t *" map ","
+.BI "    const char *" key ", uint64_t *" old_out ");"
+.br
+.BI "uint64_t expanse_sync_strmap_len(const expanse_sync_strmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_strmap_mem_used("
+.BI "    const expanse_sync_strmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_strmap_mem_held("
+.BI "    const expanse_sync_strmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_strmap_shrink_to_fit("
+.BI "    const expanse_sync_strmap_t *" map ");"
+.PP
+.BI "expanse_sync_strmap_reader_t *expanse_sync_strmap_reader_new("
+.BI "    const expanse_sync_strmap_t *" map ");"
+.br
+.BI "void expanse_sync_strmap_reader_free("
+.BI "    expanse_sync_strmap_reader_t *" reader ");"
+.br
+.BI "bool expanse_sync_strmap_reader_get("
+.BI "    const expanse_sync_strmap_reader_t *" reader ","
+.BI "    const char *" key ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_strmap_reader_contains("
+.BI "    const expanse_sync_strmap_reader_t *" reader ","
+.BI "    const char *" key ");"
 .PP
 Link with \fI-lexpanse\fR.
 .SH DESCRIPTION
@@ -282,6 +335,49 @@ Blocks still in their grace period stay held until a later call, so
 may still exceed
 .B expanse_sync_map_mem_used
 afterwards.
+.SH STRING MAP
+.B expanse_sync_strmap_t
+is the concurrent form of
+.BR expanse_strmap (3):
+an ordered map from NUL-terminated C strings to
+.B uint64_t
+values.
+Its protocol, its container and reader thread rules, and its reader-handle
+ownership are those of
+.B expanse_sync_map_t
+above: free every
+.B expanse_sync_strmap_reader_t
+before
+.BR expanse_sync_strmap_free .
+.PP
+A key is read up to its terminating NUL, so a key cannot carry an embedded
+NUL byte; such keys belong in
+.BR expanse_ordered_bytesmap (3).
+A NULL
+.I key
+behaves like a NULL handle: the call returns false (or 0) and writes
+nothing.
+.PP
+The point calls follow the
+.B expanse_sync_map_*
+conventions.
+.B expanse_sync_strmap_insert
+returns true when the key is new, and otherwise writes the replaced value
+through
+.IR old_out .
+.BR expanse_sync_strmap_get ,
+.B expanse_sync_strmap_remove
+and
+.B expanse_sync_strmap_reader_get
+write through their out-pointer only when they return true.
+Every out-pointer may be NULL.
+.BR expanse_sync_strmap_mem_used ,
+.B expanse_sync_strmap_mem_held
+and
+.B expanse_sync_strmap_shrink_to_fit
+behave as the
+.B expanse_sync_map_*
+calls of the same name.
 .SH EXAMPLES
 .nf
 #include <stdio.h>
@@ -321,6 +417,20 @@ int main(void) {
     printf("After update: 42 -> %" PRIu64 "\\n", val);
 
     expanse_sync_map_free(sync_map);
+
+    /* The shared string map, read through a reader handle */
+    expanse_sync_strmap_t *names = expanse_sync_strmap_new();
+    expanse_sync_strmap_insert(names, "alpha", 1, NULL);
+    expanse_sync_strmap_insert(names, "beta", 2, NULL);
+
+    expanse_sync_strmap_reader_t *sr =
+        expanse_sync_strmap_reader_new(names);
+    if (expanse_sync_strmap_reader_get(sr, "beta", &val)) {
+        printf("String read: beta -> %" PRIu64 "\\n", val);
+    }
+    expanse_sync_strmap_reader_free(sr);
+
+    expanse_sync_strmap_free(names);
     return 0;
 }
 .fi
@@ -328,11 +438,13 @@ int main(void) {
 .nf
 Concurrent read: 42 -> 1000
 After update: 42 -> 1001
+String read: beta -> 2
 .fi
 .SH SEE ALSO
 .BR expanse (3),
 .BR expanse_set (3),
-.BR expanse_map (3)
+.BR expanse_map (3),
+.BR expanse_strmap (3)
 .SH AUTHORS
 Nicolas Brousse <nicolas@brousse.info>
 .PP

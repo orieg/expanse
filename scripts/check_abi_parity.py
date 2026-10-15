@@ -456,7 +456,32 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 #   - reason: A non-empty rationale explaining why the symbol is deferred.
 #   - ecosystems: Set of ecosystem identifiers where deferral applies
 #                 ('java', 'dotnet', 'python', 'node', 'go').
-STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {}
+STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
+    # The shared string map's C handle (#1538). No binding wraps it yet: Go,
+    # Java and .NET will wrap the C handle, Python and Node the Rust
+    # `SyncExpanseStrMap`; each is a later step of #1538.
+    sym: {
+        "issue": "#1538",
+        "reason": "shared string-map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Planned: shared-map C handles, section 6)",
+        "ecosystems": {"java", "dotnet", "python", "node", "go"},
+    }
+    for sym in (
+        "expanse_sync_strmap_new",
+        "expanse_sync_strmap_free",
+        "expanse_sync_strmap_insert",
+        "expanse_sync_strmap_get",
+        "expanse_sync_strmap_contains",
+        "expanse_sync_strmap_remove",
+        "expanse_sync_strmap_len",
+        "expanse_sync_strmap_mem_used",
+        "expanse_sync_strmap_mem_held",
+        "expanse_sync_strmap_shrink_to_fit",
+        "expanse_sync_strmap_reader_new",
+        "expanse_sync_strmap_reader_free",
+        "expanse_sync_strmap_reader_get",
+        "expanse_sync_strmap_reader_contains",
+    )
+}
 
 def validate_stated_deferrals(
     deferrals: Dict[str, Dict[str, Any]], wide_symbols: List[CSymbol]

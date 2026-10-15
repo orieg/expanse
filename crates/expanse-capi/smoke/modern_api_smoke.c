@@ -3,6 +3,118 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
+
+/* Shared string map under one writer and reader threads: stable keys are
+ * inserted before the threads start and never touched again, so every read of
+ * one must return its exact value; churned keys come and go, and a read of one
+ * must return either nothing or the value its writer stores for it. */
+#define STR_STABLE 512
+#define STR_CHURN 256
+#define STR_READERS 4
+
+static expanse_sync_strmap_t *str_shared;
+static atomic_bool str_stop;
+
+static void str_stable_key(char *buf, size_t len, int i) { snprintf(buf, len, "stable/%04d", i); }
+static void str_churn_key(char *buf, size_t len, int i) { snprintf(buf, len, "churn/%04d/tail", i); }
+
+static void *str_writer(void *arg) {
+    (void) arg;
+    char key[32];
+    for (int round = 0; round < 40; round++) {
+        for (int i = 0; i < STR_CHURN; i++) {
+            str_churn_key(key, sizeof key, i);
+            if (round % 2 == 0)
+                expanse_sync_strmap_insert(str_shared, key, 100000u + (uint64_t) i, NULL);
+            else
+                expanse_sync_strmap_remove(str_shared, key, NULL);
+        }
+    }
+    atomic_store(&str_stop, true);
+    return NULL;
+}
+
+static void *str_reader(void *arg) {
+    (void) arg;
+    char key[32];
+    uint64_t v;
+    unsigned long reads = 0;
+    expanse_sync_strmap_reader_t *r = expanse_sync_strmap_reader_new(str_shared);
+    assert(r != NULL);
+    do {
+        for (int i = 0; i < STR_STABLE; i++) {
+            str_stable_key(key, sizeof key, i);
+            v = 0;
+            assert(expanse_sync_strmap_reader_get(r, key, &v) && v == (uint64_t) i);
+            assert(expanse_sync_strmap_reader_contains(r, key));
+        }
+        for (int i = 0; i < STR_CHURN; i++) {
+            str_churn_key(key, sizeof key, i);
+            v = 0;
+            if (expanse_sync_strmap_reader_get(r, key, &v))
+                assert(v == 100000u + (uint64_t) i);
+        }
+        reads++;
+    } while (!atomic_load(&str_stop));
+    expanse_sync_strmap_reader_free(r);
+    return (void *) reads;
+}
+
+static void sync_strmap_smoke(void) {
+    uint64_t v = 0;
+    char key[32];
+
+    /* Every symbol once, single-threaded. */
+    expanse_sync_strmap_t *m = expanse_sync_strmap_new();
+    assert(m != NULL && expanse_sync_strmap_len(m) == 0);
+    assert(expanse_sync_strmap_insert(m, "apple", 1, NULL));
+    assert(!expanse_sync_strmap_insert(m, "apple", 2, &v) && v == 1);
+    assert(expanse_sync_strmap_insert(m, "", 3, NULL)); /* the empty key */
+    assert(expanse_sync_strmap_get(m, "apple", &v) && v == 2);
+    assert(expanse_sync_strmap_get(m, "", &v) && v == 3);
+    assert(!expanse_sync_strmap_get(m, "app", &v));
+    assert(expanse_sync_strmap_contains(m, "apple"));
+    assert(!expanse_sync_strmap_contains(m, "apples"));
+    assert(!expanse_sync_strmap_insert(m, NULL, 9, NULL)); /* NULL key: false */
+    assert(!expanse_sync_strmap_get(m, NULL, &v));
+    assert(expanse_sync_strmap_len(m) == 2);
+    assert(expanse_sync_strmap_mem_used(m) > 0);
+    assert(expanse_sync_strmap_mem_held(m) >= expanse_sync_strmap_mem_used(m));
+    expanse_sync_strmap_reader_t *r = expanse_sync_strmap_reader_new(m);
+    assert(expanse_sync_strmap_reader_get(r, "apple", &v) && v == 2);
+    assert(expanse_sync_strmap_reader_contains(r, ""));
+    assert(!expanse_sync_strmap_reader_contains(r, "banana"));
+    expanse_sync_strmap_reader_free(r);
+    assert(expanse_sync_strmap_remove(m, "apple", &v) && v == 2);
+    assert(!expanse_sync_strmap_remove(m, "apple", &v));
+    (void) expanse_sync_strmap_shrink_to_fit(m);
+    assert(expanse_sync_strmap_len(m) == 1);
+    expanse_sync_strmap_free(m);
+    assert(expanse_sync_strmap_len(NULL) == 0 && expanse_sync_strmap_reader_new(NULL) == NULL);
+
+    /* One writer, STR_READERS reader threads. */
+    str_shared = expanse_sync_strmap_new();
+    for (int i = 0; i < STR_STABLE; i++) {
+        str_stable_key(key, sizeof key, i);
+        assert(expanse_sync_strmap_insert(str_shared, key, (uint64_t) i, NULL));
+    }
+    atomic_store(&str_stop, false);
+    pthread_t w, rd[STR_READERS];
+    for (int t = 0; t < STR_READERS; t++)
+        assert(pthread_create(&rd[t], NULL, str_reader, NULL) == 0);
+    assert(pthread_create(&w, NULL, str_writer, NULL) == 0);
+    assert(pthread_join(w, NULL) == 0);
+    for (int t = 0; t < STR_READERS; t++) {
+        void *reads = NULL;
+        assert(pthread_join(rd[t], &reads) == 0);
+        assert((unsigned long) reads > 0);
+    }
+    assert(expanse_sync_strmap_len(str_shared) == STR_STABLE); /* 40 rounds end on a remove */
+    expanse_sync_strmap_free(str_shared);
+    printf("sync_strmap: point ops, reader, %d threaded readers ok\n", STR_READERS);
+}
 
 int main(void) {
     printf("libexpanse %s\n", expanse_version());
@@ -56,6 +168,8 @@ int main(void) {
 
     expanse_sync_map_free(s);
     printf("sync: concurrent reader, compare_exchange, get_or_insert ok\n");
+
+    sync_strmap_smoke();
 
     expanse_bytesmap_t *b = expanse_bytesmap_new();
     expanse_bytesmap_insert(b, "a\0b", 3, 5, NULL);
