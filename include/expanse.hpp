@@ -1681,6 +1681,37 @@ public:
         return std::nullopt;
     }
 
+    /// Result of compare_exchange: whether the store happened, and the word
+    /// the compare saw (nullopt = the key was absent).
+    struct exchange_result {
+        bool                    exchanged;
+        std::optional<uint64_t> observed;
+    };
+
+    /// Stores `desired` under `key` only if the key's current word is
+    /// `expected`, as one linearizable step. nullopt is "absent" on both
+    /// sides: (nullopt, v) inserts if absent, (e, nullopt) removes if equal.
+    /// On failure `observed` is the word to retry against.
+    exchange_result compare_exchange(uint64_t key, std::optional<uint64_t> expected,
+                                     std::optional<uint64_t> desired) noexcept {
+        bool     seen_present = false;
+        uint64_t seen         = 0;
+        const bool ok = expanse_sync_map_compare_exchange(
+            ptr_, key, expected.has_value(), expected.value_or(0), desired.has_value(),
+            desired.value_or(0), &seen_present, &seen);
+        return {ok, seen_present ? std::optional<uint64_t>(seen) : std::nullopt};
+    }
+
+    /// Stores `value` under `key` only if the key is absent. Returns the
+    /// value already present (left untouched), or nullopt when stored.
+    std::optional<uint64_t> get_or_insert(uint64_t key, uint64_t value) noexcept {
+        uint64_t existing = 0;
+        if (expanse_sync_map_get_or_insert(ptr_, key, value, &existing)) {
+            return std::nullopt;
+        }
+        return existing;
+    }
+
     [[nodiscard]] bool contains(uint64_t key) const noexcept {
         return get(key).has_value();
     }

@@ -804,6 +804,47 @@ bool                expanse_sync_map_remove(expanse_sync_map_t *map, uint64_t ke
                                             uint64_t *old_out);
 uint64_t            expanse_sync_map_len(const expanse_sync_map_t *map);
 /*
+ * Atomic read-modify-write on one key, callable from any thread on the
+ * shared handle like the calls above; each is one linearizable step.
+ *
+ * compare_exchange stores new_value under key only if the key's current word
+ * is expected_value. "Absent" is a flag, never a value, so every uint64_t is
+ * a legal value: expected_present == false means "only if the key is
+ * absent"; new_present == false means "remove the key". Returns true when
+ * the store happened. On both outcomes *observed_present_out and
+ * *observed_out report the word the compare saw (observed_out is written
+ * only when that word was present; either output may be NULL), so a failed
+ * call hands the caller the word to retry against. A NULL map returns
+ * false and writes nothing.
+ *
+ * get_or_insert stores value under key only if key is absent and returns
+ * true. If the key was present it returns false, leaves it untouched and
+ * writes its value to *existing_out (may be NULL), as expanse_sync_map_insert
+ * reports an old value. Of any number of callers racing on one absent key,
+ * exactly one gets true.
+ *
+ * There is no callback form: an upcall per retry, and an exception unwinding
+ * through C, are what the C boundary rules out. The read-modify-write "update"
+ * is a loop over compare_exchange, which may run the computation several
+ * times, so it must be free of side effects:
+ *
+ *     uint64_t v = 0; bool present = expanse_sync_map_get(m, k, &v);
+ *     for (;;) {
+ *         uint64_t nv = v + 1;                  // f(current)
+ *         bool seen_present; uint64_t seen;
+ *         if (expanse_sync_map_compare_exchange(m, k, present, v, true, nv,
+ *                                               &seen_present, &seen)) break;
+ *         present = seen_present; v = seen;     // retry on the observed word
+ *     }
+ */
+bool                expanse_sync_map_compare_exchange(expanse_sync_map_t *map, uint64_t key,
+                                                      bool expected_present, uint64_t expected_value,
+                                                      bool new_present, uint64_t new_value,
+                                                      bool *observed_present_out,
+                                                      uint64_t *observed_out);
+bool                expanse_sync_map_get_or_insert(expanse_sync_map_t *map, uint64_t key,
+                                                   uint64_t value, uint64_t *existing_out);
+/*
  * Heap bytes used by the map's nodes and leaves, as expanse_map_mem_used
  * counts them; 0 for a NULL map. Read with writers excluded (it quiesces
  * writers and takes the writer mutex), so writers wait for it: not a call for
