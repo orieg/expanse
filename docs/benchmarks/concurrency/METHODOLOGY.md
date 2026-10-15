@@ -6057,6 +6057,10 @@ It is decided on #1479 as its own item, by review, on three points this section 
 
 None. The section number, 37, is the next free one at lock time and may move at merge.
 
+### 37.10 Outcome (appended 2026-10-15; §37.1 to §37.9 are not rewritten)
+
+The variant build of §37.3 was implemented in #1540 and failed P37.2: across the 37 `sync_*` Callgrind arms the largest change was +1.84%, against the 0.1% bound ([CI run](https://github.com/orieg/expanse/actions/runs/38724709931)). Per §37.3 the experiment does not run on a build that fails its cost check, so no §37 cell ran and no verdict was evaluated: the registered question is neither PASS nor REJECTED. #1540 was closed unmerged, and the writer-side waits stay as on `main`. The question remains with #1479.
+
 ---
 
 ## 38. Pre-registration for 32-bit set ordered reads on `SyncExpanseSet32` (#1194)

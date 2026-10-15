@@ -39,7 +39,7 @@ import os
 import sys
 from pathlib import Path
 
-__all__ = ["apply", "expand", "read_pmu_cpus", "PinRefused"]
+__all__ = ["apply", "child_affinity", "expand", "read_pmu_cpus", "PinRefused"]
 
 
 class PinRefused(SystemExit):
@@ -170,3 +170,27 @@ def apply(who: str = "benchmark") -> str:
     _verify(cpus, e_cpus, who)
     print(f"core pin: {who} confined to CPUs {mask} (AGENTS.md section 8.4, #639)", file=sys.stderr)
     return _publish(mask)
+
+
+def child_affinity(cpu_list: str):
+    """A `subprocess` `preexec_fn` that confines one child to `cpu_list`.
+
+    For a driver that runs each cell in its own process and must know which
+    CPUs that process had: `apply()` pins the driver, and this pins the child
+    explicitly. The child reads its mask back before it runs, and a mask the
+    kernel narrowed or widened fails the spawn (`subprocess.SubprocessError`
+    in the parent), so no cell runs under a pin other than the one asked for
+    (§8.1). POSIX with `sched_setaffinity` only; callers gate on
+    `hasattr(os, "sched_setaffinity")`.
+    """
+    cpus = set(expand(cpu_list))
+    if not cpus:
+        raise ValueError(f"cpu list {cpu_list!r} names no CPUs")
+
+    def _pin() -> None:
+        os.sched_setaffinity(0, cpus)
+        got = os.sched_getaffinity(0)
+        if got != cpus:
+            raise OSError(f"asked for CPUs {sorted(cpus)}, the kernel reports {sorted(got)}")
+
+    return _pin
