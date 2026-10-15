@@ -149,6 +149,8 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_sync_map_insert;
     public static final MethodHandle MH_expanse_sync_map_get;
     public static final MethodHandle MH_expanse_sync_map_remove;
+    public static final MethodHandle MH_expanse_sync_map_compare_exchange;
+    public static final MethodHandle MH_expanse_sync_map_get_or_insert;
     public static final MethodHandle MH_expanse_sync_map_len;
     public static final MethodHandle MH_expanse_sync_map_mem_used;
     public static final MethodHandle MH_expanse_sync_map_mem_held;
@@ -316,6 +318,8 @@ public final class ExpanseNative {
         MH_expanse_sync_map_insert = downcall("expanse_sync_map_insert", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_get = downcall("expanse_sync_map_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_remove = downcall("expanse_sync_map_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_compare_exchange = downcall("expanse_sync_map_compare_exchange", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BOOLEAN, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BOOLEAN, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_sync_map_get_or_insert = downcall("expanse_sync_map_get_or_insert", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_len = downcall("expanse_sync_map_len", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_mem_used = downcall("expanse_sync_map_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_sync_map_mem_held = downcall("expanse_sync_map_mem_held", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));

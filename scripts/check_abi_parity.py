@@ -460,12 +460,12 @@ STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
     "expanse_sync_map_compare_exchange": {
         "issue": "#1194",
         "reason": "binding parity follows, #1194",
-        "ecosystems": {"java", "dotnet"},
+        "ecosystems": {"dotnet"},
     },
     "expanse_sync_map_get_or_insert": {
         "issue": "#1194",
         "reason": "binding parity follows, #1194",
-        "ecosystems": {"java", "dotnet"},
+        "ecosystems": {"dotnet"},
     },
 }
 
