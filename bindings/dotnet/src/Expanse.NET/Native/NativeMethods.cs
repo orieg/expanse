@@ -587,6 +587,22 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern bool expanse_sync_map_remove(SafeExpanseSyncMapHandle map, ulong key, IntPtr old_out);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_compare_exchange")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_compare_exchange(
+        SafeExpanseSyncMapHandle map,
+        ulong key,
+        [MarshalAs(UnmanagedType.I1)] bool expected_present,
+        ulong expected_value,
+        [MarshalAs(UnmanagedType.I1)] bool new_present,
+        ulong new_value,
+        out byte observed_present_out,
+        out ulong observed_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_get_or_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_map_get_or_insert(SafeExpanseSyncMapHandle map, ulong key, ulong value, out ulong existing_out);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_map_len")]
     public static extern ulong expanse_sync_map_len(SafeExpanseSyncMapHandle map);
 

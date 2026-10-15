@@ -456,18 +456,7 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 #   - reason: A non-empty rationale explaining why the symbol is deferred.
 #   - ecosystems: Set of ecosystem identifiers where deferral applies
 #                 ('java', 'dotnet', 'python', 'node', 'go').
-STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
-    "expanse_sync_map_compare_exchange": {
-        "issue": "#1194",
-        "reason": "binding parity follows, #1194",
-        "ecosystems": {"dotnet"},
-    },
-    "expanse_sync_map_get_or_insert": {
-        "issue": "#1194",
-        "reason": "binding parity follows, #1194",
-        "ecosystems": {"dotnet"},
-    },
-}
+STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {}
 
 def validate_stated_deferrals(
     deferrals: Dict[str, Dict[str, Any]], wide_symbols: List[CSymbol]

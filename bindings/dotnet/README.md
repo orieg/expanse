@@ -164,6 +164,16 @@ Task.Run(() =>
 });
 ```
 
+`ExpanseSyncMap` also has atomic read-modify-write (#1194), each call one linearizable step. `null` (a `ulong?` without a value) is "absent" on both sides, so every `ulong` stays a legal value:
+
+- `CompareExchange(key, expected, newValue, out observed)` stores `newValue` only if the key's current word is `expected` (`(null, v)` inserts if absent, `(e, null)` removes if equal) and returns `true` when it stored. `observed` is the word the compare saw on both outcomes, so a failed call hands back the word to retry against.
+- `GetOrInsert(key, value)` stores `value` only if the key is absent and returns the existing value, or `null` when it stored.
+- `Update(key, fn)` stores `fn(current)` (a `null` result removes the key) and returns the replaced value. It is a loop over `CompareExchange` written in C#, because the C ABI exports no callback form (`docs/COMPAT.md`, Atomic RMW row): `fn` runs again with the observed word whenever a concurrent writer wins, so it may run several times per call and must be free of side effects, and an exception thrown by `fn` propagates with the key unchanged.
+
+```csharp
+syncMap.Update(7, cur => (cur ?? 0) + 1); // atomic increment
+```
+
 ---
 
 ## Native Library Resolution
