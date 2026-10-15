@@ -886,6 +886,50 @@ bool expanse_sync_map_reader_prev_at_or_before(const expanse_sync_map_reader_t *
 bool expanse_sync_map_reader_prev_before(const expanse_sync_map_reader_t *reader, uint64_t key,
                                          uint64_t *key_out, uint64_t *value_out);
 
+/*
+ * expanse_sync_strmap_t: the concurrent ordered C-string -> uint64_t map
+ * (the shared form of expanse_strmap_t). Same protocol, thread rules and
+ * reader-handle ownership as expanse_sync_map_t above: the container handle
+ * is safe from any number of threads at once except _free, which needs no
+ * call in progress and every reader freed first; a reader handle is used by
+ * one thread at a time, may be freed from another thread once no call on it
+ * is in progress, and is freed before its map.
+ *
+ * Keys are NUL-terminated C strings, as expanse_strmap_* takes them; a key
+ * with an embedded NUL byte goes to the bytes or ordered-bytes maps. A NULL
+ * key behaves like a NULL handle: false (or 0), nothing written. Values,
+ * out-pointers and return conventions are those of expanse_sync_map_*: insert
+ * returns true when the key is new and otherwise writes the replaced value
+ * through old_out; get, remove and the reader's get write through their
+ * out-pointer only on true; every out-pointer may be NULL. mem_used,
+ * mem_held and shrink_to_fit behave as the expanse_sync_map_* calls of the
+ * same name: the first two read with writers excluded.
+ */
+typedef struct expanse_sync_strmap expanse_sync_strmap_t;
+typedef struct expanse_sync_strmap_reader expanse_sync_strmap_reader_t;
+
+expanse_sync_strmap_t *expanse_sync_strmap_new(void);
+void                   expanse_sync_strmap_free(expanse_sync_strmap_t *map);
+bool                   expanse_sync_strmap_insert(expanse_sync_strmap_t *map, const char *key,
+                                                  uint64_t value, uint64_t *old_out);
+bool                   expanse_sync_strmap_get(const expanse_sync_strmap_t *map, const char *key,
+                                               uint64_t *value_out);
+bool                   expanse_sync_strmap_contains(const expanse_sync_strmap_t *map,
+                                                    const char *key);
+bool                   expanse_sync_strmap_remove(expanse_sync_strmap_t *map, const char *key,
+                                                  uint64_t *old_out);
+uint64_t               expanse_sync_strmap_len(const expanse_sync_strmap_t *map);
+size_t                 expanse_sync_strmap_mem_used(const expanse_sync_strmap_t *map);
+size_t                 expanse_sync_strmap_mem_held(const expanse_sync_strmap_t *map);
+size_t                 expanse_sync_strmap_shrink_to_fit(const expanse_sync_strmap_t *map);
+
+expanse_sync_strmap_reader_t *expanse_sync_strmap_reader_new(const expanse_sync_strmap_t *map);
+void                          expanse_sync_strmap_reader_free(expanse_sync_strmap_reader_t *reader);
+bool expanse_sync_strmap_reader_get(const expanse_sync_strmap_reader_t *reader, const char *key,
+                                    uint64_t *value_out);
+bool expanse_sync_strmap_reader_contains(const expanse_sync_strmap_reader_t *reader,
+                                         const char *key);
+
 /* ---- ExpanseBlobMap: polymorphic large-value map with inline/arena backing ---- */
 
 typedef struct ExpanseBlobMap ExpanseBlobMap;

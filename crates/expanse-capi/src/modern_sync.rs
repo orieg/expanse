@@ -6,8 +6,11 @@
 //! build, 64-bit ones included. See the surface matrix in
 //! `docs/COMPAT.md`.
 
-use super::super::put;
-use expanse_trie::sync::{MapReader, SetReader, SyncExpanseMap, SyncExpanseSet};
+use super::super::{cstr, put};
+use core::ffi::c_char;
+use expanse_trie::sync::{
+    MapReader, SetReader, StrReader, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
+};
 
 // ---------------------------------------------------------------------
 
@@ -21,6 +24,9 @@ pub struct SyncSetReader(SetReader<'static>);
 /// A registered reader of a [`SyncExpanseMap`]. See [`SyncSetReader`].
 pub struct SyncMapReader(MapReader<'static>);
 
+/// A registered reader of a [`SyncExpanseStrMap`]. See [`SyncSetReader`].
+pub struct SyncStrMapReader(StrReader<'static>);
+
 // `include/expanse.h` documents that a reader handle may be freed from a thread
 // other than the one that created it. That holds because both handle types are
 // `Send`, which is auto-derived from their fields; assert it, so a future
@@ -33,6 +39,7 @@ const _: fn() = || {
     fn assert_send<T: Send>() {}
     assert_send::<SyncSetReader>();
     assert_send::<SyncMapReader>();
+    assert_send::<SyncStrMapReader>();
 };
 
 /// Creates an empty concurrent set.
@@ -583,4 +590,256 @@ pub unsafe extern "C" fn expanse_sync_map_reader_prev_before(
     let found = unsafe { reader.as_ref() }.and_then(|r| r.0.prev_before(key));
     // SAFETY: out-pointers null or writable per contract.
     unsafe { put_entry(found, key_out, value_out) }
+}
+
+// ---- The shared string map (#1538) ----
+//
+// The `u64` map's conventions, with the key as a NUL-terminated C string read
+// as `expanse_strmap_*` reads it (`cstr`): a NULL key is treated like a NULL
+// handle, returning false or 0 and writing nothing. A C string cannot carry an
+// interior NUL, so no key is refused for its content.
+
+/// Creates an empty concurrent string map.
+#[unsafe(no_mangle)]
+pub extern "C" fn expanse_sync_strmap_new() -> *mut SyncExpanseStrMap {
+    Box::into_raw(Box::new(SyncExpanseStrMap::new()))
+}
+
+/// Frees a concurrent string map. All readers must be freed first.
+///
+/// # Safety
+///
+/// `map` must come from `expanse_sync_strmap_new`, with no live readers and
+/// no call on it in progress.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_free(map: *mut SyncExpanseStrMap) {
+    if !map.is_null() {
+        // SAFETY: handle per contract.
+        drop(unsafe { Box::from_raw(map) });
+    }
+}
+
+/// Stores `key -> value` (return convention as [`expanse_sync_map_insert`]).
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `key` null or a valid NUL-terminated
+/// C string; `old_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_insert(
+    map: *const SyncExpanseStrMap,
+    key: *const c_char,
+    value: u64,
+    old_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live handle and null or valid C string per contract.
+    let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    match m.insert(k, value) {
+        // SAFETY: `old_out` null or writable per contract.
+        Some(old) => unsafe {
+            put(old_out, old);
+            false
+        },
+        None => true,
+    }
+}
+
+/// One-shot lookup (registers a throwaway reader; prefer a reader handle in
+/// hot loops).
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `key` null or a valid NUL-terminated
+/// C string; `value_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_get(
+    map: *const SyncExpanseStrMap,
+    key: *const c_char,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live handle and null or valid C string per contract.
+    let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    let Some(v) = m.get(k) else {
+        return false;
+    };
+    // SAFETY: `value_out` null or writable per contract.
+    unsafe { put(value_out, v) };
+    true
+}
+
+/// One-shot membership test (registers a throwaway reader; prefer a reader
+/// handle in hot loops).
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `key` null or a valid NUL-terminated
+/// C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_contains(
+    map: *const SyncExpanseStrMap,
+    key: *const c_char,
+) -> bool {
+    // SAFETY: null or live handle and null or valid C string per contract.
+    let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    m.contains_key(k)
+}
+
+/// Removes `key`, reporting its value; false if absent.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `key` null or a valid NUL-terminated
+/// C string; `old_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_remove(
+    map: *const SyncExpanseStrMap,
+    key: *const c_char,
+    old_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live handle and null or valid C string per contract.
+    let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    let Some(v) = m.remove(k) else {
+        return false;
+    };
+    // SAFETY: `old_out` null or writable per contract.
+    unsafe { put(old_out, v) };
+    true
+}
+
+/// Number of keys.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_len(map: *const SyncExpanseStrMap) -> u64 {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::len)
+}
+
+/// Heap bytes used by the map, read with writers excluded
+/// ([`SyncExpanseStrMap::mem_used`]); 0 for a null handle.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_mem_used(map: *const SyncExpanseStrMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::mem_used)
+}
+
+/// Heap bytes the map holds from the global allocator: its tree's own share
+/// plus the blocks its epoch collector holds for reuse or is waiting to
+/// reclaim ([`SyncExpanseStrMap::mem_held`]); 0 for a null handle. Writers
+/// wait for it.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_mem_held(map: *const SyncExpanseStrMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::mem_held)
+}
+
+/// Returns the freed blocks the map's epoch collector keeps for reuse to the
+/// global allocator and returns the bytes released
+/// ([`SyncExpanseStrMap::shrink_to_fit`]); 0 for a null handle. Runs beside
+/// readers and writers without excluding either.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_shrink_to_fit(map: *const SyncExpanseStrMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseStrMap::shrink_to_fit)
+}
+
+/// Registers a reader handle for this thread. Free it before the map.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle that outlives the reader.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_reader_new(
+    map: *const SyncExpanseStrMap,
+) -> *mut SyncStrMapReader {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return core::ptr::null_mut();
+    };
+    // SAFETY: lifetime extension only (see expanse_sync_set_reader_new): the
+    // reader borrows `map`, and the header's contract requires freeing the
+    // reader before its map.
+    let reader: StrReader<'static> = unsafe { core::mem::transmute(m.reader()) };
+    Box::into_raw(Box::new(SyncStrMapReader(reader)))
+}
+
+/// Frees a reader handle.
+///
+/// May be called from a thread other than the one that created the reader,
+/// once no call on it is in progress (`include/expanse.h`).
+///
+/// # Safety
+///
+/// `reader` must come from `expanse_sync_strmap_reader_new`, unused after,
+/// with no call on it in progress on any thread, and its map still alive.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_reader_free(reader: *mut SyncStrMapReader) {
+    if !reader.is_null() {
+        // SAFETY: handle per contract.
+        drop(unsafe { Box::from_raw(reader) });
+    }
+}
+
+/// Optimistic lookup through a registered reader.
+///
+/// # Safety
+///
+/// `reader` must be null or live (its map still alive); `key` null or a
+/// valid NUL-terminated C string; `value_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_reader_get(
+    reader: *const SyncStrMapReader,
+    key: *const c_char,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live reader and null or valid C string per contract.
+    let (Some(r), Some(k)) = (unsafe { reader.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    let Some(v) = r.0.get(k) else {
+        return false;
+    };
+    // SAFETY: `value_out` null or writable per contract.
+    unsafe { put(value_out, v) };
+    true
+}
+
+/// Optimistic membership test through a registered reader.
+///
+/// # Safety
+///
+/// `reader` must be null or live (its map still alive); `key` null or a
+/// valid NUL-terminated C string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_reader_contains(
+    reader: *const SyncStrMapReader,
+    key: *const c_char,
+) -> bool {
+    // SAFETY: null or live reader and null or valid C string per contract.
+    let (Some(r), Some(k)) = (unsafe { reader.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    r.0.contains(k)
 }
