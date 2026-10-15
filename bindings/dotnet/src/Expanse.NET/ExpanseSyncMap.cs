@@ -139,7 +139,7 @@ public sealed class ExpanseSyncMap : IDisposable
             {
                 return observed;
             }
-            return observed;
+            expected = observed;
         }
     }
 
