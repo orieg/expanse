@@ -80,6 +80,70 @@ public sealed class ExpanseSyncMap : IDisposable
     public bool ContainsKey(ulong key) => TryGet(key, out _);
 
     /// <summary>
+    /// Atomic compare-and-swap on one key, as one linearizable step: stores <paramref name="newValue"/>
+    /// only if the key's current word is <paramref name="expected"/>. <c>null</c> is "absent" on both
+    /// sides, so every <c>ulong</c> stays a legal value: <c>(null, v)</c> inserts if absent and
+    /// <c>(e, null)</c> removes if equal.
+    /// </summary>
+    /// <param name="key">The key.</param>
+    /// <param name="expected">The word the key must currently hold, or <c>null</c> for "only if absent".</param>
+    /// <param name="newValue">The word to store, or <c>null</c> to remove the key.</param>
+    /// <param name="observed">The word the compare saw on both outcomes (equal to <paramref name="expected"/>
+    /// when the store happened); <c>null</c> if the key was absent. A failed call hands back the word to retry against.</param>
+    /// <returns><c>true</c> when the store happened.</returns>
+    public bool CompareExchange(ulong key, ulong? expected, ulong? newValue, out ulong? observed)
+    {
+        ThrowIfDisposed();
+        bool stored = NativeMethods.expanse_sync_map_compare_exchange(
+            _handle, key,
+            expected.HasValue, expected.GetValueOrDefault(),
+            newValue.HasValue, newValue.GetValueOrDefault(),
+            out byte seenPresent, out ulong seen);
+        observed = seenPresent != 0 ? (ulong?)seen : null;
+        return stored;
+    }
+
+    /// <summary>
+    /// Stores <paramref name="value"/> under <paramref name="key"/> only if the key is absent, as one
+    /// linearizable step. Of any number of callers racing on one absent key, exactly one stores.
+    /// </summary>
+    /// <returns>The value already present (left untouched), or <c>null</c> when <paramref name="value"/> was stored.</returns>
+    public ulong? GetOrInsert(ulong key, ulong value)
+    {
+        ThrowIfDisposed();
+        return NativeMethods.expanse_sync_map_get_or_insert(_handle, key, value, out ulong existing)
+            ? null
+            : (ulong?)existing;
+    }
+
+    /// <summary>
+    /// Replaces the value for <paramref name="key"/> with <c>fn(current)</c>: a non-null result stores that
+    /// value and <c>null</c> removes the key. <c>current</c> is <c>null</c> if the key is absent.
+    /// </summary>
+    /// <remarks>
+    /// This is a loop over <see cref="CompareExchange"/> written in C#, as <c>SyncExpanseMap::update</c> is in
+    /// Rust (the C ABI exports no callback form): <paramref name="fn"/> runs again with the observed word
+    /// whenever a concurrent writer wins, so it may run several times for one call and must be free of side
+    /// effects. An exception thrown by <paramref name="fn"/> propagates and leaves the key unchanged.
+    /// </remarks>
+    /// <returns>The value that was replaced, or <c>null</c> if the key was absent.</returns>
+    public ulong? Update(ulong key, Func<ulong?, ulong?> fn)
+    {
+        ArgumentNullException.ThrowIfNull(fn);
+        ThrowIfDisposed();
+        ulong? expected = TryGet(key, out ulong current) ? (ulong?)current : null;
+        while (true)
+        {
+            ulong? next = fn(expected);
+            if (CompareExchange(key, expected, next, out ulong? observed))
+            {
+                return observed;
+            }
+            expected = observed;
+        }
+    }
+
+    /// <summary>
     /// Gets the number of entries stored in the map.
     /// </summary>
     public ulong Count
