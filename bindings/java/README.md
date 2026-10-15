@@ -33,18 +33,18 @@ High-performance, **zero-GC**, off-heap associative trie collections for Java an
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.12.0</version>
+    <version>0.13.0</version>
 </dependency>
 ```
 
 ### Gradle (Kotlin / Groovy)
 ```groovy
-implementation 'io.github.orieg:expanse-java:0.12.0'
+implementation 'io.github.orieg:expanse-java:0.13.0'
 ```
 
 ### sbt (Scala)
 ```scala
-libraryDependencies += "io.github.orieg" % "expanse-java" % "0.12.0"
+libraryDependencies += "io.github.orieg" % "expanse-java" % "0.13.0"
 ```
 
 ---
