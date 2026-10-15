@@ -24,6 +24,11 @@ updates:
   # the pin against that floor).
   - package-ecosystem: "pip"
     directory: "/.github/requirements"
+    # The py38/ subdirectory belongs to the entry below. Without this, the
+    # directory is scanned together with its subdirectories and this entry
+    # (which has no pytest or typing-extensions ceiling) edits the 3.8 set.
+    exclude-paths:
+      - "py38/**"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 2
