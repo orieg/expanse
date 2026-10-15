@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -601,6 +602,194 @@ func TestStrMapEmbeddedNulDoesNotAlias(t *testing.T) {
 		if k, _, ok := c.fn("a\x00b"); !ok || k != c.want {
 			t.Fatalf("%s(\"a\\x00b\"): want %q, got %q (ok=%v)", c.name, c.want, k, ok)
 		}
+	}
+}
+
+func TestSyncMapCompareExchange(t *testing.T) {
+	m := NewSyncMap()
+	defer m.Free()
+	absent := Word{}
+	check := func(label string, gotSeen Word, gotStored bool, wantSeen Word, wantStored bool) {
+		t.Helper()
+		if gotSeen != wantSeen || gotStored != wantStored {
+			t.Fatalf("%s: got (%+v, %v), want (%+v, %v)", label, gotSeen, gotStored, wantSeen, wantStored)
+		}
+	}
+	// absent == absent with nothing to store: succeeds, observes absent.
+	seen, ok := m.CompareExchange(1, absent, absent)
+	check("absent/absent", seen, ok, absent, true)
+	if _, present := m.Get(1); present {
+		t.Fatal("a no-op exchange created the key")
+	}
+	// insert-if-absent on an absent key.
+	seen, ok = m.CompareExchange(1, absent, Some(10))
+	check("insert", seen, ok, absent, true)
+	if v, _ := m.Get(1); v != 10 {
+		t.Fatalf("insert stored %d", v)
+	}
+	// insert-if-absent against a present key fails and reports the word seen.
+	seen, ok = m.CompareExchange(1, absent, Some(99))
+	check("insert over present", seen, ok, Some(10), false)
+	// absent == absent against a present key fails.
+	seen, ok = m.CompareExchange(1, absent, absent)
+	check("absent/absent over present", seen, ok, Some(10), false)
+	// expected present, wrong value: fails, value unchanged.
+	seen, ok = m.CompareExchange(1, Some(11), Some(12))
+	check("mismatch", seen, ok, Some(10), false)
+	if v, _ := m.Get(1); v != 10 {
+		t.Fatalf("mismatch changed the value to %d", v)
+	}
+	// expected present against an absent key: fails, observes absent.
+	seen, ok = m.CompareExchange(2, Some(5), Some(6))
+	check("expected over absent", seen, ok, absent, false)
+	if _, present := m.Get(2); present {
+		t.Fatal("a failed exchange created the key")
+	}
+	// replace on match.
+	seen, ok = m.CompareExchange(1, Some(10), Some(20))
+	check("replace", seen, ok, Some(10), true)
+	// remove-if-equals: mismatch leaves it, match removes it.
+	seen, ok = m.CompareExchange(1, Some(21), absent)
+	check("remove mismatch", seen, ok, Some(20), false)
+	if v, _ := m.Get(1); v != 20 {
+		t.Fatalf("remove mismatch changed the value to %d", v)
+	}
+	seen, ok = m.CompareExchange(1, Some(20), absent)
+	check("remove match", seen, ok, Some(20), true)
+	if _, present := m.Get(1); present {
+		t.Fatal("remove-if-equals left the key")
+	}
+	// Every uint64 is a legal value, 0 and the maximum included.
+	top := ^uint64(0)
+	seen, ok = m.CompareExchange(3, absent, Some(0))
+	check("store zero", seen, ok, absent, true)
+	seen, ok = m.CompareExchange(3, Some(0), Some(top))
+	check("zero to max", seen, ok, Some(0), true)
+	if v, _ := m.Get(3); v != top {
+		t.Fatalf("max stored as %d", v)
+	}
+}
+
+func TestSyncMapGetOrInsert(t *testing.T) {
+	m := NewSyncMap()
+	defer m.Free()
+	if v, ok := m.GetOrInsert(7, 70); ok || v != 0 {
+		t.Fatalf("first GetOrInsert = (%d, %v), want stored", v, ok)
+	}
+	if v, ok := m.GetOrInsert(7, 71); !ok || v != 70 {
+		t.Fatalf("second GetOrInsert = (%d, %v), want (70, true)", v, ok)
+	}
+	if v, _ := m.Get(7); v != 70 {
+		t.Fatalf("GetOrInsert overwrote the value: %d", v)
+	}
+	// Zero is a value, not absence.
+	if _, ok := m.GetOrInsert(8, 0); ok {
+		t.Fatal("zero was not stored")
+	}
+	if v, ok := m.GetOrInsert(8, 5); !ok || v != 0 {
+		t.Fatalf("GetOrInsert over zero = (%d, %v), want (0, true)", v, ok)
+	}
+}
+
+func TestSyncMapUpdate(t *testing.T) {
+	m := NewSyncMap()
+	defer m.Free()
+	var seenCurrent []Word
+	inc := func(cur uint64, ok bool) (uint64, bool) {
+		seenCurrent = append(seenCurrent, Word{Value: cur, Present: ok})
+		return cur + 1, true
+	}
+	if prev, ok := m.Update(5, inc); ok || prev != 0 {
+		t.Fatalf("Update on absent = (%d, %v), want (0, false)", prev, ok)
+	}
+	if prev, ok := m.Update(5, inc); !ok || prev != 1 {
+		t.Fatalf("Update on present = (%d, %v), want (1, true)", prev, ok)
+	}
+	if v, _ := m.Get(5); v != 2 {
+		t.Fatalf("value = %d, want 2", v)
+	}
+	if len(seenCurrent) != 2 || seenCurrent[0] != (Word{}) || seenCurrent[1] != Some(1) {
+		t.Fatalf("fn saw %+v", seenCurrent)
+	}
+	// Removal: fn returns store=false.
+	if prev, ok := m.Update(5, func(uint64, bool) (uint64, bool) { return 0, false }); !ok || prev != 2 {
+		t.Fatalf("remove = (%d, %v), want (2, true)", prev, ok)
+	}
+	if _, present := m.Get(5); present {
+		t.Fatal("Update with store=false left the key")
+	}
+	if prev, ok := m.Update(5, func(uint64, bool) (uint64, bool) { return 0, false }); ok || prev != 0 {
+		t.Fatalf("remove of absent = (%d, %v), want (0, false)", prev, ok)
+	}
+	// A panic in fn propagates and leaves the key unchanged.
+	m.Set(6, 60)
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("panic in fn did not propagate")
+			}
+		}()
+		m.Update(6, func(uint64, bool) (uint64, bool) { panic("fn failed") })
+	}()
+	if v, _ := m.Get(6); v != 60 {
+		t.Fatalf("panic changed the value to %d", v)
+	}
+	// fn runs again with the observed word when a competing write lands
+	// between its read and the exchange.
+	m.Set(1, 100)
+	var calls []uint64
+	prev, ok := m.Update(1, func(cur uint64, _ bool) (uint64, bool) {
+		calls = append(calls, cur)
+		if len(calls) == 1 {
+			m.Set(1, 200)
+		}
+		return cur + 1, true
+	})
+	if !ok || prev != 200 || len(calls) != 2 || calls[0] != 100 || calls[1] != 200 {
+		t.Fatalf("interference: prev=%d ok=%v calls=%v", prev, ok, calls)
+	}
+	if v, _ := m.Get(1); v != 201 {
+		t.Fatalf("interference left %d, want 201", v)
+	}
+}
+
+func TestSyncMapUpdateConcurrentCounter(t *testing.T) {
+	m := NewSyncMap()
+	defer m.Free()
+	const goroutines, perGoroutine = 8, 5000
+	var wg sync.WaitGroup
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < perGoroutine; i++ {
+				m.Update(0, func(cur uint64, _ bool) (uint64, bool) { return cur + 1, true })
+			}
+		}()
+	}
+	wg.Wait()
+	if v, _ := m.Get(0); v != goroutines*perGoroutine {
+		t.Fatalf("counter = %d, want %d", v, goroutines*perGoroutine)
+	}
+
+	// Of any number of goroutines racing on one absent key, exactly one stores.
+	var winners int64
+	var racers sync.WaitGroup
+	start := make(chan struct{})
+	for g := 0; g < goroutines; g++ {
+		racers.Add(1)
+		go func(g uint64) {
+			defer racers.Done()
+			<-start
+			if _, present := m.GetOrInsert(42, g); !present {
+				atomic.AddInt64(&winners, 1)
+			}
+		}(uint64(g))
+	}
+	close(start)
+	racers.Wait()
+	if winners != 1 {
+		t.Fatalf("%d goroutines stored into one absent key, want 1", winners)
 	}
 }
 
