@@ -6363,6 +6363,24 @@ impl SyncExpanseSet {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<expanse_trie::sync::SetReader<'static>>();
 /// ```
+///
+/// # Ordered reads
+///
+/// [`first`](Self::first), [`last`](Self::last),
+/// [`next_at_or_after`](Self::next_at_or_after), [`next_after`](Self::next_after),
+/// [`prev_at_or_before`](Self::prev_at_or_before) and
+/// [`prev_before`](Self::prev_before) do not block writers. Each is one
+/// validated optimistic walk and, after `MAX_RETRIES` overlapped attempts,
+/// answers under the writer lock. The wall-clock result was taken with
+/// `prev_before` on this handle against the same read under
+/// [`SyncExpanseSet::with_locked`] while writers run: every gated ratio met
+/// its floor in both admissible runs of the pair on the reference host
+/// (workload: `concurrency_ordered_readers_set_63bit`). The losing cells sit
+/// beside that: a validated read executes more instructions per call than the
+/// single-threaded read, and the cells with writers on a hotspot gain far
+/// less than the uniform ones. The other five reads are not measured in wall
+/// clock. The figures, intervals and every cell are in
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §36.15.
 pub struct SetReader<'a> {
     set: &'a SyncExpanseSet,
     reader: Reader,
@@ -6528,6 +6546,18 @@ impl SetReader<'_> {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<expanse_trie::sync::OwnedSetReader>();
 /// ```
+///
+/// # Ordered reads
+///
+/// The ordered reads ([`first`](Self::first), [`last`](Self::last),
+/// [`next_at_or_after`](Self::next_at_or_after),
+/// [`next_after`](Self::next_after),
+/// [`prev_at_or_before`](Self::prev_at_or_before),
+/// [`prev_before`](Self::prev_before)) are those of [`SetReader`], with the
+/// same contract. The wall-clock result for the set's ordered reads
+/// (workload: `concurrency_ordered_readers_set_63bit`;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §36.15) was taken on
+/// [`SetReader`]; this handle is not measured in wall clock.
 pub struct OwnedSetReader {
     set: Arc<SyncExpanseSet>,
     reader: Reader,
@@ -6555,6 +6585,18 @@ impl OwnedSetReader {
 /// fn assert_sync<T: Sync>() {}
 /// assert_sync::<expanse_trie::sync::DetachedSetReader>();
 /// ```
+///
+/// # Ordered reads
+///
+/// The ordered reads ([`first`](Self::first), [`last`](Self::last),
+/// [`next_at_or_after`](Self::next_at_or_after),
+/// [`next_after`](Self::next_after),
+/// [`prev_at_or_before`](Self::prev_at_or_before),
+/// [`prev_before`](Self::prev_before)) are those of [`SetReader`], with the
+/// same contract. The wall-clock result for the set's ordered reads
+/// (workload: `concurrency_ordered_readers_set_63bit`;
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §36.15) was taken on
+/// [`SetReader`]; this handle is not measured in wall clock.
 pub struct DetachedSetReader {
     reader: Reader,
 }
