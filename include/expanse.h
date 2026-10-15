@@ -1019,6 +1019,18 @@ bool expanse_blob_map_get(
     ExpanseBlobView *out_view
 );
 
+/*
+ * Copies the whole payload into buf, or nothing. Returns true only when the key
+ * is present and the payload fits in buf_len bytes: buf[0..*out_len) holds it,
+ * the rest of buf is untouched, *out_meta is the hot metadata (0 for inline
+ * values). Returns false when the key is absent (*out_len = 0, *out_meta
+ * untouched) or when buf is too short: then buf is untouched, *out_len is the
+ * required length (> buf_len) and *out_meta is the hot metadata. Tell the two
+ * apart with (*out_len > buf_len) and retry with a buffer of *out_len bytes.
+ * buf == NULL counts as length 0, so NULL with buf_len 0 queries the length.
+ * A zero-length payload is present and fits any buffer. out_len and out_meta
+ * may be NULL.
+ */
 bool expanse_blob_map_get_into(
     const ExpanseBlobMap *map,
     uint64_t key,

@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstring>
 #include <iostream>
 #include <vector>
 #include <string>
@@ -587,6 +588,20 @@ void test_blob_map() {
     assert(v101_copy.as_string_view() == uncompressed_str);
     auto v101_move = std::move(v101_copy);
     assert(v101_move.as_string_view() == uncompressed_str);
+
+    // get_into copies the whole payload or nothing: a short buffer is refused
+    {
+        uint8_t small[17];
+        std::memset(small, 0xAA, sizeof(small));
+        size_t need = 0;
+        assert(!bm2.get_into(101, std::span<uint8_t>(small, sizeof(small)), &need));
+        assert(need == uncompressed_str.size() && need > sizeof(small));
+        for (uint8_t b : small) assert(b == 0xAA);
+        assert(!bm2.get_into(101, std::span<uint8_t>(), &need));
+        assert(need == uncompressed_str.size());
+        assert(!bm2.get_into(424242, std::span<uint8_t>(small, sizeof(small)), &need));
+        assert(need == 0);
+    }
 
     // Test scan_filtered exception propagation
     try {

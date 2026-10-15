@@ -335,15 +335,28 @@ pub unsafe extern "C" fn expanse_blob_map_get(
     }
 }
 
-/// Looks up a key, copying the payload into `buf` (up to `buf_len`).
-/// Returns `true` if the key was found.
+/// Looks up a key and copies its whole payload into `buf`, or copies nothing.
 ///
-/// If `out_len` is non-null, writes the actual full length of the payload.
-/// If `out_meta` is non-null, writes the 24-bit hot metadata (0 for inline).
+/// Returns `true` only when the key is present and the payload fits in
+/// `buf_len` bytes; the payload is then in `buf[..len]`, `*out_len` is `len`,
+/// and the bytes of `buf` past `len` are untouched. Returns `false` when the
+/// key is absent (`*out_len` is set to `0`, `*out_meta` is left alone) or when
+/// the buffer is shorter than the payload: then nothing is copied, `buf` is
+/// untouched, `*out_len` is the required length (always greater than
+/// `buf_len`, so at least 1), and `*out_meta` is the entry's hot metadata. A
+/// caller tells the two `false` cases apart by `*out_len > buf_len`, and
+/// retries with a buffer of `*out_len` bytes.
+///
+/// `buf == NULL` is a buffer of length 0, so `NULL` with `buf_len == 0` asks
+/// for the length only. A zero-length payload is present and fits any buffer,
+/// including `NULL`. `out_len` and `out_meta` may be `NULL`. Compressed inline
+/// values are decoded into `buf`.
 ///
 /// # Safety
 ///
-/// `map` must be a valid non-null handle. `buf` must be writable for `buf_len` bytes.
+/// `map` must be a valid handle or null. `buf` must be writable for `buf_len`
+/// bytes when non-null. `out_len` and `out_meta` must be writable when
+/// non-null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_blob_map_get_into(
     map: *const ExpanseBlobMap,
@@ -357,27 +370,32 @@ pub unsafe extern "C" fn expanse_blob_map_get_into(
     let Some(map_ref) = (unsafe { map.as_ref() }) else {
         return false;
     };
-    if let Some((view, meta)) = map_ref.get(key) {
-        let bytes = view.as_bytes();
+    let Some((view, meta)) = map_ref.get(key) else {
         if !out_len.is_null() {
             // SAFETY: out_len is non-null and writable per contract.
-            unsafe { *out_len = bytes.len() };
+            unsafe { *out_len = 0 };
         }
-        if !out_meta.is_null() {
-            // SAFETY: out_meta is non-null and writable per contract.
-            unsafe { *out_meta = meta };
-        }
-        if !buf.is_null() && buf_len > 0 {
-            let copy_len = bytes.len().min(buf_len);
-            // SAFETY: buf is valid for writes of buf_len bytes; copy_len <= buf_len.
-            unsafe {
-                core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf, copy_len);
-            }
-        }
-        true
-    } else {
-        false
+        return false;
+    };
+    let bytes = view.as_bytes();
+    if !out_len.is_null() {
+        // SAFETY: out_len is non-null and writable per contract.
+        unsafe { *out_len = bytes.len() };
     }
+    let provided = if buf.is_null() { 0 } else { buf_len };
+    if !out_meta.is_null() {
+        // SAFETY: out_meta is non-null and writable per contract.
+        unsafe { *out_meta = meta };
+    }
+    if bytes.len() > provided {
+        return false;
+    }
+    if !bytes.is_empty() {
+        // SAFETY: buf is non-null (bytes.len() <= provided and bytes is
+        // non-empty) and writable for buf_len >= bytes.len() bytes.
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf, bytes.len()) };
+    }
+    true
 }
 
 /// Executes a range scan with optional hot metadata predicate filtering.
