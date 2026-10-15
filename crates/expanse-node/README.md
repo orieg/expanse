@@ -138,6 +138,13 @@ blocking optimistic lock coupling, not lock-free. `rank`, `select`, `countRange`
 `keys`, `values` and `entries`, and the ordered reads of `SyncExpanseSet`, run with
 writers excluded.
 
+`SyncExpanseMap` also has atomic read-modify-write (#1194). `compareExchange(key, expected, newValue)` stores `newValue` only if the key's current value is `expected`, with `null` meaning absent on both sides (`(null, v)` inserts if absent, `(e, null)` removes if equal), and returns `{ stored, observed }`: `observed` is the value the compare saw (`null` if absent), so a failed call hands back the value to retry against. `getOrInsert(key, value)` stores `value` only if the key is absent and returns the existing value, or `null` when it stored (the convention of `set`). `update(key, fn)` stores `fn(current)` (`null` removes the key) and returns the replaced value; it is a loop over `compareExchange` that calls `fn` again with the observed value when the exchange loses, so `fn` may run more than once per call and must be free of side effects, and an exception from `fn` propagates with the key unchanged. The addon's objects belong to one JavaScript thread, so an exchange loses only to a write made between the read and the exchange (for example from inside `fn`).
+
+```typescript
+syncMap.update(7n, (cur) => (cur ?? 0n) + 1n); // atomic increment
+syncMap.compareExchange(7n, 1n, null); // { stored: true, observed: 1n }: remove if equal to 1n
+```
+
 ## License
 
 Dual-licensed under MIT and Apache-2.0.

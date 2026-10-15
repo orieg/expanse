@@ -13,6 +13,14 @@ export interface MapEntry {
   value: bigint;
 }
 
+/** The outcome of `SyncExpanseMap.compareExchange`. */
+export interface CompareExchangeResult {
+  /** `true` when the new value was stored. */
+  stored: boolean;
+  /** The value the compare saw, or `null` if the key was absent. */
+  observed: bigint | null;
+}
+
 /**
  * Key-value pair with string key and 64-bit unsigned integer value.
  */
@@ -674,6 +682,24 @@ export class SyncExpanseMap {
   has(key: KeyInput): boolean;
   set(key: KeyInput, value: KeyInput): bigint | null;
   get(key: KeyInput): bigint | null;
+  /**
+   * Atomic compare-and-swap: stores `newValue` only if the key's current value is
+   * `expected`. `null` is "absent" on both sides. `observed` is the value the compare
+   * saw, equal to `expected` when `stored`.
+   */
+  compareExchange(
+    key: KeyInput,
+    expected: KeyInput | null,
+    newValue: KeyInput | null,
+  ): CompareExchangeResult;
+  /** Stores `value` only if `key` is absent; returns the existing value, or `null` if stored. */
+  getOrInsert(key: KeyInput, value: KeyInput): bigint | null;
+  /**
+   * Retry loop over `compareExchange`: stores `fn(current)` (`null` removes the key)
+   * and returns the replaced value. `fn` may run more than once per call and must be
+   * free of side effects; an exception from `fn` propagates with the key unchanged.
+   */
+  update(key: KeyInput, fn: (current: bigint | null) => KeyInput | null): bigint | null;
   delete(key: KeyInput): boolean;
   clear(): void;
   first(): MapEntry | null;
