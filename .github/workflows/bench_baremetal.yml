@@ -79,6 +79,7 @@ on:
           - writer_scaling_929_bytes_gate
           - ycsb_concurrent
           - reclaim_stall
+          - reclaim_stall_spin_then_yield
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -1503,6 +1504,22 @@ jobs:
                 python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py \
                   --out docs/benchmarks/concurrency/results/baseline_reclaim_stall.json | tee reclaim_stall.txt
                 ;;
+              "reclaim_stall_spin_then_yield")
+                # Do the writer-side wait loops gain from yielding? (#1479,
+                # concurrency METHODOLOGY.md §37). The cells take different
+                # pins in one run: O, C, O-large and H take
+                # 0,2,4,6,8,10,12,14 and S takes 0-15. The driver confines
+                # itself to 0-15, which holds both, and pins each cell's
+                # process to that cell's list, refusing a row whose CPUs
+                # differ. So the inherited marker is dropped, and a cpu_pin
+                # input naming another list is refused by the driver, never
+                # overridden. Against a harness without the identify mode the
+                # driver fails before any cell runs and writes no artifact.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0-15}" \
+                  python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --spin-yield \
+                  --out docs/benchmarks/concurrency/results/spin_then_yield_reclaim_stall.json | tee reclaim_stall.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -1920,6 +1937,20 @@ jobs:
               INTEGRITY_FAIL=1
             fi
           fi
+          # The spin-then-yield suite (#1479, concurrency METHODOLOGY.md
+          # §37.5): a job the host guard failed voids the run, so the guard's
+          # record goes into the artifact's provenance and admissibility is
+          # decided from the artifact alone (reclaim_stall.py
+          # --spin-yield-pair reads it there and refuses an artifact without
+          # it). A run whose driver wrote no artifact has nothing to attach to
+          # and fails here, as it already failed above.
+          if [ "$SUITE" = "reclaim_stall_spin_then_yield" ]; then
+            if ! python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" attach \
+              --check host-guard.json --summary host-activity.json --watcher-ok "$HOST_WATCH_OK" \
+              docs/benchmarks/concurrency/results/spin_then_yield_reclaim_stall.json; then
+              INTEGRITY_FAIL=1
+            fi
+          fi
 
           # Report Generation Step
           # ====================================================================
@@ -2268,6 +2299,7 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json \
             reclaim_stall.txt \
             docs/benchmarks/concurrency/results/baseline_reclaim_stall.json \
+            docs/benchmarks/concurrency/results/spin_then_yield_reclaim_stall.json \
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json \
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json \
             docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json \

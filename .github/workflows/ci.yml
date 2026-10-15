@@ -1018,6 +1018,14 @@ jobs:
           grep -Eq 'test result: ok\. [1-9][0-9]* passed' ablation-unit.log \
             || { echo "::error::the ablation_ filter ran zero unit tests"; exit 1; }
           cargo test -p expanse-trie --features "$F" --test test_concurrency_ablations
+          # The spin-then-yield variant (#1479, METHODOLOGY §37.3): its slow
+          # path's unit tests, then the serialised-section and linearizability
+          # targets, whose writers wait at the gate it changes.
+          G=ablation-gate-spin-then-yield
+          cargo test -p expanse-trie --lib --features "$G" -- ablation_gate_ 2>&1 | tee ablation-gate-unit.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' ablation-gate-unit.log \
+            || { echo "::error::the ablation_gate_ filter ran zero unit tests"; exit 1; }
+          cargo test -p expanse-trie --features "$G" --test test_serialised_section_unwind --test linearizability
 
       # `packed-suffix` (Refs #1095) moves string suffix leaves into the tree's
       # `NodeAlloc`; the default build above never compiles that path.
@@ -2039,6 +2047,32 @@ jobs:
             cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
           fi
 
+      # TEMPORARY (Refs #1479, concurrency METHODOLOGY.md §37.3, P37.2): the
+      # `instructions` bench built with `ablation-gate-spin-then-yield`
+      # against the default build of the same commit, on this runner. No other
+      # job runs this bench under a feature list. The benches are
+      # single-threaded, so the variant's slow path is never entered; the
+      # comparison checks that its out-of-line call did not move the callers.
+      # The log of this step is P37.2's cited evidence. It gates nothing, and
+      # it is removed before merge (with the `allow-gate-weakening:
+      # ci-integrity` line a removed verification step needs) unless a §37
+      # PASS promotes the variant, when the default pass covers it.
+      - name: P37.2 variant build against the default build (temporary)
+        shell: bash
+        run: |
+          cargo bench --bench instructions -p expanse-trie -- --save-baseline=p37_default | tee p37-default-counts.txt
+          cargo bench --bench instructions -p expanse-trie --features ablation-gate-spin-then-yield \
+            -- --baseline=p37_default | tee p37-variant-counts.txt
+          python3 scripts/perf_report.py \
+            --head p37-variant-counts.txt \
+            --base p37-default-counts.txt \
+            --base-ref "default build (P37.2)" > p37-report.md
+          cat p37-report.md
+          {
+            echo '### P37.2: ablation-gate-spin-then-yield against the default build'
+            cat p37-report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Instruction and cache-miss counts (this branch, x86-64-v3 modern)
         shell: bash
         run: |
@@ -2455,6 +2489,18 @@ jobs:
 
       - name: Loom model checks with the unstriped-freelist ablation
         run: cargo test -p expanse-trie --release --features ablation-unstriped-freelist loom_
+        env:
+          RUSTFLAGS: --cfg loom
+
+      # METHODOLOGY §37.3 (#1479): the Loom lane passes with the variant's
+      # feature on. Under Loom the variant's slow path issues the same
+      # operations as the default loops; this compiles and runs it there.
+      - name: Loom model checks with the spin-then-yield variant
+        run: |
+          set -o pipefail
+          cargo test -p expanse-trie --release --features ablation-gate-spin-then-yield loom_ 2>&1 | tee loom-spin-yield.log
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed' loom-spin-yield.log \
+            || { echo "::error::the loom_ filter ran zero tests with ablation-gate-spin-then-yield"; exit 1; }
         env:
           RUSTFLAGS: --cfg loom
 

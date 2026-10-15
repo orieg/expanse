@@ -14,6 +14,15 @@
 //!   insert is refused (the waste guard then declines every compaction), then
 //!   `--writers` threads insert fresh keys for `--seconds` while `--readers`
 //!   read.
+//! - `--mode identify`: no measurement; one row naming the build (whether
+//!   `ablation-gate-spin-then-yield` and `occ-stats` are compiled in) and the
+//!   CPUs the process may run on. The §37 driver probes each build with it
+//!   before any cell, and every measured row carries the same three fields.
+//!
+//! Built with `occ-stats`, a `--map sync` row also carries the window's
+//! `counters` (METHODOLOGY §37.2): the gate and drain waits, the
+//! `SeqVersion::sample` spins, and the window's thread time in the same
+//! ticks. Such a build is a counters pass and times nothing the driver reads.
 //!
 //! # Workload shape
 //!
@@ -239,10 +248,57 @@ fn reader_loop(m: &SyncExpanseBlobMap, live: u64, seed: u64, stop: &AtomicBool) 
     h
 }
 
+/// The CPUs this process may run on, as the kernel lists them
+/// (`Cpus_allowed_list` in `/proc/self/status`), or `None` where there is no
+/// such file. The driver sets each cell's pin on the child and refuses a row
+/// whose list differs (METHODOLOGY §37.4).
+fn cpu_affinity() -> Option<String> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status
+        .lines()
+        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
+        .map(|v| v.trim().to_string())
+}
+
+/// What this binary was built as, so the driver can refuse a build that is
+/// not the one it labels (METHODOLOGY §37.4).
+fn identity(row: &mut serde_json::Value) {
+    row["gate_wait_variant"] = cfg!(feature = "ablation-gate-spin-then-yield").into();
+    row["occ_stats"] = cfg!(feature = "occ-stats").into();
+    row["cpu_affinity"] = cpu_affinity().into();
+}
+
+/// The occ-stats counters METHODOLOGY §37.2 reports for every cell, read
+/// over the window: the waits of the two writer-side loops and of
+/// `SeqVersion::sample`, and the window's thread time in the same ticks.
+#[cfg(feature = "occ-stats")]
+fn window_counters(elapsed_s: f64, threads: u64) -> serde_json::Value {
+    use expanse_trie::occ_stats::{self, Stat};
+    let snap = occ_stats::snapshot();
+    let tsc_hz = occ_stats::cycles_hz(Duration::from_millis(200));
+    serde_json::json!({
+        "sample_spins": snap[Stat::SampleSpins as usize],
+        "sample_spin_cycles": snap[Stat::SampleSpinCycles as usize],
+        "gate_blocked_entries": snap[Stat::GateBlockedEntries as usize],
+        "gate_wait_cycles": snap[Stat::GateWaitCycles as usize],
+        "quiesce_calls": snap[Stat::QuiesceCalls as usize],
+        "quiesce_drain_cycles": snap[Stat::QuiesceDrainCycles as usize],
+        "tsc_hz": tsc_hz,
+        "thread_time_cycles": (elapsed_s * tsc_hz as f64 * threads as f64) as u64,
+    })
+}
+
 fn main() {
     let a = Args::parse();
     let map = a.get("map").to_string();
     let mode = a.get("mode").to_string();
+    if mode == "identify" {
+        // The driver's probe: one row naming the build, no measurement.
+        let mut row = serde_json::json!({"workload_id": "reclaim_stall", "mode": "identify"});
+        identity(&mut row);
+        println!("{row}");
+        return;
+    }
     let writers = a.num("writers").max(1);
     let readers = a.num("readers");
     let round = a.num("round");
@@ -252,6 +308,7 @@ fn main() {
         "writers": writers, "readers": readers, "round": round, "seed": seed,
         "payload_len": PAYLOAD_LEN,
     });
+    identity(&mut row);
 
     match (map.as_str(), mode.as_str()) {
         ("plain", "overwrite") => {
@@ -316,6 +373,8 @@ fn main() {
                 live
             };
             let g0 = m.with_locked(|t| t.arena().generation());
+            #[cfg(feature = "occ-stats")]
+            expanse_trie::occ_stats::reset();
             let heap_before = HEAP.load(Ordering::Relaxed);
             PEAK.store(heap_before, Ordering::Relaxed);
             let appends = if full {
@@ -379,6 +438,10 @@ fn main() {
                 reads
                     .add(h.join().expect("reader panicked"))
                     .expect("same bounds");
+            }
+            #[cfg(feature = "occ-stats")]
+            {
+                row["counters"] = window_counters(elapsed, writers + readers);
             }
             let (generation, index_mem, arena_total) = m.with_locked(|t| {
                 (

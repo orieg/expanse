@@ -2522,7 +2522,7 @@ impl<T: SharedTree> Shared<T> {
     #[cfg(feature = "std")]
     #[inline(always)]
     pub(crate) fn enter_writer_blocking(&self) -> crate::occ::WriterGuard<'_> {
-        #[cfg(not(feature = "occ-stats"))]
+        #[cfg(not(any(feature = "occ-stats", feature = "ablation-gate-spin-then-yield")))]
         loop {
             if let Some(guard) = self.enter_writer() {
                 return guard;
@@ -2531,6 +2531,15 @@ impl<T: SharedTree> Shared<T> {
             #[cfg(loom)]
             loom::thread::yield_now();
         }
+        // METHODOLOGY §37.3: the same first check inline; everything after
+        // its failure is in the out-of-line `spin_then_yield`.
+        #[cfg(all(not(feature = "occ-stats"), feature = "ablation-gate-spin-then-yield"))]
+        {
+            if let Some(guard) = self.enter_writer() {
+                return guard;
+            }
+            crate::occ::spin_then_yield(|| self.enter_writer())
+        }
         #[cfg(feature = "occ-stats")]
         {
             if let Some(guard) = self.enter_writer() {
@@ -2538,6 +2547,16 @@ impl<T: SharedTree> Shared<T> {
             }
             crate::occ_stats::bump(crate::occ_stats::Stat::GateBlockedEntries);
             let start = crate::occ_stats::cycles_now();
+            #[cfg(feature = "ablation-gate-spin-then-yield")]
+            {
+                let guard = crate::occ::spin_then_yield(|| self.enter_writer());
+                crate::occ_stats::bump_by(
+                    crate::occ_stats::Stat::GateWaitCycles,
+                    crate::occ_stats::cycles_now().wrapping_sub(start),
+                );
+                guard
+            }
+            #[cfg(not(feature = "ablation-gate-spin-then-yield"))]
             loop {
                 core::hint::spin_loop();
                 #[cfg(loom)]

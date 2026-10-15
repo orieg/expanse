@@ -640,7 +640,13 @@ D2_GUARD_GRANDFATHERED = frozenset(
 # §36.6 voids a run on foreign load, so the artifact carries the guard's record
 # and admissibility is decided from it. No artifact of this suite predates the
 # record, so nothing is grandfathered.
-GUARD_REQUIRED = frozenset({"concurrency/results/ordered_readers_set_writer_scaling.json"})
+#
+# §37.5 voids a run the workflow's host guard failed, by the same three
+# boundaries, so the spin-then-yield artifact (#1479) owes the record too.
+GUARD_REQUIRED = frozenset({
+    "concurrency/results/ordered_readers_set_writer_scaling.json",
+    "concurrency/results/spin_then_yield_reclaim_stall.json",
+})
 
 
 def guard_record_problems(rel: str, prov: dict) -> list[str]:

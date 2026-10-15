@@ -98,6 +98,22 @@ python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --readers-only \
 python3 docs/benchmarks/concurrency/scripts/writer_scaling.py --readers-only --quick --out results/quick/readers_only.json
 ```
 
+The spin-then-yield instrument for #1479 (METHODOLOGY.md §37) runs the
+`reclaim_stall` cells O, C, O-large and S and `writer_scaling`'s count cell H,
+each in the default build and in `ablation-gate-spin-then-yield`, one process
+per (build, cell, round). The driver confines itself to `0-15` and pins each
+cell's process to that cell's registered list, refusing a row whose CPUs
+differ; the dispatch suite is `reclaim_stall_spin_then_yield`. It has
+published no run, and the pair verdict is read from two dispatches' artifacts,
+each carrying the host guard's record:
+
+```bash
+EXPANSE_BENCH_PIN=0-15 python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --spin-yield \
+    --out docs/benchmarks/concurrency/results/spin_then_yield_reclaim_stall.json
+python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --spin-yield --quick --out results/quick/spin_then_yield.json
+python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --spin-yield-pair RUN1.json RUN2.json
+```
+
 ## 2. Line-transfer matrix (`results/line_transfer.json`)
 
 One-way cache-line transfer between every pair of physical performance

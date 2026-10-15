@@ -2600,10 +2600,16 @@ def reader_cell_argv(
 def run_reader_invocation(
     binary: Path, role: str, run: dict[str, Any], quick: bool,
     arm: str = "map", workload_id: str = ORDERED_READERS_WORKLOAD_ID,
+    preexec_fn: Any = None, env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """One reader-mode cell from the harness, checked against the schedule that asked for it."""
+    """One reader-mode cell from the harness, checked against the schedule that asked for it.
+
+    `preexec_fn` and `env` reach the child unchanged; the §37 driver uses them
+    to pin each cell's process (`bench_pin.child_affinity`).
+    """
     cmd = reader_cell_argv(binary, role, run, quick, arm)
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False,
+                          preexec_fn=preexec_fn, env=env)
     if proc.returncode != 0:
         raise RuntimeError(
             f"writer_scaling reader cell ({role}, {run}) failed "
@@ -4244,6 +4250,29 @@ COUNT_CELLS_PROBES = ("uniform", "one_top_byte")
 # the reader alone (W = 0) as the no-fold control.
 COUNT_CELLS_WR = ((0, 1), (1, 0), (1, 1), (4, 0), (4, 1))
 COUNT_RATIO_WRITERS = (1, 4)
+
+# §37.4 cell H (#1479): the harm cell of the spin-then-yield experiment. One
+# §23 count cell, run in the default build and in the variant, by
+# `reclaim_stall.py --spin-yield`, which owns the schedule, the pin and the
+# verdict. Four writers and one reader calling `count_below` through
+# `with_locked`: every count closes the writer gate for a short section.
+SPIN_YIELD_FEATURE = "ablation-gate-spin-then-yield"
+SPIN_YIELD_HARM_CELL = {"read_op": COUNT_CELLS_OP, "probe": "uniform", "writers": 4, "readers": 1}
+SPIN_YIELD_HARM_PIN = ORDERED_READERS_PIN
+
+
+def spin_yield_harm_row(
+    binary: Path, role: str, rnd: int, position: int, quick: bool,
+    preexec_fn: Any = None, env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """One process of cell H (§37.4): the harness's count cell, checked like a §23 row."""
+    run = {**SPIN_YIELD_HARM_CELL, "round": rnd, "position": position, "block": 0}
+    row = run_reader_invocation(binary, role, run, quick, preexec_fn=preexec_fn, env=env)
+    if role == "throughput":
+        check_count_throughput_row(row)
+    else:
+        check_reader_counters_row(row)
+    return row
 
 
 def count_cells_schedule(rounds: int) -> list[dict[str, Any]]:

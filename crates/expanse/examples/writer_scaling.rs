@@ -330,6 +330,11 @@ struct Counters {
     gate_wait_cycles: u64,
     quiesce_calls: u64,
     quiesce_drain_cycles: u64,
+    /// `Stat::SampleSpins` and `Stat::SampleSpinCycles`: the waits of
+    /// `SeqVersion::sample`, reported beside the two writer-side waits
+    /// (METHODOLOGY §37.2).
+    sample_spins: u64,
+    sample_spin_cycles: u64,
     branch_split_subarray: u64,
     branch_split_linear: u64,
     branch_split_prefix: u64,
@@ -439,6 +444,8 @@ impl Counters {
             gate_wait_cycles: snap[Stat::GateWaitCycles as usize],
             quiesce_calls: snap[Stat::QuiesceCalls as usize],
             quiesce_drain_cycles: snap[Stat::QuiesceDrainCycles as usize],
+            sample_spins: snap[Stat::SampleSpins as usize],
+            sample_spin_cycles: snap[Stat::SampleSpinCycles as usize],
             branch_split_subarray: snap[Stat::BranchSplitSubarray as usize],
             branch_split_linear: snap[Stat::BranchSplitLinear as usize],
             branch_split_prefix: snap[Stat::BranchSplitPrefix as usize],
@@ -609,6 +616,7 @@ impl Counters {
              \"contention_gate_closed\":{c_closed},\"contention_retry_exhausted\":{c_exhausted},\
              \"gate_blocked_entries\":{g_blocked},\"gate_wait_cycles\":{g_wait},\
              \"quiesce_calls\":{q_calls},\"quiesce_drain_cycles\":{q_drain},\
+             \"sample_spins\":{s_spins},\"sample_spin_cycles\":{s_cycles},\
              \"branch_split_subarray\":{bs_sub},\"branch_split_linear\":{bs_lin},\
              \"branch_split_prefix\":{bs_pfx},\"branch_split_remove\":{bs_rem},\
              \"branch_split_upgrade\":{bs_upg},\"branch_split_demote_u\":{bs_dmu},\
@@ -623,6 +631,8 @@ impl Counters {
             g_wait = self.gate_wait_cycles,
             q_calls = self.quiesce_calls,
             q_drain = self.quiesce_drain_cycles,
+            s_spins = self.sample_spins,
+            s_cycles = self.sample_spin_cycles,
             bs_sub = self.branch_split_subarray,
             bs_lin = self.branch_split_linear,
             bs_pfx = self.branch_split_prefix,

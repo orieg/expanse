@@ -1104,10 +1104,63 @@ impl WriterGate {
     /// and this edge is what orders those stores before the reads.
     #[inline]
     pub(crate) fn wait_drained(in_flight: &AtomicUsize) {
+        #[cfg(not(feature = "ablation-gate-spin-then-yield"))]
         while in_flight.load(Ordering::Acquire) != 0 {
             core::hint::spin_loop();
             #[cfg(loom)]
             loom::thread::yield_now();
+        }
+        // METHODOLOGY §37.3: the same first check; only its failure enters
+        // the out-of-line wait.
+        #[cfg(feature = "ablation-gate-spin-then-yield")]
+        if in_flight.load(Ordering::Acquire) != 0 {
+            spin_then_yield(|| (in_flight.load(Ordering::Acquire) == 0).then_some(()));
+        }
+    }
+}
+
+/// Failed checks a writer-side wait answers with `spin_loop` before it starts
+/// to yield, in the `ablation-gate-spin-then-yield` build (METHODOLOGY §37.3).
+///
+/// 64 is the spin budget the engine already uses (the mutation loops' backoff
+/// cap and `MAX_RETRIES`), chosen to add no new magnitude and not tuned. It is
+/// a registered constant of that experiment, not derived from either: another
+/// value is another variant and needs its own registration.
+#[cfg(feature = "ablation-gate-spin-then-yield")]
+pub(crate) const GATE_SPIN_BUDGET: u32 = 64;
+
+/// The slow half of a writer-side wait in the `ablation-gate-spin-then-yield`
+/// build (METHODOLOGY §37.3), entered only after the caller's first check
+/// failed: `spin_loop` after each of the first [`GATE_SPIN_BUDGET`] failed
+/// checks, then `std::thread::yield_now()` after every failed check from then
+/// on, until `check` answers.
+///
+/// Cold and never inlined, so the uncontended path of each caller keeps only
+/// its first check and a call it does not take (AGENTS.md §2.1, invariant 5).
+/// Under Loom every failed check is followed by `spin_loop` and
+/// `loom::thread::yield_now()`, exactly as in the default loops, so the model
+/// explores the same operations in both builds.
+#[cfg(feature = "ablation-gate-spin-then-yield")]
+#[cold]
+#[inline(never)]
+pub(crate) fn spin_then_yield<R>(mut check: impl FnMut() -> Option<R>) -> R {
+    #[cfg(not(loom))]
+    let mut spins: u32 = 0;
+    loop {
+        #[cfg(loom)]
+        {
+            core::hint::spin_loop();
+            loom::thread::yield_now();
+        }
+        #[cfg(not(loom))]
+        if spins < GATE_SPIN_BUDGET {
+            spins += 1;
+            core::hint::spin_loop();
+        } else {
+            std::thread::yield_now();
+        }
+        if let Some(r) = check() {
+            return r;
         }
     }
 }
@@ -2724,6 +2777,55 @@ pub struct Pin<'a> {
 impl Drop for Pin<'_> {
     fn drop(&mut self) {
         self.slot.store(INACTIVE, Ordering::Release);
+    }
+}
+
+/// The `ablation-gate-spin-then-yield` wait (METHODOLOGY §37.3).
+#[cfg(all(test, not(loom), feature = "ablation-gate-spin-then-yield"))]
+mod ablation_gate_spin_then_yield_tests {
+    use super::*;
+
+    /// The registered spin budget; another value is another variant.
+    #[test]
+    fn ablation_gate_spin_budget_is_the_registered_64() {
+        assert_eq!(GATE_SPIN_BUDGET, 64);
+    }
+
+    /// The slow path answers on the first check that holds, past the spin
+    /// budget into the yielding phase, and calls `check` once per wait step.
+    #[test]
+    fn ablation_gate_spin_then_yield_returns_on_the_first_check_that_holds() {
+        for holds_at in [
+            1u32,
+            2,
+            GATE_SPIN_BUDGET,
+            GATE_SPIN_BUDGET + 1,
+            3 * GATE_SPIN_BUDGET,
+        ] {
+            let mut calls = 0u32;
+            let got = spin_then_yield(|| {
+                calls += 1;
+                (calls == holds_at).then_some(calls)
+            });
+            assert_eq!((got, calls), (holds_at, holds_at));
+        }
+    }
+
+    /// `wait_drained` returns once another thread withdraws the in-flight
+    /// writer, including when the wait has passed into the yielding phase.
+    #[test]
+    fn ablation_gate_wait_drained_returns_after_the_writer_exits() {
+        let in_flight = std::sync::Arc::new(AtomicUsize::new(1));
+        let writer = {
+            let in_flight = std::sync::Arc::clone(&in_flight);
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                in_flight.fetch_sub(1, Ordering::Release);
+            })
+        };
+        WriterGate::wait_drained(&in_flight);
+        assert_eq!(in_flight.load(Ordering::Acquire), 0);
+        writer.join().unwrap();
     }
 }
 

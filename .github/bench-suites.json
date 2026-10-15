@@ -335,6 +335,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "reclaim_stall_spin_then_yield",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Do the writer-side wait loops gain from yielding? (#1479, concurrency METHODOLOGY.md §37): reclaim_stall cells O, C, O-large and S and writer_scaling's count cell H, each in the default build and in ablation-gate-spin-then-yield, 8 rounds, one process per (build, cell, round), each cell's process pinned to its registered CPU list, with the §37.6 run verdict; needs a harness with the identify mode, so dispatch with ref set to a commit that carries it; outputs spin_then_yield_reclaim_stall.json.",
+      "suite": "concurrency"
+    },
+    {
       "name": "point_lookup_counters",
       "available": true,
       "kind": "counters",

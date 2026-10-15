@@ -68,7 +68,9 @@ DIRECT_HARNESSES = {
         "the #1191 AArch64 default-vs-+rcpc A/B, dispatched on a hosted arm runner; "
         "a by-hand run on a hybrid host would otherwise take no pin",
     "docs/benchmarks/concurrency/scripts/reclaim_stall.py":
-        "the #1300 reclaim stall measurement (METHODOLOGY §29); applies the pin itself and records it",
+        "the #1300 reclaim stall measurement (METHODOLOGY §29); applies the pin itself and records it. "
+        "Its --spin-yield mode (#1479, §37.4) applies 0-15 to itself and pins each cell's process to "
+        "that cell's registered list through bench_pin.child_affinity, refusing a row whose CPUs differ",
     "docs/benchmarks/concurrency/scripts/ycsb_concurrent.py":
         "the concurrent YCSB scaling instrument across physical P-cores (#1006)",
     "docs/benchmarks/concurrency/scripts/mixed_concurrency.py":

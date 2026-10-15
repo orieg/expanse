@@ -134,6 +134,14 @@ ablation-blob-writer-arenas = []
 # an ablation arm first so both forms can be measured on the same commit;
 # the default keeps the scan and compiles the count's maintenance to nothing.
 ablation-branchu-header-count = []
+# Diagnostic-only candidate (Refs #1479, concurrency METHODOLOGY section 37,
+# AGENTS.md §2.7): the two writer-side waits, `Shared::enter_writer_blocking`
+# and `WriterGate::wait_drained`, keep their first check inline and, on its
+# failure, call an out-of-line cold wait that spins for 64 failed checks and
+# yields the CPU (`std::thread::yield_now`) after every failed check from then
+# on. The default build spins without a yield, as it ships. `SeqVersion::sample`
+# is not changed. Implies `std`: there is no thread to yield to without it.
+ablation-gate-spin-then-yield = ["std"]
 # Allocates `ExpanseStrMap` / `SyncExpanseStrMap` suffix leaves from the tree's
 # `NodeAlloc` size classes instead of one global allocation each (Refs #1095).
 # A suffix then costs its size rounded to 16 bytes with no system-allocator
