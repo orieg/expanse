@@ -22,7 +22,12 @@ expanse_sync_strmap_contains, expanse_sync_strmap_remove, \
 expanse_sync_strmap_len, expanse_sync_strmap_mem_used, \
 expanse_sync_strmap_mem_held, expanse_sync_strmap_shrink_to_fit, \
 expanse_sync_strmap_reader_new, expanse_sync_strmap_reader_free, \
-expanse_sync_strmap_reader_get, expanse_sync_strmap_reader_contains \
+expanse_sync_strmap_reader_get, expanse_sync_strmap_reader_contains, \
+expanse_sync_strmap_reader_first, expanse_sync_strmap_reader_last, \
+expanse_sync_strmap_reader_next_at_or_after, \
+expanse_sync_strmap_reader_next_after, \
+expanse_sync_strmap_reader_prev_at_or_before, \
+expanse_sync_strmap_reader_prev_before \
 \- concurrent sets and maps with optimistic readers (OCC)
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -184,6 +189,36 @@ expanse_sync_strmap_reader_get, expanse_sync_strmap_reader_contains \
 .BI "bool expanse_sync_strmap_reader_contains("
 .BI "    const expanse_sync_strmap_reader_t *" reader ","
 .BI "    const char *" key ");"
+.br
+.BI "expanse_str_nav_status expanse_sync_strmap_reader_first("
+.BI "    const expanse_sync_strmap_reader_t *" reader ","
+.BI "    char *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_sync_strmap_reader_last("
+.BI "    const expanse_sync_strmap_reader_t *" reader ","
+.BI "    char *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_sync_strmap_reader_next_at_or_after("
+.BI "    const expanse_sync_strmap_reader_t *" reader ", const char *" key ","
+.BI "    char *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_sync_strmap_reader_next_after("
+.BI "    const expanse_sync_strmap_reader_t *" reader ", const char *" key ","
+.BI "    char *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_sync_strmap_reader_prev_at_or_before("
+.BI "    const expanse_sync_strmap_reader_t *" reader ", const char *" key ","
+.BI "    char *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_sync_strmap_reader_prev_before("
+.BI "    const expanse_sync_strmap_reader_t *" reader ", const char *" key ","
+.BI "    char *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
 .PP
 Link with \fI-lexpanse\fR.
 .SH DESCRIPTION
@@ -378,9 +413,59 @@ and
 behave as the
 .B expanse_sync_map_*
 calls of the same name.
+.PP
+.BR expanse_sync_strmap_reader_first ,
+.BR expanse_sync_strmap_reader_last ,
+.BR expanse_sync_strmap_reader_next_at_or_after ,
+.BR expanse_sync_strmap_reader_next_after ,
+.B expanse_sync_strmap_reader_prev_at_or_before
+and
+.B expanse_sync_strmap_reader_prev_before
+are the ordered reads of the string map, with the validation, retry budget
+and fallback of
+.BR expanse_sync_strmap_reader_get ;
+a walk built from
+.B expanse_sync_strmap_reader_next_after
+is not a snapshot, as for the
+.B uint64_t
+map.
+They copy the key into the caller's buffer under the
+.B expanse_strmap_first_ex
+contract of
+.BR expanse_strmap (3).
+.B EXPANSE_STR_NAV_OK
+writes the NUL-terminated key to
+.IR key_out ,
+its length plus one to
+.I required_len
+and its value to
+.IR value_out .
+.B EXPANSE_STR_NAV_BUFFER_TOO_SMALL
+means a key was found but
+.I buf_len
+is below the length it needs, or
+.I key_out
+is NULL; only
+.I required_len
+is written, so NULL with 0 is a length probe.
+.B EXPANSE_STR_NAV_NOT_FOUND
+means there is no such entry, which includes the predecessor of the empty
+key, or that
+.I reader
+or
+.I key
+is NULL; nothing is written.
+.I required_len
+and
+.I value_out
+may be NULL.
+A retry after
+.B EXPANSE_STR_NAV_BUFFER_TOO_SMALL
+is a new read, and may return a different key if a writer ran in between.
 .SH EXAMPLES
 .nf
 #include <stdio.h>
+#include <string.h>
 #include <inttypes.h>
 #include <expanse.h>
 
@@ -428,6 +513,20 @@ int main(void) {
     if (expanse_sync_strmap_reader_get(sr, "beta", &val)) {
         printf("String read: beta -> %" PRIu64 "\\n", val);
     }
+
+    /* Ordered walk: a NULL, 0 probe reports the length a key needs */
+    size_t need = 0;
+    expanse_sync_strmap_reader_first(sr, NULL, 0, &need, NULL);
+    printf("First key needs %zu bytes\\n", need);
+    char key[16], prev[16];
+    expanse_str_nav_status st =
+        expanse_sync_strmap_reader_first(sr, key, sizeof key, &need, &val);
+    while (st == EXPANSE_STR_NAV_OK) {
+        printf("Walk: %s -> %" PRIu64 "\\n", key, val);
+        memcpy(prev, key, need);
+        st = expanse_sync_strmap_reader_next_after(sr, prev, key,
+                                                   sizeof key, &need, &val);
+    }
     expanse_sync_strmap_reader_free(sr);
 
     expanse_sync_strmap_free(names);
@@ -439,6 +538,9 @@ int main(void) {
 Concurrent read: 42 -> 1000
 After update: 42 -> 1001
 String read: beta -> 2
+First key needs 6 bytes
+Walk: alpha -> 1
+Walk: beta -> 2
 .fi
 .SH SEE ALSO
 .BR expanse (3),

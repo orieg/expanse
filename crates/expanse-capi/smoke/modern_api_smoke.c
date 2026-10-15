@@ -56,6 +56,24 @@ static void *str_reader(void *arg) {
             if (expanse_sync_strmap_reader_get(r, key, &v))
                 assert(v == 100000u + (uint64_t) i);
         }
+        {
+            /* An ordered walk sees every stable key, in order. */
+            char prev[32], out[32];
+            size_t req = 0;
+            int seen = 0;
+            expanse_str_nav_status st = expanse_sync_strmap_reader_first(r, out, sizeof out, &req, &v);
+            while (st == EXPANSE_STR_NAV_OK) {
+                if (strncmp(out, "stable/", 7) == 0) {
+                    str_stable_key(key, sizeof key, seen);
+                    assert(strcmp(out, key) == 0 && v == (uint64_t) seen);
+                    seen++;
+                }
+                memcpy(prev, out, req);
+                st = expanse_sync_strmap_reader_next_after(r, prev, out, sizeof out, &req, &v);
+                assert(st != EXPANSE_STR_NAV_OK || strcmp(prev, out) < 0);
+            }
+            assert(st == EXPANSE_STR_NAV_NOT_FOUND && seen == STR_STABLE);
+        }
         reads++;
     } while (!atomic_load(&str_stop));
     expanse_sync_strmap_reader_free(r);
@@ -86,6 +104,27 @@ static void sync_strmap_smoke(void) {
     assert(expanse_sync_strmap_reader_get(r, "apple", &v) && v == 2);
     assert(expanse_sync_strmap_reader_contains(r, ""));
     assert(!expanse_sync_strmap_reader_contains(r, "banana"));
+    {
+        /* Ordered reads: keys "" -> 3, "apple" -> 2. */
+        char out[8];
+        size_t req = 0;
+        assert(expanse_sync_strmap_reader_first(r, out, sizeof out, &req, &v) == EXPANSE_STR_NAV_OK
+               && req == 1 && out[0] == '\0' && v == 3);
+        assert(expanse_sync_strmap_reader_last(r, NULL, 0, &req, NULL) == EXPANSE_STR_NAV_BUFFER_TOO_SMALL
+               && req == 6); /* length probe */
+        assert(expanse_sync_strmap_reader_last(r, out, sizeof out, &req, &v) == EXPANSE_STR_NAV_OK
+               && strcmp(out, "apple") == 0 && v == 2);
+        assert(expanse_sync_strmap_reader_next_at_or_after(r, "a", out, sizeof out, &req, &v) == EXPANSE_STR_NAV_OK
+               && strcmp(out, "apple") == 0);
+        assert(expanse_sync_strmap_reader_next_after(r, "apple", out, sizeof out, &req, &v)
+               == EXPANSE_STR_NAV_NOT_FOUND);
+        assert(expanse_sync_strmap_reader_prev_at_or_before(r, "b", out, sizeof out, &req, &v) == EXPANSE_STR_NAV_OK
+               && strcmp(out, "apple") == 0);
+        assert(expanse_sync_strmap_reader_prev_before(r, "apple", out, 5, &req, &v) == EXPANSE_STR_NAV_OK
+               && req == 1 && out[0] == '\0');
+        assert(expanse_sync_strmap_reader_prev_before(r, "", out, sizeof out, &req, &v)
+               == EXPANSE_STR_NAV_NOT_FOUND);
+    }
     expanse_sync_strmap_reader_free(r);
     assert(expanse_sync_strmap_remove(m, "apple", &v) && v == 2);
     assert(!expanse_sync_strmap_remove(m, "apple", &v));
@@ -113,7 +152,7 @@ static void sync_strmap_smoke(void) {
     }
     assert(expanse_sync_strmap_len(str_shared) == STR_STABLE); /* 40 rounds end on a remove */
     expanse_sync_strmap_free(str_shared);
-    printf("sync_strmap: point ops, reader, %d threaded readers ok\n", STR_READERS);
+    printf("sync_strmap: point ops, reader, ordered reads, %d threaded readers ok\n", STR_READERS);
 }
 
 int main(void) {

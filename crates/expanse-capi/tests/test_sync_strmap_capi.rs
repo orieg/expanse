@@ -10,6 +10,11 @@
 
 use core::ffi::{CStr, c_char};
 use expanse::modern::{
+    ExpanseStrNavStatus, expanse_sync_strmap_reader_first, expanse_sync_strmap_reader_last,
+    expanse_sync_strmap_reader_next_after, expanse_sync_strmap_reader_next_at_or_after,
+    expanse_sync_strmap_reader_prev_at_or_before, expanse_sync_strmap_reader_prev_before,
+};
+use expanse::modern::{
     SyncStrMapReader, expanse_sync_strmap_contains, expanse_sync_strmap_free,
     expanse_sync_strmap_get, expanse_sync_strmap_insert, expanse_sync_strmap_len,
     expanse_sync_strmap_mem_held, expanse_sync_strmap_mem_used, expanse_sync_strmap_new,
@@ -396,4 +401,273 @@ fn reader_handles_freed_on_another_thread() {
         }
         expanse_sync_strmap_free(m);
     }
+}
+
+// ---- Ordered reads through the reader handle ----
+
+type ByKeyNav = unsafe extern "C" fn(
+    *const SyncStrMapReader,
+    *const c_char,
+    *mut c_char,
+    usize,
+    *mut usize,
+    *mut u64,
+) -> ExpanseStrNavStatus;
+
+/// One by-key ordered read into a buffer of `buf_len` bytes: the status, the
+/// key written (on `Ok`), `*required_len` and `*value_out`, each starting from
+/// a sentinel so an unwritten output is visible.
+fn nav(
+    f: ByKeyNav,
+    r: *const SyncStrMapReader,
+    k: &CStr,
+    buf_len: usize,
+) -> (ExpanseStrNavStatus, Option<Vec<u8>>, usize, u64) {
+    let mut buf = vec![0x7F_u8; buf_len.max(1)];
+    let (mut req, mut v) = (usize::MAX, 0xDEAD_u64);
+    // SAFETY: `r` is null or live for every caller; `k` a C string; `buf`
+    // holds at least `buf_len` bytes; the outputs are locals.
+    let st = unsafe {
+        f(
+            r,
+            k.as_ptr(),
+            buf.as_mut_ptr().cast(),
+            buf_len,
+            &raw mut req,
+            &raw mut v,
+        )
+    };
+    let written = (st == ExpanseStrNavStatus::Ok).then(|| {
+        // SAFETY: on `Ok` the key and its NUL are in `buf`.
+        unsafe { CStr::from_ptr(buf.as_ptr().cast()) }
+            .to_bytes()
+            .to_vec()
+    });
+    if st != ExpanseStrNavStatus::Ok {
+        assert!(
+            buf.iter().all(|&b| b == 0x7F),
+            "{st:?} wrote into the buffer"
+        );
+    }
+    (st, written, req, v)
+}
+
+#[test]
+fn ordered_reads_and_the_buffer_contract() {
+    use ExpanseStrNavStatus::{BufferTooSmall, NotFound, Ok};
+    let m = expanse_sync_strmap_new();
+    let long = "apple pie, a long key over several hops";
+    let entries: [(&str, u64); 5] = [
+        ("", 1),
+        ("apple", 2),
+        (long, 3),
+        ("banana", 4),
+        ("cherry", 5),
+    ];
+    for (k, v) in entries {
+        let k = key(k);
+        // SAFETY: live handle; C-string key.
+        assert!(unsafe { expanse_sync_strmap_insert(m, k.as_ptr(), v, core::ptr::null_mut()) });
+    }
+    // SAFETY: the map outlives the reader, freed below before it.
+    let r = unsafe { expanse_sync_strmap_reader_new(m) };
+    let (mut buf, mut req, mut v) = ([0x7F_u8; 64], 0usize, 0u64);
+    let out: *mut c_char = buf.as_mut_ptr().cast();
+
+    // first / last, the length probe, and all-NULL outputs.
+    // SAFETY: live reader; `out` holds 64 bytes; the outputs are locals.
+    unsafe {
+        let st = expanse_sync_strmap_reader_first(r, out, 64, &raw mut req, &raw mut v);
+        assert_eq!(
+            (st, req, v, *out),
+            (Ok, 1, 1, 0),
+            "the empty key is the smallest"
+        );
+        let st = expanse_sync_strmap_reader_last(r, out, 64, &raw mut req, &raw mut v);
+        assert_eq!((st, req, v), (Ok, 7, 5));
+        assert_eq!(CStr::from_ptr(out).to_bytes(), b"cherry");
+        v = 0xDEAD;
+        let st =
+            expanse_sync_strmap_reader_last(r, core::ptr::null_mut(), 0, &raw mut req, &raw mut v);
+        assert_eq!(
+            (st, req, v),
+            (BufferTooSmall, 7, 0xDEAD),
+            "a probe writes only required_len"
+        );
+        let null_out = core::ptr::null_mut();
+        let st = expanse_sync_strmap_reader_first(r, null_out, 0, null_out.cast(), null_out.cast());
+        assert_eq!(st, BufferTooSmall);
+    }
+
+    let (apple, banana, b, z, empty) = (key("apple"), key("banana"), key("b"), key("z"), key(""));
+    let n: ByKeyNav = expanse_sync_strmap_reader_next_at_or_after;
+    let na: ByKeyNav = expanse_sync_strmap_reader_next_after;
+    let p: ByKeyNav = expanse_sync_strmap_reader_prev_at_or_before;
+    let pb: ByKeyNav = expanse_sync_strmap_reader_prev_before;
+    let lk = long.as_bytes().to_vec();
+    assert_eq!(nav(n, r, &apple, 64), (Ok, Some(b"apple".to_vec()), 6, 2));
+    assert_eq!(nav(n, r, &b, 64), (Ok, Some(b"banana".to_vec()), 7, 4));
+    assert_eq!(
+        nav(na, r, &apple, 64),
+        (Ok, Some(lk.clone()), long.len() + 1, 3)
+    );
+    assert_eq!(nav(na, r, &z, 64), (NotFound, None, usize::MAX, 0xDEAD));
+    assert_eq!(nav(p, r, &banana, 64), (Ok, Some(b"banana".to_vec()), 7, 4));
+    assert_eq!(nav(p, r, &b, 64), (Ok, Some(lk), long.len() + 1, 3));
+    assert_eq!(nav(pb, r, &apple, 64), (Ok, Some(Vec::new()), 1, 1));
+    assert_eq!(nav(pb, r, &empty, 64), (NotFound, None, usize::MAX, 0xDEAD));
+
+    // One byte short (no room for the NUL): nothing written, required length
+    // exact; then the exact length succeeds.
+    let short = nav(na, r, &apple, long.len());
+    assert_eq!(short, (BufferTooSmall, None, long.len() + 1, 0xDEAD));
+    assert_eq!(nav(na, r, &apple, long.len() + 1).0, Ok);
+
+    // NULL reader and NULL key: NotFound, nothing written.
+    let null_r: *const SyncStrMapReader = core::ptr::null();
+    assert_eq!(
+        nav(n, null_r, &apple, 64),
+        (NotFound, None, usize::MAX, 0xDEAD)
+    );
+    req = usize::MAX;
+    // SAFETY: a NULL reader and a NULL key are documented inputs; `out` holds
+    // 64 bytes; the outputs are locals.
+    unsafe {
+        let st = expanse_sync_strmap_reader_first(null_r, out, 64, &raw mut req, &raw mut v);
+        assert_eq!((st, req), (NotFound, usize::MAX));
+        let st = n(r, NULL_KEY, out, 64, &raw mut req, &raw mut v);
+        assert_eq!((st, req), (NotFound, usize::MAX));
+    }
+
+    // An empty map: every read is NotFound.
+    // SAFETY: `r` is freed before `m`; `er` before `e`.
+    unsafe {
+        expanse_sync_strmap_reader_free(r);
+        expanse_sync_strmap_free(m);
+        let e = expanse_sync_strmap_new();
+        let er = expanse_sync_strmap_reader_new(e);
+        let st = expanse_sync_strmap_reader_first(er, out, 64, &raw mut req, &raw mut v);
+        assert_eq!(st, NotFound);
+        assert_eq!(nav(p, er, &z, 64).0, NotFound);
+        expanse_sync_strmap_reader_free(er);
+        expanse_sync_strmap_free(e);
+    }
+}
+
+/// Walks the map with `_reader_first` and `_reader_next_after` into a buffer
+/// that starts too small, growing it from `required_len` on every
+/// `BufferTooSmall`. Returns the keys in walk order and how many reads came
+/// back too small.
+fn walk(r: *const SyncStrMapReader) -> (Vec<Vec<u8>>, usize) {
+    let mut buf = vec![0u8; 4];
+    let (mut out, mut too_small) = (Vec::new(), 0usize);
+    let mut prev: Option<CString> = None;
+    loop {
+        let mut req = 0usize;
+        let (dst, len, value) = (buf.as_mut_ptr().cast(), buf.len(), core::ptr::null_mut());
+        // SAFETY: `r` is live; `dst` holds `len` bytes; `prev` is a C string;
+        // `req` is a local.
+        let st = unsafe {
+            match &prev {
+                None => expanse_sync_strmap_reader_first(r, dst, len, &raw mut req, value),
+                Some(k) => expanse_sync_strmap_reader_next_after(
+                    r,
+                    k.as_ptr(),
+                    dst,
+                    len,
+                    &raw mut req,
+                    value,
+                ),
+            }
+        };
+        match st {
+            ExpanseStrNavStatus::NotFound => return (out, too_small),
+            ExpanseStrNavStatus::BufferTooSmall => {
+                too_small += 1;
+                assert!(req > buf.len());
+                buf.resize(req, 0);
+            }
+            ExpanseStrNavStatus::Ok => {
+                // SAFETY: on `Ok` the key and its NUL are in `buf`.
+                let k = unsafe { CStr::from_ptr(buf.as_ptr().cast()) }.to_owned();
+                assert_eq!(k.as_bytes().len() + 1, req);
+                out.push(k.as_bytes().to_vec());
+                prev = Some(k);
+            }
+        }
+    }
+}
+
+/// The gate of #1538 step 2: a walk built from `_reader_next_after` over a
+/// map under concurrent inserts and removes returns every key present
+/// throughout, in strictly increasing order, with the too-small retry taken.
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn ordered_walk_under_concurrent_writes_sees_every_stable_key_in_order() {
+    const STABLE: usize = 600;
+    const CHURN: usize = 600;
+    const READERS: usize = 3;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let m = expanse_sync_strmap_new();
+    // Stable keys of varied length, so a walk outgrows its buffer repeatedly.
+    let stable: Vec<CString> = (0..STABLE)
+        .map(|i| key(&format!("s{i:04}{}", "-".repeat(i % 37))))
+        .collect();
+    // Churned keys interleave with the stable ones in key order.
+    let churn: Vec<CString> = (0..CHURN).map(|i| key(&format!("s{i:04}~churn"))).collect();
+    for (i, k) in (0u64..).zip(&stable) {
+        // SAFETY: live handle; C-string key.
+        assert!(unsafe { expanse_sync_strmap_insert(m, k.as_ptr(), i, core::ptr::null_mut()) });
+    }
+    let addr = m as usize;
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|sc| {
+        let (stable, churn, stop) = (&stable, &churn, &stop);
+        for _ in 0..READERS {
+            sc.spawn(move || {
+                // SAFETY: the map outlives the scope; this thread's reader is
+                // used only here and freed before the scope ends.
+                let r = unsafe { expanse_sync_strmap_reader_new(addr as *const _) };
+                let (mut walks, mut retried) = (0u32, 0usize);
+                loop {
+                    let done = stop.load(Ordering::Acquire);
+                    let (keys, too_small) = walk(r);
+                    retried += too_small;
+                    assert!(keys.windows(2).all(|w| w[0] < w[1]), "walk out of order");
+                    let mut it = keys.iter();
+                    for s in stable {
+                        let seen = it.any(|k| k.as_slice() == s.as_bytes());
+                        assert!(seen, "walk missed stable key {s:?}");
+                    }
+                    walks += 1;
+                    if done {
+                        break;
+                    }
+                }
+                // SAFETY: no call on `r` is in progress; the map is alive.
+                unsafe { expanse_sync_strmap_reader_free(r) };
+                assert!(walks > 0);
+                assert!(retried > 0, "the too-small retry was never taken");
+            });
+        }
+        sc.spawn(move || {
+            for round in 0..200u64 {
+                for (i, k) in (0u64..).zip(churn) {
+                    let m = addr as *const SyncExpanseStrMap;
+                    // SAFETY: live handle; writes serialize internally.
+                    unsafe {
+                        if round.is_multiple_of(2) {
+                            expanse_sync_strmap_insert(m, k.as_ptr(), i, core::ptr::null_mut());
+                        } else {
+                            expanse_sync_strmap_remove(m, k.as_ptr(), core::ptr::null_mut());
+                        }
+                    }
+                }
+            }
+            stop.store(true, Ordering::Release);
+        });
+    });
+    // SAFETY: every reader was freed inside the scope.
+    unsafe { expanse_sync_strmap_free(m) };
 }

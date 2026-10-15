@@ -480,6 +480,12 @@ STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
         "expanse_sync_strmap_reader_free",
         "expanse_sync_strmap_reader_get",
         "expanse_sync_strmap_reader_contains",
+        "expanse_sync_strmap_reader_first",
+        "expanse_sync_strmap_reader_last",
+        "expanse_sync_strmap_reader_next_at_or_after",
+        "expanse_sync_strmap_reader_next_after",
+        "expanse_sync_strmap_reader_prev_at_or_before",
+        "expanse_sync_strmap_reader_prev_before",
     )
 }
 
