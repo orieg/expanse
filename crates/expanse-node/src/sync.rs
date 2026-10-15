@@ -14,6 +14,15 @@ fn map_entry((key, value): (u64, u64)) -> MapEntry {
     }
 }
 
+/// The outcome of `SyncExpanseMap.compareExchange`.
+#[napi(object)]
+pub struct CompareExchangeResult {
+    /// `true` when the new value was stored.
+    pub stored: bool,
+    /// The value the compare saw, or `null` if the key was absent.
+    pub observed: Either<BigInt, Null>,
+}
+
 // abi-parity: expanse_sync_map_free
 /// A thread-safe concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
@@ -97,6 +106,78 @@ impl SyncExpanseMap {
     pub fn get(&self, key: KeyInput) -> Result<Option<BigInt>> {
         let k = key_to_u64(key)?;
         Ok(self.inner.get(k).map(BigInt::from))
+    }
+
+    // abi-parity: expanse_sync_map_compare_exchange
+    /// Atomic compare-and-swap on one key: stores `newValue` under `key` only if the
+    /// key's current value is `expected`, as one linearizable step. `null` (or
+    /// `undefined`) is "absent" on both sides, so `(null, v)` inserts if absent and
+    /// `(e, null)` removes if equal.
+    ///
+    /// `stored` is `true` when the store happened; `observed` is the value the compare
+    /// saw (equal to `expected` when `stored`), which a caller retries against.
+    #[napi]
+    pub fn compare_exchange(
+        &self,
+        key: KeyInput,
+        expected: Option<KeyInput>,
+        new_value: Option<KeyInput>,
+    ) -> Result<CompareExchangeResult> {
+        let k = key_to_u64(key)?;
+        let e = expected.map(key_to_u64).transpose()?;
+        let n = new_value.map(key_to_u64).transpose()?;
+        Ok(match self.inner.compare_exchange(k, e, n) {
+            Ok(seen) => CompareExchangeResult {
+                stored: true,
+                observed: seen.map_or(Either::B(Null), |v| Either::A(BigInt::from(v))),
+            },
+            Err(seen) => CompareExchangeResult {
+                stored: false,
+                observed: seen.map_or(Either::B(Null), |v| Either::A(BigInt::from(v))),
+            },
+        })
+    }
+
+    // abi-parity: expanse_sync_map_get_or_insert
+    /// Stores `value` under `key` only if `key` is absent, as one linearizable step.
+    /// Returns the value already present (left untouched), or `null` when `value` was
+    /// stored, as `set` returns a previous value.
+    #[napi]
+    pub fn get_or_insert(&self, key: KeyInput, value: KeyInput) -> Result<Option<BigInt>> {
+        let k = key_to_u64(key)?;
+        let v = key_to_u64(value)?;
+        Ok(self.inner.get_or_insert(k, v).map(BigInt::from))
+    }
+
+    /// Read-modify-write on one key: replaces the value with `fn(current)`, where
+    /// `current` is the value or `null` if absent, and `fn` returns the new value or
+    /// `null` to remove the key. Returns the value that was replaced (`null` if the
+    /// key was absent).
+    ///
+    /// A retry loop over `compareExchange` that runs on the calling thread: `fn` is
+    /// called again with the observed value whenever the exchange loses, which needs a
+    /// write to the key between the read and the exchange (from `fn` itself, as the
+    /// addon's objects are not shared across worker threads), and may run more than once
+    /// per call, so it must be free of side effects. An exception thrown by `fn`
+    /// propagates and leaves the key unchanged.
+    #[napi]
+    pub fn update(
+        &self,
+        key: KeyInput,
+        r#fn: Function<Option<BigInt>, Option<KeyInput>>,
+    ) -> Result<Option<BigInt>> {
+        let k = key_to_u64(key)?;
+        let mut expected = self.inner.get(k);
+        loop {
+            let new = r#fn
+                .call(expected.map(BigInt::from))?
+                .map(key_to_u64)
+                .transpose()?;
+            match self.inner.compare_exchange(k, expected, new) {
+                Ok(prev) => return Ok(prev.map(BigInt::from)),
+                Err(seen) => expected = seen,
+            }
+        }
     }
 
     // abi-parity: expanse_sync_map_remove

@@ -580,6 +580,102 @@ test('SyncExpanseMap concurrent map operations', () => {
   assert.deepStrictEqual(syncMap.prev(300n), { key: 100n, value: 1000n });
 });
 
+test('SyncExpanseMap compareExchange covers every branch', () => {
+  const m = new SyncExpanseMap();
+  // absent == absent with nothing to store: succeeds, observes absent.
+  assert.deepStrictEqual(m.compareExchange(1n, null, null), { stored: true, observed: null });
+  assert.strictEqual(m.has(1n), false);
+  // insert-if-absent on an absent key (a Number is accepted like everywhere else).
+  assert.deepStrictEqual(m.compareExchange(1, null, 10), { stored: true, observed: null });
+  assert.strictEqual(m.get(1n), 10n);
+  // insert-if-absent against a present key fails and reports the word seen.
+  assert.deepStrictEqual(m.compareExchange(1n, null, 99n), { stored: false, observed: 10n });
+  assert.strictEqual(m.get(1n), 10n);
+  // absent == absent against a present key fails.
+  assert.deepStrictEqual(m.compareExchange(1n, undefined, undefined), { stored: false, observed: 10n });
+  // expected present, wrong value: fails, value unchanged.
+  assert.deepStrictEqual(m.compareExchange(1n, 11n, 12n), { stored: false, observed: 10n });
+  assert.strictEqual(m.get(1n), 10n);
+  // expected present against an absent key: fails, observes absent.
+  assert.deepStrictEqual(m.compareExchange(2n, 5n, 6n), { stored: false, observed: null });
+  assert.strictEqual(m.has(2n), false);
+  // replace on match.
+  assert.deepStrictEqual(m.compareExchange(1n, 10n, 20n), { stored: true, observed: 10n });
+  assert.strictEqual(m.get(1n), 20n);
+  // remove-if-equals: mismatch leaves it, match removes it.
+  assert.deepStrictEqual(m.compareExchange(1n, 21n, null), { stored: false, observed: 20n });
+  assert.strictEqual(m.get(1n), 20n);
+  assert.deepStrictEqual(m.compareExchange(1n, 20n, null), { stored: true, observed: 20n });
+  assert.strictEqual(m.has(1n), false);
+  // Every u64 is a legal value, 0 and the maximum included.
+  const top = 2n ** 64n - 1n;
+  assert.deepStrictEqual(m.compareExchange(3n, null, 0n), { stored: true, observed: null });
+  assert.deepStrictEqual(m.compareExchange(3n, 0n, top), { stored: true, observed: 0n });
+  assert.strictEqual(m.get(3n), top);
+  assert.throws(() => m.compareExchange(3n, null, 2n ** 64n));
+  assert.throws(() => m.compareExchange(3n, -1n, null));
+});
+
+test('SyncExpanseMap getOrInsert stores only into an absent key', () => {
+  const m = new SyncExpanseMap();
+  assert.strictEqual(m.getOrInsert(7n, 70n), null); // stored
+  assert.strictEqual(m.get(7n), 70n);
+  assert.strictEqual(m.getOrInsert(7n, 71n), 70n); // present: existing value, untouched
+  assert.strictEqual(m.get(7n), 70n);
+  assert.strictEqual(m.getOrInsert(8n, 0n), null); // zero is a value, not absence
+  assert.strictEqual(m.getOrInsert(8n, 5n), 0n);
+});
+
+test('SyncExpanseMap update stores, removes and propagates errors', () => {
+  const m = new SyncExpanseMap();
+  const seen = [];
+  const inc = (cur) => {
+    seen.push(cur);
+    return (cur ?? 0n) + 1n;
+  };
+  assert.strictEqual(m.update(5n, inc), null); // absent: replaced value is null
+  assert.strictEqual(m.update(5n, inc), 1n);
+  assert.strictEqual(m.get(5n), 2n);
+  assert.deepStrictEqual(seen, [null, 1n]);
+  // Returning null removes the key and reports the replaced value; undefined removes too.
+  assert.strictEqual(m.update(5n, () => null), 2n);
+  assert.strictEqual(m.has(5n), false);
+  assert.strictEqual(m.update(5n, () => null), null);
+  m.set(6n, 60n);
+  assert.strictEqual(m.update(6n, () => undefined), 60n);
+  assert.strictEqual(m.has(6n), false);
+  // A Number result is accepted.
+  assert.strictEqual(m.update(9n, () => 4), null);
+  assert.strictEqual(m.get(9n), 4n);
+  // An exception from fn propagates and leaves the key unchanged.
+  m.set(6n, 60n);
+  assert.throws(() => m.update(6n, () => { throw new Error('fn failed'); }), /fn failed/);
+  assert.strictEqual(m.get(6n), 60n);
+  // A result that is not a u64 is an error, not a store.
+  assert.throws(() => m.update(6n, () => -1n));
+  assert.strictEqual(m.get(6n), 60n);
+});
+
+test('SyncExpanseMap update retries on interference and counts exactly', () => {
+  const m = new SyncExpanseMap();
+  m.set(1n, 100n);
+  const calls = [];
+  // A competing write lands between fn's read and the exchange.
+  const prev = m.update(1n, (cur) => {
+    calls.push(cur);
+    if (calls.length === 1) m.set(1n, 200n);
+    return cur + 1n;
+  });
+  assert.strictEqual(prev, 200n);
+  assert.deepStrictEqual(calls, [100n, 200n]);
+  assert.strictEqual(m.get(1n), 201n);
+  // The addon's objects live on one JS thread, so there is no multi-threaded
+  // form of this test; a long run of updates must still end at the exact total.
+  const counter = new SyncExpanseMap();
+  for (let i = 0; i < 20000; i++) counter.update(0n, (cur) => (cur ?? 0n) + 1n);
+  assert.strictEqual(counter.get(0n), 20000n);
+});
+
 test('SyncExpanseMap memUsed grows with the population', () => {
   const syncMap = new SyncExpanseMap();
   const empty = syncMap.memUsed();
