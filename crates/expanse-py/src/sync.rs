@@ -181,6 +181,62 @@ impl SyncExpanseMap {
         py.detach(|| self.inner.insert(key, val))
     }
 
+    // abi-parity: expanse_sync_map_compare_exchange
+    /// Atomic compare-and-swap on one key, releasing the GIL: stores `new` under
+    /// `key` only if the key's current value is `expected`, as one linearizable step.
+    ///
+    /// `None` means "absent" on both sides, so `(None, v)` is insert-if-absent and
+    /// `(e, None)` is remove-if-equals. Returns `(stored, observed)`: `stored` is
+    /// `True` when the store happened, and `observed` is the value the compare saw
+    /// (equal to `expected` when `stored`), which a caller retries against.
+    pub fn compare_exchange(
+        &self,
+        py: Python<'_>,
+        key: u64,
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> (bool, Option<u64>) {
+        match py.detach(|| self.inner.compare_exchange(key, expected, new)) {
+            Ok(seen) => (true, seen),
+            Err(seen) => (false, seen),
+        }
+    }
+
+    // abi-parity: expanse_sync_map_get_or_insert
+    /// Stores `val` under `key` only if `key` is absent, releasing the GIL, as one
+    /// linearizable step. Returns the value already present (left untouched), or
+    /// `None` when `val` was stored, as `insert` returns a previous value.
+    pub fn get_or_insert(&self, py: Python<'_>, key: u64, val: u64) -> Option<u64> {
+        py.detach(|| self.inner.get_or_insert(key, val))
+    }
+
+    /// Read-modify-write on one key: replaces the value with `fn(current)`, where
+    /// `current` is the value or `None` if absent, and `fn` returns the new value
+    /// or `None` to remove the key. Returns the value that was replaced (`None`
+    /// if the key was absent).
+    ///
+    /// This is a retry loop over `compare_exchange` that holds the GIL only
+    /// while `fn` runs, so `fn` is called again with the observed value whenever
+    /// a concurrent writer wins, and may run several times for one call: it must
+    /// be free of side effects. An exception raised by `fn` propagates and leaves
+    /// the key unchanged. (Named `update_with` because `update(other)` is the
+    /// dict-style bulk merge.)
+    pub fn update_with(
+        &self,
+        py: Python<'_>,
+        key: u64,
+        r#fn: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<u64>> {
+        let mut expected = py.detach(|| with_map_reader(&self.inner, |r| r.get(&self.inner, key)));
+        loop {
+            let new: Option<u64> = r#fn.call1((expected,))?.extract()?;
+            match py.detach(|| self.inner.compare_exchange(key, expected, new)) {
+                Ok(prev) => return Ok(prev),
+                Err(seen) => expected = seen,
+            }
+        }
+    }
+
     // abi-parity: expanse_sync_map_remove
     /// Removes `key` releasing the GIL; returns its previous value, or `None` if absent.
     ///
