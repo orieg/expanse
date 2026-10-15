@@ -1905,6 +1905,21 @@ jobs:
               INTEGRITY_FAIL=1
             fi
           fi
+          # Ordered readers on the set (#1194, concurrency METHODOLOGY.md
+          # §36.12 item 4): the same record, for the same reason. §36.6 voids a
+          # run on foreign load the driver cannot see (a single foreign process
+          # above 100% of a CPU, and foreign load on the pinned CPUs), so the
+          # guard's verdict goes into the artifact's provenance and
+          # admissibility is decided from the artifact alone. A run whose
+          # driver wrote no artifact has nothing to attach to and fails here,
+          # as it already failed above.
+          if [ "$SUITE" = "writer_scaling_set_ordered_readers" ]; then
+            if ! python3 "$RUNNER_TEMP/bench-tools/scripts/bench_host_guard.py" attach \
+              --check host-guard.json --summary host-activity.json --watcher-ok "$HOST_WATCH_OK" \
+              docs/benchmarks/concurrency/results/ordered_readers_set_writer_scaling.json; then
+              INTEGRITY_FAIL=1
+            fi
+          fi
 
           # Report Generation Step
           # ====================================================================
