@@ -5942,7 +5942,7 @@ Per-node versions do not spin: `node_sample` answers `None` on an odd word and t
 - It compiles without `std` (`occ.rs` has no `std` gate on it), where there is no thread to yield to; the two writer-side waits exist only with `std` (`sync.rs:2450`, `:2514`).
 - Its holder's section is a tree-level bracket, which since #568 PR 3 is open only while one frame stores, and since §30 no longer spans a compaction's copy. A wait there is long only if the holder loses its CPU inside the bracket. Whether that happens often enough to matter is unmeasured.
 
-So the counters pass of every cell reports `sample_spins` and `sample_spin_cycles` beside `gate_wait_cycles` and `quiesce_drain_cycles` (`crates/expanse/src/occ_stats.rs:67`, `:95`, `:170`, `:174`), each as a share of the window's thread time. No verdict reads them. A change to `sample` needs a registration of its own, made against those figures.
+So the counters pass of every cell reports `sample_spins` and `sample_spin_cycles` beside `gate_wait_cycles` and `quiesce_drain_cycles` (`crates/expanse/src/occ_stats.rs:67`, `:95`, `:170`, `:174`), each as a share of the window's thread time. No verdict reads them. *(Amended by §37.10 (c).)* A change to `sample` needs a registration of its own, made against those figures.
 
 ### 37.3 The builds
 
@@ -5951,7 +5951,7 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
 | Build | Feature | The two writer-side waits |
 |---|---|---|
 | default | none | `spin_loop` until the condition holds, as on `main` |
-| variant | `ablation-gate-spin-then-yield` | the same first check; on its failure, an out-of-line slow path that calls `spin_loop` for the next `N` failed checks and `std::thread::yield_now()` once after every failed check from then on |
+| variant | `ablation-gate-spin-then-yield` | the same first check; on its failure, an out-of-line slow path that calls `spin_loop` for the next `N` failed checks and `std::thread::yield_now()` once after every failed check from then on *(amended by §37.10 (b))* |
 
 - **N = 64.** It is the spin budget the engine already uses: the mutation loops' backoff is capped at 64 `spin_loop` calls (`sync.rs:2654-2659`) and `MAX_RETRIES` is 64 (`sync.rs:165`). It was chosen to add no new magnitude, and it was not tuned. Another `N` is another variant and needs its own registration; a sweep over `N` after seeing a result is the tuning AGENTS.md §8.19 prices.
 - **The slow path is out of line.** The first check stays where it is. Everything after its failure is in a `#[cold]`, `#[inline(never)]` function, in the variant build. In the default build the feature's code does not exist.
@@ -5963,7 +5963,7 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
 - *P37.1, default build.* Every Callgrind arm that exists on the base changes by at most 0.1% (AGENTS.md §6), and the bench binary's disassembly differs from the base's in nothing but anonymous symbol hashes.
 - *P37.2, variant build.* A Callgrind pass of the `instructions` bench built with the feature, against the default build of the same commit: every `sync_*` arm and every plain-tree arm within 0.1%. The benches are single-threaded, so the slow path is never entered; what this checks is that the out-of-line call did not move the callers.
   - *How it is taken.* No job runs that bench under a feature list today: every `cargo bench --bench instructions` in the workflows is the default build (`.github/workflows/bench_baremetal.yml:1054`, `:1174-1189`, `:1508-1510`), and no `--features` line of `ci.yml` names a bench. The implementation pull request therefore adds a temporary step to its own `instruction-counts` job, on the same runner: the default build saved as a baseline, then `cargo bench --bench instructions -p expanse-trie --features ablation-gate-spin-then-yield` compared against it. That step's log is the cited evidence. The step is removed before merge, with the `allow-gate-weakening: ci-integrity` line the removal of a verification step needs, unless the verdict promotes the variant, in which case the default pass covers it.
-- *Disassembly.* `objdump -d -C` of both builds: the count of `%fs:` reads in `nav::next`, `nav::prev` and `mutate::insert_with_path_flat` is unchanged, and the body of each caller of `enter_writer_blocking` differs only by the call into the slow path.
+- *Disassembly.* `objdump -d -C` of both builds: the count of `%fs:` reads in `nav::next`, `nav::prev` and `mutate::insert_with_path_flat` is unchanged, and the body of each caller of `enter_writer_blocking` differs only by the call into the slow path. *(Amended by §37.10 (a).)*
 - *Loom.* The Loom lane passes with the feature on.
 - **Falsifier:** any arm above 0.1% in either pass. The experiment does not run on a build that fails these.
 
@@ -5991,7 +5991,7 @@ Cargo features, by the conventions of AGENTS.md §2.7. The default stays what sh
 - *Builds.* `reclaim_stall.py` builds one binary, with no feature list (`docs/benchmarks/concurrency/scripts/reclaim_stall.py:70-73`). It gains a build list (default, and the feature), runs both builds of a cell in each round, and labels every row with its build.
 - *Pin.* The driver pins itself once through `bench_pin.apply` (`reclaim_stall.py:178`), which honours `EXPANSE_BENCH_PIN=<list>` (`scripts/bench_pin.py:28`); the suite's dispatch `case` sets none, so today's runs take the host's P-core list, `0-15` (`bench_baremetal.yml:1502-1504`). Cells O, C and O-large need `0,2,4,6,8,10,12,14` and cell S needs `0-15`, in one run. The driver gains a pin per cell, applied to the child process, recorded in each row and refused if the applied list differs.
 - *Cells.* Its cell table is fixed (`reclaim_stall.py:38-45`) and holds §29's cells. This experiment is a mode of its own with cells O, C, O-large and S, a suite name of its own and an artifact of its own; §29's cells and baseline artifact are not touched.
-- *The harm cell.* `writer_scaling.py` already builds a feature list against the default for its ablation sweeps (`docs/benchmarks/concurrency/scripts/writer_scaling.py:321-331`) and gains this one cell pair.
+- *The harm cell.* `writer_scaling.py` already builds a feature list against the default for its ablation sweeps (`docs/benchmarks/concurrency/scripts/writer_scaling.py:321-331`) and gains this one cell pair. *(Amended by §37.10 (d).)*
 
 ### 37.5 Statistics, fixed now
 
@@ -6056,6 +6056,18 @@ It is decided on #1479 as its own item, by review, on three points this section 
 ### 37.9 Open questions
 
 None. The section number, 37, is the next free one at lock time and may move at merge.
+
+### 37.10 Amendment from the implementation (appended 2026-10-15, registered before any run of the builds in §37.3; §37.1 to §37.9 are not rewritten)
+
+Four points where the implementation (#1540) departs from or settles the text above. Each is registered here before any §37 run. No threshold, cell, statistic, round count, pin or verdict rule changes.
+
+**(a) The disassembly clause of §37.3.** *§37 said:* the body of each caller of `enter_writer_blocking` differs only by the call into the slow path. *Found:* in `objdump -d -C` of the `instructions` bench built in `rust:1.98` on Linux x86_64, the default build is identical to its base `a847e4b2e` once anonymous-symbol hashes are normalised, and `nav::next`, `nav::prev` and `mutate::insert_with_path_flat` have no `%fs:` read and identical bodies in base, default and variant. The variant differs from the default in 63 of 1,789 common functions: 5 in `int3` padding only, the rest `Sync*` wrapper functions that reach `enter_writer_blocking` or `quiesce_writers`. These differ by register allocation and block layout as well as by the call. The clause is not met as worded, and no out-of-line call is expected to meet it. *Registered instead:* the `%fs:`-count part of the clause stands; whether the layout difference matters is decided by P37.2's bound, every `sync_*` and plain-tree arm within 0.1% on the variant build, which is unchanged. *Detection:* same. The clause could only refuse a build; P37.2 measures the paths the clause was a proxy for.
+
+**(b) "for the next `N` failed checks".** *§37 said:* `spin_loop` for the next `N` failed checks, then a yield after every failed check. *Registered instead:* the inline first check counts, so `spin_loop` follows each of the first 64 failed checks and the first yield follows the 65th (`GATE_SPIN_BUDGET = 64`, `crates/expanse/src/occ.rs:1130`; `spin_then_yield`, `:1146`). The other reading spins once more. *Detection:* same; one `spin_loop` is not a different magnitude.
+
+**(c) Counter rounds, and cell H's counters.** *§37.2 said:* the counters pass of every cell reports the four counters as shares of the window's thread time, with no round count named. *Registered instead:* one counters process per (cell, build), after every timed round (`docs/benchmarks/concurrency/scripts/reclaim_stall.py:614`). For O, C, O-large and S the shares are recorded. For H the counters row carries no timing, because `writer_scaling` never times in a counters binary, so H's waits are recorded as raw ticks, not shares. No verdict reads any of them. *Detection:* weaker for H's shares, which are not recorded; same for every verdict.
+
+**(d) Where cell H runs.** *§37.4 said:* `writer_scaling.py` gains this one cell pair. *Registered instead:* the cell is defined in `writer_scaling.py` (`SPIN_YIELD_HARM_CELL`, `spin_yield_harm_row`, `docs/benchmarks/concurrency/scripts/writer_scaling.py:4264`) and run by the `reclaim_stall.py --spin-yield` driver inside the same schedule, pin rules and artifact as O, C, O-large and S, so one dispatch yields every cell §37.6's run verdict reads. *Detection:* same or stronger: H's rounds interleave with the other cells' under one host-guard record, rather than coming from a separate dispatch.
 
 ---
 
