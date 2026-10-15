@@ -155,6 +155,8 @@ var (
 	expanse_sync_map_insert                   func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
 	expanse_sync_map_get                      func(mapPtr uintptr, key uint64, valueOut *uint64) bool
 	expanse_sync_map_remove                   func(mapPtr uintptr, key uint64, oldOut *uint64) bool
+	expanse_sync_map_compare_exchange         func(mapPtr uintptr, key uint64, expectedPresent bool, expectedValue uint64, newPresent bool, newValue uint64, observedPresentOut *bool, observedOut *uint64) bool
+	expanse_sync_map_get_or_insert            func(mapPtr uintptr, key, value uint64, existingOut *uint64) bool
 	expanse_sync_map_len                      func(mapPtr uintptr) uint64
 	expanse_sync_map_mem_used                 func(mapPtr uintptr) uintptr
 	expanse_sync_map_mem_held                 func(mapPtr uintptr) uintptr
@@ -361,6 +363,8 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_sync_map_insert, "expanse_sync_map_insert"},
 		{&expanse_sync_map_get, "expanse_sync_map_get"},
 		{&expanse_sync_map_remove, "expanse_sync_map_remove"},
+		{&expanse_sync_map_compare_exchange, "expanse_sync_map_compare_exchange"},
+		{&expanse_sync_map_get_or_insert, "expanse_sync_map_get_or_insert"},
 		{&expanse_sync_map_len, "expanse_sync_map_len"},
 		{&expanse_sync_map_mem_used, "expanse_sync_map_mem_used"},
 		{&expanse_sync_map_mem_held, "expanse_sync_map_mem_held"},

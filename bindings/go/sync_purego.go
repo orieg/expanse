@@ -155,6 +155,30 @@ func (m *SyncMap) Delete(key uint64) bool {
 	return expanse_sync_map_remove(m.ptr, key, nil)
 }
 
+// CompareExchange stores newValue under key only if the key's current word is
+// expected, as one linearizable step. See Word for the absent forms: an absent
+// expected means "only if the key is absent", an absent newValue means "remove
+// the key". It reports the word the compare saw whether or not the store
+// happened, so a failed call hands back the word to retry against.
+func (m *SyncMap) CompareExchange(key uint64, expected, newValue Word) (observed Word, stored bool) {
+	defer runtime.KeepAlive(m)
+	var seenPresent bool
+	var seen uint64
+	stored = expanse_sync_map_compare_exchange(m.ptr, key, expected.Present, expected.Value, newValue.Present, newValue.Value, &seenPresent, &seen)
+	return Word{Value: seen, Present: seenPresent}, stored
+}
+
+// GetOrInsert stores value under key only if the key is absent, as one
+// linearizable step. It returns (existing, true) when the key was present,
+// leaving it untouched, and (0, false) when value was stored.
+func (m *SyncMap) GetOrInsert(key, value uint64) (existing uint64, ok bool) {
+	defer runtime.KeepAlive(m)
+	if expanse_sync_map_get_or_insert(m.ptr, key, value, &existing) {
+		return 0, false
+	}
+	return existing, true
+}
+
 func (m *SyncMap) Size() uint64 {
 	defer runtime.KeepAlive(m)
 	return expanse_sync_map_len(m.ptr)
