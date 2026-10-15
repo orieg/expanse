@@ -930,6 +930,43 @@ bool expanse_sync_strmap_reader_get(const expanse_sync_strmap_reader_t *reader, 
 bool expanse_sync_strmap_reader_contains(const expanse_sync_strmap_reader_t *reader,
                                          const char *key);
 
+/*
+ * Ordered reads through a string-map reader handle: the smallest entry, the
+ * largest, and the nearest entry at-or-after / after / at-or-before / before
+ * `key`. Each is one validated read with the retry budget and fallback of
+ * _reader_get: the entry returned was present, and every key the search
+ * passed over was absent, at one instant. A walk built from repeated
+ * next_after calls is not a snapshot: it sees every key present throughout
+ * it, in order, and may or may not see keys inserted or removed meanwhile.
+ *
+ * Status and outputs follow the expanse_strmap_*_ex contract above. OK: the
+ * NUL-terminated key is in key_out, *required_len (if non-NULL) is its length
+ * plus 1, and *value_out (if non-NULL) its value. BUFFER_TOO_SMALL: a key was
+ * found but buf_len is below *required_len (or key_out is NULL; NULL with 0
+ * is a valid length probe); only *required_len is written. NOT_FOUND: no such
+ * entry, which includes prev_before(""), or a NULL reader or key; nothing is
+ * written. A retry after BUFFER_TOO_SMALL is a new read, so it may return a
+ * different key if a writer ran in between.
+ */
+expanse_str_nav_status expanse_sync_strmap_reader_first(const expanse_sync_strmap_reader_t *reader,
+                                                        char *key_out, size_t buf_len,
+                                                        size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_sync_strmap_reader_last(const expanse_sync_strmap_reader_t *reader,
+                                                       char *key_out, size_t buf_len,
+                                                       size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_sync_strmap_reader_next_at_or_after(
+    const expanse_sync_strmap_reader_t *reader, const char *key, char *key_out, size_t buf_len,
+    size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_sync_strmap_reader_next_after(
+    const expanse_sync_strmap_reader_t *reader, const char *key, char *key_out, size_t buf_len,
+    size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_sync_strmap_reader_prev_at_or_before(
+    const expanse_sync_strmap_reader_t *reader, const char *key, char *key_out, size_t buf_len,
+    size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_sync_strmap_reader_prev_before(
+    const expanse_sync_strmap_reader_t *reader, const char *key, char *key_out, size_t buf_len,
+    size_t *required_len, uint64_t *value_out);
+
 /* ---- ExpanseBlobMap: polymorphic large-value map with inline/arena backing ---- */
 
 typedef struct ExpanseBlobMap ExpanseBlobMap;

@@ -7,6 +7,7 @@
 //! `docs/COMPAT.md`.
 
 use super::super::{cstr, put};
+use super::ExpanseStrNavStatus;
 use core::ffi::c_char;
 use expanse_trie::sync::{
     MapReader, SetReader, StrReader, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
@@ -843,3 +844,141 @@ pub unsafe extern "C" fn expanse_sync_strmap_reader_contains(
     };
     r.0.contains(k)
 }
+
+// ---- Ordered reads through a string-map reader handle (#1538) ----
+//
+// Each is one optimistic ordered read of `StrReader` (#1143): validated, with
+// the retry budget and writer-excluding fallback of `_reader_get`. The key
+// comes back as an owned `Vec`, copied out under validation, and reaches the
+// caller's buffer under the `expanse_strmap_*_ex` contract.
+
+/// Writes an ordered read's answer under the `expanse_strmap_*_ex` contract:
+/// `NotFound` with nothing written; `BufferTooSmall` with only
+/// `*required_len` written (key length plus the NUL); `Ok` with the key, its
+/// NUL, `*required_len` and `*value_out` written.
+///
+/// # Safety
+///
+/// `key_out` null or writable for `buf_len` bytes; `required_len` and
+/// `value_out` null or writable.
+unsafe fn put_str_entry(
+    found: Option<(Vec<u8>, u64)>,
+    key_out: *mut c_char,
+    buf_len: usize,
+    required_len: *mut usize,
+    value_out: *mut u64,
+) -> ExpanseStrNavStatus {
+    let Some((key, value)) = found else {
+        return ExpanseStrNavStatus::NotFound;
+    };
+    let needed = key.len() + 1;
+    // SAFETY: `required_len` null or writable per contract.
+    unsafe { put(required_len, needed) };
+    if key_out.is_null() || buf_len < needed {
+        return ExpanseStrNavStatus::BufferTooSmall;
+    }
+    // SAFETY: `key_out` is non-null and writable for `buf_len >= needed`
+    // bytes; `key` is a separate allocation, so the ranges do not overlap;
+    // `value_out` null or writable per contract.
+    unsafe {
+        core::ptr::copy_nonoverlapping(key.as_ptr().cast::<c_char>(), key_out, key.len());
+        *key_out.add(key.len()) = 0;
+        put(value_out, value);
+    }
+    ExpanseStrNavStatus::Ok
+}
+
+/// Smallest entry, through a registered string-map reader.
+///
+/// # Safety
+///
+/// `reader` must be null or live (its map still alive); `key_out` null or
+/// writable for `buf_len` bytes; `required_len` and `value_out` null or
+/// writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_reader_first(
+    reader: *const SyncStrMapReader,
+    key_out: *mut c_char,
+    buf_len: usize,
+    required_len: *mut usize,
+    value_out: *mut u64,
+) -> ExpanseStrNavStatus {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.first());
+    // SAFETY: out-pointers forwarded per contract.
+    unsafe { put_str_entry(found, key_out, buf_len, required_len, value_out) }
+}
+
+/// Largest entry, through a registered string-map reader.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_sync_strmap_reader_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_reader_last(
+    reader: *const SyncStrMapReader,
+    key_out: *mut c_char,
+    buf_len: usize,
+    required_len: *mut usize,
+    value_out: *mut u64,
+) -> ExpanseStrNavStatus {
+    // SAFETY: null or live reader per contract.
+    let found = unsafe { reader.as_ref() }.and_then(|r| r.0.last());
+    // SAFETY: out-pointers forwarded per contract.
+    unsafe { put_str_entry(found, key_out, buf_len, required_len, value_out) }
+}
+
+/// Generates a by-key ordered read through a registered string-map reader.
+macro_rules! sync_strmap_reader_nav {
+    ($name:ident, $method:ident, $doc:literal) => {
+        #[doc = $doc]
+        ///
+        /// Status and outputs as [`expanse_sync_strmap_reader_first`]; a NULL
+        /// reader or NULL `key` returns `NotFound` and writes nothing.
+        ///
+        /// # Safety
+        ///
+        /// `reader` must be null or live (its map still alive); `key` null or
+        /// a valid NUL-terminated C string; `key_out` null or writable for
+        /// `buf_len` bytes; `required_len` and `value_out` null or writable.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            reader: *const SyncStrMapReader,
+            key: *const c_char,
+            key_out: *mut c_char,
+            buf_len: usize,
+            required_len: *mut usize,
+            value_out: *mut u64,
+        ) -> ExpanseStrNavStatus {
+            // SAFETY: null or live reader and null or valid C string per
+            // contract.
+            let (Some(r), Some(k)) = (unsafe { reader.as_ref() }, unsafe { cstr(key) }) else {
+                return ExpanseStrNavStatus::NotFound;
+            };
+            // SAFETY: out-pointers forwarded per contract.
+            unsafe { put_str_entry(r.0.$method(k), key_out, buf_len, required_len, value_out) }
+        }
+    };
+}
+
+sync_strmap_reader_nav!(
+    expanse_sync_strmap_reader_next_at_or_after,
+    next_at_or_after,
+    "Smallest entry with key `>= key`, through a registered string-map reader."
+);
+sync_strmap_reader_nav!(
+    expanse_sync_strmap_reader_next_after,
+    next_after,
+    "Smallest entry with key `> key`, through a registered string-map reader."
+);
+sync_strmap_reader_nav!(
+    expanse_sync_strmap_reader_prev_at_or_before,
+    prev_at_or_before,
+    "Largest entry with key `<= key`, through a registered string-map reader."
+);
+sync_strmap_reader_nav!(
+    expanse_sync_strmap_reader_prev_before,
+    prev_before,
+    "Largest entry with key `< key`, through a registered string-map reader; \
+     `NotFound` for the empty key."
+);
