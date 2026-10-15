@@ -3710,12 +3710,44 @@ def run_set_ordered_readers(args: argparse.Namespace) -> int:
     return 0
 
 
+def set_host_guard_void_reasons(art: dict[str, Any], where: str) -> list[str]:
+    """Why the workflow's host guard voids this artifact's run, or `[]` when it admits it (§36.6, §36.12 item 4).
+
+    Reads `provenance.host_guard` as `bench_host_guard.py attach` writes it and as
+    `scripts/patricia_d2_bounds.py::a5_host_condition` reads it for the D2 suite:
+    the start gate must read `quiet`, the watcher's record must be complete
+    (`watcher_ok` true), and the in-run record must hold a sample and no void
+    (`run.verdict` other than `disturbed`, `run.voids == 0`). Anything not
+    recorded is not admitted. An artifact with no record at all is refused, not
+    read as quiet (§8.1): #1507 requires the record on this suite.
+    """
+    guard = art.get("provenance", {}).get("host_guard")
+    if not isinstance(guard, dict):
+        raise ValueError(f"{where} carries no provenance.host_guard record; its host admissibility cannot be decided (§36.12 item 4)")
+    start, run = guard.get("start") or {}, guard.get("run") or {}
+    reasons: list[str] = []
+    if start.get("verdict") != "quiet":
+        reasons.append(f"the start gate read {start.get('verdict')!r}, not 'quiet'")
+    if guard.get("watcher_ok") is not True:
+        reasons.append("the host watcher's record is incomplete")
+    samples = run.get("samples")
+    if isinstance(samples, bool) or not isinstance(samples, (int, float)) or samples < 1:
+        reasons.append("the in-run record holds no sample")
+    if run.get("verdict") == "disturbed":
+        reasons.append("the in-run verdict is 'disturbed'")
+    if run.get("voids") != 0:
+        reasons.append(f"{run.get('voids')!r} in-run void(s): {'; '.join(run.get('reasons') or []) or 'no reason recorded'}")
+    return reasons
+
+
 def combine_set_ordered_readers_verdict(paths: list[Path | str]) -> dict[str, Any]:
     """The pair verdict of one pair's dispatches, in order, read from their artifacts (§36.8).
 
     Refuses an artifact without the `set_ordered_readers` section, one taken
-    with `--quick`, and dispatches at different commits (the pair is one SHA).
-    A void run is counted as a void dispatch, not dropped.
+    with `--quick`, one without a host-guard record, and dispatches at
+    different commits (the pair is one SHA). A run the host guard voids
+    (`set_host_guard_void_reasons`) is counted as a void dispatch, whatever
+    verdict the driver's section reads; the driver cannot see foreign load.
     """
     arts = []
     for p in map(Path, paths):
@@ -3723,6 +3755,7 @@ def combine_set_ordered_readers_verdict(paths: list[Path | str]) -> dict[str, An
             raise ValueError(f"artifact does not exist: {p}")
         arts.append((p, json.loads(p.read_text(encoding="utf-8"))))
     entries = []
+    void_reasons: list[list[str]] = []
     commits = set()
     for p, art in arts:
         sec = art.get("set_ordered_readers")
@@ -3734,10 +3767,13 @@ def combine_set_ordered_readers_verdict(paths: list[Path | str]) -> dict[str, An
         if not commit:
             raise ValueError(f"{p} records no commit in its provenance")
         commits.add(commit)
-        entries.append(sec["run_verdict"])
+        why = set_host_guard_void_reasons(art, str(p))
+        void_reasons.append(why)
+        entries.append(SET_VOID_RUN if why else sec["run_verdict"])
     if len(commits) != 1:
         raise ValueError(f"the dispatches ran at {len(commits)} commits {sorted(commits)}; a pair is one SHA (§36.8)")
-    return {"commit": commits.pop(), "dispatches": entries, "pair": set_pair_from_dispatches(entries)}
+    return {"commit": commits.pop(), "dispatches": entries, "host_guard_void_reasons": void_reasons,
+            "pair": set_pair_from_dispatches(entries)}
 
 
 # ---------------------------------------------------------------------------
@@ -8722,10 +8758,17 @@ def _self_test_set_ordered_readers_no_build() -> None:
                                                           workload_id=SET_ORDERED_READERS_WORKLOAD_ID), "expected 'concurrency_ordered_readers_set_63bit'")
 
     # One pair's artifacts combine by their run verdicts, void runs counted, and only at one commit.
+    QUIET_GUARD = {
+        "start": {"verdict": "quiet", "windows": 4},
+        "run": {"verdict": "undisturbed", "samples": 100, "voids": 0, "reasons": []},
+        "watcher_ok": True,
+    }
     with tempfile.TemporaryDirectory() as tmp:
-        def write(name: str, a: dict[str, Any], commit: str = "a" * 40) -> Path:
+        def write(name: str, a: dict[str, Any], commit: str = "a" * 40, guard: dict[str, Any] | None = QUIET_GUARD) -> Path:
             a = json.loads(json.dumps(a))
             a["provenance"]["commit"] = commit
+            if guard is not None:
+                a["provenance"]["host_guard"] = json.loads(json.dumps(guard))
             path = Path(tmp) / name
             path.write_text(json.dumps(a))
             return path
@@ -8743,6 +8786,45 @@ def _self_test_set_ordered_readers_no_build() -> None:
         bare = Path(tmp) / "bare.json"
         bare.write_text(json.dumps({"provenance": {"commit": "a" * 40}}))
         _expect_value_error(lambda: combine_set_ordered_readers_verdict([p1, bare]), "lacks a 'set_ordered_readers'")
+
+        # The host guard decides host admissibility (§36.6, §36.12 item 4), not the driver's section: each clause
+        # voids a run whose section reads RUN_PASS, and a missing record is refused rather than read as quiet.
+        def guarded(**edit: Any) -> dict[str, Any]:
+            g = json.loads(json.dumps(QUIET_GUARD))
+            for k, v in edit.items():
+                if k == "watcher_ok":
+                    g[k] = v
+                else:
+                    sect, field = k.split("__")
+                    g[sect][field] = v
+            return g
+
+        for label, edit in (
+            ("start refusal", {"start__verdict": "busy"}),
+            ("in-run disturbed", {"run__verdict": "disturbed"}),
+            ("in-run void count", {"run__voids": 1}),
+            ("watcher incomplete", {"watcher_ok": False}),
+            ("no sample", {"run__samples": 0}),
+        ):
+            pg = write(f"g_{label}.json", art, guard=guarded(**edit))
+            got = combine_set_ordered_readers_verdict([pg, p1, p2])
+            assert got["dispatches"] == [V, "RUN_PASS", "RUN_PASS"] and got["pair"]["void_runs"] == 1, (label, got)
+            assert got["host_guard_void_reasons"][0], (label, got)
+            assert got["pair"]["verdict"] == "PASS", (label, got)
+        noguard = write("noguard.json", art, guard=None)
+        _expect_value_error(lambda: combine_set_ordered_readers_verdict([p1, noguard]), "no provenance.host_guard record")
+
+        # The committed artifacts: the two admissible runs pair to PASS, the two voided ones are never counted.
+        res_dir = REPO_ROOT / "docs" / "benchmarks" / "concurrency" / "results"
+        r1, r2 = (res_dir / f"ordered_readers_set_writer_scaling{x}.json" for x in ("", "_run2"))
+        v1, v2 = (res_dir / f"ordered_readers_set_writer_scaling_void{x}.json" for x in (1, 2))
+        got = combine_set_ordered_readers_verdict([r1, r2])
+        assert got["dispatches"] == ["RUN_PASS", "RUN_PASS"] and got["pair"]["verdict"] == "PASS" and got["pair"]["void_runs"] == 0, got
+        got = combine_set_ordered_readers_verdict([r1, v1, v2, r2])
+        assert got["dispatches"] == ["RUN_PASS", V, V, "RUN_PASS"], got
+        assert got["pair"]["valid_runs"] == ["RUN_PASS", "RUN_PASS"] and got["pair"]["void_runs"] == 2, got
+        got = combine_set_ordered_readers_verdict([v1, v2])
+        assert got["dispatches"] == [V, V] and got["pair"]["verdict"] is None and got["pair"]["valid_runs"] == [], got
 
         # The harness seam without the set reader mode: fake binaries standing in for the harness on main, which
         # refuses writers, any read op but get and any probe but uniform on `--arm set`, and for the engine
