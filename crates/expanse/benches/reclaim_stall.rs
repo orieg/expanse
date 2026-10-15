@@ -19,6 +19,18 @@
 //!   driver probes the binary with it before any cell, and every measured row
 //!   carries the same two fields.
 //!
+//! Built with `occ-stats`, a `--map sync` row also carries the window's
+//! `counters` (METHODOLOGY section 37.2): the gate and drain waits, the
+//! `SeqVersion::sample` spins, and the CPU time the window's worker threads
+//! consumed (`thread_cpu_ns`, and `thread_cpu_cycles`, the same time in TSC
+//! ticks). The wait counters are TSC deltas, so they include any time a
+//! waiting thread was descheduled, which `thread_cpu_ns` does not: a share
+//! taken against it can exceed what the waits cost in CPU. The denominator is
+//! measured per-thread CPU time (`CLOCK_THREAD_CPUTIME_ID`), never wall time
+//! multiplied by the thread count, which overstates it whenever the threads
+//! outnumber the CPUs they may run on. A counters build times nothing the
+//! driver reads.
+//!
 //! # Workload shape
 //!
 //! | Property | Value |
@@ -243,6 +255,41 @@ fn reader_loop(m: &SyncExpanseBlobMap, live: u64, seed: u64, stop: &AtomicBool) 
     h
 }
 
+/// CPU time consumed by the calling thread so far, in nanoseconds
+/// (`CLOCK_THREAD_CPUTIME_ID`), or `None` where the platform has no such clock.
+/// Time spent descheduled is not counted.
+#[cfg(unix)]
+fn thread_cpu_ns() -> Option<u64> {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `ts` is a valid, writable `timespec` for the duration of the call.
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    (rc == 0).then(|| ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64)
+}
+
+#[cfg(not(unix))]
+fn thread_cpu_ns() -> Option<u64> {
+    None
+}
+
+/// The CPU time the calling thread used since `start`, a `thread_cpu_ns()` reading.
+fn cpu_since(start: Option<u64>) -> Option<u64> {
+    Some(thread_cpu_ns()?.saturating_sub(start?))
+}
+
+/// Sum of the workers' CPU times; `None` if any worker had no reading.
+fn sum_cpu_ns(parts: impl IntoIterator<Item = Option<u64>>) -> Option<u64> {
+    parts.into_iter().try_fold(0u64, |acc, p| Some(acc + p?))
+}
+
+/// `ns` nanoseconds of CPU time in ticks of a `hz` clock.
+#[cfg_attr(not(feature = "occ-stats"), allow(dead_code))]
+fn ns_to_ticks(ns: u64, hz: u64) -> u64 {
+    (u128::from(ns) * u128::from(hz) / 1_000_000_000) as u64
+}
+
 /// The CPUs this process may run on, as the kernel lists them
 /// (`Cpus_allowed_list` in `/proc/self/status`), or `None` where there is no
 /// such file. The driver confines each child and refuses a row whose list
@@ -253,6 +300,27 @@ fn cpu_affinity() -> Option<String> {
         .lines()
         .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
         .map(|v| v.trim().to_string())
+}
+
+/// The occ-stats counters of the window just run: the waits of the two
+/// writer-side loops and of `SeqVersion::sample`, and the CPU time its worker
+/// threads consumed, in nanoseconds and in the same ticks as the waits.
+#[cfg(feature = "occ-stats")]
+fn window_counters(thread_cpu_ns: Option<u64>) -> serde_json::Value {
+    use expanse_trie::occ_stats::{self, Stat};
+    let snap = occ_stats::snapshot();
+    let tsc_hz = occ_stats::cycles_hz(Duration::from_millis(200));
+    serde_json::json!({
+        "sample_spins": snap[Stat::SampleSpins as usize],
+        "sample_spin_cycles": snap[Stat::SampleSpinCycles as usize],
+        "gate_blocked_entries": snap[Stat::GateBlockedEntries as usize],
+        "gate_wait_cycles": snap[Stat::GateWaitCycles as usize],
+        "quiesce_calls": snap[Stat::QuiesceCalls as usize],
+        "quiesce_drain_cycles": snap[Stat::QuiesceDrainCycles as usize],
+        "tsc_hz": tsc_hz,
+        "thread_cpu_ns": thread_cpu_ns,
+        "thread_cpu_cycles": thread_cpu_ns.map(|ns| ns_to_ticks(ns, tsc_hz)),
+    })
 }
 
 /// What this binary was built as, so the driver can refuse a build that is
@@ -347,6 +415,8 @@ fn main() {
                 live
             };
             let g0 = m.with_locked(|t| t.arena().generation());
+            #[cfg(feature = "occ-stats")]
+            expanse_trie::occ_stats::reset();
             let heap_before = HEAP.load(Ordering::Relaxed);
             PEAK.store(heap_before, Ordering::Relaxed);
             let appends = if full {
@@ -362,7 +432,9 @@ fn main() {
                     let (m, stop, b) = (Arc::clone(&m), Arc::clone(&stop), Arc::clone(&barrier));
                     std::thread::spawn(move || {
                         b.wait();
-                        reader_loop(&m, live, seed ^ (0xA5A5 + r), &stop)
+                        let c0 = thread_cpu_ns();
+                        let h = reader_loop(&m, live, seed ^ (0xA5A5 + r), &stop);
+                        (h, cpu_since(c0))
                     })
                 })
                 .collect();
@@ -374,6 +446,7 @@ fn main() {
                         let mut ops = Ops::new();
                         let mut rng = XorShift64::new(seed ^ (0x5A5A + w));
                         b.wait();
+                        let c0 = thread_cpu_ns();
                         if full {
                             let mut i = 0u64;
                             while !stop.load(Ordering::Relaxed) {
@@ -389,7 +462,7 @@ fn main() {
                                 timed_insert(&mut ops, || m.insert(k, &p, HOT_META));
                             }
                         }
-                        ops
+                        (ops, cpu_since(c0))
                     })
                 })
                 .collect();
@@ -400,17 +473,27 @@ fn main() {
                 stop.store(true, Ordering::Relaxed);
             }
             let mut ops = Ops::new();
+            let mut cpu_parts = Vec::new();
             for h in whs {
-                ops.merge(h.join().expect("writer panicked"));
+                let (o, cpu) = h.join().expect("writer panicked");
+                ops.merge(o);
+                cpu_parts.push(cpu);
             }
             let elapsed = t0.elapsed().as_secs_f64();
             stop.store(true, Ordering::Relaxed);
             let mut reads = hist();
             for h in rhs {
-                reads
-                    .add(h.join().expect("reader panicked"))
-                    .expect("same bounds");
+                let (rh, cpu) = h.join().expect("reader panicked");
+                reads.add(rh).expect("same bounds");
+                cpu_parts.push(cpu);
             }
+            let thread_cpu_ns = sum_cpu_ns(cpu_parts);
+            #[cfg(feature = "occ-stats")]
+            {
+                row["counters"] = window_counters(thread_cpu_ns);
+            }
+            #[cfg(not(feature = "occ-stats"))]
+            let _ = thread_cpu_ns;
             let (generation, index_mem, arena_total) = m.with_locked(|t| {
                 (
                     t.arena().generation(),

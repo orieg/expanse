@@ -6061,6 +6061,8 @@ None. The section number, 37, is the next free one at lock time and may move at 
 
 The variant build of §37.3 was implemented in #1540 and failed P37.2: across the 37 `sync_*` Callgrind arms the largest change was +1.84%, against the 0.1% bound ([CI run](https://github.com/orieg/expanse/actions/runs/38724709931)). Per §37.3 the experiment does not run on a build that fails its cost check, so no §37 cell ran and no verdict was evaluated: the registered question is neither PASS nor REJECTED. #1540 was closed unmerged, and the writer-side waits stay as on `main`. The question remains with #1479.
 
+The premise it tested, that the two writer-side waits and `SeqVersion::sample` take a material share of time, is measured on `main` without the variant: `reclaim_stall.py --wait-counters` records each sync stall window's `gate_wait_cycles`, `quiesce_drain_cycles`, `sample_spins` and `sample_spin_cycles` from an `occ-stats` build, with each share taken against the window's summed per-thread CPU time (`CLOCK_THREAD_CPUTIME_ID`) and not wall time times threads. The counters are TSC deltas and include time a waiting thread was descheduled, so a share can exceed the waits' CPU cost. No verdict reads them.
+
 ---
 
 ## 38. Pre-registration for 32-bit set ordered reads on `SyncExpanseSet32` (#1194)

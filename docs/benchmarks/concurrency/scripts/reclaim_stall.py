@@ -7,8 +7,19 @@ around every process, and writes one artifact whose `throughput` cells carry
 their rounds verbatim. It then reads §29.3's predictions P1-P5 from the rounds
 and records each verdict beside the cells.
 
+`--wait-counters` adds one pass of the `occ-stats` build over the sync cells
+after the timed rounds and records, per stall window, the existing wait
+counters (`gate_wait_cycles`, `quiesce_drain_cycles`, `sample_spins`,
+`sample_spin_cycles`) beside the CPU time the window's worker threads consumed
+(#1479: do the waits take a material share of time?). A share is a counter in
+TSC ticks over the summed per-thread CPU time (`CLOCK_THREAD_CPUTIME_ID`) in
+the same ticks, never wall time times threads. The counters are TSC deltas and
+include time a waiting thread was descheduled, which CPU time does not, so a
+share can exceed the waits' true CPU cost. No verdict reads these figures.
+
 Usage:
     python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --out ARTIFACT.json
+    python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --out ARTIFACT.json --wait-counters
     python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --self-test
 """
 
@@ -67,9 +78,10 @@ def rotated(cells: tuple, r: int) -> list:
     return list(cells[k:]) + list(cells[:k])
 
 
-def build() -> Path:
+def build(features: tuple[str, ...] = ()) -> Path:
     out = subprocess.run(
         ["cargo", "build", "--release", "-p", "expanse-trie", "--bench", "reclaim_stall",
+         *(["--features", ",".join(features)] if features else []),
          "--message-format=json-render-diagnostics"],
         cwd=REPO_ROOT, check=True, stdout=subprocess.PIPE, text=True,
     ).stdout
@@ -139,6 +151,45 @@ def run_one(exe: Path, c: dict[str, Any], r: int, pin: str | None = None) -> dic
             raise DriverError(f"{cell_id(c)} round {r}: the row reports {k}={row[k]!r}")
     check_affinity(row, pin, f"{cell_id(c)} round {r}")
     return row
+
+
+# The wait counters that accumulate TSC ticks; `sample_spins` is a count and has no share.
+WAIT_CYCLE_COUNTERS = ("gate_wait_cycles", "quiesce_drain_cycles", "sample_spin_cycles")
+WAIT_COUNTERS = ("gate_wait_cycles", "gate_blocked_entries", "quiesce_drain_cycles", "quiesce_calls",
+                 "sample_spins", "sample_spin_cycles")
+# Cells whose window the counters pass records: the sync cells, the only ones with waits.
+WAIT_CELLS = tuple(c for c in CELLS if c["map"] == "sync")
+
+
+def wait_report(row: dict[str, Any]) -> dict[str, Any]:
+    """One stall window's wait counters and their shares of the window's thread CPU time.
+
+    The denominator is `thread_cpu_cycles`: the sum over the window's worker
+    threads of their measured CPU time, in TSC ticks. It is cross-checked
+    against `thread_cpu_ns` and `tsc_hz`, so a figure derived from wall time
+    times threads (which overstates CPU time whenever the threads outnumber
+    the CPUs they may use) is refused rather than divided by (§8.1).
+    """
+    c = row.get("counters")
+    if not isinstance(c, dict):
+        raise DriverError("the row has no `counters`: the binary was not built with occ-stats")
+    cpu_ns, cpu_cyc, hz = c.get("thread_cpu_ns"), c.get("thread_cpu_cycles"), c.get("tsc_hz")
+    if not cpu_ns or not cpu_cyc or not hz:
+        raise DriverError(f"the row's thread CPU time is missing or zero (ns={cpu_ns!r}, ticks={cpu_cyc!r}, "
+                          f"tsc_hz={hz!r}): this platform has no per-thread CPU clock, so no share is defined")
+    if abs(cpu_cyc - cpu_ns * hz / 1e9) > 1.0:
+        raise DriverError(f"thread_cpu_cycles={cpu_cyc} is not thread_cpu_ns={cpu_ns} at tsc_hz={hz}")
+    return {
+        "denominator": "thread_cpu_cycles (sum of per-thread CLOCK_THREAD_CPUTIME_ID, in TSC ticks)",
+        "thread_cpu_cycles": cpu_cyc,
+        "thread_cpu_ns": cpu_ns,
+        "tsc_hz": hz,
+        "wall_s": row["elapsed_s"],
+        "counters": {k: c[k] for k in WAIT_COUNTERS},
+        "share_of_thread_cpu": {k: c[k] / cpu_cyc for k in WAIT_CYCLE_COUNTERS},
+        "note": "the counters are TSC deltas and include time a waiting thread was descheduled; "
+                "thread CPU time does not, so a share can exceed the waits' CPU cost",
+    }
 
 
 def stall_ns(row: dict[str, Any]) -> int:
@@ -218,7 +269,7 @@ def evaluate(cells: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def measure(rounds: int, out_path: Path) -> dict[str, Any]:
+def measure(rounds: int, out_path: Path, wait_counters: bool = False) -> dict[str, Any]:
     applied = bench_pin.apply("reclaim_stall.py")
     prov = new_provenance("concurrency", 1300, "§29 reclaim stall (no ratio gate)", REPO_ROOT,
                           cell_isolation="process", rounds=rounds, core_pin_applied=applied)
@@ -241,6 +292,18 @@ def measure(rounds: int, out_path: Path) -> dict[str, Any]:
         cell["load"] = max(loads, key=lambda ld: ld.get("foreign_busy_cpus") or 0.0)
     art = {"provenance": prov, "throughput": cells}
     art["predictions"] = evaluate(cells)
+    if wait_counters:
+        # A counters build times nothing the predictions read; its rows are kept apart from `throughput`.
+        cexe = build(("occ-stats",))
+        probe(cexe, counters=True)
+        windows = []
+        for c in WAIT_CELLS:
+            cid = cell_id(c)
+            start = begin_cell(prov, f"wait_counters:{cid}")
+            row = run_one(cexe, c, 0, pin)
+            load = end_cell(start)
+            windows.append({"cell": cid, "round": 0, **wait_report(row), "load": load})
+        art["wait_counters"] = windows
     rel = check_bench_provenance.rel_path(out_path.resolve())
     findings = check_bench_provenance.findings_for(rel, json.loads(json.dumps(art)))
     if findings:
@@ -318,6 +381,42 @@ def self_test_identity_and_pin() -> None:
         assert child_pin("0-3") == "0-3"
 
 
+def _counters_row(cpu_ns: int | None, tsc_hz: int = 2_000_000_000, wall_s: float = 3.0,
+                  threads: int = 14, **over: int) -> dict[str, Any]:
+    counters = {"sample_spins": 1_000, "sample_spin_cycles": 60_000_000, "gate_blocked_entries": 5,
+                "gate_wait_cycles": 300_000_000, "quiesce_calls": 2, "quiesce_drain_cycles": 120_000_000,
+                "tsc_hz": tsc_hz, "thread_cpu_ns": cpu_ns,
+                "thread_cpu_cycles": None if cpu_ns is None else cpu_ns * tsc_hz // 1_000_000_000}
+    counters.update(over)
+    return {"elapsed_s": wall_s, "threads": threads, "counters": counters}
+
+
+def self_test_wait_counters() -> None:
+    # 14 threads over 3.0 s of wall time, but the CPUs they may use gave them 6.0 s of CPU in all.
+    # The wall-times-threads denominator would be 3.0 * 2e9 * 14 = 8.4e10 ticks; the measured one is 1.2e10.
+    row = _counters_row(6_000_000_000)
+    rep_ = wait_report(row)
+    wall_x_threads = row["elapsed_s"] * row["counters"]["tsc_hz"] * row["threads"]
+    assert rep_["thread_cpu_cycles"] == 12_000_000_000 != wall_x_threads
+    assert abs(rep_["share_of_thread_cpu"]["gate_wait_cycles"] - 300e6 / 12e9) < 1e-12
+    assert abs(rep_["share_of_thread_cpu"]["gate_wait_cycles"] - 300e6 / wall_x_threads) > 0.01
+    assert rep_["wall_s"] == 3.0 and set(rep_["counters"]) == set(WAIT_COUNTERS)
+    # A denominator that is not the measured CPU time (here wall x threads written into the cycles field) is refused.
+    assert "is not thread_cpu_ns" in _refused(
+        wait_report, _counters_row(6_000_000_000, thread_cpu_cycles=int(3.0 * 2e9 * 14)))
+    # No per-thread clock, a zero reading, or a build without occ-stats: refused, never divided by.
+    assert "missing or zero" in _refused(wait_report, _counters_row(None))
+    assert "missing or zero" in _refused(wait_report, _counters_row(0))
+    assert "no `counters`" in _refused(wait_report, {"elapsed_s": 1.0})
+    # The harness derives the denominator from the per-thread clock and not from wall time (decision point).
+    src = (REPO_ROOT / "crates/expanse/benches/reclaim_stall.rs").read_text()
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("//"))
+    body = code[code.index("fn window_counters"):]
+    body = body[:body.index("\n}\n")]
+    assert "thread_cpu_ns" in body and "elapsed" not in body and "threads as f64" not in body, body
+    assert code.count("CLOCK_THREAD_CPUTIME_ID") == 1
+
+
 def self_test() -> int:
     assert len(CELLS) == 10 and len({cell_id(c) for c in CELLS}) == 10
     assert rotated(CELLS, 3)[0] is CELLS[3] and sorted(map(cell_id, rotated(CELLS, 7))) == sorted(map(cell_id, CELLS))
@@ -347,6 +446,7 @@ def self_test() -> int:
     assert evaluate(cells)["checks"][0]["rounds_without_two_compactions_or_with_refusals"] == [2]
     assert CI_METHOD_BCA
     self_test_identity_and_pin()
+    self_test_wait_counters()
     print("reclaim_stall.py self-test PASSED")
     return 0
 
@@ -356,6 +456,8 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--rounds", type=int, default=ROUNDS)
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--wait-counters", action="store_true",
+                    help="after the timed rounds, record each sync stall window's wait counters from an occ-stats build")
     args = ap.parse_args()
     if args.self_test:
         return self_test()
@@ -363,7 +465,7 @@ def main() -> int:
         ap.error("--out is required")
     if os.environ.get("EXPANSE_RECLAIM_STALL_ROUNDS"):
         args.rounds = int(os.environ["EXPANSE_RECLAIM_STALL_ROUNDS"])
-    art = measure(args.rounds, args.out)
+    art = measure(args.rounds, args.out, args.wait_counters)
     print(json.dumps(art["predictions"], indent=2))
     return 0
 
