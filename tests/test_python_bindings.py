@@ -773,6 +773,136 @@ def test_sync_map_get_many_matches_per_call_get():
     assert out == [m.get(k) for k in big]
 
 
+def test_sync_map_compare_exchange_branches():
+    """Every compare_exchange branch: absent/present expected, absent/present new, match and mismatch."""
+    m = SyncExpanseMap()
+    # absent == absent, nothing to store: succeeds, observes absent.
+    assert m.compare_exchange(1, None, None) == (True, None)
+    assert 1 not in m
+    # insert-if-absent succeeds on an absent key.
+    assert m.compare_exchange(1, None, 10) == (True, None)
+    assert m.get(1) == 10
+    # insert-if-absent fails on a present key and reports the word seen.
+    assert m.compare_exchange(1, None, 99) == (False, 10)
+    assert m.get(1) == 10
+    # absent == absent against a present key fails.
+    assert m.compare_exchange(1, None, None) == (False, 10)
+    # expected present, wrong value: fails, value unchanged.
+    assert m.compare_exchange(1, 11, 12) == (False, 10)
+    assert m.get(1) == 10
+    # expected present against an absent key: fails, observes absent.
+    assert m.compare_exchange(2, 5, 6) == (False, None)
+    assert 2 not in m
+    # replace on match.
+    assert m.compare_exchange(1, 10, 20) == (True, 10)
+    assert m.get(1) == 20
+    # remove-if-equals: mismatch leaves it, match removes it.
+    assert m.compare_exchange(1, 21, None) == (False, 20)
+    assert m.get(1) == 20
+    assert m.compare_exchange(1, 20, None) == (True, 20)
+    assert 1 not in m
+    # Every u64 is a legal value, including 0 and the maximum.
+    top = 2**64 - 1
+    assert m.compare_exchange(3, None, 0) == (True, None)
+    assert m.compare_exchange(3, 0, top) == (True, 0)
+    assert m.get(3) == top
+    with pytest.raises(OverflowError):
+        m.compare_exchange(3, None, 2**64)
+
+
+def test_sync_map_get_or_insert():
+    m = SyncExpanseMap()
+    assert m.get_or_insert(7, 70) is None  # stored
+    assert m.get(7) == 70
+    assert m.get_or_insert(7, 71) == 70  # present: existing value, untouched
+    assert m.get(7) == 70
+    assert m.get_or_insert(8, 0) is None  # zero is a value, not absence
+    assert m.get_or_insert(8, 5) == 0
+
+
+def test_sync_map_update_with_store_and_remove():
+    m = SyncExpanseMap()
+    seen = []
+
+    def inc(cur):
+        seen.append(cur)
+        return (cur or 0) + 1
+
+    assert m.update_with(5, inc) is None  # absent: replaced value is None
+    assert m.update_with(5, inc) == 1
+    assert m.get(5) == 2
+    assert seen == [None, 1]
+    # Returning None removes the key and reports the replaced value.
+    assert m.update_with(5, lambda cur: None) == 2
+    assert 5 not in m
+    # Removing an absent key is a no-op that reports absent.
+    assert m.update_with(5, lambda cur: None) is None
+    assert 5 not in m
+    # An exception from fn propagates and leaves the key unchanged.
+    m.insert(6, 60)
+
+    def boom(cur):
+        raise RuntimeError("fn failed")
+
+    with pytest.raises(RuntimeError):
+        m.update_with(6, boom)
+    assert m.get(6) == 60
+    # A non-integer result is a TypeError, not a store.
+    with pytest.raises(TypeError):
+        m.update_with(6, lambda cur: "x")
+    assert m.get(6) == 60
+
+
+def test_sync_map_update_with_retries_on_interference():
+    """fn runs again with the observed value when a concurrent writer wins."""
+    m = SyncExpanseMap()
+    m.insert(1, 100)
+    calls = []
+
+    def fn(cur):
+        calls.append(cur)
+        if len(calls) == 1:
+            m.insert(1, 200)  # a competing writer lands between read and exchange
+        return cur + 1
+
+    assert m.update_with(1, fn) == 200
+    assert calls == [100, 200]
+    assert m.get(1) == 201
+
+
+def test_sync_map_update_with_concurrent_counter_is_exact():
+    m = SyncExpanseMap()
+    threads, per_thread = 8, 2000
+
+    def worker():
+        for _ in range(per_thread):
+            m.update_with(0, lambda cur: (cur or 0) + 1)
+
+    ts = [threading.Thread(target=worker) for _ in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert m.get(0) == threads * per_thread
+
+    # get_or_insert: exactly one of the racing callers stores.
+    winners = []
+    barrier = threading.Barrier(threads)
+
+    def racer(i):
+        barrier.wait()
+        if m.get_or_insert(42, i) is None:
+            winners.append(i)
+
+    ts = [threading.Thread(target=racer, args=(i,)) for i in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(winners) == 1
+    assert m.get(42) == winners[0]
+
+
 # ============================================================================
 # 6. ExpanseOrderedBytesMap Tests (C ABI expanse_ordered_bytesmap_*)
 # ============================================================================

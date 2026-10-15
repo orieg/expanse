@@ -349,6 +349,27 @@ class SyncExpanseMap:
     @overload
     def get(self, key: int, default: int) -> int: ...
     def get(self, key: int, default: Optional[int] = None) -> Optional[int]: ...
+    def compare_exchange(
+        self, key: int, expected: Optional[int], new: Optional[int]
+    ) -> Tuple[bool, Optional[int]]:
+        """Atomic compare-and-swap; ``None`` is "absent" on both sides.
+
+        Returns ``(stored, observed)``: ``observed`` is the value the compare
+        saw (equal to ``expected`` when ``stored``).
+        """
+        ...
+    def get_or_insert(self, key: int, val: int) -> Optional[int]:
+        """Store ``val`` only if ``key`` is absent; return the existing value, or ``None`` if stored."""
+        ...
+    def update_with(
+        self, key: int, fn: Callable[[Optional[int]], Optional[int]]
+    ) -> Optional[int]:
+        """Retry loop over ``compare_exchange``: store ``fn(current)``, or remove on ``None``.
+
+        ``fn`` may run several times and must be free of side effects. Returns
+        the replaced value (``None`` if the key was absent).
+        """
+        ...
     def remove(self, key: int) -> Optional[int]: ...
     @overload
     def pop(self, key: int) -> int: ...
