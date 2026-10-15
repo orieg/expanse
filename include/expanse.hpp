@@ -1247,6 +1247,8 @@ public:
         return std::nullopt;
     }
 
+    // Copies the whole payload into buf or nothing. false means absent (*out_len == 0)
+    // or buf too short (*out_len is the required length, > buf.size(); buf untouched).
     bool get_into(uint64_t key, std::span<uint8_t> buf, size_t* out_len = nullptr, uint32_t* out_meta = nullptr) const noexcept {
         return expanse_blob_map_get_into(ptr_, key, buf.data(), buf.size(), out_len, out_meta);
     }

@@ -90,6 +90,14 @@ if 0).
 .PP
 \fBexpanse_blob_map_get_into\fR copies the payload into a caller-owned buffer,
 safely decoding inline or arena bytes without borrowing from map memory.
+It copies the whole payload or nothing. It returns true when the key is
+present and the payload fits in \fIbuf_len\fR bytes; \fI*out_len\fR is the
+payload length and the rest of \fIbuf\fR is untouched. It returns false when
+the key is absent (\fI*out_len\fR is 0) or when the buffer is shorter than the
+payload; in the second case \fIbuf\fR is untouched, \fI*out_len\fR is the
+required length (greater than \fIbuf_len\fR) and \fI*out_meta\fR is the hot
+metadata, so \fI*out_len > buf_len\fR tells the two apart. A NULL \fIbuf\fR
+counts as length 0, which queries the length only.
 .PP
 \fBhot_meta\fR is a 32-bit user-defined metadata word stored directly inside
 the trie index nodes, enabling high-speed predicate filtering during range

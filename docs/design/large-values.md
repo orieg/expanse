@@ -964,9 +964,10 @@ both handed to one epoch `Collector` at construction (`BlobArena::defer_to`).
   `buf[..len]` and the rest of `buf` untouched, `Ok(None)` for an absent key,
   and `Err(BlobBufferTooSmall { required, provided, hot_meta })` when the
   payload is longer than `buf`, with nothing copied. It is the Rust form of
-  `expanse_blob_map_get_into`, which copies what fits and reports the full
-  length through `out_len`; in Rust the short buffer is an error of its own
-  instead of a length to compare. `BlobReader` has both reads beside `pin()`.
+  `expanse_blob_map_get_into`, which likewise copies nothing from a short
+  buffer and reports the required length through `out_len` with a `false`
+  return; in Rust the short buffer is an error of its own instead of a length
+  to compare. `BlobReader` has both reads beside `pin()`.
   `OwnedBlobReader` (holds an `Arc` of the map) and `DetachedBlobReader`
   (holds only the epoch slot; the map is passed to each call and checked
   against the reader's collector before the first pin) have the copying reads,

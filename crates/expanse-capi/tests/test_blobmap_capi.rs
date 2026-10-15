@@ -444,3 +444,108 @@ fn test_capi_blob_map_cap_switch_and_refusal_status() {
         expanse_blob_map_free(off);
     }
 }
+
+/// `expanse_blob_map_get_into` copies the whole payload or nothing: a buffer
+/// shorter than the value leaves the buffer untouched and reports the
+/// required length with `false`.
+#[test]
+fn test_capi_blob_map_get_into_refuses_short_buffer() {
+    // SAFETY: valid handle and buffers throughout.
+    unsafe {
+        let map = expanse_blob_map_new(64 * 1024);
+        let payload: Vec<u8> = (0..40u8).collect();
+        assert!(expanse_blob_map_insert(
+            map,
+            1,
+            payload.as_ptr(),
+            payload.len(),
+            77
+        ));
+        assert!(expanse_blob_map_insert(map, 2, core::ptr::null(), 0, 5));
+
+        // Exact fit.
+        let mut buf = vec![0xAAu8; 40];
+        let mut out_len = 0usize;
+        let mut out_meta = 0u32;
+        assert!(expanse_blob_map_get_into(
+            map,
+            1,
+            buf.as_mut_ptr(),
+            40,
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!((out_len, out_meta), (40, 77));
+        assert_eq!(buf, payload);
+
+        // Larger buffer: bytes past the value are untouched.
+        let mut buf = vec![0xAAu8; 64];
+        assert!(expanse_blob_map_get_into(
+            map,
+            1,
+            buf.as_mut_ptr(),
+            64,
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!(out_len, 40);
+        assert_eq!(&buf[..40], &payload[..]);
+        assert!(buf[40..].iter().all(|&b| b == 0xAA));
+
+        // One byte short: nothing copied, required length reported.
+        let mut buf = vec![0xAAu8; 39];
+        out_len = 0;
+        out_meta = 0;
+        assert!(!expanse_blob_map_get_into(
+            map,
+            1,
+            buf.as_mut_ptr(),
+            39,
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!(out_len, 40);
+        assert!(out_len > 39);
+        assert_eq!(out_meta, 77);
+        assert!(buf.iter().all(|&b| b == 0xAA), "buffer must be untouched");
+
+        // NULL with length 0 asks for the length only.
+        out_len = 0;
+        assert!(!expanse_blob_map_get_into(
+            map,
+            1,
+            core::ptr::null_mut(),
+            0,
+            &mut out_len,
+            core::ptr::null_mut()
+        ));
+        assert_eq!(out_len, 40);
+
+        // Absent key: false, out_len 0, out_meta untouched.
+        out_len = 99;
+        out_meta = 1234;
+        assert!(!expanse_blob_map_get_into(
+            map,
+            999,
+            buf.as_mut_ptr(),
+            39,
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!((out_len, out_meta), (0, 1234));
+
+        // Empty value: present, fits any buffer including NULL/0.
+        out_len = 99;
+        assert!(expanse_blob_map_get_into(
+            map,
+            2,
+            core::ptr::null_mut(),
+            0,
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!((out_len, out_meta), (0, 0)); // inline values carry no hot metadata
+
+        expanse_blob_map_free(map);
+    }
+}
