@@ -261,6 +261,31 @@ try (SyncExpanseMap.Reader reader = concurrentMap.reader()) {
 concurrentMap.update(7, cur -> OptionalLong.of(cur.orElse(0) + 1)); // atomic increment
 ```
 
+### Shared string, bytes, ordered-bytes and blob maps (#1538)
+
+Four more concurrent maps wrap the shared-map C handles (`expanse_sync_strmap_*`, `expanse_sync_bytesmap_*`, `expanse_sync_ordered_bytesmap_*`, `expanse_sync_blob_map_*`; contract in `include/expanse.h` and `docs/COMPAT.md`, *Shared-map C handles*). They follow `SyncExpanseMap`: any number of threads may call the map except `close()`, a `Reader` is used by one thread at a time, and closing the map closes every reader still open (a later call on such a reader throws `IllegalStateException`). No call may be in progress on a map or reader being closed.
+
+| Class | Key | Value | Notes |
+|---|---|---|---|
+| `SyncExpanseStrMap` | `String` | `long` | UTF-8 keys passed as NUL-terminated C strings; a key containing `U+0000` throws `IllegalArgumentException` (use a bytes map). Ordered reads (`firstEntry`, `lastEntry`, `ceilingEntry`, `higherEntry`, `floorEntry`, `lowerEntry`) are on the `Reader` and stay optimistic. |
+| `SyncExpanseBytesMap` | `byte[]` | `long` | Unordered; embedded zero bytes and the empty key are ordinary. |
+| `SyncExpanseOrderedBytesMap` | `byte[]` | `long` | The same ordered reads are calls on the **map**, not on a reader, and **block writers** for the duration of each call (they take the writer mutex). Not for a hot loop beside writers. |
+| `SyncExpanseBlobMap` | `long` | `byte[]` + 24-bit hot metadata | Values are copied, never borrowed. |
+
+The three `long`-valued maps share the `SyncExpanseMap` surface: `insert`/`put`, `putAndGetOld`, `get`, `containsKey`, `remove`, `compareExchange` (returning `SyncExpanseMap.Exchange`), `getOrInsert`, `update`, `size`/`len`, `memUsed`, `memHeld`, `shrinkToFit`, and a `reader()` with `get` and `containsKey`. A walk built from repeated `higherEntry` calls is not a snapshot.
+
+`SyncExpanseBlobMap` reads into a native scratch buffer inside a confined arena and returns a fresh `byte[]`. When the buffer proves too small the wrapper reads again with a buffer of the reported length; the retry is a new read and reports whatever a writer left in between. `compareExchange(key, Optional<Blob>, Optional<Blob>)` compares payload and metadata; `getOrInsert(key, data, hotMeta)` and `compareExchangeMeta(key, OptionalInt, OptionalInt)` return an `Exchange` / `MetaExchange` whose `status` is `OK`, `MISMATCH` (with the observed value) or a refusal (`META_OVERFLOW`, `ALLOCATION_FAILED`, `CAP_REFUSED`, `ARENA_FULL`, `NO_META_FIELD`), reported only when the comparison held. A payload of 7 bytes or fewer, or one the map compresses into its slot word, is stored without metadata and reads back metadata 0.
+
+```java
+try (SyncExpanseBlobMap blobs = new SyncExpanseBlobMap()) {
+    blobs.insert(1, payload, /* hotMeta */ 7);
+    try (SyncExpanseBlobMap.Reader r = blobs.reader()) {
+        Optional<SyncExpanseBlobMap.Blob> v = r.get(1); // payload and metadata
+    }
+    var x = blobs.getOrInsert(2, other, 0);               // stored, or the value already present
+}
+```
+
 ---
 
 ## 7. Scala Language Integration

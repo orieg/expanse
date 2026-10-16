@@ -19,6 +19,7 @@ High-performance, **zero-GC**, off-heap associative trie collections for Java an
   - `ExpanseBytesMap`: High-performance unordered byte slice $\to$ 64-bit map (cf. JudyHS).
   - `ExpanseOrderedBytesMap`: High-performance ordered arbitrary byte slice $\to$ 64-bit map with `first`/`last`/`ceiling`/`higher`/`floor`/`lower` navigation.
   - `SyncExpanseMap` / `SyncExpanseSet`: Multithreaded OCC concurrent collections with optimistic readers.
+  - `SyncExpanseStrMap` / `SyncExpanseBytesMap` / `SyncExpanseOrderedBytesMap` / `SyncExpanseBlobMap`: concurrent string, bytes, ordered-bytes and blob maps (see `docs/bindings/java.md` §6).
 - **Standard Java Collection Wrappers**: Standard `java.util.NavigableMap<Long, Long>`, `java.util.NavigableSet<Long>`, and `java.util.Map<String, Long>` interfaces.
 - **Big Data Ready**: Designed for Apache Spark, Apache Flink, Kafka Streams, and high-frequency trading where GC pauses are unacceptable.
 
