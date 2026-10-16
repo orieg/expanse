@@ -25,6 +25,12 @@ ignore = [
     "RUSTSEC-2025-0141", # bincode
     "RUSTSEC-2024-0436", # paste
     "RUSTSEC-2026-0173", # proc-macro-error2
+    # Yanked, not an advisory: every `zip` 8.x release was yanked upstream with
+    # no yank message. `zip` reaches the tree only as a `cfg(windows)` build
+    # dependency of `ext-php-rs` (the PHP extension's build script); no shipped
+    # artifact links it, and the newest `ext-php-rs` still requires `zip ^8`.
+    # Pinned to the exact locked version so any other yanked crate still fails.
+    { crate = "zip@8.6.0", reason = "yanked upstream; windows-only build dependency of ext-php-rs, which has no release past zip ^8" },
 ]
 
 [licenses]
