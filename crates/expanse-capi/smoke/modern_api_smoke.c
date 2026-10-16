@@ -155,6 +155,221 @@ static void sync_strmap_smoke(void) {
     printf("sync_strmap: point ops, reader, ordered reads, %d threaded readers ok\n", STR_READERS);
 }
 
+/* The shared bytes and ordered-bytes maps under one writer and reader
+ * threads, as for the string map above. Keys carry an embedded NUL and the
+ * ordered map's 0x01 escape byte, so they are passed by length. On the
+ * ordered map each reader also walks the map with the container's ordered
+ * reads, which exclude writers for each call. */
+#define BYTES_STABLE 512
+#define BYTES_CHURN 256
+#define BYTES_READERS 4
+
+static expanse_sync_bytesmap_t *bytes_shared;
+static expanse_sync_ordered_bytesmap_t *obytes_shared;
+static atomic_bool bytes_stop;
+
+/* "s\0NNNN" (6 bytes) and "c\x01NNNN\0t" (8 bytes); returns the length. */
+static size_t bytes_stable_key(char *buf, int i) {
+    buf[0] = 's';
+    buf[1] = '\0';
+    snprintf(buf + 2, 5, "%04d", i);
+    return 6;
+}
+static size_t bytes_churn_key(char *buf, int i) {
+    buf[0] = 'c';
+    buf[1] = '\x01';
+    snprintf(buf + 2, 5, "%04d", i);
+    buf[6] = '\0';
+    buf[7] = 't';
+    return 8;
+}
+
+static void *bytes_writer(void *arg) {
+    bool ordered = arg != NULL;
+    char key[16];
+    for (int round = 0; round < 40; round++) {
+        for (int i = 0; i < BYTES_CHURN; i++) {
+            size_t n = bytes_churn_key(key, i);
+            uint64_t v = 100000u + (uint64_t) i;
+            if (round % 2 == 0) {
+                if (ordered)
+                    expanse_sync_ordered_bytesmap_insert(obytes_shared, key, n, v, NULL);
+                else
+                    expanse_sync_bytesmap_insert(bytes_shared, key, n, v, NULL);
+            } else if (ordered) {
+                expanse_sync_ordered_bytesmap_remove(obytes_shared, key, n, NULL);
+            } else {
+                expanse_sync_bytesmap_remove(bytes_shared, key, n, NULL);
+            }
+        }
+    }
+    atomic_store(&bytes_stop, true);
+    return NULL;
+}
+
+static void *bytes_reader(void *arg) {
+    bool ordered = arg != NULL;
+    char key[16];
+    uint64_t v;
+    unsigned long reads = 0;
+    expanse_sync_bytesmap_reader_t *r = ordered ? NULL : expanse_sync_bytesmap_reader_new(bytes_shared);
+    expanse_sync_ordered_bytesmap_reader_t *orr =
+        ordered ? expanse_sync_ordered_bytesmap_reader_new(obytes_shared) : NULL;
+    assert(ordered ? orr != NULL : r != NULL);
+    do {
+        for (int i = 0; i < BYTES_STABLE; i++) {
+            size_t n = bytes_stable_key(key, i);
+            v = 0;
+            if (ordered)
+                assert(expanse_sync_ordered_bytesmap_reader_get(orr, key, n, &v) && v == (uint64_t) i
+                       && expanse_sync_ordered_bytesmap_reader_contains(orr, key, n));
+            else
+                assert(expanse_sync_bytesmap_reader_get(r, key, n, &v) && v == (uint64_t) i
+                       && expanse_sync_bytesmap_reader_contains(r, key, n));
+        }
+        for (int i = 0; i < BYTES_CHURN; i++) {
+            size_t n = bytes_churn_key(key, i);
+            v = 0;
+            bool hit = ordered ? expanse_sync_ordered_bytesmap_reader_get(orr, key, n, &v)
+                               : expanse_sync_bytesmap_reader_get(r, key, n, &v);
+            if (hit)
+                assert(v == 100000u + (uint64_t) i);
+        }
+        if (ordered) {
+            /* An ordered walk sees every stable key, in order; the output
+             * buffer is also the search key of the next call. */
+            char out[16];
+            size_t req = 0;
+            int seen = 0;
+            expanse_ordered_bytes_nav_status st =
+                expanse_sync_ordered_bytesmap_first(obytes_shared, out, sizeof out, &req, &v);
+            while (st == EXPANSE_ORDERED_BYTES_NAV_OK) {
+                if (req == 6 && out[0] == 's') {
+                    size_t n = bytes_stable_key(key, seen);
+                    assert(memcmp(out, key, n) == 0 && v == (uint64_t) seen);
+                    seen++;
+                }
+                st = expanse_sync_ordered_bytesmap_next_after(obytes_shared, out, req, out, sizeof out, &req, &v);
+            }
+            assert(st == EXPANSE_ORDERED_BYTES_NAV_NOT_FOUND && seen == BYTES_STABLE);
+        }
+        reads++;
+    } while (!atomic_load(&bytes_stop));
+    if (ordered)
+        expanse_sync_ordered_bytesmap_reader_free(orr);
+    else
+        expanse_sync_bytesmap_reader_free(r);
+    return (void *) reads;
+}
+
+static void bytes_threads(bool ordered) {
+    char key[16];
+    for (int i = 0; i < BYTES_STABLE; i++) {
+        size_t n = bytes_stable_key(key, i);
+        assert(ordered ? expanse_sync_ordered_bytesmap_insert(obytes_shared, key, n, (uint64_t) i, NULL)
+                       : expanse_sync_bytesmap_insert(bytes_shared, key, n, (uint64_t) i, NULL));
+    }
+    void *mode = ordered ? (void *) 1 : NULL;
+    atomic_store(&bytes_stop, false);
+    pthread_t w, rd[BYTES_READERS];
+    for (int t = 0; t < BYTES_READERS; t++)
+        assert(pthread_create(&rd[t], NULL, bytes_reader, mode) == 0);
+    assert(pthread_create(&w, NULL, bytes_writer, mode) == 0);
+    assert(pthread_join(w, NULL) == 0);
+    for (int t = 0; t < BYTES_READERS; t++) {
+        void *reads = NULL;
+        assert(pthread_join(rd[t], &reads) == 0);
+        assert((unsigned long) reads > 0);
+    }
+    /* 40 rounds end on a remove. */
+    assert((ordered ? expanse_sync_ordered_bytesmap_len(obytes_shared) : expanse_sync_bytesmap_len(bytes_shared))
+           == BYTES_STABLE);
+}
+
+static void sync_bytesmaps_smoke(void) {
+    uint64_t v = 0;
+
+    /* Every bytes-map symbol once, single-threaded. */
+    expanse_sync_bytesmap_t *b = expanse_sync_bytesmap_new();
+    assert(b != NULL && expanse_sync_bytesmap_len(b) == 0);
+    assert(expanse_sync_bytesmap_insert(b, "a\0b", 3, 1, NULL));
+    assert(!expanse_sync_bytesmap_insert(b, "a\0b", 3, 2, &v) && v == 1);
+    assert(expanse_sync_bytesmap_insert(b, NULL, 0, 3, NULL)); /* the empty key */
+    assert(!expanse_sync_bytesmap_insert(b, NULL, 1, 9, NULL)); /* NULL key, len 1: false */
+    assert(expanse_sync_bytesmap_get(b, "a\0b", 3, &v) && v == 2);
+    assert(!expanse_sync_bytesmap_get(b, "a", 1, &v));
+    assert(expanse_sync_bytesmap_contains(b, "", 0));
+    assert(expanse_sync_bytesmap_len(b) == 2);
+    assert(expanse_sync_bytesmap_mem_used(b) > 0);
+    assert(expanse_sync_bytesmap_mem_held(b) >= expanse_sync_bytesmap_mem_used(b));
+    expanse_sync_bytesmap_reader_t *br = expanse_sync_bytesmap_reader_new(b);
+    assert(expanse_sync_bytesmap_reader_get(br, "a\0b", 3, &v) && v == 2);
+    assert(expanse_sync_bytesmap_reader_contains(br, NULL, 0));
+    assert(!expanse_sync_bytesmap_reader_contains(br, "a\0", 2));
+    expanse_sync_bytesmap_reader_free(br);
+    assert(expanse_sync_bytesmap_remove(b, "a\0b", 3, &v) && v == 2);
+    assert(!expanse_sync_bytesmap_remove(b, "a\0b", 3, &v));
+    (void) expanse_sync_bytesmap_shrink_to_fit(b);
+    assert(expanse_sync_bytesmap_len(b) == 1);
+    expanse_sync_bytesmap_free(b);
+    assert(expanse_sync_bytesmap_len(NULL) == 0 && expanse_sync_bytesmap_reader_new(NULL) == NULL);
+
+    /* Every ordered-bytes-map symbol once. */
+    expanse_sync_ordered_bytesmap_t *o = expanse_sync_ordered_bytesmap_new();
+    assert(o != NULL && expanse_sync_ordered_bytesmap_len(o) == 0);
+    assert(expanse_sync_ordered_bytesmap_insert(o, "beta\0x", 6, 20, NULL));
+    assert(!expanse_sync_ordered_bytesmap_insert(o, "beta\0x", 6, 21, &v) && v == 20);
+    assert(expanse_sync_ordered_bytesmap_insert(o, "beta\x01x", 6, 30, NULL));
+    assert(expanse_sync_ordered_bytesmap_insert(o, "alpha", 5, 10, NULL));
+    assert(expanse_sync_ordered_bytesmap_get(o, "beta\0x", 6, &v) && v == 21);
+    assert(expanse_sync_ordered_bytesmap_contains(o, "beta\x01x", 6));
+    assert(!expanse_sync_ordered_bytesmap_contains(o, "beta", 4));
+    assert(expanse_sync_ordered_bytesmap_len(o) == 3);
+    assert(expanse_sync_ordered_bytesmap_mem_used(o) > 0);
+    assert(expanse_sync_ordered_bytesmap_mem_held(o) >= expanse_sync_ordered_bytesmap_mem_used(o));
+    expanse_sync_ordered_bytesmap_reader_t *orr = expanse_sync_ordered_bytesmap_reader_new(o);
+    assert(expanse_sync_ordered_bytesmap_reader_get(orr, "alpha", 5, &v) && v == 10);
+    assert(expanse_sync_ordered_bytesmap_reader_contains(orr, "beta\0x", 6));
+    expanse_sync_ordered_bytesmap_reader_free(orr);
+    {
+        /* Ordered reads: "alpha" -> 10 < "beta\0x" -> 21 < "beta\x01x" -> 30. */
+        char out[8];
+        size_t req = 0;
+        assert(expanse_sync_ordered_bytesmap_first(o, NULL, 0, &req, NULL) == EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL
+               && req == 5); /* length probe */
+        assert(expanse_sync_ordered_bytesmap_first(o, out, sizeof out, &req, &v) == EXPANSE_ORDERED_BYTES_NAV_OK
+               && req == 5 && memcmp(out, "alpha", 5) == 0 && v == 10);
+        assert(expanse_sync_ordered_bytesmap_last(o, out, sizeof out, &req, &v) == EXPANSE_ORDERED_BYTES_NAV_OK
+               && req == 6 && memcmp(out, "beta\x01x", 6) == 0 && v == 30);
+        assert(expanse_sync_ordered_bytesmap_next_after(o, "alpha", 5, out, 5, &req, &v)
+               == EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL && req == 6); /* one byte short */
+        assert(expanse_sync_ordered_bytesmap_next_after(o, "alpha", 5, out, sizeof out, &req, &v)
+               == EXPANSE_ORDERED_BYTES_NAV_OK && memcmp(out, "beta\0x", 6) == 0 && v == 21);
+        assert(expanse_sync_ordered_bytesmap_next_at_or_after(o, "beta", 4, out, sizeof out, &req, &v)
+               == EXPANSE_ORDERED_BYTES_NAV_OK && memcmp(out, "beta\0x", 6) == 0);
+        assert(expanse_sync_ordered_bytesmap_prev_at_or_before(o, "beta\x01", 5, out, sizeof out, &req, &v)
+               == EXPANSE_ORDERED_BYTES_NAV_OK && memcmp(out, "beta\0x", 6) == 0);
+        assert(expanse_sync_ordered_bytesmap_prev_before(o, "alpha", 5, out, sizeof out, &req, &v)
+               == EXPANSE_ORDERED_BYTES_NAV_NOT_FOUND);
+    }
+    assert(expanse_sync_ordered_bytesmap_remove(o, "alpha", 5, &v) && v == 10);
+    assert(!expanse_sync_ordered_bytesmap_remove(o, "alpha", 5, &v));
+    (void) expanse_sync_ordered_bytesmap_shrink_to_fit(o);
+    assert(expanse_sync_ordered_bytesmap_len(o) == 2);
+    expanse_sync_ordered_bytesmap_free(o);
+    assert(expanse_sync_ordered_bytesmap_len(NULL) == 0 && expanse_sync_ordered_bytesmap_reader_new(NULL) == NULL);
+
+    /* One writer, BYTES_READERS reader threads, on each map. */
+    bytes_shared = expanse_sync_bytesmap_new();
+    bytes_threads(false);
+    expanse_sync_bytesmap_free(bytes_shared);
+    obytes_shared = expanse_sync_ordered_bytesmap_new();
+    bytes_threads(true);
+    expanse_sync_ordered_bytesmap_free(obytes_shared);
+    printf("sync_bytesmap, sync_ordered_bytesmap: point ops, readers, ordered reads, %d threaded readers ok\n",
+           BYTES_READERS);
+}
+
 int main(void) {
     printf("libexpanse %s\n", expanse_version());
 
@@ -209,6 +424,7 @@ int main(void) {
     printf("sync: concurrent reader, compare_exchange, get_or_insert ok\n");
 
     sync_strmap_smoke();
+    sync_bytesmaps_smoke();
 
     expanse_bytesmap_t *b = expanse_bytesmap_new();
     expanse_bytesmap_insert(b, "a\0b", 3, 5, NULL);

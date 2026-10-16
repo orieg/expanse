@@ -27,7 +27,29 @@ expanse_sync_strmap_reader_first, expanse_sync_strmap_reader_last, \
 expanse_sync_strmap_reader_next_at_or_after, \
 expanse_sync_strmap_reader_next_after, \
 expanse_sync_strmap_reader_prev_at_or_before, \
-expanse_sync_strmap_reader_prev_before \
+expanse_sync_strmap_reader_prev_before, \
+expanse_sync_bytesmap_new, expanse_sync_bytesmap_free, \
+expanse_sync_bytesmap_insert, expanse_sync_bytesmap_get, \
+expanse_sync_bytesmap_contains, expanse_sync_bytesmap_remove, \
+expanse_sync_bytesmap_len, expanse_sync_bytesmap_mem_used, \
+expanse_sync_bytesmap_mem_held, expanse_sync_bytesmap_shrink_to_fit, \
+expanse_sync_bytesmap_reader_new, expanse_sync_bytesmap_reader_free, \
+expanse_sync_bytesmap_reader_get, expanse_sync_bytesmap_reader_contains, \
+expanse_sync_ordered_bytesmap_new, expanse_sync_ordered_bytesmap_free, \
+expanse_sync_ordered_bytesmap_insert, expanse_sync_ordered_bytesmap_get, \
+expanse_sync_ordered_bytesmap_contains, expanse_sync_ordered_bytesmap_remove, \
+expanse_sync_ordered_bytesmap_len, expanse_sync_ordered_bytesmap_mem_used, \
+expanse_sync_ordered_bytesmap_mem_held, \
+expanse_sync_ordered_bytesmap_shrink_to_fit, \
+expanse_sync_ordered_bytesmap_reader_new, \
+expanse_sync_ordered_bytesmap_reader_free, \
+expanse_sync_ordered_bytesmap_reader_get, \
+expanse_sync_ordered_bytesmap_reader_contains, \
+expanse_sync_ordered_bytesmap_first, expanse_sync_ordered_bytesmap_last, \
+expanse_sync_ordered_bytesmap_next_at_or_after, \
+expanse_sync_ordered_bytesmap_next_after, \
+expanse_sync_ordered_bytesmap_prev_at_or_before, \
+expanse_sync_ordered_bytesmap_prev_before \
 \- concurrent sets and maps with optimistic readers (OCC)
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -44,6 +66,17 @@ expanse_sync_strmap_reader_prev_before \
 .br
 .BI "typedef struct expanse_sync_strmap_reader"
 .BI "    expanse_sync_strmap_reader_t;"
+.br
+.BI "typedef struct expanse_sync_bytesmap expanse_sync_bytesmap_t;"
+.br
+.BI "typedef struct expanse_sync_bytesmap_reader"
+.BI "    expanse_sync_bytesmap_reader_t;"
+.br
+.BI "typedef struct expanse_sync_ordered_bytesmap"
+.BI "    expanse_sync_ordered_bytesmap_t;"
+.br
+.BI "typedef struct expanse_sync_ordered_bytesmap_reader"
+.BI "    expanse_sync_ordered_bytesmap_reader_t;"
 .PP
 .BI "expanse_sync_set_t *expanse_sync_set_new(void);"
 .br
@@ -218,6 +251,140 @@ expanse_sync_strmap_reader_prev_before \
 .BI "expanse_str_nav_status expanse_sync_strmap_reader_prev_before("
 .BI "    const expanse_sync_strmap_reader_t *" reader ", const char *" key ","
 .BI "    char *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.PP
+.BI "expanse_sync_bytesmap_t *expanse_sync_bytesmap_new(void);"
+.br
+.BI "void expanse_sync_bytesmap_free(expanse_sync_bytesmap_t *" map ");"
+.br
+.BI "bool expanse_sync_bytesmap_insert(expanse_sync_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ", uint64_t " value ","
+.BI "    uint64_t *" old_out ");"
+.br
+.BI "bool expanse_sync_bytesmap_get(const expanse_sync_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_bytesmap_contains("
+.BI "    const expanse_sync_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ");"
+.br
+.BI "bool expanse_sync_bytesmap_remove(expanse_sync_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ", uint64_t *" old_out ");"
+.br
+.BI "uint64_t expanse_sync_bytesmap_len("
+.BI "    const expanse_sync_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_bytesmap_mem_used("
+.BI "    const expanse_sync_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_bytesmap_mem_held("
+.BI "    const expanse_sync_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_bytesmap_shrink_to_fit("
+.BI "    const expanse_sync_bytesmap_t *" map ");"
+.PP
+.BI "expanse_sync_bytesmap_reader_t *expanse_sync_bytesmap_reader_new("
+.BI "    const expanse_sync_bytesmap_t *" map ");"
+.br
+.BI "void expanse_sync_bytesmap_reader_free("
+.BI "    expanse_sync_bytesmap_reader_t *" reader ");"
+.br
+.BI "bool expanse_sync_bytesmap_reader_get("
+.BI "    const expanse_sync_bytesmap_reader_t *" reader ","
+.BI "    const void *" key ", size_t " len ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_bytesmap_reader_contains("
+.BI "    const expanse_sync_bytesmap_reader_t *" reader ","
+.BI "    const void *" key ", size_t " len ");"
+.PP
+.BI "expanse_sync_ordered_bytesmap_t *expanse_sync_ordered_bytesmap_new(void);"
+.br
+.BI "void expanse_sync_ordered_bytesmap_free("
+.BI "    expanse_sync_ordered_bytesmap_t *" map ");"
+.br
+.BI "bool expanse_sync_ordered_bytesmap_insert("
+.BI "    expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ", uint64_t " value ","
+.BI "    uint64_t *" old_out ");"
+.br
+.BI "bool expanse_sync_ordered_bytesmap_get("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_ordered_bytesmap_contains("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ");"
+.br
+.BI "bool expanse_sync_ordered_bytesmap_remove("
+.BI "    expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ", uint64_t *" old_out ");"
+.br
+.BI "uint64_t expanse_sync_ordered_bytesmap_len("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_ordered_bytesmap_mem_used("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_ordered_bytesmap_mem_held("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ");"
+.br
+.BI "size_t expanse_sync_ordered_bytesmap_shrink_to_fit("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ");"
+.PP
+.BI "expanse_sync_ordered_bytesmap_reader_t *"
+.BI "expanse_sync_ordered_bytesmap_reader_new("
+.BI "    "
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ");"
+.br
+.BI "void expanse_sync_ordered_bytesmap_reader_free("
+.BI "    expanse_sync_ordered_bytesmap_reader_t *" reader ");"
+.br
+.BI "bool expanse_sync_ordered_bytesmap_reader_get("
+.BI "    const expanse_sync_ordered_bytesmap_reader_t *" reader ","
+.BI "    const void *" key ", size_t " len ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_sync_ordered_bytesmap_reader_contains("
+.BI "    const expanse_sync_ordered_bytesmap_reader_t *" reader ","
+.BI "    const void *" key ", size_t " len ");"
+.br
+.BI "expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_first("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    void *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_last("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    void *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status"
+.BI "expanse_sync_ordered_bytesmap_next_at_or_after("
+.BI "    "
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ","
+.BI "    void *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status expanse_sync_ordered_bytesmap_next_after("
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ","
+.BI "    void *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status"
+.BI "expanse_sync_ordered_bytesmap_prev_at_or_before("
+.BI "    "
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ","
+.BI "    void *" key_out ", size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_ordered_bytes_nav_status"
+.BI "expanse_sync_ordered_bytesmap_prev_before("
+.BI "    "
+.BI "    const expanse_sync_ordered_bytesmap_t *" map ","
+.BI "    const void *" key ", size_t " len ","
+.BI "    void *" key_out ", size_t " buf_len ", size_t *" required_len ","
 .BI "    uint64_t *" value_out ");"
 .PP
 Link with \fI-lexpanse\fR.
@@ -462,6 +629,94 @@ may be NULL.
 A retry after
 .B EXPANSE_STR_NAV_BUFFER_TOO_SMALL
 is a new read, and may return a different key if a writer ran in between.
+.SH BYTES AND ORDERED-BYTES MAPS
+.B expanse_sync_bytesmap_t
+and
+.B expanse_sync_ordered_bytesmap_t
+are the concurrent forms of
+.BR expanse_bytesmap (3),
+which is unordered, and
+.BR expanse_ordered_bytesmap (3):
+maps from byte strings to
+.B uint64_t
+values.
+Their protocol, their container and reader thread rules, and their
+reader-handle ownership are those of
+.B expanse_sync_map_t
+above: free every reader before the map.
+.PP
+A key is the
+.I len
+bytes at
+.IR key :
+opaque bytes, with embedded NUL bytes ordinary, and NULL with a
+.I len
+of 0 the empty key.
+A NULL
+.I key
+with a non-zero
+.I len
+behaves like a NULL handle: the call returns false (or 0) and writes
+nothing.
+The point, memory and reader calls follow the
+.B expanse_sync_strmap_*
+conventions above.
+.PP
+.BR expanse_sync_ordered_bytesmap_first ,
+.BR expanse_sync_ordered_bytesmap_last ,
+.BR expanse_sync_ordered_bytesmap_next_at_or_after ,
+.BR expanse_sync_ordered_bytesmap_next_after ,
+.B expanse_sync_ordered_bytesmap_prev_at_or_before
+and
+.B expanse_sync_ordered_bytesmap_prev_before
+are the ordered reads of the ordered-bytes map.
+They take the map handle, not a reader, and they
+.B block writers
+for their duration: each quiesces writers and takes the writer mutex, so
+the entry returned is the answer at one instant and every write waits for
+the call.
+A walk built from
+.B expanse_sync_ordered_bytesmap_next_after
+is not a snapshot: it sees every key present throughout it, in order.
+They copy the key into the caller's buffer under the navigation contract
+of
+.BR expanse_ordered_bytesmap (3).
+.B EXPANSE_ORDERED_BYTES_NAV_OK
+writes the key to
+.IR key_out ,
+its length to
+.I required_len
+and its value to
+.IR value_out ;
+an empty key needs no buffer.
+.B EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL
+means a key was found but
+.I buf_len
+is below its length, or
+.I key_out
+is NULL; only
+.I required_len
+is written and the buffer is untouched, so NULL with 0 is a length probe.
+.B EXPANSE_ORDERED_BYTES_NAV_NOT_FOUND
+means there is no such entry, which includes the predecessor of the empty
+key, or that
+.I map
+is NULL, or
+.I key
+is NULL with a non-zero
+.IR len ;
+nothing is written.
+.I required_len
+and
+.I value_out
+may be NULL, and
+.I key
+and
+.I key_out
+may be the same buffer.
+A retry after
+.B EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL
+is a new read, and may return a different key if a writer ran in between.
 .SH EXAMPLES
 .nf
 #include <stdio.h>
@@ -530,6 +785,30 @@ int main(void) {
     expanse_sync_strmap_reader_free(sr);
 
     expanse_sync_strmap_free(names);
+
+    /* The shared ordered-bytes map: keys carry embedded NULs */
+    expanse_sync_ordered_bytesmap_t *ob = expanse_sync_ordered_bytesmap_new();
+    expanse_sync_ordered_bytesmap_insert(ob, "k\\0b", 3, 20, NULL);
+    expanse_sync_ordered_bytesmap_insert(ob, "k\\0a", 3, 10, NULL);
+
+    expanse_sync_ordered_bytesmap_reader_t *obr =
+        expanse_sync_ordered_bytesmap_reader_new(ob);
+    if (expanse_sync_ordered_bytesmap_reader_get(obr, "k\\0b", 3, &val)) {
+        printf("Bytes read: 3-byte key -> %" PRIu64 "\\n", val);
+    }
+    expanse_sync_ordered_bytesmap_reader_free(obr);
+
+    /* Ordered reads take the map handle and block writers per call */
+    unsigned char bk[8];
+    expanse_ordered_bytes_nav_status bs =
+        expanse_sync_ordered_bytesmap_first(ob, bk, sizeof bk, &need, &val);
+    while (bs == EXPANSE_ORDERED_BYTES_NAV_OK) {
+        printf("Bytes walk: %zu bytes, last 0x%02x -> %" PRIu64 "\\n",
+               need, bk[need - 1], val);
+        bs = expanse_sync_ordered_bytesmap_next_after(ob, bk, need, bk,
+                                                      sizeof bk, &need, &val);
+    }
+    expanse_sync_ordered_bytesmap_free(ob);
     return 0;
 }
 .fi
@@ -541,12 +820,17 @@ String read: beta -> 2
 First key needs 6 bytes
 Walk: alpha -> 1
 Walk: beta -> 2
+Bytes read: 3-byte key -> 20
+Bytes walk: 3 bytes, last 0x61 -> 10
+Bytes walk: 3 bytes, last 0x62 -> 20
 .fi
 .SH SEE ALSO
 .BR expanse (3),
 .BR expanse_set (3),
 .BR expanse_map (3),
-.BR expanse_strmap (3)
+.BR expanse_strmap (3),
+.BR expanse_bytesmap (3),
+.BR expanse_ordered_bytesmap (3)
 .SH AUTHORS
 Nicolas Brousse <nicolas@brousse.info>
 .PP
