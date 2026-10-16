@@ -611,9 +611,11 @@ console.log(map.get(42n));               // 1000n
 
 // 3. High-performance polymorphic blob map (inline packing + arena)
 const blobmap = new ExpanseBlobMap();
-blobmap.set(1n, Buffer.from('inline'), 10 /* 24-bit hot metadata; not kept for a payload of <= 7 bytes */);
+blobmap.set(1n, Buffer.from('inline'), 0 /* 24-bit hot metadata; 0 keeps a payload of <= 7 bytes inline */);
 const res = blobmap.getWithMeta(1n);
 console.log(res.isInline);               // true (0 heap allocations)
+blobmap.set(2n, Buffer.from('tagged'), 10); // with metadata: an arena record that keeps it
+console.log(blobmap.getWithMeta(2n).hotMeta); // 10
 ```
 See [crates/expanse-node/README.md](crates/expanse-node/README.md) for full Node.js documentation.
 

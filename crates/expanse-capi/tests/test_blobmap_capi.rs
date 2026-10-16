@@ -544,8 +544,91 @@ fn test_capi_blob_map_get_into_refuses_short_buffer() {
             &mut out_len,
             &mut out_meta
         ));
-        assert_eq!((out_len, out_meta), (0, 0)); // inline values carry no hot metadata
+        // An empty payload inserted with metadata keeps it (#1548).
+        assert_eq!((out_len, out_meta), (0, 5));
 
+        expanse_blob_map_free(map);
+    }
+}
+
+/// #1548 on the single-threaded C surface: a payload of 7 bytes or fewer
+/// inserted with metadata is stored in the arena and keeps it (get, get_into,
+/// scan_filtered); one inserted with metadata 0 stays inline; metadata wider
+/// than 24 bits is refused at every length.
+#[test]
+fn test_capi_blob_map_short_payload_metadata() {
+    use expanse::blobmap::{ExpanseBlobStatus, expanse_blob_map_insert_ex};
+    // SAFETY: Exercising C ABI functions with a valid map handle, readable
+    // payloads and writable out-parameters.
+    unsafe {
+        let map = expanse_blob_map_new(64 * 1024);
+        for len in 0..=7usize {
+            let data = vec![0xA0u8 | len as u8; len];
+            let k = len as u64;
+            assert!(expanse_blob_map_insert(
+                map,
+                k,
+                data.as_ptr(),
+                len,
+                50 + k as u32
+            ));
+            assert!(expanse_blob_map_insert(map, 100 + k, data.as_ptr(), len, 0));
+            assert_eq!(
+                expanse_blob_map_insert_ex(map, 200 + k, data.as_ptr(), len, 1 << 24),
+                ExpanseBlobStatus::MetaOverflow
+            );
+            assert!(!expanse_blob_map_insert(
+                map,
+                k,
+                data.as_ptr(),
+                len,
+                u32::MAX
+            ));
+
+            let mut view = ExpanseBlobView {
+                ptr: core::ptr::null(),
+                len: 999,
+                hot_meta: 999,
+                is_inline: true,
+            };
+            assert!(expanse_blob_map_get(map, k, &mut view));
+            assert!(!view.is_inline, "len {len}: an arena record");
+            assert_eq!((view.len, view.hot_meta), (len, 50 + k as u32));
+            assert!(expanse_blob_map_get(map, 100 + k, &mut view));
+            assert!(view.is_inline, "len {len}: metadata 0 stays inline");
+            assert_eq!((view.len, view.hot_meta), (len, 0));
+
+            let mut buf = [0u8; 8];
+            let (mut out_len, mut out_meta) = (0usize, 0u32);
+            assert!(expanse_blob_map_get_into(
+                map,
+                k,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut out_len,
+                &mut out_meta
+            ));
+            assert_eq!((out_len, out_meta), (len, 50 + k as u32));
+            assert_eq!(&buf[..len], &data[..]);
+        }
+        assert_eq!(expanse_blob_map_len(map), 16);
+        assert!(!expanse_blob_map_contains_key(map, 200));
+
+        let mut context = ScanContext {
+            visited_keys: Vec::new(),
+            visited_metas: Vec::new(),
+        };
+        let scanned = expanse_blob_map_scan_filtered(
+            map,
+            0,
+            1_000,
+            Some(test_predicate),
+            Some(test_callback),
+            (&mut context as *mut ScanContext).cast::<c_void>(),
+        );
+        assert_eq!(scanned, 8);
+        assert_eq!(context.visited_keys, (0..=7u64).collect::<Vec<_>>());
+        assert_eq!(context.visited_metas, (50..=57u32).collect::<Vec<_>>());
         expanse_blob_map_free(map);
     }
 }

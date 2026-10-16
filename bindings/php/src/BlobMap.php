@@ -68,7 +68,7 @@ if (!class_exists(BlobMap::class)) {
                 $rc = $ffi->expanse_blob_map_insert_ex($this->handle, $key, $payload, strlen($payload), $hotMeta);
                 return self::STATUS[$rc] ?? 'error';
             }
-            if (strlen($payload) > 7 && $hotMeta > 0xFFFFFF) {
+            if ($hotMeta > 0xFFFFFF) {
                 return 'meta_overflow';
             }
             $this->set($key, $payload, $hotMeta);
@@ -140,9 +140,9 @@ if (!class_exists(BlobMap::class)) {
         /**
          * Stores $payload under $key with $hotMeta, replacing any previous value.
          *
-         * @throws \Exception when the engine refuses the insert: a payload longer
-         *     than 7 bytes with $hotMeta above 24 bits, the arena capacity cap
-         *     reached, or an allocation failure. The key keeps its previous value.
+         * @throws \Exception when the engine refuses the insert: $hotMeta above
+         *     24 bits (at any payload length), the arena capacity cap reached,
+         *     or an allocation failure. The key keeps its previous value.
          *     Every driver throws the same class; the native extension's message
          *     names the engine error, while the FFI driver's C call reports only
          *     that the insert was refused.
@@ -173,14 +173,13 @@ if (!class_exists(BlobMap::class)) {
             }
             // The in-memory fallback has no arena, but it keeps the one refusal a
             // caller can trigger by argument so the contract matches the drivers.
-            if (strlen($payload) > 7 && $hotMeta > 0xFFFFFF) {
+            if ($hotMeta > 0xFFFFFF) {
                 throw new \Exception("MetaOverflow: hot_meta $hotMeta exceeds 24 bits for key $key");
             }
             $this->data[$key] = $payload;
-            // The engine stores a payload of at most 7 bytes inside the value
-            // slot, which has no metadata field, so it ignores hot_meta there
-            // and reads it back as 0 (docs/design/large-values.md). Match it.
-            $this->meta[$key] = strlen($payload) > 7 ? $hotMeta : 0;
+            // The engine keeps hot_meta at every payload length: a short payload
+            // goes into the value slot only with hot_meta 0 (#1548). Match it.
+            $this->meta[$key] = $hotMeta;
         }
 
         public function get(int $key, int &$hotMeta = 0): ?string

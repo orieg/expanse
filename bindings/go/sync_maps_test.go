@@ -824,11 +824,8 @@ func TestSyncBlobMapPointOps(t *testing.T) {
 		if !ok || !bytes.Equal(got, pattern(byte(i), n)) {
 			t.Fatalf("Get(len %d): ok %v, %d bytes returned, payload equal %v", n, ok, len(got), bytes.Equal(got, pattern(byte(i), n)))
 		}
-		// Payloads of 7 bytes or fewer keep no metadata (#1548).
+		// Metadata is kept at every payload length (#1548).
 		wantMeta := uint32(i) + 1
-		if n <= 7 {
-			wantMeta = 0
-		}
 		if meta != wantMeta {
 			t.Fatalf("Get(len %d) meta = %d, want %d", n, meta, wantMeta)
 		}
@@ -1034,17 +1031,22 @@ func TestSyncBlobMapCompareExchange(t *testing.T) {
 		}
 	}
 
-	// #1548: a short payload reads back metadata 0, so expecting the metadata it
-	// was inserted with reports a mismatch carrying metadata 0.
+	// #1548: a short payload keeps the metadata it was inserted with, so
+	// expecting metadata 0 reports a mismatch carrying it, and expecting it
+	// matches.
 	if _, stored, _ = m.CompareExchange(4, BlobValue{}, SomeBlob([]byte("tiny"), 9)); !stored {
 		t.Fatal("insert tiny")
 	}
-	obs, stored, _ = m.CompareExchange(4, SomeBlob([]byte("tiny"), 9), SomeBlob([]byte("tiny2"), 9))
-	if stored || obs.Meta != 0 || string(obs.Data) != "tiny" {
+	obs, stored, _ = m.CompareExchange(4, SomeBlob([]byte("tiny"), 0), SomeBlob([]byte("tiny2"), 9))
+	if stored || obs.Meta != 9 || string(obs.Data) != "tiny" {
 		t.Fatalf("#1548: stored %v obs %+v", stored, obs)
 	}
-	if _, stored, _ = m.CompareExchange(4, obs, SomeBlob([]byte("tiny2"), 9)); !stored {
-		t.Fatal("exchange against the observed (meta 0) value")
+	if _, stored, _ = m.CompareExchange(4, SomeBlob([]byte("tiny"), 9), SomeBlob([]byte("tiny2"), 9)); !stored {
+		t.Fatal("exchange against the stored (meta 9) value")
+	}
+	// Metadata wider than 24 bits is refused for a short payload too.
+	if _, stored, err := m.CompareExchange(4, SomeBlob([]byte("tiny2"), 9), SomeBlob([]byte("t"), 1<<24)); stored || !errors.Is(err, ErrBlobInsertRefused) {
+		t.Fatalf("#1548: short payload with 25-bit metadata: stored %v err %v", stored, err)
 	}
 }
 

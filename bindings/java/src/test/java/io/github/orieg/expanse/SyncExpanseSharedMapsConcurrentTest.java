@@ -235,12 +235,8 @@ class SyncExpanseSharedMapsConcurrentTest {
             lengthMatches = versioned(full).length == d.length;
         }
         assertTrue(lengthMatches, "payload length does not match its fill byte");
-        if (d.length > 7) {
-            assertEquals(version, v.hotMeta(), "metadata does not match the payload");
-        } else {
-            // A payload of 7 bytes or fewer is stored in its slot word, without metadata.
-            assertTrue(v.hotMeta() == 0 || v.hotMeta() == version, "metadata does not match the payload");
-        }
+        // Metadata is kept at every payload length (#1548).
+        assertEquals(version, v.hotMeta(), "metadata does not match the payload");
     }
 
     @Test

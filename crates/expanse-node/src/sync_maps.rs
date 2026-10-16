@@ -627,7 +627,7 @@ impl Default for SyncExpanseOrderedBytesMap {
 pub struct BlobValue {
     /// The payload bytes.
     pub payload: Buffer,
-    /// The hot metadata word. A payload of 7 bytes or fewer keeps none and reads `0`.
+    /// The hot metadata word, as stored, at every payload length (#1548).
     pub hot_meta: u32,
 }
 
@@ -679,8 +679,8 @@ fn arena_err(what: &str, e: ArenaError) -> Error {
 /// payloads with 24-bit hot metadata, with optimistic concurrency control (OCC).
 ///
 /// Reads return owned copies (`Buffer`), valid whatever writers do afterwards.
-/// Payloads of 7 bytes or fewer are stored in the value slot and keep no metadata
-/// (they read back `hotMeta` `0`).
+/// A value is stored in its value slot, without metadata, only when written with
+/// `hotMeta` `0`; a payload of any length written with metadata keeps it (#1548).
 #[napi]
 pub struct SyncExpanseBlobMap {
     inner: InnerBlobMap,
@@ -833,7 +833,7 @@ impl SyncExpanseBlobMap {
 
     // abi-parity: expanse_sync_blob_map_get_meta, expanse_sync_blob_map_reader_get_meta
     /// Retrieves only the hot metadata of `key`, or `null` if absent, without touching
-    /// the payload. A payload of 7 bytes or fewer reads `0`.
+    /// the payload. A value written with `hotMeta` `0` reads `0`.
     #[napi(js_name = "getMeta")]
     pub fn get_meta(&self, key: KeyInput) -> Result<Option<u32>> {
         Ok(self.inner.get_meta(key_to_u64(key)?))
@@ -896,10 +896,11 @@ impl SyncExpanseBlobMap {
     /// Atomic compare-and-swap on the 24-bit hot metadata of one key, with no payload
     /// copy: stores `newMeta` only if the key's current metadata is `expected`. `null`
     /// (or `undefined`) is "absent" on both sides; `(e, null)` removes the key if equal.
-    /// A payload of 7 bytes or fewer keeps no metadata (#1548): its metadata is `0`.
+    /// A payload of 7 bytes or fewer written with metadata keeps it (#1548).
     ///
     /// Throws when the metadata compares equal but `newMeta` cannot be stored (above 24
-    /// bits, or non-zero on an absent key or an inline payload); the map is then
+    /// bits, or non-zero on an absent key or on a payload stored inline with metadata
+    /// `0`); the map is then
     /// unchanged.
     #[napi(js_name = "compareExchangeMeta")]
     pub fn compare_exchange_meta(

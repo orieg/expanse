@@ -578,8 +578,10 @@ BlobValue = Tuple[Union[bytes, str], int]
 class SyncExpanseBlobMap:
     """Thread-safe map from ``int`` keys to ``bytes`` payloads with a 32-bit ``hot_meta``; every call releases the GIL.
 
-    Only the low 24 bits of ``hot_meta`` are stored beside an arena payload, and
-    a payload of 7 bytes or fewer reads back ``hot_meta == 0`` (issue #1548).
+    ``hot_meta`` is a 24-bit field: wider metadata is refused (``"meta_overflow"``)
+    at every payload length, and a payload of any length reads back the
+    ``hot_meta`` it was inserted with (issue #1548); only a value inserted with
+    ``hot_meta == 0`` is kept in its value slot.
     Statuses: ``"ok"``, ``"mismatch"``, ``"meta_overflow"``,
     ``"allocation_failed"``, ``"cap_refused"``, ``"arena_full"``,
     ``"no_meta_field"``.

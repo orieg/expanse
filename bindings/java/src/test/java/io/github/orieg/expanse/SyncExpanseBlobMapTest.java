@@ -77,18 +77,22 @@ class SyncExpanseBlobMapTest {
     }
 
     @Test
-    @DisplayName("hot metadata round-trips for arena values and reads 0 for slot-word values")
+    @DisplayName("hot metadata round-trips at every payload length; slot-word values read 0")
     void metadata() {
         try (SyncExpanseBlobMap m = new SyncExpanseBlobMap(); SyncExpanseBlobMap.Reader r = m.reader()) {
             m.insert(1, payload(100, 1), META);
-            m.insert(2, payload(3, 2), META); // 7 bytes or fewer: stored without metadata
+            m.insert(2, payload(3, 2), META); // 7 bytes or fewer: an arena record keeping it (#1548)
+            m.insert(4, payload(3, 4), 0); // metadata 0: stored in the slot word
             assertEquals(OptionalInt.of(META), m.getMeta(1));
             assertEquals(OptionalInt.of(META), r.getMeta(1));
-            assertEquals(OptionalInt.of(0), m.getMeta(2));
+            assertEquals(OptionalInt.of(META), m.getMeta(2));
+            assertEquals(OptionalInt.of(META), r.getMeta(2));
+            assertEquals(OptionalInt.of(0), m.getMeta(4));
             assertEquals(OptionalInt.empty(), m.getMeta(3));
             assertEquals(OptionalInt.empty(), r.getMeta(3));
             assertBlob(payload(100, 1), META, m.get(1));
-            assertBlob(payload(3, 2), 0, m.get(2));
+            assertBlob(payload(3, 2), META, m.get(2));
+            assertBlob(payload(3, 4), 0, m.get(4));
         }
     }
 
@@ -99,6 +103,8 @@ class SyncExpanseBlobMapTest {
             assertEquals(ExpanseBlobMap.InsertStatus.OK, m.insertStatus(1, payload(100, 1), 5));
             assertEquals(ExpanseBlobMap.InsertStatus.META_OVERFLOW, m.insertStatus(2, payload(100, 1), 0x1000000));
             assertFalse(m.insert(2, payload(100, 1), 0x1000000));
+            // At every payload length (#1548).
+            assertEquals(ExpanseBlobMap.InsertStatus.META_OVERFLOW, m.insertStatus(2, payload(3, 1), 0x1000000));
             assertEquals(ExpanseBlobMap.InsertStatus.ALLOCATION_FAILED, m.insertStatus(3, payload(5000, 1), 0));
             assertFalse(m.containsKey(2));
             assertFalse(m.containsKey(3));

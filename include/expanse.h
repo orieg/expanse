@@ -1180,8 +1180,13 @@ void            expanse_blob_map_free(ExpanseBlobMap *map);
 void expanse_blob_map_set_reclaim_at_cap(ExpanseBlobMap *map, bool on);
 
 /*
- * Returns false when the insert is refused: hot_meta wider than 24 bits, a
- * payload larger than a chunk, an allocation failure, or an arena at its
+ * Metadata: a value is stored inline in its slot word, which has no metadata
+ * field, only when hot_meta is 0 (a payload of 7 bytes or fewer, or one the
+ * codec compresses into the slot word). A payload of any length inserted with
+ * non-zero hot_meta is stored in the arena and keeps it (issue #1548).
+ *
+ * Returns false when the insert is refused: hot_meta wider than 24 bits (at
+ * any payload length), a payload larger than a chunk, an allocation failure, or an arena at its
  * capacity cap that the reclaim rule cannot free enough of. At the cap the
  * insert may first compact the arena (see the view contract above), which
  * copies every live payload; the map's contents are unchanged on refusal.
@@ -1313,10 +1318,13 @@ bool     expanse_blob_map_contains(const ExpanseBlobMap *map, uint64_t key);
  * compaction. Insert and its refusals are those of expanse_blob_map_insert_ex
  * (OK, META_OVERFLOW, ALLOCATION_FAILED, CAP_REFUSED, ARENA_FULL;
  * INVALID_ARGUMENT for a NULL map, NULL data with len > 0, or len above
- * PTRDIFF_MAX). Hot metadata is the 24-bit field of an arena-stored value: a
- * payload of 7 bytes or fewer, or one the map compresses into its slot word
- * (only when hot_meta is 0), is stored without it and reads back metadata 0,
- * whatever hot_meta the insert passed, as expanse_blob_map_insert stores it.
+ * PTRDIFF_MAX). Hot metadata is the 24-bit field of an arena-stored value. A
+ * value is stored in its slot word, without that field, only when hot_meta is
+ * 0 (a payload of 7 bytes or fewer, or one the map compresses into the slot
+ * word), and reads back metadata 0. A payload of any length inserted with
+ * non-zero hot_meta is arena-stored and keeps it, and META_OVERFLOW refuses
+ * hot_meta wider than 24 bits at every length, as expanse_blob_map_insert
+ * does (issue #1548).
  *
  * _get_into / _reader_get_into, one read each:
  *   OK                key present and its payload fits: it is in
@@ -1414,10 +1422,9 @@ expanse_blob_status_t expanse_sync_blob_map_compact(expanse_sync_blob_map_t *map
  * after growing buf) and stops on OK or a refusal; a refusal is reported only
  * when the comparison held, so the loop ends.
  *
- * Metadata follows insert (above): a payload of 7 bytes or fewer, or one the
- * map compresses into its slot word, is stored without metadata and reads
- * back metadata 0, so expecting the hot_meta it was inserted with reports
- * MISMATCH with metadata 0 (issue #1548).
+ * Metadata follows insert (above): a value reads back the hot_meta it was
+ * stored with at every payload length, so expecting it matches; only a
+ * value stored with hot_meta 0 sits in its slot word (issue #1548).
  *
  * compare_exchange_meta swaps the 24-bit metadata in the slot with no payload
  * copy and no allocation; it is the form for a retry loop whose state lives

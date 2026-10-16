@@ -192,9 +192,9 @@ $payload = $blobs->get(2, $meta);
 $hotMeta = $blobs->getMeta(2); // 1
 ```
 
-`set()` throws `\Exception` when the engine refuses the insert: a payload longer than 7 bytes with `hotMeta` above 24 bits, the arena capacity cap reached, or an allocation failure. The key keeps its previous value. The native extension and the FFI driver throw the same class; only the native extension's message names the engine error.
+`set()` throws `\Exception` when the engine refuses the insert: `hotMeta` above 24 bits (at any payload length), the arena capacity cap reached, or an allocation failure. The key keeps its previous value. The native extension and the FFI driver throw the same class; only the native extension's message names the engine error.
 
-`hotMeta` must lie in `0..0xFFFFFFFF`: a negative value or one wider than 32 bits makes `set()` throw `\Exception` on every driver, whatever the payload length, and stores nothing. A payload of at most 7 bytes is stored inline with no metadata, so any in-range `hotMeta` is accepted for it and reads back as `0` on every driver.
+`hotMeta` must lie in `0..0xFFFFFFFF`: a negative value or one wider than 32 bits makes `set()` throw `\Exception` on every driver, whatever the payload length, and stores nothing. A payload of at most 7 bytes is stored inline only with `hotMeta` 0; with non-zero `hotMeta` it is an arena record that keeps it, and a `hotMeta` above 24 bits is refused for it as for any payload, on every driver (#1548).
 
 The arena's capacity cap counts allocated chunk bytes and defaults to 1 GiB; `new BlobMap($chunkSize, $maxCapacity)` sets another (0 keeps a default), clamped to `[chunkSize, 64 GiB]`. An insert the cap refuses may compact the arena under the reclaim rule (`docs/design/large-values.md` §6.3.1); `setReclaimAtCap(false)` turns that off. That compaction copies every live payload inside the one call and stalls the inserting thread, and on a shared map every other writer; §6.3.1 gives the measured stall and how to avoid it. `setStatus()` stores like `set()` but returns the reason for a refusal instead of throwing: `'cap_refused'` when nothing was compacted (dead bytes may remain, `arenaStats()` shows how many), `'arena_full'` when the insert compacted and the record still does not fit. The in-memory fallback has no arena: it refuses a non-zero size or cap, and `arenaStats()` throws.
 

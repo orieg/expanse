@@ -5,8 +5,10 @@
 //!
 //! ## Implementation characteristics
 //!
-//! - **Zero-heap inlining**: Payloads `<= 3` bytes are packed directly into `ValueSlot32`
-//!   (in bits 31:8, with low byte storing `len`) with 0 heap allocations and 0 arena slots.
+//! - **Zero-heap inlining**: Payloads `<= 3` bytes inserted with `hot_meta == 0` are packed
+//!   directly into `ValueSlot32` (in bits 31:8, with low byte storing `len`) with 0 heap
+//!   allocations and 0 arena slots. The inline slot has no metadata field, so a short payload
+//!   with metadata takes an arena slot and keeps its metadata (#1548).
 //! - **Freelist recycling**: Arena slab indices for `> 3`-byte payloads are recycled via an
 //!   internal freelist upon removal and overwrite.
 //! - **12-bit addressable slab**: At most `0x0FFF` (4095) live arena entries are addressable;
@@ -112,7 +114,7 @@ impl<'a> fmt::Debug for BlobView32<'a> {
 pub struct ExpanseBlobMap32 {
     /// 32-bit trie index storing `ValueSlot32` as raw words.
     index: ExpanseMap32,
-    /// Storage for arena payloads (> 3 bytes).
+    /// Storage for arena payloads (> 3 bytes, or any length with metadata).
     arena: Vec<Option<Vec<u8>>>,
     /// Freelist for recycling deallocated arena slab indices.
     freelist: Vec<u16>,
@@ -150,10 +152,17 @@ impl ExpanseBlobMap32 {
     ///
     /// Returns [`BlobMap32Error::OffsetOverflow`] if the arena has already
     /// grown to the 12-bit slab-offset ceiling (`0x0FFF` entries), or
-    /// [`BlobMap32Error::MetaOverflow`] if `hot_meta > 0x0FFF` for an
-    /// arena-backed (`> 3`-byte) payload.
+    /// [`BlobMap32Error::MetaOverflow`] if `hot_meta > 0x0FFF`, whatever the
+    /// payload's length.
+    ///
+    /// A payload of 3 bytes or fewer is packed into the value slot only when
+    /// `hot_meta == 0`: the inline slot has no metadata field, so a short
+    /// payload with metadata takes an arena slot and keeps it (#1548).
     pub fn insert(&mut self, key: Key32, data: &[u8], hot_meta: u16) -> Result<(), BlobMap32Error> {
-        if data.len() <= 3 {
+        if hot_meta > 0x0FFF {
+            return Err(BlobMap32Error::MetaOverflow);
+        }
+        if data.len() <= 3 && hot_meta == 0 {
             // Zero-heap inlining into ValueSlot32
             let slot = ValueSlot32::new_inline(data).expect("data.len() <= 3");
             if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
@@ -168,9 +177,6 @@ impl ExpanseBlobMap32 {
             }
             Ok(())
         } else {
-            if hot_meta > 0x0FFF {
-                return Err(BlobMap32Error::MetaOverflow);
-            }
             let old_raw = self.index.get(key);
             let offset = if let Some(raw) = old_raw {
                 let old_slot = ValueSlot32::from_raw(raw);
@@ -413,5 +419,62 @@ mod tests {
 
         // But inline payloads can still be inserted without arena slots!
         assert!(map.insert(0x2000, b"abc", 0).is_ok());
+    }
+
+    /// #1548: a payload of 3 bytes or fewer keeps its metadata (in an arena
+    /// slot), stays inline without it, and metadata above 12 bits is refused
+    /// at every length.
+    #[test]
+    fn short_payload_metadata_is_kept_or_refused() {
+        use core_alloc::vec;
+        let mut map = ExpanseBlobMap32::new();
+        for len in 0..=3u32 {
+            let data = &b"xyz"[..len as usize];
+            map.insert(len, data, 0x0800 | len as u16).unwrap();
+            map.insert(100 + len, data, 0).unwrap();
+            let (view, meta) = map.get(len).unwrap();
+            assert_eq!((view.as_bytes(), meta), (data, 0x0800 | len as u16));
+            assert!(view.is_arena(), "len {len}");
+            let (view, meta) = map.get(100 + len).unwrap();
+            assert_eq!((view.as_bytes(), meta), (data, 0));
+            assert!(view.is_inline(), "len {len}");
+            assert_eq!(
+                map.insert(200 + len, data, 0x1000),
+                Err(BlobMap32Error::MetaOverflow)
+            );
+            assert_eq!(
+                map.insert(len, data, 0x1000),
+                Err(BlobMap32Error::MetaOverflow)
+            );
+        }
+        assert_eq!(map.len(), 8);
+        assert_eq!(map.arena.iter().flatten().count(), 4);
+
+        // Rewrites in both directions recycle the arena slot.
+        map.insert(1, b"x", 0).unwrap();
+        assert!(map.get(1).unwrap().0.is_inline());
+        assert_eq!(map.arena.iter().flatten().count(), 3);
+        map.insert(1, b"x", 7).unwrap();
+        assert_eq!(
+            map.get(1).map(|(v, m)| (v.as_bytes().to_vec(), m)),
+            Some((b"x".to_vec(), 7))
+        );
+
+        let mut seen = Vec::new();
+        map.scan_filtered(
+            0,
+            1_000,
+            |_k, meta| meta != 0,
+            |k, view, meta| seen.push((k, view.as_bytes().to_vec(), meta)),
+        );
+        assert_eq!(
+            seen,
+            vec![
+                (0, vec![], 0x0800),
+                (1, b"x".to_vec(), 7),
+                (2, b"xy".to_vec(), 0x0802),
+                (3, b"xyz".to_vec(), 0x0803),
+            ]
+        );
     }
 }

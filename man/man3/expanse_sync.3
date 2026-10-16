@@ -906,12 +906,17 @@ returns the
 .B expanse_blob_status_t
 values of
 .BR expanse_blob_map_insert_ex .
-A payload of 7 bytes or fewer, or one the map compresses into its slot word
-(only when
+A value is stored in its slot word, which has no metadata field, only when
 .I hot_meta
-is 0), is stored without metadata and reads back metadata 0, whatever
+is 0 (a payload of 7 bytes or fewer, or one the map compresses into the slot
+word), and reads back metadata 0.
+A payload of any length inserted with non-zero
 .I hot_meta
-the insert passed.
+is stored in the arena and keeps it, and
+.B EXPANSE_BLOB_META_OVERFLOW
+refuses a
+.I hot_meta
+wider than 24 bits at every length (issue #1548).
 .PP
 .B expanse_sync_blob_map_get_into
 and
@@ -1070,9 +1075,8 @@ absent, or
 .I new_meta
 is non-zero for a payload stored in its slot word.
 .PP
-A payload of 7 bytes or fewer is stored without metadata, so expecting the
-metadata it was inserted with reports a mismatch with metadata 0
-(issue #1548).
+A value reads back the metadata it was inserted with at every payload
+length, so expecting that metadata matches (issue #1548).
 .SH EXAMPLES
 .nf
 #include <stdio.h>

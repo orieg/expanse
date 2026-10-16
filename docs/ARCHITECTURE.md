@@ -1195,7 +1195,7 @@ Pinning tests for these numbers are `immed_capacity_bounds` (`crates/expanse/src
 
 `from_u8` maps every unlisted byte to `RawWord`, so `RawWord` is the catch-all; `is_inline` (`crates/expanse/src/slot.rs:152`) is simply `tag <= 0x07`, and `inline_len` (`crates/expanse/src/slot.rs:159`) returns the tag itself as the length.
 
-**Inline encoding** *(gated)*. `ValueSlot::new_inline` (`crates/expanse/src/slot.rs:191`) writes `raw = len | Σ bytes[i] << (8 * (i + 1))`: the length is the tag byte, and the payload occupies bits 63:8 little-endian. The payload is the whole word above the tag, which is precisely why an inline slot carries **no metadata field** — `ExpanseBlobMap` ignores the `hot_meta` argument for payloads of ≤ 7 bytes and reports their metadata as `0` (the module's `hot_meta` note, `crates/expanse/src/blobmap.rs:27`–`32`; `ExpanseBlobMap::insert` stores them with `ValueSlot::new_inline`, `crates/expanse/src/blobmap.rs:1928`). No cold fetch is needed for them in any case: the payload is already in the slot.
+**Inline encoding** *(gated)*. `ValueSlot::new_inline` (`crates/expanse/src/slot.rs:191`) writes `raw = len | Σ bytes[i] << (8 * (i + 1))`: the length is the tag byte, and the payload occupies bits 63:8 little-endian. The payload is the whole word above the tag, which is precisely why an inline slot carries **no metadata field** — `ExpanseBlobMap` stores a payload of ≤ 7 bytes in the slot word only when it is inserted with `hot_meta == 0`, and one inserted with metadata as an `ArenaMeta` record that keeps it, so metadata is never dropped (AGENTS.md §2.3 item 2; the module's `hot_meta` note, `crates/expanse/src/blobmap.rs:27`–`37`; every write path classifies a value through `slot_word_value`, which calls `ValueSlot::new_inline`, `crates/expanse/src/blobmap.rs:714`). A slot-word payload reports metadata `0`, and no cold fetch is needed for it: the payload is already in the slot.
 
 This is also where `ExpanseBlobMap` puts small payloads — in the leaf's value slot, **not** inside an edge.
 
@@ -1218,7 +1218,7 @@ locator       = global_offset / ARENA_ALIGN          (ARENA_ALIGN = 16)
 global_offset = locator * ARENA_ALIGN
 ```
 
-`slot_from_global` (`crates/expanse/src/blobmap.rs:699`) performs the first, `resolve_meta` (`crates/expanse/src/blobmap.rs:1249`) and `resolve_meta_in_table` (`crates/expanse/src/blobmap.rs:774`) the second. The chunk/offset split is resolved by the arena geometry afterwards, so a chunk boundary must stay a multiple of 16 — a loaded image with a misaligned boundary is rejected (`ARENA_ALIGN`, `crates/expanse/src/blobmap.rs:2712`). The envelope is `ARENA_META_CEILING = 2^32 × 16` = 64 GiB (`crates/expanse/src/blobmap.rs:613`), and every arena capacity cap is clamped to it; the default cap, `DEFAULT_ARENA_CAPACITY`, is 1 GiB (`crates/expanse/src/blobmap.rs:643`), so a locator overflow cannot occur under any cap.
+`slot_from_global` (`crates/expanse/src/blobmap.rs:728`) performs the first, `resolve_meta` (`crates/expanse/src/blobmap.rs:1275`) and `resolve_meta_in_table` (`crates/expanse/src/blobmap.rs:803`) the second. The chunk/offset split is resolved by the arena geometry afterwards, so a chunk boundary must stay a multiple of 16 — a loaded image with a misaligned boundary is rejected (`ARENA_ALIGN`, `crates/expanse/src/blobmap.rs:2732`). The envelope is `ARENA_META_CEILING = 2^32 × 16` = 64 GiB (`crates/expanse/src/blobmap.rs:617`), and every arena capacity cap is clamped to it; the default cap, `DEFAULT_ARENA_CAPACITY`, is 1 GiB (`crates/expanse/src/blobmap.rs:647`), so a locator overflow cannot occur under any cap.
 
 **`ValueSlot32`** (`crates/expanse/src/slot32.rs:47`) is the 32-bit counterpart, `#[repr(transparent)]` over a `u32`, same low-byte-is-tag convention:
 
@@ -1323,11 +1323,11 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:180` |
 | `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:182` |
 | `ValueSlot::ARENA_META_MAX` | 16777215 | `crates/expanse/src/slot.rs:184` |
-| `ARENA_ALIGN` | 16 | `crates/expanse/src/blobmap.rs:608` |
-| `ARENA_META_CEILING` | 68719476736 | `crates/expanse/src/blobmap.rs:613` |
-| `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:622` |
-| `DEFAULT_ARENA_CAPACITY` | 1073741824 | `crates/expanse/src/blobmap.rs:643` |
-| `DEFAULT_CHUNK_SIZE` | 2097152 | `crates/expanse/src/blobmap.rs:603` |
+| `ARENA_ALIGN` | 16 | `crates/expanse/src/blobmap.rs:612` |
+| `ARENA_META_CEILING` | 68719476736 | `crates/expanse/src/blobmap.rs:617` |
+| `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:626` |
+| `DEFAULT_ARENA_CAPACITY` | 1073741824 | `crates/expanse/src/blobmap.rs:647` |
+| `DEFAULT_CHUNK_SIZE` | 2097152 | `crates/expanse/src/blobmap.rs:607` |
 | `size_of::<Edge32>()` | 8 | `crates/expanse/src/types32.rs:176` |
 | `align_of::<Edge32>()` | 4 | `crates/expanse/src/types32.rs:177` |
 | `MAX_LEVEL_32` | 4 | `crates/expanse/src/types32.rs:18` |

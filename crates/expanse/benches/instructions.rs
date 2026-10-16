@@ -2727,7 +2727,8 @@ fn blobmap_insert(ks: Vec<u64>) -> u64 {
     black_box(n)
 }
 
-// Inline payloads carry no metadata field, so `hot_meta` is passed as 0.
+// A payload stays in the slot word only with `hot_meta == 0` (#1548), so the
+// arm passes 0.
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = keys)]
 fn blobmap_insert_inline(ks: Vec<u64>) -> u64 {

@@ -27,10 +27,14 @@
 //! # Inline metadata
 //!
 //! Inline (`<= 7` byte) payloads live entirely in the value-slot word (bits
-//! `63:8` hold payload bytes), so they carry no separate hot-metadata field:
-//! `insert`'s `hot_meta` argument is ignored for them and `get`/`scan_filtered`
-//! report their metadata as `0`. Their payload is already resident in the slot,
-//! so a metadata predicate never needs a cold-DRAM fetch for them regardless.
+//! `63:8` hold payload bytes), so they carry no separate hot-metadata field.
+//! A payload is therefore stored in the slot word only when it is inserted with
+//! `hot_meta == 0` (AGENTS.md §2.3 item 2), and `get`/`scan_filtered` report its
+//! metadata as `0`. A payload of any length inserted with non-zero metadata is
+//! an `ArenaMeta` record, so its metadata is stored, read back and filterable;
+//! `hot_meta` above 24 bits is [`ArenaError::MetaOverflow`] at every length
+//! (#1548). A map that never passes metadata keeps every short payload in its
+//! slot word, with no arena bytes.
 
 use crate::map::ExpanseMap;
 #[cfg(feature = "std")]
@@ -688,6 +692,31 @@ fn refused_after_compaction(e: ArenaError) -> ArenaError {
     }
 }
 
+/// The slot-word form of `data` stored with `hot_meta`, or `None` when the
+/// value is an arena record.
+///
+/// A slot-word value — raw inline (`<= 7` bytes) or compressed inline — has no
+/// metadata field, so it is taken only when `hot_meta == 0` (AGENTS.md §2.3
+/// item 2). A value with metadata is an [`ArenaMeta`](SlotTag::ArenaMeta)
+/// record whatever its length, so the metadata is stored, read back and
+/// filterable, never dropped (#1548). With `hot_meta == 0` the result is the
+/// one every write path produced before: raw inline up to 7 bytes, the codec's
+/// compressed form when it applies.
+///
+/// Every write path classifies a value here; the caller checks `hot_meta`
+/// against [`ValueSlot::ARENA_META_MAX`] when this returns `None`.
+#[inline(always)]
+pub(crate) fn slot_word_value(data: &[u8], hot_meta: u32) -> Option<ValueSlot> {
+    if hot_meta != 0 {
+        return None;
+    }
+    if data.len() <= 7 {
+        ValueSlot::new_inline(data)
+    } else {
+        crate::codec::try_compress_inline(data)
+    }
+}
+
 /// Builds the uniform [`ArenaMeta`](SlotTag::ArenaMeta) [`ValueSlot`] for a blob
 /// at flat `global_offset` carrying `hot_meta`.
 ///
@@ -1204,20 +1233,17 @@ impl BlobArena {
         Ok(self.global_offset(idx, offset_in_chunk))
     }
 
-    /// Prepares a [`ValueSlot`] for `data` and `hot_meta`: inline if `<= 7` bytes,
-    /// compressed inline if compressible with `hot_meta == 0`, or allocated in the
-    /// arena returning an `ArenaMeta` slot.
+    /// Prepares a [`ValueSlot`] for `data` and `hot_meta`: the slot word when
+    /// [`slot_word_value`] gives one (`hot_meta == 0`, and `<= 7` bytes or
+    /// compressible), otherwise allocated in the arena returning an `ArenaMeta`
+    /// slot.
     #[inline(always)]
     pub(crate) fn prepare_slot(
         &mut self,
         data: &[u8],
         hot_meta: u32,
     ) -> Result<ValueSlot, ArenaError> {
-        if data.len() <= 7 {
-            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)
-        } else if hot_meta == 0
-            && let Some(slot) = crate::codec::try_compress_inline(data)
-        {
+        if let Some(slot) = slot_word_value(data, hot_meta) {
             Ok(slot)
         } else {
             // Validate the metadata envelope *before* allocating arena bytes, so a
@@ -1879,14 +1905,14 @@ impl ExpanseBlobMap {
 
     /// Inserts a key-blob pair with 32-bit hot metadata.
     ///
-    /// Payloads `<= 7 bytes` are stored inline with zero heap allocation.
-    /// Payloads `> 7 bytes` are allocated in the slab arena.
-    ///
-    /// Note: inline (`<= 7` byte) payloads store their bytes in the slot word and
-    /// carry no metadata field, so `hot_meta` is ignored for them and later reads
-    /// report their metadata as `0`. Arena payloads (`> 7` bytes) all carry the
-    /// 24-bit metadata; `hot_meta` exceeding 24 bits returns
-    /// [`ArenaError::MetaOverflow`] rather than being truncated.
+    /// With `hot_meta == 0`, payloads `<= 7 bytes` are stored inline in the
+    /// slot word with zero heap allocation, and longer ones the codec can pack
+    /// are stored compressed in it. Every other payload — including one of
+    /// `<= 7` bytes inserted with non-zero `hot_meta` — is allocated in the slab
+    /// arena and carries the 24-bit metadata: the slot word has no metadata
+    /// field, so metadata is never dropped for a short payload (#1548).
+    /// `hot_meta` exceeding 24 bits returns [`ArenaError::MetaOverflow`] at
+    /// every payload length rather than being truncated.
     ///
     /// When the arena's capacity cap refuses the chunk an arena payload needs,
     /// the insert runs one [`Self::compact`] and retries once, if the reclaim
@@ -1908,11 +1934,7 @@ impl ExpanseBlobMap {
     /// is not: every arena payload has moved, the arena generation has
     /// advanced and [`Self::mem_used`] reports the compacted size.
     pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
-        let slot = if data.len() <= 7 {
-            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
-        } else if hot_meta == 0
-            && let Some(slot) = crate::codec::try_compress_inline(data)
-        {
+        let slot = if let Some(slot) = slot_word_value(data, hot_meta) {
             slot
         } else {
             // Validate the metadata envelope *before* allocating arena bytes, so a
@@ -2036,9 +2058,8 @@ impl ExpanseBlobMap {
         not(feature = "ablation-blob-shared-arena")
     ))]
     fn insert_needs_reclaim(&self, data: &[u8], hot_meta: u32) -> bool {
-        let to_arena = data.len() > 7
-            && hot_meta <= ValueSlot::ARENA_META_MAX
-            && !(hot_meta == 0 && crate::codec::try_compress_inline(data).is_some());
+        let to_arena =
+            hot_meta <= ValueSlot::ARENA_META_MAX && slot_word_value(data, hot_meta).is_none();
         self.reclaim_at_cap
             && to_arena
             && self.arena.alloc_would_refuse_at_cap(data.len())
@@ -2117,11 +2138,7 @@ impl ExpanseBlobMap {
         data: &[u8],
         hot_meta: u32,
     ) -> Result<(), ArenaError> {
-        let slot = if data.len() <= 7 {
-            ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
-        } else if hot_meta == 0
-            && let Some(slot) = crate::codec::try_compress_inline(data)
-        {
+        let slot = if let Some(slot) = slot_word_value(data, hot_meta) {
             slot
         } else {
             // Validate the metadata envelope *before* allocating arena bytes, so a
@@ -2141,7 +2158,8 @@ impl ExpanseBlobMap {
 
     /// Point lookup returning a zero-copy [`BlobView`] and the 32-bit hot metadata word.
     ///
-    /// Inline (`<= 7` byte raw or compressed) payloads do not store metadata; their returned
+    /// Payloads stored in the slot word (raw or compressed inline) were
+    /// inserted with metadata 0 and have no metadata field; their returned
     /// `hot_meta` is always `0`.
     #[must_use]
     pub fn get<'a>(&'a self, key: Key) -> Option<(BlobView<'a>, u32)> {
@@ -2344,9 +2362,9 @@ impl ExpanseBlobMap {
     ///   is not `expected`.
     /// - [`CompareExchangeError::Unstorable`]`(cause)` when it is, but `new`
     ///   cannot be stored: `cause` is the [`ArenaError`] [`Self::insert`]
-    ///   returns for it ([`ArenaError::MetaOverflow`] for a payload longer
-    ///   than 7 bytes with metadata above [`ValueSlot::ARENA_META_MAX`], or the
-    ///   arena's refusal).
+    ///   returns for it ([`ArenaError::MetaOverflow`] for metadata above
+    ///   [`ValueSlot::ARENA_META_MAX`], at any payload length, or the arena's
+    ///   refusal).
     ///
     /// Both leave the map's contents unchanged (an arena refusal after the
     /// reclaim rule compacted moves arena payloads, as [`Self::insert`]
@@ -2417,8 +2435,10 @@ impl ExpanseBlobMap {
     /// Executes a range scan with a predicate evaluated against hot metadata
     /// before dereferencing cold payload cache lines.
     ///
-    /// Inline (`<= 7` byte raw or compressed) payloads have no stored metadata; the predicate and
-    /// callback see `hot_meta == 0` for them.
+    /// Payloads stored in the slot word (raw or compressed inline, inserted
+    /// with metadata 0) have no stored metadata; the predicate and callback see
+    /// `hot_meta == 0` for them. A short payload inserted with metadata is an
+    /// arena record and is filtered by it.
     pub fn scan_filtered<P, F>(
         &self,
         range: core::ops::RangeInclusive<Key>,
@@ -3197,7 +3217,8 @@ mod tests {
     #[test]
     fn scan_filtered_reads_metadata_only_from_arena_slots() {
         let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
-        map.insert(1, &[0xFF; 7], 0x00AB_CDEF).unwrap();
+        // Metadata 0 keeps the payload in the slot word (#1548).
+        map.insert(1, &[0xFF; 7], 0).unwrap();
         map.insert(2, b"a payload stored in the slab arena", 0x0012_3456)
             .unwrap();
 
@@ -3697,9 +3718,13 @@ mod tests {
             Err(ArenaError::MetaOverflow)
         ));
         assert!(map.get(2).is_none(), "rejected insert must leave no entry");
-        // Inline payloads ignore metadata entirely (no envelope check needed).
-        assert!(map.insert(3, &[1, 2, 3], u32::MAX).is_ok());
-        assert_eq!(map.get(3).unwrap().1, 0);
+        // A short payload is refused the same way (#1548): metadata is never
+        // dropped, at any length.
+        assert_eq!(
+            map.insert(3, &[1, 2, 3], u32::MAX),
+            Err(ArenaError::MetaOverflow)
+        );
+        assert!(map.get(3).is_none());
     }
 
     #[test]
@@ -4250,5 +4275,249 @@ mod tests {
             };
             assert_eq!((cause, rounds), (ArenaError::MetaOverflow, 2));
         }
+    }
+
+    // ---- #1548: metadata on payloads of 7 bytes or fewer -------------------
+    //
+    // A slot-word payload (raw inline or compressed inline) has no metadata
+    // field, so it is taken only when `hot_meta == 0` (AGENTS.md §2.3 item 2);
+    // a short payload with metadata is an `ArenaMeta` record, and metadata
+    // above 24 bits is refused at every length.
+
+    /// The tag of the word the index holds for `key`.
+    fn tag_of(map: &ExpanseBlobMap, key: Key) -> SlotTag {
+        ValueSlot::from_raw(map.index().get(key).expect("key present")).tag()
+    }
+
+    fn short_payload(len: usize) -> Vec<u8> {
+        (0..len).map(|i| 0xA0 ^ i as u8).collect()
+    }
+
+    #[test]
+    fn short_payload_with_metadata_keeps_it() {
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        for len in 0..=7usize {
+            let meta = 0x0010_0000 | len as u32;
+            map.insert(len as u64, &short_payload(len), meta).unwrap();
+        }
+        // The maximum 24-bit value is kept as well.
+        map.insert(100, b"x", ValueSlot::ARENA_META_MAX).unwrap();
+        for len in 0..=7usize {
+            let key = len as u64;
+            let (view, meta) = map.get(key).expect("stored");
+            assert_eq!(view.as_bytes(), &short_payload(len)[..], "len {len}");
+            assert_eq!(meta, 0x0010_0000 | len as u32, "len {len}");
+            assert!(
+                view.is_arena(),
+                "len {len}: metadata needs the arena record"
+            );
+            assert_eq!(tag_of(&map, key), SlotTag::ArenaMeta, "len {len}");
+        }
+        assert_eq!(map.get(100).unwrap().1, ValueSlot::ARENA_META_MAX);
+        let record_bytes: usize = (0..=7usize).map(|len| 8 + len).sum::<usize>() + 8 + 1;
+        assert_eq!(map.arena().live_bytes(), record_bytes);
+
+        // `scan_filtered` selects them by their metadata.
+        let mut seen = Vec::new();
+        map.scan_filtered(
+            0..=u64::MAX,
+            |_k, meta| meta & 0x0010_0000 != 0 && meta & 1 == 1,
+            |k, view, meta| {
+                seen.push((k, view.as_bytes().to_vec(), meta));
+                true
+            },
+        );
+        let expected: Vec<(u64, Vec<u8>, u32)> = [1usize, 3, 5, 7]
+            .iter()
+            .map(|&len| (len as u64, short_payload(len), 0x0010_0000 | len as u32))
+            .chain(core::iter::once((
+                100,
+                b"x".to_vec(),
+                ValueSlot::ARENA_META_MAX,
+            )))
+            .collect();
+        assert_eq!(seen, expected);
+    }
+
+    #[test]
+    fn metadata_above_24_bits_is_refused_at_every_length() {
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        map.insert(1, b"kept", 0).unwrap();
+        map.insert(2, b"kept arena value", 9).unwrap();
+        let allocated = map.arena.total_allocated;
+        let live = map.arena().live_bytes();
+        // Every raw-inline length, an arena length, and a payload the codec
+        // would compress into the slot word with metadata 0.
+        let compressible = b"12345678901234";
+        assert!(crate::codec::try_compress_inline(compressible).is_some());
+        let mut payloads: Vec<Vec<u8>> = (0..=7usize).map(short_payload).collect();
+        payloads.push(vec![3u8; 100]);
+        payloads.push(compressible.to_vec());
+        for data in &payloads {
+            for over in [ValueSlot::ARENA_META_MAX + 1, u32::MAX] {
+                for key in [1u64, 2, 3] {
+                    assert_eq!(
+                        map.insert(key, data, over),
+                        Err(ArenaError::MetaOverflow),
+                        "len {} key {key}",
+                        data.len()
+                    );
+                }
+            }
+        }
+        // Nothing stored, nothing replaced, no arena byte allocated.
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(1), Some((BlobView::Inline(b"kept"), 0)));
+        assert_eq!(
+            map.get(2).map(|(v, m)| (v.as_bytes().to_vec(), m)),
+            Some((b"kept arena value".to_vec(), 9))
+        );
+        assert!(map.get(3).is_none());
+        assert_eq!(map.arena.total_allocated, allocated);
+        assert_eq!(map.arena().live_bytes(), live);
+    }
+
+    #[test]
+    fn short_payload_without_metadata_stays_in_the_slot() {
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        let tags = [
+            SlotTag::Inline0,
+            SlotTag::Inline1,
+            SlotTag::Inline2,
+            SlotTag::Inline3,
+            SlotTag::Inline4,
+            SlotTag::Inline5,
+            SlotTag::Inline6,
+            SlotTag::Inline7,
+        ];
+        for (len, &tag) in tags.iter().enumerate() {
+            map.insert(len as u64, &short_payload(len), 0).unwrap();
+            assert_eq!(tag_of(&map, len as u64), tag);
+            let (view, meta) = map.get(len as u64).unwrap();
+            assert_eq!(view, BlobView::Inline(&short_payload(len)));
+            assert_eq!(meta, 0);
+        }
+        assert_eq!(map.arena().live_bytes(), 0);
+        assert_eq!(
+            map.arena().chunks_count(),
+            0,
+            "no arena chunk for slot-word payloads"
+        );
+    }
+
+    /// Rewrites move a key between the slot word and an `ArenaMeta` record in
+    /// both directions, through `insert`, `compare_exchange` and
+    /// `compare_exchange_meta`, and the records survive a compaction and a
+    /// save/load round trip.
+    #[test]
+    fn short_payload_metadata_transitions() {
+        use CompareExchangeError::Unstorable;
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        let long = b"a payload longer than seven bytes";
+
+        // Slot word -> arena record -> slot word, by `insert`.
+        map.insert(1, b"abc", 0).unwrap();
+        assert_eq!(tag_of(&map, 1), SlotTag::Inline3);
+        map.insert(1, b"abc", 5).unwrap();
+        assert_eq!(tag_of(&map, 1), SlotTag::ArenaMeta);
+        assert_eq!(map.arena().live_bytes(), 8 + 3);
+        map.insert(1, b"abc", 0).unwrap();
+        assert_eq!(tag_of(&map, 1), SlotTag::Inline3);
+        assert_eq!(map.arena().live_bytes(), 0, "the replaced record is dead");
+        assert_eq!(map.get(1), Some((BlobView::Inline(b"abc"), 0)));
+
+        // Short with metadata -> long with metadata -> short with metadata.
+        map.insert(1, b"abc", 6).unwrap();
+        map.insert(1, long, 7).unwrap();
+        assert_eq!(
+            map.get(1).map(|(v, m)| (v.as_bytes().to_vec(), m)),
+            Some((long.to_vec(), 7))
+        );
+        map.insert(1, b"z", 8).unwrap();
+        assert_eq!(
+            map.get(1).map(|(v, m)| (v.as_bytes().to_vec(), m)),
+            Some((b"z".to_vec(), 8))
+        );
+        assert_eq!(map.arena().live_bytes(), 8 + 1);
+
+        // `compare_exchange`: both directions, metadata compared as stored.
+        assert_eq!(
+            map.compare_exchange(1, Some((b"z", 8)), Some((b"z", 0))),
+            Ok(Some((b"z".to_vec(), 8)))
+        );
+        assert_eq!(tag_of(&map, 1), SlotTag::Inline1);
+        assert_eq!(
+            map.compare_exchange(1, Some((b"z", 0)), Some((b"zz", 9))),
+            Ok(Some((b"z".to_vec(), 0)))
+        );
+        assert_eq!(tag_of(&map, 1), SlotTag::ArenaMeta);
+        assert_eq!(map.get(1).unwrap().1, 9);
+        assert_eq!(
+            map.compare_exchange(
+                1,
+                Some((b"zz", 9)),
+                Some((b"zz", ValueSlot::ARENA_META_MAX + 1))
+            ),
+            Err(Unstorable(ArenaError::MetaOverflow))
+        );
+        // An absent key takes a short payload with metadata.
+        assert_eq!(map.compare_exchange(2, None, Some((b"q", 4))), Ok(None));
+        assert_eq!(
+            map.get(2).map(|(v, m)| (v.as_bytes().to_vec(), m)),
+            Some((b"q".to_vec(), 4))
+        );
+
+        // `compare_exchange_meta` rewrites the field of a short record in place,
+        // to zero too (the value stays an arena record and reads metadata 0).
+        assert_eq!(map.compare_exchange_meta(1, Some(9), Some(10)), Ok(Some(9)));
+        assert_eq!(
+            map.get(1).map(|(v, m)| (v.as_bytes().to_vec(), m)),
+            Some((b"zz".to_vec(), 10))
+        );
+        assert_eq!(
+            map.compare_exchange_meta(1, Some(10), Some(0)),
+            Ok(Some(10))
+        );
+        assert_eq!(tag_of(&map, 1), SlotTag::ArenaMeta);
+        assert_eq!(map.get(1).unwrap().1, 0);
+        assert_eq!(map.compare_exchange_meta(1, Some(0), Some(11)), Ok(Some(0)));
+        // A slot-word payload still has no field for it; `insert` with
+        // metadata is the way to attach some.
+        map.insert(3, b"slot", 0).unwrap();
+        assert_eq!(
+            map.compare_exchange_meta(3, Some(0), Some(1)),
+            Err(Unstorable(ArenaError::NoMetaField))
+        );
+
+        // Compaction relocates the short records with their metadata.
+        for k in 10..40u64 {
+            map.insert(k, &short_payload((k % 8) as usize), k as u32)
+                .unwrap();
+        }
+        for k in (10..40u64).step_by(2) {
+            assert!(map.remove(k));
+        }
+        let before: Vec<(u64, Vec<u8>, u32)> = (0..40u64)
+            .filter_map(|k| map.get(k).map(|(v, m)| (k, v.as_bytes().to_vec(), m)))
+            .collect();
+        let stats = map.compact().unwrap();
+        assert_eq!(stats.live_bytes_after, map.arena().live_bytes());
+        let after: Vec<(u64, Vec<u8>, u32)> = (0..40u64)
+            .filter_map(|k| map.get(k).map(|(v, m)| (k, v.as_bytes().to_vec(), m)))
+            .collect();
+        assert_eq!(before, after);
+        for k in (11..40u64).step_by(2) {
+            assert_eq!(tag_of(&map, k), SlotTag::ArenaMeta, "key {k}");
+        }
+
+        // A saved image reloads the short records and their metadata.
+        let mut image = Vec::new();
+        map.save_to_writer(&mut image).unwrap();
+        let loaded = ExpanseBlobMap::from_bytes_slice(&image).unwrap();
+        let reloaded: Vec<(u64, Vec<u8>, u32)> = (0..40u64)
+            .filter_map(|k| loaded.get(k).map(|(v, m)| (k, v.as_bytes().to_vec(), m)))
+            .collect();
+        assert_eq!(after, reloaded);
+        assert_eq!(loaded.arena().live_bytes(), map.arena().live_bytes());
     }
 }

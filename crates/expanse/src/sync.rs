@@ -11434,7 +11434,10 @@ impl SyncExpanseBlobMap {
     /// §21): optimistic writers enter the writer gate, allocate variable-length
     /// payloads in the arena under a brief allocation lock, and descend the
     /// digital tree index under per-node version locks (`olc_insert_map`).
-    /// Inline payloads (`<= 7` bytes or compressed) avoid arena allocation entirely.
+    /// Payloads stored in the slot word (`<= 7` bytes or compressed, with
+    /// `hot_meta == 0`) avoid arena allocation entirely; a short payload with
+    /// metadata is an arena record that keeps it, as in
+    /// [`ExpanseBlobMap::insert`] (#1548).
     /// With `ablation-blob-serial-writers` every mutation serializes on the writer
     /// mutex under the whole-operation tree bracket instead (AGENTS.md §2.7).
     ///
@@ -11556,7 +11559,7 @@ impl SyncExpanseBlobMap {
         {
             #[cfg(feature = "std")]
             {
-                if data.len() > 7 && hot_meta > ValueSlot::ARENA_META_MAX {
+                if hot_meta > ValueSlot::ARENA_META_MAX {
                     return Err(ArenaError::MetaOverflow);
                 }
 
@@ -11587,10 +11590,8 @@ impl SyncExpanseBlobMap {
                     .arena_epoch
                     .load(core::sync::atomic::Ordering::Acquire);
 
-                let slot = if data.len() <= 7 {
-                    ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?
-                } else if hot_meta == 0
-                    && let Some(inline_slot) = crate::codec::try_compress_inline(data)
+                let slot = if let Some(inline_slot) =
+                    crate::blobmap::slot_word_value(data, hot_meta)
                 {
                     inline_slot
                 } else {
@@ -12229,8 +12230,8 @@ impl SyncExpanseBlobMap {
     /// - [`CompareExchangeError::Mismatch`]`(current_value)` when the current
     ///   value is not `expected`.
     /// - [`CompareExchangeError::Unstorable`]`(cause)` when it is, but `new`
-    ///   cannot be stored: [`ArenaError::MetaOverflow`] for a payload longer
-    ///   than 7 bytes with metadata above [`ValueSlot::ARENA_META_MAX`], or the
+    ///   cannot be stored: [`ArenaError::MetaOverflow`] for metadata above
+    ///   [`ValueSlot::ARENA_META_MAX`], at any payload length, or the
     ///   arena's refusal ([`ArenaError::OffsetOverflow`] when the capacity cap
     ///   refuses the record's chunk; this path does not run the reclaim rule
     ///   that [`Self::insert`] runs).
@@ -12262,7 +12263,7 @@ impl SyncExpanseBlobMap {
                 seen => Err(CompareExchangeError::Mismatch(seen)),
             };
         }
-        if matches!(new, Some((data, meta)) if data.len() > 7 && meta > ValueSlot::ARENA_META_MAX) {
+        if matches!(new, Some((_, meta)) if meta > ValueSlot::ARENA_META_MAX) {
             // Refused before any write, but only once the comparison holds:
             // `Unstorable` promises the current value was `expected`.
             let seen = self.get(key);
@@ -12396,17 +12397,8 @@ impl SyncExpanseBlobMap {
                                 }
                             }
                             Some((new_data, new_meta)) => {
-                                let new_slot = if new_data.len() <= 7 {
-                                    match ValueSlot::new_inline(new_data) {
-                                        Some(s) => s,
-                                        None => {
-                                            cause = FallbackCause::Contention;
-                                            break;
-                                        }
-                                    }
-                                } else if new_meta == 0
-                                    && let Some(inline_slot) =
-                                        crate::codec::try_compress_inline(new_data)
+                                let new_slot = if let Some(inline_slot) =
+                                    crate::blobmap::slot_word_value(new_data, new_meta)
                                 {
                                     inline_slot
                                 } else {
@@ -12603,7 +12595,7 @@ impl SyncExpanseBlobMap {
     /// The key was absent and `data` cannot be stored: the
     /// [`CompareExchangeError::Unstorable`] cause of [`Self::compare_exchange`]
     /// ([`ArenaError::MetaOverflow`] for metadata above
-    /// [`ValueSlot::ARENA_META_MAX`] on a payload longer than 7 bytes, or the
+    /// [`ValueSlot::ARENA_META_MAX`], at any payload length, or the
     /// arena's refusal). The map is unchanged. Like `compare_exchange`, this
     /// path does not run the reclaim rule that [`Self::insert`] runs at the
     /// capacity cap, so at the cap it returns [`ArenaError::OffsetOverflow`]
@@ -13435,7 +13427,8 @@ impl BlobReader<'_> {
     }
 
     /// Optimistic metadata lookup: the validated slot word alone answers it —
-    /// no payload cache line is touched (inline payloads report `0`, as in
+    /// no payload cache line is touched (slot-word payloads, stored with
+    /// metadata 0, report `0`, as in
     /// [`ExpanseBlobMap::get`]; non-payload slots return `None`). Because
     /// the payload is never resolved, a dangling arena locator (possible
     /// only in a corrupted image) still reports its stored metadata.
@@ -22301,17 +22294,19 @@ mod tests {
         v
     }
 
+    /// Metadata for `k`. Half the short (`<= 7` byte) payloads get none, so
+    /// they stay in the slot word; the other half carry metadata and are
+    /// arena records that keep it (#1548).
     fn blob_meta_of(k: u64) -> u32 {
+        if blob_payload_of(k).len() <= 7 && k & 1 == 1 {
+            return 0;
+        }
         (k as u32).wrapping_mul(0x9E37_79B9) & ValueSlot::ARENA_META_MAX
     }
 
-    /// Inline payloads carry no metadata field and read back as 0.
+    /// Metadata is read back as stored, at every payload length.
     fn blob_expected_meta(k: u64) -> u32 {
-        if blob_payload_of(k).len() <= 7 {
-            0
-        } else {
-            blob_meta_of(k)
-        }
+        blob_meta_of(k)
     }
 
     #[test]
@@ -22541,7 +22536,7 @@ mod tests {
         let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
         let a = vec![0xAAu8; 96];
         let b = vec![0xBBu8; 160];
-        let c = vec![0xCCu8; 5]; // inline: metadata reads as 0
+        let c = vec![0xCCu8; 5]; // inline: stored with metadata 0 (#1548)
         let key = 0x1234_5678u64;
         m.insert(key, &a, 1).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
@@ -22576,7 +22571,7 @@ mod tests {
                 match state {
                     0 => m.insert(key, &a, 1).unwrap(),
                     1 => m.insert(key, &b, 2).unwrap(),
-                    _ => m.insert(key, &c, 3).unwrap(),
+                    _ => m.insert(key, &c, 0).unwrap(),
                 }
             }
             m.compact().unwrap();
@@ -30763,7 +30758,8 @@ mod blob_reader_forms_tests {
     const SENTINEL: u8 = 0xEE;
 
     /// The payload and the metadata stored at `k`, one storage class per
-    /// residue of 16: raw inline of each length 0 to 7, the three inline
+    /// residue of 16: each length 0 to 7 (raw inline where the metadata is 0,
+    /// an arena record keeping it otherwise, #1548), the three inline
     /// compressions, and arena records with zero and non-zero metadata.
     fn value(k: u64) -> (Vec<u8>, u32) {
         let fill = |n: usize| -> Vec<u8> { (0..n).map(|i| 0x80 | (k as u8 ^ i as u8)).collect() };
@@ -30921,7 +30917,7 @@ mod blob_reader_forms_tests {
     }
 
     /// The `get_into` contract, for each reader form and for a raw inline, a
-    /// compressed inline, an arena and an empty payload: an exact-fit buffer
+    /// compressed inline, an arena, a short arena and an empty payload: an exact-fit buffer
     /// is filled; a larger one is filled at the front and untouched past the
     /// payload; a buffer one byte short is refused with the payload's length
     /// and metadata and is untouched; an absent key leaves the buffer
@@ -30932,8 +30928,10 @@ mod blob_reader_forms_tests {
         const ABSENT: Key = 99;
         let map = Arc::new(SyncExpanseBlobMap::new());
         // (key, payload, metadata written, metadata read back)
-        let cases: [(Key, Vec<u8>, u32, u32); 4] = [
-            (0, b"\x01\x02\x03\x04\x05".to_vec(), 7, 0),
+        let cases: [(Key, Vec<u8>, u32, u32); 5] = [
+            (0, b"\x01\x02\x03\x04\x05".to_vec(), 0, 0),
+            // A short payload with metadata: an arena record keeping it (#1548).
+            (4, b"\x06\x07\x08".to_vec(), 7, 7),
             (1, b"12345678901234".to_vec(), 0, 0),
             (
                 2,
@@ -31169,7 +31167,8 @@ mod blob_reader_forms_tests {
         let states: Vec<(Vec<u8>, u32, u32)> = vec![
             (vec![0xA1; 96], 1, 1),
             (vec![0xB2; 160], 2, 2),
-            (vec![0xC3; 5], 3, 0),
+            (vec![0xC3; 5], 3, 3),
+            (vec![0xC5; 5], 0, 0),
             (Vec::new(), 0, 0),
             (vec![b'7'; 12], 0, 0),
             (vec![0xD4; 33], 4, 4),
@@ -31326,8 +31325,7 @@ mod blob_reader_forms_tests {
         assert_eq!(weak.strong_count(), 1);
         for k in 0..50u64 {
             let (p, meta) = value(k);
-            let read_meta = if p.len() <= 7 { 0 } else { meta };
-            assert_eq!(owned.get(k), Some((p, read_meta)));
+            assert_eq!(owned.get(k), Some((p, meta)));
         }
         drop(detached);
         assert_eq!(weak.strong_count(), 1, "a detached reader frees no ref");
@@ -31651,6 +31649,176 @@ mod blob_rmw_tests {
             assert_eq!(map.get(1), Some((vec![1u8; 1000], 1)));
             assert_eq!(map.get(9), None);
             assert_eq!(map.len(), fill + 4);
+        }
+    }
+
+    // ---- #1548: metadata on payloads of 7 bytes or fewer -------------------
+
+    fn short(len: usize) -> Vec<u8> {
+        (0..len).map(|i| 0xC0 ^ i as u8).collect()
+    }
+
+    fn tag(map: &SyncExpanseBlobMap, key: Key) -> SlotTag {
+        map.with_locked(|m| ValueSlot::from_raw(m.index().get(key).expect("present")).tag())
+    }
+
+    /// Root-leaf state (the serialised writer) and tree state (the optimistic
+    /// writer): a short payload with metadata is stored as an arena record and
+    /// read back with its metadata by every reader form; one without stays in
+    /// the slot word; metadata above 24 bits is refused at every length.
+    #[test]
+    fn short_payload_metadata_on_the_shared_map() {
+        for fill in [0u64, 2 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseBlobMap::new();
+            for k in 0..fill {
+                map.insert(1_000 + k, &payload(k, 0), 1).unwrap();
+            }
+            assert_eq!(map.shared.published().is_tree(), fill > 0);
+            for len in 0..=7usize {
+                let k = len as u64;
+                map.insert(k, &short(len), 0x0020_0000 | len as u32)
+                    .unwrap();
+                map.insert(100 + k, &short(len), 0).unwrap();
+            }
+            let mut reader = map.reader();
+            for len in 0..=7usize {
+                let (k, meta) = (len as u64, 0x0020_0000 | len as u32);
+                assert_eq!(
+                    map.get(k),
+                    Some((short(len), meta)),
+                    "fill {fill} len {len}"
+                );
+                assert_eq!(map.get_meta(k), Some(meta));
+                assert_eq!(reader.get(k), Some((short(len), meta)));
+                assert_eq!(reader.get_meta(k), Some(meta));
+                let mut buf = [0u8; 8];
+                assert_eq!(reader.get_into(k, &mut buf), Ok(Some((len, meta))));
+                assert_eq!(&buf[..len], &short(len)[..]);
+                assert_eq!(tag(&map, k), SlotTag::ArenaMeta);
+                // Without metadata: unchanged, the slot word.
+                assert_eq!(map.get(100 + k), Some((short(len), 0)));
+                assert!(tag(&map, 100 + k) != SlotTag::ArenaMeta);
+            }
+            drop(reader);
+            let mut seen = Vec::new();
+            map.with_locked(|m| {
+                m.scan_filtered(
+                    0..=99,
+                    |_k, meta| meta & 0x0020_0000 != 0,
+                    |k, view, meta| {
+                        seen.push((k, view.as_bytes().to_vec(), meta));
+                        true
+                    },
+                )
+            });
+            let expected: Vec<(u64, Vec<u8>, u32)> = (0..=7usize)
+                .map(|len| (len as u64, short(len), 0x0020_0000 | len as u32))
+                .collect();
+            assert_eq!(seen, expected);
+
+            // Refused at every length, through every write entry, map unchanged.
+            let len_before = map.len();
+            for len in 0..=8usize {
+                let data = short(len);
+                assert_eq!(
+                    map.insert(9_000, &data, OVER),
+                    Err(ArenaError::MetaOverflow)
+                );
+                assert_eq!(map.insert(3, &data, OVER), Err(ArenaError::MetaOverflow));
+                assert_eq!(
+                    map.get_or_insert(9_000, &data, OVER),
+                    Err(ArenaError::MetaOverflow)
+                );
+                assert_eq!(
+                    map.compare_exchange(9_000, None, Some((&data, OVER))),
+                    Err(CompareExchangeError::Unstorable(ArenaError::MetaOverflow))
+                );
+                assert_eq!(
+                    map.update(3, |_| Some((data.clone(), OVER))),
+                    Err(ArenaError::MetaOverflow)
+                );
+            }
+            assert_eq!(map.len(), len_before);
+            assert_eq!(map.get(9_000), None);
+            assert_eq!(map.get(3), Some((short(3), 0x0020_0003)));
+        }
+    }
+
+    /// Rewrites between the slot word and an arena record in both
+    /// directions, through every write entry of the shared map, and the
+    /// records survive a compaction.
+    #[test]
+    fn short_payload_metadata_transitions_on_the_shared_map() {
+        use CompareExchangeError::Unstorable;
+        for fill in [0u64, 2 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseBlobMap::new();
+            for k in 0..fill {
+                map.insert(1_000 + k, &payload(k, 0), 1).unwrap();
+            }
+            map.insert(1, b"abc", 0).unwrap();
+            assert_eq!(tag(&map, 1), SlotTag::Inline3);
+            map.insert(1, b"abc", 5).unwrap();
+            assert_eq!(tag(&map, 1), SlotTag::ArenaMeta);
+            assert_eq!(map.get(1), Some((b"abc".to_vec(), 5)));
+            map.insert(1, b"abc", 0).unwrap();
+            assert_eq!(tag(&map, 1), SlotTag::Inline3);
+            map.insert(1, b"abc", 6).unwrap();
+            map.insert(1, &payload(1, 0), 7).unwrap();
+            map.insert(1, b"z", 8).unwrap();
+            assert_eq!(map.get(1), Some((b"z".to_vec(), 8)));
+
+            assert_eq!(
+                map.compare_exchange(1, Some((b"z", 8)), Some((b"z", 0))),
+                Ok(Some((b"z".to_vec(), 8)))
+            );
+            assert_eq!(tag(&map, 1), SlotTag::Inline1);
+            assert_eq!(
+                map.compare_exchange(1, Some((b"z", 0)), Some((b"zz", 9))),
+                Ok(Some((b"z".to_vec(), 0)))
+            );
+            assert_eq!(tag(&map, 1), SlotTag::ArenaMeta);
+            assert_eq!(map.get_or_insert(2, b"q", 4), Ok(None));
+            assert_eq!(map.get(2), Some((b"q".to_vec(), 4)));
+            assert_eq!(map.get_or_insert(2, b"r", 0), Ok(Some((b"q".to_vec(), 4))));
+            // `update` reads the stored metadata back, so an identity update
+            // on a short record leaves it as it was.
+            assert_eq!(
+                map.update(2, |cur| cur.map(|(b, m)| (b.to_vec(), m))),
+                Ok(Some((b"q".to_vec(), 4)))
+            );
+            assert_eq!(map.get(2), Some((b"q".to_vec(), 4)));
+
+            assert_eq!(map.compare_exchange_meta(1, Some(9), Some(10)), Ok(Some(9)));
+            assert_eq!(map.get(1), Some((b"zz".to_vec(), 10)));
+            assert_eq!(
+                map.compare_exchange_meta(1, Some(10), Some(0)),
+                Ok(Some(10))
+            );
+            assert_eq!(tag(&map, 1), SlotTag::ArenaMeta);
+            assert_eq!(map.get_meta(1), Some(0));
+            map.insert(3, b"slot", 0).unwrap();
+            assert_eq!(
+                map.compare_exchange_meta(3, Some(0), Some(1)),
+                Err(Unstorable(ArenaError::NoMetaField))
+            );
+
+            for k in 10..40u64 {
+                map.insert(k, &short((k % 8) as usize), k as u32).unwrap();
+            }
+            for k in (10..40u64).step_by(2) {
+                assert!(map.remove(k));
+            }
+            let snapshot = |map: &SyncExpanseBlobMap| -> Vec<(u64, Vec<u8>, u32)> {
+                (0..40u64)
+                    .filter_map(|k| map.get(k).map(|(b, m)| (k, b, m)))
+                    .collect()
+            };
+            let before = snapshot(&map);
+            map.compact().unwrap();
+            assert_eq!(snapshot(&map), before);
+            for k in (11..40u64).step_by(2) {
+                assert_eq!(tag(&map, k), SlotTag::ArenaMeta, "key {k}");
+            }
         }
     }
 }

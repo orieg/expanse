@@ -47,10 +47,11 @@ fn extract_value<'a>(
 /// as an owned `bytes`. Writers from any thread run concurrently with each other and with
 /// readers.
 ///
-/// Metadata: only the low 24 bits of `hot_meta` are stored beside an arena payload, and a
-/// payload of 7 bytes or fewer, or one the map compresses into its value slot, is stored with
-/// no metadata and reads back `hot_meta == 0` (issue #1548). A `hot_meta` wider than 24 bits on
-/// an arena payload is refused (`"meta_overflow"`).
+/// Metadata: `hot_meta` is a 24-bit field stored beside an arena payload. A value is stored in
+/// its value slot, with no metadata field, only when `hot_meta == 0` (a payload of 7 bytes or
+/// fewer, or one the map compresses into the slot); a payload of any length inserted with
+/// metadata is an arena record and reads it back (issue #1548). A `hot_meta` wider than 24 bits
+/// is refused (`"meta_overflow"`) at every payload length.
 ///
 /// Statuses (as `expanse_blob_status_t`): `"ok"`, `"mismatch"`, `"meta_overflow"`,
 /// `"allocation_failed"`, `"cap_refused"` (the capacity cap refused a chunk and nothing was
@@ -280,8 +281,8 @@ impl SyncExpanseBlobMap {
     /// `"arena_full"`, `"no_meta_field"`), with nothing changed and `observed` None. A
     /// retry loop retries on `"mismatch"` and stops on anything else.
     ///
-    /// A payload of 7 bytes or fewer reads back `hot_meta == 0` whatever was inserted (issue
-    /// #1548), so expecting the metadata it was inserted with reports `"mismatch"`.
+    /// A value reads back the `hot_meta` it was inserted with at every payload length (issue
+    /// #1548), so expecting that metadata matches.
     pub fn compare_exchange<'py>(
         &self,
         py: Python<'py>,

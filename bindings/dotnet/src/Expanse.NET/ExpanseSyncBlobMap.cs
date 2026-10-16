@@ -22,9 +22,10 @@ public sealed record ExpanseBlobValue(byte[] Payload, uint HotMeta);
 /// <para>The wrapper owns the native caller-buffer protocol. A read whose payload is longer than its working
 /// buffer is repeated with a buffer of the reported size until it fits. The repeat is a new read: if a writer
 /// replaced or removed the value in between, the call returns the new state (a different payload, or absent).</para>
-/// <para>Hot metadata is the 24-bit field of an arena-stored value. A payload of 7 bytes or fewer, or one the
-/// map compresses into its slot word (only when the metadata is 0), is stored without it and reads back metadata
-/// 0, whatever metadata the write passed.</para>
+/// <para>Hot metadata is the 24-bit field of an arena-stored value. A value is stored in its slot word, without
+/// that field, only when the metadata is 0 (a payload of 7 bytes or fewer, or one the map compresses into the
+/// slot word), and reads back metadata 0; a payload of any length written with non-zero metadata is arena-stored
+/// and reads it back, and metadata wider than 24 bits is refused at every length (issue #1548).</para>
 /// </remarks>
 public sealed class ExpanseSyncBlobMap : IDisposable
 {
