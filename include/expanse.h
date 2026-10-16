@@ -1157,18 +1157,24 @@ bool expanse_blob_map_insert(
 );
 
 /*
- * STATUS CODES of expanse_blob_map_insert_ex and expanse_blob_map_arena_stats,
- * in three bands. New values may be added within a band.
+ * STATUS CODES of expanse_blob_map_insert_ex, expanse_blob_map_arena_stats
+ * and the shared blob map's expanse_sync_blob_map_* calls (below), in bands.
+ * New values may be added within a band; existing values never change.
+ * expanse_blob_map_insert_ex returns none of NOT_FOUND and BUFFER_TOO_SMALL.
  */
 typedef enum {
     EXPANSE_BLOB_OK                = 0,
+    /* outcomes of a shared-map read (expanse_sync_blob_map_*get_into) */
+    EXPANSE_BLOB_NOT_FOUND         = 1,  /* key absent; nothing written */
+    EXPANSE_BLOB_BUFFER_TOO_SMALL  = 2,  /* key present, payload longer than buf_len: nothing
+                                            copied, required length and metadata reported */
     /* refusals: the map's contents are unchanged */
     EXPANSE_BLOB_META_OVERFLOW     = 16, /* hot_meta wider than 24 bits */
     EXPANSE_BLOB_ALLOCATION_FAILED = 17, /* payload larger than a chunk, or out of memory */
     EXPANSE_BLOB_CAP_REFUSED       = 18, /* the cap refused a chunk; nothing was compacted */
     EXPANSE_BLOB_ARENA_FULL        = 19, /* the cap refused a chunk after this insert compacted */
     /* usage errors: nothing was done */
-    EXPANSE_BLOB_INVALID_ARGUMENT  = 32, /* NULL map or stats, NULL data with len > 0 */
+    EXPANSE_BLOB_INVALID_ARGUMENT  = 32, /* NULL handle or stats, NULL data with len > 0, ... */
     /* any other engine error; insert returns none today */
     EXPANSE_BLOB_ERROR             = 48
 } expanse_blob_status_t;
@@ -1247,6 +1253,93 @@ size_t   expanse_blob_map_mem_used(const ExpanseBlobMap *map);
 void     expanse_blob_map_clear(ExpanseBlobMap *map);
 bool     expanse_blob_map_contains_key(const ExpanseBlobMap *map, uint64_t key);
 bool     expanse_blob_map_contains(const ExpanseBlobMap *map, uint64_t key);
+
+/*
+ * expanse_sync_blob_map_t: the concurrent uint64_t -> blob map (the shared
+ * form of ExpanseBlobMap above). Same protocol, thread rules and reader-handle
+ * ownership as expanse_sync_map_t: the container handle is safe from any
+ * number of threads at once except _free, which needs no call in progress and
+ * every reader freed first; a reader handle is used by one thread at a time
+ * (its calls take it non-const for that reason), may be freed from another
+ * thread once no call on it is in progress, and is freed before its map.
+ *
+ * VALUES ARE COPIED, NEVER BORROWED. No call returns a pointer into the map:
+ * _get_into copies the payload into the caller's buffer within one call, so
+ * nothing a C caller holds is invalidated by a later insert, remove or
+ * compaction. Insert and its refusals are those of expanse_blob_map_insert_ex
+ * (OK, META_OVERFLOW, ALLOCATION_FAILED, CAP_REFUSED, ARENA_FULL;
+ * INVALID_ARGUMENT for a NULL map, NULL data with len > 0, or len above
+ * PTRDIFF_MAX). Hot metadata is the 24-bit field of an arena-stored value: a
+ * payload of 7 bytes or fewer, or one the map compresses into its slot word
+ * (only when hot_meta is 0), is stored without it and reads back metadata 0,
+ * whatever hot_meta the insert passed, as expanse_blob_map_insert stores it.
+ *
+ * _get_into / _reader_get_into, one read each:
+ *   OK                key present and its payload fits: it is in
+ *                     buf[0 .. *len_out), *meta_out is its metadata, the rest
+ *                     of buf is untouched.
+ *   NOT_FOUND         key absent; nothing written.
+ *   BUFFER_TOO_SMALL  key present, payload longer than buf_len: NOTHING is
+ *                     copied, buf is untouched; *len_out is the payload's
+ *                     length and *meta_out its metadata, both from the same
+ *                     read that found the key.
+ *   INVALID_ARGUMENT  NULL map or reader, NULL buf with buf_len > 0, or
+ *                     buf_len above PTRDIFF_MAX; nothing written.
+ * NULL buf with buf_len 0 is the length probe (OK only for an empty payload).
+ * len_out and meta_out may be NULL. A retry with a buffer of *len_out bytes
+ * is a new read: it succeeds unless a writer replaced or removed the value in
+ * between, when it reports the new state (BUFFER_TOO_SMALL with the new
+ * length, or NOT_FOUND), so a caller loops until OK or NOT_FOUND.
+ *
+ * _get_meta / _contains report presence as bool (_get_meta writes the
+ * metadata on true, nothing on false). The one-shot _get_into, _get_meta and
+ * _contains on the map register and drop a reader per call; hot loops take a
+ * reader handle.
+ *
+ * Memory: _mem_used and _mem_held read with writers excluded and wait for a
+ * running compaction; _mem_used_estimate takes no lock and waits for nothing.
+ * _shrink_to_fit returns the collector's freed index blocks to the system.
+ * _set_reclaim_at_cap and _compact are those of expanse_blob_map_* above;
+ * _compact returns OK, a refusal, or INVALID_ARGUMENT for a NULL map, and
+ * readers keep reading while it copies.
+ */
+typedef struct expanse_sync_blob_map expanse_sync_blob_map_t;
+typedef struct expanse_sync_blob_map_reader expanse_sync_blob_map_reader_t;
+
+/* chunk_size and max_capacity as expanse_blob_map_new / _new_with_capacity. */
+expanse_sync_blob_map_t *expanse_sync_blob_map_new(size_t chunk_size);
+expanse_sync_blob_map_t *expanse_sync_blob_map_new_with_capacity(size_t chunk_size,
+                                                                 size_t max_capacity);
+void expanse_sync_blob_map_free(expanse_sync_blob_map_t *map);
+expanse_blob_status_t expanse_sync_blob_map_insert(expanse_sync_blob_map_t *map, uint64_t key,
+                                                   const uint8_t *data, size_t len,
+                                                   uint32_t hot_meta);
+bool expanse_sync_blob_map_remove(expanse_sync_blob_map_t *map, uint64_t key);
+expanse_blob_status_t expanse_sync_blob_map_get_into(const expanse_sync_blob_map_t *map,
+                                                     uint64_t key, uint8_t *buf, size_t buf_len,
+                                                     size_t *len_out, uint32_t *meta_out);
+bool     expanse_sync_blob_map_get_meta(const expanse_sync_blob_map_t *map, uint64_t key,
+                                        uint32_t *meta_out);
+bool     expanse_sync_blob_map_contains(const expanse_sync_blob_map_t *map, uint64_t key);
+uint64_t expanse_sync_blob_map_len(const expanse_sync_blob_map_t *map);
+size_t   expanse_sync_blob_map_mem_used(const expanse_sync_blob_map_t *map);
+size_t   expanse_sync_blob_map_mem_used_estimate(const expanse_sync_blob_map_t *map);
+size_t   expanse_sync_blob_map_mem_held(const expanse_sync_blob_map_t *map);
+size_t   expanse_sync_blob_map_shrink_to_fit(const expanse_sync_blob_map_t *map);
+void     expanse_sync_blob_map_set_reclaim_at_cap(expanse_sync_blob_map_t *map, bool on);
+expanse_blob_status_t expanse_sync_blob_map_compact(expanse_sync_blob_map_t *map);
+
+expanse_sync_blob_map_reader_t *expanse_sync_blob_map_reader_new(
+    const expanse_sync_blob_map_t *map);
+void expanse_sync_blob_map_reader_free(expanse_sync_blob_map_reader_t *reader);
+expanse_blob_status_t expanse_sync_blob_map_reader_get_into(expanse_sync_blob_map_reader_t *reader,
+                                                            uint64_t key, uint8_t *buf,
+                                                            size_t buf_len, size_t *len_out,
+                                                            uint32_t *meta_out);
+bool expanse_sync_blob_map_reader_get_meta(expanse_sync_blob_map_reader_t *reader, uint64_t key,
+                                           uint32_t *meta_out);
+bool expanse_sync_blob_map_reader_contains(expanse_sync_blob_map_reader_t *reader, uint64_t key);
+
 
 #endif /* EXPANSE_WIDE_SURFACE */
 

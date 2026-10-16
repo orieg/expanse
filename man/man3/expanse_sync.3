@@ -49,7 +49,19 @@ expanse_sync_ordered_bytesmap_first, expanse_sync_ordered_bytesmap_last, \
 expanse_sync_ordered_bytesmap_next_at_or_after, \
 expanse_sync_ordered_bytesmap_next_after, \
 expanse_sync_ordered_bytesmap_prev_at_or_before, \
-expanse_sync_ordered_bytesmap_prev_before \
+expanse_sync_ordered_bytesmap_prev_before, \
+expanse_sync_blob_map_new, expanse_sync_blob_map_new_with_capacity, \
+expanse_sync_blob_map_free, expanse_sync_blob_map_insert, \
+expanse_sync_blob_map_remove, expanse_sync_blob_map_get_into, \
+expanse_sync_blob_map_get_meta, expanse_sync_blob_map_contains, \
+expanse_sync_blob_map_len, expanse_sync_blob_map_mem_used, \
+expanse_sync_blob_map_mem_used_estimate, expanse_sync_blob_map_mem_held, \
+expanse_sync_blob_map_shrink_to_fit, \
+expanse_sync_blob_map_set_reclaim_at_cap, expanse_sync_blob_map_compact, \
+expanse_sync_blob_map_reader_new, expanse_sync_blob_map_reader_free, \
+expanse_sync_blob_map_reader_get_into, \
+expanse_sync_blob_map_reader_get_meta, \
+expanse_sync_blob_map_reader_contains \
 \- concurrent sets and maps with optimistic readers (OCC)
 .SH SYNOPSIS
 .B #include <expanse.h>
@@ -77,6 +89,11 @@ expanse_sync_ordered_bytesmap_prev_before \
 .br
 .BI "typedef struct expanse_sync_ordered_bytesmap_reader"
 .BI "    expanse_sync_ordered_bytesmap_reader_t;"
+.br
+.BI "typedef struct expanse_sync_blob_map expanse_sync_blob_map_t;"
+.br
+.BI "typedef struct expanse_sync_blob_map_reader"
+.BI "    expanse_sync_blob_map_reader_t;"
 .PP
 .BI "expanse_sync_set_t *expanse_sync_set_new(void);"
 .br
@@ -386,6 +403,71 @@ expanse_sync_ordered_bytesmap_prev_before \
 .BI "    const void *" key ", size_t " len ","
 .BI "    void *" key_out ", size_t " buf_len ", size_t *" required_len ","
 .BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_sync_blob_map_t *expanse_sync_blob_map_new(size_t " chunk_size ");"
+.br
+.BI "expanse_sync_blob_map_t *expanse_sync_blob_map_new_with_capacity("
+.BI "    size_t " chunk_size ", size_t " max_capacity ");"
+.br
+.BI "void expanse_sync_blob_map_free(expanse_sync_blob_map_t *" map ");"
+.br
+.BI "expanse_blob_status_t expanse_sync_blob_map_insert("
+.BI "    expanse_sync_blob_map_t *" map ", uint64_t " key ","
+.BI "    const uint8_t *" data ", size_t " len ", uint32_t " hot_meta ");"
+.br
+.BI "bool expanse_sync_blob_map_remove(expanse_sync_blob_map_t *" map ","
+.BI "    uint64_t " key ");"
+.br
+.BI "expanse_blob_status_t expanse_sync_blob_map_get_into("
+.BI "    const expanse_sync_blob_map_t *" map ", uint64_t " key ","
+.BI "    uint8_t *" buf ", size_t " buf_len ", size_t *" len_out ","
+.BI "    uint32_t *" meta_out ");"
+.br
+.BI "bool expanse_sync_blob_map_get_meta("
+.BI "    const expanse_sync_blob_map_t *" map ", uint64_t " key ","
+.BI "    uint32_t *" meta_out ");"
+.br
+.BI "bool expanse_sync_blob_map_contains("
+.BI "    const expanse_sync_blob_map_t *" map ", uint64_t " key ");"
+.br
+.BI "uint64_t expanse_sync_blob_map_len("
+.BI "    const expanse_sync_blob_map_t *" map ");"
+.br
+.BI "size_t expanse_sync_blob_map_mem_used("
+.BI "    const expanse_sync_blob_map_t *" map ");"
+.br
+.BI "size_t expanse_sync_blob_map_mem_used_estimate("
+.BI "    const expanse_sync_blob_map_t *" map ");"
+.br
+.BI "size_t expanse_sync_blob_map_mem_held("
+.BI "    const expanse_sync_blob_map_t *" map ");"
+.br
+.BI "size_t expanse_sync_blob_map_shrink_to_fit("
+.BI "    const expanse_sync_blob_map_t *" map ");"
+.br
+.BI "void expanse_sync_blob_map_set_reclaim_at_cap("
+.BI "    expanse_sync_blob_map_t *" map ", bool " on ");"
+.br
+.BI "expanse_blob_status_t expanse_sync_blob_map_compact("
+.BI "    expanse_sync_blob_map_t *" map ");"
+.br
+.BI "expanse_sync_blob_map_reader_t *expanse_sync_blob_map_reader_new("
+.BI "    const expanse_sync_blob_map_t *" map ");"
+.br
+.BI "void expanse_sync_blob_map_reader_free("
+.BI "    expanse_sync_blob_map_reader_t *" reader ");"
+.br
+.BI "expanse_blob_status_t expanse_sync_blob_map_reader_get_into("
+.BI "    expanse_sync_blob_map_reader_t *" reader ", uint64_t " key ","
+.BI "    uint8_t *" buf ", size_t " buf_len ", size_t *" len_out ","
+.BI "    uint32_t *" meta_out ");"
+.br
+.BI "bool expanse_sync_blob_map_reader_get_meta("
+.BI "    expanse_sync_blob_map_reader_t *" reader ", uint64_t " key ","
+.BI "    uint32_t *" meta_out ");"
+.br
+.BI "bool expanse_sync_blob_map_reader_contains("
+.BI "    expanse_sync_blob_map_reader_t *" reader ", uint64_t " key ");"
 .PP
 Link with \fI-lexpanse\fR.
 .SH DESCRIPTION
@@ -717,6 +799,104 @@ may be the same buffer.
 A retry after
 .B EXPANSE_ORDERED_BYTES_NAV_BUFFER_TOO_SMALL
 is a new read, and may return a different key if a writer ran in between.
+.SH BLOB MAP
+.B expanse_sync_blob_map_t
+is the concurrent form of
+.BR expanse_blob_map (3):
+a map from
+.B uint64_t
+keys to byte payloads with 24-bit hot metadata.
+Its protocol, its container and reader thread rules, and its reader-handle
+ownership are those of
+.B expanse_sync_map_t
+above: free every reader before the map.
+The reader calls take a non-const handle, because a reader is used by one
+thread at a time.
+.I chunk_size
+and
+.I max_capacity
+are those of
+.BR expanse_blob_map_new_with_capacity ;
+0 selects the default.
+.PP
+Values are copied, never borrowed: no call returns a pointer into the map,
+so no later insert, remove or compaction invalidates anything a caller
+holds.
+.B expanse_sync_blob_map_insert
+returns the
+.B expanse_blob_status_t
+values of
+.BR expanse_blob_map_insert_ex .
+A payload of 7 bytes or fewer, or one the map compresses into its slot word
+(only when
+.I hot_meta
+is 0), is stored without metadata and reads back metadata 0, whatever
+.I hot_meta
+the insert passed.
+.PP
+.B expanse_sync_blob_map_get_into
+and
+.B expanse_sync_blob_map_reader_get_into
+copy a payload into the caller's buffer in one read.
+.B EXPANSE_BLOB_OK
+means the payload is in
+.IR buf ,
+its length in
+.I len_out
+and its metadata in
+.IR meta_out ;
+the rest of the buffer is untouched.
+.B EXPANSE_BLOB_NOT_FOUND
+means the key is absent; nothing is written.
+.B EXPANSE_BLOB_BUFFER_TOO_SMALL
+means the key is present and its payload is longer than
+.IR buf_len :
+nothing is copied, the buffer is untouched, and
+.I len_out
+and
+.I meta_out
+receive the payload's length and metadata, from the same read.
+.B EXPANSE_BLOB_INVALID_ARGUMENT
+means a NULL map or reader, a NULL
+.I buf
+with a non-zero
+.IR buf_len ,
+or a
+.I buf_len
+above
+.BR PTRDIFF_MAX .
+NULL with 0 is the length probe.
+.I len_out
+and
+.I meta_out
+may be NULL.
+A retry with a buffer of the reported length is a new read: it succeeds
+unless a writer replaced or removed the value in between, when it reports
+the new state, so a caller loops until
+.B EXPANSE_BLOB_OK
+or
+.BR EXPANSE_BLOB_NOT_FOUND .
+.PP
+.B expanse_sync_blob_map_get_meta
+and
+.B expanse_sync_blob_map_contains
+and their reader forms return presence; get_meta writes the metadata only
+when it returns true.
+.B expanse_sync_blob_map_mem_used
+and
+.B expanse_sync_blob_map_mem_held
+exclude writers and wait for a running compaction;
+.B expanse_sync_blob_map_mem_used_estimate
+takes no lock.
+.B expanse_sync_blob_map_compact
+returns
+.BR EXPANSE_BLOB_OK ,
+a refusal, or
+.B EXPANSE_BLOB_INVALID_ARGUMENT
+for a NULL map; readers keep reading while it copies.
+.B expanse_sync_blob_map_set_reclaim_at_cap
+is that of
+.BR expanse_blob_map (3).
 .SH EXAMPLES
 .nf
 #include <stdio.h>
@@ -809,6 +989,31 @@ int main(void) {
                                                       sizeof bk, &need, &val);
     }
     expanse_sync_ordered_bytesmap_free(ob);
+
+    /* The shared blob map: a payload copied out through a caller buffer */
+    expanse_sync_blob_map_t *blobs = expanse_sync_blob_map_new(0);
+    const char *doc = "a payload longer than the first buffer";
+    expanse_sync_blob_map_insert(blobs, 7, (const uint8_t *) doc,
+                                 strlen(doc), 3);
+    expanse_sync_blob_map_reader_t *br =
+        expanse_sync_blob_map_reader_new(blobs);
+    uint8_t small[8], big[64];
+    size_t len = 0;
+    uint32_t meta = 0;
+    expanse_blob_status_t rc = expanse_sync_blob_map_reader_get_into(
+        br, 7, small, sizeof small, &len, &meta);
+    if (rc == EXPANSE_BLOB_BUFFER_TOO_SMALL) {
+        printf("Blob needs %zu bytes, metadata %u\\n", len, meta);
+        /* A retry is a new read; loop until OK or NOT_FOUND */
+        uint8_t *dst = len <= sizeof big ? big : NULL;
+        rc = expanse_sync_blob_map_reader_get_into(br, 7, dst, len,
+                                                   &len, &meta);
+    }
+    if (rc == EXPANSE_BLOB_OK) {
+        printf("Blob read: %.*s\\n", (int) len, (const char *) big);
+    }
+    expanse_sync_blob_map_reader_free(br);
+    expanse_sync_blob_map_free(blobs);
     return 0;
 }
 .fi
@@ -823,6 +1028,8 @@ Walk: beta -> 2
 Bytes read: 3-byte key -> 20
 Bytes walk: 3 bytes, last 0x61 -> 10
 Bytes walk: 3 bytes, last 0x62 -> 20
+Blob needs 38 bytes, metadata 3
+Blob read: a payload longer than the first buffer
 .fi
 .SH SEE ALSO
 .BR expanse (3),
@@ -830,7 +1037,8 @@ Bytes walk: 3 bytes, last 0x62 -> 20
 .BR expanse_map (3),
 .BR expanse_strmap (3),
 .BR expanse_bytesmap (3),
-.BR expanse_ordered_bytesmap (3)
+.BR expanse_ordered_bytesmap (3),
+.BR expanse_blob_map (3)
 .SH AUTHORS
 Nicolas Brousse <nicolas@brousse.info>
 .PP

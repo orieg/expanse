@@ -8,12 +8,14 @@
 
 use super::super::{bytes, cstr, put};
 use super::{ExpanseOrderedBytesNavStatus, ExpanseStrNavStatus};
+use crate::blobmap::ExpanseBlobStatus;
 use core::ffi::{c_char, c_void};
 use core::ptr::NonNull;
 use expanse_trie::ordered_bytesmap::{EscapeDecodeError, ExpanseOrderedBytesMap};
 use expanse_trie::sync::{
-    BytesReader, MapReader, OrderedBytesReader, SetReader, StrReader, SyncExpanseBytesMap,
-    SyncExpanseMap, SyncExpanseOrderedBytesMap, SyncExpanseSet, SyncExpanseStrMap,
+    BlobBufferTooSmall, BlobReader, BytesReader, MapReader, OrderedBytesReader, SetReader,
+    StrReader, SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseOrderedBytesMap,
+    SyncExpanseSet, SyncExpanseStrMap,
 };
 
 // ---------------------------------------------------------------------
@@ -38,6 +40,13 @@ pub struct SyncBytesMapReader(BytesReader<'static>);
 /// [`SyncSetReader`].
 pub struct SyncOrderedBytesMapReader(OrderedBytesReader<'static>);
 
+/// A registered reader of a [`SyncExpanseBlobMap`]. See [`SyncSetReader`].
+///
+/// Its calls take the handle as `*mut`: the Rust reader's reads take
+/// `&mut self`, and the header's one-thread-at-a-time rule is what makes
+/// that exclusive borrow sound.
+pub struct SyncBlobMapReader(BlobReader<'static>);
+
 // `include/expanse.h` documents that a reader handle may be freed from a thread
 // other than the one that created it. That holds because the handle types are
 // `Send`, which is auto-derived from their fields; assert it, so a future
@@ -53,6 +62,7 @@ const _: fn() = || {
     assert_send::<SyncStrMapReader>();
     assert_send::<SyncBytesMapReader>();
     assert_send::<SyncOrderedBytesMapReader>();
+    assert_send::<SyncBlobMapReader>();
 };
 
 /// Creates an empty concurrent set.
@@ -1560,3 +1570,439 @@ sync_ordered_bytesmap_nav!(
     "Largest entry with key `< key` of a shared ordered-bytes map; `NotFound` \
      for the empty key."
 );
+
+// ---- The shared blob map's handle and reader (#1538) ----
+//
+// Values never leave as a borrowed pointer: the `_get_into` calls copy into
+// the caller's buffer (AGENTS.md §2.3 item 4, §2.4). Each is ONE call to
+// `BlobReader::get_into`, which takes the length, the metadata and the bytes
+// from one validated read (or one locked fallback) and checks the length
+// before it writes (`blob_copy_into` in `expanse_trie::sync`), so a buffer too
+// small is never written and the length reported is that of the value that
+// would have been copied. No probe precedes the copy.
+
+/// The blob map's `chunk_size` convention: `0` selects the default chunk, as
+/// `expanse_blob_map_new` does.
+fn blob_chunk_size(chunk_size: usize) -> usize {
+    if chunk_size == 0 {
+        expanse_trie::blobmap::DEFAULT_CHUNK_SIZE
+    } else {
+        chunk_size
+    }
+}
+
+/// Creates an empty shared blob map. `chunk_size == 0` selects the default
+/// 2 MiB chunk; the capacity cap is the default 1 GiB.
+#[unsafe(no_mangle)]
+pub extern "C" fn expanse_sync_blob_map_new(chunk_size: usize) -> *mut SyncExpanseBlobMap {
+    Box::into_raw(Box::new(SyncExpanseBlobMap::with_chunk_size(
+        blob_chunk_size(chunk_size),
+    )))
+}
+
+/// Creates an empty shared blob map whose arena capacity cap is
+/// `max_capacity` bytes of allocated chunks. `0` selects the default chunk
+/// and the default 1 GiB cap; the cap is clamped as
+/// `expanse_blob_map_new_with_capacity` clamps it.
+#[unsafe(no_mangle)]
+pub extern "C" fn expanse_sync_blob_map_new_with_capacity(
+    chunk_size: usize,
+    max_capacity: usize,
+) -> *mut SyncExpanseBlobMap {
+    let cap = if max_capacity == 0 {
+        expanse_trie::blobmap::DEFAULT_ARENA_CAPACITY
+    } else {
+        max_capacity
+    };
+    Box::into_raw(Box::new(
+        SyncExpanseBlobMap::with_chunk_size_and_max_capacity(blob_chunk_size(chunk_size), cap),
+    ))
+}
+
+/// Frees a shared blob map. All readers must be freed first.
+///
+/// # Safety
+///
+/// `map` must be null or come from `expanse_sync_blob_map_new*`, with no
+/// live reader and no call on it in progress.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_free(map: *mut SyncExpanseBlobMap) {
+    if !map.is_null() {
+        // SAFETY: handle per contract.
+        drop(unsafe { Box::from_raw(map) });
+    }
+}
+
+/// Stores `key -> data` with 24-bit hot metadata, replacing any value.
+/// Returns `Ok`, the refusal (`MetaOverflow`, `AllocationFailed`,
+/// `CapRefused`, `ArenaFull`; the map's contents unchanged), or
+/// `InvalidArgument` for a null handle, null `data` with `len > 0`, or `len`
+/// above `isize::MAX`.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `data` readable for `len` bytes
+/// (null only when `len == 0`).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_insert(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+    data: *const u8,
+    len: usize,
+    hot_meta: u32,
+) -> ExpanseBlobStatus {
+    // SAFETY: null or live handle, and `data` readable for `len` bytes, per
+    // contract.
+    let (Some(m), Some(d)) = (unsafe { map.as_ref() }, unsafe { bytes(data.cast(), len) }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    match m.insert(key, d, hot_meta) {
+        Ok(()) => ExpanseBlobStatus::Ok,
+        Err(e) => e.into(),
+    }
+}
+
+/// Removes `key`; true if it was present.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_remove(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+) -> bool {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.is_some_and(|m| m.remove(key))
+}
+
+/// The caller-buffer read behind both `_get_into` entry points: validates the
+/// buffer arguments, runs `read` ONCE over the caller's buffer, and writes the
+/// outcome. `read` is `BlobReader::get_into`, which copies nothing when the
+/// value does not fit, so `buf` is written only on `Ok`.
+///
+/// # Safety
+///
+/// `buf` must be null or writable for `buf_len` bytes; `len_out` and
+/// `meta_out` null or writable.
+unsafe fn blob_get_into(
+    read: impl FnOnce(&mut [u8]) -> Result<Option<(usize, u32)>, BlobBufferTooSmall>,
+    buf: *mut u8,
+    buf_len: usize,
+    len_out: *mut usize,
+    meta_out: *mut u32,
+) -> ExpanseBlobStatus {
+    if buf_len > isize::MAX as usize {
+        return ExpanseBlobStatus::InvalidArgument;
+    }
+    let dst: &mut [u8] = if buf.is_null() {
+        if buf_len != 0 {
+            return ExpanseBlobStatus::InvalidArgument;
+        }
+        &mut []
+    } else {
+        // SAFETY: `buf` is non-null and writable for `buf_len <= isize::MAX`
+        // bytes per contract.
+        unsafe { core::slice::from_raw_parts_mut(buf, buf_len) }
+    };
+    let (status, len, meta) = match read(dst) {
+        Ok(Some((len, meta))) => (ExpanseBlobStatus::Ok, len, meta),
+        Ok(None) => return ExpanseBlobStatus::NotFound,
+        Err(e) => (ExpanseBlobStatus::BufferTooSmall, e.required, e.hot_meta),
+    };
+    // SAFETY: `len_out` and `meta_out` null or writable per contract.
+    unsafe {
+        put(len_out, len);
+        put(meta_out, meta);
+    }
+    status
+}
+
+/// One-shot caller-buffer read (registers a throwaway reader; prefer a reader
+/// handle in hot loops). The contract is
+/// [`expanse_sync_blob_map_reader_get_into`]'s.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `buf` null or writable for `buf_len`
+/// bytes; `len_out` and `meta_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_get_into(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+    buf: *mut u8,
+    buf_len: usize,
+    len_out: *mut usize,
+    meta_out: *mut u32,
+) -> ExpanseBlobStatus {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    // SAFETY: buffer and out-pointers forwarded per contract.
+    unsafe {
+        blob_get_into(
+            |dst| m.reader().get_into(key, dst),
+            buf,
+            buf_len,
+            len_out,
+            meta_out,
+        )
+    }
+}
+
+/// One-shot metadata lookup (registers a throwaway reader): true with the
+/// value's hot metadata in `*meta_out` (`0` for a value stored in its slot
+/// word) when `key` is present; false, nothing written, otherwise.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `meta_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_get_meta(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+    meta_out: *mut u32,
+) -> bool {
+    // SAFETY: null or live handle per contract.
+    let Some(meta) = (unsafe { map.as_ref() }).and_then(|m| m.get_meta(key)) else {
+        return false;
+    };
+    // SAFETY: `meta_out` null or writable per contract.
+    unsafe { put(meta_out, meta) };
+    true
+}
+
+/// One-shot membership test (registers a throwaway reader).
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_contains(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+) -> bool {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.is_some_and(|m| m.contains_key(key))
+}
+
+/// Number of entries; 0 for a null handle.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_len(map: *const SyncExpanseBlobMap) -> u64 {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::len)
+}
+
+/// Heap bytes used by the index and the arena, read with writers excluded:
+/// it waits for a running compaction, and writers wait for it. 0 for a null
+/// handle.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_mem_used(map: *const SyncExpanseBlobMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::mem_used)
+}
+
+/// [`expanse_sync_blob_map_mem_used`] without the wait: an estimate that
+/// takes none of the map's locks (`SyncExpanseBlobMap::mem_used_estimate`).
+/// 0 for a null handle.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_mem_used_estimate(
+    map: *const SyncExpanseBlobMap,
+) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::mem_used_estimate)
+}
+
+/// Heap bytes the map holds from the global allocator, its epoch collector's
+/// share included; waits as [`expanse_sync_blob_map_mem_used`] does. 0 for a
+/// null handle.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_mem_held(map: *const SyncExpanseBlobMap) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::mem_held)
+}
+
+/// Returns the freed index blocks the map's epoch collector keeps for reuse
+/// to the global allocator and returns the bytes released; 0 for a null
+/// handle. Runs beside readers and writers without excluding either.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_shrink_to_fit(
+    map: *const SyncExpanseBlobMap,
+) -> usize {
+    // SAFETY: null or live handle per contract.
+    unsafe { map.as_ref() }.map_or(0, SyncExpanseBlobMap::shrink_to_fit)
+}
+
+/// Turns the reclaim at the capacity cap on (the default) or off; a null
+/// handle is a no-op.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_set_reclaim_at_cap(
+    map: *const SyncExpanseBlobMap,
+    on: bool,
+) {
+    // SAFETY: null or live handle per contract.
+    if let Some(m) = unsafe { map.as_ref() } {
+        m.set_reclaim_at_cap(on);
+    }
+}
+
+/// Compacts the arena: `Ok`, the mapped engine error, or `InvalidArgument`
+/// for a null handle. Readers keep reading during the payload copy; the
+/// shared surface hands out no view, so no C pointer is invalidated.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_compact(
+    map: *const SyncExpanseBlobMap,
+) -> ExpanseBlobStatus {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    match m.compact() {
+        Ok(_) => ExpanseBlobStatus::Ok,
+        Err(e) => e.into(),
+    }
+}
+
+/// Registers a reader handle for this thread. Free it before the map.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle that outlives the reader.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_reader_new(
+    map: *const SyncExpanseBlobMap,
+) -> *mut SyncBlobMapReader {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return core::ptr::null_mut();
+    };
+    // SAFETY: lifetime extension only (see expanse_sync_set_reader_new): the
+    // reader borrows `map`, and the header's contract requires freeing the
+    // reader before its map.
+    let reader: BlobReader<'static> = unsafe { core::mem::transmute(m.reader()) };
+    Box::into_raw(Box::new(SyncBlobMapReader(reader)))
+}
+
+/// Frees a reader handle.
+///
+/// May be called from a thread other than the one that created the reader,
+/// once no call on it is in progress (`include/expanse.h`).
+///
+/// # Safety
+///
+/// `reader` must come from `expanse_sync_blob_map_reader_new`, unused after,
+/// with no call on it in progress on any thread, and its map still alive.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_reader_free(reader: *mut SyncBlobMapReader) {
+    if !reader.is_null() {
+        // SAFETY: handle per contract.
+        drop(unsafe { Box::from_raw(reader) });
+    }
+}
+
+/// Optimistic caller-buffer read through a registered reader.
+///
+/// `Ok`: the payload is in `buf[..*len_out]`, `*meta_out` is its hot
+/// metadata, the rest of `buf` is untouched. `NotFound`: nothing written.
+/// `BufferTooSmall`: the key is present and its payload is longer than
+/// `buf_len`; nothing is copied and `buf` is untouched, `*len_out` is the
+/// payload's length and `*meta_out` its metadata, both from the same
+/// validated read. A retry is a new read. `InvalidArgument`: a null reader,
+/// null `buf` with `buf_len > 0`, or `buf_len` above `isize::MAX`; nothing
+/// written. Null `buf` with `buf_len == 0` is a length probe.
+///
+/// # Safety
+///
+/// `reader` must be null or live (its map still alive) and in use by no
+/// other thread; `buf` null or writable for `buf_len` bytes; `len_out` and
+/// `meta_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_reader_get_into(
+    reader: *mut SyncBlobMapReader,
+    key: u64,
+    buf: *mut u8,
+    buf_len: usize,
+    len_out: *mut usize,
+    meta_out: *mut u32,
+) -> ExpanseBlobStatus {
+    // SAFETY: null or live reader, used by this thread alone, per contract.
+    let Some(r) = (unsafe { reader.as_mut() }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    // SAFETY: buffer and out-pointers forwarded per contract.
+    unsafe {
+        blob_get_into(
+            |dst| r.0.get_into(key, dst),
+            buf,
+            buf_len,
+            len_out,
+            meta_out,
+        )
+    }
+}
+
+/// Optimistic metadata lookup through a registered reader, with the return
+/// convention of [`expanse_sync_blob_map_get_meta`].
+///
+/// # Safety
+///
+/// `reader` must be null or live (its map still alive) and in use by no
+/// other thread; `meta_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_reader_get_meta(
+    reader: *mut SyncBlobMapReader,
+    key: u64,
+    meta_out: *mut u32,
+) -> bool {
+    // SAFETY: null or live reader, used by this thread alone, per contract.
+    let Some(meta) = (unsafe { reader.as_mut() }).and_then(|r| r.0.get_meta(key)) else {
+        return false;
+    };
+    // SAFETY: `meta_out` null or writable per contract.
+    unsafe { put(meta_out, meta) };
+    true
+}
+
+/// Optimistic membership test through a registered reader.
+///
+/// # Safety
+///
+/// `reader` must be null or live (its map still alive) and in use by no
+/// other thread.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_blob_map_reader_contains(
+    reader: *mut SyncBlobMapReader,
+    key: u64,
+) -> bool {
+    // SAFETY: null or live reader, used by this thread alone, per contract.
+    unsafe { reader.as_mut() }.is_some_and(|r| r.0.contains(key))
+}

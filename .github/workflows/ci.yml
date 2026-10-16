@@ -1764,13 +1764,13 @@ jobs:
       # The C ABI layer over the shared containers (#1538): the `Box` round
       # trips of the handles and the `'static` lifetime extension of a reader
       # handle. The targets' threaded tests are `cfg_attr(miri, ignore)`. Each
-      # of the two test binaries must report a non-zero pass count.
-      - name: Miri (C ABI — the shared string, bytes and ordered-bytes maps' handles and readers, single-threaded)
+      # of the three test binaries must report a non-zero pass count.
+      - name: Miri (C ABI — the shared string, bytes, ordered-bytes and blob maps' handles and readers, single-threaded)
         if: matrix.shard == '3 of 3'
         run: |
           set -o pipefail
-          cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi 2>&1 | tee capi-miri.log
-          [ "$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' capi-miri.log)" -eq 2 ] \
+          cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi 2>&1 | tee capi-miri.log
+          [ "$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' capi-miri.log)" -eq 3 ] \
             || { echo "::error::an expanse-capi Miri test binary ran zero tests"; exit 1; }
       # Negative control for the exact-size node allocation `NodeAlloc` uses
       # under Miri (`crates/expanse/src/alloc.rs` module docs): the canary
@@ -1863,15 +1863,15 @@ jobs:
           RUSTFLAGS: "-Zsanitizer=address"
       # The C ABI layer over the shared containers (#1538): handle and reader
       # lifecycles through the `extern "C"` functions, threaded tests included.
-      # Each of the two test binaries must report a non-zero pass count.
-      - name: Run the shared string, bytes and ordered-bytes maps' C ABI under AddressSanitizer
+      # Each of the three test binaries must report a non-zero pass count.
+      - name: Run the shared string, bytes, ordered-bytes and blob maps' C ABI under AddressSanitizer
         shell: bash
         env:
           RUSTFLAGS: "-Zsanitizer=address"
         run: |
           set -o pipefail
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi 2>&1 | tee capi-asan.log
-          [ "$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' capi-asan.log)" -eq 2 ] \
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi 2>&1 | tee capi-asan.log
+          [ "$(grep -Ec 'test result: ok\. [1-9][0-9]* passed' capi-asan.log)" -eq 3 ] \
             || { echo "::error::an expanse-capi ASan test binary ran zero tests"; exit 1; }
 
   php-judy-compat:

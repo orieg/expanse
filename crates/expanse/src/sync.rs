@@ -13415,11 +13415,11 @@ impl BlobReader<'_> {
     /// absent key, with `buf` untouched. The payload is one whole value the
     /// key held: the copy is taken from a validated read, under the pin.
     ///
-    /// This is the Rust form of `expanse_blob_map_get_into` in
-    /// `include/expanse.h`. The C entry point copies what fits and reports
-    /// the full length through `out_len`, so a caller detects truncation by
-    /// comparing; here a buffer that is too small is an error of its own and
-    /// nothing is copied.
+    /// `expanse_sync_blob_map_reader_get_into` in `include/expanse.h` is this
+    /// call, made once per C call: a buffer that is too small is reported as
+    /// `EXPANSE_BLOB_BUFFER_TOO_SMALL` with nothing copied, as here, and the
+    /// single-threaded `expanse_blob_map_get_into` likewise copies nothing
+    /// into a buffer that is too small.
     ///
     /// # Errors
     ///
