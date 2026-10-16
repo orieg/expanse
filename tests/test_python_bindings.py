@@ -6,6 +6,8 @@ Tests:
 3. ExpanseStrMap: variable-length string/bytes trie map, lexicographical scans.
 4. ExpanseBytesMap: arbitrary bytes hash map.
 5. SyncExpanseSet & SyncExpanseMap: multithreaded GIL-free concurrent reads and writes.
+6. SyncExpanseStrMap, SyncExpanseBytesMap, SyncExpanseOrderedBytesMap, SyncExpanseBlobMap:
+   the shared maps of the C `expanse_sync_*` handles (#1538).
 """
 
 import threading
@@ -21,6 +23,10 @@ from expanse_trie import (
     ExpanseOrderedBytesMap,
     SyncExpanseSet,
     SyncExpanseMap,
+    SyncExpanseStrMap,
+    SyncExpanseBytesMap,
+    SyncExpanseOrderedBytesMap,
+    SyncExpanseBlobMap,
     __version__,
 )
 
@@ -1077,3 +1083,623 @@ def test_ordered_bytesmap_memory_accounting_and_clear():
     assert len(om) == 0
     assert om.first() is None
     assert om.mem_used() == 0
+
+
+# ============================================================================
+# 6. Shared string, bytes, ordered-bytes and blob maps (#1538)
+# ============================================================================
+
+# kind -> (class, key maker); the string map takes str keys, the others bytes.
+WORD_MAPS = {
+    "str": (SyncExpanseStrMap, lambda i: f"key-{i:06}"),
+    "bytes": (SyncExpanseBytesMap, lambda i: f"key-{i:06}".encode()),
+    "ordered": (SyncExpanseOrderedBytesMap, lambda i: f"key-{i:06}".encode()),
+}
+
+
+@pytest.fixture(params=sorted(WORD_MAPS))
+def word_map(request):
+    cls, mk = WORD_MAPS[request.param]
+    return cls(), mk
+
+
+def test_shared_word_map_point_ops(word_map):
+    m, k = word_map
+    assert len(m) == 0 and m.is_empty() and not m and m.empty
+    assert m.get(k(1)) is None
+    assert m.get(k(1), 7) == 7
+    assert m.insert(k(1), 10) is None
+    assert m.insert(k(1), 11) == 10  # previous value
+    m[k(2)] = 20
+    assert len(m) == 2 and m
+    assert m[k(1)] == 11 and m.get(k(2)) == 20
+    assert k(1) in m and m.contains(k(2)) and m.contains_key(k(1))
+    assert k(3) not in m and not m.contains(k(3))
+    assert m.remove(k(1)) == 11
+    assert m.remove(k(1)) is None
+    with pytest.raises(KeyError):
+        m[k(1)]
+    with pytest.raises(KeyError):
+        del m[k(1)]
+    del m[k(2)]
+    assert len(m) == 0
+    assert m.pop(k(9), 5) == 5
+    with pytest.raises(KeyError):
+        m.pop(k(9))
+    m.insert(k(9), 90)
+    assert m.pop(k(9)) == 90
+    # u64 range is exact on both ends.
+    m.insert(k(4), 2**64 - 1)
+    assert m.get(k(4)) == 2**64 - 1
+    with pytest.raises(OverflowError):
+        m.insert(k(4), 2**64)
+
+
+def test_shared_word_map_memory_accounting_and_clear(word_map):
+    m, k = word_map
+    for i in range(500):
+        m.insert(k(i), i)
+    assert len(m) == 500
+    assert m.mem_used() > 0
+    assert m.mem_held() >= m.mem_used()
+    assert isinstance(m.shrink_to_fit(), int)
+    m.clear()
+    assert len(m) == 0 and m.get(k(1)) is None
+
+
+def test_shared_word_map_compare_exchange_branches(word_map):
+    m, k = word_map
+    key = k(1)
+    assert m.compare_exchange(key, None, None) == (True, None)  # absent check
+    assert m.compare_exchange(key, None, 10) == (True, None)  # insert-if-absent
+    assert m.compare_exchange(key, None, 99) == (False, 10)
+    assert m.compare_exchange(key, None, None) == (False, 10)  # present check
+    assert m.compare_exchange(key, 11, 12) == (False, 10)
+    assert m.compare_exchange(k(2), 5, 6) == (False, None)
+    assert m.compare_exchange(key, 10, 20) == (True, 10)
+    assert m.compare_exchange(key, 21, None) == (False, 20)
+    assert m.compare_exchange(key, 20, None) == (True, 20)  # remove-if-equals
+    assert key not in m
+    assert m.compare_exchange(key, None, 0) == (True, None)  # zero is a value
+    assert m.compare_exchange(key, 0, 2**64 - 1) == (True, 0)
+    with pytest.raises(OverflowError):
+        m.compare_exchange(key, None, 2**64)
+
+
+def test_shared_word_map_get_or_insert_and_update_with(word_map):
+    m, k = word_map
+    assert m.get_or_insert(k(1), 5) is None  # stored
+    assert m.get_or_insert(k(1), 6) == 5  # present: untouched
+    assert m[k(1)] == 5
+
+    def inc(cur):
+        return (cur or 0) + 1
+
+    assert m.update_with(k(2), inc) is None  # absent -> 1
+    assert m.update_with(k(2), inc) == 1
+    assert m[k(2)] == 2
+    assert m.update_with(k(2), lambda cur: None) == 2  # None removes
+    assert k(2) not in m
+    with pytest.raises(ZeroDivisionError):
+        m.update_with(k(3), lambda cur: 1 // 0)
+    assert k(3) not in m  # an exception leaves the key unchanged
+    with pytest.raises(TypeError):
+        m.update_with(k(3), lambda cur: "x")
+
+    calls = []
+
+    def interfered(cur):
+        calls.append(cur)
+        if len(calls) == 1:
+            m.insert(k(1), 200)  # a competing writer lands between read and exchange
+        return cur + 1
+
+    assert m.update_with(k(1), interfered) == 200
+    assert calls == [5, 200]
+    assert m[k(1)] == 201
+
+
+def test_shared_word_map_concurrent_counter_and_single_winner(word_map):
+    m, k = word_map
+    threads, per_thread = 8, 1500
+
+    def worker():
+        for _ in range(per_thread):
+            m.update_with(k(0), lambda cur: (cur or 0) + 1)
+
+    ts = [threading.Thread(target=worker) for _ in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert m[k(0)] == threads * per_thread  # no lost update
+
+    # compare_exchange retry loop, the hand-written form.
+    def cas_worker():
+        for _ in range(per_thread // 3):
+            seen = m.get(k(1))
+            while True:
+                stored, seen = m.compare_exchange(k(1), seen, (seen or 0) + 1)
+                if stored:
+                    break
+
+    ts = [threading.Thread(target=cas_worker) for _ in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert m[k(1)] == threads * (per_thread // 3)
+
+    # get_or_insert: exactly one of the racing callers stores.
+    winners = []
+    barrier = threading.Barrier(threads)
+
+    def racer(i):
+        barrier.wait()
+        if m.get_or_insert(k(42), i) is None:
+            winners.append(i)
+
+    ts = [threading.Thread(target=racer, args=(i,)) for i in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(winners) == 1
+    assert m[k(42)] == winners[0]
+
+
+def test_shared_word_map_concurrent_readers_see_consistent_values(word_map):
+    m, k = word_map
+    for i in range(200):
+        m.insert(k(i), i)
+    stop = threading.Event()
+    errors = []
+
+    def writer():
+        n = 0
+        while not stop.is_set():
+            m.insert(k(1000 + n % 50), n)
+            m.remove(k(1000 + (n + 25) % 50))
+            n += 1
+
+    def reader():
+        for _ in range(300):
+            for i in range(200):
+                if m.get(k(i)) != i:  # the stable keys never change
+                    errors.append(i)
+
+    w = threading.Thread(target=writer)
+    rs = [threading.Thread(target=reader) for _ in range(4)]
+    w.start()
+    for t in rs:
+        t.start()
+    for t in rs:
+        t.join()
+    stop.set()
+    w.join()
+    assert errors == []
+
+
+def test_shared_strmap_keys_and_ordered_reads():
+    m = SyncExpanseStrMap()
+    with pytest.raises(ValueError):
+        m.insert("a\x00b", 1)  # NUL is refused
+    with pytest.raises(ValueError):
+        m.get(b"a\x00b")
+    with pytest.raises(TypeError):
+        m.insert(5, 1)
+    assert m.first() is None and m.last() is None
+    for i, key in enumerate(["apple", "apricot", "banana", "cherry"]):
+        m.insert(key, i)
+    m.insert(b"\xff\xfe", 99)  # non-UTF-8 round-trips as bytes
+    assert m.get(bytearray(b"apple")) == 0  # bytearray and bytes keys are the same keys
+    assert m.first() == ("apple", 0)
+    assert m.last() == (b"\xff\xfe", 99)
+    assert m.next("apple") == ("apricot", 1)
+    assert m.next("apple", inclusive=True) == ("apple", 0)
+    assert m.next("apricot") == ("banana", 2)
+    assert m.next("cherry") == (b"\xff\xfe", 99)
+    assert m.next(b"\xff\xfe") is None
+    assert m.prev("banana") == ("apricot", 1)
+    assert m.prev("banana", inclusive=True) == ("banana", 2)
+    assert m.prev("apple") is None
+    assert m.next("b") == ("banana", 2)  # key need not be present
+    assert m.prev("b") == ("apricot", 1)
+    # An ordered walk equals the sorted keys.
+    walked, cur = [], m.first()
+    while cur is not None:
+        walked.append(cur[0])
+        cur = m.next(cur[0])
+    assert walked == ["apple", "apricot", "banana", "cherry", b"\xff\xfe"]
+
+
+def test_shared_strmap_ordered_walk_under_concurrent_writer():
+    m = SyncExpanseStrMap()
+    stable = [f"s{i:04}" for i in range(300)]
+    for i, key in enumerate(stable):
+        m.insert(key, i)
+    stop = threading.Event()
+
+    def writer():
+        n = 0
+        while not stop.is_set():
+            m.insert(f"t{n % 40:04}", n)
+            m.remove(f"t{(n + 20) % 40:04}")
+            n += 1
+
+    w = threading.Thread(target=writer)
+    w.start()
+    try:
+        for _ in range(30):
+            seen, cur = [], m.first()
+            while cur is not None:
+                if cur[0].startswith("s"):
+                    seen.append(cur[0])
+                cur = m.next(cur[0])
+            assert seen == stable  # every stable key, in order, exactly once
+    finally:
+        stop.set()
+        w.join()
+
+
+def test_shared_bytesmap_allows_any_byte():
+    m = SyncExpanseBytesMap()
+    keys = [b"", b"\x00", b"a\x00b", b"\xff" * 64, "text".encode()]
+    for i, key in enumerate(keys):
+        assert m.insert(key, i) is None
+    for i, key in enumerate(keys):
+        assert m[key] == i
+    assert m.get("text") == 4  # str keys are UTF-8 encoded
+    assert len(m) == len(keys)
+    assert m.compare_exchange(b"a\x00b", 2, 22) == (True, 2)
+    assert m[b"a\x00b"] == 22
+    assert not hasattr(m, "first")  # unordered: no ordered reads
+
+
+def test_shared_ordered_bytesmap_ordered_reads():
+    m = SyncExpanseOrderedBytesMap()
+    assert m.first() is None and m.last() is None
+    keys = [b"", b"\x00", b"a", b"a\x00", b"ab", b"b", b"\xff", b"\xff\xff"]
+    for i, key in enumerate(keys):
+        m.insert(key, i)
+    assert sorted(keys) == keys  # fixture is in byte order
+    assert m.first() == (b"", 0)
+    assert m.last() == (b"\xff\xff", 7)
+    for i, key in enumerate(keys):
+        assert m.next_at_or_after(key) == (key, i)
+        assert m.prev_at_or_before(key) == (key, i)
+        nxt = (keys[i + 1], i + 1) if i + 1 < len(keys) else None
+        prv = (keys[i - 1], i - 1) if i > 0 else None
+        assert m.next_after(key) == nxt
+        assert m.prev_before(key) == prv
+    assert m.next_at_or_after(b"aa") == (b"ab", 4)
+    assert m.prev_at_or_before(b"aa") == (b"a\x00", 3)
+    assert m.next_after(b"\xff\xff") is None
+    assert m.prev_before(b"") is None
+    walked, cur = [], m.first()
+    while cur is not None:
+        walked.append(cur[0])
+        cur = m.next_after(cur[0])
+    assert walked == keys
+
+
+def test_shared_ordered_bytesmap_ordered_walk_under_concurrent_writer():
+    m = SyncExpanseOrderedBytesMap()
+    stable = [b"s%04d" % i for i in range(300)]
+    for i, key in enumerate(stable):
+        m.insert(key, i)
+    stop = threading.Event()
+
+    def writer():
+        n = 0
+        while not stop.is_set():
+            m.insert(b"t%04d" % (n % 40), n)
+            m.remove(b"t%04d" % ((n + 20) % 40))
+            n += 1
+
+    w = threading.Thread(target=writer)
+    w.start()
+    try:
+        for _ in range(30):
+            seen, cur = [], m.first()
+            while cur is not None:
+                if cur[0].startswith(b"s"):
+                    seen.append(cur[0])
+                cur = m.next_after(cur[0])
+            assert seen == stable
+    finally:
+        stop.set()
+        w.join()
+
+
+# --- SyncExpanseBlobMap ------------------------------------------------------
+
+
+def _payload(n, seed=0):
+    return bytes((seed + i) % 251 for i in range(n))
+
+
+# 0 and 1..7 bytes (slot word), 8 and 100 (arena), 64 KiB and 1 MiB (arena-sized).
+BLOB_SIZES = [0, 1, 7, 8, 100, 65536, 1 << 20]
+
+
+def test_shared_blobmap_point_ops_across_sizes():
+    m = SyncExpanseBlobMap()
+    assert len(m) == 0 and m.is_empty() and not m and m.empty
+    assert m.get(1) is None and m.get_bytes(1) is None and m.get_meta(1) is None
+    for i, n in enumerate(BLOB_SIZES):
+        m.insert(i, _payload(n, i), 0x123456 if n > 7 else 0)
+    assert len(m) == len(BLOB_SIZES)
+    for i, n in enumerate(BLOB_SIZES):
+        data, meta = m.get(i)
+        assert data == _payload(n, i) and isinstance(data, bytes)
+        assert meta == (0x123456 if n > 7 else 0)
+        assert m.get_bytes(i) == data and m[i] == data
+        assert m.get_meta(i) == meta
+        assert i in m and m.contains(i) and m.contains_key(i)
+    assert 99 not in m
+    with pytest.raises(KeyError):
+        m[99]
+    # Replacing a value returns the new one; a larger replacement moves to the arena.
+    m.insert(0, _payload(5000), 7)
+    assert m.get(0) == (_payload(5000), 7)
+    m[1] = b"xy"
+    assert m.get_bytes(1) == b"xy"
+    assert m.remove(1) is True and m.remove(1) is False
+    with pytest.raises(KeyError):
+        del m[1]
+    del m[0]
+    assert len(m) == len(BLOB_SIZES) - 2
+    assert m.mem_used() > 0 and m.mem_used_estimate() > 0
+    assert m.mem_held() >= 0 and isinstance(m.shrink_to_fit(), int)
+    m.clear()
+    assert len(m) == 0 and m.get(2) is None
+
+
+def test_shared_blobmap_small_payload_metadata_reads_zero():
+    # Issue #1548: a payload of 7 bytes or fewer drops hot_meta. Pin the current
+    # behaviour so a change is noticed; it is the engine's, not this binding's.
+    m = SyncExpanseBlobMap()
+    m.insert(1, b"tiny", 0xABC)
+    m.insert(2, b"x" * 64, 0xABC)
+    assert m.get(1) == (b"tiny", 0)
+    assert m.get(2) == (b"x" * 64, 0xABC)
+
+
+def test_shared_blobmap_refusals():
+    m = SyncExpanseBlobMap()
+    assert m.insert_status(1, b"x" * 64, 1 << 24) == "meta_overflow"
+    with pytest.raises(RuntimeError):
+        m.insert(1, b"x" * 64, 1 << 24)
+    assert m.insert_status(1, b"x" * 64, (1 << 24) - 1) == "ok"
+    assert len(m) == 1
+    with pytest.raises(TypeError):
+        m.insert(2, 5)
+    # A capacity cap too small for the payloads refuses, and the map is unchanged.
+    capped = SyncExpanseBlobMap(chunk_size=4096, max_capacity=8192)
+    capped.set_reclaim_at_cap(False)
+    assert capped.reclaim_at_cap() is False
+    statuses = {capped.insert_status(i, b"z" * 3000) for i in range(16)}
+    assert "ok" in statuses and statuses & {"cap_refused", "arena_full"}
+    n = len(capped)
+    assert capped.insert_status(1000, b"z" * 3000) in {"cap_refused", "arena_full"}
+    assert len(capped) == n
+
+
+def test_shared_blobmap_compact_reclaims_removed_payloads():
+    m = SyncExpanseBlobMap(chunk_size=4096)
+    for i in range(200):
+        m.insert(i, _payload(1000, i), 1)
+    for i in range(0, 200, 2):
+        m.remove(i)
+    before, after, alloc_before, alloc_after = m.compact()
+    assert after <= before and alloc_after <= alloc_before
+    for i in range(1, 200, 2):
+        assert m.get(i) == (_payload(1000, i), 1)
+    assert len(m) == 100
+
+
+def test_shared_blobmap_compare_exchange_branches():
+    m = SyncExpanseBlobMap()
+    big = _payload(100)
+    big2 = _payload(100, 9)
+    assert m.compare_exchange(1, None, None) == ("ok", None)  # absent check
+    assert m.compare_exchange(1, None, (big, 5)) == ("ok", None)  # insert-if-absent
+    assert m.compare_exchange(1, None, (big2, 6)) == ("mismatch", (big, 5))
+    assert m.compare_exchange(1, None, None) == ("mismatch", (big, 5))
+    assert m.compare_exchange(1, (big, 6), (big2, 6)) == ("mismatch", (big, 5))  # wrong meta
+    assert m.compare_exchange(1, (big2, 5), (big2, 6)) == ("mismatch", (big, 5))  # wrong data
+    assert m.compare_exchange(2, (big, 5), (big2, 6)) == ("mismatch", None)  # absent key
+    status, observed = m.compare_exchange(1, (big, 5), (big2, 6))
+    assert status == "ok" and observed == (big, 5)
+    assert m.get(1) == (big2, 6)
+    # A refusal is reported only when the comparison held, and changes nothing.
+    assert m.compare_exchange(1, (big2, 6), (big, 1 << 24))[0] == "meta_overflow"
+    assert m.get(1) == (big2, 6)
+    assert m.compare_exchange(1, (big, 1), (big, 1 << 24)) == ("mismatch", (big2, 6))
+    # remove-if-equals
+    assert m.compare_exchange(1, (big, 6), None) == ("mismatch", (big2, 6))
+    assert m.compare_exchange(1, (big2, 6), None)[0] == "ok"
+    assert 1 not in m
+    # small payloads, and str payloads encode as UTF-8
+    assert m.compare_exchange(3, None, (b"hi", 0)) == ("ok", None)
+    assert m.compare_exchange(3, (b"hi", 0), ("ho", 0))[0] == "ok"
+    assert m.get(3) == (b"ho", 0)
+    # inserted metadata is dropped for a slot-word payload, so expecting it mismatches (#1548)
+    m.insert(4, b"tiny", 9)
+    assert m.compare_exchange(4, (b"tiny", 9), None) == ("mismatch", (b"tiny", 0))
+    assert m.compare_exchange(4, (b"tiny", 0), None)[0] == "ok"
+
+
+def test_shared_blobmap_compare_exchange_meta():
+    m = SyncExpanseBlobMap()
+    big = _payload(100)
+    assert m.compare_exchange_meta(1, None, None) == ("ok", None)
+    # metadata alone cannot create a key
+    assert m.compare_exchange_meta(1, None, 1)[0] == "no_meta_field"
+    assert 1 not in m
+    m.insert(1, big, 10)
+    assert m.compare_exchange_meta(1, 11, 12) == ("mismatch", 10)
+    assert m.compare_exchange_meta(2, 0, 1) == ("mismatch", None)
+    assert m.compare_exchange_meta(1, 10, 11)[0] == "ok"
+    assert m.get(1) == (big, 11)  # payload untouched
+    assert m.compare_exchange_meta(1, 11, 1 << 24)[0] == "meta_overflow"
+    assert m.get_meta(1) == 11
+    # a slot-word payload has no metadata field
+    m.insert(2, b"abc", 0)
+    assert m.compare_exchange_meta(2, 0, 5)[0] == "no_meta_field"
+    assert m.compare_exchange_meta(2, 0, 0)[0] == "ok"
+    assert m.compare_exchange_meta(1, 11, None)[0] == "ok"  # remove
+    assert 1 not in m
+
+
+def test_shared_blobmap_get_or_insert_and_update_with():
+    m = SyncExpanseBlobMap()
+    big = _payload(100)
+    assert m.get_or_insert(1, big, 3) == ("ok", None)
+    assert m.get_or_insert(1, b"other", 4) == ("mismatch", (big, 3))
+    assert m.get(1) == (big, 3)
+    assert m.get_or_insert(2, big, 1 << 24)[0] == "meta_overflow"  # absent but unstorable
+    assert 2 not in m
+
+    def bump(cur):
+        if cur is None:
+            return (b"c" * 16, 1)
+        data, meta = cur
+        return (data, meta + 1)
+
+    assert m.update_with(5, bump) is None
+    assert m.update_with(5, bump) == (b"c" * 16, 1)
+    assert m.get(5) == (b"c" * 16, 2)
+    assert m.update_with(5, lambda cur: None) == (b"c" * 16, 2)
+    assert 5 not in m
+    with pytest.raises(ZeroDivisionError):
+        m.update_with(6, lambda cur: 1 // 0)
+    assert 6 not in m
+    with pytest.raises(RuntimeError):
+        m.update_with(6, lambda cur: (big, 1 << 24))  # refusal of the new value
+
+    calls = []
+
+    def interfered(cur):
+        calls.append(cur)
+        if len(calls) == 1:
+            m.insert(1, big, 8)  # a competing writer lands between read and exchange
+        return (b"n" * 20, 9)
+
+    assert m.update_with(1, interfered) == (big, 8)
+    assert calls == [(big, 3), (big, 8)]
+    assert m.get(1) == (b"n" * 20, 9)
+
+
+def test_shared_blobmap_concurrent_counter_and_single_winner():
+    m = SyncExpanseBlobMap()
+    threads, per_thread = 8, 1000
+
+    def bump(cur):
+        n = int.from_bytes(cur[0], "big") if cur else 0
+        return ((n + 1).to_bytes(16, "big"), 1)  # a 16-byte (arena) payload
+
+    def worker():
+        for _ in range(per_thread):
+            m.update_with(0, bump)
+
+    ts = [threading.Thread(target=worker) for _ in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert int.from_bytes(m.get_bytes(0), "big") == threads * per_thread  # no lost update
+
+    # compare_exchange_meta as a sequence counter, hand-written retry loop.
+    m.insert(1, b"s" * 32, 0)
+
+    def meta_worker():
+        for _ in range(per_thread):
+            seen = m.get_meta(1)
+            while True:
+                status, seen = m.compare_exchange_meta(1, seen, seen + 1)
+                if status != "mismatch":
+                    assert status == "ok"
+                    break
+
+    ts = [threading.Thread(target=meta_worker) for _ in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert m.get_meta(1) == threads * per_thread
+
+    winners = []
+    barrier = threading.Barrier(threads)
+
+    def racer(i):
+        barrier.wait()
+        status, _ = m.get_or_insert(42, bytes([i]) * 24, i)
+        if status == "ok":
+            winners.append(i)
+
+    ts = [threading.Thread(target=racer, args=(i,)) for i in range(threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(winners) == 1
+    assert m.get(42) == (bytes([winners[0]]) * 24, winners[0])
+
+
+def test_shared_blobmap_concurrent_readers_never_see_torn_values():
+    m = SyncExpanseBlobMap()
+    for i in range(64):
+        m.insert(i, _payload(200, i), i)
+    stop = threading.Event()
+    errors = []
+
+    def writer():
+        n = 0
+        while not stop.is_set():
+            k = 1000 + n % 32
+            m.insert(k, _payload(300, n), 1)
+            m.remove(1000 + (n + 16) % 32)
+            n += 1
+
+    def reader():
+        for _ in range(200):
+            for i in range(64):
+                if m.get(i) != (_payload(200, i), i):
+                    errors.append(i)
+            for k in range(1000, 1032):
+                v = m.get(k)
+                if v is not None and (len(v[0]) != 300 or v[1] != 1):
+                    errors.append(k)
+
+    w = threading.Thread(target=writer)
+    rs = [threading.Thread(target=reader) for _ in range(4)]
+    w.start()
+    for t in rs:
+        t.start()
+    for t in rs:
+        t.join()
+    stop.set()
+    w.join()
+    assert errors == []
+
+
+def test_shared_maps_reader_cache_survives_map_lifecycle():
+    # Each thread caches a reader per map; a dropped map's address may be reused by
+    # a new one, which must not answer from the dead map's reader.
+    import gc
+
+    for _ in range(200):
+        s = SyncExpanseStrMap()
+        s.insert("a", 1)
+        assert s.get("a") == 1
+        b = SyncExpanseBlobMap()
+        b.insert(1, b"v" * 32, 2)
+        assert b.get(1) == (b"v" * 32, 2)
+        del s, b
+        gc.collect()
+        fresh = SyncExpanseStrMap()
+        assert fresh.get("a") is None
+        fresh_blob = SyncExpanseBlobMap()
+        assert fresh_blob.get(1) is None
