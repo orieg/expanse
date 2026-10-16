@@ -172,6 +172,105 @@ var (
 	expanse_sync_map_reader_prev_before       func(reader uintptr, key uint64, keyOut, valueOut *uint64) bool
 )
 
+// SyncStrMap
+var (
+	expanse_sync_strmap_new                      func() uintptr
+	expanse_sync_strmap_free                     func(mapPtr uintptr)
+	expanse_sync_strmap_insert                   func(mapPtr uintptr, key unsafe.Pointer, value uint64, oldOut *uint64) bool
+	expanse_sync_strmap_get                      func(mapPtr uintptr, key unsafe.Pointer, valueOut *uint64) bool
+	expanse_sync_strmap_contains                 func(mapPtr uintptr, key unsafe.Pointer) bool
+	expanse_sync_strmap_remove                   func(mapPtr uintptr, key unsafe.Pointer, oldOut *uint64) bool
+	expanse_sync_strmap_len                      func(mapPtr uintptr) uint64
+	expanse_sync_strmap_mem_used                 func(mapPtr uintptr) uintptr
+	expanse_sync_strmap_mem_held                 func(mapPtr uintptr) uintptr
+	expanse_sync_strmap_shrink_to_fit            func(mapPtr uintptr) uintptr
+	expanse_sync_strmap_compare_exchange         func(mapPtr uintptr, key unsafe.Pointer, expectedPresent bool, expectedValue uint64, newPresent bool, newValue uint64, observedPresentOut *bool, observedOut *uint64) bool
+	expanse_sync_strmap_get_or_insert            func(mapPtr uintptr, key unsafe.Pointer, value uint64, existingOut *uint64) bool
+	expanse_sync_strmap_reader_new               func(mapPtr uintptr) uintptr
+	expanse_sync_strmap_reader_free              func(reader uintptr)
+	expanse_sync_strmap_reader_get               func(reader uintptr, key unsafe.Pointer, valueOut *uint64) bool
+	expanse_sync_strmap_reader_contains          func(reader uintptr, key unsafe.Pointer) bool
+	expanse_sync_strmap_reader_first             func(reader uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_strmap_reader_last              func(reader uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_strmap_reader_next_at_or_after  func(reader uintptr, key unsafe.Pointer, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_strmap_reader_next_after        func(reader uintptr, key unsafe.Pointer, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_strmap_reader_prev_at_or_before func(reader uintptr, key unsafe.Pointer, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_strmap_reader_prev_before       func(reader uintptr, key unsafe.Pointer, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+)
+
+// SyncBytesMap
+var (
+	expanse_sync_bytesmap_new              func() uintptr
+	expanse_sync_bytesmap_free             func(mapPtr uintptr)
+	expanse_sync_bytesmap_insert           func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, oldOut *uint64) bool
+	expanse_sync_bytesmap_get              func(mapPtr uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
+	expanse_sync_bytesmap_contains         func(mapPtr uintptr, key unsafe.Pointer, len uintptr) bool
+	expanse_sync_bytesmap_remove           func(mapPtr uintptr, key unsafe.Pointer, len uintptr, oldOut *uint64) bool
+	expanse_sync_bytesmap_len              func(mapPtr uintptr) uint64
+	expanse_sync_bytesmap_mem_used         func(mapPtr uintptr) uintptr
+	expanse_sync_bytesmap_mem_held         func(mapPtr uintptr) uintptr
+	expanse_sync_bytesmap_shrink_to_fit    func(mapPtr uintptr) uintptr
+	expanse_sync_bytesmap_compare_exchange func(mapPtr uintptr, key unsafe.Pointer, len uintptr, expectedPresent bool, expectedValue uint64, newPresent bool, newValue uint64, observedPresentOut *bool, observedOut *uint64) bool
+	expanse_sync_bytesmap_get_or_insert    func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, existingOut *uint64) bool
+	expanse_sync_bytesmap_reader_new       func(mapPtr uintptr) uintptr
+	expanse_sync_bytesmap_reader_free      func(reader uintptr)
+	expanse_sync_bytesmap_reader_get       func(reader uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
+	expanse_sync_bytesmap_reader_contains  func(reader uintptr, key unsafe.Pointer, len uintptr) bool
+)
+
+// SyncOrderedBytesMap
+var (
+	expanse_sync_ordered_bytesmap_new               func() uintptr
+	expanse_sync_ordered_bytesmap_free              func(mapPtr uintptr)
+	expanse_sync_ordered_bytesmap_insert            func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, oldOut *uint64) bool
+	expanse_sync_ordered_bytesmap_get               func(mapPtr uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
+	expanse_sync_ordered_bytesmap_contains          func(mapPtr uintptr, key unsafe.Pointer, len uintptr) bool
+	expanse_sync_ordered_bytesmap_remove            func(mapPtr uintptr, key unsafe.Pointer, len uintptr, oldOut *uint64) bool
+	expanse_sync_ordered_bytesmap_len               func(mapPtr uintptr) uint64
+	expanse_sync_ordered_bytesmap_mem_used          func(mapPtr uintptr) uintptr
+	expanse_sync_ordered_bytesmap_mem_held          func(mapPtr uintptr) uintptr
+	expanse_sync_ordered_bytesmap_shrink_to_fit     func(mapPtr uintptr) uintptr
+	expanse_sync_ordered_bytesmap_compare_exchange  func(mapPtr uintptr, key unsafe.Pointer, len uintptr, expectedPresent bool, expectedValue uint64, newPresent bool, newValue uint64, observedPresentOut *bool, observedOut *uint64) bool
+	expanse_sync_ordered_bytesmap_get_or_insert     func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, existingOut *uint64) bool
+	expanse_sync_ordered_bytesmap_reader_new        func(mapPtr uintptr) uintptr
+	expanse_sync_ordered_bytesmap_reader_free       func(reader uintptr)
+	expanse_sync_ordered_bytesmap_reader_get        func(reader uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
+	expanse_sync_ordered_bytesmap_reader_contains   func(reader uintptr, key unsafe.Pointer, len uintptr) bool
+	expanse_sync_ordered_bytesmap_first             func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_ordered_bytesmap_last              func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_ordered_bytesmap_next_at_or_after  func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_ordered_bytesmap_next_after        func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_ordered_bytesmap_prev_at_or_before func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_sync_ordered_bytesmap_prev_before       func(mapPtr uintptr, key unsafe.Pointer, len uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+)
+
+// SyncBlobMap
+var (
+	expanse_sync_blob_map_new                   func(chunkSize uintptr) uintptr
+	expanse_sync_blob_map_new_with_capacity     func(chunkSize, maxCapacity uintptr) uintptr
+	expanse_sync_blob_map_free                  func(mapPtr uintptr)
+	expanse_sync_blob_map_insert                func(mapPtr uintptr, key uint64, data unsafe.Pointer, len uintptr, hotMeta uint32) int32
+	expanse_sync_blob_map_remove                func(mapPtr uintptr, key uint64) bool
+	expanse_sync_blob_map_get_into              func(mapPtr uintptr, key uint64, buf unsafe.Pointer, bufLen uintptr, lenOut *uintptr, metaOut *uint32) int32
+	expanse_sync_blob_map_get_meta              func(mapPtr uintptr, key uint64, metaOut *uint32) bool
+	expanse_sync_blob_map_contains              func(mapPtr uintptr, key uint64) bool
+	expanse_sync_blob_map_len                   func(mapPtr uintptr) uint64
+	expanse_sync_blob_map_mem_used              func(mapPtr uintptr) uintptr
+	expanse_sync_blob_map_mem_used_estimate     func(mapPtr uintptr) uintptr
+	expanse_sync_blob_map_mem_held              func(mapPtr uintptr) uintptr
+	expanse_sync_blob_map_shrink_to_fit         func(mapPtr uintptr) uintptr
+	expanse_sync_blob_map_set_reclaim_at_cap    func(mapPtr uintptr, on bool)
+	expanse_sync_blob_map_compact               func(mapPtr uintptr) int32
+	expanse_sync_blob_map_compare_exchange      func(mapPtr uintptr, key uint64, expectedPresent bool, expectedData unsafe.Pointer, expectedLen uintptr, expectedMeta uint32, newPresent bool, newData unsafe.Pointer, newLen uintptr, newMeta uint32, observedPresentOut *bool, buf unsafe.Pointer, bufLen uintptr, lenOut *uintptr, metaOut *uint32) int32
+	expanse_sync_blob_map_compare_exchange_meta func(mapPtr uintptr, key uint64, expectedPresent bool, expectedMeta uint32, newPresent bool, newMeta uint32, observedPresentOut *bool, observedMetaOut *uint32) int32
+	expanse_sync_blob_map_get_or_insert         func(mapPtr uintptr, key uint64, data unsafe.Pointer, len uintptr, hotMeta uint32, buf unsafe.Pointer, bufLen uintptr, lenOut *uintptr, metaOut *uint32) int32
+	expanse_sync_blob_map_reader_new            func(mapPtr uintptr) uintptr
+	expanse_sync_blob_map_reader_free           func(reader uintptr)
+	expanse_sync_blob_map_reader_get_into       func(reader uintptr, key uint64, buf unsafe.Pointer, bufLen uintptr, lenOut *uintptr, metaOut *uint32) int32
+	expanse_sync_blob_map_reader_get_meta       func(reader uintptr, key uint64, metaOut *uint32) bool
+	expanse_sync_blob_map_reader_contains       func(reader uintptr, key uint64) bool
+)
+
 // BlobView layout matching ExpanseBlobView in expanse.h
 type blobView struct {
 	ptr      unsafe.Pointer
@@ -397,6 +496,96 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_blob_map_clear, "expanse_blob_map_clear"},
 		{&expanse_blob_map_contains_key, "expanse_blob_map_contains_key"},
 		{&expanse_blob_map_contains, "expanse_blob_map_contains"},
+		// SyncStrMap
+		{&expanse_sync_strmap_new, "expanse_sync_strmap_new"},
+		{&expanse_sync_strmap_free, "expanse_sync_strmap_free"},
+		{&expanse_sync_strmap_insert, "expanse_sync_strmap_insert"},
+		{&expanse_sync_strmap_get, "expanse_sync_strmap_get"},
+		{&expanse_sync_strmap_contains, "expanse_sync_strmap_contains"},
+		{&expanse_sync_strmap_remove, "expanse_sync_strmap_remove"},
+		{&expanse_sync_strmap_len, "expanse_sync_strmap_len"},
+		{&expanse_sync_strmap_mem_used, "expanse_sync_strmap_mem_used"},
+		{&expanse_sync_strmap_mem_held, "expanse_sync_strmap_mem_held"},
+		{&expanse_sync_strmap_shrink_to_fit, "expanse_sync_strmap_shrink_to_fit"},
+		{&expanse_sync_strmap_compare_exchange, "expanse_sync_strmap_compare_exchange"},
+		{&expanse_sync_strmap_get_or_insert, "expanse_sync_strmap_get_or_insert"},
+		{&expanse_sync_strmap_reader_new, "expanse_sync_strmap_reader_new"},
+		{&expanse_sync_strmap_reader_free, "expanse_sync_strmap_reader_free"},
+		{&expanse_sync_strmap_reader_get, "expanse_sync_strmap_reader_get"},
+		{&expanse_sync_strmap_reader_contains, "expanse_sync_strmap_reader_contains"},
+		{&expanse_sync_strmap_reader_first, "expanse_sync_strmap_reader_first"},
+		{&expanse_sync_strmap_reader_last, "expanse_sync_strmap_reader_last"},
+		{&expanse_sync_strmap_reader_next_at_or_after, "expanse_sync_strmap_reader_next_at_or_after"},
+		{&expanse_sync_strmap_reader_next_after, "expanse_sync_strmap_reader_next_after"},
+		{&expanse_sync_strmap_reader_prev_at_or_before, "expanse_sync_strmap_reader_prev_at_or_before"},
+		{&expanse_sync_strmap_reader_prev_before, "expanse_sync_strmap_reader_prev_before"},
+
+		// SyncBytesMap
+		{&expanse_sync_bytesmap_new, "expanse_sync_bytesmap_new"},
+		{&expanse_sync_bytesmap_free, "expanse_sync_bytesmap_free"},
+		{&expanse_sync_bytesmap_insert, "expanse_sync_bytesmap_insert"},
+		{&expanse_sync_bytesmap_get, "expanse_sync_bytesmap_get"},
+		{&expanse_sync_bytesmap_contains, "expanse_sync_bytesmap_contains"},
+		{&expanse_sync_bytesmap_remove, "expanse_sync_bytesmap_remove"},
+		{&expanse_sync_bytesmap_len, "expanse_sync_bytesmap_len"},
+		{&expanse_sync_bytesmap_mem_used, "expanse_sync_bytesmap_mem_used"},
+		{&expanse_sync_bytesmap_mem_held, "expanse_sync_bytesmap_mem_held"},
+		{&expanse_sync_bytesmap_shrink_to_fit, "expanse_sync_bytesmap_shrink_to_fit"},
+		{&expanse_sync_bytesmap_compare_exchange, "expanse_sync_bytesmap_compare_exchange"},
+		{&expanse_sync_bytesmap_get_or_insert, "expanse_sync_bytesmap_get_or_insert"},
+		{&expanse_sync_bytesmap_reader_new, "expanse_sync_bytesmap_reader_new"},
+		{&expanse_sync_bytesmap_reader_free, "expanse_sync_bytesmap_reader_free"},
+		{&expanse_sync_bytesmap_reader_get, "expanse_sync_bytesmap_reader_get"},
+		{&expanse_sync_bytesmap_reader_contains, "expanse_sync_bytesmap_reader_contains"},
+
+		// SyncOrderedBytesMap
+		{&expanse_sync_ordered_bytesmap_new, "expanse_sync_ordered_bytesmap_new"},
+		{&expanse_sync_ordered_bytesmap_free, "expanse_sync_ordered_bytesmap_free"},
+		{&expanse_sync_ordered_bytesmap_insert, "expanse_sync_ordered_bytesmap_insert"},
+		{&expanse_sync_ordered_bytesmap_get, "expanse_sync_ordered_bytesmap_get"},
+		{&expanse_sync_ordered_bytesmap_contains, "expanse_sync_ordered_bytesmap_contains"},
+		{&expanse_sync_ordered_bytesmap_remove, "expanse_sync_ordered_bytesmap_remove"},
+		{&expanse_sync_ordered_bytesmap_len, "expanse_sync_ordered_bytesmap_len"},
+		{&expanse_sync_ordered_bytesmap_mem_used, "expanse_sync_ordered_bytesmap_mem_used"},
+		{&expanse_sync_ordered_bytesmap_mem_held, "expanse_sync_ordered_bytesmap_mem_held"},
+		{&expanse_sync_ordered_bytesmap_shrink_to_fit, "expanse_sync_ordered_bytesmap_shrink_to_fit"},
+		{&expanse_sync_ordered_bytesmap_compare_exchange, "expanse_sync_ordered_bytesmap_compare_exchange"},
+		{&expanse_sync_ordered_bytesmap_get_or_insert, "expanse_sync_ordered_bytesmap_get_or_insert"},
+		{&expanse_sync_ordered_bytesmap_reader_new, "expanse_sync_ordered_bytesmap_reader_new"},
+		{&expanse_sync_ordered_bytesmap_reader_free, "expanse_sync_ordered_bytesmap_reader_free"},
+		{&expanse_sync_ordered_bytesmap_reader_get, "expanse_sync_ordered_bytesmap_reader_get"},
+		{&expanse_sync_ordered_bytesmap_reader_contains, "expanse_sync_ordered_bytesmap_reader_contains"},
+		{&expanse_sync_ordered_bytesmap_first, "expanse_sync_ordered_bytesmap_first"},
+		{&expanse_sync_ordered_bytesmap_last, "expanse_sync_ordered_bytesmap_last"},
+		{&expanse_sync_ordered_bytesmap_next_at_or_after, "expanse_sync_ordered_bytesmap_next_at_or_after"},
+		{&expanse_sync_ordered_bytesmap_next_after, "expanse_sync_ordered_bytesmap_next_after"},
+		{&expanse_sync_ordered_bytesmap_prev_at_or_before, "expanse_sync_ordered_bytesmap_prev_at_or_before"},
+		{&expanse_sync_ordered_bytesmap_prev_before, "expanse_sync_ordered_bytesmap_prev_before"},
+
+		// SyncBlobMap
+		{&expanse_sync_blob_map_new, "expanse_sync_blob_map_new"},
+		{&expanse_sync_blob_map_new_with_capacity, "expanse_sync_blob_map_new_with_capacity"},
+		{&expanse_sync_blob_map_free, "expanse_sync_blob_map_free"},
+		{&expanse_sync_blob_map_insert, "expanse_sync_blob_map_insert"},
+		{&expanse_sync_blob_map_remove, "expanse_sync_blob_map_remove"},
+		{&expanse_sync_blob_map_get_into, "expanse_sync_blob_map_get_into"},
+		{&expanse_sync_blob_map_get_meta, "expanse_sync_blob_map_get_meta"},
+		{&expanse_sync_blob_map_contains, "expanse_sync_blob_map_contains"},
+		{&expanse_sync_blob_map_len, "expanse_sync_blob_map_len"},
+		{&expanse_sync_blob_map_mem_used, "expanse_sync_blob_map_mem_used"},
+		{&expanse_sync_blob_map_mem_used_estimate, "expanse_sync_blob_map_mem_used_estimate"},
+		{&expanse_sync_blob_map_mem_held, "expanse_sync_blob_map_mem_held"},
+		{&expanse_sync_blob_map_shrink_to_fit, "expanse_sync_blob_map_shrink_to_fit"},
+		{&expanse_sync_blob_map_set_reclaim_at_cap, "expanse_sync_blob_map_set_reclaim_at_cap"},
+		{&expanse_sync_blob_map_compact, "expanse_sync_blob_map_compact"},
+		{&expanse_sync_blob_map_compare_exchange, "expanse_sync_blob_map_compare_exchange"},
+		{&expanse_sync_blob_map_compare_exchange_meta, "expanse_sync_blob_map_compare_exchange_meta"},
+		{&expanse_sync_blob_map_get_or_insert, "expanse_sync_blob_map_get_or_insert"},
+		{&expanse_sync_blob_map_reader_new, "expanse_sync_blob_map_reader_new"},
+		{&expanse_sync_blob_map_reader_free, "expanse_sync_blob_map_reader_free"},
+		{&expanse_sync_blob_map_reader_get_into, "expanse_sync_blob_map_reader_get_into"},
+		{&expanse_sync_blob_map_reader_get_meta, "expanse_sync_blob_map_reader_get_meta"},
+		{&expanse_sync_blob_map_reader_contains, "expanse_sync_blob_map_reader_contains"},
 	}
 
 	for _, s := range symbols {
