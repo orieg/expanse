@@ -209,7 +209,7 @@ public class ExpanseSyncSharedMapsTests
         int winners = 0;
         int done = 0;
 
-        Task[] readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        Task[] readers = Enumerable.Range(0, 4).Select(r => Task.Run(() =>
         {
             using var reader = map.CreateReader();
             ulong last = 0;
@@ -366,7 +366,7 @@ public class ExpanseSyncSharedMapsTests
         int done = 0;
         byte[] counterKey = Bytes(0, 0xFF, 0);
 
-        Task[] readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
+        Task[] readers = Enumerable.Range(0, 4).Select(r => Task.Run(() =>
         {
             using var reader = map.CreateReader();
             ulong last = 0;
@@ -573,7 +573,7 @@ public class ExpanseSyncSharedMapsTests
         int done = 0;
         byte[] counterKey = Bytes(0xFF, 0xFF, 0xFF, 0xFF, 0xFF);
 
-        Task[] readers = Enumerable.Range(0, 3).Select(_ => Task.Run(() =>
+        Task[] readers = Enumerable.Range(0, 3).Select(r => Task.Run(() =>
         {
             using var reader = map.CreateReader();
             while (Volatile.Read(ref done) == 0)
