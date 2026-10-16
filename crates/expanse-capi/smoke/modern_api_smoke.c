@@ -370,6 +370,173 @@ static void sync_bytesmaps_smoke(void) {
            BYTES_READERS);
 }
 
+/* The shared blob map under one writer and reader threads. Stable keys hold
+ * arena values with metadata and are never touched again, so every read of
+ * one must return its exact bytes and metadata. Churned keys cycle through an
+ * inline value (7 bytes or fewer), an arena value with metadata, and an
+ * absence, and the writer compacts the arena between rounds; a read of one
+ * into a buffer too small for the arena value must be OK with the inline
+ * value, NOT_FOUND, or BUFFER_TOO_SMALL with the arena value's length and
+ * metadata and the buffer untouched. */
+#define BLOB_STABLE 256
+#define BLOB_CHURN 128
+#define BLOB_READERS 4
+#define BLOB_LONG 200
+#define BLOB_META 77u
+
+static expanse_sync_blob_map_t *blob_shared;
+static atomic_bool blob_stop;
+
+static size_t blob_stable_value(uint8_t *buf, int i) {
+    size_t n = 8 + (size_t) (i % 64);
+    memset(buf, 'a' + i % 26, n);
+    return n;
+}
+
+static void *blob_writer(void *arg) {
+    (void) arg;
+    uint8_t long_value[BLOB_LONG];
+    memset(long_value, 'L', sizeof long_value);
+    for (int round = 0; round < 60; round++) {
+        for (int i = 0; i < BLOB_CHURN; i++) {
+            uint64_t k = BLOB_STABLE + (uint64_t) i;
+            switch ((round + i) % 3) {
+            case 0:
+                assert(expanse_sync_blob_map_insert(blob_shared, k, (const uint8_t *) "short", 5, 0)
+                       == EXPANSE_BLOB_OK);
+                break;
+            case 1:
+                assert(expanse_sync_blob_map_insert(blob_shared, k, long_value, sizeof long_value, BLOB_META)
+                       == EXPANSE_BLOB_OK);
+                break;
+            default:
+                expanse_sync_blob_map_remove(blob_shared, k);
+            }
+        }
+        if (round % 10 == 9)
+            assert(expanse_sync_blob_map_compact(blob_shared) == EXPANSE_BLOB_OK);
+    }
+    atomic_store(&blob_stop, true);
+    return NULL;
+}
+
+static void *blob_reader(void *arg) {
+    (void) arg;
+    uint8_t want[128], buf[128];
+    unsigned long reads = 0;
+    expanse_sync_blob_map_reader_t *r = expanse_sync_blob_map_reader_new(blob_shared);
+    assert(r != NULL);
+    do {
+        for (int i = 0; i < BLOB_STABLE; i++) {
+            size_t n = blob_stable_value(want, i), len = 0;
+            uint32_t meta = 0;
+            assert(expanse_sync_blob_map_reader_get_into(r, (uint64_t) i, buf, sizeof buf, &len, &meta)
+                   == EXPANSE_BLOB_OK);
+            assert(len == n && memcmp(buf, want, n) == 0 && meta == (uint32_t) i + 1);
+        }
+        for (int i = 0; i < BLOB_CHURN; i++) {
+            uint64_t k = BLOB_STABLE + (uint64_t) i;
+            uint8_t small[16];
+            size_t len = 0;
+            uint32_t meta = 0;
+            memset(small, 0xA5, sizeof small);
+            expanse_blob_status_t st =
+                expanse_sync_blob_map_reader_get_into(r, k, small, sizeof small, &len, &meta);
+            if (st == EXPANSE_BLOB_OK) {
+                assert(len == 5 && memcmp(small, "short", 5) == 0 && meta == 0);
+            } else if (st == EXPANSE_BLOB_BUFFER_TOO_SMALL) {
+                assert(len == BLOB_LONG && meta == BLOB_META);
+                for (size_t j = 0; j < sizeof small; j++)
+                    assert(small[j] == 0xA5); /* nothing copied */
+            } else {
+                assert(st == EXPANSE_BLOB_NOT_FOUND);
+            }
+        }
+        reads++;
+    } while (!atomic_load(&blob_stop));
+    expanse_sync_blob_map_reader_free(r);
+    return (void *) reads;
+}
+
+static void sync_blob_map_smoke(void) {
+    uint8_t buf[64];
+    size_t len = 0;
+    uint32_t meta = 0;
+
+    /* Every blob-map symbol once, single-threaded. */
+    expanse_sync_blob_map_t *m = expanse_sync_blob_map_new(0);
+    assert(m != NULL && expanse_sync_blob_map_len(m) == 0);
+    assert(expanse_sync_blob_map_insert(m, 1, (const uint8_t *) "inline", 6, 0) == EXPANSE_BLOB_OK);
+    assert(expanse_sync_blob_map_insert(m, 2, (const uint8_t *) "an arena-stored payload", 23, 9)
+           == EXPANSE_BLOB_OK);
+    assert(expanse_sync_blob_map_insert(m, 3, NULL, 0, 0) == EXPANSE_BLOB_OK); /* empty payload */
+    assert(expanse_sync_blob_map_insert(m, 4, NULL, 1, 0) == EXPANSE_BLOB_INVALID_ARGUMENT);
+    assert(expanse_sync_blob_map_insert(m, 4, buf, 32, 1u << 24) == EXPANSE_BLOB_META_OVERFLOW);
+    assert(expanse_sync_blob_map_len(m) == 3);
+    assert(expanse_sync_blob_map_contains(m, 2) && !expanse_sync_blob_map_contains(m, 4));
+    assert(expanse_sync_blob_map_get_meta(m, 2, &meta) && meta == 9);
+    assert(expanse_sync_blob_map_get_meta(m, 1, &meta) && meta == 0);
+    assert(expanse_sync_blob_map_get_into(m, 2, NULL, 0, &len, &meta) == EXPANSE_BLOB_BUFFER_TOO_SMALL
+           && len == 23 && meta == 9); /* length probe */
+    memset(buf, 0xA5, sizeof buf);
+    assert(expanse_sync_blob_map_get_into(m, 2, buf, 22, &len, &meta) == EXPANSE_BLOB_BUFFER_TOO_SMALL
+           && len == 23 && buf[0] == 0xA5); /* one byte short: nothing copied */
+    assert(expanse_sync_blob_map_get_into(m, 2, buf, 23, &len, &meta) == EXPANSE_BLOB_OK && len == 23
+           && memcmp(buf, "an arena-stored payload", 23) == 0 && buf[23] == 0xA5);
+    assert(expanse_sync_blob_map_get_into(m, 4, buf, sizeof buf, &len, &meta) == EXPANSE_BLOB_NOT_FOUND);
+    assert(expanse_sync_blob_map_get_into(m, 3, NULL, 0, &len, NULL) == EXPANSE_BLOB_OK && len == 0);
+    assert(expanse_sync_blob_map_mem_used(m) > 0);
+    assert(expanse_sync_blob_map_mem_used_estimate(m) == expanse_sync_blob_map_mem_used(m));
+    assert(expanse_sync_blob_map_mem_held(m) >= expanse_sync_blob_map_mem_used(m));
+    expanse_sync_blob_map_reader_t *r = expanse_sync_blob_map_reader_new(m);
+    assert(expanse_sync_blob_map_reader_get_into(r, 1, buf, sizeof buf, &len, &meta) == EXPANSE_BLOB_OK
+           && len == 6 && memcmp(buf, "inline", 6) == 0 && meta == 0);
+    assert(expanse_sync_blob_map_reader_get_meta(r, 2, &meta) && meta == 9);
+    assert(expanse_sync_blob_map_reader_contains(r, 3) && !expanse_sync_blob_map_reader_contains(r, 4));
+    expanse_sync_blob_map_reader_free(r);
+    assert(expanse_sync_blob_map_remove(m, 1) && !expanse_sync_blob_map_remove(m, 1));
+    expanse_sync_blob_map_set_reclaim_at_cap(m, false);
+    assert(expanse_sync_blob_map_compact(m) == EXPANSE_BLOB_OK);
+    (void) expanse_sync_blob_map_shrink_to_fit(m);
+    assert(expanse_sync_blob_map_reader_get_into(NULL, 2, buf, sizeof buf, &len, &meta)
+           == EXPANSE_BLOB_INVALID_ARGUMENT);
+    assert(expanse_sync_blob_map_len(m) == 2);
+    expanse_sync_blob_map_free(m);
+    assert(expanse_sync_blob_map_len(NULL) == 0 && expanse_sync_blob_map_reader_new(NULL) == NULL);
+
+    /* The capacity cap: one 4 KiB chunk under a 6000-byte cap, reclaim off. */
+    expanse_sync_blob_map_t *capped = expanse_sync_blob_map_new_with_capacity(4096, 6000);
+    expanse_sync_blob_map_set_reclaim_at_cap(capped, false);
+    uint8_t rec[3100];
+    memset(rec, 'r', sizeof rec);
+    for (uint64_t k = 0; k < 4; k++)
+        assert(expanse_sync_blob_map_insert(capped, k, rec, 1000, 1) == EXPANSE_BLOB_OK);
+    assert(expanse_sync_blob_map_insert(capped, 9, rec, sizeof rec, 1) == EXPANSE_BLOB_CAP_REFUSED);
+    expanse_sync_blob_map_free(capped);
+
+    /* One writer, BLOB_READERS reader threads. */
+    blob_shared = expanse_sync_blob_map_new(64 * 1024);
+    for (int i = 0; i < BLOB_STABLE; i++) {
+        uint8_t v[128];
+        size_t n = blob_stable_value(v, i);
+        assert(expanse_sync_blob_map_insert(blob_shared, (uint64_t) i, v, n, (uint32_t) i + 1) == EXPANSE_BLOB_OK);
+    }
+    atomic_store(&blob_stop, false);
+    pthread_t w, rd[BLOB_READERS];
+    for (int t = 0; t < BLOB_READERS; t++)
+        assert(pthread_create(&rd[t], NULL, blob_reader, NULL) == 0);
+    assert(pthread_create(&w, NULL, blob_writer, NULL) == 0);
+    assert(pthread_join(w, NULL) == 0);
+    for (int t = 0; t < BLOB_READERS; t++) {
+        void *reads = NULL;
+        assert(pthread_join(rd[t], &reads) == 0);
+        assert((unsigned long) reads > 0);
+    }
+    assert(expanse_sync_blob_map_len(blob_shared) >= BLOB_STABLE);
+    expanse_sync_blob_map_free(blob_shared);
+    printf("sync_blob_map: point ops, reader, caller buffers, %d threaded readers ok\n", BLOB_READERS);
+}
+
 int main(void) {
     printf("libexpanse %s\n", expanse_version());
 
@@ -425,6 +592,7 @@ int main(void) {
 
     sync_strmap_smoke();
     sync_bytesmaps_smoke();
+    sync_blob_map_smoke();
 
     expanse_bytesmap_t *b = expanse_bytesmap_new();
     expanse_bytesmap_insert(b, "a\0b", 3, 5, NULL);

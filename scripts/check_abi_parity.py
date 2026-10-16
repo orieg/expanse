@@ -530,6 +530,39 @@ STATED_DEFERRALS.update(
         + ops
     }
 )
+# The shared blob map's C handle (#1538), deferred in every checked binding
+# for the same reason as the string map's.
+STATED_DEFERRALS.update(
+    {
+        f"expanse_sync_blob_map_{op}": {
+            "issue": "#1538",
+            "reason": "shared blob map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Planned: shared-map C handles, section 6)",
+            "ecosystems": {"java", "dotnet", "python", "node", "go"},
+        }
+        for op in (
+            "new",
+            "new_with_capacity",
+            "free",
+            "insert",
+            "remove",
+            "get_into",
+            "get_meta",
+            "contains",
+            "len",
+            "mem_used",
+            "mem_used_estimate",
+            "mem_held",
+            "shrink_to_fit",
+            "set_reclaim_at_cap",
+            "compact",
+            "reader_new",
+            "reader_free",
+            "reader_get_into",
+            "reader_get_meta",
+            "reader_contains",
+        )
+    }
+)
 
 def validate_stated_deferrals(
     deferrals: Dict[str, Dict[str, Any]], wide_symbols: List[CSymbol]

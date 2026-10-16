@@ -89,14 +89,23 @@ pub unsafe extern "C" fn expanse_blob_map_set_reclaim_at_cap(map: *mut ExpanseBl
     }
 }
 
-/// Status of [`expanse_blob_map_insert_ex`] and
-/// [`expanse_blob_map_arena_stats`], in three bands like
-/// `expanse_sync32_status_t`.
+/// Status of [`expanse_blob_map_insert_ex`], [`expanse_blob_map_arena_stats`]
+/// and the shared blob map's `expanse_sync_blob_map_*` calls, in bands like
+/// `expanse_sync32_status_t`: outcomes from `0`, refusals from `16`, usage
+/// errors from `32`, other errors at `48`. Values are added within a band and
+/// never renumbered.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ExpanseBlobStatus {
-    /// The insert succeeded, or the stats were written.
+    /// The insert succeeded, or the stats were written, or the payload was
+    /// copied.
     Ok = 0,
+    /// Outcome of a shared-map read: the key is absent. Nothing was written.
+    NotFound = 1,
+    /// Outcome of a shared-map read: the key is present and its payload does
+    /// not fit the caller's buffer. Nothing was copied; the required length
+    /// and the metadata were reported.
+    BufferTooSmall = 2,
     /// Refused: `hot_meta` is wider than 24 bits. The map is unchanged.
     MetaOverflow = 16,
     /// Refused: the payload is larger than a chunk, or memory allocation

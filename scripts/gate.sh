@@ -269,7 +269,7 @@ if [ "$MIRI" -eq 1 ]; then
     blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred strmap::tests::cursor_walks strmap::tests::cursor_edges strmap::tests::cursor_slots map::tests::occ_engine_single_thread_under_miri map::tests::slot_calls_on_a_warm_insert_path map::tests::warm_insert_path_across_a_move map::tests::compact_ set::tests::occ_engine_single_thread_under_miri set::tests::warm_insert_path_across_a_move set::tests::compact_ sync::miri_tests:: occ::tests::
   cargo miri test -p expanse-trie --lib --features ablation-unsharded-alloc,ablation-unpadded-lock,ablation-unstriped-freelist -- ablation_
   # The C ABI layer over the shared containers (ci.yml `miri`, shard 3).
-  cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi
+  cargo miri test -p expanse-capi --test test_sync_strmap_capi --test test_sync_bytesmap_capi --test test_sync_blobmap_capi
 else
   step "6/6 Miri — skipped (pass --miri for the Tier-1 filter; CI runs it on every PR)"
 fi
