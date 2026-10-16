@@ -193,3 +193,155 @@ public sealed class SafeExpanseSyncMapReaderHandle : SafeHandleZeroOrMinusOneIsI
         return true;
     }
 }
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_strmap_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncStrMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncStrMapHandle() : base(true) { }
+
+    public SafeExpanseSyncStrMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_strmap_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_strmap_reader_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncStrMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncStrMapReaderHandle() : base(true) { }
+
+    public SafeExpanseSyncStrMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_strmap_reader_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_bytesmap_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncBytesMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncBytesMapHandle() : base(true) { }
+
+    public SafeExpanseSyncBytesMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_bytesmap_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_bytesmap_reader_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncBytesMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncBytesMapReaderHandle() : base(true) { }
+
+    public SafeExpanseSyncBytesMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_bytesmap_reader_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_ordered_bytesmap_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncOrderedBytesMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncOrderedBytesMapHandle() : base(true) { }
+
+    public SafeExpanseSyncOrderedBytesMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_ordered_bytesmap_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_ordered_bytesmap_reader_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncOrderedBytesMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncOrderedBytesMapReaderHandle() : base(true) { }
+
+    public SafeExpanseSyncOrderedBytesMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_ordered_bytesmap_reader_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_blob_map_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncBlobMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncBlobMapHandle() : base(true) { }
+
+    public SafeExpanseSyncBlobMapHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_blob_map_free(handle);
+        return true;
+    }
+}
+
+/// <summary>
+/// SafeHandle wrapping an unmanaged <c>expanse_sync_blob_map_reader_t</c> pointer.
+/// </summary>
+public sealed class SafeExpanseSyncBlobMapReaderHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    public SafeExpanseSyncBlobMapReaderHandle() : base(true) { }
+
+    public SafeExpanseSyncBlobMapReaderHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(handle);
+    }
+
+    protected override bool ReleaseHandle()
+    {
+        NativeMethods.expanse_sync_blob_map_reader_free(handle);
+        return true;
+    }
+}

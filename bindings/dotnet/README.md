@@ -19,6 +19,7 @@ High-performance, **zero-GC**, off-heap associative trie collections for **.NET 
   - `ExpanseOrderedBytesMap`: High-performance ordered arbitrary byte-key map with `FirstEntry`/`LastEntry`/`CeilingEntry`/`HigherEntry`/`FloorEntry`/`LowerEntry` navigation.
   - `ExpanseBlobMap`: Polymorphic off-heap large-value map with inline packing ($\le 7$ bytes stored in 64-bit slot), chunked arena slabs, 32-bit hot metadata filtering, zero-copy span access, compaction, and predicate pruning.
   - `ExpanseSyncSet` / `ExpanseSyncMap`: Multithreaded concurrent collections with serialized writers and optimistic readers.
+  - `ExpanseSyncStrMap` / `ExpanseSyncBytesMap` / `ExpanseSyncOrderedBytesMap` / `ExpanseSyncBlobMap`: Concurrent string, byte-key, ordered byte-key and large-value maps with the same writer and reader protocol, atomic `CompareExchange` / `GetOrInsert`, and reader classes.
 
 ---
 
@@ -173,6 +174,30 @@ Task.Run(() =>
 ```csharp
 syncMap.Update(7, cur => (cur ?? 0) + 1); // atomic increment
 ```
+
+### 6. Concurrent String, Bytes, Ordered-Bytes and Blob Maps (#1538)
+
+The shared forms of `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseOrderedBytesMap` and `ExpanseBlobMap` follow `ExpanseSyncMap`'s protocol: any thread may call the map, `CreateReader()` hands each reading thread its own reader, and a reader keeps its map alive until the reader is disposed. Each reader is used by one thread at a time.
+
+```csharp
+using var names = new ExpanseSyncStrMap();
+names.Set("alice", 1);
+names.GetOrInsert("bob", 2);                    // null: stored
+names.Update("alice", cur => (cur ?? 0) + 1);   // atomic increment
+
+using var reader = names.CreateReader();
+reader.TryGet("alice", out ulong v);            // 2
+for (var e = reader.First(); e is { } cur; e = reader.Next(cur.Key))
+{
+    Console.WriteLine($"{cur.Key} = {cur.Value}");   // ordered reads run beside the writer
+}
+```
+
+- `ExpanseSyncStrMap` keys are NUL-terminated UTF-8 C strings, ordered by their UTF-8 bytes. A key containing an embedded NUL character throws `ArgumentException` instead of being truncated; use a bytes map for such keys. Ordered reads (`First`, `Last`, `Next`, `NextAtOrAfter`, `Prev`, `PrevAtOrBefore`) are on the reader.
+- `ExpanseSyncBytesMap` keys are opaque byte strings (embedded `0x00` bytes and the empty key are ordinary) and have no order.
+- `ExpanseSyncOrderedBytesMap` keys compare as unsigned bytes. Its ordered reads (`FirstEntry`, `LastEntry`, `CeilingEntry`, `HigherEntry`, `FloorEntry`, `LowerEntry`) are calls on the **map**, not on a reader, and **each one blocks every writer for its duration**: do not run them in a hot loop beside writers. A walk built from repeated `HigherEntry` calls is not a snapshot.
+- `ExpanseSyncBlobMap` copies values: `TryGetBytes` / `GetBytes` return a `byte[]` and never a view into the map. A payload longer than the wrapper's working buffer is read again with a larger one inside the call (the repeat is a new read, so it reports whatever a concurrent writer has stored by then). `CompareExchange` and `GetOrInsert` compare and report an `ExpanseBlobValue` (payload and 24-bit metadata) and return an `ExpanseBlobStatus`: `Ok` when stored, `Mismatch` when not (with the current value), or a refusal such as `MetaOverflow`. `CompareExchangeMeta` swaps the metadata alone. A payload of 7 bytes or fewer reads back metadata 0.
+- Every `ulong`-valued map has `CompareExchange(key, expected, newValue, out observed)` and `GetOrInsert(key, value)` over `ulong?` (`null` is "absent"), as `ExpanseSyncMap` does.
 
 ---
 
