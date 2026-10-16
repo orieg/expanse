@@ -18,6 +18,10 @@ var (
 	// ErrBlobArenaFull: the insert compacted the arena and the record still
 	// does not fit under the cap; only a removal makes room.
 	ErrBlobArenaFull = fmt.Errorf("%w: arena full after compacting", ErrBlobInsertRefused)
+	// ErrBlobNoMetaField: a shared-map exchange whose comparison held but whose
+	// new value cannot carry the metadata offered (metadata alone cannot create
+	// a key, and a payload stored in its slot word has no metadata field).
+	ErrBlobNoMetaField = fmt.Errorf("%w: value has no metadata field", ErrBlobInsertRefused)
 	// ErrBlobInvalidArgument: a nil handle (a freed map).
 	ErrBlobInvalidArgument = fmt.Errorf("%w: invalid argument", ErrBlobInsertRefused)
 )
@@ -50,6 +54,8 @@ func blobStatusErr(status int32) error {
 		return ErrBlobCapRefused
 	case 19:
 		return ErrBlobArenaFull
+	case 20:
+		return ErrBlobNoMetaField
 	case 32:
 		return ErrBlobInvalidArgument
 	default:
