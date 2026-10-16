@@ -745,3 +745,214 @@ export class SyncExpanseSet {
   countRange(start: KeyInput, end: KeyInput): bigint;
   toArray(): bigint[];
 }
+
+/**
+ * A thread-safe concurrent map from NUL-free UTF-8 strings to 64-bit unsigned integers (OCC). A key with an embedded NUL throws.
+ */
+export class SyncExpanseStrMap {
+  constructor();
+
+  size(): bigint;
+  isEmpty(): boolean;
+  /** Heap bytes used by the map, read with writers excluded. */
+  memUsed(): bigint;
+  /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. */
+  memHeld(): bigint;
+  /** Returns the collector's freed blocks to the global allocator; returns the bytes released. */
+  shrinkToFit(): bigint;
+  has(key: string): boolean;
+  set(key: string, value: KeyInput): bigint | null;
+  get(key: string): bigint | null;
+  /**
+   * Atomic compare-and-swap: stores `newValue` only if the key's current value is
+   * `expected`. `null` is "absent" on both sides. `observed` is the value the compare saw.
+   */
+  compareExchange(
+    key: string,
+    expected: KeyInput | null,
+    newValue: KeyInput | null,
+  ): CompareExchangeResult;
+  /** Stores `value` only if `key` is absent; returns the existing value, or `null` if stored. */
+  getOrInsert(key: string, value: KeyInput): bigint | null;
+  /**
+   * Retry loop over `compareExchange`: stores `fn(current)` (`null` removes the key)
+   * and returns the replaced value. `fn` may run more than once per call and must be
+   * free of side effects; an exception from `fn` propagates with the key unchanged.
+   */
+  update(key: string, fn: (current: bigint | null) => KeyInput | null): bigint | null;
+  delete(key: string): boolean;
+  clear(): void;
+  /** Smallest entry in byte-lexicographical order, or `null` if empty. Optimistic reads: no writer lock unless a read exhausts its retries. */
+  first(): StrMapEntry | null;
+  /** Largest entry in byte-lexicographical order, or `null` if empty. Optimistic reads: no writer lock unless a read exhausts its retries. */
+  last(): StrMapEntry | null;
+  /** Smallest entry with key `> key` (`>= key` if `inclusive`). Optimistic reads: no writer lock unless a read exhausts its retries. */
+  next(key: string, inclusive?: boolean): StrMapEntry | null;
+  /** Largest entry with key `< key` (`<= key` if `inclusive`). Optimistic reads: no writer lock unless a read exhausts its retries. */
+  prev(key: string, inclusive?: boolean): StrMapEntry | null;
+}
+
+/**
+ * A thread-safe concurrent, unordered map from arbitrary byte keys to 64-bit unsigned integers (OCC).
+ */
+export class SyncExpanseBytesMap {
+  constructor();
+
+  size(): bigint;
+  isEmpty(): boolean;
+  /** Heap bytes used by the map, read with writers excluded. */
+  memUsed(): bigint;
+  /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. */
+  memHeld(): bigint;
+  /** Returns the collector's freed blocks to the global allocator; returns the bytes released. */
+  shrinkToFit(): bigint;
+  has(key: BytesInput): boolean;
+  set(key: BytesInput, value: KeyInput): bigint | null;
+  get(key: BytesInput): bigint | null;
+  /**
+   * Atomic compare-and-swap: stores `newValue` only if the key's current value is
+   * `expected`. `null` is "absent" on both sides. `observed` is the value the compare saw.
+   */
+  compareExchange(
+    key: BytesInput,
+    expected: KeyInput | null,
+    newValue: KeyInput | null,
+  ): CompareExchangeResult;
+  /** Stores `value` only if `key` is absent; returns the existing value, or `null` if stored. */
+  getOrInsert(key: BytesInput, value: KeyInput): bigint | null;
+  /**
+   * Retry loop over `compareExchange`: stores `fn(current)` (`null` removes the key)
+   * and returns the replaced value. `fn` may run more than once per call and must be
+   * free of side effects; an exception from `fn` propagates with the key unchanged.
+   */
+  update(key: BytesInput, fn: (current: bigint | null) => KeyInput | null): bigint | null;
+  delete(key: BytesInput): boolean;
+  clear(): void;
+}
+
+/**
+ * A thread-safe concurrent map from arbitrary byte keys to 64-bit unsigned integers, ordered byte-lexicographically (OCC). Point operations are optimistic; the ordered reads block writers.
+ */
+export class SyncExpanseOrderedBytesMap {
+  constructor();
+
+  size(): bigint;
+  isEmpty(): boolean;
+  /** Heap bytes used by the map, read with writers excluded. */
+  memUsed(): bigint;
+  /** Heap bytes held from the global allocator, including blocks the epoch collector keeps for reuse. */
+  memHeld(): bigint;
+  /** Returns the collector's freed blocks to the global allocator; returns the bytes released. */
+  shrinkToFit(): bigint;
+  has(key: BytesInput): boolean;
+  set(key: BytesInput, value: KeyInput): bigint | null;
+  get(key: BytesInput): bigint | null;
+  /**
+   * Atomic compare-and-swap: stores `newValue` only if the key's current value is
+   * `expected`. `null` is "absent" on both sides. `observed` is the value the compare saw.
+   */
+  compareExchange(
+    key: BytesInput,
+    expected: KeyInput | null,
+    newValue: KeyInput | null,
+  ): CompareExchangeResult;
+  /** Stores `value` only if `key` is absent; returns the existing value, or `null` if stored. */
+  getOrInsert(key: BytesInput, value: KeyInput): bigint | null;
+  /**
+   * Retry loop over `compareExchange`: stores `fn(current)` (`null` removes the key)
+   * and returns the replaced value. `fn` may run more than once per call and must be
+   * free of side effects; an exception from `fn` propagates with the key unchanged.
+   */
+  update(key: BytesInput, fn: (current: bigint | null) => KeyInput | null): bigint | null;
+  delete(key: BytesInput): boolean;
+  clear(): void;
+  /** Smallest entry in byte-lexicographical order, or `null` if empty. Run with writers excluded: each call blocks concurrent writers for its duration. */
+  first(): BytesMapEntry | null;
+  /** Largest entry in byte-lexicographical order, or `null` if empty. Run with writers excluded: each call blocks concurrent writers for its duration. */
+  last(): BytesMapEntry | null;
+  /** Smallest entry with key `> key` (`>= key` if `inclusive`). Run with writers excluded: each call blocks concurrent writers for its duration. */
+  next(key: BytesInput, inclusive?: boolean): BytesMapEntry | null;
+  /** Largest entry with key `< key` (`<= key` if `inclusive`). Run with writers excluded: each call blocks concurrent writers for its duration. */
+  prev(key: BytesInput, inclusive?: boolean): BytesMapEntry | null;
+}
+
+/** A blob payload and its 24-bit hot metadata, as the shared blob map's owned reads report it. */
+export interface BlobValue {
+  payload: Buffer;
+  /** Payloads of 7 bytes or fewer keep no metadata and read `0`. */
+  hotMeta: number;
+}
+
+/** A blob value offered to `SyncExpanseBlobMap.compareExchange`. */
+export interface BlobValueInput {
+  payload: BytesInput;
+  /** Defaults to `0`; at most 2^24 - 1 on an arena payload. */
+  hotMeta?: number;
+}
+
+/** The outcome of `SyncExpanseBlobMap.compareExchange`. */
+export interface BlobCompareExchangeResult {
+  stored: boolean;
+  /** The value the compare saw, or `null` if the key was absent. */
+  observed: BlobValue | null;
+}
+
+/** The outcome of `SyncExpanseBlobMap.compareExchangeMeta`. */
+export interface BlobMetaExchangeResult {
+  stored: boolean;
+  /** The metadata the compare saw, or `null` if the key was absent. */
+  observed: number | null;
+}
+
+/**
+ * A thread-safe concurrent map from 64-bit integer keys to byte payloads with 24-bit
+ * hot metadata (OCC). Reads return owned copies. Payloads of 7 bytes or fewer keep no
+ * metadata and read back `hotMeta` `0`.
+ */
+export class SyncExpanseBlobMap {
+  constructor(chunkSize?: number, maxCapacity?: number);
+
+  size(): bigint;
+  isEmpty(): boolean;
+  /** Heap bytes used by the index and arena, read with writers excluded. */
+  memUsed(): bigint;
+  /** A bounded-cost estimate of `memUsed()` that does not exclude writers. */
+  memUsedEstimate(): bigint;
+  memHeld(): bigint;
+  shrinkToFit(): bigint;
+  setReclaimAtCap(on: boolean): void;
+  reclaimAtCap(): boolean;
+  /** Compacts the arena; concurrent writers wait for it, reads continue. */
+  compact(): CompactionStatsResult;
+  has(key: KeyInput): boolean;
+  contains(key: KeyInput): boolean;
+  /** Throws if the arena refuses the insert (metadata overflow, capacity cap, allocation failure). */
+  set(key: KeyInput, payload: BytesInput, hotMeta?: number): void;
+  get(key: KeyInput): Buffer | null;
+  getWithMeta(key: KeyInput): BlobMetaResult | null;
+  /** Metadata only, without touching the payload. */
+  getMeta(key: KeyInput): number | null;
+  delete(key: KeyInput): boolean;
+  clear(): void;
+  /**
+   * Atomic compare-and-swap over `{ payload, hotMeta }` values; `null` is "absent" on
+   * both sides. Throws when the values compare equal but `newValue` cannot be stored.
+   */
+  compareExchange(
+    key: KeyInput,
+    expected: BlobValueInput | null,
+    newValue: BlobValueInput | null,
+  ): BlobCompareExchangeResult;
+  /**
+   * Atomic compare-and-swap on the hot metadata alone. Throws when the metadata compares
+   * equal but `newMeta` cannot be stored (above 24 bits, or non-zero on an absent key or
+   * an inline payload).
+   */
+  compareExchangeMeta(
+    key: KeyInput,
+    expected: number | null,
+    newMeta: number | null,
+  ): BlobMetaExchangeResult;
+  /** Stores only if `key` is absent; returns the existing value, or `null` if stored. */
+  getOrInsert(key: KeyInput, payload: BytesInput, hotMeta?: number): BlobValue | null;
+}
