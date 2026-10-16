@@ -850,3 +850,283 @@ fn ordered_walk_under_concurrent_writes_sees_every_stable_key_in_order() {
         expanse_sync_ordered_bytesmap_free(m);
     }
 }
+
+// ---- Read-modify-write: `_compare_exchange` and `_get_or_insert` ----
+
+use expanse::modern::{
+    expanse_sync_bytesmap_compare_exchange, expanse_sync_bytesmap_get_or_insert,
+    expanse_sync_ordered_bytesmap_compare_exchange, expanse_sync_ordered_bytesmap_get_or_insert,
+};
+
+/// The two read-modify-write entry points of one byte-keyed map.
+struct Rmw<M> {
+    compare_exchange: unsafe extern "C" fn(
+        *const M,
+        *const c_void,
+        usize,
+        bool,
+        u64,
+        bool,
+        u64,
+        *mut bool,
+        *mut u64,
+    ) -> bool,
+    get_or_insert: unsafe extern "C" fn(*const M, *const c_void, usize, u64, *mut u64) -> bool,
+}
+
+const BYTES_RMW: Rmw<SyncExpanseBytesMap> = Rmw {
+    compare_exchange: expanse_sync_bytesmap_compare_exchange,
+    get_or_insert: expanse_sync_bytesmap_get_or_insert,
+};
+
+const ORDERED_RMW: Rmw<SyncExpanseOrderedBytesMap> = Rmw {
+    compare_exchange: expanse_sync_ordered_bytesmap_compare_exchange,
+    get_or_insert: expanse_sync_ordered_bytesmap_get_or_insert,
+};
+
+impl<M> Rmw<M> {
+    /// One exchange into locals: `(exchanged, observed)`.
+    fn cx(
+        &self,
+        m: *const M,
+        k: &[u8],
+        expected: Option<u64>,
+        new: Option<u64>,
+    ) -> (bool, Option<u64>) {
+        let mut seen_present = expected.is_none();
+        let mut seen = 0xDEAD_u64;
+        // SAFETY: `m` is live for every caller; `k` readable; outputs are locals.
+        let ok = unsafe {
+            (self.compare_exchange)(
+                m,
+                ptr(k),
+                k.len(),
+                expected.is_some(),
+                expected.unwrap_or(0),
+                new.is_some(),
+                new.unwrap_or(0),
+                &raw mut seen_present,
+                &raw mut seen,
+            )
+        };
+        (ok, seen_present.then_some(seen))
+    }
+
+    /// `get_or_insert` into a local: `(stored, existing)`.
+    fn goi(&self, m: *const M, k: &[u8], v: u64) -> (bool, Option<u64>) {
+        let mut existing = 0xDEAD_u64;
+        // SAFETY: as for `cx`.
+        let stored = unsafe { (self.get_or_insert)(m, ptr(k), k.len(), v, &raw mut existing) };
+        (stored, (existing != 0xDEAD).then_some(existing))
+    }
+}
+
+fn compare_exchange_and_get_or_insert_every_branch<M, R>(f: &Family<M, R>, x: &Rmw<M>) {
+    let m = (f.new)();
+    let name = f.name;
+    for k in ODD_KEYS {
+        // Absent -> insert; expected-absent on a present key fails with the word.
+        assert_eq!(x.cx(m, k, None, Some(10)), (true, None), "{name} {k:?}");
+        assert_eq!(
+            x.cx(m, k, None, Some(99)),
+            (false, Some(10)),
+            "{name} {k:?}"
+        );
+        // Replace, then a stale expected fails with the current word.
+        assert_eq!(
+            x.cx(m, k, Some(10), Some(11)),
+            (true, Some(10)),
+            "{name} {k:?}"
+        );
+        assert_eq!(
+            x.cx(m, k, Some(10), Some(12)),
+            (false, Some(11)),
+            "{name} {k:?}"
+        );
+        assert_eq!(f.get(m, k), Some(11), "{name} {k:?}");
+        // Remove only on a matching word.
+        assert_eq!(
+            x.cx(m, k, Some(12), None),
+            (false, Some(11)),
+            "{name} {k:?}"
+        );
+        assert_eq!(x.cx(m, k, Some(11), None), (true, Some(11)), "{name} {k:?}");
+        assert_eq!(f.get(m, k), None, "{name} {k:?}");
+        // Expected-present on an absent key: observed absent, nothing stored.
+        assert_eq!(x.cx(m, k, Some(0), Some(5)), (false, None), "{name} {k:?}");
+        // (absent, absent) never writes.
+        assert_eq!(x.cx(m, k, None, None), (true, None), "{name} {k:?}");
+        // get_or_insert: stores once, then reports the stored word untouched.
+        assert_eq!(x.goi(m, k, u64::MAX), (true, None), "{name} {k:?}");
+        assert_eq!(x.goi(m, k, 0), (false, Some(u64::MAX)), "{name} {k:?}");
+        assert_eq!(
+            x.cx(m, k, None, None),
+            (false, Some(u64::MAX)),
+            "{name} {k:?}"
+        );
+    }
+    // A prefix of a stored key is a different key.
+    assert_eq!(x.cx(m, b"a", None, Some(1)), (true, None), "{name}");
+    assert_eq!(f.get(m, b"a\0b"), Some(u64::MAX), "{name}");
+
+    let null_map: *const M = core::ptr::null();
+    let (mut present, mut seen, mut existing) = (true, 0xDEAD_u64, 0xDEAD_u64);
+    // SAFETY: NULL handles and a NULL key with a non-zero length are
+    // documented to write nothing; NULL outputs are accepted; `m` is live.
+    unsafe {
+        for (map, k, len) in [(null_map, ptr(b"a"), 1), (m.cast_const(), NULL_KEY, 3)] {
+            assert!(!(x.compare_exchange)(
+                map,
+                k,
+                len,
+                false,
+                0,
+                true,
+                1,
+                &raw mut present,
+                &raw mut seen
+            ));
+            assert!(!(x.get_or_insert)(map, k, len, 1, &raw mut existing));
+        }
+        assert!(present && seen == 0xDEAD && existing == 0xDEAD, "{name}");
+        // NULL with length 0 is the empty key.
+        assert!((x.compare_exchange)(
+            m,
+            NULL_KEY,
+            0,
+            true,
+            u64::MAX,
+            true,
+            2,
+            core::ptr::null_mut(),
+            core::ptr::null_mut()
+        ));
+        assert!(!(x.get_or_insert)(m, NULL_KEY, 0, 1, core::ptr::null_mut()));
+        assert_eq!(f.get(m, b""), Some(2), "{name}");
+        assert_eq!((f.len)(m), ODD_KEYS.len() as u64 + 1, "{name}");
+        (f.free)(m);
+    }
+}
+
+#[test]
+fn bytesmap_compare_exchange_and_get_or_insert_every_branch() {
+    compare_exchange_and_get_or_insert_every_branch(&BYTES, &BYTES_RMW);
+}
+
+#[test]
+fn ordered_bytesmap_compare_exchange_and_get_or_insert_every_branch() {
+    compare_exchange_and_get_or_insert_every_branch(&ORDERED, &ORDERED_RMW);
+}
+
+/// Threads incrementing shared counters through the `compare_exchange` retry
+/// loop of `include/expanse.h`: every increment lands exactly once.
+fn concurrent_compare_exchange_increments_lose_no_update<M, R>(f: &Family<M, R>, x: &Rmw<M>) {
+    const THREADS: u64 = 4;
+    const PER_THREAD: u64 = 2000;
+    let m = (f.new)();
+    // Two counters whose keys hold the ordered map's escape bytes.
+    let keys: [&[u8]; 2] = [b"counter\0\x01/0", b"counter\0\x01/1"];
+    let addr = m as usize; // raw pointers are not `Send`
+    let barrier = std::sync::Barrier::new(THREADS as usize);
+    std::thread::scope(|sc| {
+        for t in 0..THREADS {
+            let barrier = &barrier;
+            sc.spawn(move || {
+                let m = addr as *const M;
+                barrier.wait();
+                for i in 0..PER_THREAD {
+                    let k = keys[((t + i) % 2) as usize];
+                    let mut cur = f.get(m, k);
+                    loop {
+                        match x.cx(m, k, cur, Some(cur.unwrap_or(0) + 1)) {
+                            (true, _) => break,
+                            (false, seen) => cur = seen,
+                        }
+                    }
+                }
+            });
+        }
+    });
+    let total: u64 = keys.iter().map(|k| f.get(m, k).unwrap_or(0)).sum();
+    assert_eq!(
+        total,
+        THREADS * PER_THREAD,
+        "{}: an increment was lost",
+        f.name
+    );
+    // SAFETY: no call is in progress and no reader exists.
+    unsafe { (f.free)(m) };
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn bytesmap_concurrent_compare_exchange_increments_lose_no_update() {
+    concurrent_compare_exchange_increments_lose_no_update(&BYTES, &BYTES_RMW);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn ordered_bytesmap_concurrent_compare_exchange_increments_lose_no_update() {
+    concurrent_compare_exchange_increments_lose_no_update(&ORDERED, &ORDERED_RMW);
+}
+
+/// Threads racing `get_or_insert` on the same absent keys: exactly one call
+/// per key stores, and every other call reports the winner's value.
+fn concurrent_get_or_insert_agrees_on_one_winner<M, R>(f: &Family<M, R>, x: &Rmw<M>) {
+    const THREADS: u64 = 4;
+    const KEYS: u64 = 1024;
+    let m = (f.new)();
+    let keys: Vec<Vec<u8>> = (0..KEYS)
+        .map(|i| format!("race\0{i:05}").into_bytes())
+        .collect();
+    let addr = m as usize; // raw pointers are not `Send`
+    let barrier = std::sync::Barrier::new(THREADS as usize);
+    let results: Vec<Vec<(bool, Option<u64>)>> = std::thread::scope(|sc| {
+        let handles: Vec<_> = (0..THREADS)
+            .map(|t| {
+                let (keys, barrier) = (&keys, &barrier);
+                sc.spawn(move || {
+                    let m = addr as *const M;
+                    (0..KEYS)
+                        .map(|i| {
+                            // Every thread reaches each key together.
+                            barrier.wait();
+                            x.goi(m, &keys[i as usize], t * 1_000_000 + i)
+                        })
+                        .collect()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for i in 0..KEYS as usize {
+        let winners: Vec<u64> = (0..THREADS).filter(|&t| results[t as usize][i].0).collect();
+        assert_eq!(winners.len(), 1, "{}: key {i}: winners {winners:?}", f.name);
+        let value = winners[0] * 1_000_000 + i as u64;
+        for (t, per_thread) in results.iter().enumerate() {
+            if !per_thread[i].0 {
+                assert_eq!(
+                    per_thread[i].1,
+                    Some(value),
+                    "{}: key {i}, thread {t}",
+                    f.name
+                );
+            }
+        }
+        assert_eq!(f.get(m, &keys[i]), Some(value), "{}: key {i}", f.name);
+    }
+    // SAFETY: no call is in progress and no reader exists.
+    unsafe { (f.free)(m) };
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn bytesmap_concurrent_get_or_insert_agrees_on_one_winner() {
+    concurrent_get_or_insert_agrees_on_one_winner(&BYTES, &BYTES_RMW);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn ordered_bytesmap_concurrent_get_or_insert_agrees_on_one_winner() {
+    concurrent_get_or_insert_agrees_on_one_winner(&ORDERED, &ORDERED_RMW);
+}

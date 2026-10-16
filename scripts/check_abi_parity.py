@@ -462,7 +462,7 @@ STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
     # `SyncExpanseStrMap`; each is a later step of #1538.
     sym: {
         "issue": "#1538",
-        "reason": "shared string-map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Planned: shared-map C handles, section 6)",
+        "reason": "shared string-map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
         "ecosystems": {"java", "dotnet", "python", "node", "go"},
     }
     for sym in (
@@ -486,6 +486,8 @@ STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
         "expanse_sync_strmap_reader_next_after",
         "expanse_sync_strmap_reader_prev_at_or_before",
         "expanse_sync_strmap_reader_prev_before",
+        "expanse_sync_strmap_compare_exchange",
+        "expanse_sync_strmap_get_or_insert",
     )
 }
 # The shared bytes and ordered-bytes maps' C handles (#1538), deferred in every
@@ -494,7 +496,7 @@ STATED_DEFERRALS.update(
     {
         f"expanse_sync_{kind}_{op}": {
             "issue": "#1538",
-            "reason": "shared bytes and ordered-bytes map C handles shipped ahead of their binding wrappers (docs/COMPAT.md, Planned: shared-map C handles, section 6)",
+            "reason": "shared bytes and ordered-bytes map C handles shipped ahead of their binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
             "ecosystems": {"java", "dotnet", "python", "node", "go"},
         }
         for kind, ops in (
@@ -526,6 +528,8 @@ STATED_DEFERRALS.update(
             "reader_free",
             "reader_get",
             "reader_contains",
+            "compare_exchange",
+            "get_or_insert",
         )
         + ops
     }
@@ -536,7 +540,7 @@ STATED_DEFERRALS.update(
     {
         f"expanse_sync_blob_map_{op}": {
             "issue": "#1538",
-            "reason": "shared blob map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Planned: shared-map C handles, section 6)",
+            "reason": "shared blob map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
             "ecosystems": {"java", "dotnet", "python", "node", "go"},
         }
         for op in (
@@ -560,6 +564,9 @@ STATED_DEFERRALS.update(
             "reader_get_into",
             "reader_get_meta",
             "reader_contains",
+            "compare_exchange",
+            "compare_exchange_meta",
+            "get_or_insert",
         )
     }
 )

@@ -922,6 +922,21 @@ uint64_t               expanse_sync_strmap_len(const expanse_sync_strmap_t *map)
 size_t                 expanse_sync_strmap_mem_used(const expanse_sync_strmap_t *map);
 size_t                 expanse_sync_strmap_mem_held(const expanse_sync_strmap_t *map);
 size_t                 expanse_sync_strmap_shrink_to_fit(const expanse_sync_strmap_t *map);
+/*
+ * Atomic read-modify-write on one key, with the convention, outputs and
+ * retry loop of expanse_sync_map_compare_exchange / _get_or_insert above:
+ * presence flags on both sides, the observed word reported on both outcomes
+ * of compare_exchange, the present value through *existing_out when
+ * get_or_insert returns false. Each is one linearizable step; of any number
+ * of callers racing get_or_insert on one absent key, exactly one gets true.
+ * A NULL map or key returns false and writes nothing.
+ */
+bool expanse_sync_strmap_compare_exchange(expanse_sync_strmap_t *map, const char *key,
+                                          bool expected_present, uint64_t expected_value,
+                                          bool new_present, uint64_t new_value,
+                                          bool *observed_present_out, uint64_t *observed_out);
+bool expanse_sync_strmap_get_or_insert(expanse_sync_strmap_t *map, const char *key,
+                                       uint64_t value, uint64_t *existing_out);
 
 expanse_sync_strmap_reader_t *expanse_sync_strmap_reader_new(const expanse_sync_strmap_t *map);
 void                          expanse_sync_strmap_reader_free(expanse_sync_strmap_reader_t *reader);
@@ -1001,6 +1016,19 @@ uint64_t expanse_sync_bytesmap_len(const expanse_sync_bytesmap_t *map);
 size_t   expanse_sync_bytesmap_mem_used(const expanse_sync_bytesmap_t *map);
 size_t   expanse_sync_bytesmap_mem_held(const expanse_sync_bytesmap_t *map);
 size_t   expanse_sync_bytesmap_shrink_to_fit(const expanse_sync_bytesmap_t *map);
+/*
+ * Atomic read-modify-write on one key, for both byte-string maps: the
+ * convention of expanse_sync_strmap_compare_exchange / _get_or_insert, with a
+ * (key, len) byte-string key. A NULL map, or a NULL key with len > 0, returns
+ * false and writes nothing.
+ */
+bool     expanse_sync_bytesmap_compare_exchange(expanse_sync_bytesmap_t *map, const void *key,
+                                                size_t len, bool expected_present,
+                                                uint64_t expected_value, bool new_present,
+                                                uint64_t new_value, bool *observed_present_out,
+                                                uint64_t *observed_out);
+bool     expanse_sync_bytesmap_get_or_insert(expanse_sync_bytesmap_t *map, const void *key,
+                                             size_t len, uint64_t value, uint64_t *existing_out);
 
 expanse_sync_bytesmap_reader_t *expanse_sync_bytesmap_reader_new(const expanse_sync_bytesmap_t *map);
 void expanse_sync_bytesmap_reader_free(expanse_sync_bytesmap_reader_t *reader);
@@ -1026,6 +1054,17 @@ uint64_t expanse_sync_ordered_bytesmap_len(const expanse_sync_ordered_bytesmap_t
 size_t   expanse_sync_ordered_bytesmap_mem_used(const expanse_sync_ordered_bytesmap_t *map);
 size_t   expanse_sync_ordered_bytesmap_mem_held(const expanse_sync_ordered_bytesmap_t *map);
 size_t   expanse_sync_ordered_bytesmap_shrink_to_fit(const expanse_sync_ordered_bytesmap_t *map);
+/* Read-modify-write, as expanse_sync_bytesmap_compare_exchange / _get_or_insert. */
+bool     expanse_sync_ordered_bytesmap_compare_exchange(expanse_sync_ordered_bytesmap_t *map,
+                                                        const void *key, size_t len,
+                                                        bool expected_present,
+                                                        uint64_t expected_value, bool new_present,
+                                                        uint64_t new_value,
+                                                        bool *observed_present_out,
+                                                        uint64_t *observed_out);
+bool     expanse_sync_ordered_bytesmap_get_or_insert(expanse_sync_ordered_bytesmap_t *map,
+                                                     const void *key, size_t len, uint64_t value,
+                                                     uint64_t *existing_out);
 
 expanse_sync_ordered_bytesmap_reader_t *expanse_sync_ordered_bytesmap_reader_new(
     const expanse_sync_ordered_bytesmap_t *map);
@@ -1160,7 +1199,8 @@ bool expanse_blob_map_insert(
  * STATUS CODES of expanse_blob_map_insert_ex, expanse_blob_map_arena_stats
  * and the shared blob map's expanse_sync_blob_map_* calls (below), in bands.
  * New values may be added within a band; existing values never change.
- * expanse_blob_map_insert_ex returns none of NOT_FOUND and BUFFER_TOO_SMALL.
+ * expanse_blob_map_insert_ex returns none of NOT_FOUND, BUFFER_TOO_SMALL,
+ * MISMATCH and NO_META_FIELD.
  */
 typedef enum {
     EXPANSE_BLOB_OK                = 0,
@@ -1168,11 +1208,15 @@ typedef enum {
     EXPANSE_BLOB_NOT_FOUND         = 1,  /* key absent; nothing written */
     EXPANSE_BLOB_BUFFER_TOO_SMALL  = 2,  /* key present, payload longer than buf_len: nothing
                                             copied, required length and metadata reported */
+    /* outcome of a shared-map read-modify-write (expanse_sync_blob_map_compare_exchange*,
+       _get_or_insert): nothing stored, the current value reported */
+    EXPANSE_BLOB_MISMATCH          = 3,
     /* refusals: the map's contents are unchanged */
     EXPANSE_BLOB_META_OVERFLOW     = 16, /* hot_meta wider than 24 bits */
     EXPANSE_BLOB_ALLOCATION_FAILED = 17, /* payload larger than a chunk, or out of memory */
     EXPANSE_BLOB_CAP_REFUSED       = 18, /* the cap refused a chunk; nothing was compacted */
     EXPANSE_BLOB_ARENA_FULL        = 19, /* the cap refused a chunk after this insert compacted */
+    EXPANSE_BLOB_NO_META_FIELD     = 20, /* metadata offered to a value with no metadata field */
     /* usage errors: nothing was done */
     EXPANSE_BLOB_INVALID_ARGUMENT  = 32, /* NULL handle or stats, NULL data with len > 0, ... */
     /* any other engine error; insert returns none today */
@@ -1328,6 +1372,86 @@ size_t   expanse_sync_blob_map_mem_held(const expanse_sync_blob_map_t *map);
 size_t   expanse_sync_blob_map_shrink_to_fit(const expanse_sync_blob_map_t *map);
 void     expanse_sync_blob_map_set_reclaim_at_cap(expanse_sync_blob_map_t *map, bool on);
 expanse_blob_status_t expanse_sync_blob_map_compact(expanse_sync_blob_map_t *map);
+
+/*
+ * Atomic read-modify-write on one key; each call is one linearizable step.
+ * A value is its payload bytes AND its metadata, and compare_exchange compares
+ * both. "Absent" is a flag: *_present == false ignores the data, length and
+ * metadata beside it; expected absent stores only into an absent key, new
+ * absent removes the key.
+ *
+ * compare_exchange / get_or_insert:
+ *   OK                stored (or, for compare_exchange with new absent,
+ *                     removed). Nothing is written: the value compare_exchange
+ *                     replaced is the caller's expected, and the value
+ *                     get_or_insert stored is the caller's data.
+ *   MISMATCH          nothing stored. compare_exchange: the current value is
+ *                     not expected; *observed_present_out says whether the
+ *                     key is present. get_or_insert: the key is present and
+ *                     untouched. A present value's payload is in
+ *                     buf[0 .. *len_out) and its metadata in *meta_out; an
+ *                     absent one writes 0 to both.
+ *   BUFFER_TOO_SMALL  a MISMATCH whose present payload is longer than
+ *                     buf_len: NOTHING is copied, buf is untouched; *len_out
+ *                     and *meta_out (and *observed_present_out) are written,
+ *                     from the same step that compared. Nothing was stored:
+ *                     get_or_insert writes the buffer only when the key was
+ *                     present, so a too-small buffer never accompanies an
+ *                     insert.
+ *   refusal band      the current value WAS expected (get_or_insert: the key
+ *                     was absent), but new cannot be stored: META_OVERFLOW,
+ *                     ALLOCATION_FAILED, CAP_REFUSED (these calls never run
+ *                     the reclaim at the cap that _insert runs; _compact and
+ *                     a retry is the caller's choice), ARENA_FULL. The map is
+ *                     unchanged and nothing is written.
+ *   INVALID_ARGUMENT  NULL map, a present value with NULL data and len > 0
+ *                     or len above PTRDIFF_MAX, NULL buf with buf_len > 0, or
+ *                     buf_len above PTRDIFF_MAX; nothing done.
+ * NULL buf with buf_len 0 is valid (MISMATCH only for an empty payload). The
+ * outputs may be NULL. buf may be the buffer passed as expected_data or data:
+ * the payload is copied out after the comparison, so a retry loop can reuse
+ * one buffer. A retry loop retries on MISMATCH (and on BUFFER_TOO_SMALL,
+ * after growing buf) and stops on OK or a refusal; a refusal is reported only
+ * when the comparison held, so the loop ends.
+ *
+ * Metadata follows insert (above): a payload of 7 bytes or fewer, or one the
+ * map compresses into its slot word, is stored without metadata and reads
+ * back metadata 0, so expecting the hot_meta it was inserted with reports
+ * MISMATCH with metadata 0 (issue #1548).
+ *
+ * compare_exchange_meta swaps the 24-bit metadata in the slot with no payload
+ * copy and no allocation; it is the form for a retry loop whose state lives
+ * in the metadata (a sequence number, a status tag). The current metadata of
+ * a present key is its field, or 0 for a payload stored in its slot word.
+ * OK: swapped (or, new absent, removed). MISMATCH: *observed_present_out and,
+ * when present, *observed_meta_out written. META_OVERFLOW: new_meta is wider
+ * than 24 bits. NO_META_FIELD: the comparison held but the value has no field:
+ * the key is absent (metadata alone cannot create it) or new_meta is non-zero
+ * for a payload stored in its slot word. INVALID_ARGUMENT: NULL map. A refusal
+ * writes nothing.
+ *
+ *     uint32_t meta = 0; bool present = expanse_sync_blob_map_get_meta(m, k, &meta);
+ *     for (;;) {
+ *         bool seen_present; uint32_t seen;
+ *         expanse_blob_status_t st = expanse_sync_blob_map_compare_exchange_meta(
+ *             m, k, present, meta, true, meta + 1, &seen_present, &seen);
+ *         if (st != EXPANSE_BLOB_MISMATCH) break;   // OK, or a refusal
+ *         present = seen_present; meta = seen;      // retry on the observed metadata
+ *     }
+ */
+expanse_blob_status_t expanse_sync_blob_map_compare_exchange(
+    expanse_sync_blob_map_t *map, uint64_t key, bool expected_present,
+    const uint8_t *expected_data, size_t expected_len, uint32_t expected_meta, bool new_present,
+    const uint8_t *new_data, size_t new_len, uint32_t new_meta, bool *observed_present_out,
+    uint8_t *buf, size_t buf_len, size_t *len_out, uint32_t *meta_out);
+expanse_blob_status_t expanse_sync_blob_map_compare_exchange_meta(
+    expanse_sync_blob_map_t *map, uint64_t key, bool expected_present, uint32_t expected_meta,
+    bool new_present, uint32_t new_meta, bool *observed_present_out, uint32_t *observed_meta_out);
+expanse_blob_status_t expanse_sync_blob_map_get_or_insert(expanse_sync_blob_map_t *map,
+                                                          uint64_t key, const uint8_t *data,
+                                                          size_t len, uint32_t hot_meta,
+                                                          uint8_t *buf, size_t buf_len,
+                                                          size_t *len_out, uint32_t *meta_out);
 
 expanse_sync_blob_map_reader_t *expanse_sync_blob_map_reader_new(
     const expanse_sync_blob_map_t *map);
