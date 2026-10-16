@@ -15,6 +15,10 @@ const {
   ExpanseBlobMap,
   SyncExpanseMap,
   SyncExpanseSet,
+  SyncExpanseStrMap,
+  SyncExpanseBytesMap,
+  SyncExpanseOrderedBytesMap,
+  SyncExpanseBlobMap,
 } = require('./index.js');
 
 function test(name, fn) {
@@ -843,6 +847,393 @@ test('saveImage returns a BigInt byte count', () => {
   try {
     fs.unlinkSync(tmpFile);
   } catch (_) {}
+});
+
+// 6b. Shared string, bytes, ordered-bytes and blob maps (#1538)
+console.log('\n--- Shared string / bytes / ordered-bytes / blob maps ---');
+// The addon's objects belong to one JS thread, so none of these has a
+// multi-threaded form; interleaved writes (from inside `update`'s callback) and
+// long retry loops are the concurrency coverage here.
+
+const TOP = 2n ** 64n - 1n;
+
+// The word-valued maps share one contract; run it over each with its own key type.
+const wordMaps = [
+  ['SyncExpanseStrMap', () => new SyncExpanseStrMap(), (n) => `key-${n}`],
+  ['SyncExpanseBytesMap', () => new SyncExpanseBytesMap(), (n) => Buffer.from(`key-${n}`)],
+  ['SyncExpanseOrderedBytesMap', () => new SyncExpanseOrderedBytesMap(), (n) => Buffer.from(`key-${n}`)],
+];
+for (const [name, make, key] of wordMaps) {
+  test(`${name} point operations`, () => {
+    const m = make();
+    assert.strictEqual(m.size(), 0n);
+    assert.strictEqual(m.isEmpty(), true);
+    assert.strictEqual(m.set(key(1), 10n), null);
+    assert.strictEqual(m.set(key(1), 11), 10n); // a Number value is accepted
+    assert.strictEqual(m.set(key(2), TOP), null);
+    assert.strictEqual(m.get(key(1)), 11n);
+    assert.strictEqual(m.get(key(2)), TOP);
+    assert.strictEqual(m.get(key(3)), null);
+    assert.strictEqual(m.has(key(1)), true);
+    assert.strictEqual(m.has(key(3)), false);
+    assert.strictEqual(m.size(), 2n);
+    assert.strictEqual(m.delete(key(1)), true);
+    assert.strictEqual(m.delete(key(1)), false);
+    assert.strictEqual(m.has(key(1)), false);
+    assert.throws(() => m.set(key(9), -1n));
+    assert.throws(() => m.set(key(9), 2n ** 64n));
+    assert.strictEqual(m.has(key(9)), false);
+    m.clear();
+    assert.strictEqual(m.size(), 0n);
+    assert.strictEqual(m.isEmpty(), true);
+  });
+
+  test(`${name} accounting reads`, () => {
+    const m = make();
+    for (let i = 0; i < 2000; i++) m.set(key(i), BigInt(i));
+    const used = m.memUsed();
+    assert(used > 0n);
+    assert(m.memHeld() >= used);
+    for (let i = 0; i < 2000; i++) m.delete(key(i));
+    m.shrinkToFit();
+    assert(m.memUsed() < used);
+  });
+
+  test(`${name} compareExchange covers every branch`, () => {
+    const m = make();
+    const k = key(1);
+    assert.deepStrictEqual(m.compareExchange(k, null, null), { stored: true, observed: null });
+    assert.strictEqual(m.has(k), false);
+    assert.deepStrictEqual(m.compareExchange(k, null, 10), { stored: true, observed: null });
+    assert.deepStrictEqual(m.compareExchange(k, null, 99n), { stored: false, observed: 10n });
+    assert.deepStrictEqual(m.compareExchange(k, undefined, undefined), { stored: false, observed: 10n });
+    assert.deepStrictEqual(m.compareExchange(k, 11n, 12n), { stored: false, observed: 10n });
+    assert.deepStrictEqual(m.compareExchange(key(2), 5n, 6n), { stored: false, observed: null });
+    assert.strictEqual(m.has(key(2)), false);
+    assert.deepStrictEqual(m.compareExchange(k, 10n, 20n), { stored: true, observed: 10n });
+    assert.strictEqual(m.get(k), 20n);
+    assert.deepStrictEqual(m.compareExchange(k, 21n, null), { stored: false, observed: 20n });
+    assert.deepStrictEqual(m.compareExchange(k, 20n, null), { stored: true, observed: 20n });
+    assert.strictEqual(m.has(k), false);
+    assert.deepStrictEqual(m.compareExchange(k, null, 0n), { stored: true, observed: null });
+    assert.deepStrictEqual(m.compareExchange(k, 0n, TOP), { stored: true, observed: 0n });
+    assert.strictEqual(m.get(k), TOP);
+    assert.throws(() => m.compareExchange(k, null, 2n ** 64n));
+    assert.throws(() => m.compareExchange(k, -1n, null));
+  });
+
+  test(`${name} getOrInsert stores only into an absent key`, () => {
+    const m = make();
+    assert.strictEqual(m.getOrInsert(key(7), 70n), null);
+    assert.strictEqual(m.get(key(7)), 70n);
+    assert.strictEqual(m.getOrInsert(key(7), 71n), 70n);
+    assert.strictEqual(m.get(key(7)), 70n);
+    assert.strictEqual(m.getOrInsert(key(8), 0n), null); // zero is a value, not absence
+    assert.strictEqual(m.getOrInsert(key(8), 5n), 0n);
+  });
+
+  test(`${name} update retries on interference and counts exactly`, () => {
+    const m = make();
+    const k = key(1);
+    assert.strictEqual(m.update(k, (cur) => (cur ?? 0n) + 1n), null);
+    assert.strictEqual(m.update(k, (cur) => cur + 1n), 1n);
+    assert.strictEqual(m.update(k, () => null), 2n); // null removes
+    assert.strictEqual(m.has(k), false);
+    m.set(k, 100n);
+    const calls = [];
+    const prev = m.update(k, (cur) => {
+      calls.push(cur);
+      if (calls.length === 1) m.set(k, 200n); // a competing write between the read and the exchange
+      return cur + 1n;
+    });
+    assert.strictEqual(prev, 200n);
+    assert.deepStrictEqual(calls, [100n, 200n]);
+    assert.strictEqual(m.get(k), 201n);
+    assert.throws(() => m.update(k, () => { throw new Error('fn failed'); }), /fn failed/);
+    assert.strictEqual(m.get(k), 201n);
+    assert.throws(() => m.update(k, () => -1n));
+    assert.strictEqual(m.get(k), 201n);
+    const counter = make();
+    for (let i = 0; i < 20000; i++) counter.update(key(0), (cur) => (cur ?? 0n) + 1n);
+    assert.strictEqual(counter.get(key(0)), 20000n);
+  });
+}
+
+test('SyncExpanseStrMap rejects an embedded NUL on every key-taking method', () => {
+  const m = new SyncExpanseStrMap();
+  const bad = 'a\0b';
+  assert.throws(() => m.set(bad, 1n), /NUL/);
+  assert.throws(() => m.get(bad), /NUL/);
+  assert.throws(() => m.has(bad), /NUL/);
+  assert.throws(() => m.delete(bad), /NUL/);
+  assert.throws(() => m.compareExchange(bad, null, 1n), /NUL/);
+  assert.throws(() => m.getOrInsert(bad, 1n), /NUL/);
+  assert.throws(() => m.update(bad, () => 1n), /NUL/);
+  assert.throws(() => m.next(bad), /NUL/);
+  assert.throws(() => m.prev(bad), /NUL/);
+  assert.strictEqual(m.size(), 0n);
+});
+
+test('SyncExpanseStrMap ordered reads', () => {
+  const m = new SyncExpanseStrMap();
+  assert.strictEqual(m.first(), null);
+  assert.strictEqual(m.last(), null);
+  const keys = ['b', 'a', 'ab', 'abc', 'zz', 'é', 'q'.repeat(40)];
+  keys.forEach((k, i) => m.set(k, BigInt(i)));
+  const sorted = [...keys].sort((x, y) => Buffer.compare(Buffer.from(x), Buffer.from(y)));
+  assert.strictEqual(m.first().key, sorted[0]);
+  assert.strictEqual(m.last().key, sorted[sorted.length - 1]);
+  assert.strictEqual(m.first().value, BigInt(keys.indexOf(sorted[0])));
+  // Walk forward and backward through every key.
+  let walked = [];
+  for (let e = m.first(); e; e = m.next(e.key)) walked.push(e.key);
+  assert.deepStrictEqual(walked, sorted);
+  walked = [];
+  for (let e = m.last(); e; e = m.prev(e.key)) walked.push(e.key);
+  assert.deepStrictEqual(walked, [...sorted].reverse());
+  // Inclusive vs exclusive, including a probe that is not a key.
+  assert.strictEqual(m.next('ab').key, 'abc');
+  assert.strictEqual(m.next('ab', true).key, 'ab');
+  assert.strictEqual(m.prev('ab').key, 'a');
+  assert.strictEqual(m.prev('ab', true).key, 'ab');
+  assert.strictEqual(m.next('aa').key, 'ab');
+  assert.strictEqual(m.prev('aa', true).key, 'a');
+  assert.strictEqual(m.next(sorted[sorted.length - 1]), null);
+  assert.strictEqual(m.prev(sorted[0]), null);
+});
+
+test('SyncExpanseBytesMap keys are bytes: NUL, empty and non-UTF-8 are distinct keys', () => {
+  const m = new SyncExpanseBytesMap();
+  const ks = [Buffer.alloc(0), Buffer.from([0]), Buffer.from([0, 0]), Buffer.from([0xff, 0xfe]), Buffer.from('a\0b')];
+  ks.forEach((k, i) => assert.strictEqual(m.set(k, BigInt(i)), null));
+  assert.strictEqual(m.size(), BigInt(ks.length));
+  ks.forEach((k, i) => assert.strictEqual(m.get(k), BigInt(i)));
+  // Buffer, Uint8Array and string spell the same key.
+  assert.strictEqual(m.get(new Uint8Array([0, 0])), 2n);
+  assert.strictEqual(m.get('a\0b'), 4n);
+  assert.strictEqual(m.has(Buffer.from([0, 0, 0])), false);
+});
+
+test('SyncExpanseOrderedBytesMap ordered reads (they block writers) and key decode', () => {
+  const m = new SyncExpanseOrderedBytesMap();
+  assert.strictEqual(m.first(), null);
+  assert.strictEqual(m.last(), null);
+  // Keys with the bytes 0x00 and 0x01 are escaped by the engine; order and decode must survive.
+  const ks = [
+    Buffer.alloc(0),
+    Buffer.from([0]),
+    Buffer.from([0, 0]),
+    Buffer.from([0, 1]),
+    Buffer.from([1]),
+    Buffer.from([1, 0]),
+    Buffer.from('a'),
+    Buffer.from('a\0b'),
+    Buffer.from('ab'),
+    Buffer.from([0xff]),
+  ];
+  const shuffled = [...ks].reverse();
+  shuffled.forEach((k, i) => m.set(k, BigInt(i)));
+  const sorted = [...ks].sort(Buffer.compare);
+  let walked = [];
+  for (let e = m.first(); e; e = m.next(e.key)) walked.push(e.key);
+  assert.deepStrictEqual(walked, sorted);
+  walked = [];
+  for (let e = m.last(); e; e = m.prev(e.key)) walked.push(e.key);
+  assert.deepStrictEqual(walked, [...sorted].reverse());
+  assert.deepStrictEqual(m.next(Buffer.from([0]), true).key, Buffer.from([0]));
+  assert.deepStrictEqual(m.next(Buffer.from([0])).key, Buffer.from([0, 0]));
+  assert.deepStrictEqual(m.prev(Buffer.from([1]), true).key, Buffer.from([1]));
+  assert.deepStrictEqual(m.prev(Buffer.from([1])).key, Buffer.from([0, 1]));
+  assert.strictEqual(m.next(Buffer.from([0xff])), null);
+  assert.strictEqual(m.prev(Buffer.alloc(0)), null);
+  // Point reads agree with the ordered ones on the escaped keys.
+  assert.strictEqual(m.get(Buffer.from([0, 1])), BigInt(shuffled.findIndex((k) => k.equals(Buffer.from([0, 1])))));
+});
+
+test('SyncExpanseBlobMap point operations across payload sizes', () => {
+  const m = new SyncExpanseBlobMap();
+  assert.strictEqual(m.isEmpty(), true);
+  const sizes = [0, 1, 7, 8, 100, 4096, 1 << 20]; // inline, boundary, arena, a chunk-sized payload
+  sizes.forEach((n, i) => {
+    const payload = Buffer.alloc(n, i + 1);
+    m.set(i, payload, i < 3 ? 0 : 7);
+    const got = m.get(i);
+    assert(Buffer.isBuffer(got));
+    assert(got.equals(payload), `payload of ${n} bytes round-trips`);
+  });
+  assert.strictEqual(m.size(), BigInt(sizes.length));
+  assert.strictEqual(m.get(999), null);
+  assert.strictEqual(m.has(2), true);
+  assert.strictEqual(m.contains(999), false);
+  // Metadata: an arena payload keeps it; a payload of 7 bytes or fewer does not (#1548).
+  assert.strictEqual(m.getMeta(4), 7);
+  assert.strictEqual(m.getMeta(2), 0);
+  assert.strictEqual(m.getMeta(999), null);
+  const arena = m.getWithMeta(4);
+  assert.strictEqual(arena.hotMeta, 7);
+  assert.strictEqual(arena.isInline, false);
+  assert(arena.payload.equals(Buffer.alloc(100, 5)));
+  const inline = m.getWithMeta(2);
+  assert.strictEqual(inline.isInline, true);
+  assert.strictEqual(inline.hotMeta, 0);
+  m.set(50, Buffer.from('short'), 9); // metadata offered with a payload that cannot keep it
+  assert.strictEqual(m.getMeta(50), 0);
+  m.set(51, 'a string payload longer than seven', 9);
+  assert.strictEqual(m.get(51).toString(), 'a string payload longer than seven');
+  m.set(52, new Uint8Array([1, 2, 3]));
+  assert.deepStrictEqual([...m.get(52)], [1, 2, 3]);
+  assert.throws(() => m.set(53, Buffer.alloc(100), 1 << 24));
+  assert.strictEqual(m.has(53), false);
+  // Replace, delete, clear.
+  m.set(4, Buffer.from('replaced with a payload longer than seven'), 3);
+  assert.strictEqual(m.get(4).toString(), 'replaced with a payload longer than seven');
+  assert.strictEqual(m.delete(4), true);
+  assert.strictEqual(m.delete(4), false);
+  assert.strictEqual(m.get(4), null);
+  assert(m.memUsed() > 0n);
+  assert(m.memUsedEstimate() > 0n);
+  assert(m.memHeld() >= 0n);
+  m.shrinkToFit();
+  m.clear();
+  assert.strictEqual(m.size(), 0n);
+  assert.strictEqual(m.get(0), null);
+});
+
+test('SyncExpanseBlobMap constructor options, reclaim switch and compact', () => {
+  const m = new SyncExpanseBlobMap(4096, 1 << 20);
+  assert.strictEqual(m.reclaimAtCap(), true);
+  m.setReclaimAtCap(false);
+  assert.strictEqual(m.reclaimAtCap(), false);
+  m.setReclaimAtCap(true);
+  assert.throws(() => new SyncExpanseBlobMap(4096, -1), /negative/i);
+  for (let i = 0; i < 200; i++) m.set(i, Buffer.alloc(100, 1));
+  for (let i = 0; i < 200; i += 2) m.delete(i);
+  const stats = m.compact();
+  assert(stats.liveBytesAfter <= stats.liveBytesBefore);
+  assert(stats.totalAllocatedAfter <= stats.totalAllocatedBefore);
+  for (let i = 1; i < 200; i += 2) assert(m.get(i).equals(Buffer.alloc(100, 1)));
+  assert.strictEqual(m.size(), 100n);
+});
+
+test('SyncExpanseBlobMap compareExchange covers every branch', () => {
+  const m = new SyncExpanseBlobMap();
+  const big = (c) => Buffer.alloc(64, c);
+  const v = (c, hotMeta) => ({ payload: big(c), hotMeta });
+  const seen = (r) => (r.observed === null ? null : { p: r.observed.payload.toString('hex'), h: r.observed.hotMeta });
+  const exp = (c, h) => ({ p: big(c).toString('hex'), h });
+  assert.deepStrictEqual(m.compareExchange(1, null, null), { stored: true, observed: null });
+  assert.strictEqual(m.has(1), false);
+  // insert if absent
+  let r = m.compareExchange(1, null, v(1, 5));
+  assert.strictEqual(r.stored, true);
+  assert.strictEqual(r.observed, null);
+  assert.strictEqual(m.getMeta(1), 5);
+  // insert against a present key: fails and reports what is there
+  r = m.compareExchange(1, null, v(2, 6));
+  assert.strictEqual(r.stored, false);
+  assert.deepStrictEqual(seen(r), exp(1, 5));
+  // absent == absent against a present key
+  r = m.compareExchange(1, undefined, undefined);
+  assert.strictEqual(r.stored, false);
+  // payload matches, metadata does not
+  r = m.compareExchange(1, v(1, 4), v(3, 7));
+  assert.strictEqual(r.stored, false);
+  assert.deepStrictEqual(seen(r), exp(1, 5));
+  // metadata matches, payload does not
+  r = m.compareExchange(1, v(9, 5), v(3, 7));
+  assert.strictEqual(r.stored, false);
+  // expected present against an absent key
+  r = m.compareExchange(2, v(1, 0), v(1, 0));
+  assert.deepStrictEqual({ stored: r.stored, observed: r.observed }, { stored: false, observed: null });
+  // replace on match; hotMeta defaults to 0 when omitted
+  r = m.compareExchange(1, v(1, 5), { payload: big(3) });
+  assert.strictEqual(r.stored, true);
+  assert.deepStrictEqual(seen(r), exp(1, 5));
+  assert(m.get(1).equals(big(3)));
+  assert.strictEqual(m.getMeta(1), 0);
+  // remove if equal
+  r = m.compareExchange(1, v(4, 0), null);
+  assert.strictEqual(r.stored, false);
+  r = m.compareExchange(1, { payload: big(3) }, null);
+  assert.strictEqual(r.stored, true);
+  assert.strictEqual(m.has(1), false);
+  // an unstorable replacement throws and leaves the map unchanged
+  m.set(3, big(1), 2);
+  assert.throws(() => m.compareExchange(3, v(1, 2), v(5, 1 << 24)));
+  assert(m.get(3).equals(big(1)));
+  assert.strictEqual(m.getMeta(3), 2);
+  // a retry loop that stops on a refusal ends
+  let expected = v(1, 2);
+  let outcome = 'running';
+  for (let i = 0; i < 4 && outcome === 'running'; i++) {
+    try {
+      const x = m.compareExchange(3, expected, v(6, 1 << 24));
+      expected = x.observed;
+    } catch (_) {
+      outcome = 'refused';
+    }
+  }
+  assert.strictEqual(outcome, 'refused');
+});
+
+test('SyncExpanseBlobMap compareExchangeMeta and the #1548 inline behaviour', () => {
+  const m = new SyncExpanseBlobMap();
+  assert.deepStrictEqual(m.compareExchangeMeta(1, null, null), { stored: true, observed: null });
+  // metadata alone cannot create a key
+  assert.throws(() => m.compareExchangeMeta(1, null, 5));
+  assert.strictEqual(m.has(1), false);
+  m.set(1, Buffer.alloc(64, 1), 5);
+  assert.deepStrictEqual(m.compareExchangeMeta(1, 4, 6), { stored: false, observed: 5 });
+  assert.deepStrictEqual(m.compareExchangeMeta(1, 5, 6), { stored: true, observed: 5 });
+  assert.strictEqual(m.getMeta(1), 6);
+  assert(m.get(1).equals(Buffer.alloc(64, 1))); // the payload is untouched
+  assert.deepStrictEqual(m.compareExchangeMeta(1, null, 7), { stored: false, observed: 6 });
+  assert.throws(() => m.compareExchangeMeta(1, 6, 1 << 24)); // over 24 bits
+  assert.strictEqual(m.getMeta(1), 6);
+  assert.deepStrictEqual(m.compareExchangeMeta(1, 6, null), { stored: true, observed: 6 }); // removes
+  assert.strictEqual(m.has(1), false);
+  // a payload of 7 bytes or fewer keeps no metadata: it reads 0, and 0 is what matches
+  m.set(2, Buffer.from('tiny'), 9);
+  assert.strictEqual(m.getMeta(2), 0);
+  assert.deepStrictEqual(m.compareExchangeMeta(2, 9, 1), { stored: false, observed: 0 });
+  assert.throws(() => m.compareExchangeMeta(2, 0, 1)); // no metadata field to hold it
+  assert.deepStrictEqual(m.compareExchangeMeta(2, 0, 0), { stored: true, observed: 0 });
+});
+
+test('SyncExpanseBlobMap getOrInsert stores only into an absent key', () => {
+  const m = new SyncExpanseBlobMap();
+  assert.strictEqual(m.getOrInsert(1, Buffer.alloc(64, 1), 3), null); // stored
+  assert(m.get(1).equals(Buffer.alloc(64, 1)));
+  assert.strictEqual(m.getMeta(1), 3);
+  const seen = m.getOrInsert(1, Buffer.alloc(64, 2), 4);
+  assert(seen.payload.equals(Buffer.alloc(64, 1)));
+  assert.strictEqual(seen.hotMeta, 3);
+  assert(m.get(1).equals(Buffer.alloc(64, 1))); // untouched
+  assert.strictEqual(m.getOrInsert(2, Buffer.alloc(0)), null); // empty is a value, not absence
+  assert.strictEqual(m.getOrInsert(2, 'x').payload.length, 0);
+  assert.strictEqual(m.getOrInsert(3, 'small', 0), null);
+  assert.strictEqual(m.getOrInsert(3, 'other').payload.toString(), 'small');
+  assert.throws(() => m.getOrInsert(4, Buffer.alloc(64), 1 << 24));
+  assert.strictEqual(m.has(4), false);
+});
+
+test('SyncExpanseBlobMap retry loop over compareExchangeMeta counts exactly', () => {
+  const m = new SyncExpanseBlobMap();
+  m.set(1, Buffer.alloc(64, 1), 0);
+  for (let i = 0; i < 5000; i++) {
+    let expected = m.getMeta(1);
+    for (;;) {
+      const r = m.compareExchangeMeta(1, expected, expected + 1);
+      if (r.stored) break;
+      expected = r.observed;
+    }
+  }
+  assert.strictEqual(m.getMeta(1), 5000);
+  // an interleaved write between the read and the exchange makes the exchange lose
+  const read = m.getMeta(1);
+  m.set(1, Buffer.alloc(64, 1), read + 10);
+  const lost = m.compareExchangeMeta(1, read, read + 1);
+  assert.deepStrictEqual(lost, { stored: false, observed: read + 10 });
 });
 
 console.log('\nAll 11 test suites passed successfully! 🎉');

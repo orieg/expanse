@@ -447,6 +447,97 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
     "expanse_ordered_bytesmap_next_after": "ordered_bytesmap.rs",
     "expanse_ordered_bytesmap_prev_at_or_before": "ordered_bytesmap.rs",
     "expanse_ordered_bytesmap_prev_before": "ordered_bytesmap.rs",
+
+    # SyncStrMap (22 functions, sync_maps.rs)
+    "expanse_sync_strmap_compare_exchange": "sync_maps.rs",
+    "expanse_sync_strmap_contains": "sync_maps.rs",
+    "expanse_sync_strmap_free": "sync_maps.rs",
+    "expanse_sync_strmap_get": "sync_maps.rs",
+    "expanse_sync_strmap_get_or_insert": "sync_maps.rs",
+    "expanse_sync_strmap_insert": "sync_maps.rs",
+    "expanse_sync_strmap_len": "sync_maps.rs",
+    "expanse_sync_strmap_mem_held": "sync_maps.rs",
+    "expanse_sync_strmap_mem_used": "sync_maps.rs",
+    "expanse_sync_strmap_new": "sync_maps.rs",
+    "expanse_sync_strmap_reader_contains": "sync_maps.rs",
+    "expanse_sync_strmap_reader_first": "sync_maps.rs",
+    "expanse_sync_strmap_reader_free": "sync_maps.rs",
+    "expanse_sync_strmap_reader_get": "sync_maps.rs",
+    "expanse_sync_strmap_reader_last": "sync_maps.rs",
+    "expanse_sync_strmap_reader_new": "sync_maps.rs",
+    "expanse_sync_strmap_reader_next_after": "sync_maps.rs",
+    "expanse_sync_strmap_reader_next_at_or_after": "sync_maps.rs",
+    "expanse_sync_strmap_reader_prev_at_or_before": "sync_maps.rs",
+    "expanse_sync_strmap_reader_prev_before": "sync_maps.rs",
+    "expanse_sync_strmap_remove": "sync_maps.rs",
+    "expanse_sync_strmap_shrink_to_fit": "sync_maps.rs",
+
+    # SyncBytesMap (16 functions, sync_maps.rs)
+    "expanse_sync_bytesmap_compare_exchange": "sync_maps.rs",
+    "expanse_sync_bytesmap_contains": "sync_maps.rs",
+    "expanse_sync_bytesmap_free": "sync_maps.rs",
+    "expanse_sync_bytesmap_get": "sync_maps.rs",
+    "expanse_sync_bytesmap_get_or_insert": "sync_maps.rs",
+    "expanse_sync_bytesmap_insert": "sync_maps.rs",
+    "expanse_sync_bytesmap_len": "sync_maps.rs",
+    "expanse_sync_bytesmap_mem_held": "sync_maps.rs",
+    "expanse_sync_bytesmap_mem_used": "sync_maps.rs",
+    "expanse_sync_bytesmap_new": "sync_maps.rs",
+    "expanse_sync_bytesmap_reader_contains": "sync_maps.rs",
+    "expanse_sync_bytesmap_reader_free": "sync_maps.rs",
+    "expanse_sync_bytesmap_reader_get": "sync_maps.rs",
+    "expanse_sync_bytesmap_reader_new": "sync_maps.rs",
+    "expanse_sync_bytesmap_remove": "sync_maps.rs",
+    "expanse_sync_bytesmap_shrink_to_fit": "sync_maps.rs",
+
+    # SyncOrderedBytesMap (22 functions, sync_maps.rs)
+    "expanse_sync_ordered_bytesmap_compare_exchange": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_contains": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_first": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_free": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_get": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_get_or_insert": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_insert": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_last": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_len": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_mem_held": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_mem_used": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_new": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_next_after": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_next_at_or_after": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_prev_at_or_before": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_prev_before": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_reader_contains": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_reader_free": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_reader_get": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_reader_new": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_remove": "sync_maps.rs",
+    "expanse_sync_ordered_bytesmap_shrink_to_fit": "sync_maps.rs",
+
+    # SyncBlobMap (23 functions, sync_maps.rs)
+    "expanse_sync_blob_map_compact": "sync_maps.rs",
+    "expanse_sync_blob_map_compare_exchange": "sync_maps.rs",
+    "expanse_sync_blob_map_compare_exchange_meta": "sync_maps.rs",
+    "expanse_sync_blob_map_contains": "sync_maps.rs",
+    "expanse_sync_blob_map_free": "sync_maps.rs",
+    "expanse_sync_blob_map_get_into": "sync_maps.rs",
+    "expanse_sync_blob_map_get_meta": "sync_maps.rs",
+    "expanse_sync_blob_map_get_or_insert": "sync_maps.rs",
+    "expanse_sync_blob_map_insert": "sync_maps.rs",
+    "expanse_sync_blob_map_len": "sync_maps.rs",
+    "expanse_sync_blob_map_mem_held": "sync_maps.rs",
+    "expanse_sync_blob_map_mem_used": "sync_maps.rs",
+    "expanse_sync_blob_map_mem_used_estimate": "sync_maps.rs",
+    "expanse_sync_blob_map_new": "sync_maps.rs",
+    "expanse_sync_blob_map_new_with_capacity": "sync_maps.rs",
+    "expanse_sync_blob_map_reader_contains": "sync_maps.rs",
+    "expanse_sync_blob_map_reader_free": "sync_maps.rs",
+    "expanse_sync_blob_map_reader_get_into": "sync_maps.rs",
+    "expanse_sync_blob_map_reader_get_meta": "sync_maps.rs",
+    "expanse_sync_blob_map_reader_new": "sync_maps.rs",
+    "expanse_sync_blob_map_remove": "sync_maps.rs",
+    "expanse_sync_blob_map_set_reclaim_at_cap": "sync_maps.rs",
+    "expanse_sync_blob_map_shrink_to_fit": "sync_maps.rs",
 }
 
 
@@ -458,12 +549,12 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 #                 ('java', 'dotnet', 'python', 'node', 'go').
 STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
     # The shared string map's C handle (#1538). Go, Java and .NET wrap the C
-    # handle; Python and Node will wrap the Rust `SyncExpanseStrMap`; each is a
+    # handle; Node wraps the Rust `SyncExpanseStrMap` (sync_maps.rs); Python will, as a
     # later step of #1538.
     sym: {
         "issue": "#1538",
         "reason": "shared string-map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
-        "ecosystems": {"python", "node"},
+        "ecosystems": {"python"},
     }
     for sym in (
         "expanse_sync_strmap_new",
@@ -490,14 +581,14 @@ STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
         "expanse_sync_strmap_get_or_insert",
     )
 }
-# The shared bytes and ordered-bytes maps' C handles (#1538), deferred in every
-# checked binding but Go for the same reason as the string map's.
+# The shared bytes and ordered-bytes maps' C handles (#1538), deferred in Python
+# only (Go, Java, .NET and Node.js wrap them), for the same reason as the string map's.
 STATED_DEFERRALS.update(
     {
         f"expanse_sync_{kind}_{op}": {
             "issue": "#1538",
             "reason": "shared bytes and ordered-bytes map C handles shipped ahead of their binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
-            "ecosystems": {"python", "node"},
+            "ecosystems": {"python"},
         }
         for kind, ops in (
             ("bytesmap", ()),
@@ -534,14 +625,14 @@ STATED_DEFERRALS.update(
         + ops
     }
 )
-# The shared blob map's C handle (#1538), deferred in every checked binding
+# The shared blob map's C handle (#1538), deferred in Python only
 # for the same reason as the string map's.
 STATED_DEFERRALS.update(
     {
         f"expanse_sync_blob_map_{op}": {
             "issue": "#1538",
             "reason": "shared blob map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
-            "ecosystems": {"python", "node"},
+            "ecosystems": {"python"},
         }
         for op in (
             "new",

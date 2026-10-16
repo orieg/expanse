@@ -15,6 +15,7 @@
 - **`ExpanseBytesMap`**: Unordered map over arbitrary binary keys (including `\0` bytes) (compat: JudyHS).
 - **`ExpanseBlobMap`**: Polymorphic blob storage with inline value packing (≤ 7 bytes stored inline with 0 heap allocations), chunked slab arenas, in-place compaction, and mmap image persistence.
 - **`SyncExpanseMap` / `SyncExpanseSet`**: Thread-safe concurrent structures with optimistic concurrency control (OCC) and epoch-based memory reclamation.
+- **`SyncExpanseStrMap` / `SyncExpanseBytesMap` / `SyncExpanseOrderedBytesMap` / `SyncExpanseBlobMap`**: The same concurrent form for string, byte-string, ordered byte-string and blob (byte payload plus 24-bit hot metadata) maps.
 
 ## Installation
 
@@ -144,6 +145,45 @@ writers excluded.
 syncMap.update(7n, (cur) => (cur ?? 0n) + 1n); // atomic increment
 syncMap.compareExchange(7n, 1n, null); // { stored: true, observed: 1n }: remove if equal to 1n
 ```
+
+### Concurrent string, bytes, ordered-bytes and blob maps
+
+```typescript
+import {
+  SyncExpanseStrMap,
+  SyncExpanseBytesMap,
+  SyncExpanseOrderedBytesMap,
+  SyncExpanseBlobMap,
+} from '@orieg/expanse';
+
+const names = new SyncExpanseStrMap(); // NUL-free string keys, u64 values
+names.set('alice', 1n);
+names.update('alice', (cur) => (cur ?? 0n) + 1n); // atomic increment
+names.next('alice'); // { key: ..., value: ... } | null, byte-lexicographical order
+
+const raw = new SyncExpanseBytesMap(); // Buffer / Uint8Array / string keys, any bytes
+raw.compareExchange(Buffer.from([0, 1]), null, 5n); // { stored: true, observed: null }
+
+const ordered = new SyncExpanseOrderedBytesMap();
+ordered.first(); // { key: Buffer, value: bigint } | null
+
+const blobs = new SyncExpanseBlobMap();
+blobs.set(1n, Buffer.alloc(64, 1), 5 /* hotMeta */);
+blobs.get(1n); // Buffer
+blobs.compareExchangeMeta(1n, 5, 6); // { stored: true, observed: 5 }
+blobs.getOrInsert(2n, 'payload longer than seven bytes'); // null: stored
+```
+
+All four take the same `compareExchange(key, expected, newValue)` and `getOrInsert` forms as
+`SyncExpanseMap` (`null` is absent; `{ stored, observed }`), and `update(key, fn)` on the three
+word-valued maps. The string map rejects a key with an embedded NUL. `get`, `has`, the point
+writes and the string map's `first` / `last` / `next` / `prev` run on the optimistic path; the
+ordered-bytes map's `first` / `last` / `next` / `prev` run with writers excluded, so each call
+blocks concurrent writers. Blob reads return owned `Buffer`s; `getWithMeta` adds `isInline`, and
+a payload of 7 bytes or fewer keeps no hot metadata (it reads `0`). The blob `compareExchange`,
+`compareExchangeMeta` and `getOrInsert` throw when the map refuses the value (metadata over 24 bits,
+a refusing arena), where the C forms return a status. Like `SyncExpanseMap`, the objects belong to
+one JavaScript thread, so an exchange loses only to a write made in between (for example inside `fn`).
 
 ## License
 

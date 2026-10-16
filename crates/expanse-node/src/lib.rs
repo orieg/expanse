@@ -13,6 +13,7 @@ pub mod ordered_bytesmap;
 pub mod set;
 pub mod strmap;
 pub mod sync;
+pub mod sync_maps;
 
 pub use blobmap::ExpanseBlobMap;
 pub use bytesmap::ExpanseBytesMap;
@@ -22,6 +23,9 @@ pub use ordered_bytesmap::ExpanseOrderedBytesMap;
 pub use set::ExpanseSet;
 pub use strmap::ExpanseStrMap;
 pub use sync::{SyncExpanseMap, SyncExpanseSet};
+pub use sync_maps::{
+    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseOrderedBytesMap, SyncExpanseStrMap,
+};
 
 // abi-parity: expanse_version
 /// Returns the Expanse library version string.
