@@ -10,7 +10,7 @@ use pyo3::types::{PyBytes, PyDictMethods, PyString};
 /// Converts a raw key byte string to a Python object: a `str` when the bytes are valid
 /// UTF-8, otherwise `bytes`. This keeps non-UTF-8 keys lossless on readback — a lossy
 /// UTF-8 decode would replace invalid bytes with U+FFFD and mangle the key.
-fn key_to_py(py: Python<'_>, bytes: &[u8]) -> Py<PyAny> {
+pub(crate) fn key_to_py(py: Python<'_>, bytes: &[u8]) -> Py<PyAny> {
     match std::str::from_utf8(bytes) {
         Ok(s) => PyString::new(py, s).into_any().unbind(),
         Err(_) => PyBytes::new(py, bytes).into_any().unbind(),

@@ -11,6 +11,9 @@ reimplemented from first principles in clean-room pure Rust:
 - `ExpanseBlobMap`: 64-bit key-to-byte-payload map with inline packing and arena backing.
 - `SyncExpanseSet`: Multithreaded optimistic OCC integer set with GIL-released queries.
 - `SyncExpanseMap`: Multithreaded optimistic OCC integer map with GIL-released queries.
+- `SyncExpanseStrMap`, `SyncExpanseBytesMap`, `SyncExpanseOrderedBytesMap`, `SyncExpanseBlobMap`:
+  the shared string, bytes, ordered-bytes and blob maps, with GIL-released calls and atomic
+  `compare_exchange` / `get_or_insert`.
 """
 
 from ._expanse import (
@@ -20,8 +23,12 @@ from ._expanse import (
     ExpanseOrderedBytesMap,
     ExpanseSet,
     ExpanseStrMap,
+    SyncExpanseBlobMap,
+    SyncExpanseBytesMap,
     SyncExpanseMap,
+    SyncExpanseOrderedBytesMap,
     SyncExpanseSet,
+    SyncExpanseStrMap,
     __version__,
 )
 
@@ -32,7 +39,11 @@ __all__ = [
     "ExpanseOrderedBytesMap",
     "ExpanseSet",
     "ExpanseStrMap",
+    "SyncExpanseBlobMap",
+    "SyncExpanseBytesMap",
     "SyncExpanseMap",
+    "SyncExpanseOrderedBytesMap",
     "SyncExpanseSet",
+    "SyncExpanseStrMap",
     "__version__",
 ]

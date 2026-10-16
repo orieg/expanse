@@ -12,7 +12,7 @@
 - **Zero-Overhead Memory Compaction**: Consumes as low as **0.07–0.36 bytes/key** on clustered integer sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a — deterministic byte accounting)*, versus tens of bytes/key for Python's standard `set` and `dict`.
 - **Cache-Line Aligned Digital Tries**: $O(\text{depth})$ traversals (at most 8 digit steps for 64-bit keys) keeping branch and leaf evaluations within 64-byte L1 cache lines.
 - **Ordered Traversal & Range Scans**: Native sorted iteration, $O(\text{depth})$ `first()`, `last()`, `next_at_or_after()`, `prev_at_or_before()`, rank (`count_below`), and select (`by_count`) without maintaining secondary index trees.
-- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores without a read lock on the common path. **Which API you call decides whether you get multi-core reads.** Per-call `get` releases and reacquires the GIL around a lookup of tens of nanoseconds, so the handoff costs more than the work and concurrent callers convoy on reacquisition — pinned to the performance cores it measures **0.124x** its own single-thread throughput at 16 threads. `get_many` amortises one release across the batch and is the form to use for concurrent reads; on one thread it is **1.15x [1.04, 1.23]** a plain `dict`, while per-call `get` loses to one. Against the `dict` control only the single-thread comparison is settled; at two threads and above the control is multi-modal and the comparison is `INTERMEDIATE` (#774). The earlier `0.02x` figure for this bullet was measured unpinned and is superseded. Full table and provenance in [§ Concurrency](#concurrency).
+- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet`, `SyncExpanseMap` and the four shared maps of [§4.1](#41-shared-string-bytes-ordered-bytes-and-blob-maps-1538) release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores without a read lock on the common path. **Which API you call decides whether you get multi-core reads.** Per-call `get` releases and reacquires the GIL around a lookup of tens of nanoseconds, so the handoff costs more than the work and concurrent callers convoy on reacquisition — pinned to the performance cores it measures **0.124x** its own single-thread throughput at 16 threads. `get_many` amortises one release across the batch and is the form to use for concurrent reads; on one thread it is **1.15x [1.04, 1.23]** a plain `dict`, while per-call `get` loses to one. Against the `dict` control only the single-thread comparison is settled; at two threads and above the control is multi-modal and the comparison is `INTERMEDIATE` (#774). The earlier `0.02x` figure for this bullet was measured unpinned and is superseded. Full table and provenance in [§ Concurrency](#concurrency).
 - **Strict Typing & IDE Support**: Full PEP 561 compliance (`py.typed` and `__init__.pyi` stubs) for mypy, Pyright, and IDE autocompletion.
 
 ---
@@ -51,6 +51,7 @@ graph TD
     A --> E[ExpanseBytesMap (JudyHS: Arbitrary Bytes Hash Map)]
     A --> F[SyncExpanseSet (Thread-Safe OCC Set)]
     A --> G[SyncExpanseMap (Thread-Safe OCC Map)]
+    A --> H[SyncExpanseStrMap / SyncExpanseBytesMap / SyncExpanseOrderedBytesMap / SyncExpanseBlobMap (Thread-Safe OCC Maps)]
 ```
 
 ### 3.1 `ExpanseSet` (Sparse 64-bit Integer Set / Judy1)
@@ -298,6 +299,34 @@ In standard CPython, multithreaded CPU-bound data lookups often serialize on the
    load snapshotted before and after, busy-CPU delta 1.88 core-equivalents)*. The batch
    size is not tuned against any run — picking one to flatter the curve would be the
    mid-execution tuning section 8.7 warns about.
+
+### 4.1 Shared string, bytes, ordered-bytes and blob maps (#1538)
+
+Four more shared maps wrap the Rust `SyncExpanse*` types that the C `expanse_sync_strmap_*`, `expanse_sync_bytesmap_*`, `expanse_sync_ordered_bytesmap_*` and `expanse_sync_blob_map_*` handles expose (`docs/COMPAT.md`, *Shared-map C handles*). Every call releases the GIL, writers from any thread run beside each other and beside readers, and each class has atomic `compare_exchange` and `get_or_insert` plus `update_with(key, fn)`, the retry loop over `compare_exchange` (it takes the GIL only to call `fn`, which may run several times and must be free of side effects; an exception from `fn` propagates with the key unchanged).
+
+| Class | Keys | Values | Reads |
+|---|---|---|---|
+| `SyncExpanseStrMap` | `str`, `bytes` or `bytearray`, no NUL (`ValueError`) | `int` (u64) | `get`, `contains`, and the ordered `first`, `last`, `next(key, inclusive)`, `prev(key, inclusive)`, all optimistic. A key comes back as `str` when it is valid UTF-8 and as `bytes` otherwise. |
+| `SyncExpanseBytesMap` | any bytes, NUL and empty allowed (`str` is UTF-8 encoded) | `int` (u64) | `get`, `contains`, optimistic. Unordered: no ordered reads. |
+| `SyncExpanseOrderedBytesMap` | any bytes, NUL and empty allowed | `int` (u64) | `get`, `contains` (a reader per call), and `first`, `last`, `next_at_or_after`, `next_after`, `prev_at_or_before`, `prev_before`, which **exclude writers** for their duration: a writer waits for a running ordered read and the reverse. |
+| `SyncExpanseBlobMap` | `int` (u64) | `bytes` payload of any length plus a `hot_meta` | `get` returns `(bytes, hot_meta)`, `get_bytes`, `get_meta`, `contains`, optimistic; the payload is an owned copy, so there is no buffer to size. |
+
+The word-valued maps return what `SyncExpanseMap` returns: `compare_exchange(key, expected, new)` is `(stored, observed)` with `None` for absent on both sides, `get_or_insert(key, val)` returns the existing value or `None` when it stored, and `insert`/`remove` return the previous value. Point reads go through a per-thread cache of the Rust detached reader (one registration per thread and map); `SyncExpanseOrderedBytesMap` has no detached reader and registers one per point read.
+
+The blob map returns a status string instead of a flag, as `expanse_blob_status_t` does: `"ok"`, `"mismatch"`, `"meta_overflow"`, `"allocation_failed"`, `"cap_refused"` (the capacity cap refused a chunk and nothing was compacted), `"arena_full"` (the call compacted and the record still does not fit) and `"no_meta_field"`. `compare_exchange(key, expected, new)` takes `(data, hot_meta)` tuples or `None` and returns `(status, observed)`; `compare_exchange_meta(key, expected, new)` swaps only the 24-bit metadata with no payload copy and is the form for a retry loop whose state lives in the metadata; `get_or_insert(key, data, hot_meta=0)` returns `("ok", None)`, `("mismatch", existing)` or a refusal status. `insert` raises `RuntimeError` on a refusal and `insert_status` returns the status. A refusal is reported only when the comparison held, and leaves the map unchanged, so a retry loop retries on `"mismatch"` and stops on anything else. Only the low 24 bits of `hot_meta` are stored beside an arena payload, and a payload of 7 bytes or fewer reads back `hot_meta == 0`, so expecting the metadata it was inserted with reports `"mismatch"` (open issue #1548; the binding does not change the engine's behaviour).
+
+```python
+from expanse_trie import SyncExpanseBlobMap, SyncExpanseStrMap
+
+hits = SyncExpanseStrMap()
+hits.update_with("home", lambda cur: (cur or 0) + 1)   # atomic counter, no lost update
+
+blobs = SyncExpanseBlobMap()
+status, existing = blobs.get_or_insert(7, b"x" * 64, 3)  # one caller wins per key
+status, seen = blobs.compare_exchange(7, (b"x" * 64, 3), (b"y" * 64, 4))
+```
+
+Not wrapped, as for the C handles: the closure forms `with_locked` / `with_exclusive`, `stats`, the collector census, and a cursor object. The shared maps have no iterator or `keys()` / `items()` view; walk a string or ordered-bytes map with `first` and `next`.
 
 ### Multithreaded Concurrency Example:
 

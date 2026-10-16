@@ -10,9 +10,14 @@ pub mod buffer;
 pub mod bytesmap;
 pub mod map;
 pub mod ordered_bytesmap;
+pub(crate) mod reader_cache;
 pub mod set;
 pub mod strmap;
 pub mod sync;
+pub mod sync_blobmap;
+pub mod sync_bytesmap;
+pub mod sync_ordered_bytesmap;
+pub mod sync_strmap;
 
 use pyo3::prelude::*;
 
@@ -35,6 +40,10 @@ pub use sync::{
     SyncExpanseMap, SyncExpanseMapItemIter, SyncExpanseMapKeyIter, SyncExpanseMapRangeIter,
     SyncExpanseMapValueIter, SyncExpanseSet, SyncExpanseSetIter, SyncExpanseSetRangeIter,
 };
+pub use sync_blobmap::SyncExpanseBlobMap;
+pub use sync_bytesmap::SyncExpanseBytesMap;
+pub use sync_ordered_bytesmap::SyncExpanseOrderedBytesMap;
+pub use sync_strmap::SyncExpanseStrMap;
 
 // abi-parity: expanse_version
 /// The `_expanse` PyO3 module.
@@ -47,6 +56,10 @@ fn _expanse(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ExpanseSet>()?;
     m.add_class::<SyncExpanseMap>()?;
     m.add_class::<SyncExpanseSet>()?;
+    m.add_class::<SyncExpanseStrMap>()?;
+    m.add_class::<SyncExpanseBytesMap>()?;
+    m.add_class::<SyncExpanseOrderedBytesMap>()?;
+    m.add_class::<SyncExpanseBlobMap>()?;
     m.add_class::<ExpanseStrMap>()?;
     m.add_class::<ExpanseBytesMap>()?;
     m.add_class::<ExpanseBlobMap>()?;

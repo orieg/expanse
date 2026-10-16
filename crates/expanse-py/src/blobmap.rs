@@ -8,12 +8,13 @@ use pyo3::types::{PyBytes, PyDict};
 
 /// The status name `insert_status` returns for an engine refusal, matching
 /// `expanse_blob_status_t` in `include/expanse.h`.
-fn status_name(e: ArenaError) -> &'static str {
+pub(crate) fn status_name(e: ArenaError) -> &'static str {
     match e {
         ArenaError::MetaOverflow => "meta_overflow",
         ArenaError::AllocationFailed => "allocation_failed",
         ArenaError::OffsetOverflow => "cap_refused",
         ArenaError::ArenaFull => "arena_full",
+        ArenaError::NoMetaField => "no_meta_field",
         _ => "error",
     }
 }
