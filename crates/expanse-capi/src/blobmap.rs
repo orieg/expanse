@@ -106,6 +106,10 @@ pub enum ExpanseBlobStatus {
     /// not fit the caller's buffer. Nothing was copied; the required length
     /// and the metadata were reported.
     BufferTooSmall = 2,
+    /// Outcome of a shared-map read-modify-write: the current value was not
+    /// the expected one (or, for `get_or_insert`, the key was present). Nothing
+    /// was stored; the current value was reported.
+    Mismatch = 3,
     /// Refused: `hot_meta` is wider than 24 bits. The map is unchanged.
     MetaOverflow = 16,
     /// Refused: the payload is larger than a chunk, or memory allocation
@@ -117,6 +121,10 @@ pub enum ExpanseBlobStatus {
     /// Refused: the cap refused the record's chunk after this insert
     /// compacted the arena. Every arena payload has moved.
     ArenaFull = 19,
+    /// Refused: a metadata-only exchange offered metadata to a value with no
+    /// metadata field (an absent key, or a payload stored in its slot word).
+    /// The map is unchanged.
+    NoMetaField = 20,
     /// Usage error: a NULL handle or output, NULL `data` with `len > 0`, or
     /// `len` above `PTRDIFF_MAX`. Nothing was done.
     InvalidArgument = 32,
@@ -131,6 +139,7 @@ impl From<ArenaError> for ExpanseBlobStatus {
             ArenaError::AllocationFailed => Self::AllocationFailed,
             ArenaError::OffsetOverflow => Self::CapRefused,
             ArenaError::ArenaFull => Self::ArenaFull,
+            ArenaError::NoMetaField => Self::NoMetaField,
             _ => Self::Error,
         }
     }

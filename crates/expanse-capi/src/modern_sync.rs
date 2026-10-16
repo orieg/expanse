@@ -11,6 +11,7 @@ use super::{ExpanseOrderedBytesNavStatus, ExpanseStrNavStatus};
 use crate::blobmap::ExpanseBlobStatus;
 use core::ffi::{c_char, c_void};
 use core::ptr::NonNull;
+use expanse_trie::blobmap::CompareExchangeError;
 use expanse_trie::ordered_bytesmap::{EscapeDecodeError, ExpanseOrderedBytesMap};
 use expanse_trie::sync::{
     BlobBufferTooSmall, BlobReader, BytesReader, MapReader, OrderedBytesReader, SetReader,
@@ -2005,4 +2006,498 @@ pub unsafe extern "C" fn expanse_sync_blob_map_reader_contains(
 ) -> bool {
     // SAFETY: null or live reader, used by this thread alone, per contract.
     unsafe { reader.as_mut() }.is_some_and(|r| r.0.contains(key))
+}
+
+// ---- Read-modify-write on the shared string, bytes, ordered-bytes and blob
+// maps (#1538) ----
+//
+// Each entry point is ONE call of the Rust map's `compare_exchange` (or
+// `get_or_insert`, itself `compare_exchange(key, None, Some(value))`), so it
+// is the same single linearizable step with the same optimistic form and
+// exclusive fallback; the shim adds no engine path. The word-valued maps take
+// the `u64` map's convention (`expanse_sync_map_compare_exchange`,
+// `expanse_sync_map_get_or_insert`): presence flags on both sides, the
+// observed word reported on both outcomes. The blob map reports through
+// `expanse_blob_status_t` and copies an observed payload into a caller buffer
+// after the exchange has returned, from the one value that exchange read.
+
+/// Writes a word-valued exchange's outcome under the
+/// [`expanse_sync_map_compare_exchange`] convention and returns whether the
+/// store happened.
+///
+/// # Safety
+///
+/// `observed_present_out` and `observed_out` null or writable.
+unsafe fn put_word_exchange(
+    res: Result<Option<u64>, Option<u64>>,
+    observed_present_out: *mut bool,
+    observed_out: *mut u64,
+) -> bool {
+    let (exchanged, observed) = match res {
+        Ok(prev) => (true, prev),
+        Err(seen) => (false, seen),
+    };
+    // SAFETY: both outputs null or writable per this function's contract.
+    unsafe {
+        put(observed_present_out, observed.is_some());
+        if let Some(v) = observed {
+            put(observed_out, v);
+        }
+    }
+    exchanged
+}
+
+/// Writes a word-valued `get_or_insert` outcome under the
+/// [`expanse_sync_map_get_or_insert`] convention: true when stored, else
+/// false with the present value in `*existing_out`.
+///
+/// # Safety
+///
+/// `existing_out` null or writable.
+unsafe fn put_word_get_or_insert(existing: Option<u64>, existing_out: *mut u64) -> bool {
+    match existing {
+        // SAFETY: `existing_out` null or writable per this function's contract.
+        Some(v) => unsafe {
+            put(existing_out, v);
+            false
+        },
+        None => true,
+    }
+}
+
+/// Stores `new_value` under `key` only if the key's current word is
+/// `expected_value`, as one linearizable step; the convention, presence flags
+/// and outputs are [`expanse_sync_map_compare_exchange`]'s. A null `map` or
+/// `key` returns false and writes nothing.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `key` null or a valid NUL-terminated
+/// C string; `observed_present_out` and `observed_out` null or writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)] // the `u64` map's C signature, with a string key
+pub unsafe extern "C" fn expanse_sync_strmap_compare_exchange(
+    map: *const SyncExpanseStrMap,
+    key: *const c_char,
+    expected_present: bool,
+    expected_value: u64,
+    new_present: bool,
+    new_value: u64,
+    observed_present_out: *mut bool,
+    observed_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live handle and null or valid C string per contract.
+    let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    let res = m.compare_exchange(
+        k,
+        expected_present.then_some(expected_value),
+        new_present.then_some(new_value),
+    );
+    // SAFETY: outputs null or writable per contract.
+    unsafe { put_word_exchange(res, observed_present_out, observed_out) }
+}
+
+/// Stores `value` under `key` only if `key` is absent, as one linearizable
+/// step; the convention is [`expanse_sync_map_get_or_insert`]'s. A null `map`
+/// or `key` returns false and writes nothing.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `key` null or a valid NUL-terminated
+/// C string; `existing_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_sync_strmap_get_or_insert(
+    map: *const SyncExpanseStrMap,
+    key: *const c_char,
+    value: u64,
+    existing_out: *mut u64,
+) -> bool {
+    // SAFETY: null or live handle and null or valid C string per contract.
+    let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { cstr(key) }) else {
+        return false;
+    };
+    // SAFETY: `existing_out` null or writable per contract.
+    unsafe { put_word_get_or_insert(m.get_or_insert(k, value), existing_out) }
+}
+
+/// The ordered-bytes map's `get_or_insert`. `SyncExpanseOrderedBytesMap` has
+/// none; the bytes and string maps define theirs as exactly this exchange
+/// with `expected = None`, mapped the same way, so the C call has the same
+/// single-step semantics.
+fn ordered_bytes_get_or_insert(
+    m: &SyncExpanseOrderedBytesMap,
+    key: &[u8],
+    val: u64,
+) -> Option<u64> {
+    match m.compare_exchange(key, None, Some(val)) {
+        Ok(_) => None,
+        Err(seen) => {
+            // A mismatch against `None` observed a value.
+            debug_assert!(seen.is_some(), "an absent-expected exchange failed on None");
+            seen
+        }
+    }
+}
+
+/// The two byte-string maps' read-modify-write entry points. `$rust_goi` is
+/// the Rust `get_or_insert` the C call runs, given the map, key and value.
+macro_rules! sync_bytes_rmw {
+    (
+        map: $Map:ty,
+        compare_exchange: $cx:ident,
+        get_or_insert: $goi:ident,
+        rust_get_or_insert: $rust_goi:path $(,)?
+    ) => {
+        /// Stores `new_value` under `key` only if the key's current word is
+        /// `expected_value`, as one linearizable step; the convention,
+        /// presence flags and outputs are [`expanse_sync_map_compare_exchange`]'s.
+        /// A null `map`, or a null `key` with `len > 0`, returns false and
+        /// writes nothing.
+        ///
+        /// # Safety
+        ///
+        /// `map` must be null or a live handle; `key` readable for `len` bytes
+        /// (null only when `len == 0`); `observed_present_out` and
+        /// `observed_out` null or writable.
+        #[unsafe(no_mangle)]
+        #[allow(clippy::too_many_arguments)] // the `u64` map's C signature, with a byte-string key
+        pub unsafe extern "C" fn $cx(
+            map: *const $Map,
+            key: *const c_void,
+            len: usize,
+            expected_present: bool,
+            expected_value: u64,
+            new_present: bool,
+            new_value: u64,
+            observed_present_out: *mut bool,
+            observed_out: *mut u64,
+        ) -> bool {
+            // SAFETY: null or live handle and a key readable for `len` bytes
+            // per contract.
+            let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { bytes(key, len) }) else {
+                return false;
+            };
+            let res = m.compare_exchange(
+                k,
+                expected_present.then_some(expected_value),
+                new_present.then_some(new_value),
+            );
+            // SAFETY: outputs null or writable per contract.
+            unsafe { put_word_exchange(res, observed_present_out, observed_out) }
+        }
+
+        /// Stores `value` under `key` only if `key` is absent, as one
+        /// linearizable step; the convention is
+        /// [`expanse_sync_map_get_or_insert`]'s. A null `map`, or a null `key`
+        /// with `len > 0`, returns false and writes nothing.
+        ///
+        /// # Safety
+        ///
+        /// `map` must be null or a live handle; `key` readable for `len` bytes
+        /// (null only when `len == 0`); `existing_out` null or writable.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $goi(
+            map: *const $Map,
+            key: *const c_void,
+            len: usize,
+            value: u64,
+            existing_out: *mut u64,
+        ) -> bool {
+            // SAFETY: null or live handle and a key readable for `len` bytes
+            // per contract.
+            let (Some(m), Some(k)) = (unsafe { map.as_ref() }, unsafe { bytes(key, len) }) else {
+                return false;
+            };
+            // SAFETY: `existing_out` null or writable per contract.
+            unsafe { put_word_get_or_insert($rust_goi(m, k, value), existing_out) }
+        }
+    };
+}
+
+sync_bytes_rmw!(
+    map: SyncExpanseBytesMap,
+    compare_exchange: expanse_sync_bytesmap_compare_exchange,
+    get_or_insert: expanse_sync_bytesmap_get_or_insert,
+    rust_get_or_insert: SyncExpanseBytesMap::get_or_insert,
+);
+
+sync_bytes_rmw!(
+    map: SyncExpanseOrderedBytesMap,
+    compare_exchange: expanse_sync_ordered_bytesmap_compare_exchange,
+    get_or_insert: expanse_sync_ordered_bytesmap_get_or_insert,
+    rust_get_or_insert: ordered_bytes_get_or_insert,
+);
+
+/// A blob value argument: `Ok(None)` when `present` is false (the pointer,
+/// length and metadata are then ignored), `Ok(Some((bytes, meta)))` when it
+/// is present and readable, `Err(())` for a null `data` with `len > 0` or a
+/// `len` above `isize::MAX`.
+///
+/// # Safety
+///
+/// When `present`, `data` readable for `len` bytes (null only when `len == 0`).
+unsafe fn blob_arg<'a>(
+    present: bool,
+    data: *const u8,
+    len: usize,
+    meta: u32,
+) -> Result<Option<(&'a [u8], u32)>, ()> {
+    if !present {
+        return Ok(None);
+    }
+    // SAFETY: `data` readable for `len` bytes per this function's contract.
+    match unsafe { bytes(data.cast(), len) } {
+        Some(d) => Ok(Some((d, meta))),
+        None => Err(()),
+    }
+}
+
+/// Whether a caller buffer is usable, as `blob_get_into` checks it: false
+/// for a null `buf` with `buf_len > 0` or a `buf_len` above `isize::MAX`.
+fn blob_buf_ok(buf: *mut u8, buf_len: usize) -> bool {
+    buf_len <= isize::MAX as usize && !(buf.is_null() && buf_len != 0)
+}
+
+/// Reports a present value a read-modify-write observed: `Mismatch` with the
+/// payload copied into `buf[..len]` when it fits, else `BufferTooSmall` with
+/// nothing copied; `*len_out` and `*meta_out` are written either way. The
+/// value is the one the exchange read, so length, metadata and bytes agree.
+///
+/// The copy goes through raw pointers after every borrow of the caller's
+/// input payloads has ended, so `buf` may be the buffer the caller passed as
+/// `expected_data` or `data` (a retry loop's pattern).
+///
+/// # Safety
+///
+/// `buf` null or writable for `buf_len` bytes (`blob_buf_ok` holds);
+/// `len_out` and `meta_out` null or writable.
+unsafe fn put_blob_observed(
+    data: &[u8],
+    meta: u32,
+    buf: *mut u8,
+    buf_len: usize,
+    len_out: *mut usize,
+    meta_out: *mut u32,
+) -> ExpanseBlobStatus {
+    let status = if data.len() <= buf_len {
+        if !data.is_empty() {
+            // SAFETY: `buf` is non-null (a null buffer has `buf_len == 0`,
+            // and the payload is non-empty) and writable for `buf_len >=
+            // data.len()` bytes per contract; `data` is an owned copy the
+            // exchange returned, so the two do not overlap.
+            unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), buf, data.len()) };
+        }
+        ExpanseBlobStatus::Mismatch
+    } else {
+        ExpanseBlobStatus::BufferTooSmall
+    };
+    // SAFETY: out-pointers null or writable per contract.
+    unsafe {
+        put(len_out, data.len());
+        put(meta_out, meta);
+    }
+    status
+}
+
+/// Stores `new` under `key` only if the key's current value is `expected`,
+/// as one linearizable step. A value is the payload bytes and the 24-bit
+/// metadata, both compared; `*_present == false` means absent (the pointer,
+/// length and metadata are then ignored): an absent `expected` stores only
+/// into an absent key, an absent `new` removes the key.
+///
+/// - `Ok`: stored (or removed); nothing written. The value replaced was
+///   `expected`.
+/// - `Mismatch`: the current value is not `expected`; the map is unchanged.
+///   `*observed_present_out` is written; when the key is present, its payload
+///   is in `buf[..*len_out]` and its metadata in `*meta_out`; when absent,
+///   `*len_out` and `*meta_out` are `0`.
+/// - `BufferTooSmall`: a mismatch whose present payload is longer than
+///   `buf_len`: nothing copied, `*observed_present_out`, `*len_out` and
+///   `*meta_out` written from the same exchange.
+/// - A refusal (`MetaOverflow`, `AllocationFailed`, `CapRefused`,
+///   `ArenaFull`): the current value **was** `expected` but `new` cannot be
+///   stored; the map is unchanged and nothing written.
+/// - `InvalidArgument`: a null `map`, a present payload with null data and
+///   `len > 0` or a length above `isize::MAX`, or a null `buf` with
+///   `buf_len > 0` or `buf_len` above `isize::MAX`; nothing done.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `expected_data` and `new_data`, when
+/// their `_present` flag is set, readable for their lengths (null only when
+/// the length is 0); `buf` null or writable for `buf_len` bytes, and it may
+/// overlap `expected_data` or `new_data`; the other outputs null or writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)] // C has no tuple: each value is flag, data, length, metadata
+pub unsafe extern "C" fn expanse_sync_blob_map_compare_exchange(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+    expected_present: bool,
+    expected_data: *const u8,
+    expected_len: usize,
+    expected_meta: u32,
+    new_present: bool,
+    new_data: *const u8,
+    new_len: usize,
+    new_meta: u32,
+    observed_present_out: *mut bool,
+    buf: *mut u8,
+    buf_len: usize,
+    len_out: *mut usize,
+    meta_out: *mut u32,
+) -> ExpanseBlobStatus {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    if !blob_buf_ok(buf, buf_len) {
+        return ExpanseBlobStatus::InvalidArgument;
+    }
+    let (Ok(expected), Ok(new)) = (
+        // SAFETY: `expected_data` readable for `expected_len` bytes when
+        // present, per contract.
+        unsafe { blob_arg(expected_present, expected_data, expected_len, expected_meta) },
+        // SAFETY: `new_data` readable for `new_len` bytes when present, per
+        // contract.
+        unsafe { blob_arg(new_present, new_data, new_len, new_meta) },
+    ) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    // The borrows of the caller's payloads end with this call: what follows
+    // writes only from the owned value it returns.
+    let observed = match m.compare_exchange(key, expected, new) {
+        Ok(_) => return ExpanseBlobStatus::Ok,
+        Err(CompareExchangeError::Unstorable(cause)) => return cause.into(),
+        Err(CompareExchangeError::Mismatch(seen)) => seen,
+    };
+    // SAFETY: outputs null or writable, `buf` valid for `buf_len` bytes, per
+    // contract and `blob_buf_ok`.
+    unsafe {
+        put(observed_present_out, observed.is_some());
+        match observed {
+            Some((data, meta)) => put_blob_observed(&data, meta, buf, buf_len, len_out, meta_out),
+            None => {
+                put(len_out, 0);
+                put(meta_out, 0);
+                ExpanseBlobStatus::Mismatch
+            }
+        }
+    }
+}
+
+/// Swaps the 24-bit hot metadata of `key` in its slot, with no payload copy,
+/// only if the current metadata is `expected_meta`, as one linearizable step.
+/// The current metadata of a present key is its stored field, or `0` for a
+/// payload stored in its slot word; `expected_present == false` expects the
+/// key absent, `new_present == false` removes the key.
+///
+/// - `Ok`: swapped (or removed); nothing written.
+/// - `Mismatch`: the current metadata is not `expected`; the map is unchanged;
+///   `*observed_present_out` and, when present, `*observed_meta_out` written.
+/// - `MetaOverflow`: the comparison held but `new_meta` is wider than 24 bits.
+/// - `NoMetaField`: the comparison held but the value has no metadata field:
+///   the key is absent (metadata alone cannot create it), or `new_meta` is
+///   non-zero for a payload stored in its slot word.
+/// - `InvalidArgument`: a null `map`.
+///
+/// Refusals leave the map unchanged and write nothing.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `observed_present_out` and
+/// `observed_meta_out` null or writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)] // the `u64` map's C signature, metadata for words
+pub unsafe extern "C" fn expanse_sync_blob_map_compare_exchange_meta(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+    expected_present: bool,
+    expected_meta: u32,
+    new_present: bool,
+    new_meta: u32,
+    observed_present_out: *mut bool,
+    observed_meta_out: *mut u32,
+) -> ExpanseBlobStatus {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    let res = m.compare_exchange_meta(
+        key,
+        expected_present.then_some(expected_meta),
+        new_present.then_some(new_meta),
+    );
+    match res {
+        Ok(_) => ExpanseBlobStatus::Ok,
+        Err(CompareExchangeError::Unstorable(cause)) => cause.into(),
+        Err(CompareExchangeError::Mismatch(seen)) => {
+            // SAFETY: outputs null or writable per contract.
+            unsafe {
+                put(observed_present_out, seen.is_some());
+                if let Some(meta) = seen {
+                    put(observed_meta_out, meta);
+                }
+            }
+            ExpanseBlobStatus::Mismatch
+        }
+    }
+}
+
+/// Stores `data` with `hot_meta` under `key` only if `key` is absent, as one
+/// linearizable step.
+///
+/// - `Ok`: the key was absent and the value is stored; nothing written.
+/// - `Mismatch`: the key was present and is left untouched; its payload is
+///   in `buf[..*len_out]` and its metadata in `*meta_out`.
+/// - `BufferTooSmall`: the key was present and its payload is longer than
+///   `buf_len`: nothing stored, nothing copied, `*len_out` and `*meta_out`
+///   written from the same exchange. A too-small buffer never coexists with
+///   an insert: the buffer is written only when nothing was stored.
+/// - A refusal (`MetaOverflow`, `AllocationFailed`, `CapRefused`,
+///   `ArenaFull`): the key was absent and `data` cannot be stored; the map
+///   is unchanged and nothing written.
+/// - `InvalidArgument`: a null `map`, null `data` with `len > 0`, `len` above
+///   `isize::MAX`, or a null `buf` with `buf_len > 0` or `buf_len` above
+///   `isize::MAX`; nothing done.
+///
+/// Of any number of callers racing on one absent key, exactly one gets `Ok`.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle; `data` readable for `len` bytes
+/// (null only when `len == 0`); `buf` null or writable for `buf_len` bytes,
+/// and it may overlap `data`; `len_out` and `meta_out` null or writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)] // insert's arguments plus the caller buffer
+pub unsafe extern "C" fn expanse_sync_blob_map_get_or_insert(
+    map: *const SyncExpanseBlobMap,
+    key: u64,
+    data: *const u8,
+    len: usize,
+    hot_meta: u32,
+    buf: *mut u8,
+    buf_len: usize,
+    len_out: *mut usize,
+    meta_out: *mut u32,
+) -> ExpanseBlobStatus {
+    // SAFETY: null or live handle, and `data` readable for `len` bytes, per
+    // contract.
+    let (Some(m), Some(d)) = (unsafe { map.as_ref() }, unsafe { bytes(data.cast(), len) }) else {
+        return ExpanseBlobStatus::InvalidArgument;
+    };
+    if !blob_buf_ok(buf, buf_len) {
+        return ExpanseBlobStatus::InvalidArgument;
+    }
+    // The borrow of `data` ends with this call.
+    match m.get_or_insert(key, d, hot_meta) {
+        Ok(None) => ExpanseBlobStatus::Ok,
+        // SAFETY: outputs null or writable, `buf` valid for `buf_len` bytes,
+        // per contract and `blob_buf_ok`.
+        Ok(Some((present, meta))) => unsafe {
+            put_blob_observed(&present, meta, buf, buf_len, len_out, meta_out)
+        },
+        Err(cause) => cause.into(),
+    }
 }

@@ -778,3 +778,813 @@ fn reader_handles_freed_on_another_thread() {
         expanse_sync_blob_map_free(m);
     }
 }
+
+// ---- Read-modify-write: `_compare_exchange`, `_compare_exchange_meta` and
+// `_get_or_insert` ----
+
+use expanse::modern::{
+    expanse_sync_blob_map_compare_exchange, expanse_sync_blob_map_compare_exchange_meta,
+    expanse_sync_blob_map_get_or_insert,
+};
+
+/// The outcome of one blob read-modify-write: its status, the buffer as the
+/// call left it, and the out-values (`None` where the call left the sentinel).
+#[derive(Debug, PartialEq, Eq)]
+struct Rmw {
+    status: Status,
+    present: Option<bool>,
+    buf: Vec<u8>,
+    len: Option<usize>,
+    meta: Option<u32>,
+}
+
+const NO_LEN: usize = usize::MAX;
+const NO_META: u32 = u32::MAX;
+
+impl Rmw {
+    /// What a call that writes nothing leaves behind.
+    fn untouched(status: Status, buf_len: usize) -> Self {
+        Rmw {
+            status,
+            present: None,
+            buf: vec![FILL; buf_len],
+            len: None,
+            meta: None,
+        }
+    }
+
+    /// A reported present value, copied (`buf_len >= data.len()`) or not.
+    fn observed(data: &[u8], meta: u32, buf_len: usize, with_present: bool) -> Self {
+        let mut buf = vec![FILL; buf_len];
+        let status = if data.len() <= buf_len {
+            buf[..data.len()].copy_from_slice(data);
+            Status::Mismatch
+        } else {
+            Status::BufferTooSmall
+        };
+        Rmw {
+            status,
+            present: with_present.then_some(true),
+            buf,
+            len: Some(data.len()),
+            meta: Some(meta),
+        }
+    }
+}
+
+type Val<'a> = Option<(&'a [u8], u32)>;
+
+/// `_compare_exchange` into a fresh `buf_len`-byte buffer filled with [`FILL`].
+fn cx(m: *const Map, k: u64, expected: Val<'_>, new: Val<'_>, buf_len: usize) -> Rmw {
+    let mut buf = vec![FILL; buf_len];
+    let (mut present, mut len, mut meta) = (2u8, NO_LEN, NO_META);
+    let (ep, ed, el, em) = split(expected);
+    let (np, nd, nl, nm) = split(new);
+    // SAFETY: `m` is live for every caller; the payloads are readable for
+    // their lengths; `buf` is writable for `buf_len` bytes; the outs are
+    // locals (`present` read back below only as a byte, see `as_present`).
+    let status = unsafe {
+        expanse_sync_blob_map_compare_exchange(
+            m,
+            k,
+            ep,
+            ed,
+            el,
+            em,
+            np,
+            nd,
+            nl,
+            nm,
+            (&raw mut present).cast::<bool>(),
+            buf.as_mut_ptr(),
+            buf_len,
+            &raw mut len,
+            &raw mut meta,
+        )
+    };
+    Rmw {
+        status,
+        present: as_present(present),
+        buf,
+        len: (len != NO_LEN).then_some(len),
+        meta: (meta != NO_META).then_some(meta),
+    }
+}
+
+/// A value argument as the C call takes it.
+fn split(v: Val<'_>) -> (bool, *const u8, usize, u32) {
+    match v {
+        Some((d, meta)) => (true, d.as_ptr(), d.len(), meta),
+        None => (false, core::ptr::null(), 0, 0),
+    }
+}
+
+/// A `bool` out-parameter pre-filled with the byte 2, which is no `bool`:
+/// `None` when the call left it, else the `bool` it wrote.
+fn as_present(byte: u8) -> Option<bool> {
+    match byte {
+        0 => Some(false),
+        1 => Some(true),
+        2 => None,
+        other => panic!("a bool out-parameter holds {other}"),
+    }
+}
+
+/// `_get_or_insert` into a fresh `buf_len`-byte buffer filled with [`FILL`].
+fn goi(m: *const Map, k: u64, data: &[u8], hot_meta: u32, buf_len: usize) -> Rmw {
+    let mut buf = vec![FILL; buf_len];
+    let (mut len, mut meta) = (NO_LEN, NO_META);
+    // SAFETY: as for `cx`.
+    let status = unsafe {
+        expanse_sync_blob_map_get_or_insert(
+            m,
+            k,
+            data.as_ptr(),
+            data.len(),
+            hot_meta,
+            buf.as_mut_ptr(),
+            buf_len,
+            &raw mut len,
+            &raw mut meta,
+        )
+    };
+    Rmw {
+        status,
+        present: None,
+        buf,
+        len: (len != NO_LEN).then_some(len),
+        meta: (meta != NO_META).then_some(meta),
+    }
+}
+
+/// `_compare_exchange_meta` into locals: `(status, observed)`, `observed`
+/// `None` when the call left the outputs alone, else `Some(presence and
+/// metadata)`.
+fn cx_meta(
+    m: *const Map,
+    k: u64,
+    expected: Option<u32>,
+    new: Option<u32>,
+) -> (Status, Option<Option<u32>>) {
+    let (mut present, mut meta) = (2u8, NO_META);
+    // SAFETY: `m` is live for every caller; the outs are locals.
+    let status = unsafe {
+        expanse_sync_blob_map_compare_exchange_meta(
+            m,
+            k,
+            expected.is_some(),
+            expected.unwrap_or(0),
+            new.is_some(),
+            new.unwrap_or(0),
+            (&raw mut present).cast::<bool>(),
+            &raw mut meta,
+        )
+    };
+    let observed = as_present(present).map(|p| {
+        assert_eq!(p, meta != NO_META, "metadata written iff present");
+        p.then_some(meta)
+    });
+    (status, observed)
+}
+
+/// The current value through `_get_into`, `None` when absent.
+fn value(m: *const Map, k: u64) -> Option<(Vec<u8>, u32)> {
+    let (status, len, _) = probe(Via::Map(m), k);
+    match status {
+        Status::NotFound => None,
+        Status::Ok | Status::BufferTooSmall => {
+            let got = get_into(Via::Map(m), k, len);
+            assert_eq!(got.status, Status::Ok);
+            Some((got.buf, got.meta.expect("written on Ok")))
+        }
+        other => panic!("get_into: {other:?}"),
+    }
+}
+
+#[test]
+fn compare_exchange_every_branch_and_the_buffer_contract() {
+    let m = expanse_sync_blob_map_new(SMALL_CHUNK);
+    let a: Vec<u8> = (0..20u8).collect();
+    let b = b"hi".to_vec();
+    let c = vec![0xC3; 40];
+
+    // Absent -> stored: OK, nothing written.
+    assert_eq!(
+        cx(m, 1, None, Some((&a, 7)), 64),
+        Rmw::untouched(Status::Ok, 64)
+    );
+    assert_eq!(value(m, 1), Some((a.clone(), 7)));
+    // Expected-absent on a present key: MISMATCH with the value, untouched.
+    assert_eq!(
+        cx(m, 1, None, Some((&b, 0)), 64),
+        Rmw::observed(&a, 7, 64, true)
+    );
+    // The same with a buffer one byte short, and the NULL length probe:
+    // nothing copied, length and metadata reported.
+    assert_eq!(
+        cx(m, 1, None, Some((&b, 0)), 19),
+        Rmw::observed(&a, 7, 19, true)
+    );
+    assert_eq!(
+        cx(m, 1, None, Some((&b, 0)), 0),
+        Rmw::observed(&a, 7, 0, true)
+    );
+    // The exact size fits.
+    assert_eq!(
+        cx(m, 1, None, Some((&b, 0)), 20),
+        Rmw::observed(&a, 7, 20, true)
+    );
+    // Metadata is compared with the bytes.
+    assert_eq!(
+        cx(m, 1, Some((&a, 8)), Some((&b, 0)), 64),
+        Rmw::observed(&a, 7, 64, true)
+    );
+    assert_eq!(
+        cx(m, 1, Some((&a[..19], 7)), Some((&b, 0)), 64),
+        Rmw::observed(&a, 7, 64, true)
+    );
+    assert_eq!(
+        value(m, 1),
+        Some((a.clone(), 7)),
+        "mismatches change nothing"
+    );
+    // A matching expected replaces, arena value by an inline one and back.
+    assert_eq!(
+        cx(m, 1, Some((&a, 7)), Some((&b, 0)), 64),
+        Rmw::untouched(Status::Ok, 64)
+    );
+    assert_eq!(value(m, 1), Some((b.clone(), 0)));
+    assert_eq!(
+        cx(m, 1, Some((&b, 0)), Some((&c, 3)), 64),
+        Rmw::untouched(Status::Ok, 64)
+    );
+    assert_eq!(value(m, 1), Some((c.clone(), 3)));
+    // Expected-present on an absent key: MISMATCH, observed absent, 0 and 0.
+    let absent = Rmw {
+        status: Status::Mismatch,
+        present: Some(false),
+        buf: vec![FILL; 64],
+        len: Some(0),
+        meta: Some(0),
+    };
+    assert_eq!(cx(m, 2, Some((&a, 7)), Some((&b, 0)), 64), absent);
+    assert_eq!(value(m, 2), None);
+    // Remove only on a matching value.
+    assert_eq!(
+        cx(m, 1, Some((&c, 4)), None, 64),
+        Rmw::observed(&c, 3, 64, true)
+    );
+    assert_eq!(
+        cx(m, 1, Some((&c, 3)), None, 64),
+        Rmw::untouched(Status::Ok, 64)
+    );
+    assert_eq!(value(m, 1), None);
+    // (absent, absent): a validated absence check that never writes.
+    assert_eq!(cx(m, 1, None, None, 64), Rmw::untouched(Status::Ok, 64));
+    assert_eq!(
+        cx(m, 3, None, Some((&[][..], 0)), 8),
+        Rmw::untouched(Status::Ok, 8)
+    );
+    assert_eq!(cx(m, 3, None, None, 8), Rmw::observed(&[], 0, 8, true));
+    // An empty payload is present and fits a NULL buffer of length 0.
+    assert_eq!(cx(m, 3, None, None, 0), Rmw::observed(&[], 0, 0, true));
+
+    // Payloads of 7 bytes or fewer carry no metadata field (#1548): the
+    // metadata passed is not stored, so expecting it is a mismatch on 0.
+    assert_eq!(
+        cx(m, 5, None, Some((&b"seven!!"[..], 9)), 16),
+        Rmw::untouched(Status::Ok, 16)
+    );
+    assert_eq!(
+        cx(m, 5, Some((&b"seven!!"[..], 9)), Some((&b"x"[..], 0)), 16),
+        Rmw::observed(b"seven!!", 0, 16, true)
+    );
+    assert_eq!(
+        cx(m, 5, Some((&b"seven!!"[..], 0)), Some((&b"x"[..], 0)), 16),
+        Rmw::untouched(Status::Ok, 16)
+    );
+
+    // SAFETY: `m` is live until the free below.
+    unsafe {
+        assert_eq!(expanse_sync_blob_map_len(m), 2, "keys 3 and 5");
+        expanse_sync_blob_map_free(m);
+    }
+}
+
+#[test]
+fn compare_exchange_refusals_hold_only_when_the_comparison_does() {
+    let m = expanse_sync_blob_map_new(SMALL_CHUNK);
+    let a = vec![0x11; 20];
+    let big = vec![0x22; SMALL_CHUNK + 1];
+    assert_eq!(insert(m, 1, &a, 7), Status::Ok);
+    // A comparison that holds, with a value that cannot be stored: the
+    // refusal, nothing written, nothing changed.
+    assert_eq!(
+        cx(m, 1, Some((&a, 7)), Some((&a, 1 << 24)), 64),
+        Rmw::untouched(Status::MetaOverflow, 64)
+    );
+    assert_eq!(
+        cx(m, 1, Some((&a, 7)), Some((&big, 0)), 64),
+        Rmw::untouched(Status::AllocationFailed, 64)
+    );
+    assert_eq!(
+        cx(m, 2, None, Some((&a, 1 << 24)), 64),
+        Rmw::untouched(Status::MetaOverflow, 64)
+    );
+    // The same values against a comparison that fails: the mismatch wins.
+    assert_eq!(
+        cx(m, 1, Some((&a, 6)), Some((&a, 1 << 24)), 64),
+        Rmw::observed(&a, 7, 64, true)
+    );
+    assert_eq!(
+        cx(m, 1, None, Some((&big, 0)), 64),
+        Rmw::observed(&a, 7, 64, true)
+    );
+    assert_eq!(value(m, 1), Some((a.clone(), 7)));
+    assert_eq!(value(m, 2), None);
+
+    // The header's retry loop stops on a refusal: a loop raising the
+    // metadata past 24 bits ends with META_OVERFLOW, value unchanged.
+    let mut cur = (a.clone(), 7u32);
+    let mut rounds = 0;
+    let st = loop {
+        rounds += 1;
+        let next = (cur.0.clone(), cur.1 << 12);
+        let got = cx(m, 1, Some((&cur.0, cur.1)), Some((&next.0, next.1)), 64);
+        if got.status != Status::Mismatch {
+            break got.status;
+        }
+        let len = got.len.unwrap();
+        cur = (got.buf[..len].to_vec(), got.meta.unwrap());
+    };
+    assert_eq!((st, rounds), (Status::Ok, 1), "7 << 12 fits 24 bits");
+    cur.1 <<= 12;
+    let mut rounds = 0;
+    let st = loop {
+        rounds += 1;
+        assert!(rounds < 10, "the loop did not stop on a refusal");
+        let got = cx(m, 1, Some((&cur.0, cur.1)), Some((&cur.0, cur.1 << 12)), 64);
+        if got.status != Status::Mismatch {
+            break got.status;
+        }
+        cur = (got.buf[..got.len.unwrap()].to_vec(), got.meta.unwrap());
+    };
+    assert_eq!(st, Status::MetaOverflow);
+    assert_eq!(value(m, 1), Some((a.clone(), 7 << 12)));
+    // SAFETY: `m` is live.
+    unsafe { expanse_sync_blob_map_free(m) };
+}
+
+/// A retry loop that reuses one buffer: the observed value lands in the
+/// buffer the caller passes as `expected_data` (and as `data` for
+/// `get_or_insert`), as the header allows.
+#[test]
+fn rmw_buffer_may_alias_the_expected_payload() {
+    let m = expanse_sync_blob_map_new(SMALL_CHUNK);
+    let a: Vec<u8> = (100..132u8).collect();
+    assert_eq!(insert(m, 1, &a, 5), Status::Ok);
+    let mut buf = vec![0u8; 64];
+    let p = buf.as_mut_ptr();
+    let (mut present, mut len, mut meta) = (false, 0usize, 0u32);
+    // SAFETY: `m` is live; `p` is readable and writable for 64 bytes and
+    // serves as both the expected payload and the output buffer; the outs
+    // are locals.
+    unsafe {
+        // A stale expected (32 zero bytes) fails and writes the observed
+        // value over itself.
+        let st = expanse_sync_blob_map_compare_exchange(
+            m,
+            1,
+            true,
+            p,
+            32,
+            5,
+            true,
+            p,
+            32,
+            6,
+            &raw mut present,
+            p,
+            64,
+            &raw mut len,
+            &raw mut meta,
+        );
+        assert_eq!((st, present, len, meta), (Status::Mismatch, true, 32, 5));
+        // Retry from the same buffer: it now matches.
+        let st = expanse_sync_blob_map_compare_exchange(
+            m,
+            1,
+            true,
+            p,
+            len,
+            meta,
+            true,
+            p,
+            len,
+            6,
+            &raw mut present,
+            p,
+            64,
+            &raw mut len,
+            &raw mut meta,
+        );
+        assert_eq!(st, Status::Ok);
+        // get_or_insert with `data` and `buf` the same bytes, on a present key.
+        core::ptr::write_bytes(p, 0, 64);
+        let st =
+            expanse_sync_blob_map_get_or_insert(m, 1, p, 40, 0, p, 64, &raw mut len, &raw mut meta);
+        assert_eq!((st, len, meta), (Status::Mismatch, 32, 6));
+    }
+    assert_eq!(&buf[..32], &a[..]);
+    assert_eq!(value(m, 1), Some((a, 6)));
+    // SAFETY: `m` is live.
+    unsafe { expanse_sync_blob_map_free(m) };
+}
+
+#[test]
+fn compare_exchange_meta_every_branch() {
+    let m = expanse_sync_blob_map_new(SMALL_CHUNK);
+    let a = vec![0x5A; 24];
+    assert_eq!(insert(m, 1, &a, 7), Status::Ok);
+    // Swap in place; a stale expected reports the current metadata.
+    assert_eq!(cx_meta(m, 1, Some(7), Some(8)), (Status::Ok, None));
+    assert_eq!(
+        cx_meta(m, 1, Some(7), Some(9)),
+        (Status::Mismatch, Some(Some(8)))
+    );
+    assert_eq!(
+        cx_meta(m, 1, None, Some(9)),
+        (Status::Mismatch, Some(Some(8)))
+    );
+    assert_eq!(
+        value(m, 1),
+        Some((a.clone(), 8)),
+        "the payload is untouched"
+    );
+    // Refusals hold only against a matching comparison.
+    assert_eq!(
+        cx_meta(m, 1, Some(8), Some(1 << 24)),
+        (Status::MetaOverflow, None)
+    );
+    assert_eq!(
+        cx_meta(m, 1, Some(9), Some(1 << 24)),
+        (Status::Mismatch, Some(Some(8)))
+    );
+    assert_eq!(
+        cx_meta(m, 1, Some(8), Some(0x00FF_FFFF)),
+        (Status::Ok, None)
+    );
+    // An absent key: metadata alone cannot create it.
+    assert_eq!(cx_meta(m, 2, None, Some(1)), (Status::NoMetaField, None));
+    assert_eq!(cx_meta(m, 2, None, Some(0)), (Status::NoMetaField, None));
+    assert_eq!(
+        cx_meta(m, 2, Some(0), Some(1)),
+        (Status::Mismatch, Some(None))
+    );
+    assert_eq!(cx_meta(m, 2, None, None), (Status::Ok, None));
+    assert_eq!(value(m, 2), None);
+    // An inline payload reads metadata 0 and has no field to write.
+    assert_eq!(insert(m, 3, b"abc", 0), Status::Ok);
+    assert_eq!(cx_meta(m, 3, Some(0), Some(3)), (Status::NoMetaField, None));
+    assert_eq!(cx_meta(m, 3, Some(0), Some(0)), (Status::Ok, None));
+    // Payloads of 7 bytes or fewer drop the metadata they were inserted with
+    // (#1548): it reads back 0.
+    assert_eq!(insert(m, 4, b"seven!!", 9), Status::Ok);
+    assert_eq!(
+        cx_meta(m, 4, Some(9), Some(10)),
+        (Status::Mismatch, Some(Some(0)))
+    );
+    // Removal on a matching metadata.
+    assert_eq!(cx_meta(m, 3, Some(0), None), (Status::Ok, None));
+    assert_eq!(
+        cx_meta(m, 1, Some(1), None),
+        (Status::Mismatch, Some(Some(0x00FF_FFFF)))
+    );
+    assert_eq!(cx_meta(m, 1, Some(0x00FF_FFFF), None), (Status::Ok, None));
+    assert_eq!(value(m, 1), None);
+    assert_eq!(value(m, 3), None);
+    // SAFETY: `m` is live.
+    unsafe {
+        assert_eq!(expanse_sync_blob_map_len(m), 1, "key 4");
+        expanse_sync_blob_map_free(m);
+    }
+}
+
+#[test]
+fn get_or_insert_every_branch_and_the_buffer_contract() {
+    let m = expanse_sync_blob_map_new(SMALL_CHUNK);
+    let a: Vec<u8> = (0..30u8).collect();
+    let b = vec![0xB0; 12];
+    // Absent: stored, nothing written.
+    assert_eq!(goi(m, 1, &a, 4, 64), Rmw::untouched(Status::Ok, 64));
+    // Present: untouched, the stored value reported, whatever is offered.
+    assert_eq!(goi(m, 1, &b, 0, 64), Rmw::observed(&a, 4, 64, false));
+    assert_eq!(goi(m, 1, &b, 1 << 24, 64), Rmw::observed(&a, 4, 64, false));
+    // Too small: nothing copied, nothing stored, length and metadata reported.
+    assert_eq!(goi(m, 1, &b, 0, 29), Rmw::observed(&a, 4, 29, false));
+    assert_eq!(goi(m, 1, &b, 0, 0), Rmw::observed(&a, 4, 0, false));
+    assert_eq!(value(m, 1), Some((a.clone(), 4)));
+    // Absent and unstorable: the refusal, the key stays absent.
+    assert_eq!(
+        goi(m, 2, &a, 1 << 24, 64),
+        Rmw::untouched(Status::MetaOverflow, 64)
+    );
+    assert_eq!(
+        goi(m, 2, &vec![1u8; SMALL_CHUNK + 1], 0, 64),
+        Rmw::untouched(Status::AllocationFailed, 64)
+    );
+    assert_eq!(value(m, 2), None);
+    // Payloads of 7 bytes or fewer are stored without metadata, whatever
+    // `hot_meta` is, even one wider than 24 bits (#1548).
+    assert_eq!(
+        goi(m, 3, b"tiny", 1 << 24, 8),
+        Rmw::untouched(Status::Ok, 8)
+    );
+    assert_eq!(
+        goi(m, 3, b"other", 0, 8),
+        Rmw::observed(b"tiny", 0, 8, false)
+    );
+    // The empty payload.
+    assert_eq!(goi(m, 4, &[], 0, 0), Rmw::untouched(Status::Ok, 0));
+    assert_eq!(goi(m, 4, &a, 0, 0), Rmw::observed(&[], 0, 0, false));
+    // SAFETY: `m` is live.
+    unsafe {
+        assert_eq!(expanse_sync_blob_map_len(m), 3);
+        expanse_sync_blob_map_free(m);
+    }
+}
+
+#[test]
+fn rmw_null_and_invalid_arguments_do_nothing() {
+    let m = expanse_sync_blob_map_new(SMALL_CHUNK);
+    let null_map: *const Map = core::ptr::null();
+    let a = vec![0x33; 16];
+    assert_eq!(insert(m, 1, &a, 2), Status::Ok);
+    let mut buf = [FILL; 8];
+    let (mut present, mut len, mut meta) = (true, NO_LEN, NO_META);
+    let (pp, lp, mp) = (&raw mut present, &raw mut len, &raw mut meta);
+    let null = core::ptr::null::<u8>();
+    let big = isize::MAX as usize + 1;
+    // SAFETY: each call is documented to reject these arguments before it
+    // reads or writes anything; `m` is live; the outs are locals.
+    unsafe {
+        let cx_with = |map, ep, ed, el, np, nd, nl, b: *mut u8, bl| {
+            expanse_sync_blob_map_compare_exchange(
+                map, 1, ep, ed, el, 2, np, nd, nl, 3, pp, b, bl, lp, mp,
+            )
+        };
+        let bp = buf.as_mut_ptr();
+        let ap = a.as_ptr();
+        for (what, st) in [
+            (
+                "NULL map",
+                cx_with(null_map, true, ap, 16, true, ap, 16, bp, 8),
+            ),
+            (
+                "NULL expected data",
+                cx_with(m, true, null, 1, true, ap, 16, bp, 8),
+            ),
+            (
+                "NULL new data",
+                cx_with(m, true, ap, 16, true, null, 1, bp, 8),
+            ),
+            (
+                "expected len",
+                cx_with(m, true, ap, big, true, ap, 16, bp, 8),
+            ),
+            (
+                "NULL buf",
+                cx_with(m, true, ap, 16, true, ap, 16, core::ptr::null_mut(), 1),
+            ),
+            ("buf_len", cx_with(m, true, ap, 16, true, ap, 16, bp, big)),
+            (
+                "goi NULL map",
+                expanse_sync_blob_map_get_or_insert(null_map, 1, ap, 16, 0, bp, 8, lp, mp),
+            ),
+            (
+                "goi NULL data",
+                expanse_sync_blob_map_get_or_insert(m, 1, null, 1, 0, bp, 8, lp, mp),
+            ),
+            (
+                "goi NULL buf",
+                expanse_sync_blob_map_get_or_insert(
+                    m,
+                    1,
+                    ap,
+                    16,
+                    0,
+                    core::ptr::null_mut(),
+                    1,
+                    lp,
+                    mp,
+                ),
+            ),
+            (
+                "meta NULL map",
+                expanse_sync_blob_map_compare_exchange_meta(null_map, 1, true, 2, true, 3, pp, mp),
+            ),
+        ] {
+            assert_eq!(st, Status::InvalidArgument, "{what}");
+        }
+        assert_eq!(
+            (present, len, meta, buf),
+            (true, NO_LEN, NO_META, [FILL; 8])
+        );
+        // A value whose flag is clear is not read: NULL data with any length.
+        let st = cx_with(m, false, null, 5, false, null, 9, bp, 8);
+        assert_eq!(
+            (st, present, len, meta),
+            (Status::BufferTooSmall, true, 16, 2),
+            "the 16-byte value does not fit 8 bytes"
+        );
+        // NULL outputs are accepted.
+        assert_eq!(
+            expanse_sync_blob_map_compare_exchange(
+                m,
+                1,
+                true,
+                ap,
+                16,
+                2,
+                true,
+                ap,
+                16,
+                3,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+                0,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            ),
+            Status::Ok
+        );
+        assert_eq!(
+            expanse_sync_blob_map_get_or_insert(
+                m,
+                1,
+                ap,
+                16,
+                0,
+                core::ptr::null_mut(),
+                0,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            ),
+            Status::BufferTooSmall
+        );
+        assert_eq!(
+            expanse_sync_blob_map_compare_exchange_meta(
+                m,
+                1,
+                false,
+                0,
+                true,
+                1,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            ),
+            Status::Mismatch
+        );
+        assert_eq!(expanse_sync_blob_map_len(m), 1);
+        expanse_sync_blob_map_free(m);
+    }
+}
+
+/// A counter payload: 8 little-endian bytes and 8 bytes no codec compresses,
+/// so it is stored in the arena with its metadata.
+fn counter(n: u64) -> Vec<u8> {
+    let mut v = n.to_le_bytes().to_vec();
+    v.extend_from_slice(&[0xFF; 8]);
+    v
+}
+
+/// Threads incrementing shared counters through the `compare_exchange` retry
+/// loop, reusing one buffer for the observed and the expected value, and
+/// through `compare_exchange_meta`: every increment lands exactly once.
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn concurrent_compare_exchange_increments_lose_no_update() {
+    const THREADS: u64 = 4;
+    const PER_THREAD: u64 = 1000;
+    let m = expanse_sync_blob_map_new(0);
+    let addr = m as usize; // raw pointers are not `Send`
+    let barrier = std::sync::Barrier::new(THREADS as usize);
+    std::thread::scope(|sc| {
+        for t in 0..THREADS {
+            let barrier = &barrier;
+            sc.spawn(move || {
+                let m = addr as *const Map;
+                barrier.wait();
+                for i in 0..PER_THREAD {
+                    // Payload counters on keys 0 and 1, the payload and its
+                    // metadata both counting.
+                    let k = (t + i) % 2;
+                    let mut cur = value(m, k);
+                    loop {
+                        let n = cur
+                            .as_ref()
+                            .map_or(0, |(d, _)| u64::from_le_bytes(d[..8].try_into().unwrap()));
+                        let next = counter(n + 1);
+                        let exp = cur.as_ref().map(|(d, meta)| (d.as_slice(), *meta));
+                        let got = cx(m, k, exp, Some((&next, (n + 1) as u32)), 16);
+                        match got.status {
+                            Status::Ok => break,
+                            Status::Mismatch => {
+                                cur = (got.present == Some(true)).then(|| {
+                                    (got.buf[..got.len.unwrap()].to_vec(), got.meta.unwrap())
+                                });
+                            }
+                            other => panic!("compare_exchange: {other:?}"),
+                        }
+                    }
+                    // A metadata counter on key 2 (its payload is stored by
+                    // whichever thread gets there first).
+                    let st = goi(m, 2, &counter(0), 0, 16).status;
+                    assert!(matches!(st, Status::Ok | Status::Mismatch), "{st:?}");
+                    let mut meta = 0u32;
+                    loop {
+                        match cx_meta(m, 2, Some(meta), Some(meta + 1)) {
+                            (Status::Ok, None) => break,
+                            (Status::Mismatch, Some(Some(seen))) => meta = seen,
+                            other => panic!("compare_exchange_meta: {other:?}"),
+                        }
+                    }
+                }
+            });
+        }
+    });
+    let mut total = 0;
+    for k in 0..2 {
+        let (d, meta) = value(m, k).expect("both counters exist");
+        let n = u64::from_le_bytes(d[..8].try_into().unwrap());
+        assert_eq!(
+            u64::from(meta),
+            n,
+            "key {k}: payload and metadata moved together"
+        );
+        total += n;
+    }
+    assert_eq!(total, THREADS * PER_THREAD, "a payload increment was lost");
+    assert_eq!(
+        value(m, 2).map(|(_, meta)| u64::from(meta)),
+        Some(THREADS * PER_THREAD),
+        "a metadata increment was lost"
+    );
+    // SAFETY: no call is in progress and no reader exists.
+    unsafe { expanse_sync_blob_map_free(m) };
+}
+
+/// Threads racing `get_or_insert` on the same absent keys: exactly one call
+/// per key stores, and every other call reports the winner's payload and
+/// metadata.
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn concurrent_get_or_insert_agrees_on_one_winner() {
+    const THREADS: u64 = 4;
+    const KEYS: u64 = 1024;
+    let payload = |t: u64, k: u64| {
+        let mut v = counter(k);
+        v.extend_from_slice(&t.to_le_bytes());
+        v
+    };
+    let m = expanse_sync_blob_map_new(0);
+    let addr = m as usize; // raw pointers are not `Send`
+    let barrier = std::sync::Barrier::new(THREADS as usize);
+    let results: Vec<Vec<Rmw>> = std::thread::scope(|sc| {
+        let handles: Vec<_> = (0..THREADS)
+            .map(|t| {
+                let barrier = &barrier;
+                sc.spawn(move || {
+                    let m = addr as *const Map;
+                    (0..KEYS)
+                        .map(|k| {
+                            // Every thread reaches each key together.
+                            barrier.wait();
+                            goi(m, k, &payload(t, k), (t + 1) as u32, 64)
+                        })
+                        .collect()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for k in 0..KEYS {
+        let winners: Vec<u64> = (0..THREADS)
+            .filter(|&t| results[t as usize][k as usize].status == Status::Ok)
+            .collect();
+        assert_eq!(winners.len(), 1, "key {k}: winners {winners:?}");
+        let w = winners[0];
+        for t in 0..THREADS {
+            if t != w {
+                assert_eq!(
+                    results[t as usize][k as usize],
+                    Rmw::observed(&payload(w, k), (w + 1) as u32, 64, false),
+                    "key {k}, thread {t}"
+                );
+            }
+        }
+        assert_eq!(value(m, k), Some((payload(w, k), (w + 1) as u32)));
+    }
+    // SAFETY: no call is in progress and no reader exists.
+    unsafe { expanse_sync_blob_map_free(m) };
+}

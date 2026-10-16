@@ -671,3 +671,214 @@ fn ordered_walk_under_concurrent_writes_sees_every_stable_key_in_order() {
     // SAFETY: every reader was freed inside the scope.
     unsafe { expanse_sync_strmap_free(m) };
 }
+
+// ---- Read-modify-write: `_compare_exchange` and `_get_or_insert` ----
+
+use expanse::modern::{expanse_sync_strmap_compare_exchange, expanse_sync_strmap_get_or_insert};
+
+/// One exchange into locals: `(exchanged, observed)`, with sentinels that
+/// show which outputs the call wrote.
+fn cx(
+    m: *const SyncExpanseStrMap,
+    k: &CStr,
+    expected: Option<u64>,
+    new: Option<u64>,
+) -> (bool, Option<u64>) {
+    let mut seen_present = expected.is_none();
+    let mut seen = 0xDEAD_u64;
+    // SAFETY: `m` is live for every caller; `k` is a C string; outputs are
+    // locals.
+    let ok = unsafe {
+        expanse_sync_strmap_compare_exchange(
+            m,
+            k.as_ptr(),
+            expected.is_some(),
+            expected.unwrap_or(0),
+            new.is_some(),
+            new.unwrap_or(0),
+            &raw mut seen_present,
+            &raw mut seen,
+        )
+    };
+    (ok, seen_present.then_some(seen))
+}
+
+/// `get_or_insert` into a local: `(stored, existing)`, `existing` the
+/// sentinel-free value written when the call returned false.
+fn goi(m: *const SyncExpanseStrMap, k: &CStr, v: u64) -> (bool, Option<u64>) {
+    let mut existing = 0xDEAD_u64;
+    // SAFETY: as for `cx`.
+    let stored = unsafe { expanse_sync_strmap_get_or_insert(m, k.as_ptr(), v, &raw mut existing) };
+    (stored, (existing != 0xDEAD).then_some(existing))
+}
+
+#[test]
+fn compare_exchange_and_get_or_insert_every_branch() {
+    let m = expanse_sync_strmap_new();
+    let (a, b, c, d, z) = (
+        key("a"),
+        key("b/longer-than-a-hop"),
+        key("c"),
+        key(""),
+        key("z"),
+    );
+
+    // Absent -> insert; expected-absent on a present key fails with the word.
+    assert_eq!(cx(m, &a, None, Some(10)), (true, None));
+    assert_eq!(cx(m, &a, None, Some(99)), (false, Some(10)));
+    assert_eq!(get(m, &a), Some(10));
+    // Replace, then a stale expected fails with the current word.
+    assert_eq!(cx(m, &a, Some(10), Some(11)), (true, Some(10)));
+    assert_eq!(cx(m, &a, Some(10), Some(12)), (false, Some(11)));
+    assert_eq!(get(m, &a), Some(11));
+    // Expected-present on an absent key: observed absent, nothing stored.
+    assert_eq!(cx(m, &b, Some(0), Some(5)), (false, None));
+    assert_eq!(get(m, &b), None);
+    // Remove only on a matching word.
+    assert_eq!(cx(m, &a, Some(12), None), (false, Some(11)));
+    assert_eq!(cx(m, &a, Some(11), None), (true, Some(11)));
+    assert_eq!(get(m, &a), None);
+    // (absent, absent): a validated absence check that never writes.
+    assert_eq!(cx(m, &c, None, None), (true, None));
+    assert_eq!(cx(m, &c, None, Some(3)), (true, None));
+    assert_eq!(cx(m, &c, None, None), (false, Some(3)));
+    // Every u64 is a legal value, and the empty string a legal key.
+    assert_eq!(cx(m, &d, None, Some(0)), (true, None));
+    assert_eq!(cx(m, &d, Some(0), Some(u64::MAX)), (true, Some(0)));
+    assert_eq!(get(m, &d), Some(u64::MAX));
+
+    // get_or_insert: stores once, then reports the stored word untouched.
+    assert_eq!(goi(m, &b, 7), (true, None));
+    assert_eq!(goi(m, &b, 8), (false, Some(7)));
+    assert_eq!(get(m, &b), Some(7));
+    assert_eq!(goi(m, &z, 0), (true, None));
+    assert_eq!(goi(m, &z, 1), (false, Some(0)));
+
+    let null_map: *const SyncExpanseStrMap = core::ptr::null();
+    let (mut present, mut seen, mut existing) = (true, 0xDEAD_u64, 0xDEAD_u64);
+    // SAFETY: NULL handles and NULL keys are documented to write nothing;
+    // NULL outputs are documented as accepted; `m` is live.
+    unsafe {
+        for (map, k) in [(null_map, a.as_ptr()), (m.cast_const(), NULL_KEY)] {
+            assert!(!expanse_sync_strmap_compare_exchange(
+                map,
+                k,
+                false,
+                0,
+                true,
+                1,
+                &raw mut present,
+                &raw mut seen
+            ));
+            assert!(!expanse_sync_strmap_get_or_insert(
+                map,
+                k,
+                1,
+                &raw mut existing
+            ));
+        }
+        assert!(present && seen == 0xDEAD && existing == 0xDEAD);
+        assert!(expanse_sync_strmap_compare_exchange(
+            m,
+            b.as_ptr(),
+            true,
+            7,
+            true,
+            9,
+            core::ptr::null_mut(),
+            core::ptr::null_mut()
+        ));
+        assert!(!expanse_sync_strmap_get_or_insert(
+            m,
+            b.as_ptr(),
+            1,
+            core::ptr::null_mut()
+        ));
+        assert_eq!(expanse_sync_strmap_len(m), 4, "b, c, the empty key and z");
+        expanse_sync_strmap_free(m);
+    }
+}
+
+/// Threads incrementing shared counters through the `compare_exchange` retry
+/// loop of `include/expanse.h`: every increment lands exactly once.
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn concurrent_compare_exchange_increments_lose_no_update() {
+    const THREADS: u64 = 4;
+    const PER_THREAD: u64 = 2000;
+    let m = expanse_sync_strmap_new();
+    // Two counters on keys sharing a long prefix, so the walks contend.
+    let keys = [
+        key("counter/shared-prefix/0"),
+        key("counter/shared-prefix/1"),
+    ];
+    let addr = m as usize; // raw pointers are not `Send`
+    let barrier = std::sync::Barrier::new(THREADS as usize);
+    std::thread::scope(|sc| {
+        for t in 0..THREADS {
+            let (keys, barrier) = (&keys, &barrier);
+            sc.spawn(move || {
+                let m = addr as *const SyncExpanseStrMap;
+                barrier.wait();
+                for i in 0..PER_THREAD {
+                    let k = &keys[((t + i) % 2) as usize];
+                    let mut cur = get(m, k);
+                    loop {
+                        match cx(m, k, cur, Some(cur.unwrap_or(0) + 1)) {
+                            (true, _) => break,
+                            (false, seen) => cur = seen,
+                        }
+                    }
+                }
+            });
+        }
+    });
+    let total: u64 = keys.iter().map(|k| get(m, k).unwrap_or(0)).sum();
+    assert_eq!(total, THREADS * PER_THREAD, "an increment was lost");
+    // SAFETY: no call is in progress and no reader exists.
+    unsafe { expanse_sync_strmap_free(m) };
+}
+
+/// Threads racing `get_or_insert` on the same absent keys: exactly one call
+/// per key stores, and every other call reports the winner's value.
+#[test]
+#[cfg_attr(miri, ignore = "threaded; the single-threaded tests are the Miri lane")]
+fn concurrent_get_or_insert_agrees_on_one_winner() {
+    const THREADS: u64 = 4;
+    const KEYS: u64 = 1024;
+    let m = expanse_sync_strmap_new();
+    let keys: Vec<CString> = (0..KEYS).map(|i| key(&format!("race/{i:05}"))).collect();
+    let addr = m as usize; // raw pointers are not `Send`
+    let barrier = std::sync::Barrier::new(THREADS as usize);
+    let results: Vec<Vec<(bool, Option<u64>)>> = std::thread::scope(|sc| {
+        let handles: Vec<_> = (0..THREADS)
+            .map(|t| {
+                let (keys, barrier) = (&keys, &barrier);
+                sc.spawn(move || {
+                    let m = addr as *const SyncExpanseStrMap;
+                    (0..KEYS)
+                        .map(|i| {
+                            // Every thread reaches each key together.
+                            barrier.wait();
+                            goi(m, &keys[i as usize], t * 1_000_000 + i)
+                        })
+                        .collect()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for i in 0..KEYS as usize {
+        let winners: Vec<u64> = (0..THREADS).filter(|&t| results[t as usize][i].0).collect();
+        assert_eq!(winners.len(), 1, "key {i}: winners {winners:?}");
+        let value = winners[0] * 1_000_000 + i as u64;
+        for (t, per_thread) in results.iter().enumerate() {
+            if !per_thread[i].0 {
+                assert_eq!(per_thread[i].1, Some(value), "key {i}, thread {t}");
+            }
+        }
+        assert_eq!(get(m, &keys[i]), Some(value));
+    }
+    // SAFETY: no call is in progress and no reader exists.
+    unsafe { expanse_sync_strmap_free(m) };
+}

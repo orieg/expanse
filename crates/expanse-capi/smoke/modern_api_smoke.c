@@ -537,6 +537,165 @@ static void sync_blob_map_smoke(void) {
     printf("sync_blob_map: point ops, reader, caller buffers, %d threaded readers ok\n", BLOB_READERS);
 }
 
+/* Read-modify-write on the shared string, bytes, ordered-bytes and blob maps:
+ * every symbol once, then RMW_THREADS threads each running the retry loops of
+ * expanse.h RMW_ROUNDS times on one counter per map; no increment may be lost. */
+#define RMW_THREADS 4
+#define RMW_ROUNDS 500
+
+static expanse_sync_strmap_t *rmw_str;
+static expanse_sync_bytesmap_t *rmw_bytes;
+static expanse_sync_ordered_bytesmap_t *rmw_obytes;
+static expanse_sync_blob_map_t *rmw_blob;
+
+/* A 16-byte blob counter: the count in the first 8 bytes, 8 bytes no codec
+ * compresses, so it is stored in the arena with its metadata. */
+static void rmw_blob_counter(uint8_t *buf, uint64_t n) {
+    memcpy(buf, &n, sizeof n);
+    memset(buf + 8, 0xFF, 8);
+}
+
+static void *rmw_worker(void *arg) {
+    (void) arg;
+    for (int i = 0; i < RMW_ROUNDS; i++) {
+        uint64_t cur = 0, seen = 0;
+        bool present = expanse_sync_strmap_get(rmw_str, "counter", &cur), sp = false;
+        while (!expanse_sync_strmap_compare_exchange(rmw_str, "counter", present, cur, true, cur + 1, &sp, &seen)) {
+            present = sp;
+            cur = seen;
+        }
+        present = expanse_sync_bytesmap_get(rmw_bytes, "c\0n", 3, &cur);
+        while (!expanse_sync_bytesmap_compare_exchange(rmw_bytes, "c\0n", 3, present, cur, true, cur + 1, &sp,
+                                                       &seen)) {
+            present = sp;
+            cur = seen;
+        }
+        present = expanse_sync_ordered_bytesmap_get(rmw_obytes, "c\x01n", 3, &cur);
+        while (!expanse_sync_ordered_bytesmap_compare_exchange(rmw_obytes, "c\x01n", 3, present, cur, true, cur + 1,
+                                                               &sp, &seen)) {
+            present = sp;
+            cur = seen;
+        }
+        /* The blob loop reuses one buffer for the observed and the expected value. */
+        uint8_t buf[16], next[16];
+        size_t len = 0;
+        uint32_t meta = 0;
+        expanse_blob_status_t st = expanse_sync_blob_map_get_into(rmw_blob, 1, buf, sizeof buf, &len, &meta);
+        assert(st == EXPANSE_BLOB_OK || st == EXPANSE_BLOB_NOT_FOUND);
+        present = st == EXPANSE_BLOB_OK;
+        for (;;) {
+            uint64_t n = 0;
+            if (present)
+                memcpy(&n, buf, sizeof n);
+            rmw_blob_counter(next, n + 1);
+            st = expanse_sync_blob_map_compare_exchange(rmw_blob, 1, present, buf, len, meta, true, next,
+                                                        sizeof next, (uint32_t) (n + 1), &present, buf,
+                                                        sizeof buf, &len, &meta);
+            if (st == EXPANSE_BLOB_OK)
+                break;
+            assert(st == EXPANSE_BLOB_MISMATCH);
+        }
+        /* And the metadata-only loop on key 2. */
+        meta = 0;
+        present = expanse_sync_blob_map_get_meta(rmw_blob, 2, &meta);
+        assert(present);
+        for (;;) {
+            uint32_t seen_meta = 0;
+            st = expanse_sync_blob_map_compare_exchange_meta(rmw_blob, 2, present, meta, true, meta + 1, &present,
+                                                            &seen_meta);
+            if (st == EXPANSE_BLOB_OK)
+                break;
+            assert(st == EXPANSE_BLOB_MISMATCH);
+            meta = seen_meta;
+        }
+    }
+    return NULL;
+}
+
+static void sync_rmw_smoke(void) {
+    uint64_t v = 0;
+    bool present = false;
+
+    /* Every RMW symbol once, single-threaded. */
+    expanse_sync_strmap_t *s = expanse_sync_strmap_new();
+    assert(expanse_sync_strmap_compare_exchange(s, "k", false, 0, true, 1, &present, &v) && !present);
+    assert(!expanse_sync_strmap_compare_exchange(s, "k", true, 9, true, 2, &present, &v) && present && v == 1);
+    assert(expanse_sync_strmap_get_or_insert(s, "g", 5, NULL));
+    assert(!expanse_sync_strmap_get_or_insert(s, "g", 6, &v) && v == 5);
+    assert(!expanse_sync_strmap_get_or_insert(s, NULL, 6, &v)); /* NULL key: false */
+    expanse_sync_strmap_free(s);
+
+    expanse_sync_bytesmap_t *b = expanse_sync_bytesmap_new();
+    assert(expanse_sync_bytesmap_compare_exchange(b, "a\0b", 3, false, 0, true, 1, NULL, NULL));
+    assert(expanse_sync_bytesmap_compare_exchange(b, "a\0b", 3, true, 1, false, 0, &present, &v) && present
+           && v == 1); /* removed */
+    assert(expanse_sync_bytesmap_get_or_insert(b, NULL, 0, 7, NULL)); /* the empty key */
+    assert(!expanse_sync_bytesmap_get_or_insert(b, NULL, 0, 8, &v) && v == 7);
+    assert(expanse_sync_bytesmap_len(b) == 1);
+    expanse_sync_bytesmap_free(b);
+
+    expanse_sync_ordered_bytesmap_t *o = expanse_sync_ordered_bytesmap_new();
+    assert(expanse_sync_ordered_bytesmap_get_or_insert(o, "x\x01", 2, 3, NULL));
+    assert(!expanse_sync_ordered_bytesmap_get_or_insert(o, "x\x01", 2, 4, &v) && v == 3);
+    assert(!expanse_sync_ordered_bytesmap_compare_exchange(o, "x\x01", 2, false, 0, true, 9, &present, &v)
+           && present && v == 3);
+    expanse_sync_ordered_bytesmap_free(o);
+
+    expanse_sync_blob_map_t *m = expanse_sync_blob_map_new(0);
+    const uint8_t *a = (const uint8_t *) "an arena-stored payload";
+    uint8_t buf[32];
+    size_t len = 0;
+    uint32_t meta = 0;
+    assert(expanse_sync_blob_map_get_or_insert(m, 1, a, 23, 9, buf, sizeof buf, &len, &meta) == EXPANSE_BLOB_OK);
+    memset(buf, 0xA5, sizeof buf);
+    assert(expanse_sync_blob_map_get_or_insert(m, 1, a, 5, 0, buf, 22, &len, &meta) == EXPANSE_BLOB_BUFFER_TOO_SMALL
+           && len == 23 && meta == 9 && buf[0] == 0xA5); /* nothing copied */
+    assert(expanse_sync_blob_map_compare_exchange(m, 1, false, NULL, 0, 0, true, a, 5, 0, &present, buf, sizeof buf,
+                                                  &len, &meta)
+               == EXPANSE_BLOB_MISMATCH
+           && present && len == 23 && meta == 9 && memcmp(buf, a, 23) == 0);
+    assert(expanse_sync_blob_map_compare_exchange(m, 1, true, a, 23, 9, true, a, 23, 1u << 24, NULL, NULL, 0, NULL,
+                                                  NULL)
+           == EXPANSE_BLOB_META_OVERFLOW); /* the comparison held: a refusal, not a mismatch */
+    assert(expanse_sync_blob_map_compare_exchange_meta(m, 1, true, 9, true, 10, NULL, NULL) == EXPANSE_BLOB_OK);
+    assert(expanse_sync_blob_map_compare_exchange_meta(m, 5, false, 0, true, 1, NULL, NULL)
+           == EXPANSE_BLOB_NO_META_FIELD); /* metadata alone cannot create a key */
+    assert(expanse_sync_blob_map_compare_exchange(m, 1, true, a, 23, 10, false, NULL, 0, 0, NULL, NULL, 0, NULL,
+                                                  NULL)
+           == EXPANSE_BLOB_OK); /* removed */
+    assert(expanse_sync_blob_map_len(m) == 0);
+    expanse_sync_blob_map_free(m);
+
+    /* RMW_THREADS threads incrementing one counter per map. */
+    rmw_str = expanse_sync_strmap_new();
+    rmw_bytes = expanse_sync_bytesmap_new();
+    rmw_obytes = expanse_sync_ordered_bytesmap_new();
+    rmw_blob = expanse_sync_blob_map_new(0);
+    uint8_t zero[16];
+    rmw_blob_counter(zero, 0);
+    assert(expanse_sync_blob_map_insert(rmw_blob, 2, zero, sizeof zero, 0) == EXPANSE_BLOB_OK);
+    pthread_t t[RMW_THREADS];
+    for (int i = 0; i < RMW_THREADS; i++)
+        assert(pthread_create(&t[i], NULL, rmw_worker, NULL) == 0);
+    for (int i = 0; i < RMW_THREADS; i++)
+        assert(pthread_join(t[i], NULL) == 0);
+    const uint64_t total = (uint64_t) RMW_THREADS * RMW_ROUNDS;
+    assert(expanse_sync_strmap_get(rmw_str, "counter", &v) && v == total);
+    assert(expanse_sync_bytesmap_get(rmw_bytes, "c\0n", 3, &v) && v == total);
+    assert(expanse_sync_ordered_bytesmap_get(rmw_obytes, "c\x01n", 3, &v) && v == total);
+    assert(expanse_sync_blob_map_get_into(rmw_blob, 1, buf, sizeof buf, &len, &meta) == EXPANSE_BLOB_OK
+           && len == 16 && meta == (uint32_t) total);
+    memcpy(&v, buf, sizeof v);
+    assert(v == total);
+    assert(expanse_sync_blob_map_get_meta(rmw_blob, 2, &meta) && meta == (uint32_t) total);
+    expanse_sync_strmap_free(rmw_str);
+    expanse_sync_bytesmap_free(rmw_bytes);
+    expanse_sync_ordered_bytesmap_free(rmw_obytes);
+    expanse_sync_blob_map_free(rmw_blob);
+    printf("sync RMW: string, bytes, ordered-bytes and blob compare_exchange / get_or_insert, %d threads ok\n",
+           RMW_THREADS);
+}
+
 int main(void) {
     printf("libexpanse %s\n", expanse_version());
 
@@ -593,6 +752,7 @@ int main(void) {
     sync_strmap_smoke();
     sync_bytesmaps_smoke();
     sync_blob_map_smoke();
+    sync_rmw_smoke();
 
     expanse_bytesmap_t *b = expanse_bytesmap_new();
     expanse_bytesmap_insert(b, "a\0b", 3, 5, NULL);
