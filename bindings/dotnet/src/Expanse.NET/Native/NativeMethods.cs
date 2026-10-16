@@ -650,4 +650,297 @@ public static class NativeMethods
     public static extern bool expanse_sync_map_reader_prev_before(SafeExpanseSyncMapReaderHandle reader, ulong key, out ulong key_out, out ulong value_out);
 
     #endregion
+
+    #region Concurrent shared string, bytes, ordered-bytes and blob maps (#1538)
+
+    // Keys are passed as pointers. Callers pin them with `fixed` for the duration of the call only;
+    // no pointer is retained by the native side after a call returns.
+
+    // ---- expanse_sync_strmap ----
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_new")]
+    public static extern SafeExpanseSyncStrMapHandle expanse_sync_strmap_new();
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_free")]
+    public static extern void expanse_sync_strmap_free(IntPtr map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_insert(SafeExpanseSyncStrMapHandle map, byte* key, ulong value, ulong* old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_get")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_get(SafeExpanseSyncStrMapHandle map, byte* key, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_contains(SafeExpanseSyncStrMapHandle map, byte* key);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_remove")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_remove(SafeExpanseSyncStrMapHandle map, byte* key, ulong* old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_len")]
+    public static extern ulong expanse_sync_strmap_len(SafeExpanseSyncStrMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_mem_used")]
+    public static extern nuint expanse_sync_strmap_mem_used(SafeExpanseSyncStrMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_mem_held")]
+    public static extern nuint expanse_sync_strmap_mem_held(SafeExpanseSyncStrMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_shrink_to_fit")]
+    public static extern nuint expanse_sync_strmap_shrink_to_fit(SafeExpanseSyncStrMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_compare_exchange")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_compare_exchange(SafeExpanseSyncStrMapHandle map, byte* key, [MarshalAs(UnmanagedType.I1)] bool expected_present, ulong expected_value, [MarshalAs(UnmanagedType.I1)] bool new_present, ulong new_value, out byte observed_present_out, out ulong observed_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_get_or_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_get_or_insert(SafeExpanseSyncStrMapHandle map, byte* key, ulong value, out ulong existing_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_new")]
+    public static extern SafeExpanseSyncStrMapReaderHandle expanse_sync_strmap_reader_new(SafeExpanseSyncStrMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_free")]
+    public static extern void expanse_sync_strmap_reader_free(IntPtr reader);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_get")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_reader_get(SafeExpanseSyncStrMapReaderHandle reader, byte* key, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_strmap_reader_contains(SafeExpanseSyncStrMapReaderHandle reader, byte* key);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_first")]
+    public static extern unsafe int expanse_sync_strmap_reader_first(SafeExpanseSyncStrMapReaderHandle reader, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_last")]
+    public static extern unsafe int expanse_sync_strmap_reader_last(SafeExpanseSyncStrMapReaderHandle reader, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_next_at_or_after")]
+    public static extern unsafe int expanse_sync_strmap_reader_next_at_or_after(SafeExpanseSyncStrMapReaderHandle reader, byte* key, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_next_after")]
+    public static extern unsafe int expanse_sync_strmap_reader_next_after(SafeExpanseSyncStrMapReaderHandle reader, byte* key, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_prev_at_or_before")]
+    public static extern unsafe int expanse_sync_strmap_reader_prev_at_or_before(SafeExpanseSyncStrMapReaderHandle reader, byte* key, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_strmap_reader_prev_before")]
+    public static extern unsafe int expanse_sync_strmap_reader_prev_before(SafeExpanseSyncStrMapReaderHandle reader, byte* key, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    // ---- expanse_sync_bytesmap ----
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_new")]
+    public static extern SafeExpanseSyncBytesMapHandle expanse_sync_bytesmap_new();
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_free")]
+    public static extern void expanse_sync_bytesmap_free(IntPtr map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_insert(SafeExpanseSyncBytesMapHandle map, byte* key, nuint len, ulong value, ulong* old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_get")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_get(SafeExpanseSyncBytesMapHandle map, byte* key, nuint len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_contains(SafeExpanseSyncBytesMapHandle map, byte* key, nuint len);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_remove")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_remove(SafeExpanseSyncBytesMapHandle map, byte* key, nuint len, ulong* old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_len")]
+    public static extern ulong expanse_sync_bytesmap_len(SafeExpanseSyncBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_mem_used")]
+    public static extern nuint expanse_sync_bytesmap_mem_used(SafeExpanseSyncBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_mem_held")]
+    public static extern nuint expanse_sync_bytesmap_mem_held(SafeExpanseSyncBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_shrink_to_fit")]
+    public static extern nuint expanse_sync_bytesmap_shrink_to_fit(SafeExpanseSyncBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_compare_exchange")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_compare_exchange(SafeExpanseSyncBytesMapHandle map, byte* key, nuint len, [MarshalAs(UnmanagedType.I1)] bool expected_present, ulong expected_value, [MarshalAs(UnmanagedType.I1)] bool new_present, ulong new_value, out byte observed_present_out, out ulong observed_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_get_or_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_get_or_insert(SafeExpanseSyncBytesMapHandle map, byte* key, nuint len, ulong value, out ulong existing_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_reader_new")]
+    public static extern SafeExpanseSyncBytesMapReaderHandle expanse_sync_bytesmap_reader_new(SafeExpanseSyncBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_reader_free")]
+    public static extern void expanse_sync_bytesmap_reader_free(IntPtr reader);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_reader_get")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_reader_get(SafeExpanseSyncBytesMapReaderHandle reader, byte* key, nuint len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_bytesmap_reader_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_bytesmap_reader_contains(SafeExpanseSyncBytesMapReaderHandle reader, byte* key, nuint len);
+
+    // ---- expanse_sync_ordered_bytesmap ----
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_new")]
+    public static extern SafeExpanseSyncOrderedBytesMapHandle expanse_sync_ordered_bytesmap_new();
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_free")]
+    public static extern void expanse_sync_ordered_bytesmap_free(IntPtr map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_insert(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, ulong value, ulong* old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_get")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_get(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_contains(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_remove")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_remove(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, ulong* old_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_len")]
+    public static extern ulong expanse_sync_ordered_bytesmap_len(SafeExpanseSyncOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_mem_used")]
+    public static extern nuint expanse_sync_ordered_bytesmap_mem_used(SafeExpanseSyncOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_mem_held")]
+    public static extern nuint expanse_sync_ordered_bytesmap_mem_held(SafeExpanseSyncOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_shrink_to_fit")]
+    public static extern nuint expanse_sync_ordered_bytesmap_shrink_to_fit(SafeExpanseSyncOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_compare_exchange")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_compare_exchange(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, [MarshalAs(UnmanagedType.I1)] bool expected_present, ulong expected_value, [MarshalAs(UnmanagedType.I1)] bool new_present, ulong new_value, out byte observed_present_out, out ulong observed_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_get_or_insert")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_get_or_insert(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, ulong value, out ulong existing_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_reader_new")]
+    public static extern SafeExpanseSyncOrderedBytesMapReaderHandle expanse_sync_ordered_bytesmap_reader_new(SafeExpanseSyncOrderedBytesMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_reader_free")]
+    public static extern void expanse_sync_ordered_bytesmap_reader_free(IntPtr reader);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_reader_get")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_reader_get(SafeExpanseSyncOrderedBytesMapReaderHandle reader, byte* key, nuint len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_reader_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern unsafe bool expanse_sync_ordered_bytesmap_reader_contains(SafeExpanseSyncOrderedBytesMapReaderHandle reader, byte* key, nuint len);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_first")]
+    public static extern unsafe int expanse_sync_ordered_bytesmap_first(SafeExpanseSyncOrderedBytesMapHandle map, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_last")]
+    public static extern unsafe int expanse_sync_ordered_bytesmap_last(SafeExpanseSyncOrderedBytesMapHandle map, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_next_at_or_after")]
+    public static extern unsafe int expanse_sync_ordered_bytesmap_next_at_or_after(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_next_after")]
+    public static extern unsafe int expanse_sync_ordered_bytesmap_next_after(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_prev_at_or_before")]
+    public static extern unsafe int expanse_sync_ordered_bytesmap_prev_at_or_before(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_ordered_bytesmap_prev_before")]
+    public static extern unsafe int expanse_sync_ordered_bytesmap_prev_before(SafeExpanseSyncOrderedBytesMapHandle map, byte* key, nuint len, byte* key_out, nuint buf_len, out nuint required_len, out ulong value_out);
+
+    // ---- expanse_sync_blob_map ----
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_new")]
+    public static extern SafeExpanseSyncBlobMapHandle expanse_sync_blob_map_new(nuint chunk_size);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_new_with_capacity")]
+    public static extern SafeExpanseSyncBlobMapHandle expanse_sync_blob_map_new_with_capacity(nuint chunk_size, nuint max_capacity);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_free")]
+    public static extern void expanse_sync_blob_map_free(IntPtr map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_insert")]
+    public static extern unsafe int expanse_sync_blob_map_insert(SafeExpanseSyncBlobMapHandle map, ulong key, byte* data, nuint len, uint hot_meta);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_remove")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_blob_map_remove(SafeExpanseSyncBlobMapHandle map, ulong key);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_get_into")]
+    public static extern unsafe int expanse_sync_blob_map_get_into(SafeExpanseSyncBlobMapHandle map, ulong key, byte* buf, nuint buf_len, out nuint len_out, out uint meta_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_get_meta")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_blob_map_get_meta(SafeExpanseSyncBlobMapHandle map, ulong key, out uint meta_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_blob_map_contains(SafeExpanseSyncBlobMapHandle map, ulong key);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_len")]
+    public static extern ulong expanse_sync_blob_map_len(SafeExpanseSyncBlobMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_mem_used")]
+    public static extern nuint expanse_sync_blob_map_mem_used(SafeExpanseSyncBlobMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_mem_used_estimate")]
+    public static extern nuint expanse_sync_blob_map_mem_used_estimate(SafeExpanseSyncBlobMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_mem_held")]
+    public static extern nuint expanse_sync_blob_map_mem_held(SafeExpanseSyncBlobMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_shrink_to_fit")]
+    public static extern nuint expanse_sync_blob_map_shrink_to_fit(SafeExpanseSyncBlobMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_set_reclaim_at_cap")]
+    public static extern void expanse_sync_blob_map_set_reclaim_at_cap(SafeExpanseSyncBlobMapHandle map, [MarshalAs(UnmanagedType.I1)] bool on);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_compact")]
+    public static extern int expanse_sync_blob_map_compact(SafeExpanseSyncBlobMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_compare_exchange")]
+    public static extern unsafe int expanse_sync_blob_map_compare_exchange(SafeExpanseSyncBlobMapHandle map, ulong key, [MarshalAs(UnmanagedType.I1)] bool expected_present, byte* expected_data, nuint expected_len, uint expected_meta, [MarshalAs(UnmanagedType.I1)] bool new_present, byte* new_data, nuint new_len, uint new_meta, out byte observed_present_out, byte* buf, nuint buf_len, out nuint len_out, out uint meta_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_compare_exchange_meta")]
+    public static extern int expanse_sync_blob_map_compare_exchange_meta(SafeExpanseSyncBlobMapHandle map, ulong key, [MarshalAs(UnmanagedType.I1)] bool expected_present, uint expected_meta, [MarshalAs(UnmanagedType.I1)] bool new_present, uint new_meta, out byte observed_present_out, out uint observed_meta_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_get_or_insert")]
+    public static extern unsafe int expanse_sync_blob_map_get_or_insert(SafeExpanseSyncBlobMapHandle map, ulong key, byte* data, nuint len, uint hot_meta, byte* buf, nuint buf_len, out nuint len_out, out uint meta_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_reader_new")]
+    public static extern SafeExpanseSyncBlobMapReaderHandle expanse_sync_blob_map_reader_new(SafeExpanseSyncBlobMapHandle map);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_reader_free")]
+    public static extern void expanse_sync_blob_map_reader_free(IntPtr reader);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_reader_get_into")]
+    public static extern unsafe int expanse_sync_blob_map_reader_get_into(SafeExpanseSyncBlobMapReaderHandle reader, ulong key, byte* buf, nuint buf_len, out nuint len_out, out uint meta_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_reader_get_meta")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_blob_map_reader_get_meta(SafeExpanseSyncBlobMapReaderHandle reader, ulong key, out uint meta_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_sync_blob_map_reader_contains")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_sync_blob_map_reader_contains(SafeExpanseSyncBlobMapReaderHandle reader, ulong key);
+
+    #endregion
 }

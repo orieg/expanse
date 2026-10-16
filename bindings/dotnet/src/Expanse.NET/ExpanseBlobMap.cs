@@ -21,6 +21,12 @@ public enum ExpanseBlobStatus
 {
     /// <summary>The value is stored.</summary>
     Ok = 0,
+    /// <summary>Shared map read: the key is absent. The sync wrappers report this as <c>false</c>, not as a status.</summary>
+    NotFound = 1,
+    /// <summary>Shared map read: the payload is longer than the buffer. The sync wrappers retry internally and never return it.</summary>
+    BufferTooSmall = 2,
+    /// <summary>Shared map read-modify-write: nothing was stored because the current value is not the expected one (or, for <c>GetOrInsert</c>, the key is present).</summary>
+    Mismatch = 3,
     /// <summary>Refused: hot metadata wider than 24 bits.</summary>
     MetaOverflow = 16,
     /// <summary>Refused: payload larger than a chunk, or allocation failure.</summary>
@@ -29,6 +35,8 @@ public enum ExpanseBlobStatus
     CapRefused = 18,
     /// <summary>Refused: this insert compacted the arena and the record still does not fit.</summary>
     ArenaFull = 19,
+    /// <summary>Shared map metadata swap: the comparison held but the value has no metadata field (the key is absent, or the new metadata is non-zero for a payload stored in its slot word).</summary>
+    NoMetaField = 20,
     /// <summary>Usage error reported by the native call.</summary>
     InvalidArgument = 32,
     /// <summary>Any other native error.</summary>

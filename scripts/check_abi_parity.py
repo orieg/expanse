@@ -457,13 +457,13 @@ NODE_FEATURE_MAPPING: Dict[str, str] = {
 #   - ecosystems: Set of ecosystem identifiers where deferral applies
 #                 ('java', 'dotnet', 'python', 'node', 'go').
 STATED_DEFERRALS: Dict[str, Dict[str, Any]] = {
-    # The shared string map's C handle (#1538). Go and Java wrap it; .NET will
-    # wrap the C handle, Python and Node the Rust `SyncExpanseStrMap`; each is a
+    # The shared string map's C handle (#1538). Go, Java and .NET wrap the C
+    # handle; Python and Node will wrap the Rust `SyncExpanseStrMap`; each is a
     # later step of #1538.
     sym: {
         "issue": "#1538",
         "reason": "shared string-map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
-        "ecosystems": {"dotnet", "python", "node"},
+        "ecosystems": {"python", "node"},
     }
     for sym in (
         "expanse_sync_strmap_new",
@@ -497,7 +497,7 @@ STATED_DEFERRALS.update(
         f"expanse_sync_{kind}_{op}": {
             "issue": "#1538",
             "reason": "shared bytes and ordered-bytes map C handles shipped ahead of their binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
-            "ecosystems": {"dotnet", "python", "node"},
+            "ecosystems": {"python", "node"},
         }
         for kind, ops in (
             ("bytesmap", ()),
@@ -541,7 +541,7 @@ STATED_DEFERRALS.update(
         f"expanse_sync_blob_map_{op}": {
             "issue": "#1538",
             "reason": "shared blob map C handle shipped ahead of its binding wrappers (docs/COMPAT.md, Shared-map C handles: binding status)",
-            "ecosystems": {"dotnet", "python", "node"},
+            "ecosystems": {"python", "node"},
         }
         for op in (
             "new",
