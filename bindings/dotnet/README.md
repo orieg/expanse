@@ -126,8 +126,9 @@ using Expanse;
 
 using var blobMap = new ExpanseBlobMap();
 
-// Small payloads (<= 7 bytes) are packed inline inside 64-bit value slots
-blobMap.Set(1, "inline"u8, hotMeta: 10);
+// Small payloads (<= 7 bytes) written with hotMeta 0 are packed inline inside
+// 64-bit value slots; with metadata they are arena records that keep it
+blobMap.Set(1, "inline"u8, hotMeta: 0);
 
 // Large payloads (> 7 bytes) are allocated in chunked arena slabs
 byte[] largePayload = Encoding.UTF8.GetBytes("A large binary blob payload stored in off-heap slab arenas.");
@@ -196,7 +197,7 @@ for (var e = reader.First(); e is { } cur; e = reader.Next(cur.Key))
 - `ExpanseSyncStrMap` keys are NUL-terminated UTF-8 C strings, ordered by their UTF-8 bytes. A key containing an embedded NUL character throws `ArgumentException` instead of being truncated; use a bytes map for such keys. Ordered reads (`First`, `Last`, `Next`, `NextAtOrAfter`, `Prev`, `PrevAtOrBefore`) are on the reader.
 - `ExpanseSyncBytesMap` keys are opaque byte strings (embedded `0x00` bytes and the empty key are ordinary) and have no order.
 - `ExpanseSyncOrderedBytesMap` keys compare as unsigned bytes. Its ordered reads (`FirstEntry`, `LastEntry`, `CeilingEntry`, `HigherEntry`, `FloorEntry`, `LowerEntry`) are calls on the **map**, not on a reader, and **each one blocks every writer for its duration**: do not run them in a hot loop beside writers. A walk built from repeated `HigherEntry` calls is not a snapshot.
-- `ExpanseSyncBlobMap` copies values: `TryGetBytes` / `GetBytes` return a `byte[]` and never a view into the map. A payload longer than the wrapper's working buffer is read again with a larger one inside the call (the repeat is a new read, so it reports whatever a concurrent writer has stored by then). `CompareExchange` and `GetOrInsert` compare and report an `ExpanseBlobValue` (payload and 24-bit metadata) and return an `ExpanseBlobStatus`: `Ok` when stored, `Mismatch` when not (with the current value), or a refusal such as `MetaOverflow`. `CompareExchangeMeta` swaps the metadata alone. A payload of 7 bytes or fewer reads back metadata 0.
+- `ExpanseSyncBlobMap` copies values: `TryGetBytes` / `GetBytes` return a `byte[]` and never a view into the map. A payload longer than the wrapper's working buffer is read again with a larger one inside the call (the repeat is a new read, so it reports whatever a concurrent writer has stored by then). `CompareExchange` and `GetOrInsert` compare and report an `ExpanseBlobValue` (payload and 24-bit metadata) and return an `ExpanseBlobStatus`: `Ok` when stored, `Mismatch` when not (with the current value), or a refusal such as `MetaOverflow`. `CompareExchangeMeta` swaps the metadata alone. A payload of any length reads back the metadata it was written with (#1548).
 - Every `ulong`-valued map has `CompareExchange(key, expected, newValue, out observed)` and `GetOrInsert(key, value)` over `ulong?` (`null` is "absent"), as `ExpanseSyncMap` does.
 
 ---

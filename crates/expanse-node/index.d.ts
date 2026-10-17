@@ -45,7 +45,7 @@ export interface BlobMetaResult {
   payload: Buffer;
   /** 32-bit hot metadata word stored directly in the trie index. */
   hotMeta: number;
-  /** True if the payload was stored inline in the 64-bit value slot (≤ 7 bytes). */
+  /** True if the payload was stored inline in the 64-bit value slot (≤ 7 bytes, written with `hotMeta` 0). */
   isInline: boolean;
 }
 
@@ -879,7 +879,7 @@ export class SyncExpanseOrderedBytesMap {
 /** A blob payload and its 24-bit hot metadata, as the shared blob map's owned reads report it. */
 export interface BlobValue {
   payload: Buffer;
-  /** Payloads of 7 bytes or fewer keep no metadata and read `0`. */
+  /** The metadata as stored, at every payload length (#1548). */
   hotMeta: number;
 }
 
@@ -906,8 +906,8 @@ export interface BlobMetaExchangeResult {
 
 /**
  * A thread-safe concurrent map from 64-bit integer keys to byte payloads with 24-bit
- * hot metadata (OCC). Reads return owned copies. Payloads of 7 bytes or fewer keep no
- * metadata and read back `hotMeta` `0`.
+ * hot metadata (OCC). Reads return owned copies. A payload of any length keeps the
+ * metadata it was written with (#1548); written with `hotMeta` 0, a short one is stored inline.
  */
 export class SyncExpanseBlobMap {
   constructor(chunkSize?: number, maxCapacity?: number);
@@ -946,7 +946,7 @@ export class SyncExpanseBlobMap {
   /**
    * Atomic compare-and-swap on the hot metadata alone. Throws when the metadata compares
    * equal but `newMeta` cannot be stored (above 24 bits, or non-zero on an absent key or
-   * an inline payload).
+   * a payload stored inline with metadata 0).
    */
   compareExchangeMeta(
     key: KeyInput,

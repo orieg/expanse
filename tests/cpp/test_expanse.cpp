@@ -456,9 +456,9 @@ void test_blob_map() {
     assert(bm.empty());
     assert(bm.size() == 0);
 
-    // 1. Inline payloads (<= 7 bytes)
+    // 1. Inline payloads (<= 7 bytes, metadata 0)
     std::string_view inline_str = "hello"; // 5 bytes
-    assert(bm.insert(1, inline_str, 0x1111));
+    assert(bm.insert(1, inline_str, 0));
 
     // 2. Arena payloads (> 7 bytes)
     std::string arena_str = "This is a longer payload allocated in the arena buffer";
@@ -466,7 +466,7 @@ void test_blob_map() {
 
     // 3. Exact 7-byte inline boundary
     std::string_view exact_7 = "1234567";
-    assert(bm.insert(3, exact_7, 0x3333));
+    assert(bm.insert(3, exact_7, 0));
 
     // 4. 8-byte arena payload
     std::string_view exact_8 = "12345678";
@@ -474,7 +474,7 @@ void test_blob_map() {
 
     // 5. Zero-byte empty payload
     std::string_view empty_str = "";
-    assert(bm.insert(5, empty_str, 0x5555));
+    assert(bm.insert(5, empty_str, 0));
 
     // 6. Large multi-KB arena payload
     std::vector<uint8_t> large_data(4096, 0xAB);
@@ -518,6 +518,16 @@ void test_blob_map() {
     for (size_t i = 0; i < 4096; ++i) {
         assert(u8_view[i] == 0xAB);
     }
+
+    // A short payload with metadata is stored in the arena and keeps it, and
+    // metadata wider than 24 bits is refused at every length (issue #1548).
+    assert(bm.insert(8, std::string_view("abc"), 0x7777));
+    auto v8 = bm.get(8);
+    assert(v8.has_value() && !v8->is_inline() && v8->as_string_view() == "abc");
+    assert(v8->hot_meta() == 0x7777);
+    assert(!bm.insert(9, std::string_view("abc"), 0x01000000));
+    assert(!bm.contains(9));
+    assert(bm.erase(8));
 
     // Filtered scan
     std::vector<uint64_t> scanned_keys;

@@ -125,11 +125,12 @@ fn probe(via: Via, k: u64) -> (Status, usize, u32) {
 /// How the engine stored a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Repr {
-    /// In the slot word, uncompressed (7 bytes or fewer).
+    /// In the slot word, uncompressed (7 bytes or fewer, metadata 0).
     Inline,
     /// In the slot word, compressed by the codec.
     Compressed,
-    /// In the arena, with a 24-bit metadata field.
+    /// In the arena, with a 24-bit metadata field (any length with
+    /// metadata, #1548).
     Arena,
 }
 
@@ -154,10 +155,11 @@ fn representations() -> Vec<(Vec<u8>, u32, Repr, u32)> {
         (b"abc".to_vec(), 0, Repr::Inline, 0),
         (b"seven!!".to_vec(), 0, Repr::Inline, 0),
         // At 7 bytes or fewer the slot word holds the payload and no
-        // metadata field: the metadata passed is not stored, even one wider
-        // than 24 bits (`ExpanseBlobMap::insert`).
-        (b"seven!!".to_vec(), 9, Repr::Inline, 0),
-        (b"tiny".to_vec(), 1 << 24, Repr::Inline, 0),
+        // metadata field, so a short payload with metadata is an arena
+        // record that keeps it (#1548, `ExpanseBlobMap::insert`).
+        (Vec::new(), 1, Repr::Arena, 1),
+        (b"seven!!".to_vec(), 9, Repr::Arena, 9),
+        (b"tiny".to_vec(), 0x00FF_FFFF, Repr::Arena, 0x00FF_FFFF),
         // Eight bytes whose top byte is zero: the zero-trim codec.
         (vec![1, 2, 3, 4, 5, 6, 7, 0], 0, Repr::Compressed, 0),
         // ASCII digits, 8 to 14 of them: the nibble codec.
@@ -268,18 +270,23 @@ fn every_representation_round_trips_through_both_get_intos() {
 
     // One key moved across every representation boundary, in both
     // directions: each replace must read back as the value just stored.
-    let walk: [(&[u8], u32, Repr); 6] = [
+    // A short payload moves between the slot word and an arena record by
+    // its metadata alone (#1548).
+    let walk: [(&[u8], u32, Repr); 8] = [
         (b"1234567", 0, Repr::Inline),
         (b"12345678", 0, Repr::Compressed),
         (&[0xEE; 300], 11, Repr::Arena),
         (b"12345678", 12, Repr::Arena),
-        (b"abc", 13, Repr::Inline),
+        (b"abc", 13, Repr::Arena),
+        (b"abc", 0, Repr::Inline),
+        (b"abc", 14, Repr::Arena),
         (&[0xEE; 9], 0, Repr::Arena),
     ];
     for (data, meta_in, want) in walk {
         assert_eq!(insert(m, 99, data, meta_in), Status::Ok);
         assert_eq!(repr(m, 99), Some(want), "{data:?}");
-        let want_meta = if want == Repr::Arena { meta_in } else { 0 };
+        // Metadata reads back as stored, at every length.
+        let want_meta = meta_in;
         let got = get_into(Via::Reader(r), 99, 300);
         assert_eq!(
             (got.status, got.len, got.meta),
@@ -327,7 +334,7 @@ fn get_into_buffer_contract() {
             if n == 0 {
                 assert_eq!(
                     (st, len, meta),
-                    (Status::Ok, 0, 0),
+                    (Status::Ok, 0, *want_meta),
                     "the empty payload fits NULL"
                 );
                 continue;
@@ -1049,19 +1056,24 @@ fn compare_exchange_every_branch_and_the_buffer_contract() {
     // An empty payload is present and fits a NULL buffer of length 0.
     assert_eq!(cx(m, 3, None, None, 0), Rmw::observed(&[], 0, 0, true));
 
-    // Payloads of 7 bytes or fewer carry no metadata field (#1548): the
-    // metadata passed is not stored, so expecting it is a mismatch on 0.
+    // Payloads of 7 bytes or fewer keep the metadata they are stored with
+    // (#1548): expecting it matches, and expecting 0 is a mismatch on it.
     assert_eq!(
         cx(m, 5, None, Some((&b"seven!!"[..], 9)), 16),
         Rmw::untouched(Status::Ok, 16)
     );
     assert_eq!(
-        cx(m, 5, Some((&b"seven!!"[..], 9)), Some((&b"x"[..], 0)), 16),
-        Rmw::observed(b"seven!!", 0, 16, true)
+        cx(m, 5, Some((&b"seven!!"[..], 0)), Some((&b"x"[..], 0)), 16),
+        Rmw::observed(b"seven!!", 9, 16, true)
     );
     assert_eq!(
-        cx(m, 5, Some((&b"seven!!"[..], 0)), Some((&b"x"[..], 0)), 16),
+        cx(m, 5, Some((&b"seven!!"[..], 9)), Some((&b"x"[..], 0)), 16),
         Rmw::untouched(Status::Ok, 16)
+    );
+    // Metadata wider than 24 bits is refused for a short payload too.
+    assert_eq!(
+        cx(m, 5, Some((&b"x"[..], 0)), Some((&b"y"[..], 1 << 24)), 16),
+        Rmw::untouched(Status::MetaOverflow, 16)
     );
 
     // SAFETY: `m` is live until the free below.
@@ -1247,13 +1259,15 @@ fn compare_exchange_meta_every_branch() {
     assert_eq!(insert(m, 3, b"abc", 0), Status::Ok);
     assert_eq!(cx_meta(m, 3, Some(0), Some(3)), (Status::NoMetaField, None));
     assert_eq!(cx_meta(m, 3, Some(0), Some(0)), (Status::Ok, None));
-    // Payloads of 7 bytes or fewer drop the metadata they were inserted with
-    // (#1548): it reads back 0.
+    // Payloads of 7 bytes or fewer keep the metadata they were inserted with
+    // (#1548): it reads back, and swaps in place.
     assert_eq!(insert(m, 4, b"seven!!", 9), Status::Ok);
     assert_eq!(
-        cx_meta(m, 4, Some(9), Some(10)),
-        (Status::Mismatch, Some(Some(0)))
+        cx_meta(m, 4, Some(0), Some(10)),
+        (Status::Mismatch, Some(Some(9)))
     );
+    assert_eq!(cx_meta(m, 4, Some(9), Some(10)), (Status::Ok, None));
+    assert_eq!(value(m, 4), Some((b"seven!!".to_vec(), 10)));
     // Removal on a matching metadata.
     assert_eq!(cx_meta(m, 3, Some(0), None), (Status::Ok, None));
     assert_eq!(
@@ -1294,15 +1308,17 @@ fn get_or_insert_every_branch_and_the_buffer_contract() {
         Rmw::untouched(Status::AllocationFailed, 64)
     );
     assert_eq!(value(m, 2), None);
-    // Payloads of 7 bytes or fewer are stored without metadata, whatever
-    // `hot_meta` is, even one wider than 24 bits (#1548).
+    // Payloads of 7 bytes or fewer: metadata wider than 24 bits is refused,
+    // and metadata in range is stored and reported (#1548).
     assert_eq!(
         goi(m, 3, b"tiny", 1 << 24, 8),
-        Rmw::untouched(Status::Ok, 8)
+        Rmw::untouched(Status::MetaOverflow, 8)
     );
+    assert_eq!(value(m, 3), None);
+    assert_eq!(goi(m, 3, b"tiny", 6, 8), Rmw::untouched(Status::Ok, 8));
     assert_eq!(
         goi(m, 3, b"other", 0, 8),
-        Rmw::observed(b"tiny", 0, 8, false)
+        Rmw::observed(b"tiny", 6, 8, false)
     );
     // The empty payload.
     assert_eq!(goi(m, 4, &[], 0, 0), Rmw::untouched(Status::Ok, 0));

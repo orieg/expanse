@@ -24,11 +24,11 @@ import java.util.Set;
  * A payload larger than {@code Integer.MAX_VALUE - 8} bytes cannot be returned as an array and
  * raises {@link IllegalStateException}.
  * <p>
- * Hot metadata is the 24-bit field of an arena-stored value: a payload of 7 bytes or fewer, or
- * one the map compresses into its slot word (only when {@code hotMeta} is 0), is stored without
- * it and reads back metadata 0 whatever {@code hotMeta} the insert passed. A compare-and-swap
- * that expects the metadata such a value was inserted with therefore reports a mismatch with
- * metadata 0.
+ * Hot metadata is the 24-bit field of an arena-stored value. A value is stored in its slot word,
+ * without that field, only when {@code hotMeta} is 0 (a payload of 7 bytes or fewer, or one the
+ * map compresses into the slot word), and reads back metadata 0; a payload of any length inserted
+ * with non-zero {@code hotMeta} is arena-stored and reads it back, and a {@code hotMeta} wider
+ * than 24 bits is refused at every length (issue #1548).
  * <p>
  * Protocol, as for {@link SyncExpanseMap}: the map is safe from any number of threads at once
  * except {@link #close()}; a {@link Reader} is used by one thread at a time and is closed before

@@ -1456,14 +1456,19 @@ def test_shared_blobmap_point_ops_across_sizes():
     assert len(m) == 0 and m.get(2) is None
 
 
-def test_shared_blobmap_small_payload_metadata_reads_zero():
-    # Issue #1548: a payload of 7 bytes or fewer drops hot_meta. Pin the current
-    # behaviour so a change is noticed; it is the engine's, not this binding's.
+def test_shared_blobmap_small_payload_keeps_metadata():
+    # Issue #1548: a payload of 7 bytes or fewer keeps the hot_meta it was
+    # inserted with, and metadata wider than 24 bits is refused for it.
     m = SyncExpanseBlobMap()
     m.insert(1, b"tiny", 0xABC)
     m.insert(2, b"x" * 64, 0xABC)
-    assert m.get(1) == (b"tiny", 0)
+    m.insert(3, b"", 7)
+    assert m.get(1) == (b"tiny", 0xABC)
+    assert m.get_meta(1) == 0xABC
     assert m.get(2) == (b"x" * 64, 0xABC)
+    assert m.get(3) == (b"", 7)
+    assert m.insert_status(4, b"tiny", 1 << 24) == "meta_overflow"
+    assert 4 not in m
 
 
 def test_shared_blobmap_refusals():
@@ -1525,10 +1530,10 @@ def test_shared_blobmap_compare_exchange_branches():
     assert m.compare_exchange(3, None, (b"hi", 0)) == ("ok", None)
     assert m.compare_exchange(3, (b"hi", 0), ("ho", 0))[0] == "ok"
     assert m.get(3) == (b"ho", 0)
-    # inserted metadata is dropped for a slot-word payload, so expecting it mismatches (#1548)
+    # a short payload keeps the metadata it was inserted with, so expecting it matches (#1548)
     m.insert(4, b"tiny", 9)
-    assert m.compare_exchange(4, (b"tiny", 9), None) == ("mismatch", (b"tiny", 0))
-    assert m.compare_exchange(4, (b"tiny", 0), None)[0] == "ok"
+    assert m.compare_exchange(4, (b"tiny", 0), None) == ("mismatch", (b"tiny", 9))
+    assert m.compare_exchange(4, (b"tiny", 9), None)[0] == "ok"
 
 
 def test_shared_blobmap_compare_exchange_meta():

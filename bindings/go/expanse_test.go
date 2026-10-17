@@ -880,8 +880,8 @@ func TestBlobMapCapAndRefusalKinds(t *testing.T) {
 }
 
 // A refused native insert must surface as an error, not read as success.
-// hot_meta above 24 bits on a payload longer than the 7-byte inline form is
-// rejected by the arena (MetaOverflow) before the index is touched.
+// hot_meta above 24 bits is rejected (MetaOverflow) before the index is
+// touched, at every payload length (#1548).
 func TestBlobMapInsertRefused(t *testing.T) {
 	b := NewBlobMap(4096)
 	defer b.Free()
@@ -891,6 +891,19 @@ func TestBlobMapInsertRefused(t *testing.T) {
 	}
 	if b.Contains(1) || b.Size() != 0 {
 		t.Fatalf("refused insert left key 1 present (size %d)", b.Size())
+	}
+	if err := b.Set(1, []byte("tiny"), 1<<24); !errors.Is(err, ErrBlobInsertRefused) {
+		t.Fatalf("short payload, hot_meta 1<<24: want ErrBlobInsertRefused, got %v", err)
+	}
+	// A short payload with metadata in range keeps it (#1548).
+	if err := b.Set(3, []byte("tiny"), 7); err != nil {
+		t.Fatalf("short payload, hot_meta 7: %v", err)
+	}
+	if data, meta, ok := b.Get(3); !ok || string(data) != "tiny" || meta != 7 {
+		t.Fatalf("short payload: ok=%v data=%q meta=%d", ok, string(data), meta)
+	}
+	if !b.Delete(3) {
+		t.Fatal("delete key 3")
 	}
 
 	// A refused overwrite leaves the previous value in place.

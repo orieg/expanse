@@ -124,8 +124,8 @@ fn test_hot_metadata_predicate_filtering_and_range_scans() {
 fn test_inplace_updates_and_deletions() {
     let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
 
-    // 1. Insert inline, then update to large arena blob
-    map.insert(42, b"small", 1).unwrap();
+    // 1. Insert inline (metadata 0), then update to large arena blob
+    map.insert(42, b"small", 0).unwrap();
     let (v, m) = map.get(42).unwrap();
     assert!(v.is_inline());
     assert_eq!(v.as_bytes(), b"small");
@@ -139,8 +139,16 @@ fn test_inplace_updates_and_deletions() {
     assert_eq!(v.as_bytes(), &big_payload[..]);
     assert_eq!(m, 999);
 
-    // 2. Overwrite arena blob with small inline payload
+    // 2. Overwrite arena blob with a small payload carrying metadata: it stays
+    // an arena record and keeps the metadata (#1548)
     map.insert(42, b"tiny", 2).unwrap();
+    let (v, m) = map.get(42).unwrap();
+    assert!(v.is_arena());
+    assert_eq!(v.as_bytes(), b"tiny");
+    assert_eq!(m, 2);
+
+    // ...and without metadata it moves back into the slot word
+    map.insert(42, b"tiny", 0).unwrap();
     let (v, m) = map.get(42).unwrap();
     assert!(v.is_inline());
     assert_eq!(v.as_bytes(), b"tiny");
@@ -252,13 +260,23 @@ fn test_edge_cases_and_clear() {
 fn test_mmap_and_binary_serialization() {
     let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
 
+    // Even keys: <= 7 bytes, inline when stored with metadata 0 (i % 4 == 0),
+    // an arena record keeping its metadata otherwise (#1548). Odd keys: > 7
+    // bytes, arena.
+    let meta_of = |i: u64| {
+        if i.is_multiple_of(4) {
+            0
+        } else {
+            (i * 5) as u32
+        }
+    };
     for i in 0..100u64 {
         let payload = if i % 2 == 0 {
-            format!("in-{i}") // <= 7 bytes, inline
+            format!("in-{i}")
         } else {
-            format!("large-arena-payload-data-entry-number-{i}") // > 7 bytes, arena
+            format!("large-arena-payload-data-entry-number-{i}")
         };
-        map.insert(i, payload.as_bytes(), (i * 5) as u32).unwrap();
+        map.insert(i, payload.as_bytes(), meta_of(i)).unwrap();
     }
 
     let temp_file = std::env::temp_dir().join("test_blobmap_integ.bin");
@@ -270,10 +288,10 @@ fn test_mmap_and_binary_serialization() {
     for i in 0..100u64 {
         let (view, meta) = loaded.get(i).unwrap();
         if i % 2 == 0 {
-            assert!(view.is_inline());
+            assert_eq!(view.is_inline(), i.is_multiple_of(4));
             let expected = format!("in-{i}");
             assert_eq!(view.as_bytes(), expected.as_bytes());
-            assert_eq!(meta, 0); // Inline slots do not store separate hot_meta
+            assert_eq!(meta, meta_of(i));
         } else {
             assert!(view.is_arena());
             let expected = format!("large-arena-payload-data-entry-number-{i}");

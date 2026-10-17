@@ -256,16 +256,11 @@ mod native_only {
             let mut map = ExpanseBlobMap::new();
             let mut model: BTreeMap<u64, (Vec<u8>, u32)> = BTreeMap::new();
 
+            // Metadata is kept at every payload length (#1548): a value takes the
+            // slot word only when stored with metadata 0.
             for (k, data, meta) in &entries {
                 map.insert(*k, data, *meta).unwrap();
-                let expected_meta = if data.len() <= 7
-                    || (*meta == 0 && expanse_trie::codec::try_compress_inline(data).is_some())
-                {
-                    0
-                } else {
-                    *meta
-                };
-                model.insert(*k, (data.clone(), expected_meta));
+                model.insert(*k, (data.clone(), *meta));
             }
 
             prop_assert_eq!(map.len(), model.len() as u64);
@@ -274,6 +269,10 @@ mod native_only {
                 let (view, meta) = map.get(*k).unwrap();
                 prop_assert_eq!(view.as_bytes(), expected_data.as_slice());
                 prop_assert_eq!(meta, *expected_meta);
+                let slot_word = *expected_meta == 0
+                    && (expected_data.len() <= 7
+                        || expanse_trie::codec::try_compress_inline(expected_data).is_some());
+                prop_assert_eq!(view.is_inline(), slot_word);
             }
 
             // Test scan_filtered

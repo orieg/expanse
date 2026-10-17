@@ -658,7 +658,7 @@ public class ExpanseSyncSharedMapsTests
 
         Assert.True(map.TryGetBytes(1, out byte[] got, out uint meta));
         Assert.Equal(tiny, got);
-        Assert.Equal(0U, meta); // a payload of 7 bytes or fewer reads back metadata 0
+        Assert.Equal(0U, meta); // written with metadata 0: stored in the slot word
         Assert.True(map.TryGetBytes(2, out got, out meta));
         Assert.Equal(mid, got);
         Assert.Equal(0xABCDEU, meta);
@@ -812,6 +812,18 @@ public class ExpanseSyncSharedMapsTests
         Assert.Equal(ExpanseBlobStatus.MetaOverflow, m.CompareExchangeMeta(1, 8, 1u << 24, out seen));
         Assert.Equal(ExpanseBlobStatus.Ok, m.CompareExchangeMeta(1, 8, null, out seen));
         Assert.False(m.ContainsKey(1));
+        // A payload of 7 bytes or fewer keeps its metadata and swaps it in place (#1548).
+        m.Set(4, Bytes(1, 2, 3), 5);
+        Assert.True(m.TryGetMeta(4, out meta));
+        Assert.Equal(5U, meta);
+        Assert.Equal(ExpanseBlobStatus.Ok, m.CompareExchangeMeta(4, 5, 6, out seen));
+        Assert.True(m.TryGetBytes(4, out byte[] got, out meta));
+        Assert.Equal(Bytes(1, 2, 3), got);
+        Assert.Equal(6U, meta);
+        // ...and metadata wider than 24 bits is refused for it.
+        Assert.Equal(ExpanseBlobStatus.MetaOverflow, m.GetOrInsert(5, Bytes(1), 1u << 24, out ExpanseBlobValue? existing));
+        Assert.Null(existing);
+        Assert.False(m.ContainsKey(5));
     }
 
     [Fact]

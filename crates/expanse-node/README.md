@@ -102,8 +102,9 @@ import { ExpanseBlobMap } from '@orieg/expanse';
 
 const blobmap = new ExpanseBlobMap();
 
-// Short payloads (<= 7 bytes) are stored inline in the value slot (0 heap allocations)
-blobmap.set(1n, Buffer.from('inline'), 10 /* 32-bit hot metadata */);
+// Short payloads (<= 7 bytes) written with hot metadata 0 are stored inline in the
+// value slot (0 heap allocations); with metadata they are arena records that keep it
+blobmap.set(1n, Buffer.from('inline'), 0);
 
 // Larger payloads are allocated in contiguous slab arenas
 blobmap.set(2n, Buffer.from('large payload allocated in slab arena'), 20);
@@ -180,7 +181,7 @@ word-valued maps. The string map rejects a key with an embedded NUL. `get`, `has
 writes and the string map's `first` / `last` / `next` / `prev` run on the optimistic path; the
 ordered-bytes map's `first` / `last` / `next` / `prev` run with writers excluded, so each call
 blocks concurrent writers. Blob reads return owned `Buffer`s; `getWithMeta` adds `isInline`, and
-a payload of 7 bytes or fewer keeps no hot metadata (it reads `0`). The blob `compareExchange`,
+a payload of any length keeps the hot metadata it was written with (#1548). The blob `compareExchange`,
 `compareExchangeMeta` and `getOrInsert` throw when the map refuses the value (metadata over 24 bits,
 a refusing arena), where the C forms return a status. Like `SyncExpanseMap`, the objects belong to
 one JavaScript thread, so an exchange loses only to a write made in between (for example inside `fn`).

@@ -108,10 +108,9 @@ func syncNav(call func(buf []byte) (status int32, required uintptr, value uint64
 // An absent value is the "expected" side's "only if the key is absent" and the
 // "new" side's "remove the key", exactly as Word is for the word-valued maps.
 //
-// A payload of 7 bytes or fewer, or one the map compresses into its slot word,
-// is stored without metadata and reads back Meta 0 whatever Meta it was stored
-// with, so expecting the metadata such a value was inserted with reports a
-// mismatch with Meta 0 (#1548).
+// A value reads back the Meta it was stored with at every payload length
+// (#1548): only a value stored with Meta 0 is kept in its slot word, without a
+// metadata field, and a Meta wider than 24 bits is refused at every length.
 type BlobValue struct {
 	Data    []byte
 	Meta    uint32

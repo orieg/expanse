@@ -210,9 +210,9 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
 
     /**
      * A refused blob insert must throw, not read as success, and must leave
-     * the key's previous value in place. hot_meta above 24 bits on a payload
-     * longer than 7 bytes is refused by the engine (MetaOverflow) before the
-     * index is touched; every driver throws \Exception for it.
+     * the key's previous value in place. hot_meta above 24 bits is refused by
+     * the engine (MetaOverflow) at every payload length before the index is
+     * touched; every driver throws \Exception for it.
      */
     public function testBlobMapCapSwitchAndRefusalStatus()
     {
@@ -285,8 +285,8 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
      * hot_meta is a uint32_t in the engine. A negative value, or one wider
      * than 32 bits, must be refused the same way on every driver: the \FFI
      * driver wrapped -1 to 0xFFFFFFFF and truncated 2^32 + 1 to 1, while the
-     * in-memory fallback stored both as given. The engine also ignores
-     * hot_meta for a payload of at most 7 bytes and reads it back as 0.
+     * in-memory fallback stored both as given. A payload of at most 7 bytes
+     * keeps hot_meta, and one above 24 bits is refused for it (#1548).
      */
     public function testBlobMapHotMetaRangeIsIdenticalOnEveryDriver()
     {
@@ -304,13 +304,22 @@ class ExpanseTest extends PHPUnit\Framework\TestCase
             }
         }
 
-        // The whole uint32 range is accepted for an inline payload, whose
-        // metadata the engine does not keep.
-        $map->set(3, "short", 0xFFFFFFFF);
+        // A short payload keeps metadata in the 24-bit range and refuses a
+        // wider one, as a long payload does (#1548).
+        $map->set(3, "short", 0xFFFFFF);
         $meta = -1;
         $this->assertEquals("short", $map->get(3, $meta));
-        $this->assertEquals(0, $meta, 'an inline payload reads back hot_meta 0');
-        $this->assertEquals(0, $map->getMeta(3));
+        $this->assertEquals(0xFFFFFF, $meta, 'a short payload keeps its hot_meta');
+        $this->assertEquals(0xFFFFFF, $map->getMeta(3));
+        $threw = false;
+        try {
+            $map->set(4, "short", 0xFFFFFFFF);
+        } catch (\Exception $e) {
+            $threw = true;
+        }
+        $this->assertTrue($threw, 'a short payload with hot_meta above 24 bits must throw');
+        $this->assertFalse($map->has(4));
+        $this->assertEquals('meta_overflow', $map->setStatus(4, "short", 1 << 24));
     }
 
     public function testSyncMapAndSet()

@@ -460,9 +460,9 @@ console.log('\n--- ExpanseBlobMap Tests ---');
 test('ExpanseBlobMap inline and arena payloads, metadata, prune, compact, and serialization', () => {
   const blobmap = new ExpanseBlobMap();
 
-  // Short inline payload (<= 7 bytes)
+  // Short inline payload (<= 7 bytes, metadata 0)
   const shortBuf = Buffer.from('inline');
-  blobmap.set(1n, shortBuf, 10);
+  blobmap.set(1n, shortBuf, 0);
 
   // Large arena payload (> 7 bytes)
   const largeBuf = Buffer.from('This is a large arena payload that exceeds 7 bytes!');
@@ -485,6 +485,13 @@ test('ExpanseBlobMap inline and arena payloads, metadata, prune, compact, and se
   assert.strictEqual(metaShort.isInline, true);
   assert.strictEqual(metaShort.hotMeta, 0);
   assert.strictEqual(metaShort.payload.toString('utf8'), 'inline');
+
+  // A short payload with metadata is an arena record that keeps it (#1548).
+  blobmap.set(5n, Buffer.from('tiny'), 10);
+  const metaTiny = blobmap.getWithMeta(5n);
+  assert.strictEqual(metaTiny.isInline, false);
+  assert.strictEqual(metaTiny.hotMeta, 10);
+  assert.strictEqual(blobmap.delete(5n), true);
 
   const metaLarge = blobmap.getWithMeta(2n);
   assert.strictEqual(metaLarge.isInline, false);
@@ -1065,7 +1072,8 @@ test('SyncExpanseBlobMap point operations across payload sizes', () => {
   assert.strictEqual(m.get(999), null);
   assert.strictEqual(m.has(2), true);
   assert.strictEqual(m.contains(999), false);
-  // Metadata: an arena payload keeps it; a payload of 7 bytes or fewer does not (#1548).
+  // Metadata: kept at every payload length (#1548); a short payload written with
+  // metadata 0 stays inline.
   assert.strictEqual(m.getMeta(4), 7);
   assert.strictEqual(m.getMeta(2), 0);
   assert.strictEqual(m.getMeta(999), null);
@@ -1076,8 +1084,11 @@ test('SyncExpanseBlobMap point operations across payload sizes', () => {
   const inline = m.getWithMeta(2);
   assert.strictEqual(inline.isInline, true);
   assert.strictEqual(inline.hotMeta, 0);
-  m.set(50, Buffer.from('short'), 9); // metadata offered with a payload that cannot keep it
-  assert.strictEqual(m.getMeta(50), 0);
+  m.set(50, Buffer.from('short'), 9); // a short payload with metadata: an arena record keeping it
+  assert.strictEqual(m.getMeta(50), 9);
+  assert.strictEqual(m.getWithMeta(50).isInline, false);
+  assert.throws(() => m.set(51, Buffer.from('short'), 1 << 24)); // over 24 bits, at any length
+  assert.strictEqual(m.has(51), false);
   m.set(51, 'a string payload longer than seven', 9);
   assert.strictEqual(m.get(51).toString(), 'a string payload longer than seven');
   m.set(52, new Uint8Array([1, 2, 3]));
@@ -1176,7 +1187,7 @@ test('SyncExpanseBlobMap compareExchange covers every branch', () => {
   assert.strictEqual(outcome, 'refused');
 });
 
-test('SyncExpanseBlobMap compareExchangeMeta and the #1548 inline behaviour', () => {
+test('SyncExpanseBlobMap compareExchangeMeta and short payloads with metadata (#1548)', () => {
   const m = new SyncExpanseBlobMap();
   assert.deepStrictEqual(m.compareExchangeMeta(1, null, null), { stored: true, observed: null });
   // metadata alone cannot create a key
@@ -1192,12 +1203,17 @@ test('SyncExpanseBlobMap compareExchangeMeta and the #1548 inline behaviour', ()
   assert.strictEqual(m.getMeta(1), 6);
   assert.deepStrictEqual(m.compareExchangeMeta(1, 6, null), { stored: true, observed: 6 }); // removes
   assert.strictEqual(m.has(1), false);
-  // a payload of 7 bytes or fewer keeps no metadata: it reads 0, and 0 is what matches
+  // a payload of 7 bytes or fewer keeps the metadata it was written with
   m.set(2, Buffer.from('tiny'), 9);
-  assert.strictEqual(m.getMeta(2), 0);
-  assert.deepStrictEqual(m.compareExchangeMeta(2, 9, 1), { stored: false, observed: 0 });
-  assert.throws(() => m.compareExchangeMeta(2, 0, 1)); // no metadata field to hold it
-  assert.deepStrictEqual(m.compareExchangeMeta(2, 0, 0), { stored: true, observed: 0 });
+  assert.strictEqual(m.getMeta(2), 9);
+  assert.deepStrictEqual(m.compareExchangeMeta(2, 0, 1), { stored: false, observed: 9 });
+  assert.deepStrictEqual(m.compareExchangeMeta(2, 9, 1), { stored: true, observed: 9 });
+  assert.strictEqual(m.getMeta(2), 1);
+  // written with metadata 0 it is stored inline, with no metadata field to write
+  m.set(3, Buffer.from('tiny'), 0);
+  assert.strictEqual(m.getMeta(3), 0);
+  assert.throws(() => m.compareExchangeMeta(3, 0, 1)); // no metadata field to hold it
+  assert.deepStrictEqual(m.compareExchangeMeta(3, 0, 0), { stored: true, observed: 0 });
 });
 
 test('SyncExpanseBlobMap getOrInsert stores only into an absent key', () => {

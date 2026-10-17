@@ -525,14 +525,16 @@ thirty-eight entry points.
   `expanse_blob_map_insert_ex`'s statuses, and `_compact` returns `OK`, the
   mapped refusal, or `INVALID_ARGUMENT` for a `NULL` map. `_get_meta`,
   `_contains` and `_remove` return `bool`.
-- **Metadata on short payloads.** A payload of 7 bytes or fewer, or one the
-  codec compresses into the slot word (only with `hot_meta == 0`), is stored
-  in the slot word and reads back metadata `0` whatever `hot_meta` the insert
-  passed, as `ExpanseBlobMap::insert` stores it; the insert does not refuse
-  it, even with `hot_meta` wider than 24 bits. The header states this.
-  Changing it is
-  [#1548](https://github.com/orieg/expanse/issues/1548); this surface does not
-  change engine behaviour, and its tests pin the current one.
+- **Metadata on short payloads.** A value is stored in the slot word — a
+  payload of 7 bytes or fewer, or one the codec compresses into it — only when
+  it is inserted with `hot_meta == 0`, and it then reads back metadata `0`. A
+  payload of any length inserted with non-zero metadata is an arena record
+  and reads it back, and `scan`-style filtering selects it by it; `hot_meta`
+  wider than 24 bits is `EXPANSE_BLOB_META_OVERFLOW` at every length. This is
+  `ExpanseBlobMap::insert`'s rule (AGENTS.md §2.3 item 2,
+  [#1548](https://github.com/orieg/expanse/issues/1548)), and it holds on the
+  single-threaded `expanse_blob_map_*` surface too. The header states it, and
+  `crates/expanse-capi/tests/test_sync_blobmap_capi.rs` pins it.
 - **Memory.** `_mem_used` and `_mem_held` exclude writers and wait for a
   running compaction; `_mem_used_estimate` takes no lock. `_compact` and
   `_set_reclaim_at_cap` are the Rust methods; since the shared surface hands
@@ -599,18 +601,18 @@ maps define theirs.
   `MISMATCH` and stops on a refusal ends. `_compare_exchange_meta` swaps the
   24-bit metadata in the slot with no payload copy; `NO_META_FIELD` is its
   refusal for an absent key or non-zero metadata on a payload stored in its
-  slot word. Payloads of 7 bytes or fewer keep no metadata
-  ([#1548](https://github.com/orieg/expanse/issues/1548)): expecting the
-  metadata such a payload was inserted with reports `MISMATCH` with
-  metadata `0`.
+  slot word (one inserted with metadata 0). A payload of 7 bytes or fewer
+  inserted with metadata keeps it
+  ([#1548](https://github.com/orieg/expanse/issues/1548)), so expecting that
+  metadata matches, and `_compare_exchange_meta` swaps it in place.
 - **Tests.** In each map's target (`test_sync_strmap_capi.rs`,
   `test_sync_bytesmap_capi.rs` for both byte-string maps,
   `test_sync_blobmap_capi.rs`): every branch of each exchange, the `NULL`
   conventions and, for the blob map, the buffer contract (probe, one byte
   short, exact fit, nothing written on `OK` or a refusal), the refusals
   against a holding and a failing comparison, a retry loop that stops on a
-  refusal, an output buffer that is also the expected payload, and the #1548
-  behaviour. Threaded: concurrent `_compare_exchange` increments (and, on the
+  refusal, an output buffer that is also the expected payload, and short
+  payloads that keep their metadata (#1548). Threaded: concurrent `_compare_exchange` increments (and, on the
   blob map, `_compare_exchange_meta` increments) that lose no update, and
   threads racing `_get_or_insert` on each key that agree on one winner and
   its value. The single-threaded tests run under Miri and the whole targets
@@ -671,8 +673,8 @@ embedded NUL (`InvalidArg`, as `ExpanseStrMap` does), the bytes maps take a
 writers for the call, and the blob reads return owned `Buffer`s (a
 `BUFFER_TOO_SMALL` outcome has no JavaScript form; `getWithMeta` adds
 `isInline`). A blob exchange or `getOrInsert` the arena or the metadata field
-refuses throws, where the C forms return a refusal status; payloads of 7 bytes
-or fewer keep no metadata
+refuses throws, where the C forms return a refusal status; a payload of 7
+bytes or fewer keeps the metadata it was inserted with
 ([#1548](https://github.com/orieg/expanse/issues/1548)). None of the four
 carries a `STATED_DEFERRALS` entry for Node.js; every
 `expanse_sync_strmap_*`, `expanse_sync_bytesmap_*`,

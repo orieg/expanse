@@ -252,7 +252,7 @@ The shipped `ExpanseBlobMap::scan_filtered` (`crates/expanse/src/blobmap.rs`) ev
 \text{Predicate}(V) = (V_{\text{meta}} \ge T_{\text{min}}) \land (V_{\text{meta}} \le T_{\text{max}})
 ```
 
-it has to reproduce the scalar extraction exactly — the field is bits 63:40, and only `ArenaMeta` slots carry it (inline slots report `0`, ARCHITECTURE.md §10.5):
+it has to reproduce the scalar extraction exactly — the field is bits 63:40, and only `ArenaMeta` slots carry it (inline slots, which only a value stored with metadata 0 takes, report `0`, ARCHITECTURE.md §10.5):
 
 ```rust
 // Reference semantics a vectorized kernel must match (design sketch).
@@ -1045,7 +1045,7 @@ The shipped types live in `crates/expanse/src/blobmap.rs`, and their rustdoc is 
 - `pub enum BlobView<'a> { Inline(&'a [u8]), Arena(&'a [u8]), CompressedInline { buf: [u8; 16], len: u8 } }`, with `as_bytes`, `len`, `is_empty`.
 - `pub struct ExpanseBlobMap` (index `ExpanseMap` + `BlobArena`):
   - `new()`, `with_chunk_size(chunk_size: usize)`, `with_chunk_size_and_max_capacity(chunk_size: usize, max_capacity: usize)`
-  - `insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError>` — `hot_meta` above 24 bits is `ArenaError::MetaOverflow`, and it is ignored for inline payloads; a refusal at the capacity cap is `OffsetOverflow` or `ArenaFull` (§6.3.1)
+  - `insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError>` — `hot_meta` above 24 bits is `ArenaError::MetaOverflow` at every payload length, and a payload is stored inline (with no metadata field) only when `hot_meta == 0`, so a short payload with metadata is an `ArenaMeta` record that keeps it (#1548, AGENTS.md §2.3 item 2); a refusal at the capacity cap is `OffsetOverflow` or `ArenaFull` (§6.3.1)
   - `reclaim_at_cap`, `set_reclaim_at_cap(&mut self, on: bool)` (§6.3.1); `arena().max_capacity()`, `arena().live_bytes()`, `arena().mem_used()`
   - `get(&self, key: Key) -> Option<(BlobView<'_>, u32)>`, `contains_key`, `remove(&mut self, key: Key) -> bool`, `len`, `is_empty`, `mem_used`, `clear`
   - `scan_filtered<P, F>(&self, range: RangeInclusive<Key>, predicate: P, callback: F)` with `P: FnMut(Key, u32) -> bool`, `F: FnMut(Key, BlobView<'_>, u32) -> bool` — resolves each match from the slot the range walk holds (#355)
