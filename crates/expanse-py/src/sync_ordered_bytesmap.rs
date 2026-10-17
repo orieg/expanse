@@ -214,8 +214,9 @@ impl SyncExpanseOrderedBytesMap {
         val: u64,
     ) -> PyResult<Option<u64>> {
         let k = extract_bytes_key(key)?;
-        // The engine has no `get_or_insert` here: it is `compare_exchange` against an absent
-        // key, which is what the C `expanse_sync_ordered_bytesmap_get_or_insert` calls.
+        // `compare_exchange` against an absent key: what
+        // `SyncExpanseOrderedBytesMap::get_or_insert`, and so the C
+        // `expanse_sync_ordered_bytesmap_get_or_insert`, runs.
         Ok(
             py.detach(|| match self.inner.compare_exchange(&k, None, Some(val)) {
                 Ok(_) => None,

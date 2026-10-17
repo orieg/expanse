@@ -534,7 +534,8 @@ impl SyncExpanseOrderedBytesMap {
     #[napi]
     pub fn get_or_insert(&self, key: BytesInput, value: KeyInput) -> Result<Option<BigInt>> {
         let v = key_to_u64(value)?;
-        // The ordered-bytes map has no dedicated form: it is the exchange against absent.
+        // The exchange against absent, which is what
+        // `SyncExpanseOrderedBytesMap::get_or_insert` runs.
         let seen = match self
             .inner
             .compare_exchange(bytes_input_to_slice(&key), None, Some(v))
