@@ -123,7 +123,8 @@ impl SyncExpanseBlobMap {
 
     // abi-parity: expanse_sync_blob_map_mem_held
     /// Heap bytes the map holds from the global allocator, including blocks its epoch collector
-    /// keeps for reuse. Read with writers excluded (releases the GIL).
+    /// keeps for reuse. Read with writers excluded; waits for a running compaction and makes
+    /// writers wait, and has no non-blocking form (releases the GIL).
     pub fn mem_held(&self, py: Python<'_>) -> usize {
         py.detach(|| self.inner.mem_held())
     }
