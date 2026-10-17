@@ -2122,33 +2122,13 @@ pub unsafe extern "C" fn expanse_sync_strmap_get_or_insert(
     unsafe { put_word_get_or_insert(m.get_or_insert(k, value), existing_out) }
 }
 
-/// The ordered-bytes map's `get_or_insert`. `SyncExpanseOrderedBytesMap` has
-/// none; the bytes and string maps define theirs as exactly this exchange
-/// with `expected = None`, mapped the same way, so the C call has the same
-/// single-step semantics.
-fn ordered_bytes_get_or_insert(
-    m: &SyncExpanseOrderedBytesMap,
-    key: &[u8],
-    val: u64,
-) -> Option<u64> {
-    match m.compare_exchange(key, None, Some(val)) {
-        Ok(_) => None,
-        Err(seen) => {
-            // A mismatch against `None` observed a value.
-            debug_assert!(seen.is_some(), "an absent-expected exchange failed on None");
-            seen
-        }
-    }
-}
-
-/// The two byte-string maps' read-modify-write entry points. `$rust_goi` is
-/// the Rust `get_or_insert` the C call runs, given the map, key and value.
+/// The two byte-string maps' read-modify-write entry points, each one call
+/// of the map's `compare_exchange` or `get_or_insert`.
 macro_rules! sync_bytes_rmw {
     (
         map: $Map:ty,
         compare_exchange: $cx:ident,
-        get_or_insert: $goi:ident,
-        rust_get_or_insert: $rust_goi:path $(,)?
+        get_or_insert: $goi:ident $(,)?
     ) => {
         /// Stores `new_value` under `key` only if the key's current word is
         /// `expected_value`, as one linearizable step; the convention,
@@ -2211,7 +2191,7 @@ macro_rules! sync_bytes_rmw {
                 return false;
             };
             // SAFETY: `existing_out` null or writable per contract.
-            unsafe { put_word_get_or_insert($rust_goi(m, k, value), existing_out) }
+            unsafe { put_word_get_or_insert(m.get_or_insert(k, value), existing_out) }
         }
     };
 }
@@ -2220,14 +2200,12 @@ sync_bytes_rmw!(
     map: SyncExpanseBytesMap,
     compare_exchange: expanse_sync_bytesmap_compare_exchange,
     get_or_insert: expanse_sync_bytesmap_get_or_insert,
-    rust_get_or_insert: SyncExpanseBytesMap::get_or_insert,
 );
 
 sync_bytes_rmw!(
     map: SyncExpanseOrderedBytesMap,
     compare_exchange: expanse_sync_ordered_bytesmap_compare_exchange,
     get_or_insert: expanse_sync_ordered_bytesmap_get_or_insert,
-    rust_get_or_insert: ordered_bytes_get_or_insert,
 );
 
 /// A blob value argument: `Ok(None)` when `present` is false (the pointer,

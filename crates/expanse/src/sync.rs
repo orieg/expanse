@@ -10630,6 +10630,9 @@ const _: fn() = || {
     assert_send::<BytesReader<'static>>();
     assert_send::<OwnedBytesReader>();
     assert_send::<DetachedBytesReader>();
+    assert_send::<OrderedBytesReader<'static>>();
+    assert_send::<OwnedOrderedBytesReader>();
+    assert_send::<DetachedOrderedBytesReader>();
     assert_send::<BlobReader<'static>>();
     assert_send::<OwnedBlobReader>();
     assert_send::<DetachedBlobReader>();
@@ -10650,6 +10653,9 @@ crate::occ::assert_not_sync!(
     BytesReader<'static>,
     OwnedBytesReader,
     DetachedBytesReader,
+    OrderedBytesReader<'static>,
+    OwnedOrderedBytesReader,
+    DetachedOrderedBytesReader,
     BlobReader<'static>,
     OwnedBlobReader,
     DetachedBlobReader,
@@ -16547,7 +16553,8 @@ impl DetachedBytesReader {
 /// # Concurrency & Mutation Architecture
 ///
 /// `SyncExpanseOrderedBytesMap` introduces **no new engine mutation entry points**:
-/// all mutations (`insert`, `remove`, `clear`) route through [`SyncExpanseStrMap`],
+/// all mutations (`insert`, `remove`, `compare_exchange`, `update`, `get_or_insert`,
+/// `clear`) route through [`SyncExpanseStrMap`],
 /// reusing its existing covered and optimistic paths. The engine's `by_mode!`
 /// dispatch is completely untouched.
 ///
@@ -16558,7 +16565,8 @@ impl DetachedBytesReader {
 /// `next_after_decode_into`, etc.) run under the writer lock via [`Self::with_locked`],
 /// ensuring a consistent multi-byte expanse snapshot without ever using unsafe rotating
 /// ring buffers. These methods serialise against concurrent writers.
-/// In contrast, point lookups ([`Self::get`], [`Self::contains_key`], and [`OrderedBytesReader::get`])
+/// In contrast, point lookups ([`Self::get`], [`Self::contains_key`], and the `get` of
+/// [`OrderedBytesReader`], [`OwnedOrderedBytesReader`] and [`DetachedOrderedBytesReader`])
 /// run via optimistic lock coupling (OLC) and do not take the writer lock on the common path.
 ///
 /// # Memory-model soundness
@@ -16687,6 +16695,39 @@ impl SyncExpanseOrderedBytesMap {
         with_encoded_key(key, |nul_free| self.inner.update(nul_free, f))
     }
 
+    /// Stores `val` under `key` only if `key` is absent, as one
+    /// linearizable step. Returns the value already present, which is left
+    /// untouched, or `None` when `val` was stored. Like [`Self::insert`] and
+    /// [`Self::update`] it returns the previous value, so `None` means the
+    /// key was inserted.
+    ///
+    /// Of any number of callers racing on one absent key, exactly one gets
+    /// `None`; the others get the winner's value. Delegates to
+    /// [`SyncExpanseStrMap::get_or_insert`] with the escaped key, which is
+    /// [`SyncExpanseStrMap::compare_exchange`] with `expected = None`: the
+    /// same optimistic form and exclusive fallback, and no engine entry point.
+    ///
+    /// # Escaping invariant
+    ///
+    /// As for [`Self::compare_exchange`]: `key` is escaped here, and the
+    /// operation relies on every stored key being an escaped one.
+    pub fn get_or_insert(&self, key: &[u8], val: u64) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.get_or_insert(nul_free, val))
+    }
+
+    /// [`Self::get_or_insert`] that computes the value only when the key is
+    /// absent: `f` does not run when `key` is present at the initial read,
+    /// and runs at most once, even when the exchange loses a race (the
+    /// computed value is then dropped and the winner's value is returned).
+    /// `f` may therefore run for a call that returns `Some`, when another
+    /// caller inserts between the read and the exchange.
+    ///
+    /// Delegates to [`SyncExpanseStrMap::get_or_insert_with`] with the
+    /// escaped key, which is encoded once for the read and the exchange.
+    pub fn get_or_insert_with(&self, key: &[u8], f: impl FnOnce() -> u64) -> Option<u64> {
+        with_encoded_key(key, |nul_free| self.inner.get_or_insert_with(nul_free, f))
+    }
+
     /// Removes every entry; returns the heap bytes released.
     pub fn clear(&self) -> u64 {
         self.inner.clear()
@@ -16697,6 +16738,33 @@ impl SyncExpanseOrderedBytesMap {
     pub fn reader(&self) -> OrderedBytesReader<'_> {
         OrderedBytesReader {
             inner: self.inner.reader(),
+        }
+    }
+
+    /// Registers a reader that owns a handle on this map, for a cache whose
+    /// lifetime is not a borrow's (#1194). See [`OwnedOrderedBytesReader`].
+    ///
+    /// One handle per thread. The handle is `Send`, not `Sync` (see
+    /// [`Reader`]).
+    #[must_use]
+    pub fn owned_reader(self: &Arc<Self>) -> OwnedOrderedBytesReader {
+        OwnedOrderedBytesReader {
+            map: Arc::clone(self),
+            reader: self.inner.shared.collector.register(),
+        }
+    }
+
+    /// Registers a reader that holds no reference to this map.
+    ///
+    /// Use this where the reader is cached somewhere whose lifetime is not the
+    /// map's -- a per-thread cache, say -- and pass the map back in at lookup
+    /// time. See [`DetachedOrderedBytesReader`].
+    ///
+    /// One handle per thread: the handle is `Send`, not `Sync` (see [`Reader`]).
+    #[must_use]
+    pub fn detached_reader(&self) -> DetachedOrderedBytesReader {
+        DetachedOrderedBytesReader {
+            reader: self.inner.shared.collector.register(),
         }
     }
 
@@ -16974,6 +17042,93 @@ impl OrderedBytesReader<'_> {
     #[must_use]
     pub fn contains(&self, key: &[u8]) -> bool {
         with_encoded_key(key, |nul_free| self.inner.contains(nul_free))
+    }
+}
+
+/// A reader that **owns** its map handle instead of borrowing it.
+///
+/// [`OrderedBytesReader`] borrows, which makes it impossible to cache: a
+/// `#[pyclass]`, a thread-local, or any struct outliving the call cannot hold
+/// it. This is the ordered bytes map's counterpart of [`OwnedBytesReader`]
+/// (#1194), with the point lookups of [`OrderedBytesReader`]. Ordered reads
+/// stay on [`SyncExpanseOrderedBytesMap`], under the writer lock.
+///
+/// One [`Reader`] owns a single epoch slot and its pins are not reentrant, so
+/// an `OwnedOrderedBytesReader` is `Send`, not `Sync`: give each thread its
+/// own.
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::OwnedOrderedBytesReader>();
+/// ```
+pub struct OwnedOrderedBytesReader {
+    map: Arc<SyncExpanseOrderedBytesMap>,
+    reader: Reader,
+}
+
+impl OwnedOrderedBytesReader {
+    /// Optimistic lookup, without the per-call registry lock
+    /// [`SyncExpanseOrderedBytesMap::get`] pays. See [`StrReader::get`] for
+    /// the walk; `key` is escaped as [`OrderedBytesReader::get`] escapes it.
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        with_encoded_key(key, |nul_free| {
+            str_get_walk!(self.map.inner, &self.reader, nul_free)
+        })
+    }
+
+    /// Optimistic membership test.
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
+}
+
+/// A reader that owns neither its map nor a reference to it.
+///
+/// The ordered bytes map's counterpart of [`DetachedBytesReader`]: it holds
+/// only the epoch slot, so caching one says nothing about how long the map
+/// lives, and the caller supplies the map at lookup time. One [`Reader`] owns
+/// a single epoch slot, so a `DetachedOrderedBytesReader` is `Send`, not
+/// `Sync`.
+///
+/// Every entry compares the reader's collector with the map's before the
+/// first pin and panics on a mismatch: a pin on another map's collector does
+/// not hold off this map's reclamation (#1194).
+///
+/// ```compile_fail,E0277
+/// fn assert_sync<T: Sync>() {}
+/// assert_sync::<expanse_trie::sync::DetachedOrderedBytesReader>();
+/// ```
+pub struct DetachedOrderedBytesReader {
+    reader: Reader,
+}
+
+impl DetachedOrderedBytesReader {
+    /// Optimistic lookup against `map`, without the per-call registry lock
+    /// [`SyncExpanseOrderedBytesMap::get`] pays.
+    ///
+    /// `map` must be the map this reader was registered against; the check
+    /// is made on every call. See [`StrReader::get`] for the walk.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector, before any node
+    /// of `map` is read.
+    #[must_use]
+    pub fn get(&self, map: &SyncExpanseOrderedBytesMap, key: &[u8]) -> Option<u64> {
+        let reader = map.inner.registered(&self.reader);
+        with_encoded_key(key, |nul_free| str_get_walk!(map.inner, reader, nul_free))
+    }
+
+    /// Optimistic membership test against `map`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `map` does not share this reader's collector.
+    #[must_use]
+    pub fn contains(&self, map: &SyncExpanseOrderedBytesMap, key: &[u8]) -> bool {
+        self.get(map, key).is_some()
     }
 }
 
@@ -33590,5 +33745,428 @@ mod str_ordered_tests {
             count(counts, StrCount::CrossLevel) > 0,
             "the probes must reach answers across levels: {counts:?}"
         );
+    }
+}
+
+/// `SyncExpanseOrderedBytesMap::get_or_insert` and `get_or_insert_with`
+/// (#1194): the bytes map's semantics, reached through the escape encoding,
+/// with few and many keys and with keys that put the encoding on the path.
+#[cfg(test)]
+mod ordered_bytes_get_or_insert_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use core::cell::Cell;
+    use std::format;
+    use std::vec;
+    use std::vec::Vec;
+
+    #[test]
+    fn inserts_when_absent_and_keeps_present() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        assert_eq!(map.get_or_insert(b"k", 10), None);
+        assert_eq!(map.get(b"k"), Some(10));
+        // Present: the old value comes back and is not overwritten.
+        assert_eq!(map.get_or_insert(b"k", 20), Some(10));
+        assert_eq!(map.get(b"k"), Some(10));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn value_zero_is_stored_and_is_a_present_key() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        assert_eq!(map.get_or_insert(b"z", 0), None);
+        assert_eq!(map.get(b"z"), Some(0));
+        assert_eq!(map.get_or_insert(b"z", 9), Some(0));
+        assert_eq!(map.get(b"z"), Some(0));
+    }
+
+    /// The escape bytes `0x00` and `0x01`, `0xFF`, the empty key, keys that
+    /// are prefixes of one another, and one long enough for the heap
+    /// encoder: each is its own entry, and ordered navigation decodes every
+    /// key `get_or_insert` stored, in byte order.
+    #[test]
+    fn empty_key_and_escaping_bytes() {
+        let map = SyncExpanseOrderedBytesMap::new();
+        let mut long = vec![0x00, 0x01, 0xFF];
+        long.extend(core::iter::repeat_n(b'z', 40));
+        long.push(0x00);
+        let keys: Vec<Vec<u8>> = vec![
+            b"".to_vec(),
+            b"\x00".to_vec(),
+            b"\x01".to_vec(),
+            b"\x01\x01".to_vec(),
+            b"\x01\x02".to_vec(),
+            b"\xFF".to_vec(),
+            b"a\x00b".to_vec(),
+            b"a\x00".to_vec(),
+            b"a\x01".to_vec(),
+            long,
+        ];
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(map.get_or_insert(k, i as u64 + 1), None, "insert {k:?}");
+        }
+        for (i, k) in keys.iter().enumerate() {
+            assert_eq!(map.get_or_insert(k, 999), Some(i as u64 + 1), "hit {k:?}");
+            assert_eq!(map.get(k), Some(i as u64 + 1), "kept {k:?}");
+        }
+        assert_eq!(map.len(), keys.len() as u64);
+        let mut want: Vec<(Vec<u8>, u64)> = keys
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i as u64 + 1))
+            .collect();
+        want.sort();
+        let mut got = Vec::new();
+        let mut cur = map.first();
+        while let Some((k, v)) = cur {
+            cur = map.next_after(&k);
+            got.push((k, v));
+        }
+        assert_eq!(got, want);
+    }
+
+    fn key_of(k: u64) -> Vec<u8> {
+        let mut key = format!("route/{k:06}/").into_bytes();
+        key.extend_from_slice(&[0x00, 0x01, 0xFF]);
+        key
+    }
+
+    fn exercise(map: &SyncExpanseOrderedBytesMap, n: u64) {
+        for k in 0..n {
+            assert_eq!(map.get_or_insert(&key_of(k), k + 1), None, "insert {k}");
+        }
+        assert_eq!(map.len(), n);
+        for k in 0..n {
+            assert_eq!(map.get_or_insert(&key_of(k), 999), Some(k + 1), "hit {k}");
+            assert_eq!(map.get(&key_of(k)), Some(k + 1), "kept {k}");
+        }
+        assert_eq!(map.len(), n);
+        // Remove then insert again: the key is absent once more.
+        assert_eq!(map.remove(&key_of(0)), Some(1));
+        assert_eq!(map.get_or_insert(&key_of(0), 5), None);
+        assert_eq!(map.get(&key_of(0)), Some(5));
+    }
+
+    #[test]
+    fn few_keys() {
+        exercise(&SyncExpanseOrderedBytesMap::new(), 3);
+    }
+
+    #[test]
+    fn many_keys() {
+        exercise(&SyncExpanseOrderedBytesMap::new(), 4 * ROOT_LEAF_CAP as u64);
+    }
+
+    #[test]
+    fn with_does_not_run_the_closure_on_a_present_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseOrderedBytesMap::new();
+            for k in 0..n {
+                map.insert(&key_of(k), k + 1);
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(&key_of(0), || {
+                calls.set(calls.get() + 1);
+                77
+            });
+            assert_eq!(got, Some(1));
+            assert_eq!(calls.get(), 0, "closure ran on a present key");
+            assert_eq!(map.get(&key_of(0)), Some(1));
+        }
+    }
+
+    #[test]
+    fn with_runs_the_closure_once_on_an_absent_key() {
+        for n in [1, 4 * ROOT_LEAF_CAP as u64] {
+            let map = SyncExpanseOrderedBytesMap::new();
+            for k in 1..=n {
+                map.insert(&key_of(k), k);
+            }
+            let calls = Cell::new(0u32);
+            let got = map.get_or_insert_with(&key_of(0), || {
+                calls.set(calls.get() + 1);
+                0
+            });
+            assert_eq!(got, None);
+            assert_eq!(calls.get(), 1);
+            assert_eq!(map.get(&key_of(0)), Some(0));
+        }
+    }
+}
+
+/// Threads racing `SyncExpanseOrderedBytesMap::get_or_insert` and
+/// `get_or_insert_with` on the same keys agree on one winner per key (#1194).
+///
+/// Not built under Miri: the threads race on the seqlock, the race the module
+/// docs describe.
+#[cfg(all(test, not(miri)))]
+mod ordered_bytes_get_or_insert_race_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use std::format;
+    use std::thread;
+    use std::vec;
+    use std::vec::Vec;
+
+    const THREADS: u64 = 8;
+    const STRIDE: u64 = 1_000_000;
+
+    fn key_of(k: u64) -> Vec<u8> {
+        let mut key = format!("race/{k:05}").into_bytes();
+        key.extend_from_slice(&[0x00, 0x01]);
+        key
+    }
+
+    /// Every thread offers its own value (`t * STRIDE + k`) for every key;
+    /// per key exactly one call returns `None`, every other returns the
+    /// winner's value, and the map holds that value.
+    fn race(keys: u64, with: bool) {
+        let map = SyncExpanseOrderedBytesMap::new();
+        let results: Vec<Vec<Option<u64>>> = thread::scope(|s| {
+            let handles: Vec<_> = (0..THREADS)
+                .map(|t| {
+                    let map = &map;
+                    s.spawn(move || {
+                        let mut got = vec![None; keys as usize];
+                        // Each thread starts at its own offset, so first
+                        // touches spread over every key.
+                        for i in 0..keys {
+                            let k = (i + t * keys / THREADS) % keys;
+                            let val = t * STRIDE + k;
+                            got[k as usize] = if with {
+                                map.get_or_insert_with(&key_of(k), || val)
+                            } else {
+                                map.get_or_insert(&key_of(k), val)
+                            };
+                        }
+                        got
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        assert_eq!(map.len(), keys);
+        for k in 0..keys {
+            let stored = map.get(&key_of(k)).expect("key stored");
+            let winner = stored / STRIDE;
+            assert!(
+                winner < THREADS && stored % STRIDE == k,
+                "key {k}: {stored}"
+            );
+            let winners: Vec<u64> = (0..THREADS)
+                .filter(|&t| results[t as usize][k as usize].is_none())
+                .collect();
+            assert_eq!(
+                winners,
+                vec![winner],
+                "key {k}: one winner, the stored value's"
+            );
+            for t in (0..THREADS).filter(|&t| t != winner) {
+                assert_eq!(
+                    results[t as usize][k as usize],
+                    Some(stored),
+                    "key {k} thread {t}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn racing_get_or_insert_agrees_on_one_winner() {
+        race(4 * ROOT_LEAF_CAP as u64, false);
+    }
+
+    #[test]
+    fn racing_get_or_insert_with_agrees_on_one_winner() {
+        race(4 * ROOT_LEAF_CAP as u64, true);
+    }
+}
+
+/// The owned and detached ordered bytes readers (#1194): equal to
+/// [`OrderedBytesReader`] and the one-shot `get` on the same map, with few
+/// and many keys and over keys that put the escape encoding on the path; one
+/// registered slot per owned or detached reader; and the identity check at
+/// every detached entry.
+#[cfg(test)]
+mod ordered_bytes_reader_forms_tests {
+    use super::*;
+    use crate::types::ROOT_LEAF_CAP;
+    use std::format;
+    use std::vec;
+    use std::vec::Vec;
+
+    const MIX: [&[u8]; 6] = [b"", b"\x00", b"\x01", b"a\x00b", b"a\x01", b"\xFF\xFF"];
+
+    /// `n` keys `filler/{i}` (value `i`) plus the `MIX` keys.
+    fn fixture(n: u64) -> Arc<SyncExpanseOrderedBytesMap> {
+        let map = Arc::new(SyncExpanseOrderedBytesMap::new());
+        for i in 0..n {
+            assert_eq!(map.insert(format!("filler/{i}").as_bytes(), i), None);
+        }
+        for (i, k) in MIX.iter().enumerate() {
+            assert_eq!(map.insert(k, 10_000 + i as u64), None);
+        }
+        map
+    }
+
+    fn probes(n: u64) -> Vec<Vec<u8>> {
+        let mut v: Vec<Vec<u8>> = vec![b"zzzz".to_vec(), b"\x00\x00".to_vec()];
+        for i in (0..n).step_by(1.max(n as usize / 40)) {
+            v.push(format!("filler/{i}").into_bytes());
+            v.push(format!("filler/{i}\x00").into_bytes());
+        }
+        v.push(format!("filler/{n}").into_bytes());
+        for k in MIX {
+            v.push(k.to_vec());
+            v.push([k, b"!"].concat());
+        }
+        v
+    }
+
+    /// `get` and `contains` of both new forms equal `OrderedBytesReader`'s
+    /// and the one-shot `get`'s, before and after removing every other
+    /// filler and every mix key, and the forms register nothing per lookup.
+    fn check_equivalence(map: Arc<SyncExpanseOrderedBytesMap>, n: u64) {
+        let borrowed = map.reader();
+        let owned = map.owned_reader();
+        let detached = map.detached_reader();
+        let check = |when: &str| {
+            for p in probes(n) {
+                let want = borrowed.get(&p);
+                assert_eq!(owned.get(&p), want, "{when}: owned get {p:?}");
+                assert_eq!(detached.get(&map, &p), want, "{when}: detached get {p:?}");
+                assert_eq!(map.get(&p), want, "{when}: one-shot get {p:?}");
+                assert_eq!(owned.contains(&p), want.is_some(), "{when}: owned contains");
+                assert_eq!(
+                    detached.contains(&map, &p),
+                    want.is_some(),
+                    "{when}: det contains"
+                );
+            }
+        };
+        check("present+absent");
+        assert_eq!(owned.get(b"filler/0"), Some(0));
+        assert_eq!(owned.get(MIX[0]), Some(10_000));
+        assert_eq!(detached.get(&map, MIX[1]), Some(10_001));
+        let before = map.inner.shared.collector.registrations();
+        for i in 0..n.min(50) {
+            let k = format!("filler/{i}");
+            assert!(owned.contains(k.as_bytes()));
+            assert!(detached.contains(&map, k.as_bytes()));
+        }
+        assert_eq!(map.inner.shared.collector.registrations(), before);
+        for i in (0..n).step_by(2) {
+            assert_eq!(map.remove(format!("filler/{i}").as_bytes()), Some(i));
+        }
+        for k in MIX {
+            assert!(map.remove(k).is_some());
+        }
+        check("after remove");
+        assert_eq!(owned.get(b"filler/0"), None);
+        assert_eq!(detached.get(&map, b"filler/0"), None);
+        assert_eq!(owned.get(MIX[1]), None);
+        assert!(owned.contains(b"filler/1") && detached.contains(&map, b"filler/1"));
+    }
+
+    #[test]
+    fn ordered_bytes_readers_match_with_few_keys() {
+        check_equivalence(fixture(3), 3);
+    }
+
+    #[test]
+    fn ordered_bytes_readers_match_with_many_keys() {
+        let n = 4 * ROOT_LEAF_CAP as u64;
+        check_equivalence(fixture(n), n);
+    }
+
+    /// One owned reader adds one strong reference and one registered slot, a
+    /// detached reader a registered slot only; the map is freed when the last
+    /// owner goes (#1194).
+    #[test]
+    fn ordered_bytes_owned_reader_keeps_map_alive_and_detached_holds_nothing() {
+        let map = fixture(50);
+        let strong = Arc::strong_count(&map);
+        let regs = map.inner.shared.collector.registered_readers();
+
+        let detached = map.detached_reader();
+        assert_eq!(
+            Arc::strong_count(&map),
+            strong,
+            "detached takes no strong ref"
+        );
+        assert_eq!(map.inner.shared.collector.registered_readers(), regs + 1);
+
+        let owned = map.owned_reader();
+        assert_eq!(
+            Arc::strong_count(&map),
+            strong + 1,
+            "owned takes one strong ref"
+        );
+        assert_eq!(map.inner.shared.collector.registered_readers(), regs + 2);
+
+        let weak = Arc::downgrade(&map);
+        drop(map);
+        assert!(
+            weak.upgrade().is_some(),
+            "owned reader must keep the map alive"
+        );
+        assert_eq!(weak.strong_count(), 1);
+        for i in 0..50u64 {
+            assert_eq!(owned.get(format!("filler/{i}").as_bytes()), Some(i));
+        }
+        drop(detached);
+        assert_eq!(
+            weak.strong_count(),
+            1,
+            "dropping a detached reader frees no ref"
+        );
+        drop(owned);
+        assert!(
+            weak.upgrade().is_none(),
+            "last owner dropped: the map is freed"
+        );
+    }
+
+    /// One `should_panic` test per detached entry: a map registered on
+    /// another collector is rejected before the first pin (#1194).
+    macro_rules! ordered_bytes_detached_rejects_foreign_map {
+        ($($name:ident: |$r:ident, $b:ident| $call:expr;)*) => {$(
+            #[test]
+            #[should_panic(expected = "reader was registered on a different collector")]
+            fn $name() {
+                let (a, $b) = (fixture(8), fixture(8));
+                assert!(!Arc::ptr_eq(
+                    &a.inner.shared.collector,
+                    &$b.inner.shared.collector
+                ));
+                let $r = a.detached_reader();
+                let _ = $call;
+            }
+        )*};
+    }
+
+    ordered_bytes_detached_rejects_foreign_map! {
+        ordered_bytes_detached_get_rejects_foreign_map: |r, b| r.get(&b, b"filler/1");
+        ordered_bytes_detached_contains_rejects_foreign_map: |r, b| r.contains(&b, b"filler/1");
+    }
+
+    /// The same rejection for present, absent, escaped and empty keys (the
+    /// check precedes the encoding); the right map still answers.
+    #[test]
+    fn ordered_bytes_detached_rejects_foreign_map_for_every_key() {
+        let (a, b) = (fixture(8), fixture(8));
+        let r = a.detached_reader();
+        for k in [
+            &b"filler/0"[..],
+            b"filler/7",
+            b"absent",
+            b"",
+            b"\x00",
+            b"a\x01",
+        ] {
+            let caught = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| r.get(&b, k)));
+            assert!(caught.is_err(), "{k:?} was answered from a foreign map");
+            assert_eq!(r.get(&a, k), a.get(k));
+        }
     }
 }
