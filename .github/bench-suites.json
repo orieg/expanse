@@ -146,6 +146,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "concurrency_update_cells",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "#1417 contended `update` cells (`METHODOLOGY.md` §39) through `mixed_concurrency.py --update-cells`: `update` against a held reader + `compare_exchange` loop on `map`, `str` and `bytes` at 1, 2, 4 and 8 threads, 0% read, one process per window, 36 rounds, pin `0,2,4,6,8,10,12,14`; writes `baseline_concurrent_update_cells.json`.",
+      "suite": "concurrency"
+    },
+    {
       "name": "concurrency_blob_peak",
       "available": false,
       "kind": "wallclock",

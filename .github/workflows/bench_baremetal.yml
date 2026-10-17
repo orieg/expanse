@@ -61,6 +61,7 @@ on:
           - ycsb
           - concurrency
           - mixed_concurrency_step2_gate
+          - concurrency_update_cells
           - writer_scaling
           - writer_scaling_diagnostic
           - writer_scaling_ablation_unpadded_lock
@@ -1328,6 +1329,21 @@ jobs:
                 python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --step2-gate \
                   --out docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json | tee concurrency.txt
                 ;;
+              "concurrency_update_cells")
+                # #1417 (docs/benchmarks/concurrency/METHODOLOGY.md §39): update
+                # against a held reader + compare_exchange loop on map, str and
+                # bytes at W in {1, 2, 4, 8}, one process per window, 36 rounds.
+                # §39.2 fixes one thread per physical P-core, so this suite
+                # re-pins to 0,2,4,6,8,10,12,14 and drops the inherited marker,
+                # as the ordered-reader suites do; the driver refuses any other
+                # pin. It writes the artifact and exits non-zero when §39.5
+                # voids the run. A second run is a second dispatch, committed as
+                # the _run2 artifact.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0,2,4,6,8,10,12,14}" \
+                  python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells \
+                  --out docs/benchmarks/concurrency/results/baseline_concurrent_update_cells.json | tee concurrency.txt
+                ;;
               "concurrency_blob_peak")
                 # #1280, concurrency METHODOLOGY.md §34 and its Amendment A1. The
                 # driver maps the applied pin to its cells and its artifact:
@@ -2287,6 +2303,7 @@ jobs:
             docs/benchmarks/concurrency/results/ablation_blob_shared_arena_writer_scaling.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_mixed.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json \
+            docs/benchmarks/concurrency/results/baseline_concurrent_update_cells.json \
             docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json \
             docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json \
             ycsb.txt \

@@ -45,22 +45,37 @@
 //! `map`, `set`, `blob`, `blob_mutex`, `blob_rwlock_btree`, `blob_skiplist`,
 //! `str`, `str_mutex`, `bytes`, `bytes_mutex`, `str_dashmap`, `sync32`.
 //!
+//! # Contended `update` arms (#1417)
+//!
+//! Six further keys, run only when `EXPANSE_BENCH_ENGINES` names them, so the
+//! default sweep and the nightly report do not change: `map_update`,
+//! `str_update` and `bytes_update` call the wrapper's `update`, which reads
+//! through `get` and so registers and drops an epoch reader per call;
+//! `map_update_held`, `str_update_held` and `bytes_update_held` run the same
+//! read and the same exchange loop on a reader the thread registered once,
+//! outside the window. Every write updates a key drawn uniformly from the
+//! prefill (`v + 1`, never an insert or a removal), and the samples carry
+//! `workload_id` `core_concurrency_update`.
+//! `docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells`
+//! runs them at 0% read, one process per window (`METHODOLOGY.md` §39).
+//!
 //! # Workload shape
 //!
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `core_concurrency` |
+//! | `emits` | `core_concurrency`, `core_concurrency_update` — the second is the contended `update` arms' (#1417): the same prefill and windows, every write a read-modify-write of a present key |
 //! | `group` | 2 |
-//! | `population` | Half the keyspace, distinct keys drawn until present: 1M over 2M (map, set), 200k over 400k (blob arms), 100k over 200k route strings (string arms) — the occupancy the mixed workloads' write bit holds; `SyncExpanseMap32` arm: 4,096 draws over an 8k keyspace whose upper 4,096 keys the writer churns (32-bit) |
+//! | `population` | Half the keyspace, distinct keys drawn until present: 1M over 2M (map, set), 200k over 400k (blob arms), 100k over 200k route strings (string arms) — the occupancy the mixed workloads' write bit holds; `SyncExpanseMap32` arm: 4,096 draws over an 8k keyspace whose upper 4,096 keys the writer churns (32-bit); update arms: the map and string prefills above |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; prefill and the concurrent stream both draw from the bounded-keyspace PRNG |
 //! | `probes_and_reuse` | Continuous stream, a fresh one per window; `EXPANSE_BENCH_ROUNDS` interleaved 500 ms windows per thread count (Williams order), all on one prefilled structure per engine and workload, run by one worker pool |
-//! | `hit_rate` | 50% at 100% read (half the keyspace is present). Under a mix a write inserts or removes a uniform key on an independent coin, so occupancy stays at half and 0.25 of writes remove a present key; `mixed_concurrency.py` refuses a window more than 0.05 from that share (#1280). Until #1280 writes inserted even keys and removed odd ones, which left every removal a miss and every insert an overwrite after the first window |
+//! | `hit_rate` | 50% at 100% read (half the keyspace is present). Under a mix a write inserts or removes a uniform key on an independent coin, so occupancy stays at half and 0.25 of writes remove a present key; `mixed_concurrency.py` refuses a window more than 0.05 from that share (#1280). Until #1280 writes inserted even keys and removed odd ones, which left every removal a miss and every insert an overwrite after the first window. Update arms: 100% — every update's key is drawn from the prefill and nothing removes it |
 //! | `miss_gen_method` | Bounded keyspace random stream |
 //! | `value_dereference` | `black_box(sink)` |
 //! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time; the `sync32` arm reads each thread's CPU and core before the barrier and after the timed loop (#1292) |
-//! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type. Reclamation differs by arm and is inside every rate: `BTreeMap` frees a replaced or removed `Vec` inline under its write lock, `SkipMap` defers node reclamation to crossbeam-epoch collection on the worker threads, and the two Expanse blob arms compact their arena on the shared trigger `BLOB_COMPACT_APPENDS` (count and arena bytes published per window). `DashMap` clones its key on every insert; the `Mutex` string arms draw their op choice inside the lock. |
-//! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`) |
-//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36658309874 and 36661955960, commit f9853201)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload |
+//! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type. Reclamation differs by arm and is inside every rate: `BTreeMap` frees a replaced or removed `Vec` inline under its write lock, `SkipMap` defers node reclamation to crossbeam-epoch collection on the worker threads, and the two Expanse blob arms compact their arena on the shared trigger `BLOB_COMPACT_APPENDS` (count and arena bytes published per window). `DashMap` clones its key on every insert; the `Mutex` string arms draw their op choice inside the lock. The update arms pair within an engine (`<e>_update` against `<e>_update_held`): identical prefill, key stream, read function, exchange and retry loop, and one registered reader per thread in both; they differ by the per-call registration and drop `update` makes. |
+//! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`); update arms: per-round paired `T_held / T_update` with a BCa 95% interval (`mixed_concurrency.py --update-cells`) |
+//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36658309874 and 36661955960, commit f9853201)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload. Update arms: **PENDING** — pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §39, no reference-host run yet ([#1417](https://github.com/orieg/expanse/issues/1417)) |
 
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;
@@ -943,6 +958,184 @@ fn bench_str_dashmap(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// Contended `update` cells (#1417, `docs/benchmarks/concurrency/METHODOLOGY.md`
+// §39). Opt-in: none of these keys runs unless `EXPANSE_BENCH_ENGINES` names
+// it, so the default sweep and the nightly report are unchanged.
+//
+// Every write is a read-modify-write of a key drawn uniformly from the
+// prefill, so it replaces a present value and never inserts or removes. Two
+// arms per engine, on the identical stream:
+//
+// - `HELD = false` calls the wrapper's `update`, which reads through `get` and
+//   so registers and drops an epoch reader on every call;
+// - `HELD = true` runs the same read and the same exchange loop as `update`,
+//   verbatim, but reads through the reader this thread registered once,
+//   outside the window.
+//
+// Both arms register that one reader per thread, so the reader registry holds
+// the same slots in both; per operation they differ by one registration and
+// one drop. A read share below 100% reads through that reader too, as the
+// other arms do; §39 runs 0% read.
+// ---------------------------------------------------------------------------
+
+/// The value function of every update arm: `v + 1` on a present key.
+#[inline(always)]
+fn bump(v: Option<u64>) -> Option<u64> {
+    v.map(|x| x.wrapping_add(1))
+}
+
+/// Refuses a read share at which an update arm would make no updates.
+fn assert_update_mix(ratio_read: u32) {
+    assert!(
+        ratio_read < 100,
+        "the update arms measure updates; a 100% read workload makes none (METHODOLOGY.md §39)"
+    );
+}
+
+fn bench_map_update<const HELD: bool>(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
+    assert_update_mix(ratio_read);
+    let m = Arc::new(SyncExpanseMap::new());
+    let keys = Arc::new(prefill_keys(KEYSPACE));
+    for &k in keys.iter() {
+        m.insert(k, !k);
+    }
+    run_rounds(plan, move |i, win| {
+        let rd = m.reader();
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
+        let mut sink = 0u64;
+        win.begin();
+        while win.running() {
+            let r = (rng.next() % 100) as u32;
+            let k = keys[(rng.next() as usize) % keys.len()];
+            if r < ratio_read {
+                sink ^= rd.get(k).unwrap_or(0);
+                c.read_ops += 1;
+                continue;
+            }
+            let prev = if HELD {
+                let mut expected = rd.get(k);
+                loop {
+                    match m.compare_exchange(k, expected, bump(expected)) {
+                        Ok(prev) => break prev,
+                        Err(seen) => {
+                            expected = seen;
+                            core::hint::spin_loop();
+                        }
+                    }
+                }
+            } else {
+                m.update(k, bump)
+            };
+            sink ^= prev.expect("an update arm's key is always present");
+            c.write_ops += 1;
+        }
+        std::hint::black_box(sink);
+        c
+    })
+}
+
+fn bench_str_update<const HELD: bool>(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
+    assert_update_mix(ratio_read);
+    let keys = str_keys();
+    let present: Arc<Vec<usize>> = Arc::new(
+        prefill_keys(STR_KEYSPACE as u64)
+            .into_iter()
+            .map(|i| i as usize)
+            .collect(),
+    );
+    let m = Arc::new(SyncExpanseStrMap::new());
+    let mut rng = XorShift(0x5CA1_AB1E);
+    for &idx in present.iter() {
+        m.insert(tk(&keys[idx]), rng.next());
+    }
+    run_rounds(plan, move |i, win| {
+        let rd = m.reader();
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
+        let mut sink = 0u64;
+        win.begin();
+        while win.running() {
+            let r = (rng.next() % 100) as u32;
+            let k = tk(&keys[present[(rng.next() as usize) % present.len()]]);
+            if r < ratio_read {
+                sink ^= rd.get(k).unwrap_or(0);
+                c.read_ops += 1;
+                continue;
+            }
+            let prev = if HELD {
+                let mut expected = rd.get(k);
+                loop {
+                    match m.compare_exchange(k, expected, bump(expected)) {
+                        Ok(prev) => break prev,
+                        Err(seen) => {
+                            expected = seen;
+                            core::hint::spin_loop();
+                        }
+                    }
+                }
+            } else {
+                m.update(k, bump)
+            };
+            sink ^= prev.expect("an update arm's key is always present");
+            c.write_ops += 1;
+        }
+        std::hint::black_box(sink);
+        c
+    })
+}
+
+fn bench_bytes_update<const HELD: bool>(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
+    assert_update_mix(ratio_read);
+    let keys = str_keys();
+    let present: Arc<Vec<usize>> = Arc::new(
+        prefill_keys(STR_KEYSPACE as u64)
+            .into_iter()
+            .map(|i| i as usize)
+            .collect(),
+    );
+    let m = Arc::new(SyncExpanseBytesMap::new());
+    let mut rng = XorShift(0x5CA1_AB1E);
+    for &idx in present.iter() {
+        m.insert(&keys[idx], rng.next());
+    }
+    run_rounds(plan, move |i, win| {
+        let rd = m.reader();
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
+        let mut sink = 0u64;
+        win.begin();
+        while win.running() {
+            let r = (rng.next() % 100) as u32;
+            let k = keys[present[(rng.next() as usize) % present.len()]].as_slice();
+            if r < ratio_read {
+                sink ^= rd.get(k).unwrap_or(0);
+                c.read_ops += 1;
+                continue;
+            }
+            let prev = if HELD {
+                let mut expected = rd.get(k);
+                loop {
+                    match m.compare_exchange(k, expected, bump(expected)) {
+                        Ok(prev) => break prev,
+                        Err(seen) => {
+                            expected = seen;
+                            core::hint::spin_loop();
+                        }
+                    }
+                }
+            } else {
+                m.update(k, bump)
+            };
+            sink ^= prev.expect("an update arm's key is always present");
+            c.write_ops += 1;
+        }
+        std::hint::black_box(sink);
+        c
+    })
+}
+
 /// Parses a comma-separated list from the environment variable `name`,
 /// falling back to `default` when unset. CI uses these knobs
 /// (`EXPANSE_BENCH_THREADS`, `EXPANSE_BENCH_WORKLOADS`) to bound the sweep;
@@ -1233,19 +1426,84 @@ const ENGINES: [(&str, &str, EngineBench); 11] = [
     ("str_dashmap", "DashMap<Vec<u8>, u64>", bench_str_dashmap),
 ];
 
+/// The contended `update` arms (#1417, METHODOLOGY.md §39). Opt-in: an unset
+/// `EXPANSE_BENCH_ENGINES` does not run them, so the default sweep is the one
+/// it was before they existed.
+const UPDATE_ENGINES: [(&str, &str, EngineBench); 6] = [
+    (
+        "map_update",
+        "SyncExpanseMap::update",
+        bench_map_update::<false>,
+    ),
+    (
+        "map_update_held",
+        "SyncExpanseMap held reader + compare_exchange",
+        bench_map_update::<true>,
+    ),
+    (
+        "str_update",
+        "SyncExpanseStrMap::update",
+        bench_str_update::<false>,
+    ),
+    (
+        "str_update_held",
+        "SyncExpanseStrMap held reader + compare_exchange",
+        bench_str_update::<true>,
+    ),
+    (
+        "bytes_update",
+        "SyncExpanseBytesMap::update",
+        bench_bytes_update::<false>,
+    ),
+    (
+        "bytes_update_held",
+        "SyncExpanseBytesMap held reader + compare_exchange",
+        bench_bytes_update::<true>,
+    ),
+];
+
+/// The labels of one workload: the id its samples carry and the arms that
+/// write it. The update arms are a workload of their own: every write is a
+/// read-modify-write of a present key.
+struct WorkloadIds {
+    core: &'static str,
+    update: &'static str,
+}
+
+/// Every `workload_id` this harness writes (`workload_id` in the shape table
+/// and its `emits` row).
+const WORKLOAD_IDS: WorkloadIds = WorkloadIds {
+    core: "core_concurrency",
+    update: "core_concurrency_update",
+};
+
+/// The `workload_id` an arm's samples carry.
+fn workload_id(engine_key: &str) -> &'static str {
+    if UPDATE_ENGINES.iter().any(|e| e.0 == engine_key) {
+        WORKLOAD_IDS.update
+    } else {
+        WORKLOAD_IDS.core
+    }
+}
+
 /// The `sync32` arm's key; it runs a writer-duty sweep, not the workloads.
 const SYNC32_KEY: &str = "sync32";
 
-/// The arm keys `EXPANSE_BENCH_ENGINES` selects, or every arm when unset. An
-/// unknown key fails loudly rather than silently measuring nothing.
+/// The arm keys `EXPANSE_BENCH_ENGINES` selects, or every default arm when
+/// unset. An unknown key fails loudly rather than silently measuring nothing.
 fn selected_engines() -> Vec<String> {
-    let known: Vec<&str> = ENGINES
+    let defaults: Vec<&str> = ENGINES
         .iter()
         .map(|e| e.0)
         .chain(std::iter::once(SYNC32_KEY))
         .collect();
+    let known: Vec<&str> = defaults
+        .iter()
+        .copied()
+        .chain(UPDATE_ENGINES.iter().map(|e| e.0))
+        .collect();
     let Ok(list) = std::env::var("EXPANSE_BENCH_ENGINES") else {
-        return known.iter().map(|k| k.to_string()).collect();
+        return defaults.iter().map(|k| k.to_string()).collect();
     };
     let picked: Vec<String> = list
         .split(',')
@@ -1300,7 +1558,7 @@ fn write_samples(
     let Some(out) = out else { return };
     for s in samples {
         let row = json!({
-            "workload_id": "core_concurrency",
+            "workload_id": workload_id(cell.engine_key),
             "engine_key": cell.engine_key,
             "engine": cell.engine,
             "workload": cell.workload,
@@ -1522,7 +1780,7 @@ fn main() {
     let selected = selected_engines();
     let mut samples_out = samples_writer();
 
-    for (key, name, bench) in ENGINES {
+    for (key, name, bench) in ENGINES.into_iter().chain(UPDATE_ENGINES) {
         if !selected.iter().any(|k| k == key) {
             continue;
         }

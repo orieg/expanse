@@ -78,6 +78,31 @@ is unchanged when `--step2-gate` is absent. The Step 2 mode:
     EXPANSE_BENCH_PIN=off python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \\
         --step2-gate --quick --rounds 2 --threads 1,8
 
+`--update-cells` is the #1417 instrument `METHODOLOGY.md` §39 pre-registers: does
+the per-call reader registration in `update` cost throughput under contention?
+
+- runs the opt-in arms `<e>_update` and `<e>_update_held` of the bench for `e`
+  in (`map`, `str`, `bytes`) at 0% read, one bench process per window, at 1, 2,
+  4 and 8 threads under the pin `0,2,4,6,8,10,12,14`, which it refuses to
+  replace outside `--quick`;
+- runs 36 rounds (`scripts/update_registration_bounds.py` sizes them and holds
+  the same margin, checked before every run); within a round the engines rotate,
+  the thread counts follow a Williams row and the two arms of a pair run back to
+  back, alternating which goes first;
+- reports, per engine and thread count, rho = held / update updates/s paired
+  within the round and kappa = rho(W) / rho(1), each with a BCa 95% interval,
+  and per engine at 8 threads §39.4's run verdict (`COST`, `NO_COST`, `OPEN`)
+  and contention label (`GROWS`, `FLAT`, `SHRINKS`);
+- marks the run `VOID` under §39.5 (pin, a round's foreign load, the held arm
+  measuring materially slower, or `--quick`), writes the artifact and exits
+  non-zero for a void full run;
+- writes `results/baseline_concurrent_update_cells.json`; a second run is a
+  second dispatch, committed as `..._run2.json`.
+
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells
+    EXPANSE_BENCH_PIN=off python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \\
+        --update-cells --quick --rounds 1
+
 `--self-test` runs without Cargo and is run by CI's `lint` job. The committed
 artifact and its second run (`baseline_concurrent_mixed_run2.json`) also feed
 the README hero chart's and the sync32 health chart's data
@@ -108,8 +133,9 @@ import bench_pin  # noqa: E402
 import bca_bootstrap  # noqa: E402
 import check_bench_provenance  # noqa: E402
 import olc_bounds  # noqa: E402
+import update_registration_bounds  # noqa: E402
 from bca_bootstrap import bca_bootstrap_ci_with_method  # noqa: E402
-from bench_provenance import add_load, begin_cell, end_cell, new_provenance  # noqa: E402
+from bench_provenance import RUN_FOREIGN_VOID, add_load, begin_cell, end_cell, new_provenance  # noqa: E402
 
 CI_METHODS = frozenset(
     v for k, v in vars(bca_bootstrap).items()
@@ -303,7 +329,8 @@ def run_group(exe: Path, key: str, read_pct: int | None, threads: list[int], rou
         )
 
 
-def read_samples(path: Path, keys: tuple[str, ...] = SAMPLE_KEYS) -> list[dict[str, Any]]:
+def read_samples(path: Path, keys: tuple[str, ...] = SAMPLE_KEYS,
+                 workload_id: str = WORKLOAD_ID) -> list[dict[str, Any]]:
     """Every window the bench appended, validated field by field against `keys`."""
     if not path.is_file():
         raise InstrumentError(f"the bench wrote no samples file ({path})")
@@ -315,8 +342,8 @@ def read_samples(path: Path, keys: tuple[str, ...] = SAMPLE_KEYS) -> list[dict[s
         missing = [k for k in keys if k not in row]
         if missing:
             raise InstrumentError(f"{path}:{n}: sample lacks {missing}")
-        if row["workload_id"] != WORKLOAD_ID:
-            raise InstrumentError(f"{path}:{n}: workload_id {row['workload_id']!r} is not {WORKLOAD_ID!r}")
+        if row["workload_id"] != workload_id:
+            raise InstrumentError(f"{path}:{n}: workload_id {row['workload_id']!r} is not {workload_id!r}")
         if not (isinstance(row["elapsed_s"], (int, float)) and row["elapsed_s"] > 0):
             raise InstrumentError(f"{path}:{n}: elapsed_s {row['elapsed_s']!r} is not positive")
         rows.append(row)
@@ -1451,6 +1478,579 @@ def run_step2(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# #1417: contended update cells (METHODOLOGY.md §39)
+# --------------------------------------------------------------------------
+
+UPDATE_ISSUE = 1417
+UPDATE_WORKLOAD_ID = "core_concurrency_update"
+UPDATE_ENGINES = ("map", "str", "bytes")
+UPDATE_ARMS = ("update", "held")
+UPDATE_THREADS = (1, 2, 4, 8)
+UPDATE_GATE_THREADS = 8
+UPDATE_READ_PCT = 0
+# §39.3. The margin and the rounds are sized in `scripts/update_registration_bounds.py`;
+# `update_constant_problems` checks the two copies agree before every run.
+UPDATE_ROUNDS = 36
+UPDATE_MARGIN = 0.05
+# §39.2: engine rotation (3) x Williams rows (4) x arm order (2).
+UPDATE_PERIOD = 12
+UPDATE_QUICK_ROUNDS = 3
+UPDATE_PIN = "0,2,4,6,8,10,12,14"
+UPDATE_RESAMPLES = 2000
+UPDATE_DEFAULT_OUT = DEFAULT_OUT.with_name("baseline_concurrent_update_cells.json")
+UPDATE_QUICK_OUT = QUICK_OUT.with_name("baseline_concurrent_update_cells.json")
+UPDATE_METHODOLOGY = "docs/benchmarks/concurrency/METHODOLOGY.md section 39"
+UPDATE_RATIO = (
+    "rho(e, W) = T(e, W, held) / T(e, W, update), paired within a round, T being updates per "
+    "second over one window's own elapsed time; kappa(e, W) = rho(e, W) / rho(e, 1) of the same "
+    "round; each the mean over rounds with a one-sample BCa 95% interval"
+)
+UPDATE_COLUMNS = (
+    "throughput cells: the mean of one arm's windows of updates/s with a BCa 95% interval, and "
+    "their median; rho and kappa cells: the mean of the per-round ratios, which is not the "
+    "quotient of the two arms' means"
+)
+UPDATE_ORDER = (
+    "within a round the engines run (map, str, bytes) rotated left by round mod 3; within an "
+    "engine the thread counts follow row `round` of the four-level Williams design; within an "
+    "(engine, threads) pair the two arms run back to back, update first in even rounds and held "
+    "first in odd rounds; one bench process per window"
+)
+UPDATE_RULE = (
+    "per engine at 8 threads: COST when rho_ci_lower >= 1 + margin, NO_COST when rho_ci_upper < "
+    "1 + margin, OPEN otherwise; contention label from kappa at 8 threads: GROWS when its lower "
+    "bound > 1, SHRINKS when its upper bound < 1, FLAT otherwise"
+)
+UPDATE_SCOPE = (
+    "this run only; section 39.4 reads a pair of runs: an engine's pair verdict is the run verdict "
+    "when both runs agree and OPEN otherwise, and #1417's falsifier is met when all three engines "
+    "read NO_COST in the pair"
+)
+UPDATE_RAW_KEYS = ("round", "position", "elapsed_s", "write_ops")
+
+
+def update_arm_key(engine: str, arm: str) -> str:
+    """The `EXPANSE_BENCH_ENGINES` key of one §39 arm."""
+    if engine not in UPDATE_ENGINES or arm not in UPDATE_ARMS:
+        raise InstrumentError(f"no §39 arm for engine {engine!r}, arm {arm!r}")
+    return f"{engine}_update" if arm == "update" else f"{engine}_update_held"
+
+
+def update_constant_problems(margin: float = UPDATE_MARGIN, rounds: int = UPDATE_ROUNDS) -> list[str]:
+    """The margin and rounds must equal the ones `update_registration_bounds.py` sized."""
+    problems = []
+    if margin != update_registration_bounds.MARGIN:
+        problems.append(f"UPDATE_MARGIN {margin} differs from scripts/update_registration_bounds.py "
+                        f"MARGIN {update_registration_bounds.MARGIN}; METHODOLOGY.md §39.3 fixes one margin")
+    if rounds != update_registration_bounds.ROUNDS:
+        problems.append(f"UPDATE_ROUNDS {rounds} differs from scripts/update_registration_bounds.py "
+                        f"ROUNDS {update_registration_bounds.ROUNDS}; METHODOLOGY.md §39.3 fixes 36 rounds")
+    if update_registration_bounds.DESIGN_PERIOD != UPDATE_PERIOD:
+        problems.append(f"UPDATE_PERIOD {UPDATE_PERIOD} differs from the bounds module's "
+                        f"DESIGN_PERIOD {update_registration_bounds.DESIGN_PERIOD}")
+    return problems
+
+
+def update_round_order(round_idx: int, engines: tuple[str, ...] = UPDATE_ENGINES,
+                       threads: tuple[int, ...] = UPDATE_THREADS) -> list[tuple[str, int, str]]:
+    """The (engine, threads, arm) windows of one round, in run order (§39.2)."""
+    k = round_idx % len(engines)
+    engine_order = engines[k:] + engines[:k]
+    thread_order = [threads[i] for i in williams_order(len(threads), round_idx)]
+    arms = UPDATE_ARMS if round_idx % 2 == 0 else tuple(reversed(UPDATE_ARMS))
+    return [(e, t, a) for e in engine_order for t in thread_order for a in arms]
+
+
+def resolve_update_rounds(requested: int | None, quick: bool) -> int:
+    """§39.3 fixes 36 rounds; a quick run may take any count, intervals only from 3."""
+    if requested is None:
+        return UPDATE_QUICK_ROUNDS if quick else UPDATE_ROUNDS
+    if requested < 1:
+        raise InstrumentError(f"--rounds {requested} is not a positive round count")
+    if not quick and requested != UPDATE_ROUNDS:
+        raise InstrumentError(f"--update-cells runs the {UPDATE_ROUNDS} rounds METHODOLOGY.md §39.3 "
+                              f"registers; --rounds is for --quick only")
+    return requested
+
+
+def resolve_update_out(out: str | None, quick: bool) -> Path:
+    path = Path(out).resolve() if out else (UPDATE_QUICK_OUT if quick else UPDATE_DEFAULT_OUT)
+    committed = (REPO_ROOT / "docs" / "benchmarks").resolve()
+    if quick and committed in path.parents:
+        raise InstrumentError(f"--quick may not write under docs/benchmarks/ ({path}); quick runs go "
+                              f"to results/quick/ (AGENTS.md §8.5)")
+    return path
+
+
+def update_pin_problems(pin: str) -> list[str]:
+    """§39.5: any pin but one CPU per physical P-core voids the run."""
+    if pin != UPDATE_PIN:
+        return [f"core pin {pin!r} is not {UPDATE_PIN!r} (METHODOLOGY.md §39.2, §39.5)"]
+    return []
+
+
+def run_update_window(exe: Path, key: str, threads: int, samples: Path) -> None:
+    """One bench process for one §39 window: one arm, one thread count, a fresh prefill."""
+    if samples.exists():
+        raise InstrumentError(f"samples file {samples.name} already exists; every window needs a fresh one")
+    env = dict(os.environ)
+    env.update({
+        "EXPANSE_BENCH_ENGINES": key,
+        "EXPANSE_BENCH_THREADS": str(threads),
+        "EXPANSE_BENCH_WORKLOADS": str(UPDATE_READ_PCT),
+        "EXPANSE_BENCH_ROUNDS": "1",
+        "EXPANSE_BENCH_SAMPLES": str(samples),
+    })
+    proc = subprocess.run([str(exe)], cwd=REPO_ROOT / "crates" / "expanse", env=env,
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise InstrumentError(f"bench process ({key}, {threads} threads) exited {proc.returncode}:\n"
+                              f"{proc.stdout[-2000:]}\n{proc.stderr[-4000:]}")
+
+
+def read_update_window(samples: Path, key: str, threads: int) -> dict[str, Any]:
+    """The single row one §39 window's process wrote, checked against what was requested (§39.5)."""
+    rows = read_samples(samples, STEP2_SAMPLE_KEYS, UPDATE_WORKLOAD_ID)
+    if len(rows) != 1:
+        raise InstrumentError(f"{samples.name}: the process wrote {len(rows)} window rows, not exactly one")
+    row = rows[0]
+    wrong = [f"{k} {row.get(k)!r} (requested {want!r})"
+             for k, want in (("engine_key", key), ("threads", threads), ("read_pct", UPDATE_READ_PCT),
+                             ("round", 0), ("position", 0), ("read_ops", 0))
+             if row.get(k) != want]
+    if wrong:
+        raise InstrumentError(f"{samples.name}: the window reports " + ", ".join(wrong))
+    if not (isinstance(row["write_ops"], int) and row["write_ops"] > 0):
+        raise InstrumentError(f"{samples.name}: the window made {row['write_ops']!r} updates")
+    return row
+
+
+UpdateLauncher = Callable[[str, int, Path], None]
+
+
+def run_update_rounds(launch: UpdateLauncher, prov: dict[str, Any], rounds: int, scratch: Path,
+                      engines: tuple[str, ...] = UPDATE_ENGINES,
+                      threads: tuple[int, ...] = UPDATE_THREADS,
+                      progress: bool = True) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Every round of §39's design; returns the windows and one load record per round.
+
+    `launch(key, threads, samples)` runs one window's process; this function
+    reads and validates what it wrote, so a substituted launcher cannot skip the
+    validation. Any failure discards the run.
+    """
+    windows: list[dict[str, Any]] = []
+    round_loads: list[dict[str, Any]] = []
+    for r in range(rounds):
+        start = begin_cell(prov, f"round:{r}")
+        for position, (engine, t, arm) in enumerate(update_round_order(r, engines, threads)):
+            key = update_arm_key(engine, arm)
+            samples = scratch / f"round{r}_pos{position}_{key}_T{t}.jsonl"
+            try:
+                launch(key, t, samples)
+                row = read_update_window(samples, key, t)
+            except InstrumentError as exc:
+                raise InstrumentError(
+                    f"round {r} is void ({key} at {t} threads, position {position}): {exc}\n"
+                    f"METHODOLOGY.md §39.5 discards the whole run") from exc
+            windows.append({
+                "engine": engine, "arm": arm, "engine_key": key, "engine_name": row["engine"],
+                "threads": t, "round": r, "position": position,
+                "elapsed_s": row["elapsed_s"], "write_ops": row["write_ops"],
+            })
+            if progress:
+                print(f"update-cells: round {r + 1}/{rounds} position {position}: {key} {t}T ok", flush=True)
+        round_loads.append(dict(end_cell(start), round=r))
+    return windows, round_loads
+
+
+def update_order_problems(windows: list[dict[str, Any]], rounds: int, engines: tuple[str, ...],
+                          threads: tuple[int, ...]) -> list[str]:
+    """Whether the recorded windows are §39.2's design, round by round."""
+    by_round: dict[int, list[dict[str, Any]]] = {}
+    for w in windows:
+        by_round.setdefault(w["round"], []).append(w)
+    if sorted(by_round) != list(range(rounds)):
+        return [f"rounds {sorted(by_round)} are not 0..{rounds - 1}"]
+    problems = []
+    for r, ws in sorted(by_round.items()):
+        ws = sorted(ws, key=lambda w: w["position"])
+        got = [(w["engine"], w["threads"], w["arm"]) for w in ws]
+        if got != update_round_order(r, engines, threads) or [w["position"] for w in ws] != list(range(len(ws))):
+            problems.append(f"round {r}: windows {got} are not the pre-registered order")
+    return problems
+
+
+def update_rate(w: dict[str, Any]) -> float:
+    return w["write_ops"] / w["elapsed_s"]
+
+
+def update_verdict(ci_lower: float | None, ci_upper: float | None, margin: float = UPDATE_MARGIN) -> str:
+    """§39.4, on rho at the gate thread count."""
+    if ci_lower is None or ci_upper is None:
+        return "NOT_EVALUABLE"
+    if ci_lower >= 1.0 + margin:
+        return "COST"
+    if ci_upper < 1.0 + margin:
+        return "NO_COST"
+    return "OPEN"
+
+
+def contention_label(ci_lower: float | None, ci_upper: float | None) -> str:
+    """§39.4's label from kappa at the gate thread count; it decides nothing."""
+    if ci_lower is None or ci_upper is None:
+        return "NOT_EVALUABLE"
+    if ci_lower > 1.0:
+        return "GROWS"
+    if ci_upper < 1.0:
+        return "SHRINKS"
+    return "FLAT"
+
+
+def update_instrument_voids(rho_cells: list[dict[str, Any]], margin: float = UPDATE_MARGIN) -> list[str]:
+    """§39.5: the arm that does less work measuring materially slower is an instrument defect."""
+    return [f"{c['engine']} at {c['threads']} threads: rho upper bound {c['ratio_ci_upper']:.4f} is below "
+            f"1 - margin ({1.0 - margin:.2f}); the held arm measured materially slower than update"
+            for c in rho_cells
+            if c["ratio_ci_upper"] is not None and c["ratio_ci_upper"] < 1.0 - margin]
+
+
+def update_load_voids(round_loads: list[dict[str, Any]], limit: float = RUN_FOREIGN_VOID) -> list[str]:
+    """§39.5: a round whose foreign busy CPUs are unattributed or reach the void bound."""
+    out = []
+    for entry in round_loads:
+        f = entry.get("foreign_busy_cpus")
+        if not isinstance(f, (int, float)) or isinstance(f, bool):
+            out.append(f"round {entry.get('round')}: foreign_busy_cpus is {f!r}, not a number")
+        elif f >= limit:
+            out.append(f"round {entry.get('round')}: foreign_busy_cpus {f} reaches {limit} core-equivalent")
+    return out
+
+
+def _update_interval(values: list[float]) -> dict[str, Any]:
+    mean, lo, hi, method = step2_interval(values)
+    return {"ratio_mean": mean, "ratio_ci_lower": lo, "ratio_ci_upper": hi, "ratio_ci_method": method,
+            "ratio_median": _median(values)}
+
+
+def summarize_update(windows: list[dict[str, Any]], round_loads: list[dict[str, Any]], rounds: int,
+                     engines: tuple[str, ...] = UPDATE_ENGINES, threads: tuple[int, ...] = UPDATE_THREADS,
+                     gate_threads: int = UPDATE_GATE_THREADS, pin: str = UPDATE_PIN,
+                     quick: bool = False) -> dict[str, Any]:
+    """The throughput, rho and kappa cells, the per-engine verdicts and this run's voids."""
+    problems = update_order_problems(windows, rounds, engines, threads)
+    if problems:
+        raise InstrumentError("the windows are not the §39.2 design: " + "; ".join(problems))
+    loads = {entry["round"]: entry for entry in round_loads}
+    if sorted(loads) != list(range(rounds)):
+        raise InstrumentError(f"load records cover rounds {sorted(loads)}, not 0..{rounds - 1}")
+    if 1 not in threads or gate_threads not in threads:
+        raise InstrumentError(f"threads {threads} lack the 1-thread control or the gate count {gate_threads}")
+    throughput: list[dict[str, Any]] = []
+    rho_cells: list[dict[str, Any]] = []
+    kappa_cells: list[dict[str, Any]] = []
+    verdicts: dict[str, str] = {}
+    labels: dict[str, str] = {}
+    for e in engines:
+        rho_by_t: dict[int, dict[int, float]] = {}
+        for t in threads:
+            by_arm = {a: {w["round"]: w for w in windows
+                          if w["engine"] == e and w["threads"] == t and w["arm"] == a}
+                      for a in UPDATE_ARMS}
+            for a in UPDATE_ARMS:
+                cell_windows = [by_arm[a][r] for r in sorted(by_arm[a])]
+                rates = [update_rate(w) for w in cell_windows]
+                mean, lo, hi, method = step2_interval(rates)
+                throughput.append({
+                    "workload_id": UPDATE_WORKLOAD_ID, "engine": e, "arm": a,
+                    "engine_key": update_arm_key(e, a), "engine_name": cell_windows[0]["engine_name"],
+                    "read_pct": UPDATE_READ_PCT, "threads": t, "rounds": len(cell_windows),
+                    "window_ms": WINDOW_MS,
+                    "updates_s_mean": mean, "updates_s_ci_lower": lo, "updates_s_ci_upper": hi,
+                    "updates_s_ci_method": method, "updates_s_median": _median(rates),
+                    "load": _cell_load(sorted(by_arm[a]), loads),
+                    "rounds_raw": [dict({k: w[k] for k in UPDATE_RAW_KEYS}, updates_s=rate,
+                                        foreign_busy_cpus=loads[w["round"]].get("foreign_busy_cpus"))
+                                   for w, rate in zip(cell_windows, rates)],
+                })
+            if sorted(by_arm["update"]) != sorted(by_arm["held"]):
+                raise InstrumentError(f"{e} at {t} threads: unpaired rounds {sorted(by_arm['update'])} "
+                                      f"vs {sorted(by_arm['held'])}")
+            pairs = []
+            for r in sorted(by_arm["update"]):
+                u = update_rate(by_arm["update"][r])
+                h = update_rate(by_arm["held"][r])
+                if u <= 0:
+                    raise InstrumentError(f"{e} at {t} threads, round {r}: the update window measured nothing")
+                pairs.append({"round": r, "update_position": by_arm["update"][r]["position"],
+                              "held_position": by_arm["held"][r]["position"],
+                              "update_updates_s": u, "held_updates_s": h, "ratio": h / u})
+            rho_by_t[t] = {p["round"]: p["ratio"] for p in pairs}
+            rho_cells.append({
+                "workload_id": UPDATE_WORKLOAD_ID, "engine": e, "threads": t, "statistic": "rho",
+                "rounds": len(pairs), **_update_interval([p["ratio"] for p in pairs]),
+                "gated": t == gate_threads,
+                "load": _cell_load([p["round"] for p in pairs], loads), "rounds_raw": pairs,
+            })
+        for t in threads:
+            if t == 1:
+                continue
+            ks = [{"round": r, "rho": rho_by_t[t][r], "rho_1": rho_by_t[1][r],
+                   "ratio": rho_by_t[t][r] / rho_by_t[1][r]} for r in sorted(rho_by_t[t])]
+            kappa_cells.append({
+                "workload_id": UPDATE_WORKLOAD_ID, "engine": e, "threads": t, "statistic": "kappa",
+                "rounds": len(ks), **_update_interval([k["ratio"] for k in ks]),
+                "load": _cell_load([k["round"] for k in ks], loads), "rounds_raw": ks,
+            })
+        gate = next(c for c in rho_cells if c["engine"] == e and c["threads"] == gate_threads)
+        verdicts[e] = update_verdict(gate["ratio_ci_lower"], gate["ratio_ci_upper"])
+        gate["verdict"] = verdicts[e]
+        kap = next(c for c in kappa_cells if c["engine"] == e and c["threads"] == gate_threads)
+        labels[e] = contention_label(kap["ratio_ci_lower"], kap["ratio_ci_upper"])
+        kap["label"] = labels[e]
+    voids = update_pin_problems(pin) + update_load_voids(round_loads) + update_instrument_voids(rho_cells)
+    if quick:
+        voids.append("--quick: a smoke run of the instrument, never verdict-bearing (METHODOLOGY.md §39.5)")
+    gate_block = {
+        "methodology": UPDATE_METHODOLOGY, "threads": gate_threads, "margin": UPDATE_MARGIN,
+        "margin_source": "scripts/update_registration_bounds.py MARGIN", "rule": UPDATE_RULE,
+        "verdicts": verdicts, "contention": labels, "scope": UPDATE_SCOPE,
+        "voids": voids, "verdict": "VOID" if voids else "ADMISSIBLE", "quick": quick,
+    }
+    return {"throughput": throughput, "rho": rho_cells, "kappa": kappa_cells, "gate": gate_block}
+
+
+def run_update_cells(args: argparse.Namespace) -> int:
+    quick = bool(args.quick)
+    if args.engines is not None or args.workloads is not None or args.threads is not None:
+        raise InstrumentError("--update-cells fixes the engines (map, str, bytes), the mix (0% read) and "
+                              "the threads (1, 2, 4, 8); --engines, --workloads and --threads do not apply")
+    rounds = resolve_update_rounds(args.rounds, quick)
+    out = resolve_update_out(args.out, quick)
+    problems = update_constant_problems()
+    if problems:
+        raise InstrumentError("; ".join(problems))
+    pin = bench_pin.apply("mixed_concurrency.py --update-cells")
+    pin_problems = update_pin_problems(pin)
+    if pin_problems and not quick:
+        raise InstrumentError(pin_problems[0] + "; refusing to start")
+    exe = build_bench()
+    prov = new_provenance(
+        suite="concurrency", issue=UPDATE_ISSUE, ratio=UPDATE_RATIO, repo_root=REPO_ROOT, core_pin=pin,
+        harness=HARNESS, window_ms=WINDOW_MS, rounds=rounds, threads=list(UPDATE_THREADS),
+        mode="update_cells", methodology=UPDATE_METHODOLOGY, quick=quick,
+        engines=list(UPDATE_ENGINES), arms=list(UPDATE_ARMS), read_pct=UPDATE_READ_PCT,
+        order=UPDATE_ORDER, bootstrap_resamples=UPDATE_RESAMPLES,
+        bench_sha256=file_sha256(REPO_ROOT / HARNESS), executable_sha256=file_sha256(exe),
+    )
+    prov["estimators"]["columns"] = UPDATE_COLUMNS
+    print(f"core pin: {pin} | threads {list(UPDATE_THREADS)} | rounds {rounds} | engines {list(UPDATE_ENGINES)}")
+
+    def launch(key: str, t: int, samples: Path) -> None:
+        run_update_window(exe, key, t, samples)
+
+    with tempfile.TemporaryDirectory(prefix="expanse-update-cells-") as tmp:
+        windows, round_loads = run_update_rounds(launch, prov, rounds, Path(tmp))
+    add_load(prov, "end")
+    prov["round_loads"] = round_loads
+    summary = summarize_update(windows, round_loads, rounds, pin=pin, quick=quick)
+    artifact = {"provenance": prov, **summary}
+    problems = step2_artifact_problems(out, artifact, quick)
+    if problems and not quick:
+        raise InstrumentError("artifact would fail check_bench_provenance.py:\n  " + "\n  ".join(problems))
+    # A quick artifact goes to the gitignored scratch path and is never
+    # committed; where it cannot pass the provenance gate (a host without
+    # /proc has no load window), it is written and the findings are named.
+    for problem in problems:
+        print(f"::notice:: quick run, not committable: {problem}", file=sys.stderr)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(artifact, indent=2) + "\n")
+    for c in summary["rho"]:
+        lo, hi = c["ratio_ci_lower"], c["ratio_ci_upper"]
+        interval = "no interval" if lo is None else f"[{lo:.4f}, {hi:.4f}]"
+        print(f"  rho {c['engine']:>5} W={c['threads']}: {c['ratio_mean']:.4f} {interval}"
+              + (f" {c['verdict']}" if c.get("gated") else ""))
+    for c in summary["kappa"]:
+        lo, hi = c["ratio_ci_lower"], c["ratio_ci_upper"]
+        interval = "no interval" if lo is None else f"[{lo:.4f}, {hi:.4f}]"
+        print(f"  kappa {c['engine']:>5} W={c['threads']}: {c['ratio_mean']:.4f} {interval}"
+              + (f" {c['label']}" if "label" in c else ""))
+    gate = summary["gate"]
+    print(f"update cells (this run only): {gate['verdict']}; verdicts {gate['verdicts']}; "
+          f"contention {gate['contention']}")
+    for v in gate["voids"]:
+        print(f"VOID (METHODOLOGY.md §39.5): {v}", file=sys.stderr)
+    print(f"Wrote artifact to {out.relative_to(REPO_ROOT) if REPO_ROOT in out.parents else out}")
+    return 1 if gate["voids"] and not quick else 0
+
+
+def update_self_test() -> None:
+    """The §39 mode without Cargo: constants, design, pairing, verdicts, voids and refusals."""
+    def expect_error(fn, *args, what: str, **kwargs) -> str:
+        try:
+            fn(*args, **kwargs)
+        except InstrumentError as exc:
+            return str(exc)
+        raise AssertionError(f"expected InstrumentError: {what}")
+
+    # Constants agree with the bounds module, and each disagreement is caught on its own.
+    assert update_constant_problems() == [], update_constant_problems()
+    assert len(update_constant_problems(margin=0.04)) == 1
+    assert len(update_constant_problems(rounds=24)) == 1
+    assert UPDATE_ROUNDS % UPDATE_PERIOD == 0
+
+    # Design: each round holds every (engine, threads, arm) once, the arms of a
+    # pair adjacent; over one period every engine leads equally often, each arm
+    # leads equally often, and every thread count takes every position.
+    lead_engine: dict[str, int] = {}
+    lead_arm: dict[str, int] = {}
+    pos_of_t: dict[int, set[int]] = {t: set() for t in UPDATE_THREADS}
+    for r in range(UPDATE_PERIOD):
+        order = update_round_order(r)
+        assert sorted(order) == sorted((e, t, a) for e in UPDATE_ENGINES for t in UPDATE_THREADS
+                                       for a in UPDATE_ARMS), order
+        for i in range(0, len(order), 2):
+            assert order[i][:2] == order[i + 1][:2] and order[i][2] != order[i + 1][2], order
+        lead_engine[order[0][0]] = lead_engine.get(order[0][0], 0) + 1
+        lead_arm[order[0][2]] = lead_arm.get(order[0][2], 0) + 1
+        first_engine = [x for x in order if x[0] == order[0][0]]
+        for pos, t in enumerate(dict.fromkeys(x[1] for x in first_engine)):
+            pos_of_t[t].add(pos)
+    assert set(lead_engine.values()) == {UPDATE_PERIOD // 3}, lead_engine
+    assert lead_arm == {"update": UPDATE_PERIOD // 2, "held": UPDATE_PERIOD // 2}, lead_arm
+    assert all(p == set(range(len(UPDATE_THREADS))) for p in pos_of_t.values()), pos_of_t
+    assert update_arm_key("map", "update") == "map_update"
+    assert update_arm_key("bytes", "held") == "bytes_update_held"
+    expect_error(update_arm_key, "set", "update", what="an engine §39 does not measure")
+
+    # Rounds, output and pin refusals.
+    assert resolve_update_rounds(None, False) == UPDATE_ROUNDS
+    assert resolve_update_rounds(None, True) == UPDATE_QUICK_ROUNDS
+    assert resolve_update_rounds(2, True) == 2
+    expect_error(resolve_update_rounds, 24, False, what="a round count §39.3 does not register")
+    expect_error(resolve_update_rounds, 0, True, what="zero rounds")
+    expect_error(resolve_update_out, str(UPDATE_DEFAULT_OUT), True, what="quick run writing a committed artifact")
+    assert update_pin_problems(UPDATE_PIN) == []
+    assert len(update_pin_problems("0-15")) == 1
+
+    # Verdict, one negative control per clause: the COST clause at its boundary
+    # and just below it, the NO_COST clause at its boundary and just below it.
+    assert update_verdict(1.05, 1.20) == "COST"
+    assert update_verdict(1.0499, 1.20) == "OPEN"
+    assert update_verdict(0.98, 1.0499) == "NO_COST"
+    assert update_verdict(0.98, 1.05) == "OPEN"
+    assert update_verdict(None, None) == "NOT_EVALUABLE"
+    # A different margin moves both clauses.
+    assert update_verdict(1.08, 1.2, margin=0.10) == "OPEN"
+    assert update_verdict(1.0, 1.09, margin=0.10) == "NO_COST"
+    # Contention label, each clause and its boundary.
+    assert contention_label(1.0001, 1.2) == "GROWS"
+    assert contention_label(1.0, 1.2) == "FLAT"
+    assert contention_label(0.8, 0.9999) == "SHRINKS"
+    assert contention_label(0.8, 1.0) == "FLAT"
+    assert contention_label(None, 1.0) == "NOT_EVALUABLE"
+
+    # Void clauses, each alone: the instrument check at and below its bound,
+    # the load check on a missing figure, at the bound and just below it.
+    assert update_instrument_voids([{"engine": "map", "threads": 8, "ratio_ci_upper": 0.95}]) == []
+    assert len(update_instrument_voids([{"engine": "map", "threads": 8, "ratio_ci_upper": 0.9499}])) == 1
+    assert update_instrument_voids([{"engine": "map", "threads": 8, "ratio_ci_upper": None}]) == []
+    assert len(update_load_voids([{"round": 0, "foreign_busy_cpus": None}])) == 1
+    assert len(update_load_voids([{"round": 0, "foreign_busy_cpus": RUN_FOREIGN_VOID}])) == 1
+    assert update_load_voids([{"round": 0, "foreign_busy_cpus": RUN_FOREIGN_VOID - 0.01}]) == []
+
+    # End to end through the launcher seam. Throughput drifts strongly from round
+    # to round and held is factor(engine, threads) times the same round's update
+    # window, so a ratio that paired windows across rounds would read otherwise.
+    def launcher(factor, mutate=None) -> UpdateLauncher:
+        def launch(key: str, t: int, samples: Path) -> None:
+            r = int(samples.name.split("_")[0].removeprefix("round"))
+            engine, arm = key.split("_")[0], ("held" if key.endswith("_held") else "update")
+            base = 1_000_000 * (1 + (r * 7) % 5) * t
+            ops = base if arm == "update" else int(round(base * factor(engine, t, r)))
+            row = {"workload_id": UPDATE_WORKLOAD_ID, "engine_key": key, "engine": key.upper(),
+                   "workload": "0% Read / 100% Write", "read_pct": UPDATE_READ_PCT, "write_rate": None,
+                   "threads": t, "round": 0, "position": 0, "elapsed_s": 0.5,
+                   "read_ops": 0, "write_ops": ops, "busy": 0, "ok": 0, "refused": 0}
+            rows = mutate(row, key, t, r) if mutate else [row]
+            if rows:
+                samples.write_text("".join(json.dumps(x) + "\n" for x in rows))
+        return launch
+
+    def loads(rounds: int, foreign: float | None = 0.02) -> list[dict[str, Any]]:
+        return [{"round": r, "since": f"round:{r}", "wall_s": 20.0, "busy_cpus_since_prev": 4.0,
+                 "own_busy_cpus": 4.0 - (foreign or 0.0), "foreign_busy_cpus": foreign} for r in range(rounds)]
+
+    def scenario(factor, rounds=UPDATE_PERIOD, mutate=None, pin=UPDATE_PIN, quick=False, foreign=0.02):
+        with tempfile.TemporaryDirectory() as tmp:
+            windows, round_loads = run_update_rounds(launcher(factor, mutate), {}, rounds, Path(tmp),
+                                                     progress=False)
+        assert [x["round"] for x in round_loads] == list(range(rounds))
+        return summarize_update(windows, loads(rounds, foreign), rounds, pin=pin, quick=quick)
+
+    def jitter(r: int) -> float:
+        return 0.004 * ((r * 5) % 3 - 1)
+
+    # map: a cost growing with W; str: a flat cost; bytes: no cost.
+    def factor(engine: str, t: int, r: int) -> float:
+        base = {"map": 1.10 + 0.05 * (t - 1), "str": 1.08, "bytes": 1.0}[engine]
+        return base + jitter(r)
+
+    s = scenario(factor)
+    g = s["gate"]
+    assert g["verdict"] == "ADMISSIBLE" and g["voids"] == [], g
+    assert g["verdicts"] == {"map": "COST", "str": "COST", "bytes": "NO_COST"}, g["verdicts"]
+    assert g["contention"] == {"map": "GROWS", "str": "FLAT", "bytes": "FLAT"}, g["contention"]
+    rho_map8 = next(c for c in s["rho"] if c["engine"] == "map" and c["threads"] == 8)
+    assert abs(rho_map8["ratio_mean"] - 1.45) < 0.01 and rho_map8["ratio_ci_method"] in CI_METHODS, rho_map8
+    assert all(abs(p["ratio"] - factor("map", 8, p["round"])) < 1e-6 for p in rho_map8["rounds_raw"])
+    assert len(s["throughput"]) == 3 * 4 * 2 and len(s["rho"]) == 3 * 4 and len(s["kappa"]) == 3 * 3
+    assert all(c["load"]["foreign_busy_cpus"] == 0.02 for c in s["throughput"] + s["rho"] + s["kappa"])
+
+    # An effect between the clauses reads OPEN; one at the margin's edge as well.
+    s = scenario(lambda e, t, r: 1.05 + jitter(r))
+    assert set(s["gate"]["verdicts"].values()) == {"OPEN"}, s["gate"]["verdicts"]
+
+    # Each void clause alone turns an otherwise admissible run VOID.
+    assert scenario(factor, pin="0-15")["gate"]["verdict"] == "VOID"
+    assert scenario(factor, quick=True)["gate"]["verdict"] == "VOID"
+    assert scenario(factor, foreign=1.0)["gate"]["verdict"] == "VOID"
+    assert scenario(factor, foreign=None)["gate"]["verdict"] == "VOID"
+    slow = scenario(lambda e, t, r: 0.90 if (e, t) == ("str", 4) else 1.0 + jitter(r))
+    assert slow["gate"]["verdict"] == "VOID" and len(slow["gate"]["voids"]) == 1, slow["gate"]["voids"]
+
+    # A window the process did not write as requested discards the run.
+    msg = expect_error(scenario, factor, mutate=lambda row, key, t, r: [],
+                       what="a window that wrote no row")
+    assert "§39.5" in msg, msg
+    expect_error(scenario, factor, mutate=lambda row, key, t, r: [row, row], what="two rows for one window")
+    expect_error(scenario, factor, mutate=lambda row, key, t, r: [dict(row, threads=t + 1)],
+                 what="a window reporting another thread count")
+    expect_error(scenario, factor, mutate=lambda row, key, t, r: [dict(row, read_ops=1)],
+                 what="a window that read")
+    # Refused where the window is read, not later by the statistics.
+    msg = expect_error(scenario, factor, mutate=lambda row, key, t, r: [dict(row, write_ops=0)],
+                       what="a window with no updates")
+    assert "made 0 updates" in msg, msg
+    expect_error(scenario, factor, mutate=lambda row, key, t, r: [dict(row, workload_id=WORKLOAD_ID)],
+                 what="a window of the core workload")
+    expect_error(scenario, factor, mutate=lambda row, key, t, r: [dict(row, engine_key="map_update")]
+                 if key == "map_update_held" else [row], what="a window of the other arm")
+
+    # Reordered windows are refused before any statistic is read.
+    with tempfile.TemporaryDirectory() as tmp:
+        windows, _ = run_update_rounds(launcher(factor), {}, 3, Path(tmp), progress=False)
+    swapped = [dict(w, position=1 - w["position"]) if w["round"] == 1 and w["position"] < 2 else w
+               for w in windows]
+    expect_error(summarize_update, swapped, loads(3), 3, what="a round out of the registered order")
+    expect_error(summarize_update, windows, loads(2), 3, what="load records missing a round")
+    # Fewer than 3 rounds: the run still summarises, with no interval and no verdict.
+    with tempfile.TemporaryDirectory() as tmp:
+        windows, _ = run_update_rounds(launcher(factor), {}, 2, Path(tmp), progress=False)
+    short = summarize_update(windows, loads(2), 2, quick=True)
+    assert set(short["gate"]["verdicts"].values()) == {"NOT_EVALUABLE"}, short["gate"]
+
+
 # The published surfaces that quote this instrument besides the suite README:
 # the README hero chart and the sync32 health chart (`bench_assets.json`, drawn
 # by `scripts/generate_asset_svgs.py`) and the architecture visualizer's
@@ -2009,6 +2609,7 @@ def self_test() -> int:
     assert json.loads(html[start:end]) == {"a": "}{", "b": [1, {"c": 2}]}, html[start:end]
 
     step2_self_test()
+    update_self_test()
     print("mixed_concurrency.py self-test PASSED")
     return 0
 
@@ -2288,12 +2889,20 @@ def main() -> int:
     ap.add_argument("--blob-peak", action="store_true",
                     help="§34 blob peak instrument (METHODOLOGY.md §34 / Amendment A1): maps "
                          "physical (0,2,4,6,8,10,12,14) or SMT (0-15) pin to declared cells")
+    ap.add_argument("--update-cells", action="store_true",
+                    help="the #1417 contended update cells (METHODOLOGY.md section 39): update against a "
+                         "held reader + compare_exchange loop on map, str and bytes at 1-8 threads")
     args = ap.parse_args()
     if args.sample_cpus:
         os.environ["EXPANSE_BENCH_CPU_SAMPLES"] = "1"
     if args.self_test:
         return self_test()
     try:
+        if args.update_cells:
+            if (args.blob_peak or args.step2_gate or args.run2 or args.write_assets or args.check_assets
+                    or args.check_sync32_steps):
+                raise InstrumentError("--update-cells cannot be combined with other modes")
+            return run_update_cells(args)
         if args.blob_peak:
             if args.step2_gate or args.write_assets or args.check_assets or args.check_sync32_steps:
                 raise InstrumentError("--blob-peak cannot be combined with other modes")
