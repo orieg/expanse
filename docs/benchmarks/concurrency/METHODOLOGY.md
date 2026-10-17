@@ -6217,3 +6217,104 @@ Every correctness gate below must pass in Stage 2 before any performance claim i
    - **Stage 2:** Land `trie32::set_seek_validated`, the six `Writer32<'_, ExpanseSet32>` ordered methods, and the six `#[doc(hidden)]` `Reader32<'_, ExpanseSet32>` `try_*` ordered methods, passing G38.0–G38.6 and the Stage 2 Callgrind gates (§38.5).
    - **Stage 3:** Execute G38.7 and G38.8. Remove `#[doc(hidden)]` from the `SyncExpanseSet32` ordered-read methods iff both G38.7 and G38.8 pass against the locked thresholds above; any threshold change requires an explicit amendment subsection (`§38.7`) and a fresh-seed re-run.
 
+
+---
+
+## 39. Pre-registration for #1417 — does per-call reader registration in `update` cost throughput under contention? (appended 2026-10-17, locked before any run of the cells below; next free section, may be renumbered at merge)
+
+`SyncExpanseMap::update`, `SyncExpanseStrMap::update` and `SyncExpanseBytesMap::update` read the current value through `self.get(key)` before their exchange loop, and `get` registers a throwaway epoch reader and drops it. This section registers the measurement #1417 asks for before any engine change: a contended wall-clock arm for `update`, several threads on one map. It holds no engine code and no data. The harness cells and the driver mode arrive in the same pull request as this section; the runs are taken on the reference host afterwards. Code references are to `origin/main` at `f19935181`. Refs #1417.
+
+### 39.1 The question, and what the arms isolate
+
+**The question.** With W threads updating present keys of one shared map, is `update` slower than the same read-then-exchange loop run on a reader each thread registered once, and does the difference grow with W?
+
+**What `update` does per call** (`verified`):
+
+- `update` sets `expected = self.get(key)`, then loops `compare_exchange(key, expected, f(expected))`, on `Err(seen)` setting `expected = seen` and calling `core::hint::spin_loop()` (`crates/expanse/src/sync.rs:6958-6970` map, `:14012-14028` str, `:15556-15568` bytes). `SyncExpanseOrderedBytesMap::update` delegates to the str map's (`sync.rs:16694-16696`) and is not measured separately.
+- `get` is `self.reader().get(key)` (`sync.rs:7275`, `:14209`, `:16055`).
+- `reader()` calls `Collector::register` (`crates/expanse/src/occ.rs:1975-1988`): one `Arc<Slot>` allocation, the collector's `readers` mutex, a `Vec` push. Dropping the handle (`occ.rs:2691-2701`) takes the same mutex again and runs `retain` over every registered slot. The mutex is one per collector, so one per map.
+
+**The arms.** Both are written in the harness against the public API; no engine code changes.
+
+| Arm key | Per operation | Per thread, outside the timed window |
+|---|---|---|
+| `<e>_update` | `m.update(k, f)` with `f = \|v\| v.map(\|x\| x.wrapping_add(1))` | registers one reader `rd`, which no update uses |
+| `<e>_update_held` | `expected = rd.get(k)`, then the loop `update` runs, verbatim: `m.compare_exchange(k, expected, f(expected))`, on `Err(seen)` set `expected = seen` and call `spin_loop()` | registers one reader `rd` |
+
+with `<e>` one of `map`, `str`, `bytes`. The held arm is the shape #1417's proposal 2 names ("a reader held for the call's retries"), with the reader held for the thread instead of the call. The two arms run the same read function on the same key, the same exchange and the same retry loop; per operation they differ by one `register` and one drop, and by nothing else. Both arms keep one registered reader per thread, so the registry holds W slots in both, plus the update arm's transient one.
+
+**Twin check (C-b).** The held arm does strictly less work, so the update arm has no regime in which it should be faster; this is a cost measurement, not an architectural comparison. A run in which the held arm is materially slower is an instrument defect and is void (§39.5).
+
+### 39.2 Instrument and cells
+
+**Harness:** `crates/expanse/benches/concurrency.rs`, the six arm keys above. They are opt-in: an unset `EXPANSE_BENCH_ENGINES` runs the arms it ran before, so the nightly `bench-report` job is unchanged.
+
+- **Keys.** Each window prefills the engine's usual population (`map`: 1,000,000 distinct draws over 2,000,000 keys; `str`, `bytes`: 100,000 of the 200,000 route keys) and every operation updates a key drawn uniformly from the prefill, so every update replaces a present value and no operation inserts or removes. Each worker's stream is the suite XorShift seeded per window and per worker (`Window::seed`); both arms of a cell draw the identical stream.
+- **Window.** 500 ms from a barrier after every worker's setup (reader registration included) to the stop flag; the rate is updates over the window's own elapsed time.
+- **Driver:** `docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells`, one bench process per window (`EXPANSE_BENCH_ROUNDS=1`, `EXPANSE_BENCH_WORKLOADS=0`), so every window starts from its own prefill and its own process state (§15).
+- **Cells.** Engine `e` in {map, str, bytes} x W in {1, 2, 4, 8} x arm in {update, held}: 24 windows per round.
+- **Pin.** `0,2,4,6,8,10,12,14`, one logical CPU per physical P-core, so W = 8 is one worker per core and no cell shares a core (AGENTS.md §8.20.5 step 0). The driver refuses any other pin outside `--quick`.
+- **Order within a round.** The engines run in the order `(map, str, bytes)` rotated left by `round mod 3`; within an engine, W follows row `round` of the four-level Williams design; within an (e, W) pair the two arms run back to back, update first in even rounds and held first in odd ones. Every quantity in this order cycles in 12 rounds.
+- **Suite:** `concurrency_update_cells` (`.github/bench-suites.json`); it writes `results/baseline_concurrent_update_cells.json`. A second run is a second dispatch, committed as `results/baseline_concurrent_update_cells_run2.json`.
+
+### 39.3 Statistics, fixed now
+
+- **Rounds:** 36 per run, three whole order cycles. Sized in `scripts/update_registration_bounds.py` (§8.8 commit 1): from the largest per-round CV of a paired, one-process-per-window ratio on this host, borrowed from the #568 Step 2 map cells (0.1015 contended, 0.0084 at one thread; `results/baseline_concurrent_step2_gate*.json`), 36 rounds give a minimum detectable departure of 0.0474 for `rho` at W ≥ 2 and 0.0476 for `kappa`, both below the margin, and about an 84% chance of reaching the falsifier when the true ratio is 1. The spread is a different workload's; the run's own intervals are what decide.
+- **Per-round values.** `T(e, W, arm)` = updates per second in that round's window. `rho(e, W)` = `T(e, W, held) / T(e, W, update)`, paired within the round. `kappa(e, W)` = `rho(e, W) / rho(e, 1)` of the same round, for W in {2, 4, 8}.
+- **Intervals.** BCa 95% over the 36 per-round values, 2,000 resamples, seed 42 (`scripts/bca_bootstrap.py`), recorded with `ci_method`. Each cell also carries both arms' mean, median and interval of `T`, and every window under `rounds_raw`.
+- **Margin.** `MARGIN = 0.05`: a registration cost below 5% of an update's throughput at W = 8 is not worth an engine change. The driver and the bounds module carry the same constant, and the driver's self-test asserts they agree.
+- **Primary cell:** W = 8, per engine. W = 2 and 4 are reported and decide nothing.
+
+### 39.4 Verdict
+
+Per run, per engine, at W = 8:
+
+1. `COST` when the lower bound of `rho(e, 8)` is at least `1 + MARGIN`: registration costs at least 5% of `update`'s throughput at eight threads.
+2. `NO_COST` when the upper bound of `rho(e, 8)` is below `1 + MARGIN`: the contended arm shows no cost of 5% or more attributable to registration. This is #1417's falsifier.
+3. `OPEN` otherwise.
+
+Reported beside it, deciding nothing on its own, the contention label from `kappa(e, 8)`: `GROWS` when its lower bound is above 1.0 (the cost per update is larger at eight threads than at one, the contention-specific form of AGENTS.md §8.20.2), `SHRINKS` when its upper bound is below 1.0, `FLAT` otherwise.
+
+**The pair.** Two independent dispatches. Per engine, the pair's verdict is the run verdict when both runs give the same one, and `OPEN` otherwise (`docs/BENCHMARKING.md` rule 18). #1417's falsifier is met when all three engines read `NO_COST` in the pair.
+
+| Pair verdict for an engine | What follows |
+|---|---|
+| `COST` | proposal 2 may go ahead for that engine, under its own pre-registration (§39.7) |
+| `NO_COST` | no engine change for that engine on this evidence; the result is recorded here and on #1417 |
+| `OPEN` | no engine change; one further pair of fresh runs may be taken, whose verdict is final |
+
+### 39.5 What voids a run
+
+- A pin other than `0,2,4,6,8,10,12,14`. A `--quick` run is never verdict-bearing.
+- A window process that exits non-zero, or writes anything but exactly one row naming the requested arm, thread count, read percentage 0, round 0 and position 0, or a window with no updates. The run is discarded and nothing is written.
+- A round whose `foreign_busy_cpus` (the per-round load snapshot, `scripts/bench_provenance.py` `begin_cell` / `end_cell`) is missing or at least `RUN_FOREIGN_VOID` (1.0 core-equivalent), and a job the workflow's host guard failed (`scripts/bench_host_guard.py`).
+- An instrument defect: the upper bound of `rho(e, W)` below `1 - MARGIN` in any cell, the arm that does less work measuring materially slower (§39.1).
+
+A void run is written with `verdict: VOID` and its reasons, and is not one of the pair. At most three replacement runs per pair.
+
+### 39.6 Expected outcomes, and what is not predicted
+
+Every reason is a hypothesis.
+
+| Cell | Expected | Reason (hypothesis) |
+|---|---|---|
+| W = 1, all engines | `rho > 1` | the registration's allocation, two mutex acquisitions and `retain`. `update / cas` from #1411's instruction counts bounds `rho(1)` from above at 2.116 (map), 1.815 (str) and 1.719 (bytes) if time is proportional to instructions; the held arm's read sits inside that difference, so `rho(1)` lies between 1 and those bounds |
+| W = 8, all engines | `kappa > 1` possible | eight threads take the one `readers` mutex twice per update, and the drop's `retain` walks at least eight slots; the exchange itself can also contend, on the tree word and on the writers' own slots, which both arms share |
+| W = 8, str and bytes | smaller `rho` than map | a longer read and exchange per update dilutes a fixed registration cost |
+
+**Not predicted:** any magnitude of `rho` or `kappa` at W ≥ 2; the W at which a cost appears; behaviour on other hosts, core counts or allocators (the registration allocates through the system allocator); `update` on absent keys, where `compare_exchange(None, None)` registers a second reader (`sync.rs:6935-6941`); the other wrappers' `update`.
+
+**Silent constants,** all fixed here: the three engines and their prefills; uniform keys over the prefill; `f = v + 1`; W in {1, 2, 4, 8}; the pin; the 500 ms window; 36 rounds; the order of §39.2; 2,000 resamples, seed 42; `MARGIN = 0.05`; the void bound `1 - MARGIN`; `RUN_FOREIGN_VOID`; three replacement runs and one further pair. Changing any of them after a run relabels that run `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+
+### 39.7 What a later engine change must show
+
+A pull request that changes `update` for an engine this section found `COST` (proposal 2: read without a per-call registration, through a reader held across the call's retries or a read under the writer's own pin) carries its own pre-registration, and at least:
+
+- **Contended gain.** These cells re-run on the change, two runs: the update arm's `T(e, 8)` against the base build's, paired within the round, with the lower bound of the ratio above 1.0; and `rho(e, 8)` on the change with its upper bound below `1 + MARGIN`, i.e. `update` no slower than the held loop.
+- **No instruction regression.** No arm of `instructions` or `rmw_instructions` regresses beyond the 0.1% review threshold (AGENTS.md §6); the `sync_*_update_rmw` arms are expected to fall.
+- **The plain paths.** Concurrency-only code stays out of shared inlined paths (AGENTS.md §2.1 invariant 5).
+- **Expiry.** The verdict here describes the engine at the commit it measured (AGENTS.md §8.20.6). A change to `Collector::register`, to the reader registry, or to `compare_exchange`'s optimistic path expires it, and these cells are re-run before an engine change is evaluated against them.
+
+### 39.8 Open questions
+
+None. The section number, 39, is the next free one at lock time and may move at merge.

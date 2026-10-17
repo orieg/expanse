@@ -892,6 +892,10 @@ jobs:
           python3 scripts/batch_cursor_bounds.py --self-test
           python3 scripts/str_cursor_bounds.py --self-test
           python3 scripts/blob_peak_bounds.py --self-test
+          # update_registration_bounds.py sizes the #1417 contended update cells
+          # (concurrency METHODOLOGY section 39): the W = 1 instruction bound,
+          # the borrowed paired-ratio spread and the round count it needs.
+          python3 scripts/update_registration_bounds.py --self-test
           python3 scripts/set_algebra_bounds.py
           python3 scripts/set_domain_bounds.py
           python3 scripts/shrink_rss_bounds.py
