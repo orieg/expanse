@@ -11,19 +11,21 @@
 //! |---|---|
 //! | `workload_id` | `example_bytes_per_key` |
 //! | `group` | 5 |
-//! | `population` | 1k to 1M census; the `random` gate also samples 2M |
+//! | `population` | 1k to 1M census; the `random` gate also samples 2M; 131,072 (2^17) keys per cell on the short-payload blob arms |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
 //! | `value_dereference` | `mem_used()` accounting |
 //! | `measured_region` | Clean |
-//! | `arm_symmetry` | Pure 64-bit census |
+//! | `arm_symmetry` | Pure 64-bit census; the short-payload blob arms differ only in `hot_meta` (0 against non-zero), with the same keys and payloads |
 //! | `statistics` | Exact byte count |
 //! | `verdict` | **PASS** `[verified: RUN (6c63826a)]`: Deterministic memory density census. |
 
+use expanse_trie::blobmap::{ARENA_ALIGN, ExpanseBlobMap};
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::sync::SyncExpanseBlobMap;
 use expanse_trie::types::LEAF_CAP;
 
 struct XorShift(u64);
@@ -68,6 +70,183 @@ fn keys(dist: &str, n: usize) -> Vec<u64> {
         _ => unreachable!(),
     }
     out
+}
+
+/// Short-payload blob arms (#1548): the cost of keeping `hot_meta` for a
+/// payload of 7 bytes or fewer. With `hot_meta == 0` the payload sits in the
+/// value-slot word and uses no arena bytes; with `hot_meta != 0` it is an
+/// `ArenaMeta` record, one 8-byte `BlobRecordHeader` plus the payload,
+/// rounded up to `ARENA_ALIGN`. Every assertion is exact byte accounting.
+const BLOB_N: usize = 1 << 17;
+
+fn blob_payload(k: u64, len: usize) -> Vec<u8> {
+    (0..len).map(|i| (k >> (8 * i)) as u8 | 0x80).collect()
+}
+
+/// Metadata in `1..=0xFFFF`: non-zero, inside the 24-bit field.
+fn blob_meta(k: u64) -> u32 {
+    1 + (k as u32 & 0xFFFF)
+}
+
+/// The arena figures the assertions are made on.
+struct ArenaFigures {
+    mem_used: usize,
+    cursor_sum: usize,
+    live_bytes: usize,
+    index_mem: usize,
+    total_mem: usize,
+}
+
+fn arena_figures(map: &ExpanseBlobMap) -> ArenaFigures {
+    let arena = map.arena();
+    ArenaFigures {
+        mem_used: arena.mem_used(),
+        cursor_sum: arena.chunks().iter().map(|c| c.cursor()).sum(),
+        live_bytes: arena.live_bytes(),
+        index_mem: map.index().mem_used(),
+        total_mem: map.mem_used(),
+    }
+}
+
+fn blob_short_payload_arms() {
+    println!(
+        "\nshort-payload blob maps, hot_meta == 0 against hot_meta != 0 (N = {BLOB_N} keys per cell)"
+    );
+    println!(
+        "{:<8} {:>4} {:>13} {:>13} {:>12} {:>13}",
+        "map", "len", "B/key hm=0", "B/key hm!=0", "delta B/key", "record B/key"
+    );
+    let mut failures = Vec::new();
+    let chunk = ExpanseBlobMap::new().arena().chunk_size();
+    for len in [0usize, 1, 3, 7] {
+        // Record = 8-byte header + payload, rounded up to ARENA_ALIGN.
+        let record = (8 + len).next_multiple_of(ARENA_ALIGN);
+        let want_cursor = BLOB_N * record;
+        let want_mem = want_cursor.div_ceil(chunk) * chunk;
+        let want_live = BLOB_N * (8 + len);
+
+        let mut plain = [ExpanseBlobMap::new(), ExpanseBlobMap::new()];
+        let sync = [SyncExpanseBlobMap::new(), SyncExpanseBlobMap::new()];
+        for k in 0..BLOB_N as u64 {
+            let data = blob_payload(k, len);
+            plain[0].insert(k, &data, 0).unwrap();
+            plain[1].insert(k, &data, blob_meta(k)).unwrap();
+            sync[0].insert(k, &data, 0).unwrap();
+            sync[1].insert(k, &data, blob_meta(k)).unwrap();
+        }
+        // Reads: metadata is kept on the arm that passed it, and the payload
+        // is the same on both.
+        for k in [0u64, 1, BLOB_N as u64 / 2, BLOB_N as u64 - 1] {
+            let data = blob_payload(k, len);
+            let (p0, m0) = plain[0].get(k).unwrap();
+            let (p1, m1) = plain[1].get(k).unwrap();
+            assert_eq!((p0.as_ref(), m0), (&data[..], 0), "len {len} key {k}");
+            assert_eq!(
+                (p1.as_ref(), m1),
+                (&data[..], blob_meta(k)),
+                "len {len} key {k}"
+            );
+        }
+
+        let a0 = arena_figures(&plain[0]);
+        let a1 = arena_figures(&plain[1]);
+        // Same keys and 8-byte slot words: the index costs the same, so the
+        // whole difference between the arms is the arena.
+        if a0.index_mem != a1.index_mem {
+            failures.push(format!(
+                "plain len {len}: index bytes differ {} vs {}",
+                a0.index_mem, a1.index_mem
+            ));
+        }
+        if (a0.mem_used, a0.cursor_sum, a0.live_bytes) != (0, 0, 0) {
+            failures.push(format!(
+                "plain len {len}: hot_meta == 0 arm used arena bytes {:?}",
+                (a0.mem_used, a0.cursor_sum, a0.live_bytes)
+            ));
+        }
+        if (a1.mem_used, a1.cursor_sum, a1.live_bytes) != (want_mem, want_cursor, want_live) {
+            failures.push(format!(
+                "plain len {len}: hot_meta != 0 arena (mem_used, cursor, live) {:?} != {:?}",
+                (a1.mem_used, a1.cursor_sum, a1.live_bytes),
+                (want_mem, want_cursor, want_live)
+            ));
+        }
+        if a1.total_mem - a0.total_mem != a1.mem_used {
+            failures.push(format!(
+                "plain len {len}: mem_used delta {} != arena {}",
+                a1.total_mem - a0.total_mem,
+                a1.mem_used
+            ));
+        }
+        let n = BLOB_N as f64;
+        println!(
+            "{:<8} {:>4} {:>13.2} {:>13.2} {:>12.2} {:>13.2}",
+            "plain",
+            len,
+            a0.total_mem as f64 / n,
+            a1.total_mem as f64 / n,
+            (a1.total_mem - a0.total_mem) as f64 / n,
+            a1.cursor_sum as f64 / n,
+        );
+
+        // The shared map folds its per-writer arenas under `with_locked`.
+        // Its chunk cursors are not a byte count (a writer's private chunk is
+        // granted whole, cursor = capacity), so the exact figure is
+        // `live_bytes`. Chunk bytes are the exact multiple of `chunk` that
+        // holds the records, plus at most one more chunk: the first
+        // `ROOT_LEAF_CAP` keys take the shared allocation path and open a
+        // chunk of their own beside the writer's private one.
+        let s: Vec<ArenaFigures> = sync.iter().map(|m| m.with_locked(arena_figures)).collect();
+        let sync_mem = [sync[0].mem_used(), sync[1].mem_used()];
+        if (s[0].mem_used, s[0].live_bytes) != (0, 0) {
+            failures.push(format!(
+                "sync len {len}: hot_meta == 0 arm used arena bytes"
+            ));
+        }
+        if s[1].live_bytes != want_live {
+            failures.push(format!(
+                "sync len {len}: hot_meta != 0 live bytes {} != {want_live}",
+                s[1].live_bytes
+            ));
+        }
+        if !s[1].mem_used.is_multiple_of(chunk)
+            || !(want_mem..=want_mem + chunk).contains(&s[1].mem_used)
+        {
+            failures.push(format!(
+                "sync len {len}: hot_meta != 0 arena chunk bytes {} not in {want_mem}..={}",
+                s[1].mem_used,
+                want_mem + chunk
+            ));
+        }
+        if sync_mem[1] - sync_mem[0] != s[1].mem_used {
+            failures.push(format!(
+                "sync len {len}: mem_used delta {} != arena {}",
+                sync_mem[1] - sync_mem[0],
+                s[1].mem_used
+            ));
+        }
+        println!(
+            "{:<8} {:>4} {:>13.2} {:>13.2} {:>12.2} {:>13.2}",
+            "sync",
+            len,
+            sync_mem[0] as f64 / n,
+            sync_mem[1] as f64 / n,
+            (sync_mem[1] - sync_mem[0]) as f64 / n,
+            s[1].live_bytes as f64 / n,
+        );
+    }
+    println!(
+        "(record B/key: plain = ArenaMeta bytes written per key, 8-byte header + payload rounded \
+         to ARENA_ALIGN = {ARENA_ALIGN}; sync = live bytes per key, 8-byte header + payload, \
+         unrounded. delta B/key is the mem_used difference, counted in whole {chunk}-byte chunks)"
+    );
+    if !failures.is_empty() {
+        for f in &failures {
+            println!("MEMORY BUDGET EXCEEDED: blob short payload: {f}");
+        }
+        std::process::exit(1);
+    }
+    println!("blob short-payload accounting: exact");
 }
 
 fn main() {
@@ -179,6 +358,7 @@ fn main() {
             over.push(format!("{dist} map {mb:.2} > {map_max:.2} B/key"));
         }
     }
+    blob_short_payload_arms();
     if over.is_empty() {
         println!("memory budget: all distributions within ceilings");
     } else {

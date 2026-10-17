@@ -421,6 +421,26 @@ mod tests {
         assert!(map.insert(0x2000, b"abc", 0).is_ok());
     }
 
+    /// #1548: short payloads with metadata count against the 4,096-entry
+    /// arena cap; the 4,097th is refused with `OffsetOverflow`, an inline
+    /// (`hot_meta == 0`) payload still fits, and a removal frees a slot.
+    #[test]
+    #[cfg_attr(miri, ignore = "4096-entry fill is slow under Miri")]
+    fn short_payload_with_metadata_counts_against_arena_cap() {
+        let mut map = ExpanseBlobMap32::new();
+        for i in 0..=0x0FFFu32 {
+            map.insert(i, b"ab", 1).unwrap();
+        }
+        assert_eq!(
+            map.insert(0x1000, b"ab", 1),
+            Err(BlobMap32Error::OffsetOverflow)
+        );
+        assert_eq!(map.len(), 0x1000);
+        assert!(map.insert(0x1000, b"ab", 0).is_ok());
+        assert!(map.remove(7));
+        assert!(map.insert(0x1001, b"ab", 1).is_ok());
+    }
+
     /// #1548: a payload of 3 bytes or fewer keeps its metadata (in an arena
     /// slot), stays inline without it, and metadata above 12 bits is refused
     /// at every length.
