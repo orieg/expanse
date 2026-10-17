@@ -30,6 +30,16 @@ ignore = [
     # dependency of `ext-php-rs` (the PHP extension's build script); no shipped
     # artifact links it, and the newest `ext-php-rs` still requires `zip ^8`.
     # Pinned to the exact locked version so any other yanked crate still fails.
+    # RUSTSEC-2026-0367/0368/0369 (zip < 9: SUID/SGID bits kept, symlinks and
+    # permissions applied outside the destination on extraction). zip reaches the
+    # tree only as the `cfg(windows)` build dependency of `ext-php-rs`, whose
+    # build script extracts the PHP development pack it downloads; no shipped
+    # artifact links zip, and no Expanse code extracts an archive. The fix is
+    # zip >= 9, which no `ext-php-rs` release accepts yet (newest: 0.16.2, zip ^8).
+    # Drop these three, and the yanked entry below, once it does.
+    "RUSTSEC-2026-0367", # zip: SUID/SGID bits preserved on extraction
+    "RUSTSEC-2026-0368", # zip: extract() symlink targets outside destination
+    "RUSTSEC-2026-0369", # zip: permissions applied through symlinks
     { crate = "zip@8.6.0", reason = "yanked upstream; windows-only build dependency of ext-php-rs, which has no release past zip ^8" },
 ]
 
