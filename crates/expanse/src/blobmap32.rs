@@ -11,8 +11,8 @@
 //!   with metadata takes an arena slot and keeps its metadata (#1548).
 //! - **Freelist recycling**: Arena slab indices for `> 3`-byte payloads are recycled via an
 //!   internal freelist upon removal and overwrite.
-//! - **12-bit addressable slab**: At most `0x0FFF` (4095) live arena entries are addressable;
-//!   `insert` returns [`BlobMap32Error::OffsetOverflow`] when all 4096 arena slots are exhausted.
+//! - **12-bit addressable slab**: Arena offsets `0..=0x0FFF` address at most 4096 live arena
+//!   entries; `insert` returns [`BlobMap32Error::OffsetOverflow`] when all 4096 are in use.
 //! - **12-bit hot metadata**: Columnar metadata `> 0x0FFF` returns [`BlobMap32Error::MetaOverflow`].
 
 use core_alloc::vec::Vec;
