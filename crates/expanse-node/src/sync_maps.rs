@@ -725,14 +725,16 @@ impl SyncExpanseBlobMap {
     }
 
     // abi-parity: expanse_sync_blob_map_mem_used
-    /// Heap bytes used by the index and arena, read with writers excluded.
+    /// Heap bytes used by the index and arena, read with writers excluded. Waits for a
+    /// running compaction and makes writers wait; poll with `memUsedEstimate()` instead.
     #[napi]
     pub fn mem_used(&self) -> BigInt {
         BigInt::from(self.inner.mem_used() as u64)
     }
 
     // abi-parity: expanse_sync_blob_map_mem_used_estimate
-    /// A bounded-cost estimate of `memUsed()` that does not exclude writers.
+    /// A bounded-cost estimate of `memUsed()` that takes no lock and waits for nothing; it
+    /// may lag a running compaction.
     #[napi]
     pub fn mem_used_estimate(&self) -> BigInt {
         BigInt::from(self.inner.mem_used_estimate() as u64)
@@ -740,7 +742,8 @@ impl SyncExpanseBlobMap {
 
     // abi-parity: expanse_sync_blob_map_mem_held
     /// Heap bytes the map holds from the global allocator, including the blocks its
-    /// epoch collector keeps for reuse or is waiting to reclaim.
+    /// epoch collector keeps for reuse or is waiting to reclaim. Read with writers excluded;
+    /// waits for a running compaction and makes writers wait, and has no non-blocking form.
     #[napi]
     pub fn mem_held(&self) -> BigInt {
         BigInt::from(self.inner.mem_held() as u64)

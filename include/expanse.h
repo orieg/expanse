@@ -1374,8 +1374,11 @@ bool     expanse_sync_blob_map_get_meta(const expanse_sync_blob_map_t *map, uint
                                         uint32_t *meta_out);
 bool     expanse_sync_blob_map_contains(const expanse_sync_blob_map_t *map, uint64_t key);
 uint64_t expanse_sync_blob_map_len(const expanse_sync_blob_map_t *map);
+/* Waits for a running compaction and makes writers wait; poll with _mem_used_estimate. */
 size_t   expanse_sync_blob_map_mem_used(const expanse_sync_blob_map_t *map);
+/* No lock, no wait; may lag a running compaction (see expanse_sync(3)). */
 size_t   expanse_sync_blob_map_mem_used_estimate(const expanse_sync_blob_map_t *map);
+/* Waits for a running compaction and makes writers wait; has no non-blocking form. */
 size_t   expanse_sync_blob_map_mem_held(const expanse_sync_blob_map_t *map);
 size_t   expanse_sync_blob_map_shrink_to_fit(const expanse_sync_blob_map_t *map);
 void     expanse_sync_blob_map_set_reclaim_at_cap(expanse_sync_blob_map_t *map, bool on);

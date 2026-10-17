@@ -914,10 +914,11 @@ export class SyncExpanseBlobMap {
 
   size(): bigint;
   isEmpty(): boolean;
-  /** Heap bytes used by the index and arena, read with writers excluded. */
+  /** Heap bytes used by the index and arena, read with writers excluded. Waits for a running compaction and makes writers wait; poll with `memUsedEstimate()` instead. */
   memUsed(): bigint;
-  /** A bounded-cost estimate of `memUsed()` that does not exclude writers. */
+  /** A bounded-cost estimate of `memUsed()` that takes no lock and waits for nothing; it may lag a running compaction. */
   memUsedEstimate(): bigint;
+  /** Heap bytes held from the global allocator, including the collector's blocks. Read with writers excluded; waits for a running compaction and has no non-blocking form. */
   memHeld(): bigint;
   shrinkToFit(): bigint;
   setReclaimAtCap(on: boolean): void;
