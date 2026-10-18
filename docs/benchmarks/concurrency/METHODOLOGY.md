@@ -6488,3 +6488,20 @@ Against §39.9 base run 1 (`results/baseline_concurrent_update_cells.json`), mea
 **What does not change.** G1 (the §39.4 verdict of the change run's `rho(e, 8)` is `NO_COST`, upper bound below 1.05), G2 (two-sample BCa lower bound of `T_update(change) / T_update(base)` above 1.0), G3, G4, the drift band `[1 - MARGIN, 1 + MARGIN]`, the base pair, the pin, the 36 rounds and their order, every other §39.5 void (pin, a round's foreign load, a window process that fails or writes the wrong row, `--quick`), the pair rule and the cap of three replacement runs. The §39 suite `concurrency_update_cells` and its void clause are unchanged for base-mode runs.
 
 **Label.** This amendment was written after run 1 was observed, so under AGENTS.md §8.19 the §40 pair outcome is labelled `INTERMEDIATE`, whatever it reads. The outcome subsection becomes §40.9.
+
+### 40.9 Outcome (appended 2026-10-18; §40.1 to §40.8 are not rewritten)
+
+The change-build pair ran as suite `concurrency_update_cells_fix` at `462247b8` (engine code identical to `ad3e1475`): run 1 [39162778714](https://github.com/orieg/expanse/actions/runs/39162778714) and run 2 [39167296656](https://github.com/orieg/expanse/actions/runs/39167296656), both on a quiet host (load average 0.00 at dispatch), pin `0,2,4,6,8,10,12,14`, 36 rounds, gate `ADMISSIBLE` with no voids. Artifacts: `results/baseline_concurrent_update_cells_s40.json` (run 1) and `results/baseline_concurrent_update_cells_s40_run2.json` (run 2). Read with `mixed_concurrency.py --update-fix` against the §39.9 base pair (`results/baseline_concurrent_update_cells.json`, `results/baseline_concurrent_update_cells_run2.json`, both at `72c733c8`); intervals are BCa 95%.
+
+| engine | run | G1 `rho(e, 8)` | G2 gain `T_update(change) / T_update(base)` at W = 8 | held drift | run verdict |
+|---|---|---|---|---|---|
+| map | 1 | 0.9203 [0.9168, 0.9233] `NO_COST` | 23.93 [23.84, 24.05] `GAIN` | 0.9999 [0.9946, 1.0048] | PASS |
+| map | 2 | 0.9219 [0.9181, 0.9252] `NO_COST` | 23.94 [23.85, 24.04] `GAIN` | 0.9986 [0.9943, 1.0031] | PASS |
+| str | 1 | 0.9719 [0.9673, 0.9767] `NO_COST` | 10.51 [10.45, 10.57] `GAIN` | 1.0019 [0.9971, 1.0068] | PASS |
+| str | 2 | 0.9740 [0.9691, 0.9798] `NO_COST` | 10.48 [10.42, 10.52] `GAIN` | 1.0056 [0.9998, 1.0162] | PASS |
+| bytes | 1 | 0.9262 [0.9197, 0.9341] `NO_COST` | 15.27 [15.13, 15.36] `GAIN` | 0.9953 [0.9856, 1.0040] | PASS |
+| bytes | 2 | 0.9285 [0.9230, 0.9341] `NO_COST` | 15.25 [15.17, 15.34] `GAIN` | 0.9910 [0.9844, 0.9972] | PASS |
+
+**Pair verdict:** `PASS` for map, str and bytes (both runs agree), labelled **`INTERMEDIATE`** under §40.8 and AGENTS.md §8.19, because the §39.5 instrument clause was withdrawn for change-build runs after run 1 was observed. Every held-drift interval lies inside `[0.95, 1.05]`. G3 was met on the engine head `ad3e1475` (CI run [39128941741](https://github.com/orieg/expanse/actions/runs/39128941741): `instructions` 270/270 No change; `rmw_instructions` `sync_map_update_rmw` −21.37%, `sync_strmap_update_rmw` −10.77%, `sync_bytesmap_update_rmw` −12.47%, every other arm No change). G4 (no `%fs:` change outside the `Sync*` wrappers) is recorded in the pull request body.
+
+The falsifier of §40.4 is not met for any engine, so no engine's `update` reverts to reading through `get`. Not measured here: contention below W = 8 is reported in the artifacts but decides nothing; `SyncExpanseBlobMap::update` was not changed and has its own Callgrind arm since #1571.
