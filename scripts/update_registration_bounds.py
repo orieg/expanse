@@ -11,7 +11,11 @@ computed here rather than narrated, and unit-tested against pinned values:
    reference host, borrowed from the #568 Step 2 gate artifacts;
 3. the smallest departure of the paired ratio from 1 that the registered round
    count resolves, the round count a given margin needs, and the chance that
-   the falsifier can be reached when the true ratio is 1.
+   the falsifier can be reached when the true ratio is 1;
+4. for §40 (the engine change), the per-window spread of the §39.9 base
+   pair's gated cells, the smallest change-over-base gain of the `update`
+   arm that spread resolves, and the base pair's own between-run drift,
+   which the held-arm control of §40 bounds.
 
 What this module does not do: predict a wall-clock level under contention,
 attribute a mechanism, or evaluate the §39 statistic. The driver
@@ -203,6 +207,83 @@ def borrowed_ratio_cv(contended: bool, paths: tuple[Path, ...] = SPREAD_ARTIFACT
     return worst
 
 
+# ---------------------------------------------------------------------------
+# §40: the engine change's cross-build comparison (#1417)
+# ---------------------------------------------------------------------------
+#
+# §40 compares the `update` arm of the change build's §39 cells with the base
+# build's, run against run. The base is the §39.9 pair, whose engine is the
+# change's base engine; the two builds run in different dispatches, so the
+# comparison is between runs, not within a round. These functions size it
+# from the base pair's own windows: the per-window spread of the gated cells,
+# the smallest gain that spread resolves, and how far one arm moved between
+# the two base runs, which is the drift the held-arm control of §40 bounds.
+
+BASE_ARTIFACTS = (
+    RESULTS / "baseline_concurrent_update_cells.json",
+    RESULTS / "baseline_concurrent_update_cells_run2.json",
+)
+GAIN_THREADS = 8
+ENGINES = ("map", "str", "bytes")
+ARMS = ("update", "held")
+
+
+def window_rates(path: Path, engine: str, arm: str, threads: int = GAIN_THREADS) -> list[float]:
+    """Updates per second of every window of one §39 throughput cell, in round order."""
+    artifact = json.loads(path.read_text())
+    cells = [c for c in artifact["throughput"]
+             if c["engine"] == engine and c["arm"] == arm and int(c["threads"]) == threads]
+    if len(cells) != 1:
+        raise ValueError(f"{path.name}: {len(cells)} cells for {engine}/{arm} at {threads} threads, not one")
+    rates = [float(w["updates_s"]) for w in sorted(cells[0]["rounds_raw"], key=lambda w: w["round"])]
+    if len(rates) < 3:
+        raise ValueError(f"{path.name}: {engine}/{arm} at {threads} threads has {len(rates)} windows")
+    return rates
+
+
+def cv(values: list[float]) -> float:
+    """Sample coefficient of variation."""
+    if len(values) < 2:
+        raise ValueError(f"a spread needs at least 2 values, got {len(values)}")
+    mean = statistics.fmean(values)
+    if mean <= 0:
+        raise ValueError(f"a coefficient of variation needs a positive mean, got {mean}")
+    return statistics.stdev(values) / mean
+
+
+def two_sample_ratio_mde(cv_num: float, n_num: int, cv_den: float, n_den: int,
+                         alpha: float = ALPHA, power: float = POWER) -> float:
+    """Smallest departure from 1 of a ratio of two independent means that the samples resolve.
+
+    First-order (delta method) CV of a ratio of means, `sqrt(c1^2/n1 + c2^2/n2)`,
+    times `z_{1-alpha/2} + z_{power}` (Cohen 1988, ch. 2). A sizing aid only:
+    the interval §40 reads is the two-sample BCa of `scripts/bca_bootstrap.py`.
+    """
+    if not 0.0 < power < 1.0:
+        raise ValueError(f"power must lie in (0, 1), got {power}")
+    if cv_num < 0 or cv_den < 0:
+        raise ValueError("coefficients of variation must be non-negative")
+    if n_num < 3 or n_den < 3:
+        raise ValueError(f"a two-sample BCa interval needs at least 3 values per arm, got {n_num} and {n_den}")
+    se = math.sqrt(cv_num ** 2 / n_num + cv_den ** 2 / n_den)
+    return (z_quantile(1.0 - alpha / 2.0) + z_quantile(power)) * se
+
+
+def between_run_ratio(engine: str, arm: str, paths: tuple[Path, ...] = BASE_ARTIFACTS,
+                      threads: int = GAIN_THREADS) -> float:
+    """Mean updates/s of the second run's cell over the first's: the base pair's between-run drift."""
+    if len(paths) != 2:
+        raise ValueError(f"a between-run ratio needs two runs, got {len(paths)}")
+    first, second = (statistics.fmean(window_rates(p, engine, arm, threads)) for p in paths)
+    return second / first
+
+
+def worst_base_cv(engine: str, paths: tuple[Path, ...] = BASE_ARTIFACTS,
+                  threads: int = GAIN_THREADS) -> float:
+    """The largest per-window CV of `engine`'s gated cells over both arms and both base runs."""
+    return max(cv(window_rates(p, engine, a, threads)) for p in paths for a in ARMS)
+
+
 def render_table() -> str:
     lines = ["| engine | update / op | cas / op | T_held / T_update at W = 1, upper bound (hypothesis) |",
              "|---|---:|---:|---:|"]
@@ -220,6 +301,15 @@ def render_table() -> str:
         lines.append(f"  {label}: MDE {mde(cv, ROUNDS):.4f}, 95% half-width {half_width(cv, ROUNDS):.4f}, "
                      f"rounds needed for MDE <= margin {rounds_needed(cv, MARGIN)}, "
                      f"falsifier reachable at ratio 1 with probability {falsify_power(cv, ROUNDS, MARGIN):.3f}")
+    lines.append("")
+    lines.append(f"§40, from the §39.9 base pair at W = {GAIN_THREADS} (per-window CV; between-run ratio run 2 / run 1):")
+    lines.append("| engine | worst CV | update run 2 / run 1 | held run 2 / run 1 | MDE of T_update(change) / T_update(base) |")
+    lines.append("|---|---:|---:|---:|---:|")
+    for e in ENGINES:
+        worst = worst_base_cv(e)
+        lines.append(f"| {e} | {worst:.4f} | {between_run_ratio(e, 'update'):.4f} | "
+                     f"{between_run_ratio(e, 'held'):.4f} | "
+                     f"{two_sample_ratio_mde(worst, ROUNDS, worst, ROUNDS):.4f} |")
     return "\n".join(lines)
 
 
@@ -295,6 +385,50 @@ class ArtifactTests(unittest.TestCase):
             self.assertLess(1.0 + MARGIN, w1_ratio_upper(UPDATE_PER_OP[e], CAS_PER_OP[e]), e)
 
 
+class CrossBuildTests(unittest.TestCase):
+    """§40: sizing the change-versus-base comparison from the committed §39.9 pair."""
+
+    def test_two_sample_mde_pinned(self):
+        # 2.801585 * sqrt(0.02^2 / 36 + 0.02^2 / 36) = 2.801585 * 0.0047140
+        self.assertAlmostEqual(two_sample_ratio_mde(0.02, 36, 0.02, 36), 0.013207, places=6)
+        # Unequal arms: 2.801585 * sqrt(0.01^2 / 36 + 0.03^2 / 12) = 2.801585 * 0.0088192
+        self.assertAlmostEqual(two_sample_ratio_mde(0.01, 36, 0.03, 12), 0.024708, places=6)
+        self.assertLess(two_sample_ratio_mde(0.02, 72, 0.02, 72), two_sample_ratio_mde(0.02, 36, 0.02, 36))
+
+    def test_cv_pinned(self):
+        # mean 2, sample stdev 1
+        self.assertAlmostEqual(cv([1.0, 2.0, 3.0]), 0.5)
+
+    def test_base_windows_are_read_from_the_committed_cells(self):
+        for path in BASE_ARTIFACTS:
+            for e in ENGINES:
+                for a in ARMS:
+                    self.assertEqual(len(window_rates(path, e, a)), ROUNDS, (path.name, e, a))
+        # Worst per-window CV over both arms and runs at W = 8: map held run 1,
+        # str held run 2, bytes held run 1.
+        self.assertAlmostEqual(worst_base_cv("map"), 0.012034, places=6)
+        self.assertAlmostEqual(worst_base_cv("str"), 0.021795, places=6)
+        self.assertAlmostEqual(worst_base_cv("bytes"), 0.018033, places=6)
+
+    def test_base_between_run_drift_pinned(self):
+        self.assertAlmostEqual(between_run_ratio("map", "update"), 0.998759, places=6)
+        self.assertAlmostEqual(between_run_ratio("map", "held"), 1.002117, places=6)
+        self.assertAlmostEqual(between_run_ratio("str", "update"), 1.001901, places=6)
+        self.assertAlmostEqual(between_run_ratio("str", "held"), 0.997522, places=6)
+        self.assertAlmostEqual(between_run_ratio("bytes", "update"), 0.996200, places=6)
+        self.assertAlmostEqual(between_run_ratio("bytes", "held"), 1.001644, places=6)
+
+    def test_the_cross_build_design_resolves_the_margin(self):
+        # The drift between the two base runs sits far inside the held-arm
+        # control's band, and 36 windows a side resolve a gain well below the
+        # margin; the expected gain (the base rho) is two orders above it.
+        for e in ENGINES:
+            for a in ARMS:
+                self.assertLess(abs(between_run_ratio(e, a) - 1.0), MARGIN / 10, (e, a))
+            worst = worst_base_cv(e)
+            self.assertLess(two_sample_ratio_mde(worst, ROUNDS, worst, ROUNDS), MARGIN / 2, e)
+
+
 class ArgumentTests(unittest.TestCase):
     def test_invalid_arguments_raise(self):
         for call in (
@@ -311,6 +445,13 @@ class ArgumentTests(unittest.TestCase):
             lambda: falsify_power(0.0, 36, 0.05),
             lambda: falsify_power(0.1, 36, 0.0),
             lambda: borrowed_ratio_cv(True, paths=()),
+            lambda: cv([1.0]),
+            lambda: cv([0.0, 0.0]),
+            lambda: two_sample_ratio_mde(-0.1, 36, 0.1, 36),
+            lambda: two_sample_ratio_mde(0.1, 2, 0.1, 36),
+            lambda: two_sample_ratio_mde(0.1, 36, 0.1, 36, power=1.0),
+            lambda: between_run_ratio("map", "update", paths=BASE_ARTIFACTS[:1]),
+            lambda: window_rates(BASE_ARTIFACTS[0], "set", "update"),
         ):
             with self.assertRaises(ValueError):
                 call()

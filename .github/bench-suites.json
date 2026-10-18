@@ -154,6 +154,14 @@
       "suite": "concurrency"
     },
     {
+      "name": "concurrency_update_cells_fix",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "#1417 change-build runs of the §39 cells (`METHODOLOGY.md` §40, amended in §40.8) through `mixed_concurrency.py --update-cells --change-build`: the same cells, rounds and pin as `concurrency_update_cells`, without the §39.5 void on the held arm measuring slower than `update`; writes `baseline_concurrent_update_cells_fix.json`, read against the §39.9 base pair by `--update-fix`.",
+      "suite": "concurrency"
+    },
+    {
       "name": "concurrency_blob_peak",
       "available": false,
       "kind": "wallclock",

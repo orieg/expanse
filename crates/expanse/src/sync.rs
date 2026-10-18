@@ -2490,6 +2490,45 @@ impl<T: SharedTree> Shared<T> {
     }
 }
 
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Each thread's readers, one per collector it has written to or updated
+    /// through: the reader [`Shared::with_writer_pin`] pins and
+    /// [`Shared::with_thread_reader`] lends. Keyed by the collector's address;
+    /// each reader holds an `Arc` on its collector, so no other collector can
+    /// take that address while the entry lives.
+    static WRITER_READERS: core::cell::RefCell<Vec<(usize, Reader)>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// The index of `collector`'s entry in the thread's reader cache, registering
+/// a reader on a miss. Beyond 16 entries the least recently used is evicted.
+#[cfg(feature = "std")]
+#[inline(always)]
+fn writer_reader_index(vec: &mut Vec<(usize, Reader)>, collector: &Arc<Collector>) -> usize {
+    let key = Arc::as_ptr(collector) as usize;
+    if let Some(pos) = vec.iter().position(|(k, _)| *k == key) {
+        // True LRU on hit: promote accessed entry to the back (MRU) if not already there.
+        // Does NOT run `retain` on fast-path hits (N2).
+        if pos < vec.len() - 1 {
+            let item = vec.remove(pos);
+            vec.push(item);
+            vec.len() - 1
+        } else {
+            pos
+        }
+    } else {
+        // Cache miss: prune dead collectors whose Shared tree has been dropped (M4/N1).
+        vec.retain(|(_, r)| !r.is_orphan());
+        if vec.len() >= 16 {
+            vec.remove(0); // Evict LRU entry
+        }
+        let r = collector.register();
+        vec.push((key, r));
+        vec.len() - 1
+    }
+}
+
 /// Holds the writer gate closed for a serialised section, and reopens it on
 /// drop — including when the section unwinds.
 ///
@@ -2568,10 +2607,11 @@ impl<T: SharedTree> Shared<T> {
     /// thread take zero mutexes and perform zero heap allocations.
     #[cfg(feature = "std")]
     pub(crate) fn with_writer_pin<R>(&self, f: impl FnOnce() -> R) -> R {
-        use std::cell::RefCell;
-        std::thread_local! {
-            static WRITER_READERS: RefCell<Vec<(usize, crate::occ::Reader)>> = const { RefCell::new(Vec::new()) };
-        }
+        // The lookup is spelled out here rather than calling
+        // `writer_reader_index`: each instantiation then keeps its own
+        // `retain` closure inlined, as it had before `with_thread_reader`
+        // shared the cache. Sharing one out-of-line `retain` moved the
+        // writer arms by up to 0.28% (METHODOLOGY §40, G3).
         let key = Arc::as_ptr(&self.collector) as usize;
         WRITER_READERS.with(|cell| {
             let mut vec = cell.borrow_mut();
@@ -2597,6 +2637,28 @@ impl<T: SharedTree> Shared<T> {
             };
             let _pin = vec[idx].1.pin();
             f()
+        })
+    }
+
+    /// Runs `f` with this thread's cached reader on this tree's collector,
+    /// unpinned: the reader [`Self::with_writer_pin`] pins, registered on the
+    /// thread's first write to (or update of) the tree and reused from then on.
+    ///
+    /// For a wrapper's `update`, whose read of the current value registered a
+    /// throwaway reader on every call before (#1417,
+    /// `docs/benchmarks/concurrency/METHODOLOGY.md` §39 and §40). `f` pins the
+    /// reader itself, as a validated read does per attempt. The thread's cache
+    /// is borrowed for the whole of `f`, so `f` must not reach
+    /// `with_writer_pin` or this function again: it is a read, never a write
+    /// or a caller's closure. The cache holds at most 16 readers per thread,
+    /// each keyed by the address of a collector it keeps alive, so a reader
+    /// lent here is registered on `self`'s collector.
+    #[cfg(feature = "std")]
+    pub(crate) fn with_thread_reader<R>(&self, f: impl FnOnce(&Reader) -> R) -> R {
+        WRITER_READERS.with(|cell| {
+            let mut vec = cell.borrow_mut();
+            let idx = writer_reader_index(&mut vec, &self.collector);
+            f(&vec[idx].1)
         })
     }
 
@@ -6955,8 +7017,13 @@ impl SyncExpanseMap {
     /// Because `compare_exchange` may fail under concurrent writes, `f` is an
     /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
     /// be side-effect free or idempotent.
+    ///
+    /// The first read of the current value is a validated read through the
+    /// calling thread's cached reader on this map, the one its writes pin, so
+    /// a call on a present key registers no reader (#1417); the retries take
+    /// the value the failed exchange observed.
     pub fn update(&self, key: Key, mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
-        let mut expected = self.get(key);
+        let mut expected = self.update_current(key);
         loop {
             let new = f(expected);
             match self.compare_exchange(key, expected, new) {
@@ -6967,6 +7034,20 @@ impl SyncExpanseMap {
                 }
             }
         }
+    }
+
+    /// [`Self::update`]'s first read: the validated lookup on the thread's
+    /// cached writer reader.
+    ///
+    /// Not generic and never inlined, so it is compiled here once. Inlined
+    /// into the generic `update`, which a caller's crate instantiates, it made
+    /// `map_get_with` reachable from outside this crate, and that alone
+    /// changed `map_get_with`'s code on the `get` path (`sync_map_get`
+    /// +2.62% and +3.97% instructions, METHODOLOGY §40).
+    #[inline(never)]
+    fn update_current(&self, key: Key) -> Option<u64> {
+        self.shared
+            .with_thread_reader(|r| map_get_with(self, self.registered(r), key))
     }
 
     /// Stores `val` under `key` only if `key` is absent, as one
@@ -14009,12 +14090,17 @@ impl SyncExpanseStrMap {
     /// Because `compare_exchange` may fail under concurrent writes, `f` is an
     /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
     /// be side-effect free or idempotent.
+    ///
+    /// The first read of the current value is a validated read through the
+    /// calling thread's cached reader on this map, the one its writes pin, so
+    /// a call on a present key registers no reader (#1417); the retries take
+    /// the value the failed exchange observed.
     pub fn update(
         &self,
         key: &NulFreeStr,
         mut f: impl FnMut(Option<u64>) -> Option<u64>,
     ) -> Option<u64> {
-        let mut expected = self.get(key);
+        let mut expected = self.update_current(key);
         loop {
             let new = f(expected);
             match self.compare_exchange(key, expected, new) {
@@ -14025,6 +14111,17 @@ impl SyncExpanseStrMap {
                 }
             }
         }
+    }
+
+    /// [`Self::update`]'s first read: the validated lookup on the thread's
+    /// cached writer reader. Not generic and never inlined, so the generic
+    /// `update` a caller's crate instantiates does not reach the string
+    /// map's private read helpers, whose code on the `get` path changed when
+    /// it did (`sync_strmap_get_short` +3.89% instructions, METHODOLOGY §40).
+    #[inline(never)]
+    fn update_current(&self, key: &NulFreeStr) -> Option<u64> {
+        self.shared
+            .with_thread_reader(|r| str_get_lent(self, r, key))
     }
 
     /// Stores `val` under `key` only if `key` is absent, as one
@@ -14863,6 +14960,14 @@ pub struct DetachedStrReader {
     reader: Reader,
 }
 
+/// The validated lookup of [`StrReader::get`] on a reader the caller lends:
+/// [`SyncExpanseStrMap::update`]'s first read, through the thread's cached
+/// reader (#1417). Panics if `reader` is not on `map`'s collector.
+#[inline(always)]
+fn str_get_lent(map: &SyncExpanseStrMap, reader: &Reader, key: &NulFreeStr) -> Option<u64> {
+    str_get_walk!(map, map.registered(reader), key)
+}
+
 impl DetachedStrReader {
     /// Optimistic lookup against `map`, without the per-call registry lock
     /// [`SyncExpanseStrMap::get`] pays.
@@ -15532,7 +15637,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         new: Option<u64>,
     ) -> Result<Option<u64>, Option<u64>> {
         if expected.is_none() && new.is_none() {
-            return match self.get(key) {
+            return match self.absent_exchange_read(key) {
                 None => Ok(None),
                 seen => Err(seen),
             };
@@ -15545,6 +15650,18 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         }
     }
 
+    /// The validated read that decides `compare_exchange(None, None)`.
+    ///
+    /// Kept out of line. While `update` also read through [`Self::get`],
+    /// `get` had two callers in a caller's crate and stayed a call here;
+    /// once `update` stopped calling it, `get` was inlined into
+    /// `compare_exchange`, and `sync_bytesmap_cas` rose 0.18% instructions
+    /// (METHODOLOGY §40, G3).
+    #[inline(never)]
+    fn absent_exchange_read(&self, key: &[u8]) -> Option<u64> {
+        self.get(key)
+    }
+
     /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
     /// `None` removes the key. Retried over [`Self::compare_exchange`] until
     /// the exchange succeeds. Returns the value that was replaced (or `None`
@@ -15553,8 +15670,13 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// Because `compare_exchange` may fail under concurrent writes, `f` is an
     /// [`FnMut`] closure that may be invoked multiple times upon retry. It must
     /// be side-effect free or idempotent.
+    ///
+    /// The first read of the current value is a validated read through the
+    /// calling thread's cached reader on this map, the one its writes pin, so
+    /// a call on a present key registers no reader (#1417); the retries take
+    /// the value the failed exchange observed.
     pub fn update(&self, key: &[u8], mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
-        let mut expected = self.get(key);
+        let mut expected = self.update_current(key);
         loop {
             let new = f(expected);
             match self.compare_exchange(key, expected, new) {
@@ -15565,6 +15687,15 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 }
             }
         }
+    }
+
+    /// [`Self::update`]'s first read: the validated lookup on the thread's
+    /// cached writer reader, kept out of line as the map's and string map's
+    /// are (METHODOLOGY §40).
+    #[inline(never)]
+    fn update_current(&self, key: &[u8]) -> Option<u64> {
+        self.shared
+            .with_thread_reader(|r| bytes_get_lent(self, r, key))
     }
 
     /// Stores `val` under `key` only if `key` is absent, as one
@@ -16500,6 +16631,18 @@ impl<S: BuildHasher + Send + Sync> OwnedBytesReader<S> {
 /// ```
 pub struct DetachedBytesReader {
     reader: Reader,
+}
+
+/// The validated lookup of [`BytesReader::get`] on a reader the caller lends:
+/// [`SyncExpanseBytesMap::update`]'s first read, through the thread's cached
+/// reader (#1417). Panics if `reader` is not on `map`'s collector.
+#[inline(always)]
+fn bytes_get_lent<S: BuildHasher + Send + Sync>(
+    map: &SyncExpanseBytesMap<S>,
+    reader: &Reader,
+    key: &[u8],
+) -> Option<u64> {
+    bytes_get_walk!(map, map.registered(reader), key)
 }
 
 impl DetachedBytesReader {
@@ -34168,5 +34311,307 @@ mod ordered_bytes_reader_forms_tests {
             assert!(caught.is_err(), "{k:?} was answered from a foreign map");
             assert_eq!(r.get(&a, k), a.get(k));
         }
+    }
+}
+
+/// `update`'s first read goes through the thread's cached reader (#1417,
+/// `docs/benchmarks/concurrency/METHODOLOGY.md` §40): no registration per
+/// call, the closure sees the current value on every retry, and a cached
+/// reader is only ever used against the map whose collector it was
+/// registered on.
+#[cfg(test)]
+mod update_thread_reader_tests {
+    use super::{SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseStrMap};
+    use crate::strmap::NulFreeStr;
+    use crate::types::ROOT_LEAF_CAP;
+
+    /// Keys enough to take every map past its root leaf, so the exchange
+    /// runs the optimistic tree path and its writer pin.
+    const TREE_KEYS: u64 = (ROOT_LEAF_CAP as u64) * 4;
+
+    fn sk(i: u64) -> Vec<u8> {
+        format!("k{i:08}").into_bytes()
+    }
+
+    fn ns(b: &[u8]) -> &NulFreeStr {
+        NulFreeStr::new(b).expect("test keys hold no NUL")
+    }
+
+    /// Runs `body` on a fresh thread, whose reader cache starts empty.
+    fn on_fresh_thread(body: impl FnOnce() + Send) {
+        std::thread::scope(|s| {
+            s.spawn(body);
+        });
+    }
+
+    #[test]
+    fn map_update_registers_no_reader_per_call() {
+        for n in [3u64, TREE_KEYS] {
+            let map = SyncExpanseMap::new();
+            for k in 0..n {
+                map.insert(k, k);
+            }
+            on_fresh_thread(|| {
+                let first = map.shared.collector.registrations();
+                assert_eq!(map.update(0, |v| v.map(|x| x + 1)), Some(0));
+                // The first call fills the thread's cache: one registration.
+                assert_eq!(map.shared.collector.registrations(), first + 1, "n = {n}");
+                let before = map.shared.collector.registrations();
+                for k in 0..n {
+                    map.update(k, |v| v.map(|x| x + 1));
+                }
+                assert_eq!(map.shared.collector.registrations(), before, "n = {n}");
+            });
+            assert_eq!(map.get(0), Some(2));
+            assert_eq!(map.get(n - 1), Some(n));
+        }
+    }
+
+    #[test]
+    fn str_update_registers_no_reader_per_call() {
+        for n in [3u64, TREE_KEYS] {
+            let map = SyncExpanseStrMap::new();
+            for k in 0..n {
+                map.insert(ns(&sk(k)), k);
+            }
+            on_fresh_thread(|| {
+                let first = map.shared.collector.registrations();
+                assert_eq!(map.update(ns(&sk(0)), |v| v.map(|x| x + 1)), Some(0));
+                assert_eq!(map.shared.collector.registrations(), first + 1, "n = {n}");
+                let before = map.shared.collector.registrations();
+                for k in 0..n {
+                    map.update(ns(&sk(k)), |v| v.map(|x| x + 1));
+                }
+                assert_eq!(map.shared.collector.registrations(), before, "n = {n}");
+            });
+            assert_eq!(map.get(ns(&sk(0))), Some(2));
+            assert_eq!(map.get(ns(&sk(n - 1))), Some(n));
+        }
+    }
+
+    #[test]
+    fn bytes_update_registers_no_reader_per_call() {
+        for n in [3u64, TREE_KEYS] {
+            let map = SyncExpanseBytesMap::new();
+            for k in 0..n {
+                map.insert(&sk(k), k);
+            }
+            on_fresh_thread(|| {
+                let first = map.shared.collector.registrations();
+                assert_eq!(map.update(&sk(0), |v| v.map(|x| x + 1)), Some(0));
+                assert_eq!(map.shared.collector.registrations(), first + 1, "n = {n}");
+                let before = map.shared.collector.registrations();
+                for k in 0..n {
+                    map.update(&sk(k), |v| v.map(|x| x + 1));
+                }
+                assert_eq!(map.shared.collector.registrations(), before, "n = {n}");
+            });
+            assert_eq!(map.get(&sk(0)), Some(2));
+            assert_eq!(map.get(&sk(n - 1)), Some(n));
+        }
+    }
+
+    /// The closure's first call writes the key itself, so the first exchange
+    /// fails deterministically and the retry must pass the value that write
+    /// left: `Some -> Some`, `Some -> None` (a remove under the update) and
+    /// `None -> Some` (an insert under it). It also shows the closure runs
+    /// outside the thread's reader cache: the write inside it takes the
+    /// writer pin from that cache, which would panic on a held borrow.
+    ///
+    /// Evaluates to one `(values the closure saw, value returned, value left)`
+    /// per transition, for the test to compare with [`expected_retry_trace`].
+    macro_rules! retry_cases {
+        ($map:expr, $key:expr) => {{
+            let map = $map;
+            let k = $key;
+            let mut trace = Vec::new();
+            // Some -> Some.
+            map.insert(k, 1);
+            let mut seen = Vec::new();
+            let prev = map.update(k, |cur| {
+                if seen.is_empty() {
+                    map.insert(k, 5);
+                }
+                seen.push(cur);
+                cur.map(|v| v + 10)
+            });
+            trace.push((seen, prev, map.get(k)));
+            // Some -> None under the update: the retry sees the key absent,
+            // and its `None` leaves it absent.
+            let mut seen = Vec::new();
+            let prev = map.update(k, |cur| {
+                if seen.is_empty() {
+                    map.remove(k);
+                }
+                seen.push(cur);
+                cur.map(|v| v + 1)
+            });
+            trace.push((seen, prev, map.get(k)));
+            // None -> Some under the update: the retry sees the insert.
+            let mut seen = Vec::new();
+            let prev = map.update(k, |cur| {
+                if seen.is_empty() {
+                    map.insert(k, 7);
+                }
+                seen.push(cur);
+                Some(cur.unwrap_or(0) + 100)
+            });
+            trace.push((seen, prev, map.get(k)));
+            trace
+        }};
+    }
+
+    /// What [`retry_cases`] must observe: the retry sees each write made
+    /// under it, returns it, and leaves the closure's result.
+    type RetryTrace = Vec<(Vec<Option<u64>>, Option<u64>, Option<u64>)>;
+
+    fn expected_retry_trace() -> RetryTrace {
+        vec![
+            (vec![Some(1), Some(5)], Some(5), Some(15)),
+            (vec![Some(15), None], None, None),
+            (vec![None, Some(7)], Some(7), Some(107)),
+        ]
+    }
+
+    #[test]
+    fn map_update_retries_see_the_current_value() {
+        for n in [3u64, TREE_KEYS] {
+            let map = SyncExpanseMap::new();
+            for k in 0..n {
+                map.insert(k + 1_000, k);
+            }
+            let trace: RetryTrace = retry_cases!(&map, 7u64);
+            assert_eq!(trace, expected_retry_trace(), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn str_update_retries_see_the_current_value() {
+        for n in [3u64, TREE_KEYS] {
+            let map = SyncExpanseStrMap::new();
+            for k in 0..n {
+                map.insert(ns(&sk(k + 1_000)), k);
+            }
+            let trace: RetryTrace = retry_cases!(&map, ns(b"retry"));
+            assert_eq!(trace, expected_retry_trace(), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn bytes_update_retries_see_the_current_value() {
+        for n in [3u64, TREE_KEYS] {
+            let map = SyncExpanseBytesMap::new();
+            for k in 0..n {
+                map.insert(&sk(k + 1_000), k);
+            }
+            let trace: RetryTrace = retry_cases!(&map, &b"retry"[..]);
+            assert_eq!(trace, expected_retry_trace(), "n = {n}");
+        }
+    }
+
+    /// More maps than the cache holds, updated in turn from one thread, with
+    /// a map dropped and replaced after every turn: every answer comes from
+    /// the map asked (each read passes the collector identity check, which
+    /// panics on a reader of another map's collector), and two maps updated
+    /// alternately keep one registration each however many calls they take.
+    #[test]
+    fn cached_readers_answer_only_for_their_own_map() {
+        const MAPS: u64 = 20;
+        let fill = |i: u64, offset: u64| {
+            let m = SyncExpanseMap::new();
+            for k in 0..TREE_KEYS {
+                m.insert(k, i * 1_000_000 + k + offset);
+            }
+            m
+        };
+        on_fresh_thread(|| {
+            let mut maps: Vec<SyncExpanseMap> = (0..MAPS).map(|i| fill(i, 0)).collect();
+            let mut bumps = vec![0u64; MAPS as usize];
+            for turn in 0..3usize {
+                for (i, m) in maps.iter().enumerate() {
+                    let want = i as u64 * 1_000_000 + 5 + bumps[i];
+                    assert_eq!(m.update(5, |v| v.map(|x| x + 1)), Some(want));
+                    bumps[i] += 1;
+                }
+                // Replace one map: the new collector must not be served the
+                // dropped one's cached reader.
+                maps[turn] = fill(turn as u64, 0);
+                bumps[turn] = 0;
+            }
+            let (a, b) = (&maps[10], &maps[11]);
+            a.update(1, |v| v);
+            b.update(1, |v| v);
+            let (ra, rb) = (
+                a.shared.collector.registrations(),
+                b.shared.collector.registrations(),
+            );
+            for _ in 0..100 {
+                a.update(1, |v| v.map(|x| x + 1));
+                b.update(1, |v| v.map(|x| x + 2));
+            }
+            assert_eq!(a.shared.collector.registrations(), ra);
+            assert_eq!(b.shared.collector.registrations(), rb);
+            assert_eq!(a.get(1), Some(10 * 1_000_000 + 1 + 100));
+            assert_eq!(b.get(1), Some(11 * 1_000_000 + 1 + 200));
+        });
+    }
+
+    /// Several threads increment shared keys of a tree-state map through
+    /// `update`, and evaluates to the sum of the keys' final values, which
+    /// equals `LOST_THREADS * LOST_ROUNDS` when every increment landed.
+    macro_rules! no_lost_update {
+        ($map:expr, $key:expr) => {{
+            const HOT: u64 = 4;
+            let map = &$map;
+            let key = $key;
+            std::thread::scope(|s| {
+                for t in 0..LOST_THREADS {
+                    let key = &key;
+                    s.spawn(move || {
+                        for r in 0..LOST_ROUNDS {
+                            map.update(key((t + r) % HOT), |cur| {
+                                Some(cur.expect("the key is never removed") + 1)
+                            });
+                        }
+                    });
+                }
+            });
+            (0..HOT).map(|k| map.get(key(k)).unwrap()).sum::<u64>()
+        }};
+    }
+
+    const LOST_THREADS: u64 = if cfg!(miri) { 2 } else { 4 };
+    const LOST_ROUNDS: u64 = if cfg!(miri) { 20 } else { 20_000 };
+
+    #[test]
+    fn map_update_threads_lose_no_update() {
+        let map = SyncExpanseMap::new();
+        for k in 0..TREE_KEYS {
+            map.insert(k, 0);
+        }
+        let total = no_lost_update!(map, |k: u64| k);
+        assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
+    }
+
+    #[test]
+    fn str_update_threads_lose_no_update() {
+        let map = SyncExpanseStrMap::new();
+        let keys: Vec<Vec<u8>> = (0..TREE_KEYS).map(sk).collect();
+        for k in &keys {
+            map.insert(ns(k), 0);
+        }
+        let total = no_lost_update!(map, |k: u64| ns(&keys[k as usize]));
+        assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
+    }
+
+    #[test]
+    fn bytes_update_threads_lose_no_update() {
+        let map = SyncExpanseBytesMap::new();
+        let keys: Vec<Vec<u8>> = (0..TREE_KEYS).map(sk).collect();
+        for k in &keys {
+            map.insert(k, 0);
+        }
+        let total = no_lost_update!(map, |k: u64| keys[k as usize].as_slice());
+        assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
     }
 }

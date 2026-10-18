@@ -6374,3 +6374,134 @@ At W = 8 the mean updates per second over the 36 windows were, update arm / held
 - Not measured, as §39.6 already stated: `update` on absent keys, other hosts, core counts or allocators, and the other wrappers' `update`.
 
 **What §39.7 now requires.** Proposal 2 of #1417 may go ahead for each of `SyncExpanseMap`, `SyncExpanseStrMap` and `SyncExpanseBytesMap` under its own pre-registration, which carries §39.7's four items: the contended gain (these cells re-run on the change, two runs, the update arm's `T(e, 8)` paired against the base build with a lower bound above 1.0, and `rho(e, 8)` with its upper bound below 1.05), no `instructions` or `rmw_instructions` arm regressing beyond 0.1%, the plain paths kept free of concurrency-only code, and the expiry rule. The base build for that comparison is the pair above, and this verdict expires on any change to `Collector::register`, the reader registry, or `compare_exchange`'s optimistic path. `SyncExpanseOrderedBytesMap::update` delegates to the str map's and is covered by the str cells' change, not by a cell of its own. This outcome ships no engine change.
+
+## 40. Pre-registration for #1417 proposal 2 — `update` reads through the thread's cached writer reader (appended 2026-10-17, locked before any run of the change build; next free section, may be renumbered at merge)
+
+§39.9 found `COST` for all three engines in the pair. This section registers the engine change §39.7 allows and what it must show, before the change build is measured. Code references are to `origin/main` at `204ee8e0`, whose `crates/expanse` is identical to the §39.9 base at `72c733c8` (`git diff --stat 72c733c8 204ee8e0 -- crates/expanse` is empty). Refs #1417.
+
+### 40.1 The change, and why this one
+
+**The change.** `SyncExpanseMap::update`, `SyncExpanseStrMap::update` and `SyncExpanseBytesMap::update` take their first read of the current value through a reader the calling thread already holds, instead of through `get`. The reader is the one `Shared::with_writer_pin` pins for the thread's writes: a per-thread cache of at most 16 readers, one per collector, keyed by the collector's address and evicted least-recently-used (`crates/expanse/src/sync.rs:2570-2601`). A new `Shared::with_thread_reader` lends that reader unpinned; the read is the same validated read `MapReader::get`, `StrReader::get` and `BytesReader::get` run (it pins per attempt), behind the same collector-identity check the detached readers use (`registered`, #1194). `compare_exchange`, its optimistic write path, the retry loop and every public signature are unchanged; no new mutation entry point exists, so no `by_mode!` twin is owed (AGENTS.md §2.1 invariant 5).
+
+**Why it is sound.**
+
+- The cache already exists and already holds this reader: every exchange on a tree-state map takes it through `compare_exchange_observed` (`sync.rs:7039`, `:14093`, `:15667`), so on a tree the change registers nothing new and keeps nothing alive that the exchange did not already keep. On a root-leaf map the exchange takes the root path without the pin, so there the change adds the cache entry.
+- A cached reader holds an `Arc` on its collector (`occ.rs` `Reader::collector`), so no other collector can take its key while the entry lives, and the identity check panics before any node is read if that ever failed.
+- Pins from one reader must not overlap (`occ.rs` `Reader::pin`). The read's pins end before `compare_exchange` takes the writer pin on the same reader, and the cache's `RefCell` is borrowed for the whole read, so a nested use panics rather than overlapping. The caller's closure runs outside that borrow.
+
+**Candidates rejected.**
+
+- *(a) One reader per call, reused across retries.* `update` reads once per call; a retry takes the value the failed exchange observed (`sync.rs:6958-6970`). Holding a reader for the call's retries therefore removes nothing: the per-call registration stays, and §39.9 measured it at one thread too (`rho(e, 1)` 1.06 to 1.33).
+- *(c) Read inside the write path.* The optimistic exchange needs `expected` before it descends. A read-modify-write in the write path would call the caller's closure under a per-node version lock, where a panic or a slow closure holds the bracket, and it is a new mutation entry point with its OCC twin (AGENTS.md §2.1 invariant 5): more machinery than (b), for no registration (b) leaves.
+- *`get` through the cache.* It would remove the same cost from every one-shot `get`, but it changes `get`'s documented contract (a throwaway reader), puts a thread-local access on every one-shot read, and keeps a collector alive per thread for threads that only read. No cell measures it; it is out of scope.
+
+**Not changed, with the reason.**
+
+- `SyncExpanseBlobMap::update` has the same shape (`sync.rs:12670`), but no Callgrind arm covers it (`rmw_instructions.rs` builds no blob `update` arm), and AGENTS.md §6 requires one before an engine path is changed. It is left for a change that lands the arm first.
+- An `update` on an absent key whose closure returns `None` calls `compare_exchange(None, None)`, which still reads through `get` (`sync.rs:6935-6941`). No arm or cell exercises it (§39.6 did not predict it); it is unchanged.
+- `SyncExpanseOrderedBytesMap::update` delegates to the string map's and is covered by it.
+
+### 40.2 Instrument
+
+- **Cells.** §39's, unchanged: suite `concurrency_update_cells`, `mixed_concurrency.py --update-cells`, the arms, prefills, pin `0,2,4,6,8,10,12,14`, order, 36 rounds and void rules of §39.2, §39.3 and §39.5.
+- **Change runs.** Two dispatches of that suite at the pull request's head commit, committed as `results/baseline_concurrent_update_cells_s40.json` (run 1) and `results/baseline_concurrent_update_cells_s40_run2.json` (run 2).
+- **Base.** The §39.9 pair (`results/baseline_concurrent_update_cells.json` and `..._run2.json`, `72c733c8`), not re-run: its engine is the change's base engine (above). Change run *i* is read against base run *i*.
+- **Evaluation.** `mixed_concurrency.py --update-fix RUN1,RUN2` reads the two change artifacts against the base pair and prints every quantity below with its interval and construction; it refuses a void or quick run, an artifact of another mode, and two builds at one commit (self-test: `update_fix_self_test`).
+- **Sizing.** `scripts/update_registration_bounds.py` (§8.8 commit 1, its §40 table): over the base pair's W = 8 cells the worst per-window CV is 0.0120 / 0.0218 / 0.0180 (map / str / bytes), the two-sample MDE of a change-over-base ratio at 36 windows a side 0.0079 / 0.0144 / 0.0119, and the base pair's own between-run drift at most 0.4% on either arm (measured: i9-12900F 8 P-cores pinned 0,2,..,14, Linux 6.8, commit 72c733c8, runs 39078599689 / 39082333529).
+
+**A deviation from §39.7, stated before any change-build run.** §39.7 asks for the contended gain "paired within the round". The driver has no two-build mode for these cells, so this section compares the change runs with the base runs between runs, with a two-sample interval and a drift control on the arm the change does not touch. What §39.7 pairs within the round, `update` against the held loop, is G1 below and is kept as §39.7 states it. The gain G2 has an expected size of the base's `rho` (10 to 22) against an MDE of at most 0.0144 and a measured between-run drift of at most 0.4%, so the between-run design can decide it; it cannot attribute a gain of a few percent, and this section does not try to.
+
+### 40.3 Gates
+
+Per engine `e` in {map, str, bytes}, per change run, at W = 8:
+
+- **G1, match.** The §39.4 verdict of the change run's `rho(e, 8)` is `NO_COST`: the upper bound of `T_held / T_update`, paired within the round, is below `1 + MARGIN` = 1.05.
+- **G2, gain.** `gain(e)` = mean `T_update` of the change run's 36 windows over the base run's, with the two-sample BCa 95% interval (`bca_bootstrap_ratio_ci_with_method`, 2,000 resamples, seed 42). `GAIN` when its lower bound is above 1.0, `NO_GAIN` when its upper bound is at most 1.0, `OPEN` otherwise.
+- **Drift control.** `drift(e)` = the same ratio on the held arm, whose code the change does not touch. The engine is `VOID` for that run when its interval lies wholly outside `[1 - MARGIN, 1 + MARGIN]`.
+- **Run verdict.** `PASS` when G1 is `NO_COST` and G2 is `GAIN`; `FAIL` when G1 is `COST` or G2 is `NO_GAIN`; `VOID` per the drift control or §39.5; `OPEN` otherwise.
+- **Pair verdict.** The run verdict when both runs agree, `OPEN` otherwise. A `VOID` run is replaced, at most three times per pair (§39.5).
+
+Deterministic, on the pull request:
+
+- **G3, instructions.** `sync_map_update_rmw`, `sync_strmap_update_rmw` and `sync_bytesmap_update_rmw` (`rmw_instructions`) fall. A rise on any of them falsifies the claim that the change removes work on that engine. No other arm of `instructions` or `rmw_instructions` moves beyond the 0.1% review threshold (AGENTS.md §6); one that does is attributed from a base-versus-head `callgrind_annotate` diff, and from the disassembly where its source did not change, before the change is titled a performance change.
+- **G4, plain paths.** In an x86_64 object of `expanse-trie` built at base and at head, no function outside the `Sync*` wrappers changes its count of `%fs:`-relative instructions, and the plain-tree insert and remove paths keep zero (AGENTS.md §2.1 invariant 5). The census is recorded in the pull request.
+
+### 40.4 Falsifier, and what follows from each outcome
+
+The falsifier is an engine whose pair reads `FAIL`: on the change build `update` is still at least 5% slower than the held loop at eight threads, or it is not faster than the base build's `update`. Either refutes "the per-call registration is what §39.9 measured, and this change removes it" for that engine.
+
+| Pair verdict for an engine | What follows |
+|---|---|
+| `PASS` | the change stands for that engine |
+| `FAIL` | that engine's `update` returns to reading through `get` in the same pull request; the result is recorded here and on #1417 |
+| `OPEN` | one further pair of fresh change-build runs, whose verdict is final, as §39.4 |
+
+The engines are decided separately: one engine passing and another failing ships the change for the first only. The pull request merges after the pair is read, with G3 and G4 met; it is not merged ahead of the runs.
+
+### 40.5 Expected outcomes, and what is not predicted
+
+Every reason is a hypothesis.
+
+| Quantity | Expected | Reason (hypothesis) |
+|---|---|---|
+| G1, `rho(e, 8)` on the change | near 1, below 1.05 | the two arms then differ by one cache lookup per update (a thread-local access and a short scan), and nothing in it is shared between threads |
+| G2, `gain(e)` | far above 1, and at most about the base `rho(e, 8)` | the held arm's rate is what an update without registration reaches; the base pair measured `rho(e, 8)` near 22.0 / 10.2 / 14.2 |
+| drift control | inside the band | the held arm's code is unchanged; the base pair drifted at most 0.4% between its runs |
+| `kappa(e, 8)` on the change | no longer far above 1 | reported, decides nothing |
+| G3, the `update_rmw` arms | fall, and stay above the `_cas` arms | the registration and drop leave; a read remains |
+
+**Expected losses.** None on the gated cells. Possible elsewhere, each named in the pull request if it appears: an instruction change on other `sync_*` arms from moving the writer cache's thread-local out of `with_writer_pin` (the lookup becomes a shared `#[inline(always)]` function); a thread cycling over more than 16 maps re-registers on each eviction, as before; a thread that only updates a root-leaf map now keeps that map's collector alive in its cache until the entry is evicted or the thread exits, as its writes on a tree already did.
+
+**Not predicted:** any magnitude of G1 or G2 beyond the bounds above; `rho(e, W)` at W < 8; other hosts, core counts or allocators; `update` on absent keys; the blob map.
+
+**Silent constants,** fixed here: §39's (§39.6), plus the base pair as the comparator, run *i* against run *i*, the two-sample estimator and its seed, the drift band `[1 - MARGIN, 1 + MARGIN]`, and the 0.1% instruction threshold for arms other than the three `update_rmw` arms. Changing any of them after a change-build run relabels that run `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+
+### 40.6 Expiry
+
+As §39.7: a change to `Collector::register`, the reader registry, `compare_exchange`'s optimistic path, or the writer reader cache expires the verdict, and the cells are re-run before a later change is evaluated against it.
+
+### 40.7 Open questions
+
+None. The section number, 40, is the next free one at lock time and may move at merge.
+
+### 40.8 Amendment after change-build run 1 (appended 2026-10-18; written after observing run [39139933415](https://github.com/orieg/expanse/actions/runs/39139933415); §40.1 to §40.7 are not rewritten)
+
+**What was observed.** The first change-build dispatch of `concurrency_update_cells` at `ad3e1475` ran on a quiet host (largest per-round `foreign_busy_cpus` 0.03) with pin `0,2,4,6,8,10,12,14` and 36 rounds, and the driver wrote it `VOID` under §39.5's instrument clause, which §40.2 inherits: the upper bound of `rho(e, W)` was below `1 - MARGIN` = 0.95 in three cells. Its artifact is `results/baseline_concurrent_update_cells_s40_void1.json`. It is not one of the pair and is not counted toward it. Its numbers, disclosed here and decided on by nothing (BCa 95%, 2,000 resamples, seed 42):
+
+| cell | `rho(e, W)` = held / update |
+|---|---|
+| map, W = 2 | 0.9363 [0.9332, 0.9397] |
+| map, W = 8 | 0.9172 [0.9134, 0.9212] |
+| bytes, W = 8 | 0.9351 [0.9313, 0.9387] |
+| str, W = 8 | 0.9740 [0.9689, 0.9792] |
+
+Against §39.9 base run 1 (`results/baseline_concurrent_update_cells.json`), mean updates/s of the `update` arm at W = 8 went from 2.32 M to 55.56 M (map, ratio 23.95 [23.85, 24.07]), 2.18 M to 22.85 M (str, 10.48 [10.42, 10.55]) and 2.14 M to 32.58 M (bytes, 15.19 [15.12, 15.26]). The held arm's change-over-base ratio at W = 1 and W = 8 lay between 0.991 and 1.002 for every engine, inside the §40.3 drift band (two-sample BCa 95%, 2,000 resamples, seed 42, computed with `bca_bootstrap_ratio_ci_with_method` over the two artifacts' windows). (measured: i9-12900F 8 P-cores pinned 0,2,..,14, commit ad3e1475, run 39139933415; base commit 72c733c8, run 39078599689)
+
+**Why §39.5's clause does not apply to the change build.** The clause voids a run when the held arm measures materially slower than `update`. It rests on §39.1's twin check: on the base build the held arm does strictly less work than `update` (no per-call registration), so it can never lose by more than noise. On the change build that premise is gone: `update` reads through the thread's already-registered writer reader, the same one its exchange pins, while the held arm reads through a second registered reader and pins it per attempt. Neither arm does strictly less work, and `update` can legitimately be the faster one. The clause tests a property only the base build has. Replacement runs under it would void the same way, and §40 has no reading of a void run.
+
+**What changes, for change-build runs only.**
+
+- The §39.5 instrument clause (`rho(e, W)` upper bound below `1 - MARGIN`) is withdrawn. Change-build runs are dispatched through the suite `concurrency_update_cells_fix`, which runs `mixed_concurrency.py --update-cells --change-build`; the artifact records `change_build: true` and the withdrawn clause in its gate block, and is committed as `results/baseline_concurrent_update_cells_s40.json` (run 1 of the pair) and `..._s40_run2.json` (run 2).
+- The held-arm drift control of §40.3 is the instrument check for these runs: the held arm's code is the same in both builds, so a held arm that moved between the builds' runs is what an instrument or host defect would show.
+- `--update-fix` reads change-build artifacts, refuses a base-mode run that §39.5 voided, refuses a change-build artifact as the base, and labels its result `INTERMEDIATE`.
+
+**What does not change.** G1 (the §39.4 verdict of the change run's `rho(e, 8)` is `NO_COST`, upper bound below 1.05), G2 (two-sample BCa lower bound of `T_update(change) / T_update(base)` above 1.0), G3, G4, the drift band `[1 - MARGIN, 1 + MARGIN]`, the base pair, the pin, the 36 rounds and their order, every other §39.5 void (pin, a round's foreign load, a window process that fails or writes the wrong row, `--quick`), the pair rule and the cap of three replacement runs. The §39 suite `concurrency_update_cells` and its void clause are unchanged for base-mode runs.
+
+**Label.** This amendment was written after run 1 was observed, so under AGENTS.md §8.19 the §40 pair outcome is labelled `INTERMEDIATE`, whatever it reads. The outcome subsection becomes §40.9.
+
+### 40.9 Outcome (appended 2026-10-18; §40.1 to §40.8 are not rewritten)
+
+The change-build pair ran as suite `concurrency_update_cells_fix` at `462247b8` (engine code identical to `ad3e1475`): run 1 [39162778714](https://github.com/orieg/expanse/actions/runs/39162778714) and run 2 [39167296656](https://github.com/orieg/expanse/actions/runs/39167296656), both on a quiet host (load average 0.00 at dispatch), pin `0,2,4,6,8,10,12,14`, 36 rounds, gate `ADMISSIBLE` with no voids. Artifacts: `results/baseline_concurrent_update_cells_s40.json` (run 1) and `results/baseline_concurrent_update_cells_s40_run2.json` (run 2). Read with `mixed_concurrency.py --update-fix` against the §39.9 base pair (`results/baseline_concurrent_update_cells.json`, `results/baseline_concurrent_update_cells_run2.json`, both at `72c733c8`); intervals are BCa 95%.
+
+| engine | run | G1 `rho(e, 8)` | G2 gain `T_update(change) / T_update(base)` at W = 8 | held drift | run verdict |
+|---|---|---|---|---|---|
+| map | 1 | 0.9203 [0.9168, 0.9233] `NO_COST` | 23.93 [23.84, 24.05] `GAIN` | 0.9999 [0.9946, 1.0048] | PASS |
+| map | 2 | 0.9219 [0.9181, 0.9252] `NO_COST` | 23.94 [23.85, 24.04] `GAIN` | 0.9986 [0.9943, 1.0031] | PASS |
+| str | 1 | 0.9719 [0.9673, 0.9767] `NO_COST` | 10.51 [10.45, 10.57] `GAIN` | 1.0019 [0.9971, 1.0068] | PASS |
+| str | 2 | 0.9740 [0.9691, 0.9798] `NO_COST` | 10.48 [10.42, 10.52] `GAIN` | 1.0056 [0.9998, 1.0162] | PASS |
+| bytes | 1 | 0.9262 [0.9197, 0.9341] `NO_COST` | 15.27 [15.13, 15.36] `GAIN` | 0.9953 [0.9856, 1.0040] | PASS |
+| bytes | 2 | 0.9285 [0.9230, 0.9341] `NO_COST` | 15.25 [15.17, 15.34] `GAIN` | 0.9910 [0.9844, 0.9972] | PASS |
+
+**Pair verdict:** `PASS` for map, str and bytes (both runs agree), labelled **`INTERMEDIATE`** under §40.8 and AGENTS.md §8.19, because the §39.5 instrument clause was withdrawn for change-build runs after run 1 was observed. Every held-drift interval lies inside `[0.95, 1.05]`. G3 was met on the engine head `ad3e1475` (CI run [39128941741](https://github.com/orieg/expanse/actions/runs/39128941741): `instructions` 270/270 No change; `rmw_instructions` `sync_map_update_rmw` −21.37%, `sync_strmap_update_rmw` −10.77%, `sync_bytesmap_update_rmw` −12.47%, every other arm No change). G4 (no `%fs:` change outside the `Sync*` wrappers) is recorded in the pull request body.
+
+The falsifier of §40.4 is not met for any engine, so no engine's `update` reverts to reading through `get`. Not measured here: contention below W = 8 is reported in the artifacts but decides nothing; `SyncExpanseBlobMap::update` was not changed and has its own Callgrind arm since #1571.
