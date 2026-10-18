@@ -4068,7 +4068,18 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
     // complete during them, so the history is concurrent on any schedule.
     const SCAN_ROUNDS: usize = 20;
     const MIN_OVERLAPPED: u64 = 5;
-    const SCAN_ROUNDS_CAP: usize = 200_000;
+    // The checker below is quadratic in the number of recorded writes, so an
+    // unthrottled writer turns a descheduled reader into a very long check
+    // (one macOS CI run took about 13 minutes, #1559). The writer may run at
+    // most `WRITES_PER_ROUND` writes ahead per scan round the reader has
+    // started, which bounds the history at `WRITES_PER_ROUND * rounds`
+    // whatever the schedule. A typical run records under 2,000 writes in
+    // about 20 rounds.
+    const WRITES_PER_ROUND: u64 = 256;
+    // Worst case the history is bounded by `WRITES_PER_ROUND * rounds`; this
+    // makes a run that needs far more rounds than usual fail by name instead
+    // of spending the job timeout in the checker.
+    const MAX_ROUNDS_TO_OVERLAP: usize = 2_000;
 
     let map = Arc::new(SyncExpanseMap::new());
     let mut initial = BTreeMap::new();
@@ -4083,6 +4094,7 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
     let scans = Arc::new(Mutex::new(Vec::new()));
     let scans_done = Arc::new(AtomicBool::new(false));
     let write_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let rounds_started = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let overlapped = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let start_line = Arc::new(std::sync::Barrier::new(2));
 
@@ -4094,6 +4106,7 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
         let writes = Arc::clone(&writes);
         let scans_done = Arc::clone(&scans_done);
         let write_count = Arc::clone(&write_count);
+        let rounds_started = Arc::clone(&rounds_started);
         let start_line = Arc::clone(&start_line);
         handles.push(thread::spawn(move || {
             let mut local = Vec::new();
@@ -4101,6 +4114,12 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
             start_line.wait();
             let mut i = 0usize;
             while !scans_done.load(Ordering::Acquire) {
+                if write_count.load(Ordering::Acquire)
+                    >= WRITES_PER_ROUND * (rounds_started.load(Ordering::Acquire) + 1)
+                {
+                    thread::yield_now();
+                    continue;
+                }
                 i += 1;
                 prng = prng.wrapping_mul(6364136223846793005).wrapping_add(1);
                 let key = 50 + (prng % 50) * 100;
@@ -4128,16 +4147,18 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
         let scans_done = Arc::clone(&scans_done);
         let write_count = Arc::clone(&write_count);
         let overlapped = Arc::clone(&overlapped);
+        let rounds_started = Arc::clone(&rounds_started);
         let start_line = Arc::clone(&start_line);
         handles.push(thread::spawn(move || {
             let rd = map.reader();
             let mut local = Vec::with_capacity(SCAN_ROUNDS);
             start_line.wait();
             let mut seen_overlap = 0u64;
-            for round in 0..SCAN_ROUNDS_CAP {
+            for round in 0..MAX_ROUNDS_TO_OVERLAP {
                 if round >= SCAN_ROUNDS && seen_overlap >= MIN_OVERLAPPED {
                     break;
                 }
+                rounds_started.fetch_add(1, Ordering::Release);
                 let writes_before = write_count.load(Ordering::Acquire);
                 let start = Instant::now();
                 let cur = rd.cursor();
@@ -4173,7 +4194,8 @@ fn test_sync_map_batch_cursor_scan_linearizability() {
     // about concurrency.
     assert!(
         overlapped.load(Ordering::Relaxed) >= MIN_OVERLAPPED,
-        "{} of {} scans had a write complete during them ({} writes in all)",
+        "{} of {} scans had a write complete during them ({} writes in all); \
+         needed {MIN_OVERLAPPED} within {MAX_ROUNDS_TO_OVERLAP} rounds",
         overlapped.load(Ordering::Relaxed),
         all_scans.len(),
         all_writes.len()
