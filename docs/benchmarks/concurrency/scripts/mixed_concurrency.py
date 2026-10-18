@@ -103,6 +103,16 @@ the per-call reader registration in `update` cost throughput under contention?
     EXPANSE_BENCH_PIN=off python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \\
         --update-cells --quick --rounds 1
 
+`--update-fix RUN1,RUN2` is `METHODOLOGY.md` §40's evaluation of #1417's engine
+change: it runs nothing, and reads the change build's two `--update-cells`
+artifacts against the committed §39.9 base pair, run against run. Per engine at
+8 threads it prints the change run's `rho` and §39.4 verdict, the two-sample
+BCa ratio of the `update` arm's mean rate (change over base), the same ratio on
+the held arm as a drift control, and the run and pair verdicts.
+
+    python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-fix \\
+        docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_s40.json,docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_s40_run2.json
+
 `--self-test` runs without Cargo and is run by CI's `lint` job. The committed
 artifact and its second run (`baseline_concurrent_mixed_run2.json`) also feed
 the README hero chart's and the sync32 health chart's data
@@ -1884,6 +1894,242 @@ def run_update_cells(args: argparse.Namespace) -> int:
     return 1 if gate["voids"] and not quick else 0
 
 
+# --------------------------------------------------------------------------
+# #1417 engine change: the change build's §39 cells against the base pair (METHODOLOGY.md §40)
+# --------------------------------------------------------------------------
+
+FIX_METHODOLOGY = "docs/benchmarks/concurrency/METHODOLOGY.md section 40"
+FIX_BASE_ARTIFACTS = update_registration_bounds.BASE_ARTIFACTS
+FIX_THREADS = update_registration_bounds.GAIN_THREADS
+FIX_RULE = (
+    "per engine, run i of the change against run i of the section 39.9 base pair, at 8 threads: "
+    "MATCH is the section 39.4 verdict of the change run's rho (NO_COST required); GAIN when the "
+    "lower bound of mean T_update(change) / mean T_update(base) is above 1, NO_GAIN when its upper "
+    "bound is at most 1, OPEN otherwise; the held arm's change / base ratio is a drift control that "
+    "voids the engine when its interval lies wholly outside [1 - margin, 1 + margin]; PASS when "
+    "MATCH is NO_COST and GAIN, FAIL when MATCH is COST or the gain is NO_GAIN, OPEN otherwise"
+)
+
+
+def fix_window_rates(artifact: dict[str, Any], engine: str, arm: str, threads: int = FIX_THREADS) -> list[float]:
+    """Updates/s of every window of one §39 throughput cell of an artifact, in round order."""
+    cells = [c for c in artifact["throughput"]
+             if c["engine"] == engine and c["arm"] == arm and int(c["threads"]) == threads]
+    if len(cells) != 1:
+        raise InstrumentError(f"{len(cells)} throughput cells for {engine}/{arm} at {threads} threads, not one")
+    rates = [float(w["updates_s"]) for w in sorted(cells[0]["rounds_raw"], key=lambda w: w["round"])]
+    if len(rates) < 3:
+        raise InstrumentError(f"{engine}/{arm} at {threads} threads has {len(rates)} windows; an interval needs 3")
+    return rates
+
+
+def fix_gain_verdict(ci_lower: float | None, ci_upper: float | None) -> str:
+    """§40 on mean T_update(change) / mean T_update(base) at 8 threads."""
+    if ci_lower is None or ci_upper is None:
+        return "NOT_EVALUABLE"
+    if ci_lower > 1.0:
+        return "GAIN"
+    if ci_upper <= 1.0:
+        return "NO_GAIN"
+    return "OPEN"
+
+
+def fix_drift_problems(engine: str, ci_lower: float, ci_upper: float, margin: float = UPDATE_MARGIN) -> list[str]:
+    """§40: the held arm, which the change does not touch, moved between the builds' runs."""
+    if ci_upper < 1.0 - margin or ci_lower > 1.0 + margin:
+        return [f"{engine}: held arm change / base [{ci_lower:.4f}, {ci_upper:.4f}] lies outside "
+                f"[{1.0 - margin:.2f}, {1.0 + margin:.2f}]; the comparison is void (METHODOLOGY.md §40)"]
+    return []
+
+
+def fix_engine_verdict(match: str, gain: str, drift: list[str]) -> str:
+    if drift:
+        return "VOID"
+    if match == "NO_COST" and gain == "GAIN":
+        return "PASS"
+    if match == "COST" or gain == "NO_GAIN":
+        return "FAIL"
+    return "OPEN"
+
+
+def fix_artifact_problems(artifact: dict[str, Any], role: str) -> list[str]:
+    """A run the comparison may read: a §39 artifact, admissible, not a smoke run."""
+    prov = artifact.get("provenance", {})
+    gate = artifact.get("gate", {})
+    problems = []
+    if prov.get("mode") != "update_cells":
+        problems.append(f"{role}: mode {prov.get('mode')!r} is not update_cells")
+    if gate.get("verdict") != "ADMISSIBLE" or gate.get("quick"):
+        problems.append(f"{role}: gate verdict {gate.get('verdict')!r}, quick {gate.get('quick')!r}; "
+                        f"only an admissible full run is read (METHODOLOGY.md §39.5, §40)")
+    return problems
+
+
+def evaluate_update_fix(change: dict[str, Any], base: dict[str, Any],
+                        engines: tuple[str, ...] = UPDATE_ENGINES) -> dict[str, Any]:
+    """One change run against one base run: per engine, the §40 match, gain, drift control and verdict."""
+    problems = fix_artifact_problems(change, "change") + fix_artifact_problems(base, "base")
+    change_commit = change.get("provenance", {}).get("commit")
+    if change_commit is not None and change_commit == base.get("provenance", {}).get("commit"):
+        problems.append(f"change and base were measured at one commit ({change_commit}); §40 compares two builds")
+    if problems:
+        raise InstrumentError("; ".join(problems))
+    out: dict[str, Any] = {"methodology": FIX_METHODOLOGY, "threads": FIX_THREADS, "rule": FIX_RULE,
+                           "change_commit": change_commit,
+                           "base_commit": base.get("provenance", {}).get("commit"), "engines": {}}
+    for e in engines:
+        rho = next(c for c in change["rho"] if c["engine"] == e and int(c["threads"]) == FIX_THREADS)
+        match = update_verdict(rho["ratio_ci_lower"], rho["ratio_ci_upper"])
+        gain, gain_lo, gain_hi, gain_method = bca_bootstrap.bca_bootstrap_ratio_ci_with_method(
+            fix_window_rates(change, e, "update"), fix_window_rates(base, e, "update"),
+            num_resamples=UPDATE_RESAMPLES, seed=42)
+        drift, drift_lo, drift_hi, drift_method = bca_bootstrap.bca_bootstrap_ratio_ci_with_method(
+            fix_window_rates(change, e, "held"), fix_window_rates(base, e, "held"),
+            num_resamples=UPDATE_RESAMPLES, seed=42)
+        drift_voids = fix_drift_problems(e, drift_lo, drift_hi)
+        gain_label = fix_gain_verdict(gain_lo, gain_hi)
+        out["engines"][e] = {
+            "rho": rho["ratio_mean"], "rho_ci_lower": rho["ratio_ci_lower"],
+            "rho_ci_upper": rho["ratio_ci_upper"], "rho_ci_method": rho["ratio_ci_method"], "match": match,
+            "gain": gain, "gain_ci_lower": gain_lo, "gain_ci_upper": gain_hi, "gain_ci_method": gain_method,
+            "gain_verdict": gain_label,
+            "held_drift": drift, "held_drift_ci_lower": drift_lo, "held_drift_ci_upper": drift_hi,
+            "held_drift_ci_method": drift_method, "voids": drift_voids,
+            "verdict": fix_engine_verdict(match, gain_label, drift_voids),
+        }
+    return out
+
+
+def fix_pair_verdicts(runs: list[dict[str, Any]]) -> dict[str, str]:
+    """§40's pair: an engine's verdict when both runs agree, OPEN otherwise; a VOID run is replaced, not read."""
+    if len(runs) != 2:
+        raise InstrumentError(f"the §40 pair reads two runs, got {len(runs)}")
+    out = {}
+    for e in runs[0]["engines"]:
+        a, b = (r["engines"][e]["verdict"] for r in runs)
+        if "VOID" in (a, b):
+            out[e] = "VOID"
+        else:
+            out[e] = a if a == b else "OPEN"
+    return out
+
+
+def run_update_fix(paths: list[str]) -> int:
+    if len(paths) != 2:
+        raise InstrumentError(f"--update-fix takes the change build's two runs, run 1 then run 2; got {len(paths)}")
+    runs = []
+    for i, (p, base_path) in enumerate(zip(paths, FIX_BASE_ARTIFACTS), start=1):
+        path = Path(p)
+        if not path.is_file():
+            raise InstrumentError(f"artifact file not found: {path}")
+        result = evaluate_update_fix(json.loads(path.read_text()), json.loads(base_path.read_text()))
+        runs.append(result)
+        print(f"run {i}: change {path.name} at {result['change_commit']} against base {base_path.name} "
+              f"at {result['base_commit']}")
+        for e, c in result["engines"].items():
+            print(f"  {e:>5}: rho(8) {c['rho']:.4f} [{c['rho_ci_lower']:.4f}, {c['rho_ci_upper']:.4f}] "
+                  f"{c['rho_ci_method']} {c['match']}; gain {c['gain']:.4f} "
+                  f"[{c['gain_ci_lower']:.4f}, {c['gain_ci_upper']:.4f}] {c['gain_ci_method']} "
+                  f"{c['gain_verdict']}; held drift {c['held_drift']:.4f} "
+                  f"[{c['held_drift_ci_lower']:.4f}, {c['held_drift_ci_upper']:.4f}] "
+                  f"{c['held_drift_ci_method']}; {c['verdict']}")
+            for v in c["voids"]:
+                print(f"    VOID: {v}", file=sys.stderr)
+    pair = fix_pair_verdicts(runs)
+    print(f"§40 pair verdicts: {pair}")
+    return 0
+
+
+def update_fix_self_test() -> None:
+    """§40's evaluation on synthetic artifacts: each verdict clause, the drift void, and the refusals."""
+    def artifact(commit: str, update: dict[str, float], held: dict[str, float], rho: dict[str, tuple],
+                 verdict: str = "ADMISSIBLE", quick: bool = False, n: int = 12) -> dict[str, Any]:
+        throughput = []
+        for e in UPDATE_ENGINES:
+            for arm, level in (("update", update[e]), ("held", held[e])):
+                throughput.append({"engine": e, "arm": arm, "threads": FIX_THREADS, "rounds_raw": [
+                    {"round": r, "updates_s": level * (1.0 + 0.005 * ((r * 5) % 3 - 1))} for r in range(n)]})
+        return {"provenance": {"mode": "update_cells", "commit": commit},
+                "gate": {"verdict": verdict, "quick": quick}, "throughput": throughput,
+                "rho": [{"engine": e, "threads": FIX_THREADS, "ratio_mean": sum(rho[e]) / 2,
+                         "ratio_ci_lower": rho[e][0], "ratio_ci_upper": rho[e][1], "ratio_ci_method": "bca"}
+                        for e in UPDATE_ENGINES]}
+
+    def expect_error(fn, *args, what: str) -> None:
+        try:
+            fn(*args)
+        except InstrumentError:
+            return
+        raise AssertionError(f"expected InstrumentError: {what}")
+
+    base = artifact("base", {"map": 2.3e6, "str": 2.2e6, "bytes": 2.1e6},
+                    {"map": 51e6, "str": 22e6, "bytes": 30e6},
+                    {"map": (21.9, 22.2), "str": (10.1, 10.3), "bytes": (14.1, 14.3)})
+    # map: fixed (update matches held, large gain); str: the update still lags the
+    # held loop; bytes: slower than the base, the held arm unmoved.
+    change = artifact("change", {"map": 50e6, "str": 2.2e6 * 1.5, "bytes": 2.1e6 * 0.9},
+                      {"map": 51e6, "str": 22e6, "bytes": 30e6},
+                      {"map": (1.00, 1.03), "str": (6.0, 7.0), "bytes": (0.99, 1.02)})
+    res = evaluate_update_fix(change, base)
+    v = {e: c["verdict"] for e, c in res["engines"].items()}
+    assert v == {"map": "PASS", "str": "FAIL", "bytes": "FAIL"}, v
+    assert res["engines"]["map"]["gain_verdict"] == "GAIN" and res["engines"]["bytes"]["gain_verdict"] != "GAIN"
+    assert res["engines"]["str"]["match"] == "COST"
+    assert all(c["gain_ci_method"] in CI_METHODS and c["held_drift_ci_method"] in CI_METHODS
+               for c in res["engines"].values())
+    assert abs(res["engines"]["map"]["gain"] - 50e6 / 2.3e6) < 1e-6
+
+    # Gain clauses at their boundaries; the engine verdict's clauses one at a time.
+    assert fix_gain_verdict(1.0001, 1.2) == "GAIN"
+    assert fix_gain_verdict(1.0, 1.2) == "OPEN"
+    assert fix_gain_verdict(0.9, 1.0) == "NO_GAIN"
+    assert fix_gain_verdict(0.9, 1.0001) == "OPEN"
+    assert fix_gain_verdict(None, 1.0) == "NOT_EVALUABLE"
+    assert fix_engine_verdict("NO_COST", "GAIN", []) == "PASS"
+    assert fix_engine_verdict("OPEN", "GAIN", []) == "OPEN"
+    assert fix_engine_verdict("NO_COST", "OPEN", []) == "OPEN"
+    assert fix_engine_verdict("COST", "GAIN", []) == "FAIL"
+    assert fix_engine_verdict("NO_COST", "NO_GAIN", []) == "FAIL"
+    assert fix_engine_verdict("NO_COST", "GAIN", ["x"]) == "VOID"
+
+    # Drift control: each side at its boundary and just past it.
+    assert fix_drift_problems("map", 0.90, 0.95) == []
+    assert len(fix_drift_problems("map", 0.90, 0.9499)) == 1
+    assert fix_drift_problems("map", 1.05, 1.10) == []
+    assert len(fix_drift_problems("map", 1.0501, 1.10)) == 1
+    drifted = artifact("change", {"map": 50e6, "str": 22e6, "bytes": 30e6},
+                       {"map": 40e6, "str": 22e6, "bytes": 30e6},
+                       {"map": (1.00, 1.03), "str": (1.0, 1.03), "bytes": (0.99, 1.02)})
+    d = evaluate_update_fix(drifted, base)["engines"]
+    assert d["map"]["verdict"] == "VOID" and d["str"]["verdict"] == "PASS", d
+
+    # The pair: agreement, disagreement, a void run.
+    runs = [{"engines": {"map": {"verdict": a}, "str": {"verdict": b}, "bytes": {"verdict": c}}}
+            for a, b, c in (("PASS", "PASS", "VOID"), ("PASS", "FAIL", "PASS"))]
+    assert fix_pair_verdicts(runs) == {"map": "PASS", "str": "OPEN", "bytes": "VOID"}
+    expect_error(fix_pair_verdicts, runs[:1], what="a pair of one run")
+
+    # Refusals: a void or quick run, another mode, one commit for both builds,
+    # a missing cell.
+    expect_error(evaluate_update_fix, artifact("change", {e: 1e6 for e in UPDATE_ENGINES},
+                                               {e: 1e6 for e in UPDATE_ENGINES},
+                                               {e: (1.0, 1.0) for e in UPDATE_ENGINES}, verdict="VOID"),
+                 base, what="a void change run")
+    expect_error(evaluate_update_fix, artifact("change", {e: 1e6 for e in UPDATE_ENGINES},
+                                               {e: 1e6 for e in UPDATE_ENGINES},
+                                               {e: (1.0, 1.0) for e in UPDATE_ENGINES}, quick=True),
+                 base, what="a quick change run")
+    expect_error(evaluate_update_fix, base, base, what="one commit for both builds")
+    other = dict(change, provenance={"mode": "step2_gate", "commit": "change"})
+    expect_error(evaluate_update_fix, other, base, what="an artifact of another mode")
+    expect_error(fix_window_rates, base, "set", "update", what="an engine with no cell")
+    expect_error(run_update_fix, ["one.json"], what="one change run")
+
+    # The committed base pair is what the comparison reads, and it is admissible.
+    for path in FIX_BASE_ARTIFACTS:
+        assert fix_artifact_problems(json.loads(path.read_text()), "base") == [], path.name
+
+
 def update_self_test() -> None:
     """The §39 mode without Cargo: constants, design, pairing, verdicts, voids and refusals."""
     def expect_error(fn, *args, what: str, **kwargs) -> str:
@@ -2610,6 +2856,7 @@ def self_test() -> int:
 
     step2_self_test()
     update_self_test()
+    update_fix_self_test()
     print("mixed_concurrency.py self-test PASSED")
     return 0
 
@@ -2892,12 +3139,20 @@ def main() -> int:
     ap.add_argument("--update-cells", action="store_true",
                     help="the #1417 contended update cells (METHODOLOGY.md section 39): update against a "
                          "held reader + compare_exchange loop on map, str and bytes at 1-8 threads")
+    ap.add_argument("--update-fix", default=None, metavar="RUN1,RUN2",
+                    help="METHODOLOGY.md section 40: read the change build's two --update-cells artifacts "
+                         "against the committed section 39.9 base pair and print the per-engine verdicts")
     args = ap.parse_args()
     if args.sample_cpus:
         os.environ["EXPANSE_BENCH_CPU_SAMPLES"] = "1"
     if args.self_test:
         return self_test()
     try:
+        if args.update_fix is not None:
+            if (args.update_cells or args.blob_peak or args.step2_gate or args.run2 or args.write_assets
+                    or args.check_assets or args.check_sync32_steps):
+                raise InstrumentError("--update-fix reads artifacts and cannot be combined with other modes")
+            return run_update_fix([p for p in args.update_fix.split(",") if p])
         if args.update_cells:
             if (args.blob_peak or args.step2_gate or args.run2 or args.write_assets or args.check_assets
                     or args.check_sync32_steps):
