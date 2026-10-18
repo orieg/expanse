@@ -2607,9 +2607,34 @@ impl<T: SharedTree> Shared<T> {
     /// thread take zero mutexes and perform zero heap allocations.
     #[cfg(feature = "std")]
     pub(crate) fn with_writer_pin<R>(&self, f: impl FnOnce() -> R) -> R {
+        // The lookup is spelled out here rather than calling
+        // `writer_reader_index`: each instantiation then keeps its own
+        // `retain` closure inlined, as it had before `with_thread_reader`
+        // shared the cache. Sharing one out-of-line `retain` moved the
+        // writer arms by up to 0.28% (METHODOLOGY §40, G3).
+        let key = Arc::as_ptr(&self.collector) as usize;
         WRITER_READERS.with(|cell| {
             let mut vec = cell.borrow_mut();
-            let idx = writer_reader_index(&mut vec, &self.collector);
+            let idx = if let Some(pos) = vec.iter().position(|(k, _)| *k == key) {
+                // True LRU on hit: promote accessed entry to the back (MRU) if not already there.
+                // Does NOT run `retain` on fast-path hits (N2).
+                if pos < vec.len() - 1 {
+                    let item = vec.remove(pos);
+                    vec.push(item);
+                    vec.len() - 1
+                } else {
+                    pos
+                }
+            } else {
+                // Cache miss: prune dead collectors whose Shared tree has been dropped (M4/N1).
+                vec.retain(|(_, r)| !r.is_orphan());
+                if vec.len() >= 16 {
+                    vec.remove(0); // Evict LRU entry
+                }
+                let r = self.collector.register();
+                vec.push((key, r));
+                vec.len() - 1
+            };
             let _pin = vec[idx].1.pin();
             f()
         })
