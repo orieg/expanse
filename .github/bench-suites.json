@@ -444,6 +444,7 @@
           "sync_bytesmap_update_rmw",
           "sync_bytesmap_cas_remove",
           "sync_blobmap_cas",
+          "sync_blobmap_update_rmw",
           "sync_map_cas_insert",
           "sync_strmap_cas_insert",
           "sync_bytesmap_cas_insert"

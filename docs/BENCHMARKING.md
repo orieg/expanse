@@ -1932,6 +1932,7 @@ Every deterministic Callgrind arm, and the ops count `perf_report.py` divides it
 | Group | Benchmark | Arms | `N` per arm |
 |---|---|---|---:|
 | `rmw` | `sync_blobmap_cas` | `random` | 50,000 |
+| `rmw` | `sync_blobmap_update_rmw` | `random` | 50,000 |
 | `rmw` | `sync_bytesmap_cas` | `routes` | 50,000 |
 | `rmw` | `sync_bytesmap_cas_insert` | `routes` | 50,000 |
 | `rmw` | `sync_bytesmap_cas_remove` | `routes` | 50,000 |

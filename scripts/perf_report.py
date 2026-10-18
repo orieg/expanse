@@ -367,6 +367,7 @@ HARNESS_BENCH_N_MAP: Dict[str, Dict[str, int]] = {
         "sync_bytesmap_update_rmw": 50_000,
         "sync_bytesmap_cas_remove": 50_000,
         "sync_blobmap_cas": 50_000,
+        "sync_blobmap_update_rmw": 50_000,
         "sync_map_cas_insert": 50_000,
         "sync_strmap_cas_insert": 50_000,
         "sync_bytesmap_cas_insert": 50_000,
