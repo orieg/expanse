@@ -277,5 +277,16 @@ class TestReportedConstruction(unittest.TestCase):
         self.assertEqual(method, CI_METHOD_DEGENERATE)
 
 
+class TestSummationIsInterpreterIndependent(unittest.TestCase):
+    """Builtin sum() is compensated from Python 3.12 and plain before it, so an
+    interval built on it differs by an ulp across interpreters, which moves a
+    bootstrap index or a rounded README digit. The module sums with math.fsum."""
+
+    def test_mean_of_tenths_is_exact(self):
+        # sum([0.1] * 10) is 0.9999999999999999 before 3.12 and 1.0 from 3.12.
+        point, _lo, _hi, _method = bca_bootstrap_ci_with_method([0.1] * 10)
+        self.assertEqual(point, 0.1)
+
+
 if __name__ == "__main__":
     unittest.main()
