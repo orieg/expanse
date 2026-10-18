@@ -103,6 +103,11 @@ the per-call reader registration in `update` cost throughput under contention?
     EXPANSE_BENCH_PIN=off python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \\
         --update-cells --quick --rounds 1
 
+`--update-cells --change-build` is the §40 change-build run (`METHODOLOGY.md`
+§40.8, bench suite `concurrency_update_cells_fix`): the same cells, without
+§39.5's void on the held arm measuring slower than `update`, which only the
+base build's twin check supports; the artifact's gate block records it.
+
 `--update-fix RUN1,RUN2` is `METHODOLOGY.md` §40's evaluation of #1417's engine
 change: it runs nothing, and reads the change build's two `--update-cells`
 artifacts against the committed §39.9 base pair, run against run. Per engine at
@@ -1538,6 +1543,11 @@ UPDATE_SCOPE = (
     "read NO_COST in the pair"
 )
 UPDATE_RAW_KEYS = ("round", "position", "elapsed_s", "write_ops")
+UPDATE_CHANGE_BUILD_RULE = (
+    "section 40.8: change-build run; the section 39.5 below-(1 - margin) rho void is withdrawn "
+    "(update may beat the held arm on the change build), and the held-arm drift control of "
+    "section 40.3, read by --update-fix, is the instrument check"
+)
 
 
 def update_arm_key(engine: str, arm: str) -> str:
@@ -1746,7 +1756,7 @@ def _update_interval(values: list[float]) -> dict[str, Any]:
 def summarize_update(windows: list[dict[str, Any]], round_loads: list[dict[str, Any]], rounds: int,
                      engines: tuple[str, ...] = UPDATE_ENGINES, threads: tuple[int, ...] = UPDATE_THREADS,
                      gate_threads: int = UPDATE_GATE_THREADS, pin: str = UPDATE_PIN,
-                     quick: bool = False) -> dict[str, Any]:
+                     quick: bool = False, change_build: bool = False) -> dict[str, Any]:
     """The throughput, rho and kappa cells, the per-engine verdicts and this run's voids."""
     problems = update_order_problems(windows, rounds, engines, threads)
     if problems:
@@ -1818,7 +1828,13 @@ def summarize_update(windows: list[dict[str, Any]], round_loads: list[dict[str, 
         kap = next(c for c in kappa_cells if c["engine"] == e and c["threads"] == gate_threads)
         labels[e] = contention_label(kap["ratio_ci_lower"], kap["ratio_ci_upper"])
         kap["label"] = labels[e]
-    voids = update_pin_problems(pin) + update_load_voids(round_loads) + update_instrument_voids(rho_cells)
+    voids = update_pin_problems(pin) + update_load_voids(round_loads)
+    # §40.8: on the change build `update` reads through the thread's
+    # registered reader, so it may beat the held arm, and the §39.5 check
+    # that the held arm never measures slower describes the base build only.
+    # The held-arm drift control of §40.3 (`--update-fix`) replaces it there.
+    if not change_build:
+        voids += update_instrument_voids(rho_cells)
     if quick:
         voids.append("--quick: a smoke run of the instrument, never verdict-bearing (METHODOLOGY.md §39.5)")
     gate_block = {
@@ -1826,6 +1842,9 @@ def summarize_update(windows: list[dict[str, Any]], round_loads: list[dict[str, 
         "margin_source": "scripts/update_registration_bounds.py MARGIN", "rule": UPDATE_RULE,
         "verdicts": verdicts, "contention": labels, "scope": UPDATE_SCOPE,
         "voids": voids, "verdict": "VOID" if voids else "ADMISSIBLE", "quick": quick,
+        "change_build": change_build,
+        "instrument_void": (UPDATE_CHANGE_BUILD_RULE if change_build else
+                            "section 39.5: VOID when any rho upper bound is below 1 - margin"),
     }
     return {"throughput": throughput, "rho": rho_cells, "kappa": kappa_cells, "gate": gate_block}
 
@@ -1863,7 +1882,8 @@ def run_update_cells(args: argparse.Namespace) -> int:
         windows, round_loads = run_update_rounds(launch, prov, rounds, Path(tmp))
     add_load(prov, "end")
     prov["round_loads"] = round_loads
-    summary = summarize_update(windows, round_loads, rounds, pin=pin, quick=quick)
+    summary = summarize_update(windows, round_loads, rounds, pin=pin, quick=quick,
+                               change_build=bool(args.change_build))
     artifact = {"provenance": prov, **summary}
     problems = step2_artifact_problems(out, artifact, quick)
     if problems and not quick:
@@ -1962,7 +1982,15 @@ def fix_artifact_problems(artifact: dict[str, Any], role: str) -> list[str]:
     if gate.get("verdict") != "ADMISSIBLE" or gate.get("quick"):
         problems.append(f"{role}: gate verdict {gate.get('verdict')!r}, quick {gate.get('quick')!r}; "
                         f"only an admissible full run is read (METHODOLOGY.md §39.5, §40)")
+    if role == "base" and gate.get("change_build"):
+        problems.append("base: a --change-build run cannot be the base; the base keeps the §39.5 "
+                        "instrument void (METHODOLOGY.md §40.8)")
     return problems
+
+
+# §40.8: the amendment was written after change-build run 1 was observed, so
+# every §40 pair read after it is INTERMEDIATE whatever it reads (AGENTS.md §8.19).
+FIX_LABEL = "INTERMEDIATE (METHODOLOGY.md section 40.8: amended after change-build run 1 was observed)"
 
 
 def evaluate_update_fix(change: dict[str, Any], base: dict[str, Any],
@@ -1976,6 +2004,8 @@ def evaluate_update_fix(change: dict[str, Any], base: dict[str, Any],
         raise InstrumentError("; ".join(problems))
     out: dict[str, Any] = {"methodology": FIX_METHODOLOGY, "threads": FIX_THREADS, "rule": FIX_RULE,
                            "change_commit": change_commit,
+                           "change_build": bool(change.get("gate", {}).get("change_build")),
+                           "label": FIX_LABEL,
                            "base_commit": base.get("provenance", {}).get("commit"), "engines": {}}
     for e in engines:
         rho = next(c for c in change["rho"] if c["engine"] == e and int(c["threads"]) == FIX_THREADS)
@@ -2036,21 +2066,23 @@ def run_update_fix(paths: list[str]) -> int:
             for v in c["voids"]:
                 print(f"    VOID: {v}", file=sys.stderr)
     pair = fix_pair_verdicts(runs)
-    print(f"§40 pair verdicts: {pair}")
+    print(f"§40 pair verdicts: {pair}, labelled {FIX_LABEL}")
     return 0
 
 
 def update_fix_self_test() -> None:
     """§40's evaluation on synthetic artifacts: each verdict clause, the drift void, and the refusals."""
     def artifact(commit: str, update: dict[str, float], held: dict[str, float], rho: dict[str, tuple],
-                 verdict: str = "ADMISSIBLE", quick: bool = False, n: int = 12) -> dict[str, Any]:
+                 verdict: str = "ADMISSIBLE", quick: bool = False, n: int = 12,
+                 change_build: bool = False) -> dict[str, Any]:
         throughput = []
         for e in UPDATE_ENGINES:
             for arm, level in (("update", update[e]), ("held", held[e])):
                 throughput.append({"engine": e, "arm": arm, "threads": FIX_THREADS, "rounds_raw": [
                     {"round": r, "updates_s": level * (1.0 + 0.005 * ((r * 5) % 3 - 1))} for r in range(n)]})
         return {"provenance": {"mode": "update_cells", "commit": commit},
-                "gate": {"verdict": verdict, "quick": quick}, "throughput": throughput,
+                "gate": {"verdict": verdict, "quick": quick, "change_build": change_build},
+                "throughput": throughput,
                 "rho": [{"engine": e, "threads": FIX_THREADS, "ratio_mean": sum(rho[e]) / 2,
                          "ratio_ci_lower": rho[e][0], "ratio_ci_upper": rho[e][1], "ratio_ci_method": "bca"}
                         for e in UPDATE_ENGINES]}
@@ -2128,6 +2160,31 @@ def update_fix_self_test() -> None:
     # The committed base pair is what the comparison reads, and it is admissible.
     for path in FIX_BASE_ARTIFACTS:
         assert fix_artifact_problems(json.loads(path.read_text()), "base") == [], path.name
+
+    # §40.8, one negative control per clause. A change-build run whose update
+    # beats the held arm (rho upper bound below 1 - margin) is read, matches,
+    # and the result carries the INTERMEDIATE label.
+    beats = artifact("change", {"map": 55e6, "str": 22.8e6, "bytes": 32.5e6},
+                     {"map": 51e6, "str": 22e6, "bytes": 30e6},
+                     {"map": (0.913, 0.921), "str": (0.969, 0.979), "bytes": (0.931, 0.939)},
+                     change_build=True)
+    r = evaluate_update_fix(beats, base)
+    assert {e: c["verdict"] for e, c in r["engines"].items()} == {e: "PASS" for e in UPDATE_ENGINES}, r
+    assert r["change_build"] is True and r["label"].startswith("INTERMEDIATE")
+    # The same numbers written by a base-mode run are VOID under §39.5, and refused.
+    expect_error(evaluate_update_fix, dict(beats, gate={"verdict": "VOID", "quick": False,
+                                                        "change_build": False}),
+                 base, what="a base-mode run voided by the §39.5 instrument check")
+    # A change-build run cannot serve as the base.
+    expect_error(evaluate_update_fix, change, dict(base, gate=dict(base["gate"], change_build=True)),
+                 what="a change-build base")
+    # The drift control still voids a change-build run.
+    drifted_cb = dict(drifted, gate={"verdict": "ADMISSIBLE", "quick": False, "change_build": True})
+    assert evaluate_update_fix(drifted_cb, base)["engines"]["map"]["verdict"] == "VOID"
+    # The committed void run (§40.8) is refused as it stands.
+    void1 = DEFAULT_OUT.with_name("baseline_concurrent_update_cells_s40_void1.json")
+    expect_error(evaluate_update_fix, json.loads(void1.read_text()),
+                 json.loads(FIX_BASE_ARTIFACTS[0].read_text()), what="the committed void run")
 
 
 def update_self_test() -> None:
@@ -2227,12 +2284,14 @@ def update_self_test() -> None:
         return [{"round": r, "since": f"round:{r}", "wall_s": 20.0, "busy_cpus_since_prev": 4.0,
                  "own_busy_cpus": 4.0 - (foreign or 0.0), "foreign_busy_cpus": foreign} for r in range(rounds)]
 
-    def scenario(factor, rounds=UPDATE_PERIOD, mutate=None, pin=UPDATE_PIN, quick=False, foreign=0.02):
+    def scenario(factor, rounds=UPDATE_PERIOD, mutate=None, pin=UPDATE_PIN, quick=False, foreign=0.02,
+                 change_build=False):
         with tempfile.TemporaryDirectory() as tmp:
             windows, round_loads = run_update_rounds(launcher(factor, mutate), {}, rounds, Path(tmp),
                                                      progress=False)
         assert [x["round"] for x in round_loads] == list(range(rounds))
-        return summarize_update(windows, loads(rounds, foreign), rounds, pin=pin, quick=quick)
+        return summarize_update(windows, loads(rounds, foreign), rounds, pin=pin, quick=quick,
+                                change_build=change_build)
 
     def jitter(r: int) -> float:
         return 0.004 * ((r * 5) % 3 - 1)
@@ -2264,6 +2323,22 @@ def update_self_test() -> None:
     assert scenario(factor, foreign=None)["gate"]["verdict"] == "VOID"
     slow = scenario(lambda e, t, r: 0.90 if (e, t) == ("str", 4) else 1.0 + jitter(r))
     assert slow["gate"]["verdict"] == "VOID" and len(slow["gate"]["voids"]) == 1, slow["gate"]["voids"]
+    assert slow["gate"]["change_build"] is False and "39.5" in slow["gate"]["instrument_void"]
+
+    # §40.8: a change-build run whose held arm measures slower than update is
+    # not void, and says why; every other void clause still applies to it.
+    def change_slow(e, t, r):
+        return 0.90 if (e, t) == ("map", 8) else 1.0 + jitter(r)
+    fast = scenario(change_slow, change_build=True)
+    assert fast["gate"]["verdict"] == "ADMISSIBLE" and fast["gate"]["voids"] == [], fast["gate"]["voids"]
+    assert fast["gate"]["change_build"] is True
+    assert fast["gate"]["instrument_void"] == UPDATE_CHANGE_BUILD_RULE
+    rho_map8 = next(c for c in fast["rho"] if c["engine"] == "map" and c["threads"] == 8)
+    assert rho_map8["ratio_ci_upper"] < 1.0 - UPDATE_MARGIN, rho_map8
+    assert scenario(change_slow)["gate"]["verdict"] == "VOID"
+    assert scenario(change_slow, change_build=True, pin="0-15")["gate"]["verdict"] == "VOID"
+    assert scenario(change_slow, change_build=True, quick=True)["gate"]["verdict"] == "VOID"
+    assert scenario(change_slow, change_build=True, foreign=1.0)["gate"]["verdict"] == "VOID"
 
     # A window the process did not write as requested discards the run.
     msg = expect_error(scenario, factor, mutate=lambda row, key, t, r: [],
@@ -3142,12 +3217,18 @@ def main() -> int:
     ap.add_argument("--update-fix", default=None, metavar="RUN1,RUN2",
                     help="METHODOLOGY.md section 40: read the change build's two --update-cells artifacts "
                          "against the committed section 39.9 base pair and print the per-engine verdicts")
+    ap.add_argument("--change-build", action="store_true",
+                    help="with --update-cells: a section 40 change-build run (METHODOLOGY.md section 40.8): "
+                         "the section 39.5 below-(1 - margin) rho void does not apply, and the artifact "
+                         "records it")
     args = ap.parse_args()
     if args.sample_cpus:
         os.environ["EXPANSE_BENCH_CPU_SAMPLES"] = "1"
     if args.self_test:
         return self_test()
     try:
+        if args.change_build and not args.update_cells:
+            raise InstrumentError("--change-build applies to --update-cells only")
         if args.update_fix is not None:
             if (args.update_cells or args.blob_peak or args.step2_gate or args.run2 or args.write_assets
                     or args.check_assets or args.check_sync32_steps):
