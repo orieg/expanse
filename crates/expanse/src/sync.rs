@@ -6998,9 +6998,7 @@ impl SyncExpanseMap {
     /// a call on a present key registers no reader (#1417); the retries take
     /// the value the failed exchange observed.
     pub fn update(&self, key: Key, mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
-        let mut expected = self
-            .shared
-            .with_thread_reader(|r| map_get_with(self, self.registered(r), key));
+        let mut expected = self.update_current(key);
         loop {
             let new = f(expected);
             match self.compare_exchange(key, expected, new) {
@@ -7011,6 +7009,20 @@ impl SyncExpanseMap {
                 }
             }
         }
+    }
+
+    /// [`Self::update`]'s first read: the validated lookup on the thread's
+    /// cached writer reader.
+    ///
+    /// Not generic and never inlined, so it is compiled here once. Inlined
+    /// into the generic `update`, which a caller's crate instantiates, it made
+    /// `map_get_with` reachable from outside this crate, and that alone
+    /// changed `map_get_with`'s code on the `get` path (`sync_map_get`
+    /// +2.62% and +3.97% instructions, METHODOLOGY §40).
+    #[inline(never)]
+    fn update_current(&self, key: Key) -> Option<u64> {
+        self.shared
+            .with_thread_reader(|r| map_get_with(self, self.registered(r), key))
     }
 
     /// Stores `val` under `key` only if `key` is absent, as one
@@ -14063,9 +14075,7 @@ impl SyncExpanseStrMap {
         key: &NulFreeStr,
         mut f: impl FnMut(Option<u64>) -> Option<u64>,
     ) -> Option<u64> {
-        let mut expected = self
-            .shared
-            .with_thread_reader(|r| str_get_lent(self, r, key));
+        let mut expected = self.update_current(key);
         loop {
             let new = f(expected);
             match self.compare_exchange(key, expected, new) {
@@ -14076,6 +14086,17 @@ impl SyncExpanseStrMap {
                 }
             }
         }
+    }
+
+    /// [`Self::update`]'s first read: the validated lookup on the thread's
+    /// cached writer reader. Not generic and never inlined, so the generic
+    /// `update` a caller's crate instantiates does not reach the string
+    /// map's private read helpers, whose code on the `get` path changed when
+    /// it did (`sync_strmap_get_short` +3.89% instructions, METHODOLOGY §40).
+    #[inline(never)]
+    fn update_current(&self, key: &NulFreeStr) -> Option<u64> {
+        self.shared
+            .with_thread_reader(|r| str_get_lent(self, r, key))
     }
 
     /// Stores `val` under `key` only if `key` is absent, as one
