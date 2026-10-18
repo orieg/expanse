@@ -1,7 +1,6 @@
 //! Deterministic cost of the shipped read-modify-write entry points on the
 //! concurrent maps: `compare_exchange` and `update` on `SyncExpanseMap`,
-//! `SyncExpanseStrMap` and `SyncExpanseBytesMap`, `compare_exchange` on
-//! `SyncExpanseBlobMap` (which has no `update`), the value-to-absent
+//! `SyncExpanseStrMap`, `SyncExpanseBytesMap` and `SyncExpanseBlobMap`, the value-to-absent
 //! `compare_exchange` on `SyncExpanseBytesMap` that removes a bucket's last
 //! entry, and the absent-to-value `compare_exchange` (insert-if-absent) on
 //! `SyncExpanseMap`, `SyncExpanseStrMap` and `SyncExpanseBytesMap`, via
@@ -428,7 +427,6 @@ fn sync_bytesmap_cas_remove(built: (SyncExpanseBytesMap<DetHasher>, Vec<(Vec<u8>
 // `SyncExpanseBlobMap::compare_exchange` (sync.rs:11590), success path: the
 // expected payload and metadata are the ones the key holds; the new ones are
 // 16 bytes with non-zero metadata, so the store goes through the arena.
-// `SyncExpanseBlobMap` has no `update`.
 #[inline(always)]
 fn sync_blobmap_cas_body(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
@@ -457,6 +455,37 @@ fn sync_blobmap_cas_body(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
 #[bench::random(args = ("random",), setup = built_sync_blobmap)]
 fn sync_blobmap_cas(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     sync_blobmap_cas_body(built)
+}
+
+// `SyncExpanseBlobMap::update` (sync.rs:12670): a `get`, then `compare_exchange`
+// over the payload and metadata it returned. The closure rewrites every value
+// to the 16-byte payload of `!k` with non-zero metadata, so the store goes
+// through the arena (above the 7-byte inline limit), as in `sync_blobmap_cas`.
+// The `Vec` the closure returns is the API's own cost and is counted.
+#[inline(always)]
+fn sync_blobmap_update_rmw_body(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut hits = 0u64;
+    for &k in &probes {
+        let r = map
+            .update(black_box(k), |cur| {
+                cur.map(|_| (blob_payload(!k).to_vec(), blob_meta(!k)))
+            })
+            .expect("blob update");
+        hits += u64::from(black_box(r).is_some());
+    }
+    core::mem::forget(map);
+    core::mem::forget(probes);
+    // Every operation must take the path the arm is named for: a failed
+    // exchange or a missed update is a different, cheaper path.
+    assert_eq!(hits, POP as u64);
+    black_box(hits)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap)]
+fn sync_blobmap_update_rmw(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
+    sync_blobmap_update_rmw_body(built)
 }
 
 // `SyncExpanseMap::compare_exchange` (sync.rs:6573), absent to value: the key
@@ -555,6 +584,7 @@ library_benchmark_group!(
         sync_bytesmap_update_rmw,
         sync_bytesmap_cas_remove,
         sync_blobmap_cas,
+        sync_blobmap_update_rmw,
         sync_map_cas_insert,
         sync_strmap_cas_insert,
         sync_bytesmap_cas_insert
@@ -578,11 +608,12 @@ fn main() {
     sync_bytesmap_update_rmw_body(built_sync_bytesmap("routes"));
     sync_bytesmap_cas_remove_body(built_sync_bytesmap("routes"));
     sync_blobmap_cas_body(built_sync_blobmap("random"));
+    sync_blobmap_update_rmw_body(built_sync_blobmap("random"));
     sync_map_cas_insert_body(built_sync_map_absent("random"));
     sync_strmap_cas_insert_body(built_sync_strmap_absent("routes"));
     sync_bytesmap_cas_insert_body(built_sync_bytesmap_absent("routes"));
     println!(
         "rmw_instructions: iai-callgrind arms run on Linux only; \
-         all 11 arms ran once and met their counts (smoke check, not a measurement)."
+         all 12 arms ran once and met their counts (smoke check, not a measurement)."
     );
 }
