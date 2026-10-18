@@ -3056,6 +3056,30 @@ fn run_blob_rmw_mix(map: Arc<SyncExpanseBlobMap>, churn_per_thread: u64) -> u32 
     let ops_per_thread = 120;
     let generation = |m: &SyncExpanseBlobMap| m.with_locked(|t| t.arena().generation());
     let g0 = generation(&map);
+    // Coverage that does not depend on the random schedule (#1566): before any
+    // thread starts, `update` runs once on the absent key 0 (stores 1) and once
+    // on it present (delta 0, no change). Both are recorded in the history, so
+    // the check below covers them, and the coverage assertion no longer
+    // depends on the schedule happening to hit both cases.
+    {
+        let mut h = history.lock().unwrap();
+        for delta in [1i64, 0] {
+            let op = Op::Update(0, delta);
+            let start = Instant::now();
+            let old = map
+                .update(0, |cur| {
+                    update_state(cur.map(|(b, m)| blob_dec(b, m)), delta).map(blob_enc)
+                })
+                .unwrap_or_else(|e| panic!("preamble update refused: {e:?}"));
+            let end = Instant::now();
+            h.push(Event {
+                op,
+                ret: Ret::Update(old.map(|(b, m)| blob_dec(&b, m))),
+                start,
+                end,
+            });
+        }
+    }
     let mut handles = vec![];
     for t_id in 0..num_threads {
         let map_clone = Arc::clone(&map);
