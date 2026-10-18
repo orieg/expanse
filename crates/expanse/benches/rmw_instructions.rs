@@ -47,10 +47,12 @@
 //! in the counts:
 //!
 //! - a retry or backoff loop, a version-lock conflict, a closed writer gate;
-//! - contention on reader registration: `update` reads through `get`, which
-//!   registers and drops a throwaway epoch reader on every call, taking the
-//!   collector's reader mutex twice. An instruction count prices a locked
-//!   instruction as one instruction;
+//! - contention on reader registration. `update` reads through the thread's
+//!   cached writer reader (`docs/benchmarks/concurrency/METHODOLOGY.md` §40),
+//!   which registers once per thread and map; before that change it read
+//!   through `get`, registering and dropping a throwaway epoch reader on every
+//!   call and taking the collector's reader mutex twice. An instruction count
+//!   prices a locked instruction as one instruction;
 //! - more than one writer slot in a quiesce drain. `sync_bytesmap_cas_remove`
 //!   drains all 50,000 single-entry buckets to empty via
 //!   `olc_cas_remove_bucket_cas_map` (#1396), taking the serialised structural

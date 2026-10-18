@@ -49,8 +49,10 @@
 //!
 //! Six further keys, run only when `EXPANSE_BENCH_ENGINES` names them, so the
 //! default sweep and the nightly report do not change: `map_update`,
-//! `str_update` and `bytes_update` call the wrapper's `update`, which reads
-//! through `get` and so registers and drops an epoch reader per call;
+//! `str_update` and `bytes_update` call the wrapper's `update` (which read
+//! through `get`, registering and dropping an epoch reader per call, until the
+//! change `METHODOLOGY.md` §40 pre-registers, and since then reads through the
+//! thread's cached writer reader);
 //! `map_update_held`, `str_update_held` and `bytes_update_held` run the same
 //! read and the same exchange loop on a reader the thread registered once,
 //! outside the window. Every write updates a key drawn uniformly from the
@@ -967,15 +969,17 @@ fn bench_str_dashmap(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
 // prefill, so it replaces a present value and never inserts or removes. Two
 // arms per engine, on the identical stream:
 //
-// - `HELD = false` calls the wrapper's `update`, which reads through `get` and
-//   so registers and drops an epoch reader on every call;
+// - `HELD = false` calls the wrapper's `update`. On the §39 base it read
+//   through `get` and so registered and dropped an epoch reader on every call;
+//   since §40's change it reads through the thread's cached writer reader;
 // - `HELD = true` runs the same read and the same exchange loop as `update`,
 //   verbatim, but reads through the reader this thread registered once,
 //   outside the window.
 //
 // Both arms register that one reader per thread, so the reader registry holds
-// the same slots in both; per operation they differ by one registration and
-// one drop. A read share below 100% reads through that reader too, as the
+// the same slots in both; on the §39 base, per operation they differ by one
+// registration and one drop, and since §40's change by one lookup in the
+// thread's reader cache. A read share below 100% reads through that reader too, as the
 // other arms do; §39 runs 0% read.
 // ---------------------------------------------------------------------------
 
