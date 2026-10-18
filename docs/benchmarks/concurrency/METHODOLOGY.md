@@ -6318,3 +6318,59 @@ A pull request that changes `update` for an engine this section found `COST` (pr
 ### 39.8 Open questions
 
 None. The section number, 39, is the next free one at lock time and may move at merge.
+
+### 39.9 Outcome (appended 2026-10-17; §39.1 to §39.8 are not rewritten)
+
+Two dispatches of the `concurrency_update_cells` suite at `72c733c8` (the commit of #1564, which holds the cells and this section): [run 1](https://github.com/orieg/expanse/actions/runs/39078599689) and [run 2](https://github.com/orieg/expanse/actions/runs/39082333529). Both are `ADMISSIBLE` under §39.5: pin `0,2,4,6,8,10,12,14`, 36 rounds, `voids: []`, not `--quick`. Artifacts: `results/baseline_concurrent_update_cells.json` (run 1) and `results/baseline_concurrent_update_cells_run2.json` (run 2). The host-guard and perf-counter files the workflow also uploads are not committed. (measured: i9-12900F 8 P-cores pinned 0,2,..,14, Linux 6.8, commit 72c733c8, runs 39078599689 / 39082333529).
+
+**Pair verdict (§39.4).** Per engine at W = 8, `rho(e, 8)` is the held-reader loop's throughput over `update`'s, paired within the round, BCa 95% over 36 rounds.
+
+| engine | run 1 verdict | run 2 verdict | pair verdict | `rho(e, 8)`, run 1 | `rho(e, 8)`, run 2 | contention label, runs 1 and 2 |
+|---|---|---|---|---|---|---|
+| `map` | `COST` | `COST` | **`COST`** | 22.034 [21.906, 22.186] | 22.106 [22.015, 22.199] | `GROWS`, `GROWS` |
+| `str` | `COST` | `COST` | **`COST`** | 10.192 [10.140, 10.256] | 10.147 [10.041, 10.214] | `GROWS`, `GROWS` |
+| `bytes` | `COST` | `COST` | **`COST`** | 14.210 [14.111, 14.299] | 14.288 [14.204, 14.367] | `GROWS`, `GROWS` |
+
+**The falsifier is not met.** #1417's falsifier needs all three engines to read `NO_COST` in the pair; none does. Every lower bound of `rho(e, 8)` is far above `1 + MARGIN` = 1.05 (the smallest is 10.041, `str` in run 2), and the two runs' intervals overlap for each engine. The §39.5 instrument-defect check does not trip: no upper bound of `rho(e, W)` is below `1 - MARGIN`, and the held arm is faster in every cell.
+
+**`rho(e, W)` per thread count** (held / update throughput; W < 8 decide nothing, §39.3):
+
+| engine | W | run 1 | run 2 |
+|---|--:|---|---|
+| map | 1 | 1.330 [1.327, 1.333] | 1.327 [1.324, 1.330] |
+| map | 2 | 4.063 [4.000, 4.115] | 4.091 [4.001, 4.145] |
+| map | 4 | 10.442 [10.351, 10.544] | 10.382 [10.303, 10.461] |
+| map | 8 | 22.034 [21.906, 22.186] | 22.106 [22.015, 22.199] |
+| str | 1 | 1.061 [1.059, 1.062] | 1.060 [1.058, 1.062] |
+| str | 2 | 1.548 [1.541, 1.556] | 1.548 [1.541, 1.555] |
+| str | 4 | 3.867 [3.834, 3.897] | 3.841 [3.809, 3.873] |
+| str | 8 | 10.192 [10.140, 10.256] | 10.147 [10.041, 10.214] |
+| bytes | 1 | 1.131 [1.129, 1.134] | 1.134 [1.131, 1.138] |
+| bytes | 2 | 1.961 [1.941, 1.976] | 1.965 [1.952, 1.977] |
+| bytes | 4 | 5.650 [5.594, 5.705] | 5.612 [5.559, 5.662] |
+| bytes | 8 | 14.210 [14.111, 14.299] | 14.288 [14.204, 14.367] |
+
+**`kappa(e, W)`** (`rho(e, W) / rho(e, 1)` of the same round; `GROWS` at W = 8 means the cost per update is larger at eight threads than at one, AGENTS.md §8.20.2):
+
+| engine | W | run 1 | run 2 |
+|---|--:|---|---|
+| map | 2 | 3.055 [3.006, 3.092] | 3.082 [3.014, 3.121] |
+| map | 4 | 7.852 [7.782, 7.928] | 7.822 [7.765, 7.885] |
+| map | 8 | 16.570 [16.461, 16.686] | 16.657 [16.562, 16.742] |
+| str | 2 | 1.460 [1.453, 1.467] | 1.460 [1.454, 1.468] |
+| str | 4 | 3.645 [3.616, 3.674] | 3.624 [3.592, 3.657] |
+| str | 8 | 9.608 [9.558, 9.675] | 9.574 [9.468, 9.645] |
+| bytes | 2 | 1.733 [1.716, 1.747] | 1.732 [1.719, 1.743] |
+| bytes | 4 | 4.994 [4.942, 5.045] | 4.948 [4.902, 4.991] |
+| bytes | 8 | 12.560 [12.470, 12.643] | 12.596 [12.516, 12.669] |
+
+At W = 8 the mean updates per second over the 36 windows were, update arm / held arm: `map` 2.32 M / 51.1 M (run 1) and 2.32 M / 51.2 M (run 2); `str` 2.18 M / 22.2 M and 2.18 M / 22.2 M; `bytes` 2.14 M / 30.5 M and 2.14 M / 30.5 M, each from the artifacts' `throughput` cells (the per-cell intervals are there).
+
+**What the result says, and what it does not.**
+
+- Registering a reader per call costs far more than the 5% margin at W = 8 on all three engines (`rho` of about 10 to 22), reproduced across two runs. At W = 1 the ratio lies between 1 and the §39.6 instruction-count bounds (2.116, 1.815, 1.719) for all three engines, as §39.6 expected. The `kappa(e, 8)` intervals lie far above 1.0, so the cost per update is contention-specific and not a fixed per-call overhead alone.
+- The mechanism is not measured. §39.6 hypothesised the collector's one `readers` mutex taken twice per update and the drop's `retain`; this experiment varies only whether a reader is registered per call, and no counter on that mutex was read. The attribution stays a hypothesis until a lock or PMU instrument reads it (AGENTS.md §8.9).
+- The held arm is an upper bound on what an engine change can recover, not a prediction of it: it keeps a reader registered for the thread's whole life, which proposal 2 may or may not match.
+- Not measured, as §39.6 already stated: `update` on absent keys, other hosts, core counts or allocators, and the other wrappers' `update`.
+
+**What §39.7 now requires.** Proposal 2 of #1417 may go ahead for each of `SyncExpanseMap`, `SyncExpanseStrMap` and `SyncExpanseBytesMap` under its own pre-registration, which carries §39.7's four items: the contended gain (these cells re-run on the change, two runs, the update arm's `T(e, 8)` paired against the base build with a lower bound above 1.0, and `rho(e, 8)` with its upper bound below 1.05), no `instructions` or `rmw_instructions` arm regressing beyond 0.1%, the plain paths kept free of concurrency-only code, and the expiry rule. The base build for that comparison is the pair above, and this verdict expires on any change to `Collector::register`, the reader registry, or `compare_exchange`'s optimistic path. `SyncExpanseOrderedBytesMap::update` delegates to the str map's and is covered by the str cells' change, not by a cell of its own. This outcome ships no engine change.
