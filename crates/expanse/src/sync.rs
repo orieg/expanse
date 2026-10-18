@@ -15637,7 +15637,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         new: Option<u64>,
     ) -> Result<Option<u64>, Option<u64>> {
         if expected.is_none() && new.is_none() {
-            return match self.get(key) {
+            return match self.absent_exchange_read(key) {
                 None => Ok(None),
                 seen => Err(seen),
             };
@@ -15648,6 +15648,18 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
         } else {
             Err(observed)
         }
+    }
+
+    /// The validated read that decides `compare_exchange(None, None)`.
+    ///
+    /// Kept out of line. While `update` also read through [`Self::get`],
+    /// `get` had two callers in a caller's crate and stayed a call here;
+    /// once `update` stopped calling it, `get` was inlined into
+    /// `compare_exchange`, and `sync_bytesmap_cas` rose 0.18% instructions
+    /// (METHODOLOGY §40, G3).
+    #[inline(never)]
+    fn absent_exchange_read(&self, key: &[u8]) -> Option<u64> {
+        self.get(key)
     }
 
     /// Replaces the value for `key` with `f(current)`: `Some(v)` stores `v`,
@@ -15664,9 +15676,7 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
     /// a call on a present key registers no reader (#1417); the retries take
     /// the value the failed exchange observed.
     pub fn update(&self, key: &[u8], mut f: impl FnMut(Option<u64>) -> Option<u64>) -> Option<u64> {
-        let mut expected = self
-            .shared
-            .with_thread_reader(|r| bytes_get_lent(self, r, key));
+        let mut expected = self.update_current(key);
         loop {
             let new = f(expected);
             match self.compare_exchange(key, expected, new) {
@@ -15677,6 +15687,15 @@ impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
                 }
             }
         }
+    }
+
+    /// [`Self::update`]'s first read: the validated lookup on the thread's
+    /// cached writer reader, kept out of line as the map's and string map's
+    /// are (METHODOLOGY §40).
+    #[inline(never)]
+    fn update_current(&self, key: &[u8]) -> Option<u64> {
+        self.shared
+            .with_thread_reader(|r| bytes_get_lent(self, r, key))
     }
 
     /// Stores `val` under `key` only if `key` is absent, as one
