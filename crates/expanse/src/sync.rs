@@ -34352,10 +34352,14 @@ mod update_thread_reader_tests {
     /// `None -> Some` (an insert under it). It also shows the closure runs
     /// outside the thread's reader cache: the write inside it takes the
     /// writer pin from that cache, which would panic on a held borrow.
+    ///
+    /// Evaluates to one `(values the closure saw, value returned, value left)`
+    /// per transition, for the test to compare with [`expected_retry_trace`].
     macro_rules! retry_cases {
         ($map:expr, $key:expr) => {{
             let map = $map;
             let k = $key;
+            let mut trace = Vec::new();
             // Some -> Some.
             map.insert(k, 1);
             let mut seen = Vec::new();
@@ -34366,9 +34370,7 @@ mod update_thread_reader_tests {
                 seen.push(cur);
                 cur.map(|v| v + 10)
             });
-            assert_eq!(seen, [Some(1), Some(5)]);
-            assert_eq!(prev, Some(5));
-            assert_eq!(map.get(k), Some(15));
+            trace.push((seen, prev, map.get(k)));
             // Some -> None under the update: the retry sees the key absent,
             // and its `None` leaves it absent.
             let mut seen = Vec::new();
@@ -34379,9 +34381,7 @@ mod update_thread_reader_tests {
                 seen.push(cur);
                 cur.map(|v| v + 1)
             });
-            assert_eq!(seen, [Some(15), None]);
-            assert_eq!(prev, None);
-            assert_eq!(map.get(k), None);
+            trace.push((seen, prev, map.get(k)));
             // None -> Some under the update: the retry sees the insert.
             let mut seen = Vec::new();
             let prev = map.update(k, |cur| {
@@ -34391,10 +34391,21 @@ mod update_thread_reader_tests {
                 seen.push(cur);
                 Some(cur.unwrap_or(0) + 100)
             });
-            assert_eq!(seen, [None, Some(7)]);
-            assert_eq!(prev, Some(7));
-            assert_eq!(map.get(k), Some(107));
+            trace.push((seen, prev, map.get(k)));
+            trace
         }};
+    }
+
+    /// What [`retry_cases`] must observe: the retry sees each write made
+    /// under it, returns it, and leaves the closure's result.
+    type RetryTrace = Vec<(Vec<Option<u64>>, Option<u64>, Option<u64>)>;
+
+    fn expected_retry_trace() -> RetryTrace {
+        vec![
+            (vec![Some(1), Some(5)], Some(5), Some(15)),
+            (vec![Some(15), None], None, None),
+            (vec![None, Some(7)], Some(7), Some(107)),
+        ]
     }
 
     #[test]
@@ -34404,7 +34415,8 @@ mod update_thread_reader_tests {
             for k in 0..n {
                 map.insert(k + 1_000, k);
             }
-            retry_cases!(&map, 7u64);
+            let trace: RetryTrace = retry_cases!(&map, 7u64);
+            assert_eq!(trace, expected_retry_trace(), "n = {n}");
         }
     }
 
@@ -34415,7 +34427,8 @@ mod update_thread_reader_tests {
             for k in 0..n {
                 map.insert(ns(&sk(k + 1_000)), k);
             }
-            retry_cases!(&map, ns(b"retry"));
+            let trace: RetryTrace = retry_cases!(&map, ns(b"retry"));
+            assert_eq!(trace, expected_retry_trace(), "n = {n}");
         }
     }
 
@@ -34426,7 +34439,8 @@ mod update_thread_reader_tests {
             for k in 0..n {
                 map.insert(&sk(k + 1_000), k);
             }
-            retry_cases!(&map, &b"retry"[..]);
+            let trace: RetryTrace = retry_cases!(&map, &b"retry"[..]);
+            assert_eq!(trace, expected_retry_trace(), "n = {n}");
         }
     }
 
@@ -34478,19 +34492,18 @@ mod update_thread_reader_tests {
     }
 
     /// Several threads increment shared keys of a tree-state map through
-    /// `update`; every increment lands.
+    /// `update`, and evaluates to the sum of the keys' final values, which
+    /// equals `LOST_THREADS * LOST_ROUNDS` when every increment landed.
     macro_rules! no_lost_update {
         ($map:expr, $key:expr) => {{
-            const THREADS: u64 = if cfg!(miri) { 2 } else { 4 };
-            const ROUNDS: u64 = if cfg!(miri) { 20 } else { 20_000 };
             const HOT: u64 = 4;
             let map = &$map;
             let key = $key;
             std::thread::scope(|s| {
-                for t in 0..THREADS {
+                for t in 0..LOST_THREADS {
                     let key = &key;
                     s.spawn(move || {
-                        for r in 0..ROUNDS {
+                        for r in 0..LOST_ROUNDS {
                             map.update(key((t + r) % HOT), |cur| {
                                 Some(cur.expect("the key is never removed") + 1)
                             });
@@ -34498,10 +34511,12 @@ mod update_thread_reader_tests {
                     });
                 }
             });
-            let total: u64 = (0..HOT).map(|k| map.get(key(k)).unwrap()).sum();
-            assert_eq!(total, THREADS * ROUNDS);
+            (0..HOT).map(|k| map.get(key(k)).unwrap()).sum::<u64>()
         }};
     }
+
+    const LOST_THREADS: u64 = if cfg!(miri) { 2 } else { 4 };
+    const LOST_ROUNDS: u64 = if cfg!(miri) { 20 } else { 20_000 };
 
     #[test]
     fn map_update_threads_lose_no_update() {
@@ -34509,7 +34524,8 @@ mod update_thread_reader_tests {
         for k in 0..TREE_KEYS {
             map.insert(k, 0);
         }
-        no_lost_update!(map, |k: u64| k);
+        let total = no_lost_update!(map, |k: u64| k);
+        assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
     }
 
     #[test]
@@ -34519,7 +34535,8 @@ mod update_thread_reader_tests {
         for k in &keys {
             map.insert(ns(k), 0);
         }
-        no_lost_update!(map, |k: u64| ns(&keys[k as usize]));
+        let total = no_lost_update!(map, |k: u64| ns(&keys[k as usize]));
+        assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
     }
 
     #[test]
@@ -34529,6 +34546,7 @@ mod update_thread_reader_tests {
         for k in &keys {
             map.insert(k, 0);
         }
-        no_lost_update!(map, |k: u64| keys[k as usize].as_slice());
+        let total = no_lost_update!(map, |k: u64| keys[k as usize].as_slice());
+        assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
     }
 }
