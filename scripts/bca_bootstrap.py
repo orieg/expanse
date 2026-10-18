@@ -29,6 +29,7 @@ them.
 
 from __future__ import annotations
 
+import math
 import random
 import statistics
 from typing import List, Sequence, Tuple
@@ -94,10 +95,10 @@ def _bca_from_distribution(
     z0 = _norm_ppf(prop_less)
 
     m = len(jackknife_thetas)
-    jack_bar = sum(jackknife_thetas) / m
+    jack_bar = math.fsum(jackknife_thetas) / m
     diffs = [jack_bar - v for v in jackknife_thetas]
-    num = sum(d**3 for d in diffs)
-    den = 6.0 * (sum(d**2 for d in diffs) ** 1.5)
+    num = math.fsum(d**3 for d in diffs)
+    den = 6.0 * (math.fsum(d**2 for d in diffs) ** 1.5)
     if abs(den) > 1e-12:
         a = num / den
         acceleration_zeroed = False
@@ -160,20 +161,20 @@ def bca_bootstrap_ci_with_method(
     if n < 3:
         raise ValueError(f"Need at least 3 data points for BCa bootstrap, got {n}")
 
-    theta_hat = sum(data) / n
+    theta_hat = math.fsum(data) / n
     rng = random.Random(seed)
 
     # 1. Bootstrap resamples
     boot_means: List[float] = []
     for _ in range(num_resamples):
         sample = [data[rng.randint(0, n - 1)] for _ in range(n)]
-        boot_means.append(sum(sample) / n)
+        boot_means.append(math.fsum(sample) / n)
 
     # 2. Jackknife replicates (the acceleration's input)
     jackknife_means: List[float] = []
     for i in range(n):
         # Sample with item i removed
-        jack_sum = sum(data[j] for j in range(n) if j != i)
+        jack_sum = math.fsum(data[j] for j in range(n) if j != i)
         jackknife_means.append(jack_sum / (n - 1))
 
     # 3. Bias correction, acceleration and adjusted percentiles
@@ -230,10 +231,10 @@ def bca_bootstrap_ratio_ci_with_method(
             f"got {n_num} and {n_den}"
         )
 
-    mean_den = sum(denominator) / n_den
+    mean_den = math.fsum(denominator) / n_den
     if mean_den == 0.0:
         raise ValueError("Denominator arm has a zero mean; the ratio is undefined")
-    theta_hat = (sum(numerator) / n_num) / mean_den
+    theta_hat = (math.fsum(numerator) / n_num) / mean_den
 
     rng = random.Random(seed)
     boot: List[float] = []
@@ -249,8 +250,8 @@ def bca_bootstrap_ratio_ci_with_method(
             raise ValueError("Bootstrap resample produced a zero-mean denominator")
         boot.append((num_sum / n_num) / den_mean)
 
-    total_num = sum(numerator)
-    total_den = sum(denominator)
+    total_num = math.fsum(numerator)
+    total_den = math.fsum(denominator)
     jackknife: List[float] = []
     for i in range(n_num):
         jackknife.append(((total_num - numerator[i]) / (n_num - 1)) / mean_den)
