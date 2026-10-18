@@ -6463,3 +6463,28 @@ As §39.7: a change to `Collector::register`, the reader registry, `compare_exch
 ### 40.7 Open questions
 
 None. The section number, 40, is the next free one at lock time and may move at merge.
+
+### 40.8 Amendment after change-build run 1 (appended 2026-10-18; written after observing run [39139933415](https://github.com/orieg/expanse/actions/runs/39139933415); §40.1 to §40.7 are not rewritten)
+
+**What was observed.** The first change-build dispatch of `concurrency_update_cells` at `ad3e1475` ran on a quiet host (largest per-round `foreign_busy_cpus` 0.03) with pin `0,2,4,6,8,10,12,14` and 36 rounds, and the driver wrote it `VOID` under §39.5's instrument clause, which §40.2 inherits: the upper bound of `rho(e, W)` was below `1 - MARGIN` = 0.95 in three cells. Its artifact is `results/baseline_concurrent_update_cells_s40_void1.json`. It is not one of the pair and is not counted toward it. Its numbers, disclosed here and decided on by nothing (BCa 95%, 2,000 resamples, seed 42):
+
+| cell | `rho(e, W)` = held / update |
+|---|---|
+| map, W = 2 | 0.9363 [0.9332, 0.9397] |
+| map, W = 8 | 0.9172 [0.9134, 0.9212] |
+| bytes, W = 8 | 0.9351 [0.9313, 0.9387] |
+| str, W = 8 | 0.9740 [0.9689, 0.9792] |
+
+Against §39.9 base run 1 (`results/baseline_concurrent_update_cells.json`), mean updates/s of the `update` arm at W = 8 went from 2.32 M to 55.56 M (map, ratio 23.95 [23.85, 24.07]), 2.18 M to 22.85 M (str, 10.48 [10.42, 10.55]) and 2.14 M to 32.58 M (bytes, 15.19 [15.12, 15.26]). The held arm's change-over-base ratio at W = 1 and W = 8 lay between 0.991 and 1.002 for every engine, inside the §40.3 drift band (two-sample BCa 95%, 2,000 resamples, seed 42, computed with `bca_bootstrap_ratio_ci_with_method` over the two artifacts' windows). (measured: i9-12900F 8 P-cores pinned 0,2,..,14, commit ad3e1475, run 39139933415; base commit 72c733c8, run 39078599689)
+
+**Why §39.5's clause does not apply to the change build.** The clause voids a run when the held arm measures materially slower than `update`. It rests on §39.1's twin check: on the base build the held arm does strictly less work than `update` (no per-call registration), so it can never lose by more than noise. On the change build that premise is gone: `update` reads through the thread's already-registered writer reader, the same one its exchange pins, while the held arm reads through a second registered reader and pins it per attempt. Neither arm does strictly less work, and `update` can legitimately be the faster one. The clause tests a property only the base build has. Replacement runs under it would void the same way, and §40 has no reading of a void run.
+
+**What changes, for change-build runs only.**
+
+- The §39.5 instrument clause (`rho(e, W)` upper bound below `1 - MARGIN`) is withdrawn. Change-build runs are dispatched through the suite `concurrency_update_cells_fix`, which runs `mixed_concurrency.py --update-cells --change-build`; the artifact records `change_build: true` and the withdrawn clause in its gate block, and is committed as `results/baseline_concurrent_update_cells_s40.json` (run 1 of the pair) and `..._s40_run2.json` (run 2).
+- The held-arm drift control of §40.3 is the instrument check for these runs: the held arm's code is the same in both builds, so a held arm that moved between the builds' runs is what an instrument or host defect would show.
+- `--update-fix` reads change-build artifacts, refuses a base-mode run that §39.5 voided, refuses a change-build artifact as the base, and labels its result `INTERMEDIATE`.
+
+**What does not change.** G1 (the §39.4 verdict of the change run's `rho(e, 8)` is `NO_COST`, upper bound below 1.05), G2 (two-sample BCa lower bound of `T_update(change) / T_update(base)` above 1.0), G3, G4, the drift band `[1 - MARGIN, 1 + MARGIN]`, the base pair, the pin, the 36 rounds and their order, every other §39.5 void (pin, a round's foreign load, a window process that fails or writes the wrong row, `--quick`), the pair rule and the cap of three replacement runs. The §39 suite `concurrency_update_cells` and its void clause are unchanged for base-mode runs.
+
+**Label.** This amendment was written after run 1 was observed, so under AGENTS.md §8.19 the §40 pair outcome is labelled `INTERMEDIATE`, whatever it reads. The outcome subsection becomes §40.9.
