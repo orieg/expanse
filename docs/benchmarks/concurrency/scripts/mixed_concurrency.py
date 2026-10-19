@@ -103,6 +103,12 @@ the per-call reader registration in `update` cost throughput under contention?
     EXPANSE_BENCH_PIN=off python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py \\
         --update-cells --quick --rounds 1
 
+`--update-cells --blob` runs the same design on the blob map's pair alone
+(`blob_update`, `blob_update_held`; #1575, `METHODOLOGY.md` §41), writing
+`results/baseline_concurrent_update_cells_blob.json`; with one engine the order
+cycles in 4 rounds, and the 36 rounds are nine cycles. `--change-build` applies
+to it as below.
+
 `--update-cells --change-build` is the §40 change-build run (`METHODOLOGY.md`
 §40.8, bench suite `concurrency_update_cells_fix`): the same cells, without
 §39.5's void on the held arm measuring slower than `update`, which only the
@@ -1500,6 +1506,9 @@ def run_step2(args: argparse.Namespace) -> int:
 UPDATE_ISSUE = 1417
 UPDATE_WORKLOAD_ID = "core_concurrency_update"
 UPDATE_ENGINES = ("map", "str", "bytes")
+# #1575 (METHODOLOGY.md §41): the blob map's pair, run on its own by
+# `--update-cells --blob` so §39's three-engine design is unchanged.
+UPDATE_BLOB_ENGINES = ("blob",)
 UPDATE_ARMS = ("update", "held")
 UPDATE_THREADS = (1, 2, 4, 8)
 UPDATE_GATE_THREADS = 8
@@ -1515,7 +1524,13 @@ UPDATE_PIN = "0,2,4,6,8,10,12,14"
 UPDATE_RESAMPLES = 2000
 UPDATE_DEFAULT_OUT = DEFAULT_OUT.with_name("baseline_concurrent_update_cells.json")
 UPDATE_QUICK_OUT = QUICK_OUT.with_name("baseline_concurrent_update_cells.json")
+UPDATE_BLOB_DEFAULT_OUT = DEFAULT_OUT.with_name("baseline_concurrent_update_cells_blob.json")
+UPDATE_BLOB_QUICK_OUT = QUICK_OUT.with_name("baseline_concurrent_update_cells_blob.json")
 UPDATE_METHODOLOGY = "docs/benchmarks/concurrency/METHODOLOGY.md section 39"
+UPDATE_BLOB_METHODOLOGY = "docs/benchmarks/concurrency/METHODOLOGY.md section 41 (the section 39 cells)"
+# §41.2: one engine, so the period is Williams rows (4) x arm order (2), and the
+# 36 rounds of §39.3 are nine whole cycles.
+UPDATE_BLOB_PERIOD = 4
 UPDATE_RATIO = (
     "rho(e, W) = T(e, W, held) / T(e, W, update), paired within a round, T being updates per "
     "second over one window's own elapsed time; kappa(e, W) = rho(e, W) / rho(e, 1) of the same "
@@ -1531,6 +1546,11 @@ UPDATE_ORDER = (
     "engine the thread counts follow row `round` of the four-level Williams design; within an "
     "(engine, threads) pair the two arms run back to back, update first in even rounds and held "
     "first in odd rounds; one bench process per window"
+)
+UPDATE_BLOB_ORDER = (
+    "one engine (blob); within it the thread counts follow row `round` of the four-level Williams "
+    "design; within a threads cell the two arms run back to back, update first in even rounds and "
+    "held first in odd rounds; one bench process per window"
 )
 UPDATE_RULE = (
     "per engine at 8 threads: COST when rho_ci_lower >= 1 + margin, NO_COST when rho_ci_upper < "
@@ -1552,7 +1572,7 @@ UPDATE_CHANGE_BUILD_RULE = (
 
 def update_arm_key(engine: str, arm: str) -> str:
     """The `EXPANSE_BENCH_ENGINES` key of one §39 arm."""
-    if engine not in UPDATE_ENGINES or arm not in UPDATE_ARMS:
+    if engine not in UPDATE_ENGINES + UPDATE_BLOB_ENGINES or arm not in UPDATE_ARMS:
         raise InstrumentError(f"no §39 arm for engine {engine!r}, arm {arm!r}")
     return f"{engine}_update" if arm == "update" else f"{engine}_update_held"
 
@@ -1594,8 +1614,10 @@ def resolve_update_rounds(requested: int | None, quick: bool) -> int:
     return requested
 
 
-def resolve_update_out(out: str | None, quick: bool) -> Path:
-    path = Path(out).resolve() if out else (UPDATE_QUICK_OUT if quick else UPDATE_DEFAULT_OUT)
+def resolve_update_out(out: str | None, quick: bool, blob: bool = False) -> Path:
+    default = ((UPDATE_BLOB_QUICK_OUT if quick else UPDATE_BLOB_DEFAULT_OUT) if blob else
+               (UPDATE_QUICK_OUT if quick else UPDATE_DEFAULT_OUT))
+    path = Path(out).resolve() if out else default
     committed = (REPO_ROOT / "docs" / "benchmarks").resolve()
     if quick and committed in path.parents:
         raise InstrumentError(f"--quick may not write under docs/benchmarks/ ({path}); quick runs go "
@@ -1756,7 +1778,8 @@ def _update_interval(values: list[float]) -> dict[str, Any]:
 def summarize_update(windows: list[dict[str, Any]], round_loads: list[dict[str, Any]], rounds: int,
                      engines: tuple[str, ...] = UPDATE_ENGINES, threads: tuple[int, ...] = UPDATE_THREADS,
                      gate_threads: int = UPDATE_GATE_THREADS, pin: str = UPDATE_PIN,
-                     quick: bool = False, change_build: bool = False) -> dict[str, Any]:
+                     quick: bool = False, change_build: bool = False,
+                     methodology: str = UPDATE_METHODOLOGY) -> dict[str, Any]:
     """The throughput, rho and kappa cells, the per-engine verdicts and this run's voids."""
     problems = update_order_problems(windows, rounds, engines, threads)
     if problems:
@@ -1838,7 +1861,7 @@ def summarize_update(windows: list[dict[str, Any]], round_loads: list[dict[str, 
     if quick:
         voids.append("--quick: a smoke run of the instrument, never verdict-bearing (METHODOLOGY.md §39.5)")
     gate_block = {
-        "methodology": UPDATE_METHODOLOGY, "threads": gate_threads, "margin": UPDATE_MARGIN,
+        "methodology": methodology, "threads": gate_threads, "margin": UPDATE_MARGIN,
         "margin_source": "scripts/update_registration_bounds.py MARGIN", "rule": UPDATE_RULE,
         "verdicts": verdicts, "contention": labels, "scope": UPDATE_SCOPE,
         "voids": voids, "verdict": "VOID" if voids else "ADMISSIBLE", "quick": quick,
@@ -1851,11 +1874,16 @@ def summarize_update(windows: list[dict[str, Any]], round_loads: list[dict[str, 
 
 def run_update_cells(args: argparse.Namespace) -> int:
     quick = bool(args.quick)
+    blob = bool(args.blob)
     if args.engines is not None or args.workloads is not None or args.threads is not None:
-        raise InstrumentError("--update-cells fixes the engines (map, str, bytes), the mix (0% read) and "
-                              "the threads (1, 2, 4, 8); --engines, --workloads and --threads do not apply")
+        raise InstrumentError("--update-cells fixes the engines (map, str, bytes; blob with --blob), the "
+                              "mix (0% read) and the threads (1, 2, 4, 8); --engines, --workloads and "
+                              "--threads do not apply")
+    engines = UPDATE_BLOB_ENGINES if blob else UPDATE_ENGINES
+    methodology = UPDATE_BLOB_METHODOLOGY if blob else UPDATE_METHODOLOGY
+    order = UPDATE_BLOB_ORDER if blob else UPDATE_ORDER
     rounds = resolve_update_rounds(args.rounds, quick)
-    out = resolve_update_out(args.out, quick)
+    out = resolve_update_out(args.out, quick, blob)
     problems = update_constant_problems()
     if problems:
         raise InstrumentError("; ".join(problems))
@@ -1867,23 +1895,23 @@ def run_update_cells(args: argparse.Namespace) -> int:
     prov = new_provenance(
         suite="concurrency", issue=UPDATE_ISSUE, ratio=UPDATE_RATIO, repo_root=REPO_ROOT, core_pin=pin,
         harness=HARNESS, window_ms=WINDOW_MS, rounds=rounds, threads=list(UPDATE_THREADS),
-        mode="update_cells", methodology=UPDATE_METHODOLOGY, quick=quick,
-        engines=list(UPDATE_ENGINES), arms=list(UPDATE_ARMS), read_pct=UPDATE_READ_PCT,
-        order=UPDATE_ORDER, bootstrap_resamples=UPDATE_RESAMPLES,
+        mode="update_cells", methodology=methodology, quick=quick,
+        engines=list(engines), arms=list(UPDATE_ARMS), read_pct=UPDATE_READ_PCT,
+        order=order, bootstrap_resamples=UPDATE_RESAMPLES,
         bench_sha256=file_sha256(REPO_ROOT / HARNESS), executable_sha256=file_sha256(exe),
     )
     prov["estimators"]["columns"] = UPDATE_COLUMNS
-    print(f"core pin: {pin} | threads {list(UPDATE_THREADS)} | rounds {rounds} | engines {list(UPDATE_ENGINES)}")
+    print(f"core pin: {pin} | threads {list(UPDATE_THREADS)} | rounds {rounds} | engines {list(engines)}")
 
     def launch(key: str, t: int, samples: Path) -> None:
         run_update_window(exe, key, t, samples)
 
     with tempfile.TemporaryDirectory(prefix="expanse-update-cells-") as tmp:
-        windows, round_loads = run_update_rounds(launch, prov, rounds, Path(tmp))
+        windows, round_loads = run_update_rounds(launch, prov, rounds, Path(tmp), engines)
     add_load(prov, "end")
     prov["round_loads"] = round_loads
-    summary = summarize_update(windows, round_loads, rounds, pin=pin, quick=quick,
-                               change_build=bool(args.change_build))
+    summary = summarize_update(windows, round_loads, rounds, engines, pin=pin, quick=quick,
+                               change_build=bool(args.change_build), methodology=methodology)
     artifact = {"provenance": prov, **summary}
     problems = step2_artifact_problems(out, artifact, quick)
     if problems and not quick:
@@ -2225,6 +2253,26 @@ def update_self_test() -> None:
     assert update_arm_key("map", "update") == "map_update"
     assert update_arm_key("bytes", "held") == "bytes_update_held"
     expect_error(update_arm_key, "set", "update", what="an engine §39 does not measure")
+    assert update_arm_key("blob", "held") == "blob_update_held"
+
+    # §41.2: the blob design alone cycles in UPDATE_BLOB_PERIOD rounds, which
+    # divides the registered rounds; each arm leads half of them and every
+    # thread count takes every position.
+    assert UPDATE_ROUNDS % UPDATE_BLOB_PERIOD == 0
+    blob_lead: dict[str, int] = {}
+    blob_pos: dict[int, set[int]] = {t: set() for t in UPDATE_THREADS}
+    for r in range(UPDATE_BLOB_PERIOD):
+        order = update_round_order(r, UPDATE_BLOB_ENGINES)
+        assert sorted(order) == sorted(("blob", t, a) for t in UPDATE_THREADS for a in UPDATE_ARMS), order
+        blob_lead[order[0][2]] = blob_lead.get(order[0][2], 0) + 1
+        for pos, t in enumerate(dict.fromkeys(x[1] for x in order)):
+            blob_pos[t].add(pos)
+    assert blob_lead == {"update": UPDATE_BLOB_PERIOD // 2, "held": UPDATE_BLOB_PERIOD // 2}, blob_lead
+    assert all(p == set(range(len(UPDATE_THREADS))) for p in blob_pos.values()), blob_pos
+    assert update_round_order(UPDATE_BLOB_PERIOD, UPDATE_BLOB_ENGINES) == update_round_order(0, UPDATE_BLOB_ENGINES)
+    assert resolve_update_out(None, False, blob=True) == UPDATE_BLOB_DEFAULT_OUT
+    expect_error(resolve_update_out, str(UPDATE_BLOB_DEFAULT_OUT), True, True,
+                 what="quick blob run writing a committed artifact")
 
     # Rounds, output and pin refusals.
     assert resolve_update_rounds(None, False) == UPDATE_ROUNDS
@@ -2285,12 +2333,12 @@ def update_self_test() -> None:
                  "own_busy_cpus": 4.0 - (foreign or 0.0), "foreign_busy_cpus": foreign} for r in range(rounds)]
 
     def scenario(factor, rounds=UPDATE_PERIOD, mutate=None, pin=UPDATE_PIN, quick=False, foreign=0.02,
-                 change_build=False):
+                 change_build=False, engines=UPDATE_ENGINES):
         with tempfile.TemporaryDirectory() as tmp:
             windows, round_loads = run_update_rounds(launcher(factor, mutate), {}, rounds, Path(tmp),
-                                                     progress=False)
+                                                     engines, progress=False)
         assert [x["round"] for x in round_loads] == list(range(rounds))
-        return summarize_update(windows, loads(rounds, foreign), rounds, pin=pin, quick=quick,
+        return summarize_update(windows, loads(rounds, foreign), rounds, engines, pin=pin, quick=quick,
                                 change_build=change_build)
 
     def jitter(r: int) -> float:
@@ -2311,6 +2359,20 @@ def update_self_test() -> None:
     assert all(abs(p["ratio"] - factor("map", 8, p["round"])) < 1e-6 for p in rho_map8["rounds_raw"])
     assert len(s["throughput"]) == 3 * 4 * 2 and len(s["rho"]) == 3 * 4 and len(s["kappa"]) == 3 * 3
     assert all(c["load"]["foreign_busy_cpus"] == 0.02 for c in s["throughput"] + s["rho"] + s["kappa"])
+
+    # §41: the blob pair alone, end to end; a cost reads COST and the cells
+    # cover one engine only.
+    sb = scenario(lambda e, t, r: 1.20 + jitter(r), rounds=UPDATE_BLOB_PERIOD, engines=UPDATE_BLOB_ENGINES)
+    assert sb["gate"]["verdict"] == "ADMISSIBLE" and sb["gate"]["verdicts"] == {"blob": "COST"}, sb["gate"]
+    assert len(sb["throughput"]) == 4 * 2 and len(sb["rho"]) == 4 and len(sb["kappa"]) == 3
+    assert {c["engine_key"] for c in sb["throughput"]} == {"blob_update", "blob_update_held"}
+    # The three-engine design is not the blob design: blob windows checked
+    # against §39's order are refused.
+    with tempfile.TemporaryDirectory() as tmp:
+        bw, _ = run_update_rounds(launcher(lambda e, t, r: 1.0), {}, UPDATE_BLOB_PERIOD, Path(tmp),
+                                  UPDATE_BLOB_ENGINES, progress=False)
+    expect_error(summarize_update, bw, loads(UPDATE_BLOB_PERIOD), UPDATE_BLOB_PERIOD,
+                 what="blob windows read against the three-engine design")
 
     # An effect between the clauses reads OPEN; one at the margin's edge as well.
     s = scenario(lambda e, t, r: 1.05 + jitter(r))
@@ -3217,6 +3279,9 @@ def main() -> int:
     ap.add_argument("--update-fix", default=None, metavar="RUN1,RUN2",
                     help="METHODOLOGY.md section 40: read the change build's two --update-cells artifacts "
                          "against the committed section 39.9 base pair and print the per-engine verdicts")
+    ap.add_argument("--blob", action="store_true",
+                    help="with --update-cells: the blob map's update pair (METHODOLOGY.md section 41, "
+                         "#1575) on its own, writing baseline_concurrent_update_cells_blob.json")
     ap.add_argument("--change-build", action="store_true",
                     help="with --update-cells: a section 40 change-build run (METHODOLOGY.md section 40.8): "
                          "the section 39.5 below-(1 - margin) rho void does not apply, and the artifact "
@@ -3229,6 +3294,8 @@ def main() -> int:
     try:
         if args.change_build and not args.update_cells:
             raise InstrumentError("--change-build applies to --update-cells only")
+        if args.blob and not args.update_cells:
+            raise InstrumentError("--blob applies to --update-cells only")
         if args.update_fix is not None:
             if (args.update_cells or args.blob_peak or args.step2_gate or args.run2 or args.write_assets
                     or args.check_assets or args.check_sync32_steps):

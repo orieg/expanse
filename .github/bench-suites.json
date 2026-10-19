@@ -162,6 +162,22 @@
       "suite": "concurrency"
     },
     {
+      "name": "concurrency_update_cells_blob",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "#1575 base-build runs of the blob map's contended `update` pair (`METHODOLOGY.md` §41) through `mixed_concurrency.py --update-cells --blob`: `SyncExpanseBlobMap::update` against a held reader + `compare_exchange` loop at 1, 2, 4 and 8 threads, 0% read, one process per window, 36 rounds, pin `0,2,4,6,8,10,12,14`; writes `baseline_concurrent_update_cells_blob.json`.",
+      "suite": "concurrency"
+    },
+    {
+      "name": "concurrency_update_cells_blob_fix",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "#1575 change-build runs of the blob pair (`METHODOLOGY.md` §41) through `mixed_concurrency.py --update-cells --blob --change-build`: the cells, rounds and pin of `concurrency_update_cells_blob`, without the §39.5 void on the held arm measuring slower than `update` (§41.4); writes `baseline_concurrent_update_cells_blob_fix.json`.",
+      "suite": "concurrency"
+    },
+    {
       "name": "concurrency_blob_peak",
       "available": false,
       "kind": "wallclock",
