@@ -92,6 +92,9 @@ STEP_GUARDS = frozenset({
     f"github.event_name == 'push' && !{PRERELEASE_GUARD}",
     f"!(github.event_name == 'workflow_dispatch' && inputs.dry_run) && !{PRERELEASE_GUARD}",
 })
+# Publishing jobs whose channel `verify-registries` does not probe (a Pages deploy
+# is not a registry); every other one must be in its needs.
+VERIFY_UNWATCHED = frozenset({"publish-pages"})
 ESCAPING = ("always()", "failure()", "cancelled()")
 # The one condition allowed to name `cancelled()`: `verify-registries` reports
 # every registry even when one registry job failed, and only once the release
@@ -631,9 +634,44 @@ def hwcaps_problems(workflow_text: str) -> list[str]:
     return lock_problems(HWCAPS_SCRIPT.read_text(encoding="utf-8"), HWCAPS_SCRIPT.name)
 
 
+PUBLISH_COMMAND_RE = re.compile(
+    r"(?<![\w-])(?:cargo\s+publish|npm\s+publish|pnpm\s+publish|yarn\s+publish|gem\s+push"
+    r"|dotnet\s+nuget\s+push|mvn\b[^\n|;&]*?\bdeploy|twine\s+upload|maturin\s+(?:upload|publish)"
+    r"|docker\s+push)(?![\w-])"
+)
+
+
+def publish_command_problems(workflow: dict) -> list[str]:
+    """A registry publish command in a `run:` body of a job not in PUBLISH_JOBS.
+
+    The job-level checks read `needs`, `if` and the job name, so a publish
+    command added to a step of `smoke` or `github-release` would run with none
+    of the pre-release guard or the `promote` ordering. Comment lines and
+    `echo` lines are skipped: they mention a command without running it.
+    """
+    out: list[str] = []
+    for name, job in sorted((workflow.get("jobs") or {}).items()):
+        if name in PUBLISH_JOBS:
+            continue
+        for st in job.get("steps") or []:
+            body = st.get("run")
+            if not isinstance(body, str):
+                continue
+            for line in body.splitlines():
+                code = line.strip()
+                if not code or code.startswith(("#", "echo ", "printf ")):
+                    continue
+                m = PUBLISH_COMMAND_RE.search(code)
+                if m:
+                    out.append(f"`{name}` is not a publishing job but step `{st.get('name', '?')}` runs "
+                               f"`{m.group(0)}`; move it to a job in PUBLISH_JOBS")
+    return out
+
+
 def problems(workflow: dict, text: str | None = None) -> list[str]:
     jobs = workflow.get("jobs", {})
     out: list[str] = supply_chain_problems(workflow) + gate_problems(workflow, text) + toolchain_problems(workflow, text)
+    out += publish_command_problems(workflow)
     missing = [r for r in ("github-release", "smoke", "promote", "verify-registries") if r not in jobs]
     if missing:
         return out + [f"job `{r}` is missing" for r in missing]
@@ -654,6 +692,9 @@ def problems(workflow: dict, text: str | None = None) -> list[str]:
     if normalise(jobs["verify-registries"].get("if")) != VERIFY_REGISTRIES_GUARD:
         out.append("`verify-registries` has no condition that excludes a pre-release tag and still reports "
                    f"every registry when one registry job failed: expected exactly `{VERIFY_REGISTRIES_GUARD}`")
+    for name in sorted(PUBLISH_JOBS - VERIFY_UNWATCHED):
+        if name in jobs and name not in needs(jobs["verify-registries"]):
+            out.append(f"`verify-registries` does not need `{name}`: it would report before that channel finished")
     if "promote" not in needs(jobs["verify-registries"]):
         out.append("`verify-registries` does not need `promote`, which its condition reads")
     for (job_name, step_name), want in STEP_CONDITIONS.items():
@@ -745,6 +786,8 @@ def self_test() -> int:
     check("the !cancelled() exemption borrowed by a publishing job",
           lambda j: j["publish-gem"].__setitem__("if", "${{ !cancelled() && " + _NOT_PRERELEASE_TAG + " }}"),
           "`publish-gem` uses `cancelled()`")
+    check("verify-registries no longer waiting for the tap push", drop_need("verify-registries", "publish-homebrew"),
+          "`verify-registries` does not need `publish-homebrew`")
     check("verify-registries no longer needing promote", drop_need("verify-registries", "promote"),
           "`verify-registries` does not need `promote`")
 
@@ -778,6 +821,18 @@ def self_test() -> int:
           lambda j: next(s for s in j["publish-homebrew"]["steps"]
                          if s.get("name") == "Push formula to orieg/homebrew-tap").__setitem__("if", "false"),
           "`publish-homebrew` step `Push formula to orieg/homebrew-tap` runs on")
+    check("a publish command added to a non-publishing job",
+          lambda j: j["smoke"]["steps"].append({"name": "Sneak", "run": "set -e\ncargo publish --locked -p x"}),
+          "`smoke` is not a publishing job but step `Sneak` runs `cargo publish`")
+    check("mvn deploy added to github-release",
+          lambda j: j["github-release"]["steps"].append({"name": "Sneak", "run": "mvn -f p.xml -P release deploy"}),
+          "`github-release` is not a publishing job")
+    check("npm publish added to promote",
+          lambda j: j["promote"]["steps"].append({"name": "Sneak", "run": "npm publish ./x --access public"}),
+          "`promote` is not a publishing job")
+    for harmless in ("# cargo publish later", 'echo "cargo publish failed"', "echo mvn deploy", "cargo package --list"):
+        if publish_command_problems({"jobs": {"smoke": {"steps": [{"name": "x", "run": harmless}]}}}):
+            failures.append(f"{harmless!r} was reported as a publish command")
     check("a new publishing job outside the list",
            lambda j: j.__setitem__("publish-conda", {"needs": ["promote"], "runs-on": "ubuntu-latest", "steps": []}),
            "`publish-conda` looks like a publishing job")

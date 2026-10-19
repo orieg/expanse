@@ -48,6 +48,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -192,6 +193,27 @@ def _go_tag(version: str) -> list[str]:
     return [version] if status == 200 else []
 
 
+TAP_FORMULA = "https://raw.githubusercontent.com/orieg/homebrew-tap/main/Formula/expanse.rb"
+TAP_VERSION_RE = re.compile(r'^\s*version\s+"([^"]+)"', re.MULTILINE)
+
+
+def parse_formula_version(body: str | None) -> list[str]:
+    """The `version "X.Y.Z"` line of the tap's Formula/expanse.rb, as a one-item list."""
+    if not body:
+        return []
+    return TAP_VERSION_RE.findall(body)[:1]
+
+
+def _homebrew(_v: str) -> list[str]:
+    """The formula `brew install` reads: the tap's main branch, past the CDN cache.
+
+    publish-homebrew pushes it over a deploy key and nothing after that job
+    looked at the tap, so a formula a release behind went unnoticed.
+    """
+    _, body = fetch_text(TAP_FORMULA, bypass_cache=True)
+    return parse_formula_version(body)
+
+
 PROBES = [
     ("crates.io", "expanse-trie", _crates),
     ("PyPI", "expanse-trie", _pypi),
@@ -203,6 +225,7 @@ PROBES = [
     ("Packagist", "orieg/expanse", _packagist("orieg/expanse")),
     ("Packagist", "orieg/expanse-extension", _packagist("orieg/expanse-extension")),
     ("Go module tag", "bindings/go", _go_tag),
+    ("Homebrew tap", "orieg/homebrew-tap", _homebrew),
 ]
 
 # Attempts a registry gets beyond the shared --attempts budget, each waiting
@@ -261,9 +284,18 @@ def run_self_test() -> int:
     assert attempts_for("Maven Central", 6) == 10, attempts_for("Maven Central", 6)
     assert attempts_for("crates.io", 6) == 6
     assert set(EXTRA_ATTEMPTS) <= {p[0] for p in PROBES}, "EXTRA_ATTEMPTS names a real registry"
-    assert len(PROBES) == 10
+    assert len(PROBES) == 11
+    # The tap probe reads the formula's own version line, from the tap's main branch.
+    formula = '# typed: false\nclass Expanse < Formula\n  homepage "https://x"\n  version "0.14.0"\n  license "MIT"\nend\n'
+    assert parse_formula_version(formula) == ["0.14.0"], parse_formula_version(formula)
+    assert parse_formula_version("class Expanse < Formula\nend\n") == []
+    assert parse_formula_version(None) == []
+    assert TAP_FORMULA == "https://raw.githubusercontent.com/orieg/homebrew-tap/main/Formula/expanse.rb"
+    tap_src = inspect.getsource(_homebrew)
+    assert "fetch_text(TAP_FORMULA, bypass_cache=True)" in tap_src and "parse_formula_version(" in tap_src
     names = [p[0] for p in PROBES]
     assert "Maven Central" in names
+    assert "Homebrew tap" in names
     assert "crates.io" in names
     assert "NuGet" in names
     print("verify_release_registries.py --self-test: all checks passed")
