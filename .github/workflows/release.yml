@@ -1271,6 +1271,7 @@ jobs:
       - publish-gem
       - package-nuget
       - package-maven
+      - publish-homebrew
       - github-release
       - promote
     # Nothing to verify for a pre-release tag: no registry receives it.
