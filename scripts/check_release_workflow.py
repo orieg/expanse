@@ -373,6 +373,82 @@ def all_npm_problems(root: Path = REPO_ROOT) -> list[str]:
     return out
 
 
+# Token scopes (Scorecard TokenPermissionsID). Every workflow states its
+# top-level `permissions`, and a write scope is granted only where this table
+# lists it: the top level carries no write beyond TOP_LEVEL_WRITES, and a job
+# carries no write beyond JOB_WRITES. A new write scope is a decision made by
+# editing the table in the same pull request, so a reviewer sees it.
+TOP_LEVEL_WRITES = {
+    # Bench workflows post reactions and the results comment from several jobs
+    # on self-hosted runners; nightly files and updates the failure issues.
+    "bench_avx512.yml": frozenset({"issues", "pull-requests"}),
+    "bench_baremetal.yml": frozenset({"issues", "pull-requests"}),
+    "nightly.yml": frozenset({"issues"}),
+}
+JOB_WRITES = {
+    ("ci.yml", "detect-changes"): frozenset({"actions"}),
+    ("ci.yml", "instruction-counts"): frozenset({"pull-requests"}),
+    ("codeql.yml", "analyze"): frozenset({"security-events"}),
+    ("java.yml", "publish-java"): frozenset({"contents"}),
+    ("pages.yml", "deploy"): frozenset({"pages", "id-token"}),
+    ("python.yml", "publish-pypi"): frozenset({"id-token"}),
+    ("release.yml", "release-gate"): frozenset({"actions"}),
+    ("release.yml", "publish-crates"): frozenset({"id-token"}),
+    ("release.yml", "package-nuget"): frozenset({"contents", "id-token"}),
+    ("release.yml", "package-maven"): frozenset({"contents"}),
+    ("release.yml", "publish-npm"): frozenset({"id-token"}),
+    ("release.yml", "github-release"): frozenset({"contents", "id-token", "attestations"}),
+    ("release.yml", "promote"): frozenset({"contents", "actions"}),
+    ("release.yml", "publish-homebrew"): frozenset({"contents"}),
+    ("release.yml", "publish-pages"): frozenset({"actions"}),
+    ("release.yml", "publish-gem"): frozenset({"id-token"}),
+    ("release.yml", "publish-wasm"): frozenset({"id-token"}),
+    ("scorecard.yml", "analysis"): frozenset({"security-events"}),
+}
+
+
+def write_scopes(perms) -> set[str] | None:
+    """The scopes a `permissions:` value grants write on; None for `write-all`."""
+    if perms == "write-all":
+        return None
+    if isinstance(perms, dict):
+        return {k for k, v in perms.items() if v == "write"}
+    return set()
+
+
+def permission_problems(doc: dict, name: str) -> list[str]:
+    """Top-level `permissions` is present and read-only; job writes are the listed ones."""
+    out: list[str] = []
+    if "permissions" not in doc:
+        out.append(f"{name}: no top-level `permissions:`; set `contents: read` (or `{{}}`) so a job inherits no write")
+    else:
+        top = write_scopes(doc["permissions"])
+        extra = None if top is None else top - TOP_LEVEL_WRITES.get(name, frozenset())
+        if extra is None or extra:
+            out.append(f"{name}: top-level `permissions` grants write on "
+                       f"{'everything' if extra is None else sorted(extra)}; grant it on the job that needs it")
+    for job_name, job in sorted((doc.get("jobs") or {}).items()):
+        if "permissions" not in job:
+            continue
+        got = write_scopes(job["permissions"])
+        extra = None if got is None else got - JOB_WRITES.get((name, job_name), frozenset())
+        if extra is None or extra:
+            out.append(f"{name}: job `{job_name}` grants write on "
+                       f"{'everything' if extra is None else sorted(extra)} not listed in JOB_WRITES")
+    return out
+
+
+def all_permission_problems(root: Path = REPO_ROOT) -> list[str]:
+    """`permission_problems` over every workflow."""
+    out: list[str] = []
+    for path in sorted((root / ".github" / "workflows").glob("*.yml")):
+        out += permission_problems(yaml.safe_load(path.read_text(encoding="utf-8")) or {}, path.name)
+    return out
+
+
+# bench_baremetal.yml builds into a persistent venv on the bench host, which
+# holds no hashed requirements to build against.
+LOCAL_INSTALL_EXEMPT = ("bench_baremetal.yml",)
 PIP_INSTALL_RE = re.compile(r"(?<![\w-])pip3? install\b(.*)")
 
 
@@ -386,7 +462,7 @@ def pip_hash_problems(text: str, where: str) -> list[str]:
     is the repository itself (`pip install .`): `--require-hashes` rejects a
     local path, and its build requirements come from `pyproject.toml`. A line
     that names anything else besides the path, or any `-r` file, is held to the
-    rule. Backslash continuations are joined first; comments and `echo` lines
+    rule; the path itself takes `--no-deps --no-build-isolation`. Backslash continuations are joined first; comments and `echo` lines
     are skipped.
     """
     out: list[str] = []
@@ -411,9 +487,14 @@ def pip_hash_problems(text: str, where: str) -> list[str]:
                 skip = True
             elif not a.startswith("-"):
                 operands.append(a)
-        if operands and all(o == "." or o.startswith(("./", "../")) for o in operands):
-            continue
         prefix = f"{where}: " if where else ""
+        if operands and all(o == "." or o.startswith(("./", "../")) for o in operands):
+            # The build backend then comes from the hashed requirements file
+            # already installed, not from an unhashed fetch of `maturin>=1.5`.
+            if (not {"--no-deps", "--no-build-isolation"} <= set(args)
+                    and not where.endswith(LOCAL_INSTALL_EXEMPT)):
+                out.append(f"{prefix}local `pip install` without `--no-deps --no-build-isolation`: {stripped}")
+            continue
         out.append(f"{prefix}`pip install` without `--require-hashes`: {stripped}")
     return out
 
@@ -1052,6 +1133,37 @@ def self_test() -> int:
     if py_found:
         failures.append(f"the real python.yml has pin problems: {py_found}")
 
+    # --- token permissions ---------------------------------------------------
+    if all_permission_problems():
+        failures.append(f"the real workflows have permission problems: {all_permission_problems()}")
+    base = {"jobs": {"a": {"permissions": {"contents": "read"}}, "b": {}}}
+    for label, doc, name, want in (
+        ("a clean workflow", {"permissions": {"contents": "read"}, **base}, "x.yml", 0),
+        ("an empty top-level block", {"permissions": {}, **base}, "x.yml", 0),
+        ("read-all", {"permissions": "read-all", **base}, "x.yml", 0),
+        ("no top-level permissions", dict(base), "x.yml", 1),
+        ("write-all at the top", {"permissions": "write-all", **base}, "x.yml", 1),
+        ("contents write at the top", {"permissions": {"contents": "write"}, **base}, "x.yml", 1),
+        ("issues write at the top of an unlisted workflow", {"permissions": {"issues": "write"}, **base}, "x.yml", 1),
+        ("issues write at the top of a listed one", {"permissions": {"issues": "write"}, **base}, "nightly.yml", 0),
+        ("pull-requests write at the top of nightly", {"permissions": {"pull-requests": "write"}, **base}, "nightly.yml", 1),
+        ("an unlisted job write", {"permissions": {}, "jobs": {"a": {"permissions": {"contents": "write"}}}}, "x.yml", 1),
+        ("a job write-all", {"permissions": {}, "jobs": {"a": {"permissions": "write-all"}}}, "x.yml", 1),
+        ("a listed job write", {"permissions": {}, "jobs": {"publish-gem": {"permissions": {"id-token": "write"}}}},
+         "release.yml", 0),
+        ("a listed job gaining a scope",
+         {"permissions": {}, "jobs": {"publish-gem": {"permissions": {"id-token": "write", "contents": "write"}}}},
+         "release.yml", 1),
+    ):
+        got = permission_problems(doc, name)
+        if bool(got) != bool(want):
+            failures.append(f"permissions: {label}: reported {got}, want {'a problem' if want else 'none'}")
+    # The motivating regression: a write scope added to a real job.
+    mutated = yaml.safe_load(real_py_text)
+    mutated["jobs"]["test"]["permissions"] = {"contents": "write"}
+    if not any("job `test`" in p for p in permission_problems(mutated, "python.yml")):
+        failures.append("a write scope added to python.yml's test job: not reported")
+
     def check_py(label: str, mutate, needle: str) -> None:
         wf = copy.deepcopy(real_py)
         mutate(wf)
@@ -1158,8 +1270,10 @@ def self_test() -> int:
         ("a requirements file with the flag", "run: pip install --require-hashes -r requirements.txt", 0),
         ("the flag on a continuation line", "run: |\n  pip install \\\n    --require-hashes -r r.txt", 0),
         ("a missing flag on a continuation line", "run: |\n  pip install \\\n    -r r.txt", 1),
-        ("the local project", "run: pip install .", 0),
-        ("the local project in a venv", 'run: "$VENV/bin/python" -m pip install --quiet .', 0),
+        ("the local project", "run: pip install --no-deps --no-build-isolation .", 0),
+        ("the local project with build isolation", "run: pip install .", 1),
+        ("the local project without --no-deps", "run: pip install --no-build-isolation .", 1),
+        ("the local project in a venv", 'run: "$VENV/bin/python" -m pip install --quiet --no-deps --no-build-isolation .', 0),
         ("the local project and a package", "run: pip install . pytest", 1),
         ("a comment", "# pip install ruff", 0),
     ):
@@ -1278,6 +1392,7 @@ def main() -> int:
         found += python_pin_problems(yaml.safe_load(py_text), PYTHON_WORKFLOW.name)
     tree_found, n_files = all_pin_problems()
     found += tree_found + all_npm_problems() + all_pip_problems() + all_requirements_problems()
+    found += all_permission_problems()
     for p in found:
         print(f"::error::{p}")
     if found:
@@ -1287,7 +1402,7 @@ def main() -> int:
           f"actions are pinned by commit in release.yml, python.yml and {n_files - len(PIN_COVERED_ELSEWHERE)} "
           f"other workflow/action files, checkouts drop the token, the toolchain is exact; "
           f"global tools use pinned versions, pip installs carry --require-hashes, cargo build carries --locked, "
-          f"python-bindings.txt resolves the expected set and respects the matrix Python floor")
+          f"token permissions are read-only unless listed, python-bindings.txt resolves the expected set and respects the matrix Python floor")
     return 0
 
 

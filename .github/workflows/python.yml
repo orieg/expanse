@@ -80,7 +80,7 @@ jobs:
 
       - name: Build and install expanse-trie
         run: |
-          pip install .
+          pip install --no-deps --no-build-isolation .
 
       - name: Run Pytest suite
         run: |
