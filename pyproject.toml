@@ -9,7 +9,7 @@ description = "Judy array and digital trie engine for Python (clean-room Rust im
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 authors = [{ name = "Nicolas Brousse", email = "nicolas@brousse.info" }]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 keywords = ["judy", "libjudy", "trie", "radix-tree", "sparse-set", "sparse-map", "ordered-map", "data-structures", "concurrency", "lock-free", "occ"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -21,8 +21,6 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

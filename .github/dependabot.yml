@@ -24,11 +24,6 @@ updates:
   # the pin against that floor).
   - package-ecosystem: "pip"
     directory: "/.github/requirements"
-    # The py38/ subdirectory belongs to the entry below. Without this, the
-    # directory is scanned together with its subdirectories and this entry
-    # (which has no pytest or typing-extensions ceiling) edits the 3.8 set.
-    exclude-paths:
-      - "py38/**"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 2
@@ -41,28 +36,5 @@ updates:
       # version, and scripts/wasm_fuel.py --self-test compares this pin with
       # the committed baseline. It moves only with a re-baseline, by hand.
       - dependency-name: "wasmtime"
-    commit-message:
-      prefix: "chore(ci)"
-
-  # The Python 3.8 row of python.yml has its own pinned set in a directory of
-  # its own, because ignore rules apply per dependency name across a whole
-  # directory and the main set above must be free to take new pytest releases.
-  # pytest 8.4 and later and typing-extensions 4.14 and later require Python
-  # 3.9+, so those versions are held back here. This entry goes away with the
-  # 3.8 row.
-  - package-ecosystem: "pip"
-    directory: "/.github/requirements/py38"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 2
-    groups:
-      python-tools-py38:
-        patterns:
-          - "*"
-    ignore:
-      - dependency-name: "pytest"
-        versions: [">=8.4"]
-      - dependency-name: "typing-extensions"
-        versions: [">=4.14"]
     commit-message:
       prefix: "chore(ci)"
