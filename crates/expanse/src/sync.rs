@@ -12748,12 +12748,17 @@ impl SyncExpanseBlobMap {
     /// a value the map refused, so `update` never spins on an unstorable
     /// value. As for [`Self::get_or_insert`], the capacity-cap reclaim of
     /// [`Self::insert`] does not run on this path.
+    ///
+    /// The first read of the current value is a validated owned-copy read
+    /// through the calling thread's cached reader on this map, the one its
+    /// writes pin, so a call on a present key registers no reader (#1575);
+    /// the retries take the value the failed exchange observed.
     pub fn update(
         &self,
         key: Key,
         mut f: impl FnMut(Option<(&[u8], u32)>) -> Option<(Vec<u8>, u32)>,
     ) -> Result<Option<(Vec<u8>, u32)>, ArenaError> {
-        let mut current = self.get(key);
+        let mut current = self.update_current(key);
         loop {
             let cur = current.as_ref().map(|(b, m)| (b.as_slice(), *m));
             let new = f(cur);
@@ -12767,6 +12772,19 @@ impl SyncExpanseBlobMap {
                 Err(CompareExchangeError::Unstorable(cause)) => return Err(cause),
             }
         }
+    }
+
+    /// [`Self::update`]'s first read: the validated owned-copy lookup of
+    /// [`BlobReader::get`] on the thread's cached writer reader.
+    ///
+    /// Not generic and never inlined, as the other wrappers' `update_current`
+    /// are (METHODOLOGY §40): the generic `update` a caller's crate
+    /// instantiates then reaches the read through one call, and the read
+    /// paths it would otherwise make reachable there compile as before.
+    #[inline(never)]
+    fn update_current(&self, key: Key) -> Option<(Vec<u8>, u32)> {
+        self.shared
+            .with_thread_reader(|r| blob_get_lent(self, r, key))
     }
 
     /// Runs arena garbage collection and compaction. Dead chunks are retired
@@ -13410,6 +13428,14 @@ macro_rules! blob_copy_get_into {
         );
         copied.transpose()
     }};
+}
+
+/// The owned-copy lookup of [`BlobReader::get`] on a reader the caller
+/// lends: [`SyncExpanseBlobMap::update`]'s first read, through the thread's
+/// cached reader (#1575). Panics if `reader` is not on `map`'s collector.
+#[inline(always)]
+fn blob_get_lent(map: &SyncExpanseBlobMap, reader: &Reader, key: Key) -> Option<(Vec<u8>, u32)> {
+    blob_copy_get!(map, map.registered(reader), key)
 }
 
 /// The validated slot-word lookup shared by `get_meta` and `contains` of
@@ -34321,7 +34347,7 @@ mod ordered_bytes_reader_forms_tests {
 /// registered on.
 #[cfg(test)]
 mod update_thread_reader_tests {
-    use super::{SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseStrMap};
+    use super::{SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseStrMap};
     use crate::strmap::NulFreeStr;
     use crate::types::ROOT_LEAF_CAP;
 
@@ -34612,6 +34638,146 @@ mod update_thread_reader_tests {
             map.insert(k, 0);
         }
         let total = no_lost_update!(map, |k: u64| keys[k as usize].as_slice());
+        assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
+    }
+
+    /// A blob payload holding `v`: eight bytes, above the inline limit, so
+    /// every store appends an arena record.
+    fn blob_val(v: u64) -> Vec<u8> {
+        v.to_le_bytes().to_vec()
+    }
+
+    fn blob_num(cur: Option<(&[u8], u32)>) -> Option<u64> {
+        cur.map(|(b, _)| u64::from_le_bytes(b.try_into().expect("an eight-byte payload")))
+    }
+
+    /// The blob map's `update` (#1575): no registration per call after the
+    /// cache's first fill, on a root-leaf map and on a tree, for arena-sized
+    /// and inline payloads.
+    #[test]
+    fn blob_update_registers_no_reader_per_call() {
+        for payload in [16usize, 3] {
+            for n in [3u64, TREE_KEYS] {
+                let map = SyncExpanseBlobMap::new();
+                for k in 0..n {
+                    map.insert(k, &vec![k as u8; payload], 1).expect("insert");
+                }
+                let bump = |cur: Option<(&[u8], u32)>| cur.map(|(b, m)| (b.to_vec(), m + 1));
+                on_fresh_thread(|| {
+                    let first = map.shared.collector.registrations();
+                    let prev = map.update(0, bump).expect("update");
+                    assert_eq!(prev, Some((vec![0u8; payload], 1)));
+                    // The first call fills the thread's cache: one registration.
+                    assert_eq!(map.shared.collector.registrations(), first + 1, "n = {n}");
+                    let before = map.shared.collector.registrations();
+                    for k in 0..n {
+                        map.update(k, bump).expect("update");
+                    }
+                    assert_eq!(map.shared.collector.registrations(), before, "n = {n}");
+                });
+                assert_eq!(
+                    map.get(0),
+                    Some((vec![0u8; payload], 3)),
+                    "payload {payload}, n = {n}"
+                );
+                assert_eq!(
+                    map.get(n - 1),
+                    Some((vec![(n - 1) as u8; payload], 2)),
+                    "payload {payload}, n = {n}"
+                );
+            }
+        }
+    }
+
+    /// [`retry_cases`] for the blob map: the closure's first call writes the
+    /// key itself, so the retry must see `Some -> Some`, `Some -> None` and
+    /// `None -> Some`, and the closure runs outside the reader cache's borrow.
+    #[test]
+    fn blob_update_retries_see_the_current_value() {
+        for n in [3u64, TREE_KEYS] {
+            let map = SyncExpanseBlobMap::new();
+            for k in 0..n {
+                map.insert(k + 1_000, &blob_val(k), 1).expect("insert");
+            }
+            let k = 7u64;
+            let get = |map: &SyncExpanseBlobMap| {
+                map.get(k).map(|(b, _)| blob_num(Some((&b, 0))).unwrap())
+            };
+            let mut trace: RetryTrace = Vec::new();
+            map.insert(k, &blob_val(1), 1).expect("insert");
+            let mut seen = Vec::new();
+            let prev = map
+                .update(k, |cur| {
+                    if seen.is_empty() {
+                        map.insert(k, &blob_val(5), 1).expect("insert");
+                    }
+                    seen.push(blob_num(cur));
+                    blob_num(cur).map(|v| (blob_val(v + 10), 1))
+                })
+                .expect("update");
+            trace.push((
+                seen,
+                blob_num(prev.as_ref().map(|(b, m)| (b.as_slice(), *m))),
+                get(&map),
+            ));
+            let mut seen = Vec::new();
+            let prev = map
+                .update(k, |cur| {
+                    if seen.is_empty() {
+                        assert!(map.remove(k));
+                    }
+                    seen.push(blob_num(cur));
+                    blob_num(cur).map(|v| (blob_val(v + 1), 1))
+                })
+                .expect("update");
+            trace.push((
+                seen,
+                blob_num(prev.as_ref().map(|(b, m)| (b.as_slice(), *m))),
+                get(&map),
+            ));
+            let mut seen = Vec::new();
+            let prev = map
+                .update(k, |cur| {
+                    if seen.is_empty() {
+                        map.insert(k, &blob_val(7), 1).expect("insert");
+                    }
+                    seen.push(blob_num(cur));
+                    Some((blob_val(blob_num(cur).unwrap_or(0) + 100), 1))
+                })
+                .expect("update");
+            trace.push((
+                seen,
+                blob_num(prev.as_ref().map(|(b, m)| (b.as_slice(), *m))),
+                get(&map),
+            ));
+            assert_eq!(trace, expected_retry_trace(), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn blob_update_threads_lose_no_update() {
+        const HOT: u64 = 4;
+        let map = SyncExpanseBlobMap::new();
+        for k in 0..TREE_KEYS {
+            map.insert(k, &blob_val(0), 1).expect("insert");
+        }
+        std::thread::scope(|s| {
+            for t in 0..LOST_THREADS {
+                let map = &map;
+                s.spawn(move || {
+                    for r in 0..LOST_ROUNDS {
+                        map.update((t + r) % HOT, |cur| {
+                            let v = blob_num(cur).expect("the key is never removed");
+                            Some((blob_val(v + 1), 1))
+                        })
+                        .expect("update");
+                    }
+                });
+            }
+        });
+        let total: u64 = (0..HOT)
+            .map(|k| blob_num(map.get(k).as_ref().map(|(b, m)| (b.as_slice(), *m))).unwrap())
+            .sum();
         assert_eq!(total, LOST_THREADS * LOST_ROUNDS);
     }
 }

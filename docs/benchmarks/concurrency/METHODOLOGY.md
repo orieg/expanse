@@ -6505,3 +6505,102 @@ The change-build pair ran as suite `concurrency_update_cells_fix` at `462247b8` 
 **Pair verdict:** `PASS` for map, str and bytes (both runs agree), labelled **`INTERMEDIATE`** under §40.8 and AGENTS.md §8.19, because the §39.5 instrument clause was withdrawn for change-build runs after run 1 was observed. Every held-drift interval lies inside `[0.95, 1.05]`. G3 was met on the engine head `ad3e1475` (CI run [39128941741](https://github.com/orieg/expanse/actions/runs/39128941741): `instructions` 270/270 No change; `rmw_instructions` `sync_map_update_rmw` −21.37%, `sync_strmap_update_rmw` −10.77%, `sync_bytesmap_update_rmw` −12.47%, every other arm No change). G4 (no `%fs:` change outside the `Sync*` wrappers) is recorded in the pull request body.
 
 The falsifier of §40.4 is not met for any engine, so no engine's `update` reverts to reading through `get`. Not measured here: contention below W = 8 is reported in the artifacts but decides nothing; `SyncExpanseBlobMap::update` was not changed and has its own Callgrind arm since #1571.
+
+## 41. Pre-registration for #1575 — the blob map's `update` reads through the thread's cached writer reader (appended 2026-10-18, locked before any run of the blob cells and before any engine code of the change; next free section, may be renumbered at merge)
+
+`SyncExpanseBlobMap::update` still takes its first read through `get`, which registers a throwaway epoch reader and drops it on every call. §40 changed the three other wrappers' `update` and left this one. This section registers both halves for the blob map before either is measured: the cost measurement §39 made for the other engines, and the change §40 made, with the gates each must meet. It holds no data. The harness cells and the driver mode are the previous commit of the same pull request; the engine change is the next one. Code references are to `origin/main` at `78cc0386d`, whose `crates/expanse/src` is the base build of every base run below. Refs #1575, #1417.
+
+### 41.1 The question, and why §39 does not carry over
+
+**What `update` does per call** (`verified`): `update` sets `current = self.get(key)` (`crates/expanse/src/sync.rs:12756`), then loops: `f(current)`, `compare_exchange(key, cur, offered)`, on `Mismatch(seen)` setting `current = seen` and calling `spin_loop()`, stopping on `Unstorable`. `get` is `self.reader().get(key)` (`sync.rs:12905`): one `Collector::register` and one drop around the owned-copy read `blob_copy_get!` (`sync.rs:13373`), the same registration §39.1 describes. `compare_exchange` on a tree-state map runs inside `Shared::with_writer_pin` (`sync.rs:12389`), so the thread's cached writer reader for this map already exists after its first exchange.
+
+**Why §39.9's result is not this engine's.** A blob value is a payload with metadata, read into an owned buffer: the first read copies the payload into a fresh `Vec`, the caller's closure returns another, and the exchange appends an arena record for every stored payload above the inline limit, which a compaction later reclaims. Each of those is work the map, string and bytes maps' `update` does not do, so the registration's share of a blob `update`, at one thread and under contention, is not the share §39.9 measured, and no magnitude transfers. This section measures it.
+
+**The question.** With W threads updating present keys of one shared blob map, is `update` slower than the same read-then-exchange loop on a reader each thread registered once, by at least the §39.3 margin at W = 8 (B0 below); and if it is, does reading through the thread's cached writer reader remove that cost (G1, G2)?
+
+### 41.2 Instrument and cells
+
+- **Arms.** `blob_update` and `blob_update_held` (`crates/expanse/benches/concurrency.rs`, `bench_blob_update`). `blob_update` calls `m.update(k, blob_bump)`; `blob_update_held` runs `update`'s loop verbatim on `rd.get(k)`, `rd` a `BlobReader` the thread registered once, outside the window. Both register that one reader per thread.
+- **Workload.** The blob arms' prefill: 200,000 distinct draws over 400,000 keys, each a 128-byte payload with 24-bit metadata. Every operation updates a key drawn uniformly from the prefill. `blob_bump` returns the present payload copied and its metadata plus one (masked to 24 bits), so every store appends an arena record. Worker 0 compacts the arena on the blob arms' trigger (`blob_compaction_due`, one append counted per update), in both arms; each window publishes its compactions, their wall time and the arena bytes. Workload id `core_concurrency_update`.
+- **Driver.** `mixed_concurrency.py --update-cells --blob`: §39.2's design on the blob pair alone. One engine, so a round is W in {1, 2, 4, 8} in row `round` of the four-level Williams design, the two arms back to back, update first in even rounds and held first in odd ones; the order cycles in 4 rounds, and the 36 rounds of §39.3 are nine cycles. Pin `0,2,4,6,8,10,12,14`, 500 ms windows, one bench process per window, 0% read.
+- **Base runs.** Two dispatches of suite `concurrency_update_cells_blob` at a commit of this pull request before the engine change, whose `crates/expanse/src` equals `78cc0386d`'s. Committed as `results/baseline_concurrent_update_cells_blob.json` (run 1) and `..._blob_run2.json` (run 2).
+- **Change runs.** Two dispatches of suite `concurrency_update_cells_blob_fix` (`--update-cells --blob --change-build`) at the pull request's head. Committed as `results/baseline_concurrent_update_cells_blob_s41.json` (run 1) and `..._blob_s41_run2.json` (run 2).
+- **Evaluation.** `mixed_concurrency.py --update-blob-fix BASE1,BASE2,CHANGE1,CHANGE2` prints every quantity below with its interval and construction and the §41.5 decision; it refuses a void or quick run, an artifact of another mode, a change-build base, a change run not dispatched as a change build, and two builds at one commit (self-test: `update_blob_fix_self_test`, one negative control per clause).
+- **Statistics.** §39.3's, unchanged: per-round `rho(blob, W)` = `T_held / T_update` paired within the round, `kappa(blob, W)` = `rho(blob, W) / rho(blob, 1)`, BCa 95% over the 36 per-round values, 2,000 resamples, seed 42, recorded with `ci_method`; `MARGIN = 0.05`; primary cell W = 8. The gain and drift ratios are §40.3's two-sample BCa (`bca_bootstrap_ratio_ci_with_method`, 2,000 resamples, seed 42) of mean `T` over the 36 windows of change run *i* against base run *i*.
+- **Sizing.** No blob window has been measured, so no spread of this workload exists to size from. The 36 rounds are §39.3's, sized there from another workload's spread; the runs' own intervals decide, and a pair that cannot decide reads `OPEN` (§41.5), never a verdict.
+
+### 41.3 Gates
+
+**B0, the cost (base pair).** Per base run, the §39.4 verdict of `rho(blob, 8)`: `COST` when its lower bound is at least `1 + MARGIN` = 1.05, `NO_COST` when its upper bound is below 1.05, `OPEN` otherwise. The pair's verdict is the run verdict when both agree, `OPEN` otherwise. The base runs keep every §39.5 void, the instrument clause included: on the base build the held arm does strictly less work than `update`.
+
+**Change pair**, read only when B0 is `COST`. Per change run *i* against base run *i*, at W = 8, §40.3's gates unchanged:
+
+- **G1, match.** The §39.4 verdict of the change run's `rho(blob, 8)` is `NO_COST` (upper bound below 1.05).
+- **G2, gain.** `gain` = mean `T_update(change) / T_update(base)`: `GAIN` when its lower bound is above 1.0, `NO_GAIN` when its upper bound is at most 1.0, `OPEN` otherwise.
+- **Drift control.** The same ratio on the held arm; the run is `VOID` when its interval lies wholly outside `[0.95, 1.05]`.
+- **Run verdict.** `PASS` when G1 is `NO_COST` and G2 is `GAIN`; `FAIL` when G1 is `COST` or G2 is `NO_GAIN`; `VOID` per the drift control or §39.5; `OPEN` otherwise. **Pair verdict:** the run verdict when both agree, `OPEN` otherwise; a `VOID` run is replaced.
+
+**Deterministic, on the pull request:**
+
+- **G3, instructions.** `sync_blobmap_update_rmw/random` (`rmw_instructions`) falls. A rise falsifies the claim that the change removes work. Every other arm of `instructions` and `rmw_instructions` reads `No change` in `perf_report.py`; one that moves beyond 0.1% is attributed from a base-versus-head `callgrind_annotate` diff, and from the disassembly where its source did not change, before the change is titled a performance change.
+- **G4, plain paths.** In an x86_64 object of `expanse-trie` built at base and at head, no function outside the `Sync*` wrappers changes its count of `%fs:`-relative instructions, and the plain-tree insert and remove paths keep zero (AGENTS.md §2.1 invariant 5). The census is recorded in the pull request.
+
+### 41.4 The change-build instrument rule, stated before any run
+
+§40.8 found, after observing a run, that §39.5's instrument clause (a `rho` upper bound below `1 - MARGIN` voids the run) rests on the base build's twin check and does not hold on a change build, where `update` reads through the thread's already-registered writer reader and the held arm through a second reader. The same holds here. The clause therefore applies to the base runs and is withdrawn for the change runs from the start: they are dispatched through `concurrency_update_cells_blob_fix`, whose artifact records `change_build: true`, and the held-arm drift control is their instrument check. Every other §39.5 void applies to both builds: a pin other than `0,2,4,6,8,10,12,14`, a round's `foreign_busy_cpus` missing or at least 1.0 core-equivalent, a window process that fails or writes anything but its one requested row, a job the host guard failed, `--quick`. Because this rule is fixed before any run, the outcome carries no `INTERMEDIATE` label unless a later amendment adds one.
+
+### 41.5 Falsifier, and what follows from each outcome
+
+| Base pair (B0) | Change pair | What follows |
+|---|---|---|
+| `NO_COST` | not read | Per-call registration is not material for the blob map at W = 8. The engine change leaves the pull request (`update` keeps reading through `get`) and the result is recorded here and on #1575 |
+| `OPEN` | not read | No engine change on this evidence; one further base pair, whose verdict is final |
+| `COST` | `PASS` | The change stands |
+| `COST` | `FAIL` | `update` returns to reading through `get` in the same pull request; recorded here and on #1575 |
+| `COST` | `OPEN` | One further change pair, whose verdict is final |
+| `COST` | `VOID` | The void run is replaced, at most three times per pair (§39.5) |
+
+The falsifier of the change is a `FAIL` change pair: `update` still at least 5% slower than the held loop at eight threads, or not faster than the base build's `update`. The pull request is not merged before the base pair and, where B0 is `COST`, the change pair are read, with G3 and G4 met.
+
+### 41.6 Expected outcomes, and what is not predicted
+
+Every reason is a hypothesis.
+
+| Quantity | Expected | Reason (hypothesis) |
+|---|---|---|
+| `rho(blob, 1)` | above 1, below the map engine's `rho(map, 1)` of 1.33 (§39.9) | one registration per call, diluted by the payload copies, the closure's allocation, the arena append and the compactions |
+| B0, `rho(blob, 8)` | possibly `COST` | §39.9 found the per-call registration contention-specific on three engines (`kappa(e, 8)` 9.57 to 16.66 over both runs of all three engines); the blob update's longer critical path may dilute it, and the compactions quiesce every writer in both arms |
+| G1 on the change | near 1 | the arms then differ by one cache lookup per update and by which registered reader the read pins |
+| G2 | above 1, at most about the base `rho(blob, 8)` | the held arm's rate is what an update without registration reaches |
+| G3 | `sync_blobmap_update_rmw` falls, other arms unchanged | the registration and the drop leave a single-threaded update; every other path is unchanged in source |
+
+**Expected losses.** None on the gated cells. Possible elsewhere, each named in the pull request if it appears: an instruction change on `sync_blobmap_*` arms whose callers inline `get` differently once `update` no longer calls it (the bytes map's `compare_exchange` did, §40, `absent_exchange_read`); the blob map is not generic over a hasher, so whether this applies is read from the disassembly, not assumed.
+
+**Not predicted:** any magnitude of `rho`, `kappa`, the gain or the arena's share; behaviour on other hosts, core counts or allocators; `update` on absent keys, whose `compare_exchange(None, None)` reads through `get` (`sync.rs:12348`) and is unchanged; inline-sized payloads, which take no arena record.
+
+**Silent constants,** fixed here: §39's (§39.6) and §40's (§40.5) where they apply, plus the blob prefill (200,000 over 400,000 keys, 128-byte payloads, metadata `k & 0xFF_FFFF`), `blob_bump`, the compaction trigger `BLOB_COMPACT_APPENDS` = 200,000 counted by worker 0 times the window's thread count, the one-engine order and its 4-round period, the artifact names above, the base build (`crates/expanse/src` of `78cc0386d`) and the change runs' head. Changing any of them after a run relabels that run `INTERMEDIATE` and requires fresh runs (AGENTS.md §8.19).
+
+### 41.7 Expiry
+
+As §39.7 and §40.6: a change to `Collector::register`, the reader registry, the writer reader cache, `SyncExpanseBlobMap::compare_exchange`'s optimistic path, the blob arena's append or compaction expires the verdicts, and the cells are re-run before a later change is evaluated against them.
+
+### 41.8 Open questions
+
+None. The section number, 41, is the next free one at lock time and may move at merge.
+
+### 41.9 Outcome (appended 2026-10-19; §41.1 to §41.8 are not rewritten)
+
+The base pair ran as suite `concurrency_update_cells_blob` at `5cbbba94` (engine code identical to `78cc0386d`): run 1 [39194202044](https://github.com/orieg/expanse/actions/runs/39194202044) and run 2 [39198876226](https://github.com/orieg/expanse/actions/runs/39198876226). The change pair ran as suite `concurrency_update_cells_blob_fix` at `a2f0cf0e`: run 1 [39215246494](https://github.com/orieg/expanse/actions/runs/39215246494) and run 2 [39221931547](https://github.com/orieg/expanse/actions/runs/39221931547). All four ran on a quiet host (load average at most 0.12 at dispatch, worst foreign activity during a run 0.09 core-equivalents), pin `0,2,4,6,8,10,12,14`, 36 rounds, gate `ADMISSIBLE` with no voids. Artifacts: `results/baseline_concurrent_update_cells_blob.json`, `results/baseline_concurrent_update_cells_blob_run2.json` (base), `results/baseline_concurrent_update_cells_blob_s41.json`, `results/baseline_concurrent_update_cells_blob_s41_run2.json` (change). Read with `mixed_concurrency.py --update-blob-fix`; intervals are BCa 95%.
+
+| run | build | `rho(blob, 8)` | verdict | G2 gain `T_update(change) / T_update(base)` at W = 8 | held drift | run verdict |
+|---|---|---|---|---|---|---|
+| 1 | base | 3.7232 [3.6945, 3.7614] | `COST` | — | — | — |
+| 2 | base | 3.7424 [3.7084, 3.7826] | `COST` | — | — | — |
+| 1 | change | 0.9782 [0.9694, 0.9852] | `NO_COST` (G1) | 3.7684 [3.7421, 3.8056] `GAIN` | 0.9898 [0.9799, 0.9983] | PASS |
+| 2 | change | 0.9886 [0.9807, 0.9950] | `NO_COST` (G1) | 3.7248 [3.6991, 3.7568] `GAIN` | 0.9838 [0.9718, 0.9936] | PASS |
+
+**Verdicts.** B0 is `COST` (both base runs agree). The change pair is `PASS` (both runs agree); §41.5's decision is `CHANGE_STANDS`. Both held-drift intervals lie inside `[0.95, 1.05]`. No threshold, method or sample size changed after any run, and §41.4's change-build rule was fixed before the first run, so the outcome carries no `INTERMEDIATE` label.
+
+**G3** was met on the engine head `a2f0cf0e` (CI run [39187395954](https://github.com/orieg/expanse/actions/runs/39187395954), head-versus-`main` passes): `instructions` 270/270 and `search_instructions` 50/50 No change; `rmw_instructions` `sync_blobmap_update_rmw/random` 112,445,082 → 99,525,924 (−11.49%), and every other arm reads No change in `perf_report.py`. One of those, `sync_bytesmap_cas_remove/routes`, moved by +34,946 (+0.0177%), below the 0.1% review threshold; it is disclosed in the pull request body with its unmeasured attribution. **G4** (no `%fs:` change outside the `Sync*` wrappers, plain-tree insert and remove paths at zero) is recorded in the pull request body.
+
+Not measured here: contention below W = 8 is reported in the artifacts but decides nothing.

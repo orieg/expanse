@@ -48,7 +48,7 @@
 //!
 //! - a retry or backoff loop, a version-lock conflict, a closed writer gate;
 //! - contention on reader registration. `update` reads through the thread's
-//!   cached writer reader (`docs/benchmarks/concurrency/METHODOLOGY.md` §40),
+//!   cached writer reader (`docs/benchmarks/concurrency/METHODOLOGY.md` §40; the blob map's since §41),
 //!   which registers once per thread and map; before that change it read
 //!   through `get`, registering and dropping a throwaway epoch reader on every
 //!   call and taking the collector's reader mutex twice. An instruction count
@@ -459,7 +459,8 @@ fn sync_blobmap_cas(built: (SyncExpanseBlobMap, Vec<u64>)) -> u64 {
     sync_blobmap_cas_body(built)
 }
 
-// `SyncExpanseBlobMap::update` (sync.rs:12670): a `get`, then `compare_exchange`
+// `SyncExpanseBlobMap::update`: an owned-copy read on the thread's cached
+// writer reader (METHODOLOGY §41), then `compare_exchange`
 // over the payload and metadata it returned. The closure rewrites every value
 // to the 16-byte payload of `!k` with non-zero metadata, so the store goes
 // through the arena (above the 7-byte inline limit), as in `sync_blobmap_cas`.

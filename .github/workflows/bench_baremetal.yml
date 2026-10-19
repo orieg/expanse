@@ -63,6 +63,8 @@ on:
           - mixed_concurrency_step2_gate
           - concurrency_update_cells
           - concurrency_update_cells_fix
+          - concurrency_update_cells_blob
+          - concurrency_update_cells_blob_fix
           - writer_scaling
           - writer_scaling_diagnostic
           - writer_scaling_ablation_unpadded_lock
@@ -1359,6 +1361,26 @@ jobs:
                   python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells --change-build \
                   --out docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_fix.json | tee concurrency.txt
                 ;;
+              "concurrency_update_cells_blob")
+                # #1575 (docs/benchmarks/concurrency/METHODOLOGY.md §41): the
+                # blob map's update pair alone, on the §39 design (pin, 36
+                # rounds, one process per window). Dispatched at the base
+                # build; the driver exits non-zero when §39.5 voids the run.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0,2,4,6,8,10,12,14}" \
+                  python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells --blob \
+                  --out docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_blob.json | tee concurrency.txt
+                ;;
+              "concurrency_update_cells_blob_fix")
+                # #1575 change-build runs (METHODOLOGY.md §41.4): the cells of
+                # concurrency_update_cells_blob with --change-build, which
+                # withdraws the §39.5 held-slower-than-update void; the drift
+                # control is read afterwards by --update-blob-fix.
+                env -u EXPANSE_BENCH_PIN_APPLIED \
+                  EXPANSE_BENCH_PIN="${EXPANSE_BENCH_PIN:-0,2,4,6,8,10,12,14}" \
+                  python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells --blob --change-build \
+                  --out docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_blob_fix.json | tee concurrency.txt
+                ;;
               "concurrency_blob_peak")
                 # #1280, concurrency METHODOLOGY.md §34 and its Amendment A1. The
                 # driver maps the applied pin to its cells and its artifact:
@@ -2320,6 +2342,8 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_concurrent_step2_gate.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_update_cells.json \
             docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_fix.json \
+            docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_blob.json \
+            docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_blob_fix.json \
             docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_percore.json \
             docs/benchmarks/concurrency/results/baseline_concurrency_blob_peak_pin0-15.json \
             ycsb.txt \

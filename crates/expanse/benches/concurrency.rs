@@ -60,6 +60,11 @@
 //! `workload_id` `core_concurrency_update`.
 //! `docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-cells`
 //! runs them at 0% read, one process per window (`METHODOLOGY.md` §39).
+//! `blob_update` and `blob_update_held` are the blob map's pair (#1575,
+//! `METHODOLOGY.md` §41): the blob arms' prefill, every write copying the
+//! present 128-byte payload and advancing its metadata by one, worker 0
+//! compacting the arena on the blob arms' trigger in both arms;
+//! `mixed_concurrency.py --update-cells --blob` runs them.
 //!
 //! # Workload shape
 //!
@@ -68,20 +73,21 @@
 //! | `workload_id` | `core_concurrency` |
 //! | `emits` | `core_concurrency`, `core_concurrency_update` — the second is the contended `update` arms' (#1417): the same prefill and windows, every write a read-modify-write of a present key |
 //! | `group` | 2 |
-//! | `population` | Half the keyspace, distinct keys drawn until present: 1M over 2M (map, set), 200k over 400k (blob arms), 100k over 200k route strings (string arms) — the occupancy the mixed workloads' write bit holds; `SyncExpanseMap32` arm: 4,096 draws over an 8k keyspace whose upper 4,096 keys the writer churns (32-bit); update arms: the map and string prefills above |
+//! | `population` | Half the keyspace, distinct keys drawn until present: 1M over 2M (map, set), 200k over 400k (blob arms), 100k over 200k route strings (string arms) — the occupancy the mixed workloads' write bit holds; `SyncExpanseMap32` arm: 4,096 draws over an 8k keyspace whose upper 4,096 keys the writer churns (32-bit); update arms: the map, string and blob prefills above |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; prefill and the concurrent stream both draw from the bounded-keyspace PRNG |
 //! | `probes_and_reuse` | Continuous stream, a fresh one per window; `EXPANSE_BENCH_ROUNDS` interleaved 500 ms windows per thread count (Williams order), all on one prefilled structure per engine and workload, run by one worker pool |
 //! | `hit_rate` | 50% at 100% read (half the keyspace is present). Under a mix a write inserts or removes a uniform key on an independent coin, so occupancy stays at half and 0.25 of writes remove a present key; `mixed_concurrency.py` refuses a window more than 0.05 from that share (#1280). Until #1280 writes inserted even keys and removed odd ones, which left every removal a miss and every insert an overwrite after the first window. Update arms: 100% — every update's key is drawn from the prefill and nothing removes it |
 //! | `miss_gen_method` | Bounded keyspace random stream |
 //! | `value_dereference` | `black_box(sink)` |
 //! | `measured_region` | Clean (`run_rounds`): a window starts at a barrier after thread creation and per-thread setup, and its rates divide by its own elapsed time; the `sync32` arm reads each thread's CPU and core before the barrier and after the timed loop (#1292) |
-//! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type. Reclamation differs by arm and is inside every rate: `BTreeMap` frees a replaced or removed `Vec` inline under its write lock, `SkipMap` defers node reclamation to crossbeam-epoch collection on the worker threads, and the two Expanse blob arms compact their arena on the shared trigger `BLOB_COMPACT_APPENDS` (count and arena bytes published per window). `DashMap` clones its key on every insert; the `Mutex` string arms draw their op choice inside the lock. The update arms pair within an engine (`<e>_update` against `<e>_update_held`): identical prefill, key stream, read function, exchange and retry loop, and one registered reader per thread in both; they differ by the per-call registration and drop `update` makes. |
+//! | `arm_symmetry` | Symmetric within three key types, not across them: u64 → u64 (`SyncExpanseMap`, `SyncExpanseSet`, with no third-party arm), u64 → 128-byte payload and u32 (`SyncExpanseBlobMap`, `Mutex<ExpanseBlobMap>`, `RwLock<BTreeMap>`, `SkipMap`), and 37-byte string keys → u64 (`SyncExpanseStrMap`, `SyncExpanseBytesMap`, their `Mutex` twins, `DashMap`). Compare arms only within a key type. Reclamation differs by arm and is inside every rate: `BTreeMap` frees a replaced or removed `Vec` inline under its write lock, `SkipMap` defers node reclamation to crossbeam-epoch collection on the worker threads, and the two Expanse blob arms compact their arena on the shared trigger `BLOB_COMPACT_APPENDS` (count and arena bytes published per window). `DashMap` clones its key on every insert; the `Mutex` string arms draw their op choice inside the lock. The update arms pair within an engine (`<e>_update` against `<e>_update_held`): identical prefill, key stream, read function, exchange and retry loop, and one registered reader per thread in both; they differ by the per-call registration and drop `update` makes. The blob pair (`blob_update` against `blob_update_held`) is symmetric the same way, on the blob key type: the same copy-and-advance closure, the same owned-copy read, and the same compaction trigger in both arms. |
 //! | `statistics` | Tables: mean ops/sec over a thread count's windows; `EXPANSE_BENCH_SAMPLES` carries every window for BCa 95% intervals (`docs/benchmarks/concurrency/scripts/mixed_concurrency.py`); update arms: per-round paired `T_held / T_update` with a BCa 95% interval (`mixed_concurrency.py --update-cells`) |
-//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36658309874 and 36661955960, commit f9853201)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload. Update arms: **PENDING** — pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §39, no reference-host run yet ([#1417](https://github.com/orieg/expanse/issues/1417)) |
+//! | `verdict` | **MEASURED** `[verified: RUN (reference host, runs 36658309874 and 36661955960, commit f9853201)]`: every cell of both runs, with its BCa interval, is in `docs/benchmarks/concurrency/README.md` §12; report-only, no gate is pre-registered on it. No run before #1280 measured this workload. Update arms: **PENDING** — pre-registered in `docs/benchmarks/concurrency/METHODOLOGY.md` §39, no reference-host run yet ([#1417](https://github.com/orieg/expanse/issues/1417)); blob update arms: **PENDING** — pre-registered in `METHODOLOGY.md` §41, no reference-host run yet ([#1575](https://github.com/orieg/expanse/issues/1575)) |
 
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;
 use expanse_trie::ExpanseBlobMap;
+use expanse_trie::blobmap::CompareExchangeError;
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::strmap::ExpanseStrMap;
 use expanse_trie::sync::{
@@ -1140,6 +1146,89 @@ fn bench_bytes_update<const HELD: bool>(ratio_read: u32, plan: &Plan) -> Vec<Sam
     })
 }
 
+/// The value function of the blob update arms (#1575): the present payload,
+/// copied, with its 24-bit metadata advanced by one. The payload stays
+/// `BLOB_LEN` bytes, so every store appends an arena record, as an overwrite
+/// in the blob arms above does; the `Vec` it returns is the API's own cost
+/// and is the same in both arms.
+#[inline(always)]
+fn blob_bump(cur: Option<(&[u8], u32)>) -> Option<(Vec<u8>, u32)> {
+    cur.map(|(bytes, meta)| (bytes.to_vec(), meta.wrapping_add(1) & 0xFF_FFFF))
+}
+
+/// The blob update arms (#1575, `METHODOLOGY.md` §41). The pair of the map,
+/// string and bytes update arms above, on the blob arms' prefill (`BLOB_POP`
+/// 128-byte payloads over `BLOB_KEYSPACE`), with every write an update of a
+/// present key. An update appends an arena record and leaves the replaced one
+/// dead, so worker 0 compacts on the blob arms' trigger
+/// ([`blob_compaction_due`], one append per update), identically in both arms;
+/// the compactions and their wall time are published per window.
+fn bench_blob_update<const HELD: bool>(ratio_read: u32, plan: &Plan) -> Vec<Sample> {
+    assert_update_mix(ratio_read);
+    let m = Arc::new(SyncExpanseBlobMap::new());
+    let keys = Arc::new(prefill_keys(BLOB_KEYSPACE));
+    let mut buf = [0u8; BLOB_LEN];
+    for &k in keys.iter() {
+        blob_payload(k, &mut buf);
+        m.insert(k, &buf, k as u32 & 0xFF_FFFF).expect("prefill");
+    }
+    run_rounds(plan, move |i, win| {
+        let mut rd = m.reader();
+        let mut rng = XorShift(win.seed(i));
+        let mut c = Counts::default();
+        let mut sink = 0u64;
+        win.begin();
+        while win.running() {
+            let r = (rng.next() % 100) as u32;
+            let k = keys[(rng.next() as usize) % keys.len()];
+            if r < ratio_read {
+                if let Some((bytes, meta)) = rd.get(k) {
+                    sink ^= u64::from(bytes[0]) ^ u64::from(meta);
+                }
+                c.read_ops += 1;
+                continue;
+            }
+            let prev = if HELD {
+                // `SyncExpanseBlobMap::update`'s loop, verbatim, on the
+                // first read through this thread's own reader.
+                let mut current = rd.get(k);
+                loop {
+                    let cur = current.as_ref().map(|(b, m)| (b.as_slice(), *m));
+                    let new = blob_bump(cur);
+                    let offered = new.as_ref().map(|(b, m)| (b.as_slice(), *m));
+                    match m.compare_exchange(k, cur, offered) {
+                        Ok(prev) => break prev,
+                        Err(CompareExchangeError::Mismatch(seen)) => {
+                            current = seen;
+                            core::hint::spin_loop();
+                        }
+                        Err(CompareExchangeError::Unstorable(cause)) => {
+                            panic!("blob update arm: unstorable value: {cause:?}")
+                        }
+                    }
+                }
+            } else {
+                m.update(k, blob_bump)
+                    .expect("blob update arm: unstorable value")
+            };
+            let (bytes, meta) = prev.expect("an update arm's key is always present");
+            sink ^= u64::from(bytes[0]) ^ u64::from(meta);
+            c.write_ops += 1;
+            if blob_compaction_due(i, win) {
+                let t = Instant::now();
+                m.compact().expect("SyncExpanseBlobMap compaction");
+                c.compact_ns += t.elapsed().as_nanos() as u64;
+                c.compactions += 1;
+            }
+        }
+        if i == 0 {
+            c.arena_bytes = m.with_locked(|b| b.arena().mem_used()) as u64;
+        }
+        std::hint::black_box(sink);
+        c
+    })
+}
+
 /// Parses a comma-separated list from the environment variable `name`,
 /// falling back to `default` when unset. CI uses these knobs
 /// (`EXPANSE_BENCH_THREADS`, `EXPANSE_BENCH_WORKLOADS`) to bound the sweep;
@@ -1433,7 +1522,7 @@ const ENGINES: [(&str, &str, EngineBench); 11] = [
 /// The contended `update` arms (#1417, METHODOLOGY.md §39). Opt-in: an unset
 /// `EXPANSE_BENCH_ENGINES` does not run them, so the default sweep is the one
 /// it was before they existed.
-const UPDATE_ENGINES: [(&str, &str, EngineBench); 6] = [
+const UPDATE_ENGINES: [(&str, &str, EngineBench); 8] = [
     (
         "map_update",
         "SyncExpanseMap::update",
@@ -1463,6 +1552,16 @@ const UPDATE_ENGINES: [(&str, &str, EngineBench); 6] = [
         "bytes_update_held",
         "SyncExpanseBytesMap held reader + compare_exchange",
         bench_bytes_update::<true>,
+    ),
+    (
+        "blob_update",
+        "SyncExpanseBlobMap::update",
+        bench_blob_update::<false>,
+    ),
+    (
+        "blob_update_held",
+        "SyncExpanseBlobMap held reader + compare_exchange",
+        bench_blob_update::<true>,
     ),
 ];
 
