@@ -6587,3 +6587,20 @@ As §39.7 and §40.6: a change to `Collector::register`, the reader registry, th
 ### 41.8 Open questions
 
 None. The section number, 41, is the next free one at lock time and may move at merge.
+
+### 41.9 Outcome (appended 2026-10-19; §41.1 to §41.8 are not rewritten)
+
+The base pair ran as suite `concurrency_update_cells_blob` at `5cbbba94` (engine code identical to `78cc0386d`): run 1 [39194202044](https://github.com/orieg/expanse/actions/runs/39194202044) and run 2 [39198876226](https://github.com/orieg/expanse/actions/runs/39198876226). The change pair ran as suite `concurrency_update_cells_blob_fix` at `a2f0cf0e`: run 1 [39215246494](https://github.com/orieg/expanse/actions/runs/39215246494) and run 2 [39221931547](https://github.com/orieg/expanse/actions/runs/39221931547). All four ran on a quiet host (load average at most 0.12 at dispatch, worst foreign activity during a run 0.09 core-equivalents), pin `0,2,4,6,8,10,12,14`, 36 rounds, gate `ADMISSIBLE` with no voids. Artifacts: `results/baseline_concurrent_update_cells_blob.json`, `results/baseline_concurrent_update_cells_blob_run2.json` (base), `results/baseline_concurrent_update_cells_blob_s41.json`, `results/baseline_concurrent_update_cells_blob_s41_run2.json` (change). Read with `mixed_concurrency.py --update-blob-fix`; intervals are BCa 95%.
+
+| run | build | `rho(blob, 8)` | verdict | G2 gain `T_update(change) / T_update(base)` at W = 8 | held drift | run verdict |
+|---|---|---|---|---|---|---|
+| 1 | base | 3.7232 [3.6945, 3.7614] | `COST` | — | — | — |
+| 2 | base | 3.7424 [3.7084, 3.7826] | `COST` | — | — | — |
+| 1 | change | 0.9782 [0.9694, 0.9852] | `NO_COST` (G1) | 3.7684 [3.7421, 3.8056] `GAIN` | 0.9898 [0.9799, 0.9983] | PASS |
+| 2 | change | 0.9886 [0.9807, 0.9950] | `NO_COST` (G1) | 3.7248 [3.6991, 3.7568] `GAIN` | 0.9838 [0.9718, 0.9936] | PASS |
+
+**Verdicts.** B0 is `COST` (both base runs agree). The change pair is `PASS` (both runs agree); §41.5's decision is `CHANGE_STANDS`. Both held-drift intervals lie inside `[0.95, 1.05]`. No threshold, method or sample size changed after any run, and §41.4's change-build rule was fixed before the first run, so the outcome carries no `INTERMEDIATE` label.
+
+**G3** was met on the engine head `a2f0cf0e` (CI run [39187395954](https://github.com/orieg/expanse/actions/runs/39187395954), head-versus-`main` passes): `instructions` 270/270 and `search_instructions` 50/50 No change; `rmw_instructions` `sync_blobmap_update_rmw/random` 112,445,082 → 99,525,924 (−11.49%), and every other arm reads No change in `perf_report.py`. One of those, `sync_bytesmap_cas_remove/routes`, moved by +34,946 (+0.0177%), below the 0.1% review threshold; it is disclosed in the pull request body with its unmeasured attribution. **G4** (no `%fs:` change outside the `Sync*` wrappers, plain-tree insert and remove paths at zero) is recorded in the pull request body.
+
+Not measured here: contention below W = 8 is reported in the artifacts but decides nothing.

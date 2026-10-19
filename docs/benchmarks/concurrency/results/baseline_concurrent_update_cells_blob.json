@@ -1,0 +1,5405 @@
+{
+  "provenance": {
+    "suite": "concurrency",
+    "issue": 1417,
+    "commit": "5cbbba94",
+    "host": {
+      "cpu_model": "12th Gen Intel(R) Core(TM) i9-12900F",
+      "cpus_online": 24,
+      "cpu_core_cpus": "0-15",
+      "cpu_atom_cpus": "16-23",
+      "cpu0_thread_siblings": "0-1",
+      "scaling_driver": "intel_pstate",
+      "scaling_governor": "performance",
+      "scaling_governor_by_cpu": {
+        "0": "performance",
+        "2": "performance",
+        "4": "performance",
+        "6": "performance",
+        "8": "performance",
+        "10": "performance",
+        "12": "performance",
+        "14": "performance"
+      },
+      "scaling_governor_pin_set": "0,2,4,6,8,10,12,14",
+      "scaling_governor_pin_source": "EXPANSE_BENCH_PIN_APPLIED",
+      "transparent_hugepage": "always [madvise] never",
+      "transparent_hugepage_defrag": "always defer defer+madvise [madvise] never",
+      "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35"
+    },
+    "estimators": {
+      "ratio": "rho(e, W) = T(e, W, held) / T(e, W, update), paired within a round, T being updates per second over one window's own elapsed time; kappa(e, W) = rho(e, W) / rho(e, 1) of the same round; each the mean over rounds with a one-sample BCa 95% interval",
+      "columns": "throughput cells: the mean of one arm's windows of updates/s with a BCa 95% interval, and their median; rho and kappa cells: the mean of the per-round ratios, which is not the quotient of the two arms' means",
+      "raw": "every cell carries rounds_raw, the per-round samples verbatim"
+    },
+    "core_pin": "0,2,4,6,8,10,12,14",
+    "loads": [
+      {
+        "label": "start",
+        "since": null,
+        "load1": 1.26,
+        "load5": 0.42,
+        "load15": 0.15,
+        "at": "2026-10-19T03:23:03Z",
+        "stat_busy_jiffies": 1052030,
+        "stat_total_jiffies": 631082514,
+        "child_cpu_s": 85.662,
+        "monotonic_s": 263009.531,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "round:0",
+        "since": "start",
+        "load1": 1.26,
+        "load5": 0.42,
+        "load15": 0.15,
+        "at": "2026-10-19T03:23:03Z",
+        "stat_busy_jiffies": 1052030,
+        "stat_total_jiffies": 631082515,
+        "child_cpu_s": 85.662,
+        "monotonic_s": 263009.531,
+        "busy_cpus_since_prev": null,
+        "own_busy_cpus_since_prev": null,
+        "foreign_busy_cpus_since_prev": null
+      },
+      {
+        "label": "round:1",
+        "since": "round:0",
+        "load1": 1.8,
+        "load5": 0.55,
+        "load15": 0.19,
+        "at": "2026-10-19T03:23:07Z",
+        "stat_busy_jiffies": 1053499,
+        "stat_total_jiffies": 631092847,
+        "child_cpu_s": 100.303,
+        "monotonic_s": 263013.851,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus_since_prev": 3.39,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:2",
+        "since": "round:1",
+        "load1": 2.3,
+        "load5": 0.67,
+        "load15": 0.23,
+        "at": "2026-10-19T03:23:12Z",
+        "stat_busy_jiffies": 1054945,
+        "stat_total_jiffies": 631103174,
+        "child_cpu_s": 114.761,
+        "monotonic_s": 263018.174,
+        "busy_cpus_since_prev": 3.36,
+        "own_busy_cpus_since_prev": 3.35,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:3",
+        "since": "round:2",
+        "load1": 2.3,
+        "load5": 0.67,
+        "load15": 0.23,
+        "at": "2026-10-19T03:23:16Z",
+        "stat_busy_jiffies": 1056398,
+        "stat_total_jiffies": 631113504,
+        "child_cpu_s": 129.3,
+        "monotonic_s": 263022.497,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:4",
+        "since": "round:3",
+        "load1": 2.75,
+        "load5": 0.79,
+        "load15": 0.27,
+        "at": "2026-10-19T03:23:20Z",
+        "stat_busy_jiffies": 1057865,
+        "stat_total_jiffies": 631123818,
+        "child_cpu_s": 143.965,
+        "monotonic_s": 263026.811,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus_since_prev": 3.4,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:5",
+        "since": "round:4",
+        "load1": 2.61,
+        "load5": 0.8,
+        "load15": 0.28,
+        "at": "2026-10-19T03:23:25Z",
+        "stat_busy_jiffies": 1059327,
+        "stat_total_jiffies": 631134161,
+        "child_cpu_s": 158.574,
+        "monotonic_s": 263031.14,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:6",
+        "since": "round:5",
+        "load1": 2.56,
+        "load5": 0.82,
+        "load15": 0.29,
+        "at": "2026-10-19T03:23:29Z",
+        "stat_busy_jiffies": 1060801,
+        "stat_total_jiffies": 631144517,
+        "child_cpu_s": 173.308,
+        "monotonic_s": 263035.473,
+        "busy_cpus_since_prev": 3.42,
+        "own_busy_cpus_since_prev": 3.4,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:7",
+        "since": "round:6",
+        "load1": 2.52,
+        "load5": 0.84,
+        "load15": 0.3,
+        "at": "2026-10-19T03:23:33Z",
+        "stat_busy_jiffies": 1062245,
+        "stat_total_jiffies": 631154841,
+        "child_cpu_s": 187.807,
+        "monotonic_s": 263039.795,
+        "busy_cpus_since_prev": 3.36,
+        "own_busy_cpus_since_prev": 3.35,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:8",
+        "since": "round:7",
+        "load1": 2.64,
+        "load5": 0.89,
+        "load15": 0.32,
+        "at": "2026-10-19T03:23:38Z",
+        "stat_busy_jiffies": 1063688,
+        "stat_total_jiffies": 631165164,
+        "child_cpu_s": 202.253,
+        "monotonic_s": 263044.116,
+        "busy_cpus_since_prev": 3.35,
+        "own_busy_cpus_since_prev": 3.34,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:9",
+        "since": "round:8",
+        "load1": 2.75,
+        "load5": 0.94,
+        "load15": 0.34,
+        "at": "2026-10-19T03:23:42Z",
+        "stat_busy_jiffies": 1065147,
+        "stat_total_jiffies": 631175511,
+        "child_cpu_s": 216.87,
+        "monotonic_s": 263048.446,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "round:10",
+        "since": "round:9",
+        "load1": 2.69,
+        "load5": 0.96,
+        "load15": 0.35,
+        "at": "2026-10-19T03:23:46Z",
+        "stat_busy_jiffies": 1066602,
+        "stat_total_jiffies": 631185864,
+        "child_cpu_s": 231.468,
+        "monotonic_s": 263052.779,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus_since_prev": 3.37,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "round:11",
+        "since": "round:10",
+        "load1": 2.69,
+        "load5": 0.96,
+        "load15": 0.35,
+        "at": "2026-10-19T03:23:51Z",
+        "stat_busy_jiffies": 1068056,
+        "stat_total_jiffies": 631196190,
+        "child_cpu_s": 246.017,
+        "monotonic_s": 263057.1,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.37,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:12",
+        "since": "round:11",
+        "load1": 3.11,
+        "load5": 1.08,
+        "load15": 0.39,
+        "at": "2026-10-19T03:23:55Z",
+        "stat_busy_jiffies": 1069509,
+        "stat_total_jiffies": 631206531,
+        "child_cpu_s": 260.581,
+        "monotonic_s": 263061.429,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:13",
+        "since": "round:12",
+        "load1": 3.02,
+        "load5": 1.09,
+        "load15": 0.4,
+        "at": "2026-10-19T03:23:59Z",
+        "stat_busy_jiffies": 1070965,
+        "stat_total_jiffies": 631216848,
+        "child_cpu_s": 275.177,
+        "monotonic_s": 263065.746,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:14",
+        "since": "round:13",
+        "load1": 3.1,
+        "load5": 1.14,
+        "load15": 0.42,
+        "at": "2026-10-19T03:24:04Z",
+        "stat_busy_jiffies": 1072429,
+        "stat_total_jiffies": 631227178,
+        "child_cpu_s": 289.796,
+        "monotonic_s": 263070.068,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:15",
+        "since": "round:14",
+        "load1": 3.01,
+        "load5": 1.16,
+        "load15": 0.42,
+        "at": "2026-10-19T03:24:08Z",
+        "stat_busy_jiffies": 1073884,
+        "stat_total_jiffies": 631237525,
+        "child_cpu_s": 304.367,
+        "monotonic_s": 263074.399,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:16",
+        "since": "round:15",
+        "load1": 2.93,
+        "load5": 1.17,
+        "load15": 0.43,
+        "at": "2026-10-19T03:24:12Z",
+        "stat_busy_jiffies": 1075342,
+        "stat_total_jiffies": 631247858,
+        "child_cpu_s": 318.97,
+        "monotonic_s": 263078.722,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:17",
+        "since": "round:16",
+        "load1": 3.02,
+        "load5": 1.22,
+        "load15": 0.45,
+        "at": "2026-10-19T03:24:17Z",
+        "stat_busy_jiffies": 1076784,
+        "stat_total_jiffies": 631258187,
+        "child_cpu_s": 333.436,
+        "monotonic_s": 263083.046,
+        "busy_cpus_since_prev": 3.35,
+        "own_busy_cpus_since_prev": 3.35,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "round:18",
+        "since": "round:17",
+        "load1": 3.02,
+        "load5": 1.22,
+        "load15": 0.45,
+        "at": "2026-10-19T03:24:21Z",
+        "stat_busy_jiffies": 1078237,
+        "stat_total_jiffies": 631268520,
+        "child_cpu_s": 347.998,
+        "monotonic_s": 263087.372,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus_since_prev": 3.37,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "round:19",
+        "since": "round:18",
+        "load1": 3.1,
+        "load5": 1.26,
+        "load15": 0.47,
+        "at": "2026-10-19T03:24:25Z",
+        "stat_busy_jiffies": 1079694,
+        "stat_total_jiffies": 631278867,
+        "child_cpu_s": 362.575,
+        "monotonic_s": 263091.7,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.37,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:20",
+        "since": "round:19",
+        "load1": 3.41,
+        "load5": 1.36,
+        "load15": 0.51,
+        "at": "2026-10-19T03:24:30Z",
+        "stat_busy_jiffies": 1081144,
+        "stat_total_jiffies": 631289191,
+        "child_cpu_s": 377.109,
+        "monotonic_s": 263096.022,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:21",
+        "since": "round:20",
+        "load1": 3.3,
+        "load5": 1.37,
+        "load15": 0.52,
+        "at": "2026-10-19T03:24:34Z",
+        "stat_busy_jiffies": 1082595,
+        "stat_total_jiffies": 631299515,
+        "child_cpu_s": 391.67,
+        "monotonic_s": 263100.346,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus_since_prev": 3.37,
+        "foreign_busy_cpus_since_prev": 0.0
+      },
+      {
+        "label": "round:22",
+        "since": "round:21",
+        "load1": 3.11,
+        "load5": 1.36,
+        "load15": 0.52,
+        "at": "2026-10-19T03:24:38Z",
+        "stat_busy_jiffies": 1084064,
+        "stat_total_jiffies": 631309836,
+        "child_cpu_s": 406.349,
+        "monotonic_s": 263104.664,
+        "busy_cpus_since_prev": 3.42,
+        "own_busy_cpus_since_prev": 3.4,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:23",
+        "since": "round:22",
+        "load1": 3.02,
+        "load5": 1.37,
+        "load15": 0.53,
+        "at": "2026-10-19T03:24:43Z",
+        "stat_busy_jiffies": 1085537,
+        "stat_total_jiffies": 631320206,
+        "child_cpu_s": 421.007,
+        "monotonic_s": 263108.998,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "round:24",
+        "since": "round:23",
+        "load1": 2.94,
+        "load5": 1.38,
+        "load15": 0.53,
+        "at": "2026-10-19T03:24:47Z",
+        "stat_busy_jiffies": 1086995,
+        "stat_total_jiffies": 631330524,
+        "child_cpu_s": 435.608,
+        "monotonic_s": 263113.317,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:25",
+        "since": "round:24",
+        "load1": 2.94,
+        "load5": 1.38,
+        "load15": 0.53,
+        "at": "2026-10-19T03:24:51Z",
+        "stat_busy_jiffies": 1088453,
+        "stat_total_jiffies": 631340876,
+        "child_cpu_s": 450.171,
+        "monotonic_s": 263117.647,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:26",
+        "since": "round:25",
+        "load1": 2.86,
+        "load5": 1.4,
+        "load15": 0.54,
+        "at": "2026-10-19T03:24:55Z",
+        "stat_busy_jiffies": 1089913,
+        "stat_total_jiffies": 631351213,
+        "child_cpu_s": 464.795,
+        "monotonic_s": 263121.972,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:27",
+        "since": "round:26",
+        "load1": 2.96,
+        "load5": 1.44,
+        "load15": 0.56,
+        "at": "2026-10-19T03:25:00Z",
+        "stat_busy_jiffies": 1091379,
+        "stat_total_jiffies": 631361563,
+        "child_cpu_s": 479.442,
+        "monotonic_s": 263126.302,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:28",
+        "since": "round:27",
+        "load1": 2.8,
+        "load5": 1.43,
+        "load15": 0.56,
+        "at": "2026-10-19T03:25:04Z",
+        "stat_busy_jiffies": 1092839,
+        "stat_total_jiffies": 631371938,
+        "child_cpu_s": 494.007,
+        "monotonic_s": 263130.64,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:29",
+        "since": "round:28",
+        "load1": 2.73,
+        "load5": 1.44,
+        "load15": 0.57,
+        "at": "2026-10-19T03:25:08Z",
+        "stat_busy_jiffies": 1094296,
+        "stat_total_jiffies": 631382277,
+        "child_cpu_s": 508.611,
+        "monotonic_s": 263134.969,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.37,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:30",
+        "since": "round:29",
+        "load1": 2.6,
+        "load5": 1.43,
+        "load15": 0.57,
+        "at": "2026-10-19T03:25:13Z",
+        "stat_busy_jiffies": 1095761,
+        "stat_total_jiffies": 631392646,
+        "child_cpu_s": 523.163,
+        "monotonic_s": 263139.303,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.03
+      },
+      {
+        "label": "round:31",
+        "since": "round:30",
+        "load1": 2.47,
+        "load5": 1.43,
+        "load15": 0.58,
+        "at": "2026-10-19T03:25:17Z",
+        "stat_busy_jiffies": 1097221,
+        "stat_total_jiffies": 631402966,
+        "child_cpu_s": 537.746,
+        "monotonic_s": 263143.62,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:32",
+        "since": "round:31",
+        "load1": 2.43,
+        "load5": 1.44,
+        "load15": 0.58,
+        "at": "2026-10-19T03:25:21Z",
+        "stat_busy_jiffies": 1098677,
+        "stat_total_jiffies": 631413310,
+        "child_cpu_s": 552.343,
+        "monotonic_s": 263147.95,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus_since_prev": 3.37,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:33",
+        "since": "round:32",
+        "load1": 2.43,
+        "load5": 1.44,
+        "load15": 0.58,
+        "at": "2026-10-19T03:25:26Z",
+        "stat_busy_jiffies": 1100148,
+        "stat_total_jiffies": 631423671,
+        "child_cpu_s": 567.044,
+        "monotonic_s": 263152.283,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus_since_prev": 3.39,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "round:34",
+        "since": "round:33",
+        "load1": 2.4,
+        "load5": 1.45,
+        "load15": 0.59,
+        "at": "2026-10-19T03:25:30Z",
+        "stat_busy_jiffies": 1101600,
+        "stat_total_jiffies": 631434014,
+        "child_cpu_s": 581.586,
+        "monotonic_s": 263156.612,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.01
+      },
+      {
+        "label": "round:35",
+        "since": "round:34",
+        "load1": 2.84,
+        "load5": 1.55,
+        "load15": 0.63,
+        "at": "2026-10-19T03:25:34Z",
+        "stat_busy_jiffies": 1103063,
+        "stat_total_jiffies": 631444353,
+        "child_cpu_s": 596.194,
+        "monotonic_s": 263160.937,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus_since_prev": 3.38,
+        "foreign_busy_cpus_since_prev": 0.02
+      },
+      {
+        "label": "end",
+        "since": "round:35",
+        "load1": 2.7,
+        "load5": 1.55,
+        "load15": 0.64,
+        "at": "2026-10-19T03:25:39Z",
+        "stat_busy_jiffies": 1104511,
+        "stat_total_jiffies": 631454687,
+        "child_cpu_s": 610.725,
+        "monotonic_s": 263165.264,
+        "busy_cpus_since_prev": 3.36,
+        "own_busy_cpus_since_prev": 3.36,
+        "foreign_busy_cpus_since_prev": 0.0
+      }
+    ],
+    "harness": "crates/expanse/benches/concurrency.rs",
+    "window_ms": 500,
+    "rounds": 36,
+    "threads": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "mode": "update_cells",
+    "methodology": "docs/benchmarks/concurrency/METHODOLOGY.md section 41 (the section 39 cells)",
+    "quick": false,
+    "engines": [
+      "blob"
+    ],
+    "arms": [
+      "update",
+      "held"
+    ],
+    "read_pct": 0,
+    "order": "one engine (blob); within it the thread counts follow row `round` of the four-level Williams design; within a threads cell the two arms run back to back, update first in even rounds and held first in odd rounds; one bench process per window",
+    "bootstrap_resamples": 2000,
+    "bench_sha256": "898359f47b8b09e3e5926f51fbc123c39e40f5ea0e50070ed0b7e247bd1ff341",
+    "executable_sha256": "8b59329ddc7960f8fd38b7952f0e643ad418e81c294599fb8cd84974019ba36a",
+    "round_loads": [
+      {
+        "since": "round:0",
+        "wall_s": 4.32,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus": 3.39,
+        "foreign_busy_cpus": 0.02,
+        "round": 0
+      },
+      {
+        "since": "round:1",
+        "wall_s": 4.322,
+        "busy_cpus_since_prev": 3.36,
+        "own_busy_cpus": 3.35,
+        "foreign_busy_cpus": 0.01,
+        "round": 1
+      },
+      {
+        "since": "round:2",
+        "wall_s": 4.323,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.02,
+        "round": 2
+      },
+      {
+        "since": "round:3",
+        "wall_s": 4.315,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus": 3.4,
+        "foreign_busy_cpus": 0.01,
+        "round": 3
+      },
+      {
+        "since": "round:4",
+        "wall_s": 4.328,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.01,
+        "round": 4
+      },
+      {
+        "since": "round:5",
+        "wall_s": 4.333,
+        "busy_cpus_since_prev": 3.42,
+        "own_busy_cpus": 3.4,
+        "foreign_busy_cpus": 0.02,
+        "round": 5
+      },
+      {
+        "since": "round:6",
+        "wall_s": 4.322,
+        "busy_cpus_since_prev": 3.36,
+        "own_busy_cpus": 3.35,
+        "foreign_busy_cpus": 0.01,
+        "round": 6
+      },
+      {
+        "since": "round:7",
+        "wall_s": 4.321,
+        "busy_cpus_since_prev": 3.35,
+        "own_busy_cpus": 3.34,
+        "foreign_busy_cpus": 0.01,
+        "round": 7
+      },
+      {
+        "since": "round:8",
+        "wall_s": 4.329,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.0,
+        "round": 8
+      },
+      {
+        "since": "round:9",
+        "wall_s": 4.333,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus": 3.37,
+        "foreign_busy_cpus": 0.0,
+        "round": 9
+      },
+      {
+        "since": "round:10",
+        "wall_s": 4.321,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.37,
+        "foreign_busy_cpus": 0.01,
+        "round": 10
+      },
+      {
+        "since": "round:11",
+        "wall_s": 4.328,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.01,
+        "round": 11
+      },
+      {
+        "since": "round:12",
+        "wall_s": 4.317,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.01,
+        "round": 12
+      },
+      {
+        "since": "round:13",
+        "wall_s": 4.322,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.02,
+        "round": 13
+      },
+      {
+        "since": "round:14",
+        "wall_s": 4.331,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.01,
+        "round": 14
+      },
+      {
+        "since": "round:15",
+        "wall_s": 4.323,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.01,
+        "round": 15
+      },
+      {
+        "since": "round:16",
+        "wall_s": 4.324,
+        "busy_cpus_since_prev": 3.35,
+        "own_busy_cpus": 3.35,
+        "foreign_busy_cpus": 0.0,
+        "round": 16
+      },
+      {
+        "since": "round:17",
+        "wall_s": 4.326,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus": 3.37,
+        "foreign_busy_cpus": 0.0,
+        "round": 17
+      },
+      {
+        "since": "round:18",
+        "wall_s": 4.328,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.37,
+        "foreign_busy_cpus": 0.01,
+        "round": 18
+      },
+      {
+        "since": "round:19",
+        "wall_s": 4.321,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.01,
+        "round": 19
+      },
+      {
+        "since": "round:20",
+        "wall_s": 4.324,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus": 3.37,
+        "foreign_busy_cpus": 0.0,
+        "round": 20
+      },
+      {
+        "since": "round:21",
+        "wall_s": 4.318,
+        "busy_cpus_since_prev": 3.42,
+        "own_busy_cpus": 3.4,
+        "foreign_busy_cpus": 0.02,
+        "round": 21
+      },
+      {
+        "since": "round:22",
+        "wall_s": 4.334,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.03,
+        "round": 22
+      },
+      {
+        "since": "round:23",
+        "wall_s": 4.319,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.01,
+        "round": 23
+      },
+      {
+        "since": "round:24",
+        "wall_s": 4.329,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.02,
+        "round": 24
+      },
+      {
+        "since": "round:25",
+        "wall_s": 4.325,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.01,
+        "round": 25
+      },
+      {
+        "since": "round:26",
+        "wall_s": 4.33,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.02,
+        "round": 26
+      },
+      {
+        "since": "round:27",
+        "wall_s": 4.338,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.02,
+        "round": 27
+      },
+      {
+        "since": "round:28",
+        "wall_s": 4.329,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.37,
+        "foreign_busy_cpus": 0.01,
+        "round": 28
+      },
+      {
+        "since": "round:29",
+        "wall_s": 4.334,
+        "busy_cpus_since_prev": 3.39,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.03,
+        "round": 29
+      },
+      {
+        "since": "round:30",
+        "wall_s": 4.317,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.02,
+        "round": 30
+      },
+      {
+        "since": "round:31",
+        "wall_s": 4.33,
+        "busy_cpus_since_prev": 3.38,
+        "own_busy_cpus": 3.37,
+        "foreign_busy_cpus": 0.01,
+        "round": 31
+      },
+      {
+        "since": "round:32",
+        "wall_s": 4.333,
+        "busy_cpus_since_prev": 3.41,
+        "own_busy_cpus": 3.39,
+        "foreign_busy_cpus": 0.02,
+        "round": 32
+      },
+      {
+        "since": "round:33",
+        "wall_s": 4.329,
+        "busy_cpus_since_prev": 3.37,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.01,
+        "round": 33
+      },
+      {
+        "since": "round:34",
+        "wall_s": 4.325,
+        "busy_cpus_since_prev": 3.4,
+        "own_busy_cpus": 3.38,
+        "foreign_busy_cpus": 0.02,
+        "round": 34
+      },
+      {
+        "since": "round:35",
+        "wall_s": 4.326,
+        "busy_cpus_since_prev": 3.36,
+        "own_busy_cpus": 3.36,
+        "foreign_busy_cpus": 0.0,
+        "round": 35
+      }
+    ]
+  },
+  "throughput": [
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "update",
+      "engine_key": "blob_update",
+      "engine_name": "SyncExpanseBlobMap::update",
+      "read_pct": 0,
+      "threads": 1,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 3304467.8856795803,
+      "updates_s_ci_lower": 3301132.5719003314,
+      "updates_s_ci_upper": 3307573.171456188,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 3306162.801672978,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 0,
+          "elapsed_s": 0.500143546,
+          "write_ops": 1643690,
+          "updates_s": 3286436.4903751053,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 5,
+          "elapsed_s": 0.500128606,
+          "write_ops": 1646725,
+          "updates_s": 3292603.102970679,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 6,
+          "elapsed_s": 0.500100467,
+          "write_ops": 1658657,
+          "updates_s": 3316647.57273662,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 3,
+          "elapsed_s": 0.500131766,
+          "write_ops": 1655957,
+          "updates_s": 3311041.4346286496,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 0,
+          "elapsed_s": 0.50027943,
+          "write_ops": 1654023,
+          "updates_s": 3306198.2980191694,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 5,
+          "elapsed_s": 0.500140173,
+          "write_ops": 1653834,
+          "updates_s": 3306740.9683964737,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 6,
+          "elapsed_s": 0.500130715,
+          "write_ops": 1653734,
+          "updates_s": 3306603.5546327126,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 3,
+          "elapsed_s": 0.50014098,
+          "write_ops": 1648257,
+          "updates_s": 3295584.776916301,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 0,
+          "elapsed_s": 0.500132172,
+          "write_ops": 1663607,
+          "updates_s": 3326334.7033791696,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 5,
+          "elapsed_s": 0.500131645,
+          "write_ops": 1646613,
+          "updates_s": 3292359.154758144,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 6,
+          "elapsed_s": 0.50013088,
+          "write_ops": 1655615,
+          "updates_s": 3310363.4792556698,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 3,
+          "elapsed_s": 0.500129706,
+          "write_ops": 1652889,
+          "updates_s": 3304920.6639207313,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 0,
+          "elapsed_s": 0.500130727,
+          "write_ops": 1642077,
+          "updates_s": 3283295.5692402394,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 5,
+          "elapsed_s": 0.500143325,
+          "write_ops": 1650810,
+          "updates_s": 3300673.861837504,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 6,
+          "elapsed_s": 0.500143517,
+          "write_ops": 1660155,
+          "updates_s": 3319357.23161638,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 3,
+          "elapsed_s": 0.500136718,
+          "write_ops": 1656448,
+          "updates_s": 3311990.382597744,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 0,
+          "elapsed_s": 0.500129135,
+          "write_ops": 1657064,
+          "updates_s": 3313272.2811679426,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 5,
+          "elapsed_s": 0.500144158,
+          "write_ops": 1651114,
+          "updates_s": 3301276.189254219,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 6,
+          "elapsed_s": 0.50016194,
+          "write_ops": 1656893,
+          "updates_s": 3312713.078488139,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 3,
+          "elapsed_s": 0.5001322,
+          "write_ops": 1648621,
+          "updates_s": 3296370.4396557547,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 0,
+          "elapsed_s": 0.500129359,
+          "write_ops": 1651143,
+          "updates_s": 3301431.860152005,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 5,
+          "elapsed_s": 0.500145797,
+          "write_ops": 1653086,
+          "updates_s": 3305208.221113973,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 6,
+          "elapsed_s": 0.500140286,
+          "write_ops": 1655742,
+          "updates_s": 3310555.1509201955,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 3,
+          "elapsed_s": 0.500144282,
+          "write_ops": 1647482,
+          "updates_s": 3294013.466298111,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 0,
+          "elapsed_s": 0.50013426,
+          "write_ops": 1654139,
+          "updates_s": 3307389.8996641417,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 5,
+          "elapsed_s": 0.500129686,
+          "write_ops": 1642878,
+          "updates_s": 3284903.987882855,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 6,
+          "elapsed_s": 0.500129309,
+          "write_ops": 1658253,
+          "updates_s": 3315648.5136127067,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 3,
+          "elapsed_s": 0.500140297,
+          "write_ops": 1654184,
+          "updates_s": 3307439.952194054,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 0,
+          "elapsed_s": 0.50013093,
+          "write_ops": 1648302,
+          "updates_s": 3295740.977267693,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 5,
+          "elapsed_s": 0.500142427,
+          "write_ops": 1647432,
+          "updates_s": 3293925.71208521,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 6,
+          "elapsed_s": 0.500130317,
+          "write_ops": 1659144,
+          "updates_s": 3317423.366678249,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 3,
+          "elapsed_s": 0.500134141,
+          "write_ops": 1651027,
+          "updates_s": 3301168.355951129,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 0,
+          "elapsed_s": 0.50014341,
+          "write_ops": 1657075,
+          "updates_s": 3313199.7080597347,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 5,
+          "elapsed_s": 0.500140753,
+          "write_ops": 1653529,
+          "updates_s": 3306127.3053267864,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 6,
+          "elapsed_s": 0.500136982,
+          "write_ops": 1652783,
+          "updates_s": 3304660.6419518883,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 3,
+          "elapsed_s": 0.500142184,
+          "write_ops": 1654082,
+          "updates_s": 3307223.5314588062,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "held",
+      "engine_key": "blob_update_held",
+      "engine_name": "SyncExpanseBlobMap held reader + compare_exchange",
+      "read_pct": 0,
+      "threads": 1,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 3651265.1905336953,
+      "updates_s_ci_lower": 3646320.7739894614,
+      "updates_s_ci_upper": 3655487.9252919983,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 3653859.117705061,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 1,
+          "elapsed_s": 0.500155015,
+          "write_ops": 1829366,
+          "updates_s": 3657598.0348812453,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 4,
+          "elapsed_s": 0.500128812,
+          "write_ops": 1833453,
+          "updates_s": 3665961.560318984,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 7,
+          "elapsed_s": 0.500130187,
+          "write_ops": 1836052,
+          "updates_s": 3671148.1284771957,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 2,
+          "elapsed_s": 0.500133805,
+          "write_ops": 1832947,
+          "updates_s": 3664913.232569832,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 1,
+          "elapsed_s": 0.50014865,
+          "write_ops": 1829127,
+          "updates_s": 3657166.724332856,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 4,
+          "elapsed_s": 0.500145153,
+          "write_ops": 1827539,
+          "updates_s": 3654017.216877837,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 7,
+          "elapsed_s": 0.500140342,
+          "write_ops": 1828539,
+          "updates_s": 3656051.804755234,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 2,
+          "elapsed_s": 0.500152679,
+          "write_ops": 1822809,
+          "updates_s": 3644505.1212051986,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 1,
+          "elapsed_s": 0.500131668,
+          "write_ops": 1845429,
+          "updates_s": 3689886.3200960113,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 4,
+          "elapsed_s": 0.500128771,
+          "write_ops": 1827321,
+          "updates_s": 3653701.0185322855,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 7,
+          "elapsed_s": 0.500146976,
+          "write_ops": 1829059,
+          "updates_s": 3657043.004894625,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 2,
+          "elapsed_s": 0.500153683,
+          "write_ops": 1823971,
+          "updates_s": 3646821.091188486,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 1,
+          "elapsed_s": 0.500129492,
+          "write_ops": 1832085,
+          "updates_s": 3663221.284298907,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 4,
+          "elapsed_s": 0.500143876,
+          "write_ops": 1831092,
+          "updates_s": 3661130.5023756805,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 7,
+          "elapsed_s": 0.500137429,
+          "write_ops": 1829127,
+          "updates_s": 3657248.775915949,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 2,
+          "elapsed_s": 0.500131056,
+          "write_ops": 1823476,
+          "updates_s": 3645996.340607171,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 1,
+          "elapsed_s": 0.500138231,
+          "write_ops": 1831728,
+          "updates_s": 3662443.4735524147,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 4,
+          "elapsed_s": 0.500140901,
+          "write_ops": 1823545,
+          "updates_s": 3646062.532286277,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 7,
+          "elapsed_s": 0.500145793,
+          "write_ops": 1809045,
+          "updates_s": 3617035.3231382677,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 2,
+          "elapsed_s": 0.500131723,
+          "write_ops": 1831509,
+          "updates_s": 3662053.246720365,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 1,
+          "elapsed_s": 0.500126673,
+          "write_ops": 1830547,
+          "updates_s": 3660166.7114043324,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 4,
+          "elapsed_s": 0.500136725,
+          "write_ops": 1823777,
+          "updates_s": 3646556.849029633,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 7,
+          "elapsed_s": 0.500140628,
+          "write_ops": 1804683,
+          "updates_s": 3608351.1295946944,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 2,
+          "elapsed_s": 0.500119245,
+          "write_ops": 1819962,
+          "updates_s": 3639056.121505582,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 1,
+          "elapsed_s": 0.50013298,
+          "write_ops": 1830002,
+          "updates_s": 3659030.8441566885,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 4,
+          "elapsed_s": 0.500142291,
+          "write_ops": 1823291,
+          "updates_s": 3645544.5436426816,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 7,
+          "elapsed_s": 0.500130403,
+          "write_ops": 1827882,
+          "updates_s": 3654810.803413605,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 2,
+          "elapsed_s": 0.500150556,
+          "write_ops": 1825444,
+          "updates_s": 3649789.0047332067,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 1,
+          "elapsed_s": 0.500140064,
+          "write_ops": 1828813,
+          "updates_s": 3656601.683483609,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 4,
+          "elapsed_s": 0.50013286,
+          "write_ops": 1824957,
+          "updates_s": 3648944.4024933693,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 7,
+          "elapsed_s": 0.500130229,
+          "write_ops": 1822643,
+          "updates_s": 3644336.803324879,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 2,
+          "elapsed_s": 0.500127799,
+          "write_ops": 1817891,
+          "updates_s": 3634852.9388585333,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 1,
+          "elapsed_s": 0.500142979,
+          "write_ops": 1822131,
+          "updates_s": 3643220.192040324,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 4,
+          "elapsed_s": 0.500138809,
+          "write_ops": 1826415,
+          "updates_s": 3651816.190092939,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 7,
+          "elapsed_s": 0.500142066,
+          "write_ops": 1811038,
+          "updates_s": 3621047.1446327013,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 2,
+          "elapsed_s": 0.500139995,
+          "write_ops": 1824219,
+          "updates_s": 3647416.759781429,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "update",
+      "engine_key": "blob_update",
+      "engine_name": "SyncExpanseBlobMap::update",
+      "read_pct": 0,
+      "threads": 2,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 3806882.091913055,
+      "updates_s_ci_lower": 3793922.303577074,
+      "updates_s_ci_upper": 3820483.8113874923,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 3799644.0697927885,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 2,
+          "elapsed_s": 0.500133735,
+          "write_ops": 1891779,
+          "updates_s": 3782546.2823458607,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 1,
+          "elapsed_s": 0.500134452,
+          "write_ops": 1893454,
+          "updates_s": 3785889.959046453,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 4,
+          "elapsed_s": 0.500134145,
+          "write_ops": 1890568,
+          "updates_s": 3780121.831113931,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 7,
+          "elapsed_s": 0.500135333,
+          "write_ops": 1893643,
+          "updates_s": 3786261.1878293348,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 2,
+          "elapsed_s": 0.500126903,
+          "write_ops": 1930467,
+          "updates_s": 3859954.3204337484,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 1,
+          "elapsed_s": 0.500124081,
+          "write_ops": 1941426,
+          "updates_s": 3881888.662745675,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 4,
+          "elapsed_s": 0.500135198,
+          "write_ops": 1891060,
+          "updates_s": 3781097.6063316385,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 7,
+          "elapsed_s": 0.500137387,
+          "write_ops": 1938199,
+          "updates_s": 3875333.1592065124,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 2,
+          "elapsed_s": 0.500131134,
+          "write_ops": 1892502,
+          "updates_s": 3784011.574852287,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 1,
+          "elapsed_s": 0.500132261,
+          "write_ops": 1889422,
+          "updates_s": 3777844.6769703585,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 4,
+          "elapsed_s": 0.50013359,
+          "write_ops": 1906286,
+          "updates_s": 3811553.6291013765,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 7,
+          "elapsed_s": 0.500144887,
+          "write_ops": 1901975,
+          "updates_s": 3802848.033513936,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 2,
+          "elapsed_s": 0.500143285,
+          "write_ops": 1914035,
+          "updates_s": 3826973.3042601976,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 1,
+          "elapsed_s": 0.500144335,
+          "write_ops": 1942341,
+          "updates_s": 3883560.932465625,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 4,
+          "elapsed_s": 0.500060028,
+          "write_ops": 1910232,
+          "updates_s": 3820005.385433446,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 7,
+          "elapsed_s": 0.500148659,
+          "write_ops": 1898493,
+          "updates_s": 3795857.42326263,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 2,
+          "elapsed_s": 0.500133373,
+          "write_ops": 1909418,
+          "updates_s": 3817817.6124231564,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 1,
+          "elapsed_s": 0.500128864,
+          "write_ops": 1858010,
+          "updates_s": 3715062.5243657203,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 4,
+          "elapsed_s": 0.50012767,
+          "write_ops": 1906550,
+          "updates_s": 3812126.6115909964,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 7,
+          "elapsed_s": 0.500133284,
+          "write_ops": 1916012,
+          "updates_s": 3831002.7772516734,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 2,
+          "elapsed_s": 0.500134059,
+          "write_ops": 1898729,
+          "updates_s": 3796440.1060716407,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 1,
+          "elapsed_s": 0.50014091,
+          "write_ops": 1927140,
+          "updates_s": 3853194.0928407554,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 4,
+          "elapsed_s": 0.500135046,
+          "write_ops": 1912167,
+          "updates_s": 3823301.3568899147,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 7,
+          "elapsed_s": 0.500140977,
+          "write_ops": 1902351,
+          "updates_s": 3803629.5514334547,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 2,
+          "elapsed_s": 0.500132611,
+          "write_ops": 1880290,
+          "updates_s": 3759582.8759104856,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 1,
+          "elapsed_s": 0.500134938,
+          "write_ops": 1892543,
+          "updates_s": 3784064.771735663,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 4,
+          "elapsed_s": 0.500125307,
+          "write_ops": 1890368,
+          "updates_s": 3779788.7320267116,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 7,
+          "elapsed_s": 0.500148294,
+          "write_ops": 1937152,
+          "updates_s": 3873155.2686251886,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 2,
+          "elapsed_s": 0.500124905,
+          "write_ops": 1905355,
+          "updates_s": 3809758.284283004,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 1,
+          "elapsed_s": 0.500141893,
+          "write_ops": 1891928,
+          "updates_s": 3782782.499285658,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 4,
+          "elapsed_s": 0.500143282,
+          "write_ops": 1939580,
+          "updates_s": 3878048.6908549536,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 7,
+          "elapsed_s": 0.500122617,
+          "write_ops": 1884358,
+          "updates_s": 3767792.0092943925,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 2,
+          "elapsed_s": 0.500123988,
+          "write_ops": 1891868,
+          "updates_s": 3782797.9568938413,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 1,
+          "elapsed_s": 0.500135624,
+          "write_ops": 1885452,
+          "updates_s": 3769881.427202634,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 4,
+          "elapsed_s": 0.50012598,
+          "write_ops": 1878262,
+          "updates_s": 3755577.7446314627,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 7,
+          "elapsed_s": 0.500138561,
+          "write_ops": 1908630,
+          "updates_s": 3816202.446345664,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "held",
+      "engine_key": "blob_update_held",
+      "engine_name": "SyncExpanseBlobMap held reader + compare_exchange",
+      "read_pct": 0,
+      "threads": 2,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 5431003.581012781,
+      "updates_s_ci_lower": 5408827.835141987,
+      "updates_s_ci_upper": 5451020.137531773,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 5439659.144270401,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 3,
+          "elapsed_s": 0.500132985,
+          "write_ops": 2740281,
+          "updates_s": 5479104.722516952,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 0,
+          "elapsed_s": 0.500128868,
+          "write_ops": 2677457,
+          "updates_s": 5353534.20150904,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 5,
+          "elapsed_s": 0.500136158,
+          "write_ops": 2675111,
+          "updates_s": 5348765.445588919,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 6,
+          "elapsed_s": 0.500134116,
+          "write_ops": 2741316,
+          "updates_s": 5481161.777014228,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 3,
+          "elapsed_s": 0.500133392,
+          "write_ops": 2698040,
+          "updates_s": 5394640.796149841,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 0,
+          "elapsed_s": 0.500133222,
+          "write_ops": 2721747,
+          "updates_s": 5442044.000028457,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 5,
+          "elapsed_s": 0.5001334,
+          "write_ops": 2706629,
+          "updates_s": 5411814.127990653,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 6,
+          "elapsed_s": 0.500131602,
+          "write_ops": 2736739,
+          "updates_s": 5472037.737779266,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 3,
+          "elapsed_s": 0.500133968,
+          "write_ops": 2758836,
+          "updates_s": 5516194.013040922,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 0,
+          "elapsed_s": 0.500133437,
+          "write_ops": 2657165,
+          "updates_s": 5312912.121890383,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 5,
+          "elapsed_s": 0.500135014,
+          "write_ops": 2718965,
+          "updates_s": 5436462.003038243,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 6,
+          "elapsed_s": 0.500133402,
+          "write_ops": 2701410,
+          "updates_s": 5401378.890506498,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 3,
+          "elapsed_s": 0.500146801,
+          "write_ops": 2728768,
+          "updates_s": 5455934.126828495,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 0,
+          "elapsed_s": 0.500135557,
+          "write_ops": 2703268,
+          "updates_s": 5405070.609686725,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 5,
+          "elapsed_s": 0.500135197,
+          "write_ops": 2754530,
+          "updates_s": 5507570.785904916,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 6,
+          "elapsed_s": 0.50012751,
+          "write_ops": 2734934,
+          "updates_s": 5468473.429905905,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 3,
+          "elapsed_s": 0.500140524,
+          "write_ops": 2764928,
+          "updates_s": 5528302.281700333,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 0,
+          "elapsed_s": 0.500134048,
+          "write_ops": 2719366,
+          "updates_s": 5437274.288512346,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 5,
+          "elapsed_s": 0.50012788,
+          "write_ops": 2688337,
+          "updates_s": 5375299.213473163,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 6,
+          "elapsed_s": 0.500138983,
+          "write_ops": 2750372,
+          "updates_s": 5499215.405090708,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 3,
+          "elapsed_s": 0.500132496,
+          "write_ops": 2749425,
+          "updates_s": 5497393.234771932,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 0,
+          "elapsed_s": 0.500134549,
+          "write_ops": 2747567,
+          "updates_s": 5493655.668246986,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 5,
+          "elapsed_s": 0.500132568,
+          "write_ops": 2750673,
+          "updates_s": 5499887.781753097,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 6,
+          "elapsed_s": 0.500131247,
+          "write_ops": 2669528,
+          "updates_s": 5337654.897615305,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 3,
+          "elapsed_s": 0.500134849,
+          "write_ops": 2713107,
+          "updates_s": 5424750.955516798,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 0,
+          "elapsed_s": 0.500135852,
+          "write_ops": 2715047,
+          "updates_s": 5428619.022497112,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 5,
+          "elapsed_s": 0.500134151,
+          "write_ops": 2731830,
+          "updates_s": 5462194.4822960105,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 6,
+          "elapsed_s": 0.500132796,
+          "write_ops": 2671320,
+          "updates_s": 5341221.414322127,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 3,
+          "elapsed_s": 0.500102831,
+          "write_ops": 2681045,
+          "updates_s": 5360987.448599347,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 0,
+          "elapsed_s": 0.500132164,
+          "write_ops": 2646943,
+          "updates_s": 5292487.047483712,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 5,
+          "elapsed_s": 0.500133164,
+          "write_ops": 2652345,
+          "updates_s": 5303277.588686361,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 6,
+          "elapsed_s": 0.50012446,
+          "write_ops": 2726468,
+          "updates_s": 5451578.992957073,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 3,
+          "elapsed_s": 0.500147233,
+          "write_ops": 2747851,
+          "updates_s": 5494084.179008145,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 0,
+          "elapsed_s": 0.50013594,
+          "write_ops": 2717439,
+          "updates_s": 5433400.766999469,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 5,
+          "elapsed_s": 0.500124592,
+          "write_ops": 2728985,
+          "updates_s": 5456610.300019,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 6,
+          "elapsed_s": 0.500136346,
+          "write_ops": 2756319,
+          "updates_s": 5511135.157531622,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "update",
+      "engine_key": "blob_update",
+      "engine_name": "SyncExpanseBlobMap::update",
+      "read_pct": 0,
+      "threads": 4,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 2773495.938351309,
+      "updates_s_ci_lower": 2756787.3375334195,
+      "updates_s_ci_upper": 2791306.4713655934,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 2776127.771500597,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 6,
+          "elapsed_s": 0.500058147,
+          "write_ops": 1402070,
+          "updates_s": 2803813.9332624455,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 3,
+          "elapsed_s": 0.500132709,
+          "write_ops": 1354762,
+          "updates_s": 2708805.0343853836,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 0,
+          "elapsed_s": 0.500132735,
+          "write_ops": 1374203,
+          "updates_s": 2747676.5742998207,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 5,
+          "elapsed_s": 0.500128926,
+          "write_ops": 1413258,
+          "updates_s": 2825787.3650763403,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 6,
+          "elapsed_s": 0.50006767,
+          "write_ops": 1385188,
+          "updates_s": 2770001.1080500367,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 3,
+          "elapsed_s": 0.500097846,
+          "write_ops": 1411390,
+          "updates_s": 2822227.712614463,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 0,
+          "elapsed_s": 0.500129849,
+          "write_ops": 1365832,
+          "updates_s": 2730954.776506451,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 5,
+          "elapsed_s": 0.500098482,
+          "write_ops": 1361284,
+          "updates_s": 2722031.857717177,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 6,
+          "elapsed_s": 0.500072989,
+          "write_ops": 1385436,
+          "updates_s": 2770467.572684675,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 3,
+          "elapsed_s": 0.500066914,
+          "write_ops": 1353045,
+          "updates_s": 2705727.897846887,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 0,
+          "elapsed_s": 0.500064096,
+          "write_ops": 1341246,
+          "updates_s": 2682148.1700617834,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 5,
+          "elapsed_s": 0.500134224,
+          "write_ops": 1366763,
+          "updates_s": 2732792.387349201,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 6,
+          "elapsed_s": 0.500064776,
+          "write_ops": 1440009,
+          "updates_s": 2879644.93623922,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 3,
+          "elapsed_s": 0.500130569,
+          "write_ops": 1414163,
+          "updates_s": 2827587.6094268495,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 0,
+          "elapsed_s": 0.500065984,
+          "write_ops": 1363491,
+          "updates_s": 2726622.173125057,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 5,
+          "elapsed_s": 0.500058315,
+          "write_ops": 1430846,
+          "updates_s": 2861358.279783829,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 6,
+          "elapsed_s": 0.500068843,
+          "write_ops": 1359083,
+          "updates_s": 2717791.798118484,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 3,
+          "elapsed_s": 0.500070096,
+          "write_ops": 1335709,
+          "updates_s": 2671043.5410638913,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 0,
+          "elapsed_s": 0.500096401,
+          "write_ops": 1420896,
+          "updates_s": 2841244.202435282,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 5,
+          "elapsed_s": 0.500134663,
+          "write_ops": 1401258,
+          "updates_s": 2801761.4128057347,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 6,
+          "elapsed_s": 0.500055846,
+          "write_ops": 1361039,
+          "updates_s": 2721773.999618435,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 3,
+          "elapsed_s": 0.500148471,
+          "write_ops": 1391307,
+          "updates_s": 2781787.970316518,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 0,
+          "elapsed_s": 0.500056333,
+          "write_ops": 1392116,
+          "updates_s": 2783918.3470555106,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 5,
+          "elapsed_s": 0.500067675,
+          "write_ops": 1401251,
+          "updates_s": 2802122.7326881303,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 6,
+          "elapsed_s": 0.500065445,
+          "write_ops": 1381877,
+          "updates_s": 2763392.299581907,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 3,
+          "elapsed_s": 0.500084887,
+          "write_ops": 1428590,
+          "updates_s": 2856695.0074618035,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 0,
+          "elapsed_s": 0.500071492,
+          "write_ops": 1421112,
+          "updates_s": 2841817.66554291,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 5,
+          "elapsed_s": 0.500065709,
+          "write_ops": 1411243,
+          "updates_s": 2822115.123274729,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 6,
+          "elapsed_s": 0.500067051,
+          "write_ops": 1371314,
+          "updates_s": 2742260.25741496,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 3,
+          "elapsed_s": 0.500066806,
+          "write_ops": 1367436,
+          "updates_s": 2734506.637099204,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 0,
+          "elapsed_s": 0.500077557,
+          "write_ops": 1391359,
+          "updates_s": 2782286.4284229414,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 5,
+          "elapsed_s": 0.500136674,
+          "write_ops": 1396114,
+          "updates_s": 2791464.958636487,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 6,
+          "elapsed_s": 0.500073914,
+          "write_ops": 1416086,
+          "updates_s": 2831753.3875602237,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 3,
+          "elapsed_s": 0.500089241,
+          "write_ops": 1363557,
+          "updates_s": 2726627.346098014,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 0,
+          "elapsed_s": 0.500070803,
+          "write_ops": 1396717,
+          "updates_s": 2793038.488991728,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 5,
+          "elapsed_s": 0.500074833,
+          "write_ops": 1360606,
+          "updates_s": 2720804.7880305946,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "held",
+      "engine_key": "blob_update_held",
+      "engine_name": "SyncExpanseBlobMap held reader + compare_exchange",
+      "read_pct": 0,
+      "threads": 4,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 7059852.357449613,
+      "updates_s_ci_lower": 7022990.655268708,
+      "updates_s_ci_upper": 7093441.600289204,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 7079416.582849713,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 7,
+          "elapsed_s": 0.50013361,
+          "write_ops": 3495040,
+          "updates_s": 6988212.609826402,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 2,
+          "elapsed_s": 0.500132756,
+          "write_ops": 3497605,
+          "updates_s": 6993353.180810257,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 1,
+          "elapsed_s": 0.500125879,
+          "write_ops": 3596440,
+          "updates_s": 7191069.590701983,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 4,
+          "elapsed_s": 0.500123904,
+          "write_ops": 3509094,
+          "updates_s": 7016449.26773986,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 7,
+          "elapsed_s": 0.500132988,
+          "write_ops": 3555469,
+          "updates_s": 7109047.16407149,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 2,
+          "elapsed_s": 0.500138159,
+          "write_ops": 3512283,
+          "updates_s": 7022625.522160967,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 1,
+          "elapsed_s": 0.500063228,
+          "write_ops": 3450447,
+          "updates_s": 6900021.450887406,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 4,
+          "elapsed_s": 0.500095264,
+          "write_ops": 3417268,
+          "updates_s": 6833234.077577666,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 7,
+          "elapsed_s": 0.500100494,
+          "write_ops": 3573774,
+          "updates_s": 7146111.717298164,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 2,
+          "elapsed_s": 0.500064261,
+          "write_ops": 3592135,
+          "updates_s": 7183346.781904896,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 1,
+          "elapsed_s": 0.500134509,
+          "write_ops": 3532453,
+          "updates_s": 7063005.924272264,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 4,
+          "elapsed_s": 0.500089667,
+          "write_ops": 3584180,
+          "updates_s": 7167074.699825781,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 7,
+          "elapsed_s": 0.500099843,
+          "write_ops": 3630737,
+          "updates_s": 7260024.274792664,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 2,
+          "elapsed_s": 0.50013206,
+          "write_ops": 3545644,
+          "updates_s": 7089415.543566633,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 1,
+          "elapsed_s": 0.500074444,
+          "write_ops": 3550838,
+          "updates_s": 7100618.803067649,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 4,
+          "elapsed_s": 0.500108017,
+          "write_ops": 3570486,
+          "updates_s": 7139429.640457054,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 7,
+          "elapsed_s": 0.500025142,
+          "write_ops": 3485019,
+          "updates_s": 6969687.536231928,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 2,
+          "elapsed_s": 0.500072183,
+          "write_ops": 3479328,
+          "updates_s": 6957651.551676091,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 1,
+          "elapsed_s": 0.500099058,
+          "write_ops": 3572327,
+          "updates_s": 7143238.810099899,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 4,
+          "elapsed_s": 0.500133583,
+          "write_ops": 3546113,
+          "updates_s": 7090331.704439851,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 7,
+          "elapsed_s": 0.500131228,
+          "write_ops": 3468495,
+          "updates_s": 6935169.823068917,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 2,
+          "elapsed_s": 0.500068033,
+          "write_ops": 3456114,
+          "updates_s": 6911287.608740229,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 1,
+          "elapsed_s": 0.500074369,
+          "write_ops": 3423286,
+          "updates_s": 6845553.8060180005,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 4,
+          "elapsed_s": 0.500077382,
+          "write_ops": 3493372,
+          "updates_s": 6985662.870871453,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 7,
+          "elapsed_s": 0.50013555,
+          "write_ops": 3584182,
+          "updates_s": 7166421.18321723,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 2,
+          "elapsed_s": 0.500075567,
+          "write_ops": 3490485,
+          "updates_s": 6979915.097511653,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 1,
+          "elapsed_s": 0.500132466,
+          "write_ops": 3446993,
+          "updates_s": 6892160.046254625,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 4,
+          "elapsed_s": 0.500131671,
+          "write_ops": 3579184,
+          "updates_s": 7156483.397349175,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 7,
+          "elapsed_s": 0.500132562,
+          "write_ops": 3573171,
+          "updates_s": 7144447.835412084,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 2,
+          "elapsed_s": 0.500061169,
+          "write_ops": 3575751,
+          "updates_s": 7150627.206568804,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 1,
+          "elapsed_s": 0.500059881,
+          "write_ops": 3553405,
+          "updates_s": 7105958.9761411,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 4,
+          "elapsed_s": 0.500133808,
+          "write_ops": 3567665,
+          "updates_s": 7133420.982410372,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 7,
+          "elapsed_s": 0.50014332,
+          "write_ops": 3535722,
+          "updates_s": 7069417.622132793,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 2,
+          "elapsed_s": 0.500135835,
+          "write_ops": 3612322,
+          "updates_s": 7222681.814031581,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 1,
+          "elapsed_s": 0.500133103,
+          "write_ops": 3523349,
+          "updates_s": 7044822.625948036,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 4,
+          "elapsed_s": 0.500131968,
+          "write_ops": 3524282,
+          "updates_s": 7046704.121101093,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "update",
+      "engine_key": "blob_update",
+      "engine_name": "SyncExpanseBlobMap::update",
+      "read_pct": 0,
+      "threads": 8,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 1965525.0291780594,
+      "updates_s_ci_lower": 1957071.7977769114,
+      "updates_s_ci_upper": 1973329.5573544374,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 1965292.3467077934,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 4,
+          "elapsed_s": 0.500056759,
+          "write_ops": 984789,
+          "updates_s": 1969354.4428223597,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 7,
+          "elapsed_s": 0.500062026,
+          "write_ops": 1006178,
+          "updates_s": 2012106.3941775893,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 2,
+          "elapsed_s": 0.500059484,
+          "write_ops": 989406,
+          "updates_s": 1978576.6126975405,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 1,
+          "elapsed_s": 0.500059828,
+          "write_ops": 996602,
+          "updates_s": 1992965.529716576,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 4,
+          "elapsed_s": 0.500059991,
+          "write_ops": 981557,
+          "updates_s": 1962878.4899130233,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 7,
+          "elapsed_s": 0.502578395,
+          "write_ops": 966588,
+          "updates_s": 1923258.1615451258,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 2,
+          "elapsed_s": 0.500058721,
+          "write_ops": 976894,
+          "updates_s": 1953558.5701744014,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 1,
+          "elapsed_s": 0.500060727,
+          "write_ops": 982921,
+          "updates_s": 1965603.2696204914,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 4,
+          "elapsed_s": 0.500060178,
+          "write_ops": 1004184,
+          "updates_s": 2008126.3099498395,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 7,
+          "elapsed_s": 0.500062276,
+          "write_ops": 975111,
+          "updates_s": 1949979.1261998736,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 2,
+          "elapsed_s": 0.500071794,
+          "write_ops": 983448,
+          "updates_s": 1966613.6178838352,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 1,
+          "elapsed_s": 0.50006013,
+          "write_ops": 995192,
+          "updates_s": 1990144.6652025625,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 4,
+          "elapsed_s": 0.500058529,
+          "write_ops": 968412,
+          "updates_s": 1936597.3057925785,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 7,
+          "elapsed_s": 0.500056242,
+          "write_ops": 984062,
+          "updates_s": 1967902.642439168,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 2,
+          "elapsed_s": 0.500058526,
+          "write_ops": 954158,
+          "updates_s": 1908092.653938671,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 1,
+          "elapsed_s": 0.500057131,
+          "write_ops": 976197,
+          "updates_s": 1952170.9410439343,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 4,
+          "elapsed_s": 0.500068502,
+          "write_ops": 988739,
+          "updates_s": 1977207.1147164556,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 7,
+          "elapsed_s": 0.500055724,
+          "write_ops": 1000512,
+          "updates_s": 2000801.0147285105,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 2,
+          "elapsed_s": 0.50067124,
+          "write_ops": 985424,
+          "updates_s": 1968205.7231807446,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 1,
+          "elapsed_s": 0.500058977,
+          "write_ops": 976804,
+          "updates_s": 1953377.5912995958,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 4,
+          "elapsed_s": 0.500061034,
+          "write_ops": 979302,
+          "updates_s": 1958364.9463077341,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 7,
+          "elapsed_s": 0.500056717,
+          "write_ops": 968623,
+          "updates_s": 1937026.2753614807,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 2,
+          "elapsed_s": 0.500055363,
+          "write_ops": 974983,
+          "updates_s": 1949750.1119691022,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 1,
+          "elapsed_s": 0.500058949,
+          "write_ops": 985533,
+          "updates_s": 1970833.6426551982,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 4,
+          "elapsed_s": 0.50005707,
+          "write_ops": 961143,
+          "updates_s": 1922066.615316528,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 7,
+          "elapsed_s": 0.500059289,
+          "write_ops": 997637,
+          "updates_s": 1995037.432451335,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 2,
+          "elapsed_s": 0.50005496,
+          "write_ops": 980164,
+          "updates_s": 1960112.5444291162,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 1,
+          "elapsed_s": 0.500418066,
+          "write_ops": 960156,
+          "updates_s": 1918707.7070874574,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 4,
+          "elapsed_s": 0.501006263,
+          "write_ops": 984468,
+          "updates_s": 1964981.4237950956,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 7,
+          "elapsed_s": 0.500057317,
+          "write_ops": 989496,
+          "updates_s": 1978765.166233934,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 2,
+          "elapsed_s": 0.500058995,
+          "write_ops": 1003870,
+          "updates_s": 2007503.1347051363,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 1,
+          "elapsed_s": 0.50258622,
+          "write_ops": 986860,
+          "updates_s": 1963563.5851695258,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 4,
+          "elapsed_s": 0.502555105,
+          "write_ops": 980552,
+          "updates_s": 1951133.2991035879,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 7,
+          "elapsed_s": 0.500068628,
+          "write_ops": 981375,
+          "updates_s": 1962480.6377575842,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 2,
+          "elapsed_s": 0.500062454,
+          "write_ops": 997612,
+          "updates_s": 1994974.8116862217,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 1,
+          "elapsed_s": 0.500059026,
+          "write_ops": 993157,
+          "updates_s": 1986079.5393382222,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "arm": "held",
+      "engine_key": "blob_update_held",
+      "engine_name": "SyncExpanseBlobMap held reader + compare_exchange",
+      "read_pct": 0,
+      "threads": 8,
+      "rounds": 36,
+      "window_ms": 500,
+      "updates_s_mean": 7316718.105998945,
+      "updates_s_ci_lower": 7269902.989231538,
+      "updates_s_ci_upper": 7389569.909849888,
+      "updates_s_ci_method": "bca",
+      "updates_s_median": 7281495.4364372855,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "position": 5,
+          "elapsed_s": 0.501707831,
+          "write_ops": 3663186,
+          "updates_s": 7301432.773529898,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 1,
+          "position": 6,
+          "elapsed_s": 0.50037513,
+          "write_ops": 3599954,
+          "updates_s": 7194510.246742279,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 2,
+          "position": 3,
+          "elapsed_s": 0.502598848,
+          "write_ops": 3563468,
+          "updates_s": 7090083.899277063,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 3,
+          "position": 0,
+          "elapsed_s": 0.501080834,
+          "write_ops": 3841802,
+          "updates_s": 7667030.425673794,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 4,
+          "position": 5,
+          "elapsed_s": 0.502587038,
+          "write_ops": 3711746,
+          "updates_s": 7385279.999998726,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 5,
+          "position": 6,
+          "elapsed_s": 0.503024536,
+          "write_ops": 3697216,
+          "updates_s": 7349971.4932394475,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 6,
+          "position": 3,
+          "elapsed_s": 0.500093869,
+          "write_ops": 3560849,
+          "updates_s": 7120361.237621971,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 7,
+          "position": 0,
+          "elapsed_s": 0.502021546,
+          "write_ops": 3687550,
+          "updates_s": 7345401.8644849155,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 8,
+          "position": 5,
+          "elapsed_s": 0.501417149,
+          "write_ops": 3623691,
+          "updates_s": 7226898.81514204,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 9,
+          "position": 6,
+          "elapsed_s": 0.500899114,
+          "write_ops": 3646782,
+          "updates_s": 7280472.051304128,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 10,
+          "position": 3,
+          "elapsed_s": 0.500762153,
+          "write_ops": 3744679,
+          "updates_s": 7477959.301768558,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 11,
+          "position": 0,
+          "elapsed_s": 0.500128714,
+          "write_ops": 3645220,
+          "updates_s": 7288563.719618785,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 12,
+          "position": 5,
+          "elapsed_s": 0.501661789,
+          "write_ops": 3965118,
+          "updates_s": 7903966.550659492,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 13,
+          "position": 6,
+          "elapsed_s": 0.502498284,
+          "write_ops": 3774155,
+          "updates_s": 7510781.867665045,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 14,
+          "position": 3,
+          "elapsed_s": 0.500126928,
+          "write_ops": 3606726,
+          "updates_s": 7211621.286666651,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 15,
+          "position": 0,
+          "elapsed_s": 0.501618477,
+          "write_ops": 3653046,
+          "updates_s": 7282518.821570443,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 16,
+          "position": 5,
+          "elapsed_s": 0.502171593,
+          "write_ops": 3662551,
+          "updates_s": 7293425.297356475,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 17,
+          "position": 6,
+          "elapsed_s": 0.500059537,
+          "write_ops": 3840807,
+          "updates_s": 7680699.428396262,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 18,
+          "position": 3,
+          "elapsed_s": 0.501571637,
+          "write_ops": 3628446,
+          "updates_s": 7234153.074728187,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 19,
+          "position": 0,
+          "elapsed_s": 0.500330634,
+          "write_ops": 3623119,
+          "updates_s": 7241449.461197693,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 20,
+          "position": 5,
+          "elapsed_s": 0.500094314,
+          "write_ops": 3674731,
+          "updates_s": 7348075.947130244,
+          "foreign_busy_cpus": 0.0
+        },
+        {
+          "round": 21,
+          "position": 6,
+          "elapsed_s": 0.500124868,
+          "write_ops": 3828167,
+          "updates_s": 7654422.415163727,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 22,
+          "position": 3,
+          "elapsed_s": 0.501467487,
+          "write_ops": 3596066,
+          "updates_s": 7171085.051821116,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 23,
+          "position": 0,
+          "elapsed_s": 0.502073265,
+          "write_ops": 3609735,
+          "updates_s": 7189657.867960764,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 24,
+          "position": 5,
+          "elapsed_s": 0.502142206,
+          "write_ops": 3612325,
+          "updates_s": 7193828.67410273,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 25,
+          "position": 6,
+          "elapsed_s": 0.502488759,
+          "write_ops": 3618533,
+          "updates_s": 7201221.788923641,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 26,
+          "position": 3,
+          "elapsed_s": 0.501901818,
+          "write_ops": 3664344,
+          "updates_s": 7300917.965593023,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 27,
+          "position": 0,
+          "elapsed_s": 0.500821332,
+          "write_ops": 3562783,
+          "updates_s": 7113880.284955594,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 28,
+          "position": 5,
+          "elapsed_s": 0.501150668,
+          "write_ops": 3657947,
+          "updates_s": 7299096.32685554,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 29,
+          "position": 6,
+          "elapsed_s": 0.500136136,
+          "write_ops": 3543443,
+          "updates_s": 7084956.964597336,
+          "foreign_busy_cpus": 0.03
+        },
+        {
+          "round": 30,
+          "position": 3,
+          "elapsed_s": 0.50176572,
+          "write_ops": 3638718,
+          "updates_s": 7251826.609438365,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 31,
+          "position": 0,
+          "elapsed_s": 0.500294185,
+          "write_ops": 3755597,
+          "updates_s": 7506777.237476786,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 32,
+          "position": 5,
+          "elapsed_s": 0.500742594,
+          "write_ops": 3605410,
+          "updates_s": 7200126.458585227,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 33,
+          "position": 6,
+          "elapsed_s": 0.50157881,
+          "write_ops": 3633669,
+          "updates_s": 7244462.739564297,
+          "foreign_busy_cpus": 0.01
+        },
+        {
+          "round": 34,
+          "position": 3,
+          "elapsed_s": 0.501335881,
+          "write_ops": 3645901,
+          "updates_s": 7272371.952966198,
+          "foreign_busy_cpus": 0.02
+        },
+        {
+          "round": 35,
+          "position": 0,
+          "elapsed_s": 0.502121924,
+          "write_ops": 3656734,
+          "updates_s": 7282561.914185607,
+          "foreign_busy_cpus": 0.0
+        }
+      ]
+    }
+  ],
+  "rho": [
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "threads": 1,
+      "statistic": "rho",
+      "rounds": 36,
+      "ratio_mean": 1.1049570070625103,
+      "ratio_ci_lower": 1.1030846366637042,
+      "ratio_ci_upper": 1.1065774551037704,
+      "ratio_ci_method": "bca",
+      "ratio_median": 1.105203150351088,
+      "gated": false,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3286436.4903751053,
+          "held_updates_s": 3657598.0348812453,
+          "ratio": 1.112937385400007
+        },
+        {
+          "round": 1,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3292603.102970679,
+          "held_updates_s": 3665961.560318984,
+          "ratio": 1.1133930952720814
+        },
+        {
+          "round": 2,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3316647.57273662,
+          "held_updates_s": 3671148.1284771957,
+          "ratio": 1.1068852050047848
+        },
+        {
+          "round": 3,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3311041.4346286496,
+          "held_updates_s": 3664913.232569832,
+          "ratio": 1.1068762819577553
+        },
+        {
+          "round": 4,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3306198.2980191694,
+          "held_updates_s": 3657166.724332856,
+          "ratio": 1.1061546812010523
+        },
+        {
+          "round": 5,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3306740.9683964737,
+          "held_updates_s": 3654017.216877837,
+          "ratio": 1.1050206991719
+        },
+        {
+          "round": 6,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3306603.5546327126,
+          "held_updates_s": 3656051.804755234,
+          "ratio": 1.1056819314286792
+        },
+        {
+          "round": 7,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3295584.776916301,
+          "held_updates_s": 3644505.1212051986,
+          "ratio": 1.1058750928614813
+        },
+        {
+          "round": 8,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3326334.7033791696,
+          "held_updates_s": 3689886.3200960113,
+          "ratio": 1.1092949595082886
+        },
+        {
+          "round": 9,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3292359.154758144,
+          "held_updates_s": 3653701.0185322855,
+          "ratio": 1.109751654296867
+        },
+        {
+          "round": 10,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3310363.4792556698,
+          "held_updates_s": 3657043.004894625,
+          "ratio": 1.1047255166423313
+        },
+        {
+          "round": 11,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3304920.6639207313,
+          "held_updates_s": 3646821.091188486,
+          "ratio": 1.1034519318421845
+        },
+        {
+          "round": 12,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3283295.5692402394,
+          "held_updates_s": 3663221.284298907,
+          "ratio": 1.1157147466764874
+        },
+        {
+          "round": 13,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3300673.861837504,
+          "held_updates_s": 3661130.5023756805,
+          "ratio": 1.1092069848844466
+        },
+        {
+          "round": 14,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3319357.23161638,
+          "held_updates_s": 3657248.775915949,
+          "ratio": 1.1017942694089093
+        },
+        {
+          "round": 15,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3311990.382597744,
+          "held_updates_s": 3645996.340607171,
+          "ratio": 1.1008475023853936
+        },
+        {
+          "round": 16,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3313272.2811679426,
+          "held_updates_s": 3662443.4735524147,
+          "ratio": 1.1053856015302757
+        },
+        {
+          "round": 17,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3301276.189254219,
+          "held_updates_s": 3646062.532286277,
+          "ratio": 1.1044403204295208
+        },
+        {
+          "round": 18,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3312713.078488139,
+          "held_updates_s": 3617035.3231382677,
+          "ratio": 1.0918649570427077
+        },
+        {
+          "round": 19,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3296370.4396557547,
+          "held_updates_s": 3662053.246720365,
+          "ratio": 1.1109349855420978
+        },
+        {
+          "round": 20,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3301431.860152005,
+          "held_updates_s": 3660166.7114043324,
+          "ratio": 1.1086603832664927
+        },
+        {
+          "round": 21,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3305208.221113973,
+          "held_updates_s": 3646556.849029633,
+          "ratio": 1.1032759829577738
+        },
+        {
+          "round": 22,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3310555.1509201955,
+          "held_updates_s": 3608351.1295946944,
+          "ratio": 1.0899534866808438
+        },
+        {
+          "round": 23,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3294013.466298111,
+          "held_updates_s": 3639056.121505582,
+          "ratio": 1.1047484045641252
+        },
+        {
+          "round": 24,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3307389.8996641417,
+          "held_updates_s": 3659030.8441566885,
+          "ratio": 1.1063197733440062
+        },
+        {
+          "round": 25,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3284903.987882855,
+          "held_updates_s": 3645544.5436426816,
+          "ratio": 1.1097872440382228
+        },
+        {
+          "round": 26,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3315648.5136127067,
+          "held_updates_s": 3654810.803413605,
+          "ratio": 1.1022913883689527
+        },
+        {
+          "round": 27,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3307439.952194054,
+          "held_updates_s": 3649789.0047332067,
+          "ratio": 1.1035087733980018
+        },
+        {
+          "round": 28,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3295740.977267693,
+          "held_updates_s": 3656601.683483609,
+          "ratio": 1.1094930422945692
+        },
+        {
+          "round": 29,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3293925.71208521,
+          "held_updates_s": 3648944.4024933693,
+          "ratio": 1.1077798109124373
+        },
+        {
+          "round": 30,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3317423.366678249,
+          "held_updates_s": 3644336.803324879,
+          "ratio": 1.0985443823451362
+        },
+        {
+          "round": 31,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3301168.355951129,
+          "held_updates_s": 3634852.9388585333,
+          "ratio": 1.1010807529115745
+        },
+        {
+          "round": 32,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 3313199.7080597347,
+          "held_updates_s": 3643220.192040324,
+          "ratio": 1.0996077849390657
+        },
+        {
+          "round": 33,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 3306127.3053267864,
+          "held_updates_s": 3651816.190092939,
+          "ratio": 1.1045600646439668
+        },
+        {
+          "round": 34,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 3304660.6419518883,
+          "held_updates_s": 3621047.1446327013,
+          "ratio": 1.095739483402429
+        },
+        {
+          "round": 35,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 3307223.5314588062,
+          "held_updates_s": 3647416.759781429,
+          "ratio": 1.1028636936955285
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "threads": 2,
+      "statistic": "rho",
+      "rounds": 36,
+      "ratio_mean": 1.4267884508181572,
+      "ratio_ci_lower": 1.4188051658911132,
+      "ratio_ci_upper": 1.4338097452810645,
+      "ratio_ci_method": "bca",
+      "ratio_median": 1.432940588083194,
+      "gated": false,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3782546.2823458607,
+          "held_updates_s": 5479104.722516952,
+          "ratio": 1.4485228503586
+        },
+        {
+          "round": 1,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3785889.959046453,
+          "held_updates_s": 5353534.20150904,
+          "ratio": 1.414075490682626
+        },
+        {
+          "round": 2,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3780121.831113931,
+          "held_updates_s": 5348765.445588919,
+          "ratio": 1.4149717084681206
+        },
+        {
+          "round": 3,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3786261.1878293348,
+          "held_updates_s": 5481161.777014228,
+          "ratio": 1.4476449207025204
+        },
+        {
+          "round": 4,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3859954.3204337484,
+          "held_updates_s": 5394640.796149841,
+          "ratio": 1.397591875010489
+        },
+        {
+          "round": 5,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3881888.662745675,
+          "held_updates_s": 5442044.000028457,
+          "ratio": 1.4019062556470328
+        },
+        {
+          "round": 6,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3781097.6063316385,
+          "held_updates_s": 5411814.127990653,
+          "ratio": 1.4312812551911638
+        },
+        {
+          "round": 7,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3875333.1592065124,
+          "held_updates_s": 5472037.737779266,
+          "ratio": 1.4120173706303187
+        },
+        {
+          "round": 8,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3784011.574852287,
+          "held_updates_s": 5516194.013040922,
+          "ratio": 1.4577635147049604
+        },
+        {
+          "round": 9,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3777844.6769703585,
+          "held_updates_s": 5312912.121890383,
+          "ratio": 1.4063341868652661
+        },
+        {
+          "round": 10,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3811553.6291013765,
+          "held_updates_s": 5436462.003038243,
+          "ratio": 1.426311297716139
+        },
+        {
+          "round": 11,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3802848.033513936,
+          "held_updates_s": 5401378.890506498,
+          "ratio": 1.4203509693011516
+        },
+        {
+          "round": 12,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3826973.3042601976,
+          "held_updates_s": 5455934.126828495,
+          "ratio": 1.4256525178147792
+        },
+        {
+          "round": 13,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3883560.932465625,
+          "held_updates_s": 5405070.609686725,
+          "ratio": 1.3917821050525174
+        },
+        {
+          "round": 14,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3820005.385433446,
+          "held_updates_s": 5507570.785904916,
+          "ratio": 1.4417704244361913
+        },
+        {
+          "round": 15,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3795857.42326263,
+          "held_updates_s": 5468473.429905905,
+          "ratio": 1.4406424741858777
+        },
+        {
+          "round": 16,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3817817.6124231564,
+          "held_updates_s": 5528302.281700333,
+          "ratio": 1.4480268160823788
+        },
+        {
+          "round": 17,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3715062.5243657203,
+          "held_updates_s": 5437274.288512346,
+          "ratio": 1.4635754453259606
+        },
+        {
+          "round": 18,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3812126.6115909964,
+          "held_updates_s": 5375299.213473163,
+          "ratio": 1.4100526454523434
+        },
+        {
+          "round": 19,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3831002.7772516734,
+          "held_updates_s": 5499215.405090708,
+          "ratio": 1.4354506443442976
+        },
+        {
+          "round": 20,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3796440.1060716407,
+          "held_updates_s": 5497393.234771932,
+          "ratio": 1.4480389736637644
+        },
+        {
+          "round": 21,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3853194.0928407554,
+          "held_updates_s": 5493655.668246986,
+          "ratio": 1.4257407065100127
+        },
+        {
+          "round": 22,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3823301.3568899147,
+          "held_updates_s": 5499887.781753097,
+          "ratio": 1.4385179896535831
+        },
+        {
+          "round": 23,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3803629.5514334547,
+          "held_updates_s": 5337654.897615305,
+          "ratio": 1.4033056651386384
+        },
+        {
+          "round": 24,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3759582.8759104856,
+          "held_updates_s": 5424750.955516798,
+          "ratio": 1.4429129865113153
+        },
+        {
+          "round": 25,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3784064.771735663,
+          "held_updates_s": 5428619.022497112,
+          "ratio": 1.4345999209752243
+        },
+        {
+          "round": 26,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3779788.7320267116,
+          "held_updates_s": 5462194.4822960105,
+          "ratio": 1.445105763720079
+        },
+        {
+          "round": 27,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3873155.2686251886,
+          "held_updates_s": 5341221.414322127,
+          "ratio": 1.3790362234091487
+        },
+        {
+          "round": 28,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3809758.284283004,
+          "held_updates_s": 5360987.448599347,
+          "ratio": 1.4071725943128395
+        },
+        {
+          "round": 29,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3782782.499285658,
+          "held_updates_s": 5292487.047483712,
+          "ratio": 1.399098956517629
+        },
+        {
+          "round": 30,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3878048.6908549536,
+          "held_updates_s": 5303277.588686361,
+          "ratio": 1.3675118626520395
+        },
+        {
+          "round": 31,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3767792.0092943925,
+          "held_updates_s": 5451578.992957073,
+          "ratio": 1.446889578699969
+        },
+        {
+          "round": 32,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 3782797.9568938413,
+          "held_updates_s": 5494084.179008145,
+          "ratio": 1.4523863662862628
+        },
+        {
+          "round": 33,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 3769881.427202634,
+          "held_updates_s": 5433400.766999469,
+          "ratio": 1.4412656928128418
+        },
+        {
+          "round": 34,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 3755577.7446314627,
+          "held_updates_s": 5456610.300019,
+          "ratio": 1.4529349865860546
+        },
+        {
+          "round": 35,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 3816202.446345664,
+          "held_updates_s": 5511135.157531622,
+          "ratio": 1.4441411940315165
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "threads": 4,
+      "statistic": "rho",
+      "rounds": 36,
+      "ratio_mean": 2.546322269151963,
+      "ratio_ci_lower": 2.5267175592211255,
+      "ratio_ci_upper": 2.565239157166362,
+      "ratio_ci_method": "bca",
+      "ratio_median": 2.5419455058768357,
+      "gated": false,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2803813.9332624455,
+          "held_updates_s": 6988212.609826402,
+          "ratio": 2.4923952787748287
+        },
+        {
+          "round": 1,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2708805.0343853836,
+          "held_updates_s": 6993353.180810257,
+          "ratio": 2.581711526683211
+        },
+        {
+          "round": 2,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2747676.5742998207,
+          "held_updates_s": 7191069.590701983,
+          "ratio": 2.617145575997952
+        },
+        {
+          "round": 3,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2825787.3650763403,
+          "held_updates_s": 7016449.26773986,
+          "ratio": 2.483006808812137
+        },
+        {
+          "round": 4,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2770001.1080500367,
+          "held_updates_s": 7109047.16407149,
+          "ratio": 2.5664419928972366
+        },
+        {
+          "round": 5,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2822227.712614463,
+          "held_updates_s": 7022625.522160967,
+          "ratio": 2.4883270371033697
+        },
+        {
+          "round": 6,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2730954.776506451,
+          "held_updates_s": 6900021.450887406,
+          "ratio": 2.5265967456679
+        },
+        {
+          "round": 7,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2722031.857717177,
+          "held_updates_s": 6833234.077577666,
+          "ratio": 2.5103431681759725
+        },
+        {
+          "round": 8,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2770467.572684675,
+          "held_updates_s": 7146111.717298164,
+          "ratio": 2.579388326993968
+        },
+        {
+          "round": 9,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2705727.897846887,
+          "held_updates_s": 7183346.781904896,
+          "ratio": 2.654866658107463
+        },
+        {
+          "round": 10,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2682148.1700617834,
+          "held_updates_s": 7063005.924272264,
+          "ratio": 2.6333392029231435
+        },
+        {
+          "round": 11,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2732792.387349201,
+          "held_updates_s": 7167074.699825781,
+          "ratio": 2.6226195348772245
+        },
+        {
+          "round": 12,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2879644.93623922,
+          "held_updates_s": 7260024.274792664,
+          "ratio": 2.5211525849690912
+        },
+        {
+          "round": 13,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2827587.6094268495,
+          "held_updates_s": 7089415.543566633,
+          "ratio": 2.507231082754551
+        },
+        {
+          "round": 14,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2726622.173125057,
+          "held_updates_s": 7100618.803067649,
+          "ratio": 2.604181420167002
+        },
+        {
+          "round": 15,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2861358.279783829,
+          "held_updates_s": 7139429.640457054,
+          "ratio": 2.4951190806474
+        },
+        {
+          "round": 16,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2717791.798118484,
+          "held_updates_s": 6969687.536231928,
+          "ratio": 2.5644670577992814
+        },
+        {
+          "round": 17,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2671043.5410638913,
+          "held_updates_s": 6957651.551676091,
+          "ratio": 2.604843928865652
+        },
+        {
+          "round": 18,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2841244.202435282,
+          "held_updates_s": 7143238.810099899,
+          "ratio": 2.514123497014899
+        },
+        {
+          "round": 19,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2801761.4128057347,
+          "held_updates_s": 7090331.704439851,
+          "ratio": 2.5306693396635316
+        },
+        {
+          "round": 20,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2721773.999618435,
+          "held_updates_s": 6935169.823068917,
+          "ratio": 2.5480329461745015
+        },
+        {
+          "round": 21,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2781787.970316518,
+          "held_updates_s": 6911287.608740229,
+          "ratio": 2.4844767762633784
+        },
+        {
+          "round": 22,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2783918.3470555106,
+          "held_updates_s": 6845553.8060180005,
+          "ratio": 2.458963573144447
+        },
+        {
+          "round": 23,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2802122.7326881303,
+          "held_updates_s": 6985662.870871453,
+          "ratio": 2.4929896144020685
+        },
+        {
+          "round": 24,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2763392.299581907,
+          "held_updates_s": 7166421.18321723,
+          "ratio": 2.5933419530413717
+        },
+        {
+          "round": 25,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2856695.0074618035,
+          "held_updates_s": 6979915.097511653,
+          "ratio": 2.443353273373542
+        },
+        {
+          "round": 26,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2841817.66554291,
+          "held_updates_s": 6892160.046254625,
+          "ratio": 2.4252646923207597
+        },
+        {
+          "round": 27,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2822115.123274729,
+          "held_updates_s": 7156483.397349175,
+          "ratio": 2.53585806557917
+        },
+        {
+          "round": 28,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2742260.25741496,
+          "held_updates_s": 7144447.835412084,
+          "ratio": 2.6053135606271463
+        },
+        {
+          "round": 29,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2734506.637099204,
+          "held_updates_s": 7150627.206568804,
+          "ratio": 2.6149606329550807
+        },
+        {
+          "round": 30,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2782286.4284229414,
+          "held_updates_s": 7105958.9761411,
+          "ratio": 2.553999797989493
+        },
+        {
+          "round": 31,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2791464.958636487,
+          "held_updates_s": 7133420.982410372,
+          "ratio": 2.555439917073058
+        },
+        {
+          "round": 32,
+          "update_position": 6,
+          "held_position": 7,
+          "update_updates_s": 2831753.3875602237,
+          "held_updates_s": 7069417.622132793,
+          "ratio": 2.496480679846082
+        },
+        {
+          "round": 33,
+          "update_position": 3,
+          "held_position": 2,
+          "update_updates_s": 2726627.346098014,
+          "held_updates_s": 7222681.814031581,
+          "ratio": 2.648943510512253
+        },
+        {
+          "round": 34,
+          "update_position": 0,
+          "held_position": 1,
+          "update_updates_s": 2793038.488991728,
+          "held_updates_s": 7044822.625948036,
+          "ratio": 2.5222791070420154
+        },
+        {
+          "round": 35,
+          "update_position": 5,
+          "held_position": 4,
+          "update_updates_s": 2720804.7880305946,
+          "held_updates_s": 7046704.121101093,
+          "ratio": 2.589933740230486
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "threads": 8,
+      "statistic": "rho",
+      "rounds": 36,
+      "ratio_mean": 3.723158961768599,
+      "ratio_ci_lower": 3.694457542447035,
+      "ratio_ci_upper": 3.7613995887007476,
+      "ratio_ci_method": "bca",
+      "ratio_median": 3.7075837338482414,
+      "gated": true,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1969354.4428223597,
+          "held_updates_s": 7301432.773529898,
+          "ratio": 3.7075259865694496
+        },
+        {
+          "round": 1,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 2012106.3941775893,
+          "held_updates_s": 7194510.246742279,
+          "ratio": 3.575611243799511
+        },
+        {
+          "round": 2,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1978576.6126975405,
+          "held_updates_s": 7090083.899277063,
+          "ratio": 3.5834265167071924
+        },
+        {
+          "round": 3,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1992965.529716576,
+          "held_updates_s": 7667030.425673794,
+          "ratio": 3.847046178848933
+        },
+        {
+          "round": 4,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1962878.4899130233,
+          "held_updates_s": 7385279.999998726,
+          "ratio": 3.762474365046393
+        },
+        {
+          "round": 5,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 1923258.1615451258,
+          "held_updates_s": 7349971.4932394475,
+          "ratio": 3.8216250112437096
+        },
+        {
+          "round": 6,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1953558.5701744014,
+          "held_updates_s": 7120361.237621971,
+          "ratio": 3.644815848539576
+        },
+        {
+          "round": 7,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1965603.2696204914,
+          "held_updates_s": 7345401.8644849155,
+          "ratio": 3.7369707193777346
+        },
+        {
+          "round": 8,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 2008126.3099498395,
+          "held_updates_s": 7226898.81514204,
+          "ratio": 3.5988268164877333
+        },
+        {
+          "round": 9,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 1949979.1261998736,
+          "held_updates_s": 7280472.051304128,
+          "ratio": 3.7336153774591105
+        },
+        {
+          "round": 10,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1966613.6178838352,
+          "held_updates_s": 7477959.301768558,
+          "ratio": 3.8024547545924037
+        },
+        {
+          "round": 11,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1990144.6652025625,
+          "held_updates_s": 7288563.719618785,
+          "ratio": 3.6623285970404242
+        },
+        {
+          "round": 12,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1936597.3057925785,
+          "held_updates_s": 7903966.550659492,
+          "ratio": 4.081368143505026
+        },
+        {
+          "round": 13,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 1967902.642439168,
+          "held_updates_s": 7510781.867665045,
+          "ratio": 3.816643011544317
+        },
+        {
+          "round": 14,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1908092.653938671,
+          "held_updates_s": 7211621.286666651,
+          "ratio": 3.7794921917342297
+        },
+        {
+          "round": 15,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1952170.9410439343,
+          "held_updates_s": 7282518.821570443,
+          "ratio": 3.730471890784357
+        },
+        {
+          "round": 16,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1977207.1147164556,
+          "held_updates_s": 7293425.297356475,
+          "ratio": 3.688751291188025
+        },
+        {
+          "round": 17,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 2000801.0147285105,
+          "held_updates_s": 7680699.428396262,
+          "ratio": 3.8388122416253667
+        },
+        {
+          "round": 18,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1968205.7231807446,
+          "held_updates_s": 7234153.074728187,
+          "ratio": 3.6755065740980264
+        },
+        {
+          "round": 19,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1953377.5912995958,
+          "held_updates_s": 7241449.461197693,
+          "ratio": 3.707142691434228
+        },
+        {
+          "round": 20,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1958364.9463077341,
+          "held_updates_s": 7348075.947130244,
+          "ratio": 3.7521484241148073
+        },
+        {
+          "round": 21,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 1937026.2753614807,
+          "held_updates_s": 7654422.415163727,
+          "ratio": 3.951635820600981
+        },
+        {
+          "round": 22,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1949750.1119691022,
+          "held_updates_s": 7171085.051821116,
+          "ratio": 3.677950834724587
+        },
+        {
+          "round": 23,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1970833.6426551982,
+          "held_updates_s": 7189657.867960764,
+          "ratio": 3.6480287896214945
+        },
+        {
+          "round": 24,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1922066.615316528,
+          "held_updates_s": 7193828.67410273,
+          "ratio": 3.7427572055914635
+        },
+        {
+          "round": 25,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 1995037.432451335,
+          "held_updates_s": 7201221.788923641,
+          "ratio": 3.6095672551243223
+        },
+        {
+          "round": 26,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1960112.5444291162,
+          "held_updates_s": 7300917.965593023,
+          "ratio": 3.724744268559038
+        },
+        {
+          "round": 27,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1918707.7070874574,
+          "held_updates_s": 7113880.284955594,
+          "ratio": 3.707641481127033
+        },
+        {
+          "round": 28,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1964981.4237950956,
+          "held_updates_s": 7299096.32685554,
+          "ratio": 3.71458795409797
+        },
+        {
+          "round": 29,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 1978765.166233934,
+          "held_updates_s": 7084956.964597336,
+          "ratio": 3.5804940805996264
+        },
+        {
+          "round": 30,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 2007503.1347051363,
+          "held_updates_s": 7251826.609438365,
+          "ratio": 3.612361288045271
+        },
+        {
+          "round": 31,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1963563.5851695258,
+          "held_updates_s": 7506777.237476786,
+          "ratio": 3.8230375090342092
+        },
+        {
+          "round": 32,
+          "update_position": 4,
+          "held_position": 5,
+          "update_updates_s": 1951133.2991035879,
+          "held_updates_s": 7200126.458585227,
+          "ratio": 3.6902278598254625
+        },
+        {
+          "round": 33,
+          "update_position": 7,
+          "held_position": 6,
+          "update_updates_s": 1962480.6377575842,
+          "held_updates_s": 7244462.739564297,
+          "ratio": 3.691482402517935
+        },
+        {
+          "round": 34,
+          "update_position": 2,
+          "held_position": 3,
+          "update_updates_s": 1994974.8116862217,
+          "held_updates_s": 7272371.952966198,
+          "ratio": 3.6453452496572316
+        },
+        {
+          "round": 35,
+          "update_position": 1,
+          "held_position": 0,
+          "update_updates_s": 1986079.5393382222,
+          "held_updates_s": 7282561.914185607,
+          "ratio": 3.6668027488024046
+        }
+      ],
+      "verdict": "COST"
+    }
+  ],
+  "kappa": [
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "threads": 2,
+      "statistic": "kappa",
+      "rounds": 36,
+      "ratio_mean": 1.2912970230409653,
+      "ratio_ci_lower": 1.2841622684933207,
+      "ratio_ci_upper": 1.2983790456773103,
+      "ratio_ci_method": "bca",
+      "ratio_median": 1.2924797121058378,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rho": 1.4485228503586,
+          "rho_1": 1.112937385400007,
+          "ratio": 1.301531307476007
+        },
+        {
+          "round": 1,
+          "rho": 1.414075490682626,
+          "rho_1": 1.1133930952720814,
+          "ratio": 1.2700595114945152
+        },
+        {
+          "round": 2,
+          "rho": 1.4149717084681206,
+          "rho_1": 1.1068852050047848,
+          "ratio": 1.2783364544672942
+        },
+        {
+          "round": 3,
+          "rho": 1.4476449207025204,
+          "rho_1": 1.1068762819577553,
+          "ratio": 1.3078651555727985
+        },
+        {
+          "round": 4,
+          "rho": 1.397591875010489,
+          "rho_1": 1.1061546812010523,
+          "ratio": 1.2634687523927457
+        },
+        {
+          "round": 5,
+          "rho": 1.4019062556470328,
+          "rho_1": 1.1050206991719,
+          "ratio": 1.2686696789459402
+        },
+        {
+          "round": 6,
+          "rho": 1.4312812551911638,
+          "rho_1": 1.1056819314286792,
+          "ratio": 1.2944782893772802
+        },
+        {
+          "round": 7,
+          "rho": 1.4120173706303187,
+          "rho_1": 1.1058750928614813,
+          "ratio": 1.276832600485364
+        },
+        {
+          "round": 8,
+          "rho": 1.4577635147049604,
+          "rho_1": 1.1092949595082886,
+          "ratio": 1.3141351650521658
+        },
+        {
+          "round": 9,
+          "rho": 1.4063341868652661,
+          "rho_1": 1.109751654296867,
+          "ratio": 1.2672512642085785
+        },
+        {
+          "round": 10,
+          "rho": 1.426311297716139,
+          "rho_1": 1.1047255166423313,
+          "ratio": 1.2911001658142427
+        },
+        {
+          "round": 11,
+          "rho": 1.4203509693011516,
+          "rho_1": 1.1034519318421845,
+          "ratio": 1.2871888011740686
+        },
+        {
+          "round": 12,
+          "rho": 1.4256525178147792,
+          "rho_1": 1.1157147466764874,
+          "ratio": 1.2777930219722742
+        },
+        {
+          "round": 13,
+          "rho": 1.3917821050525174,
+          "rho_1": 1.1092069848844466,
+          "ratio": 1.2547541838618232
+        },
+        {
+          "round": 14,
+          "rho": 1.4417704244361913,
+          "rho_1": 1.1017942694089093,
+          "ratio": 1.3085659133167142
+        },
+        {
+          "round": 15,
+          "rho": 1.4406424741858777,
+          "rho_1": 1.1008475023853936,
+          "ratio": 1.308666705482996
+        },
+        {
+          "round": 16,
+          "rho": 1.4480268160823788,
+          "rho_1": 1.1053856015302757,
+          "ratio": 1.3099743782420876
+        },
+        {
+          "round": 17,
+          "rho": 1.4635754453259606,
+          "rho_1": 1.1044403204295208,
+          "ratio": 1.3251738625014804
+        },
+        {
+          "round": 18,
+          "rho": 1.4100526454523434,
+          "rho_1": 1.0918649570427077,
+          "ratio": 1.2914167052960837
+        },
+        {
+          "round": 19,
+          "rho": 1.4354506443442976,
+          "rho_1": 1.1109349855420978,
+          "ratio": 1.292110396220754
+        },
+        {
+          "round": 20,
+          "rho": 1.4480389736637644,
+          "rho_1": 1.1086603832664927,
+          "ratio": 1.3061159174799286
+        },
+        {
+          "round": 21,
+          "rho": 1.4257407065100127,
+          "rho_1": 1.1032759829577738,
+          "ratio": 1.2922792923378454
+        },
+        {
+          "round": 22,
+          "rho": 1.4385179896535831,
+          "rho_1": 1.0899534866808438,
+          "ratio": 1.3197975943305595
+        },
+        {
+          "round": 23,
+          "rho": 1.4033056651386384,
+          "rho_1": 1.1047484045641252,
+          "ratio": 1.2702490986554609
+        },
+        {
+          "round": 24,
+          "rho": 1.4429129865113153,
+          "rho_1": 1.1063197733440062,
+          "ratio": 1.304245862071062
+        },
+        {
+          "round": 25,
+          "rho": 1.4345999209752243,
+          "rho_1": 1.1097872440382228,
+          "ratio": 1.2926801318738301
+        },
+        {
+          "round": 26,
+          "rho": 1.445105763720079,
+          "rho_1": 1.1022913883689527,
+          "ratio": 1.3110015908392287
+        },
+        {
+          "round": 27,
+          "rho": 1.3790362234091487,
+          "rho_1": 1.1035087733980018,
+          "ratio": 1.2496830624759996
+        },
+        {
+          "round": 28,
+          "rho": 1.4071725943128395,
+          "rho_1": 1.1094930422945692,
+          "ratio": 1.2683023152652062
+        },
+        {
+          "round": 29,
+          "rho": 1.399098956517629,
+          "rho_1": 1.1077798109124373,
+          "ratio": 1.262975676876836
+        },
+        {
+          "round": 30,
+          "rho": 1.3675118626520395,
+          "rho_1": 1.0985443823451362,
+          "ratio": 1.2448398850601925
+        },
+        {
+          "round": 31,
+          "rho": 1.446889578699969,
+          "rho_1": 1.1010807529115745,
+          "ratio": 1.3140630919884635
+        },
+        {
+          "round": 32,
+          "rho": 1.4523863662862628,
+          "rho_1": 1.0996077849390657,
+          "ratio": 1.3208221933120874
+        },
+        {
+          "round": 33,
+          "rho": 1.4412656928128418,
+          "rho_1": 1.1045600646439668,
+          "ratio": 1.3048323390882373
+        },
+        {
+          "round": 34,
+          "rho": 1.4529349865860546,
+          "rho_1": 1.095739483402429,
+          "ratio": 1.3259857918731577
+        },
+        {
+          "round": 35,
+          "rho": 1.4441411940315165,
+          "rho_1": 1.1028636936955285,
+          "ratio": 1.3094466725914415
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "threads": 4,
+      "statistic": "kappa",
+      "rounds": 36,
+      "ratio_mean": 2.304454086160512,
+      "ratio_ci_lower": 2.287002294742032,
+      "ratio_ci_upper": 2.321233048971072,
+      "ratio_ci_method": "bca",
+      "ratio_median": 2.3022461762169444,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rho": 2.4923952787748287,
+          "rho_1": 1.112937385400007,
+          "ratio": 2.239474845100134
+        },
+        {
+          "round": 1,
+          "rho": 2.581711526683211,
+          "rho_1": 1.1133930952720814,
+          "ratio": 2.3187781006063406
+        },
+        {
+          "round": 2,
+          "rho": 2.617145575997952,
+          "rho_1": 1.1068852050047848,
+          "ratio": 2.364423667571416
+        },
+        {
+          "round": 3,
+          "rho": 2.483006808812137,
+          "rho_1": 1.1068762819577553,
+          "ratio": 2.2432559530685676
+        },
+        {
+          "round": 4,
+          "rho": 2.5664419928972366,
+          "rho_1": 1.1061546812010523,
+          "ratio": 2.32014747712374
+        },
+        {
+          "round": 5,
+          "rho": 2.4883270371033697,
+          "rho_1": 1.1050206991719,
+          "ratio": 2.251837489531297
+        },
+        {
+          "round": 6,
+          "rho": 2.5265967456679,
+          "rho_1": 1.1056819314286792,
+          "ratio": 2.2851026808435058
+        },
+        {
+          "round": 7,
+          "rho": 2.5103431681759725,
+          "rho_1": 1.1058750928614813,
+          "ratio": 2.2700060652242313
+        },
+        {
+          "round": 8,
+          "rho": 2.579388326993968,
+          "rho_1": 1.1092949595082886,
+          "ratio": 2.3252502004852884
+        },
+        {
+          "round": 9,
+          "rho": 2.654866658107463,
+          "rho_1": 1.109751654296867,
+          "ratio": 2.3923070065523557
+        },
+        {
+          "round": 10,
+          "rho": 2.6333392029231435,
+          "rho_1": 1.1047255166423313,
+          "ratio": 2.383704515965951
+        },
+        {
+          "round": 11,
+          "rho": 2.6226195348772245,
+          "rho_1": 1.1034519318421845,
+          "ratio": 2.3767410787879353
+        },
+        {
+          "round": 12,
+          "rho": 2.5211525849690912,
+          "rho_1": 1.1157147466764874,
+          "ratio": 2.2596748787977834
+        },
+        {
+          "round": 13,
+          "rho": 2.507231082754551,
+          "rho_1": 1.1092069848844466,
+          "ratio": 2.260381621213597
+        },
+        {
+          "round": 14,
+          "rho": 2.604181420167002,
+          "rho_1": 1.1017942694089093,
+          "ratio": 2.363582287974772
+        },
+        {
+          "round": 15,
+          "rho": 2.4951190806474,
+          "rho_1": 1.1008475023853936,
+          "ratio": 2.266543799427987
+        },
+        {
+          "round": 16,
+          "rho": 2.5644670577992814,
+          "rho_1": 1.1053856015302757,
+          "ratio": 2.3199750876518386
+        },
+        {
+          "round": 17,
+          "rho": 2.604843928865652,
+          "rho_1": 1.1044403204295208,
+          "ratio": 2.3585194063293695
+        },
+        {
+          "round": 18,
+          "rho": 2.514123497014899,
+          "rho_1": 1.0918649570427077,
+          "ratio": 2.3025956468319557
+        },
+        {
+          "round": 19,
+          "rho": 2.5306693396635316,
+          "rho_1": 1.1109349855420978,
+          "ratio": 2.277963492551864
+        },
+        {
+          "round": 20,
+          "rho": 2.5480329461745015,
+          "rho_1": 1.1086603832664927,
+          "ratio": 2.2982989061691956
+        },
+        {
+          "round": 21,
+          "rho": 2.4844767762633784,
+          "rho_1": 1.1032759829577738,
+          "ratio": 2.251908692512948
+        },
+        {
+          "round": 22,
+          "rho": 2.458963573144447,
+          "rho_1": 1.0899534866808438,
+          "ratio": 2.256026154503666
+        },
+        {
+          "round": 23,
+          "rho": 2.4929896144020685,
+          "rho_1": 1.1047484045641252,
+          "ratio": 2.256613002655269
+        },
+        {
+          "round": 24,
+          "rho": 2.5933419530413717,
+          "rho_1": 1.1063197733440062,
+          "ratio": 2.344116064384019
+        },
+        {
+          "round": 25,
+          "rho": 2.443353273373542,
+          "rho_1": 1.1097872440382228,
+          "ratio": 2.2016411582483366
+        },
+        {
+          "round": 26,
+          "rho": 2.4252646923207597,
+          "rho_1": 1.1022913883689527,
+          "ratio": 2.20020288456521
+        },
+        {
+          "round": 27,
+          "rho": 2.53585806557917,
+          "rho_1": 1.1035087733980018,
+          "ratio": 2.297995382284617
+        },
+        {
+          "round": 28,
+          "rho": 2.6053135606271463,
+          "rho_1": 1.1094930422945692,
+          "ratio": 2.3482018014633375
+        },
+        {
+          "round": 29,
+          "rho": 2.6149606329550807,
+          "rho_1": 1.1077798109124373,
+          "ratio": 2.360541875917773
+        },
+        {
+          "round": 30,
+          "rho": 2.553999797989493,
+          "rho_1": 1.0985443823451362,
+          "ratio": 2.3248945049787597
+        },
+        {
+          "round": 31,
+          "rho": 2.555439917073058,
+          "rho_1": 1.1010807529115745,
+          "ratio": 2.3208469590588514
+        },
+        {
+          "round": 32,
+          "rho": 2.496480679846082,
+          "rho_1": 1.0996077849390657,
+          "ratio": 2.2703374003344505
+        },
+        {
+          "round": 33,
+          "rho": 2.648943510512253,
+          "rho_1": 1.1045600646439668,
+          "ratio": 2.398188740750905
+        },
+        {
+          "round": 34,
+          "rho": 2.5222791070420154,
+          "rho_1": 1.095739483402429,
+          "ratio": 2.301896705601933
+        },
+        {
+          "round": 35,
+          "rho": 2.589933740230486,
+          "rho_1": 1.1028636936955285,
+          "ratio": 2.3483715667092206
+        }
+      ]
+    },
+    {
+      "workload_id": "core_concurrency_update",
+      "engine": "blob",
+      "threads": 8,
+      "statistic": "kappa",
+      "rounds": 36,
+      "ratio_mean": 3.369505582369653,
+      "ratio_ci_lower": 3.3429960668281713,
+      "ratio_ci_upper": 3.4018960107609733,
+      "ratio_ci_method": "bca",
+      "ratio_median": 3.3621180343579056,
+      "load": {
+        "scope": "round: a load snapshot is taken around every round; a cell carries the largest and the mean foreign busy CPUs over the rounds its windows ran in, and each raw window its round's value",
+        "rounds": 36,
+        "foreign_busy_cpus": 0.03,
+        "foreign_busy_cpus_mean": 0.013,
+        "wall_s": 155.727
+      },
+      "rounds_raw": [
+        {
+          "round": 0,
+          "rho": 3.7075259865694496,
+          "rho_1": 1.112937385400007,
+          "ratio": 3.3312979105620637
+        },
+        {
+          "round": 1,
+          "rho": 3.575611243799511,
+          "rho_1": 1.1133930952720814,
+          "ratio": 3.2114544799882507
+        },
+        {
+          "round": 2,
+          "rho": 3.5834265167071924,
+          "rho_1": 1.1068852050047848,
+          "ratio": 3.23739670609447
+        },
+        {
+          "round": 3,
+          "rho": 3.847046178848933,
+          "rho_1": 1.1068762819577553,
+          "ratio": 3.4755882310935253
+        },
+        {
+          "round": 4,
+          "rho": 3.762474365046393,
+          "rho_1": 1.1061546812010523,
+          "ratio": 3.4013998484923773
+        },
+        {
+          "round": 5,
+          "rho": 3.8216250112437096,
+          "rho_1": 1.1050206991719,
+          "ratio": 3.458419388983054
+        },
+        {
+          "round": 6,
+          "rho": 3.644815848539576,
+          "rho_1": 1.1056819314286792,
+          "ratio": 3.2964415397744795
+        },
+        {
+          "round": 7,
+          "rho": 3.7369707193777346,
+          "rho_1": 1.1058750928614813,
+          "ratio": 3.3791978348189606
+        },
+        {
+          "round": 8,
+          "rho": 3.5988268164877333,
+          "rho_1": 1.1092949595082886,
+          "ratio": 3.244246974747786
+        },
+        {
+          "round": 9,
+          "rho": 3.7336153774591105,
+          "rho_1": 1.109751654296867,
+          "ratio": 3.364370184088358
+        },
+        {
+          "round": 10,
+          "rho": 3.8024547545924037,
+          "rho_1": 1.1047255166423313,
+          "ratio": 3.441990519192014
+        },
+        {
+          "round": 11,
+          "rho": 3.6623285970404242,
+          "rho_1": 1.1034519318421845,
+          "ratio": 3.3189742945361123
+        },
+        {
+          "round": 12,
+          "rho": 4.081368143505026,
+          "rho_1": 1.1157147466764874,
+          "ratio": 3.658074929692096
+        },
+        {
+          "round": 13,
+          "rho": 3.816643011544317,
+          "rho_1": 1.1092069848844466,
+          "ratio": 3.440875385347417
+        },
+        {
+          "round": 14,
+          "rho": 3.7794921917342297,
+          "rho_1": 1.1017942694089093,
+          "ratio": 3.4303066340704893
+        },
+        {
+          "round": 15,
+          "rho": 3.730471890784357,
+          "rho_1": 1.1008475023853936,
+          "ratio": 3.3887272148966217
+        },
+        {
+          "round": 16,
+          "rho": 3.688751291188025,
+          "rho_1": 1.1053856015302757,
+          "ratio": 3.337071955778495
+        },
+        {
+          "round": 17,
+          "rho": 3.8388122416253667,
+          "rho_1": 1.1044403204295208,
+          "ratio": 3.4757987105472923
+        },
+        {
+          "round": 18,
+          "rho": 3.6755065740980264,
+          "rho_1": 1.0918649570427077,
+          "ratio": 3.3662648026117217
+        },
+        {
+          "round": 19,
+          "rho": 3.707142691434228,
+          "rho_1": 1.1109349855420978,
+          "ratio": 3.336957373455361
+        },
+        {
+          "round": 20,
+          "rho": 3.7521484241148073,
+          "rho_1": 1.1086603832664927,
+          "ratio": 3.384398397153594
+        },
+        {
+          "round": 21,
+          "rho": 3.951635820600981,
+          "rho_1": 1.1032759829577738,
+          "ratio": 3.581729215211443
+        },
+        {
+          "round": 22,
+          "rho": 3.677950834724587,
+          "rho_1": 1.0899534866808438,
+          "ratio": 3.3744108163044495
+        },
+        {
+          "round": 23,
+          "rho": 3.6480287896214945,
+          "rho_1": 1.1047484045641252,
+          "ratio": 3.302135377204561
+        },
+        {
+          "round": 24,
+          "rho": 3.7427572055914635,
+          "rho_1": 1.1063197733440062,
+          "ratio": 3.383069972869107
+        },
+        {
+          "round": 25,
+          "rho": 3.6095672551243223,
+          "rho_1": 1.1097872440382228,
+          "ratio": 3.252485802585061
+        },
+        {
+          "round": 26,
+          "rho": 3.724744268559038,
+          "rho_1": 1.1022913883689527,
+          "ratio": 3.3790922326541053
+        },
+        {
+          "round": 27,
+          "rho": 3.707641481127033,
+          "rho_1": 1.1035087733980018,
+          "ratio": 3.359865884627453
+        },
+        {
+          "round": 28,
+          "rho": 3.71458795409797,
+          "rho_1": 1.1094930422945692,
+          "ratio": 3.348004730535075
+        },
+        {
+          "round": 29,
+          "rho": 3.5804940805996264,
+          "rho_1": 1.1077798109124373,
+          "ratio": 3.2321351638016456
+        },
+        {
+          "round": 30,
+          "rho": 3.612361288045271,
+          "rho_1": 1.0985443823451362,
+          "ratio": 3.288316199236049
+        },
+        {
+          "round": 31,
+          "rho": 3.8230375090342092,
+          "rho_1": 1.1010807529115745,
+          "ratio": 3.4720773194200314
+        },
+        {
+          "round": 32,
+          "rho": 3.6902278598254625,
+          "rho_1": 1.0996077849390657,
+          "ratio": 3.35594919422106
+        },
+        {
+          "round": 33,
+          "rho": 3.691482402517935,
+          "rho_1": 1.1045600646439668,
+          "ratio": 3.342038627575959
+        },
+        {
+          "round": 34,
+          "rho": 3.6453452496572316,
+          "rho_1": 1.095739483402429,
+          "ratio": 3.3268357167690166
+        },
+        {
+          "round": 35,
+          "rho": 3.6668027488024046,
+          "rho_1": 1.1028636936955285,
+          "ratio": 3.324801396367947
+        }
+      ],
+      "label": "GROWS"
+    }
+  ],
+  "gate": {
+    "methodology": "docs/benchmarks/concurrency/METHODOLOGY.md section 41 (the section 39 cells)",
+    "threads": 8,
+    "margin": 0.05,
+    "margin_source": "scripts/update_registration_bounds.py MARGIN",
+    "rule": "per engine at 8 threads: COST when rho_ci_lower >= 1 + margin, NO_COST when rho_ci_upper < 1 + margin, OPEN otherwise; contention label from kappa at 8 threads: GROWS when its lower bound > 1, SHRINKS when its upper bound < 1, FLAT otherwise",
+    "verdicts": {
+      "blob": "COST"
+    },
+    "contention": {
+      "blob": "GROWS"
+    },
+    "scope": "this run only; section 39.4 reads a pair of runs: an engine's pair verdict is the run verdict when both runs agree and OPEN otherwise, and #1417's falsifier is met when all three engines read NO_COST in the pair",
+    "voids": [],
+    "verdict": "ADMISSIBLE",
+    "quick": false,
+    "change_build": false,
+    "instrument_void": "section 39.5: VOID when any rho upper bound is below 1 - margin"
+  }
+}
