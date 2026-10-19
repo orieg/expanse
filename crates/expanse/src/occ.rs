@@ -2365,14 +2365,32 @@ impl Collector {
             if !p_bin.nonempty.load(Ordering::Relaxed) {
                 continue;
             }
-            let mut stale = p_bin.take::<false>();
+            let stale = p_bin.take::<false>();
+            // The stripe's retained bytes bound what the bin just taken holds:
+            // every block in it was counted there before it was pushed, under
+            // the bin's lock that `take` has since held. When the bound fits
+            // the budget, the whole bin is freed by the plain loop below and
+            // the per-block budget check never runs; otherwise the budgeted
+            // loop runs out of line (#1481). The bound also counts classed
+            // bytes and other bins' blocks, so the plain loop is taken only
+            // when it cannot exceed the budget.
+            let held = self.retained_bytes[stripe].0.load(Ordering::Relaxed);
+            if freed.saturating_add(held) > budget {
+                let (freed_bytes, carried) =
+                    self.free_stripe_budgeted(carry, stale, stripe, &mut freed, budget);
+                // Everything taken leaves the stripe's count; what was
+                // carried stays in `carried_bytes`, which `carry_tail`
+                // raised first.
+                self.retained_bytes[stripe]
+                    .0
+                    .fetch_sub(freed_bytes + carried, Ordering::Relaxed);
+                crate::occ_stats::record_reclaim(freed_bytes);
+                continue;
+            }
             let mut freed_bytes = 0;
-            let mut carried = 0;
-            let mut i = 0;
-            while i < stale.len() {
-                let g = &stale[i];
+            for g in stale {
+                freed_bytes += g.bytes;
                 if let Some(class) = class_for(g.bytes, g.align) {
-                    freed_bytes += g.bytes;
                     let block = g.ptr.as_ptr().cast::<FreeBlock>();
                     let mut head = self
                         .reclaim_freelist(stripe, class)
@@ -2389,28 +2407,61 @@ impl Collector {
                         head.1.len += 1;
                         head.1.reclaimed += 1;
                     }
-                } else if freed == 0 || freed.saturating_add(g.bytes) <= budget {
-                    freed_bytes += g.bytes;
-                    freed += g.bytes;
+                } else {
                     free_raw(g.ptr, g.bytes, g.align);
                     self.count_unclassed_freed(g.bytes);
-                } else {
-                    // Over budget: this block and the rest of the stripe's
-                    // unclassed blocks wait on the carry list.
-                    let reclaimed;
-                    (reclaimed, carried) = self.carry_tail(carry, &mut stale, i, stripe);
-                    freed_bytes += reclaimed;
-                    break;
                 }
-                i += 1;
             }
-            // Everything taken leaves the stripe's count; what was carried
-            // stays in `carried_bytes`, which `carry_tail` raised first.
+            freed += freed_bytes;
             self.retained_bytes[stripe]
                 .0
-                .fetch_sub(freed_bytes + carried, Ordering::Relaxed);
+                .fetch_sub(freed_bytes, Ordering::Relaxed);
             crate::occ_stats::record_reclaim(freed_bytes);
         }
+    }
+
+    /// One taken bin stripe under the per-call budget: classed blocks to
+    /// `stripe`'s freelists, unclassed ones freed while `*freed` stays within
+    /// `budget` (or while nothing is freed yet), the rest carried. Returns
+    /// `(reclaimed_or_freed, carried)` bytes. The caller holds `advancing`.
+    #[cold]
+    #[inline(never)]
+    fn free_stripe_budgeted(
+        &self,
+        carry: &mut Vec<Garbage>,
+        mut stale: Vec<Garbage>,
+        stripe: usize,
+        freed: &mut usize,
+        budget: usize,
+    ) -> (usize, usize) {
+        let mut done = 0usize;
+        let mut it = stale.iter();
+        let mut over = None;
+        while let Some(g) = it.next() {
+            if let Some(class) = class_for(g.bytes, g.align) {
+                self.reclaim_block(g, stripe, class);
+                done += g.bytes;
+            } else if *freed == 0 || freed.saturating_add(g.bytes) <= budget {
+                free_raw(g.ptr, g.bytes, g.align);
+                self.count_unclassed_freed(g.bytes);
+                *freed += g.bytes;
+                done += g.bytes;
+            } else {
+                // Over budget: this block and the rest of the stripe's
+                // unclassed blocks wait on the carry list.
+                over = Some(stale.len() - it.len() - 1);
+                break;
+            }
+        }
+        let carried = match over {
+            Some(first) => {
+                let (reclaimed, carried) = self.carry_tail(carry, &mut stale, first, stripe);
+                done += reclaimed;
+                carried
+            }
+            None => 0,
+        };
+        (done, carried)
     }
 
     /// Total bytes currently queued across this collector's garbage bins.
