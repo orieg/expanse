@@ -28,7 +28,7 @@
 //! | `group` | 2 |
 //! | `population` | 50k; the `sync_*` arms' `leaf` variants build `LEAF_POP` (24) keys, below `ROOT_LEAF_CAP`, so the map or set stays a root leaf; `sync_strmap_insert_sorted` builds `UUID_POP` (20k) UUIDv4 strings; the remove-retention arms: `*_remove_partial` builds 200k random 60-bit keys, `*_rebuild_drained` and `*_compact_drained` the same tree drained to 62.5k by those removes (or 200k random 28-bit keys drained to 62.5k on 32-bit types), the `set_subtree_*` arms 64,512 one-key prefixes plus `SUBTREE_E` (1,024) driven level-6 expanses of 25–33 keys; the `BranchU` floor arms (#1079) build `FLOOR_DIGITS` (200) one-key top digits (drain) or `BAND_TOP` (193) (band); `sync32_map_write` builds the `concurrency` suite's `sync32` shape, 4,096 draws over an 8,192-key 32-bit keyspace; `sync32_map_get` the same draws over 8,192 (`bitmap`), `1 << 16` (`linear`) or `1 << 24` (`linear_wide`) keys; `sync_set_prev_locked/immed` and its optimistic twin `sync_set_prev/immed` build 50k keys in groups of `IMMED_GROUP` (12) consecutive low bytes under consecutive byte-1 values, a tree whose 4,167 terminals are all immediates |
 //! | `insertion_order` | generator draw order — the population is inserted as drawn, neither sorted nor shuffled; the shuffle in this file is applied to the probe stream, not to the build. Exceptions: `sync_strmap_insert_sorted` inserts its keys sorted ascending, the order #1162 reported; the bulk-construction pair (`map_from_sorted_iter`, `map_collect`) takes its `random_sorted` entries sorted ascending, so the builder's no-sort path is measured on a random shape |
-//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` and `sync_set_prev` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0; `leaf` variants cycle their 24 keys to 50k probes (reuse ≈ 2,083); in the `sync_set_prev_locked` and `sync_set_prev` arms every probe is a present key, so every call answers except the probes of the minimum (1 for `random` and `immed`, 2,083 for `leaf`), each answering `None`; the concurrent count arms take the first `COUNT_OPS` (1,000); `*_remove_partial` removes 137,500 keys in a Fisher–Yates order; `*_rebuild_drained` clones the drained tree once (62,500 keys) and drops the drained one (both 64-bit and 32-bit types); `*_compact_drained` compacts it in place once; `blobmap_compact` and `sync_blobmap_compact` overwrite every key of the 50k blob map once in setup and compact its arena once; `sync_blobmap_reclaim_free` compacts, in setup, an arena of more than 512 4 KiB chunks with 63 of every 64 records removed, then makes `RECLAIM_FREE_INSERTS` (65) plain inserts of fresh keys, two epoch-advance intervals and one, so the advance that frees the retired chunk set falls inside them; the `set_subtree_*` arms make one operation per driven expanse, or `OSC_CYCLES` (8) cycles of 2 × band operations per expanse; the floor drain arms remove their 200 keys once in a shuffled order, and the band arm runs `BAND_CYCLES` (100) cycles of 33 removals and 33 reinsertions of the same 33 keys; `sync32_map_write` makes `S32W_OPS` (2,000) mutations, overwrites of shuffled present keys or the `concurrency` suite writer's own insert/remove stream after `S32W_WARM` (30,000) of its mutations in setup; the bulk-construction pair builds one map from its 50k entries once; `sync32_map_get` makes `S32R_OPS` (4,000) `try_get` probes, shuffled present keys interleaved with misses |
 //! | `hit_rate` | 100%, except `sync_blobmap_remove_miss`, whose 50k removal probes are all absent (0%), and `sync32_map_get` (50%) |
 //! | `miss_gen_method` | None for reads; the concurrent count arms write, and `sync_blobmap_remove_miss` removes, absent keys drawn from the population's distribution and rejected on membership (`fresh_keys`); `sync32_map_get`'s misses are draws from its keyspace rejected on membership |
 //! | `value_dereference` | `black_box` on retrieved values |
@@ -4412,6 +4412,73 @@ fn sync_blobmap_insert_reclaiming(input: (SyncExpanseBlobMap, u32)) -> u64 {
     black_box(n)
 }
 
+/// The write paths' epoch-advance interval (`sync::ADVANCE_EVERY`,
+/// crate-private; `tests/test_blob_chunk_free_attribution.rs` carries the
+/// same copy). With no reader pinned, a retired block is freed by the second
+/// advance after its retirement, so within two intervals of the operation
+/// that retired it.
+const RECLAIM_FREE_ADVANCE_EVERY: u64 = 32;
+/// Inserts measured by `sync_blobmap_reclaim_free`: two advance intervals
+/// and one, so the advance that frees the retired chunk set lands inside the
+/// measured region whatever the countdown's phase.
+const RECLAIM_FREE_INSERTS: u64 = 2 * RECLAIM_FREE_ADVANCE_EVERY + 1;
+/// Arena chunks the compaction in `built_sync_blobmap_reclaim_free` retires
+/// at least: the `reclaim_stall` cap's chunk count, at the smallest chunk.
+const RECLAIM_FREE_CHUNKS: usize = 512;
+/// The smallest arena chunk (`BlobArena::new` clamps to it).
+const RECLAIM_FREE_CHUNK: usize = 4096;
+
+/// Setup for `sync_blobmap_reclaim_free`: an arena of more than
+/// `RECLAIM_FREE_CHUNKS` 4 KiB chunks, 63 of every 64 records removed, then
+/// compacted, so its old chunk set and chunk table sit retired in the epoch
+/// collector. Returns the map, the next free key and `mem_held` before the
+/// measured inserts.
+fn built_sync_blobmap_reclaim_free(_dist: &str) -> (SyncExpanseBlobMap, u64, usize) {
+    let map = SyncExpanseBlobMap::with_chunk_size(RECLAIM_FREE_CHUNK);
+    let payload = [0xA5u8; 128];
+    let mut key = 0u64;
+    while map.with_locked(|m| m.arena().chunks().len()) <= RECLAIM_FREE_CHUNKS {
+        map.insert(key, &payload, 1).expect("prefill");
+        key += 1;
+    }
+    for k in 0..key {
+        if k % 64 != 0 {
+            assert!(map.remove(k), "prefilled key present");
+        }
+    }
+    let stats = map.compact().expect("blob compact");
+    assert!(stats.chunks_before > RECLAIM_FREE_CHUNKS);
+    let held = map.mem_held();
+    (map, key, held)
+}
+
+// The free of a compaction's retired chunk set (#1481): the compaction runs
+// in setup; the 65 plain inserts measured here reach the epoch advance that
+// frees the more than 512 retired 4 KiB chunks and their chunk table, today in
+// one `Collector::try_advance` call. Counted per insert (65). The closing
+// `mem_held` read confirms that at least half the set's bytes left the
+// collector inside the region (chunks the inserts open offset some of it).
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_sync_blobmap_reclaim_free)]
+fn sync_blobmap_reclaim_free(input: (SyncExpanseBlobMap, u64, usize)) -> u64 {
+    let (map, first, held_before) = input;
+    let payload = [0x5Au8; 128];
+    for k in first..first + RECLAIM_FREE_INSERTS {
+        map.insert(black_box(k), black_box(&payload), black_box(1))
+            .expect("plain insert");
+    }
+    let held_after = map.mem_held();
+    assert!(
+        held_after + RECLAIM_FREE_CHUNKS * RECLAIM_FREE_CHUNK / 2 <= held_before,
+        "the retired chunk set was not freed inside the measured region \
+         ({held_before} B held before, {held_after} B after)"
+    );
+    let n = map.len();
+    // Leaked like every other arm's map, so its drop is not measured.
+    core::mem::forget(map);
+    black_box(n)
+}
+
 /// Callgrind simulator settings for this harness.
 ///
 /// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
@@ -4621,7 +4688,8 @@ library_benchmark_group!(
         sync_blobmap_overwrite,
         sync_blobmap_compare_exchange,
         sync_blobmap_compact,
-        sync_blobmap_insert_reclaiming
+        sync_blobmap_insert_reclaiming,
+        sync_blobmap_reclaim_free
 );
 
 library_benchmark_group!(
