@@ -83,6 +83,7 @@ on:
           - writer_scaling_929_bytes_gate
           - ycsb_concurrent
           - reclaim_stall
+          - reclaim_stall_free_gate
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
@@ -1556,6 +1557,20 @@ jobs:
                 python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py \
                   --out docs/benchmarks/concurrency/results/baseline_reclaim_stall.json | tee reclaim_stall.txt
                 ;;
+              "reclaim_stall_free_gate")
+                # METHODOLOGY §42.3 (#1481): G2 and G3 need the base and the
+                # head in one dispatch. The driver builds the head here and the
+                # base (the merge base resolved above) in a worktree carrying
+                # the head's harness, and interleaves them per round. An empty
+                # base is fatal: the comparison is the point of the run.
+                if [ -z "$BASE_REF" ]; then
+                  echo "::error::reclaim_stall_free_gate needs a base ref (merge base on main); none resolved"
+                  exit 1
+                fi
+                python3 docs/benchmarks/concurrency/scripts/reclaim_stall.py --free-gate \
+                  --base-ref "$BASE_REF" \
+                  --out docs/benchmarks/concurrency/results/gate_1481_reclaim_free.json | tee reclaim_stall.txt
+                ;;
               "all")
                 if [ -f base-instructions.txt ]; then
                   cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -2321,6 +2336,7 @@ jobs:
             docs/benchmarks/concurrency/results/baseline_ycsb_concurrent.json \
             reclaim_stall.txt \
             docs/benchmarks/concurrency/results/baseline_reclaim_stall.json \
+            docs/benchmarks/concurrency/results/gate_1481_reclaim_free.json \
             docs/benchmarks/concurrency/results/baseline_writer_scaling.json \
             docs/benchmarks/concurrency/results/diagnostic_writer_scaling.json \
             docs/benchmarks/concurrency/results/ablation_unsharded_alloc_writer_scaling.json \
