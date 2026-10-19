@@ -6708,3 +6708,16 @@ The instrument §42.3 requires is commit `661e25c5`: `reclaim_stall --noncompact
 
 - **G3 decides at 200,000 live only.** §42.3 gives G3 "the same cells" as G2, and G2 decides at 200,000 live and reports 3,600,000; G3 is read the same way. Its 3,600,000-live figure is reported and decides nothing.
 - **A deciding cell can be `VOID`.** A 200,000-live cell in which any round of either build did not run exactly two compactions, or refused an insert, is `VOID`, reusing §29's window check, and is not read as `PASS` or `FAIL`. A `VOID` cell is re-run once at the same commits; a second `VOID` is reported as the outcome and decides nothing. This rule was not stated in §42.3 and is added here, before any run, so it carries no `INTERMEDIATE` label.
+
+### 42.9 G2 and G3 outcome (appended 2026-10-19, after the run was observed; §42.1 to §42.8 are not rewritten)
+
+One dispatch of suite `reclaim_stall_free_gate`, run [39284534803](https://github.com/orieg/expanse/actions/runs/39284534803): base `83dc1fb6` (the merge base on `main`) and head `b0642d03`, the same harness file in both, 5 rounds per build and cell, on a quiet host (load average 0.21 at dispatch, worst foreign activity during the run 0.14 core-equivalents). No round of either build at either cell lacked its two compactions or refused an insert, so no cell is `VOID`. Artifact: `results/gate_1481_reclaim_free.json`. Medians over rounds with their 95% interval.
+
+| gate | live | head | base | bound | verdict |
+|---|---:|---|---|---:|---|
+| G2, largest non-compaction insert | 200,000 | 2,053,489 ns [2,004,873, 2,119,215] (BCa) | 28,946,338 ns [26,259,406, 29,111,323] (BCa) | 6,564,852 ns | **PASS** |
+| G2 | 3,600,000 | 2,067,835 ns [2,054,479, 2,110,466] (BCa) | 28,943,834 ns [27,624,987, 29,066,561] (BCa) | — | reported |
+| G3, `heap_peak` | 200,000 | 1,108,986,802 B (degenerate) | 1,108,975,170 B (degenerate) | 1,131,154,673 B | **PASS** |
+| G3 | 3,600,000 | 1,683,245,043 B (degenerate) | 1,683,233,411 B (degenerate) | — | reported |
+
+The `heap_peak` interval is degenerate because every round of a build reached the same peak; the head's is 11,632 B above the base's at both cells. With G1, G4 and G5 met (§42.7), every gate of §42.3 is met; G5's free-bookkeeping sub-claim stays falsified as §42.7 records. The head's largest non-compaction insert, about 2.05 ms, sits near §42.2's projected 1.905 ms per budgeted call; the projection was not a gate.
