@@ -554,6 +554,133 @@ def compaction_peak_bytes(total_allocated: int, live_records: int, payload_len: 
     return total_allocated + compacted_chunks(live_records, payload_len, chunk) * chunk + 16 * index_entries
 
 
+# --- #1481 item 1: a bounded free of a compaction's retired chunk set ---------
+#
+# Today one `Collector::try_advance` call frees every unclassed block (arena
+# chunk, chunk table) of the bin it takes: after a compaction of the default
+# cap that is 512 chunks of 2 MiB on one later insert (README §29.1). The
+# remedy frees unclassed blocks up to a byte budget per call, at least one
+# block per call, and carries the rest, already past their grace period, to
+# the next calls. The functions below model that rule.
+
+# The proposed per-call budget for unclassed frees: 32 default chunks.
+CHUNK_FREE_BUDGET = 64 * 1024 * 1024
+# The write paths' advance interval (`sync::ADVANCE_EVERY`).
+ADVANCE_EVERY = 32
+# With no reader pinned, a block retired at epoch e is taken by the second
+# advance after its retirement (`try_advance` frees bin e - 1 when it moves
+# the epoch from e to e + 1).
+GRACE_ADVANCES = 2
+
+
+def step0_dispose_ns_per_chunk(path: Path = STEP0_PROBE_LOG) -> list[float]:
+    """Nanoseconds per freed chunk of `ExpanseBlobMap`'s compaction dispose
+    phase, one value per compaction, from README §29.1's Step 0 probe log.
+
+    The plain map frees its old chunk set inside the compaction (`dispose_ns`
+    over `old_chunks`), so this is the chunk-free cost measured without the
+    epoch collector. Committed artifact:
+    `docs/benchmarks/concurrency/results/step0_1300_phases/probe.log`; README
+    §29.1 reports the dispose phase as 28.7–30.5 ms for a first compaction's
+    512 chunks and 0.6 / 9.8–9.9 ms for a second one.
+    """
+    out = []
+    kind = None
+    for line in Path(path).read_text().splitlines():
+        if line.startswith("== "):
+            fields = dict(kv.split("=", 1) for kv in line[3:].split())
+            kind = fields["map"]
+        elif line.startswith("PHASE ") and kind == "plain":
+            phase = json.loads(line[6:])
+            _pos_int("old_chunks", phase["old_chunks"])
+            _nonneg_int("dispose_ns", phase["dispose_ns"])
+            out.append(phase["dispose_ns"] / phase["old_chunks"])
+    if not out:
+        raise ValueError(f"no plain-map PHASE lines in {path}")
+    return out
+
+
+def step0_max_dispose_ns_per_chunk(path: Path = STEP0_PROBE_LOG) -> float:
+    """The largest of `step0_dispose_ns_per_chunk`: the worst measured
+    per-chunk free (a first compaction's, where each chunk is an `munmap`)."""
+    return max(step0_dispose_ns_per_chunk(path))
+
+
+def bounded_free_calls(block_bytes: list[int], budget: int) -> list[int]:
+    """The bytes each `try_advance` call frees under the bounded rule, for a
+    set of unclassed blocks queued in `block_bytes` order.
+
+    The rule: a call frees the next block when it has freed nothing yet, or
+    when the block fits what remains of `budget`; the first block that does
+    not fit ends the call, and it and everything after it are carried to the
+    next call. A record-level model, independent of `bounded_free_calls_bound`.
+    """
+    _pos_int("budget", budget)
+    calls: list[int] = []
+    i = 0
+    while i < len(block_bytes):
+        freed = 0
+        while i < len(block_bytes):
+            b = block_bytes[i]
+            _pos_int("block bytes", b)
+            if freed == 0 or freed + b <= budget:
+                freed += b
+                i += 1
+            else:
+                break
+        calls.append(freed)
+    return calls
+
+
+def bounded_free_calls_bound(total_bytes: int, blocks: int, max_block: int, budget: int) -> int:
+    """An upper bound on the calls `bounded_free_calls` needs for `blocks`
+    blocks of `total_bytes`, none larger than `max_block`.
+
+    A call that does not finish the set stopped at a block that did not fit:
+    it freed more than `budget - max_block` bytes. So when `max_block <=
+    budget`, each such call frees at least `budget - max_block + 1` bytes and
+    the calls are at most `ceil(total / (budget - max_block + 1))`. Otherwise
+    a call may free a single block: at most `blocks` calls.
+    """
+    _nonneg_int("total_bytes", total_bytes)
+    _nonneg_int("blocks", blocks)
+    _pos_int("max_block", max_block)
+    _pos_int("budget", budget)
+    if blocks == 0:
+        return 0
+    if total_bytes < blocks or total_bytes > blocks * max_block:
+        raise ValueError("total_bytes is inconsistent with blocks and max_block")
+    if max_block > budget:
+        return blocks
+    per = budget - max_block + 1
+    return min(blocks, -(-total_bytes // per))
+
+
+def drain_ops_bound(calls: int, advance_every: int = ADVANCE_EVERY,
+                    grace_advances: int = GRACE_ADVANCES) -> int:
+    """Operations of one writer, with no reader pinned, within which a set
+    retired on one operation is freed in full: the advance that takes the set
+    is at most the `grace_advances`-th after it, every later call frees from
+    the carry, and one writer reaches an advance every `advance_every`
+    operations. `(calls + grace_advances) * advance_every` over-counts by one
+    call (the taking advance also frees), which leaves room for the countdown's
+    phase at the retiring operation."""
+    _nonneg_int("calls", calls)
+    _pos_int("advance_every", advance_every)
+    _nonneg_int("grace_advances", grace_advances)
+    return (calls + grace_advances) * advance_every
+
+
+def projected_free_ns_per_call(budget: int, chunk: int, ns_per_chunk: float) -> float:
+    """A projection, not a measurement: the free time of one call that frees
+    `budget // chunk` chunks (at least one) at `ns_per_chunk` each."""
+    _pos_int("budget", budget)
+    _pos_int("chunk", chunk)
+    if not ns_per_chunk > 0:
+        raise ValueError("ns_per_chunk must be positive")
+    return max(1, budget // chunk) * ns_per_chunk
+
+
 class _ArenaModel:
     """Record-level model of one arena under the rule, for one payload size.
 
@@ -872,6 +999,57 @@ def self_test() -> int:
             pass
         else:
             raise AssertionError("invalid input accepted")
+    # #1481 item 1: the bounded free of a retired chunk set.
+    # Step 0's plain-map dispose phase, per chunk: the first compactions'
+    # munmap-per-chunk frees are the worst case.
+    disp = step0_dispose_ns_per_chunk()
+    assert len(disp) == 12, len(disp)
+    worst = step0_max_dispose_ns_per_chunk()
+    assert 59_000 < worst < 60_000, worst  # 30,481,160 ns / 512 chunks
+    assert abs(worst - 30_481_160 / 512) < 1e-6, worst
+    # The default set at the cap: 512 chunks of 2 MiB and the chunk table
+    # (8 KiB taken as an illustrative table size; any block <= one chunk gives
+    # the same count). The greedy model and the closed form agree.
+    default_set = [DEFAULT_CHUNK_SIZE] * 512 + [8192]
+    calls = bounded_free_calls(default_set, CHUNK_FREE_BUDGET)
+    assert len(calls) == 17 and max(calls) == CHUNK_FREE_BUDGET and sum(calls) == sum(default_set)
+    assert bounded_free_calls_bound(sum(default_set), len(default_set), DEFAULT_CHUNK_SIZE,
+                                    CHUNK_FREE_BUDGET) == 17
+    assert drain_ops_bound(17) == (17 + 2) * 32 == 608
+    # The projection at the default: 32 chunks at the worst measured free.
+    proj = projected_free_ns_per_call(CHUNK_FREE_BUDGET, DEFAULT_CHUNK_SIZE, worst)
+    assert abs(proj - 32 * 30_481_160 / 512) < 1e-3 and 1.90e6 < proj < 1.91e6, proj
+    # Every call frees at most max(budget, largest block), at least one block.
+    import random
+    rng = random.Random(1481)
+    for _ in range(2000):
+        n = rng.randrange(1, 60)
+        mb = rng.randrange(1, 5000)
+        blocks = [rng.randrange(1, mb + 1) for _ in range(n)]
+        budget = rng.randrange(1, 12000)
+        cs = bounded_free_calls(blocks, budget)
+        assert sum(cs) == sum(blocks)
+        assert all(c <= max(budget, max(blocks)) for c in cs), (blocks, budget, cs)
+        assert len(cs) <= bounded_free_calls_bound(sum(blocks), n, max(blocks), budget), (blocks, budget, cs)
+    # A block over the budget is freed alone, never stalls the drain.
+    assert bounded_free_calls([10, 5, 10], 4) == [10, 5, 10]
+    assert bounded_free_calls([3, 1, 3], 4) == [4, 3]
+    # The 4 KiB test geometry: 513 chunks and a table, budget 16 chunks.
+    t = [4096] * 513 + [4104]
+    assert len(bounded_free_calls(t, 16 * 4096)) == 33
+    # ceil(2,105,352 / (65,536 - 4,104 + 1)) = 35, two above the greedy count.
+    assert bounded_free_calls_bound(sum(t), len(t), 4104, 16 * 4096) == 35
+    for bad in (lambda: bounded_free_calls([1], 0),
+                lambda: bounded_free_calls([0], 4),
+                lambda: bounded_free_calls_bound(10, 1, 5, 8),
+                lambda: drain_ops_bound(-1),
+                lambda: projected_free_ns_per_call(CHUNK_FREE_BUDGET, DEFAULT_CHUNK_SIZE, 0.0)):
+        try:
+            bad()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid input accepted")
     print("blob_reclaim_bounds.py self-test PASSED")
     return 0
 
@@ -912,6 +1090,14 @@ def report() -> None:
           f"({incremental_per_insert_copy_bytes(HARNESS_LIVE, HARNESS_LEN, chunk, cap)} B/ins), "
           f"victim stall={predicted_incremental_stall_ns(HARNESS_LEN, chunk) / 1e6:.3f} ms "
           f"({max_p1:.2f} ns/rec at 3.6M live)")
+    worst = step0_max_dispose_ns_per_chunk()
+    default_set = [DEFAULT_CHUNK_SIZE] * 512 + [8192]
+    calls = len(bounded_free_calls(default_set, CHUNK_FREE_BUDGET))
+    print(f"#1481 bounded free: budget={CHUNK_FREE_BUDGET:,} B, worst measured free "
+          f"{worst / 1e3:.2f} us/chunk, projected per call "
+          f"{projected_free_ns_per_call(CHUNK_FREE_BUDGET, DEFAULT_CHUNK_SIZE, worst) / 1e6:.3f} ms "
+          f"(projection), default set drains in {calls} calls, within "
+          f"{drain_ops_bound(calls)} single-writer operations")
 
 
 def main() -> int:
