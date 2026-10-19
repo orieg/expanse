@@ -6680,3 +6680,22 @@ Every reason is a hypothesis.
 ### 42.6 Expiry
 
 A change to `try_advance`, `retire`, the bins, `ADVANCE_EVERY` or the arena's chunk retirement expires G1, G4 and G5, which are re-run.
+
+### 42.7 G5 on the first engine head, and the re-measured head (appended 2026-10-19, after both runs were observed; §42.1 to §42.6 are not rewritten)
+
+**First head (`759e309e`): G5 `FAIL`.** Run [39210615318](https://github.com/orieg/expanse/actions/runs/39210615318), PR-vs-`main` blocks: 60 arms moved, 15 of them by more than 0.5% (13 in the `|main_base` block, 2 in `|rmw_main_base`); the worst were `sync_blobmap_reclaim_free/random` +2.01% (281,740 against 276,201 instructions) and `sync_set_churn/leaf` +1.42%.
+
+**Attribution** (§42.4's first step; AGENTS.md §6). A probe of 50,000 `SyncExpanseMap` inserts and removes, run under Callgrind (valgrind 3.24, an aarch64 Linux container, not the CI host) at base `e76bb2ef` and at `759e309e`, read with `callgrind_annotate --inclusive=no` and `--auto=yes`:
+
+- The probe gained 1,203,860 instructions over base, 1.02%, as CI's `sync_map_remove` did. Of these, 1,197,450 were `Collector::try_advance`'s own instructions; no other function moved by more than 6,230.
+- Per line, the cost was in the classed-block loop, which every advance runs. The index loop that replaced `for g in stale` cost 178,879 instructions against 55,473, `class_for` 216,462 against 105,516, and the freelist link 251,715 against 100,686.
+- That the loop lost the bin's pointer and length from registers once the vector could be passed `&mut` to the carry helper is read from the line counts and the x86_64 assembly (381 to 466 instructions in `try_advance`); it is not a counter measurement.
+
+**Change, with the thresholds unchanged** (§8.19). Commit `df142e08` reads the stripe's retained bytes after the bin is taken. Every block in the bin was counted there under the bin's lock before its push, so the figure bounds the bin. When the call's frees plus that bound fit the budget, the bin is freed by the base loop unchanged; otherwise the budgeted loop runs out of line. G1 and G4 are unchanged in outcome: 514 blocks over 33 operations, drained at operation 1,064 against a bound of 1,344.
+
+**Re-measured head (`df142e08`, rebased onto `83dc1fb6`): G5 `PASS`.** Run [39229197570](https://github.com/orieg/expanse/actions/runs/39229197570), PR-vs-`main` blocks (`|main_base`, `|rmw_main_base`, `|search_main_base`):
+
+- 331 arms, of which 271 are unchanged.
+- 60 moved, every one below 0.1%. The largest are `sync_set_churn/random` +0.0997%, `sync_set_churn/leaf` +0.0961% and `sync_blobmap_insert_reclaiming/random` +0.0910%.
+- `sync_blobmap_reclaim_free/random` moved +0.0152% (276,243 against 276,201), inside its +0.1% bound.
+- The margin on `sync_set_churn/random` is 0.0003 percentage points. It is a pass at the registered threshold and nothing more.
