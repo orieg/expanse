@@ -124,6 +124,13 @@ the held arm as a drift control, and the run and pair verdicts.
     python3 docs/benchmarks/concurrency/scripts/mixed_concurrency.py --update-fix \\
         docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_s40.json,docs/benchmarks/concurrency/results/baseline_concurrent_update_cells_s40_run2.json
 
+`--update-blob-fix BASE1,BASE2,CHANGE1,CHANGE2` is `METHODOLOGY.md` §41's
+evaluation for the blob map (#1575): it runs nothing, reads the two
+`--update-cells --blob` base runs (B0: the §39.4 verdict of `rho(blob, 8)` in
+the pair) and, when the base pair reads `COST`, the two `--change-build` runs
+against them run against run with §40's match, gain and drift control, and
+prints the §41.5 decision.
+
 `--self-test` runs without Cargo and is run by CI's `lint` job. The committed
 artifact and its second run (`baseline_concurrent_mixed_run2.json`) also feed
 the README hero chart's and the sync32 health chart's data
@@ -2022,7 +2029,8 @@ FIX_LABEL = "INTERMEDIATE (METHODOLOGY.md section 40.8: amended after change-bui
 
 
 def evaluate_update_fix(change: dict[str, Any], base: dict[str, Any],
-                        engines: tuple[str, ...] = UPDATE_ENGINES) -> dict[str, Any]:
+                        engines: tuple[str, ...] = UPDATE_ENGINES, methodology: str = FIX_METHODOLOGY,
+                        label: str = FIX_LABEL) -> dict[str, Any]:
     """One change run against one base run: per engine, the §40 match, gain, drift control and verdict."""
     problems = fix_artifact_problems(change, "change") + fix_artifact_problems(base, "base")
     change_commit = change.get("provenance", {}).get("commit")
@@ -2030,10 +2038,10 @@ def evaluate_update_fix(change: dict[str, Any], base: dict[str, Any],
         problems.append(f"change and base were measured at one commit ({change_commit}); §40 compares two builds")
     if problems:
         raise InstrumentError("; ".join(problems))
-    out: dict[str, Any] = {"methodology": FIX_METHODOLOGY, "threads": FIX_THREADS, "rule": FIX_RULE,
+    out: dict[str, Any] = {"methodology": methodology, "threads": FIX_THREADS, "rule": FIX_RULE,
                            "change_commit": change_commit,
                            "change_build": bool(change.get("gate", {}).get("change_build")),
-                           "label": FIX_LABEL,
+                           "label": label,
                            "base_commit": base.get("provenance", {}).get("commit"), "engines": {}}
     for e in engines:
         rho = next(c for c in change["rho"] if c["engine"] == e and int(c["threads"]) == FIX_THREADS)
@@ -2213,6 +2221,167 @@ def update_fix_self_test() -> None:
     void1 = DEFAULT_OUT.with_name("baseline_concurrent_update_cells_s40_void1.json")
     expect_error(evaluate_update_fix, json.loads(void1.read_text()),
                  json.loads(FIX_BASE_ARTIFACTS[0].read_text()), what="the committed void run")
+
+
+# --------------------------------------------------------------------------
+# #1575: the blob map's update, base pair and change pair (METHODOLOGY.md §41)
+# --------------------------------------------------------------------------
+
+BLOB_FIX_METHODOLOGY = "docs/benchmarks/concurrency/METHODOLOGY.md section 41"
+# §41 was locked before any run of the blob cells, with the change-build
+# instrument rule stated up front (§41.4), so its result carries no
+# INTERMEDIATE label unless a later amendment adds one.
+BLOB_FIX_LABEL = "pre-registered (METHODOLOGY.md section 41, locked before any run of the blob cells)"
+
+
+def blob_rho_verdict(artifact: dict[str, Any], role: str) -> dict[str, Any]:
+    """§41.3 B0 on one run: the §39.4 verdict of the blob cell's rho at 8 threads."""
+    cells = [c for c in artifact.get("rho", []) if c.get("engine") == "blob" and int(c["threads"]) == FIX_THREADS]
+    if len(cells) != 1:
+        raise InstrumentError(f"{role}: {len(cells)} blob rho cells at {FIX_THREADS} threads, not one "
+                              f"(an --update-cells --blob artifact is required)")
+    c = cells[0]
+    return {"rho": c["ratio_mean"], "rho_ci_lower": c["ratio_ci_lower"], "rho_ci_upper": c["ratio_ci_upper"],
+            "rho_ci_method": c["ratio_ci_method"],
+            "verdict": update_verdict(c["ratio_ci_lower"], c["ratio_ci_upper"])}
+
+
+def blob_decision(base_pair: str, change_pair: str | None) -> str:
+    """§41.5: what follows from the base pair and, when it reads COST, the change pair."""
+    if base_pair == "NO_COST":
+        return "REVERT_NOT_MATERIAL"
+    if base_pair != "COST":
+        return "FURTHER_BASE_PAIR"
+    return {"PASS": "CHANGE_STANDS", "FAIL": "REVERT_FAILED", "VOID": "REPLACE_CHANGE_RUN"}.get(
+        change_pair or "", "FURTHER_CHANGE_PAIR")
+
+
+def evaluate_update_blob_fix(bases: list[dict[str, Any]], changes: list[dict[str, Any]]) -> dict[str, Any]:
+    """§41: the blob base pair's B0 verdict, then change run i against base run i."""
+    if len(bases) != 2 or len(changes) != 2:
+        raise InstrumentError(f"§41 reads two base runs and two change runs, got {len(bases)} and {len(changes)}")
+    problems = []
+    for i, (b, c) in enumerate(zip(bases, changes), start=1):
+        problems += fix_artifact_problems(b, f"base run {i}") + fix_artifact_problems(c, f"change run {i}")
+        if b.get("gate", {}).get("change_build"):
+            problems.append(f"base run {i}: a --change-build run cannot be the base (METHODOLOGY.md §41.4)")
+        if not c.get("gate", {}).get("change_build"):
+            problems.append(f"change run {i}: not a --change-build run; §41.4 dispatches change runs through "
+                            f"concurrency_update_cells_blob_fix")
+    if problems:
+        raise InstrumentError("; ".join(problems))
+    base_runs = [blob_rho_verdict(b, f"base run {i}") for i, b in enumerate(bases, start=1)]
+    a, b = (r["verdict"] for r in base_runs)
+    base_pair = a if a == b else "OPEN"
+    out: dict[str, Any] = {"methodology": BLOB_FIX_METHODOLOGY, "label": BLOB_FIX_LABEL,
+                           "base_runs": base_runs, "base_pair": base_pair, "change_runs": None,
+                           "change_pair": None}
+    if base_pair == "COST":
+        runs = [evaluate_update_fix(c, b, engines=UPDATE_BLOB_ENGINES, methodology=BLOB_FIX_METHODOLOGY,
+                                    label=BLOB_FIX_LABEL) for b, c in zip(bases, changes)]
+        out["change_runs"] = runs
+        out["change_pair"] = fix_pair_verdicts(runs)["blob"]
+    out["decision"] = blob_decision(base_pair, out["change_pair"])
+    return out
+
+
+def run_update_blob_fix(paths: list[str]) -> int:
+    if len(paths) != 4:
+        raise InstrumentError(f"--update-blob-fix takes BASE1,BASE2,CHANGE1,CHANGE2; got {len(paths)} paths")
+    loaded = []
+    for p in paths:
+        path = Path(p)
+        if not path.is_file():
+            raise InstrumentError(f"artifact file not found: {path}")
+        loaded.append(json.loads(path.read_text()))
+    res = evaluate_update_blob_fix(loaded[:2], loaded[2:])
+    for i, r in enumerate(res["base_runs"], start=1):
+        print(f"base run {i}: rho(blob, 8) {r['rho']:.4f} [{r['rho_ci_lower']:.4f}, {r['rho_ci_upper']:.4f}] "
+              f"{r['rho_ci_method']} {r['verdict']}")
+    print(f"base pair (§41.3 B0): {res['base_pair']}")
+    for i, run in enumerate(res["change_runs"] or [], start=1):
+        c = run["engines"]["blob"]
+        print(f"change run {i}: rho(8) {c['rho']:.4f} [{c['rho_ci_lower']:.4f}, {c['rho_ci_upper']:.4f}] "
+              f"{c['match']}; gain {c['gain']:.4f} [{c['gain_ci_lower']:.4f}, {c['gain_ci_upper']:.4f}] "
+              f"{c['gain_verdict']}; held drift {c['held_drift']:.4f} [{c['held_drift_ci_lower']:.4f}, "
+              f"{c['held_drift_ci_upper']:.4f}]; {c['verdict']}")
+        for v in c["voids"]:
+            print(f"    VOID: {v}", file=sys.stderr)
+    print(f"change pair: {res['change_pair']}; decision (§41.5): {res['decision']}; {res['label']}")
+    return 0
+
+
+def update_blob_fix_self_test() -> None:
+    """§41's evaluation on synthetic artifacts: B0, the change pair, the decision table, the refusals."""
+    def artifact(commit: str, update: float, held: float, rho: tuple, change_build: bool,
+                 verdict: str = "ADMISSIBLE", n: int = 12) -> dict[str, Any]:
+        throughput = [{"engine": "blob", "arm": arm, "threads": FIX_THREADS, "rounds_raw": [
+            {"round": r, "updates_s": level * (1.0 + 0.005 * ((r * 5) % 3 - 1))} for r in range(n)]}
+            for arm, level in (("update", update), ("held", held))]
+        return {"provenance": {"mode": "update_cells", "commit": commit},
+                "gate": {"verdict": verdict, "quick": False, "change_build": change_build},
+                "throughput": throughput,
+                "rho": [{"engine": "blob", "threads": FIX_THREADS, "ratio_mean": sum(rho) / 2,
+                         "ratio_ci_lower": rho[0], "ratio_ci_upper": rho[1], "ratio_ci_method": "bca"}]}
+
+    def expect_error(fn, *args, what: str) -> None:
+        try:
+            fn(*args)
+        except InstrumentError:
+            return
+        raise AssertionError(f"expected InstrumentError: {what}")
+
+    cost = artifact("base", 1.0e6, 3.0e6, (2.9, 3.1), False)
+    fixed = artifact("change", 3.1e6, 3.0e6, (0.95, 0.99), True)
+    r = evaluate_update_blob_fix([cost, cost], [fixed, fixed])
+    assert r["base_pair"] == "COST" and r["change_pair"] == "PASS" and r["decision"] == "CHANGE_STANDS", r
+    assert r["label"] == BLOB_FIX_LABEL and not r["label"].startswith("INTERMEDIATE")
+    assert r["change_runs"][0]["engines"]["blob"]["gain_verdict"] == "GAIN"
+
+    # B0, one negative control per clause: a NO_COST base pair stops before the
+    # change runs are read; a split base pair reads OPEN.
+    flat = artifact("base", 1.0e6, 1.01e6, (1.00, 1.03), False)
+    r = evaluate_update_blob_fix([flat, flat], [fixed, fixed])
+    assert r["base_pair"] == "NO_COST" and r["change_runs"] is None and r["decision"] == "REVERT_NOT_MATERIAL", r
+    r = evaluate_update_blob_fix([cost, flat], [fixed, fixed])
+    assert r["base_pair"] == "OPEN" and r["decision"] == "FURTHER_BASE_PAIR", r
+
+    # Change pair: still slower than the held loop (G1 COST) fails; no gain fails.
+    lagging = artifact("change", 1.5e6, 3.0e6, (1.9, 2.1), True)
+    assert evaluate_update_blob_fix([cost, cost], [lagging, lagging])["decision"] == "REVERT_FAILED"
+    no_gain = artifact("change", 0.9e6, 3.0e6, (0.98, 1.02), True)
+    r = evaluate_update_blob_fix([cost, cost], [no_gain, no_gain])
+    c = r["change_runs"][0]["engines"]["blob"]
+    assert c["match"] == "NO_COST" and c["gain_verdict"] == "NO_GAIN" and c["voids"] == [], c
+    assert r["change_pair"] == "FAIL" and r["decision"] == "REVERT_FAILED", r
+    # A drifted held arm voids the change run.
+    drifted = artifact("change", 3.1e6, 2.0e6, (0.95, 0.99), True)
+    assert evaluate_update_blob_fix([cost, cost], [drifted, fixed])["decision"] == "REPLACE_CHANGE_RUN"
+    # One change run passing and one open: one further change pair.
+    open_run = artifact("change", 3.1e6, 3.0e6, (1.00, 1.06), True)
+    assert evaluate_update_blob_fix([cost, cost], [fixed, open_run])["decision"] == "FURTHER_CHANGE_PAIR"
+
+    # Decision table, each row.
+    assert blob_decision("NO_COST", None) == "REVERT_NOT_MATERIAL"
+    assert blob_decision("OPEN", None) == "FURTHER_BASE_PAIR"
+    assert blob_decision("COST", "PASS") == "CHANGE_STANDS"
+    assert blob_decision("COST", "FAIL") == "REVERT_FAILED"
+    assert blob_decision("COST", "VOID") == "REPLACE_CHANGE_RUN"
+    assert blob_decision("COST", "OPEN") == "FURTHER_CHANGE_PAIR"
+
+    # Refusals: roles swapped, a change run not dispatched as a change build,
+    # a void base, one commit for both builds, a non-blob artifact, a short list.
+    expect_error(evaluate_update_blob_fix, [fixed, fixed], [cost, cost], what="roles swapped")
+    expect_error(evaluate_update_blob_fix, [cost, cost],
+                 [dict(fixed, gate=dict(fixed["gate"], change_build=False))] * 2, what="a base-mode change run")
+    expect_error(evaluate_update_blob_fix, [dict(cost, gate=dict(cost["gate"], verdict="VOID"))] * 2,
+                 [fixed, fixed], what="a void base run")
+    expect_error(evaluate_update_blob_fix, [cost, cost],
+                 [dict(fixed, provenance={"mode": "update_cells", "commit": "base"})] * 2,
+                 what="one commit for both builds")
+    expect_error(evaluate_update_blob_fix, [dict(cost, rho=[])] * 2, [fixed, fixed], what="no blob rho cell")
+    expect_error(evaluate_update_blob_fix, [cost], [fixed, fixed], what="one base run")
+    expect_error(run_update_blob_fix, ["a.json", "b.json"], what="two paths")
 
 
 def update_self_test() -> None:
@@ -2994,6 +3163,7 @@ def self_test() -> int:
     step2_self_test()
     update_self_test()
     update_fix_self_test()
+    update_blob_fix_self_test()
     print("mixed_concurrency.py self-test PASSED")
     return 0
 
@@ -3279,6 +3449,9 @@ def main() -> int:
     ap.add_argument("--update-fix", default=None, metavar="RUN1,RUN2",
                     help="METHODOLOGY.md section 40: read the change build's two --update-cells artifacts "
                          "against the committed section 39.9 base pair and print the per-engine verdicts")
+    ap.add_argument("--update-blob-fix", default=None, metavar="BASE1,BASE2,CHANGE1,CHANGE2",
+                    help="METHODOLOGY.md section 41: read the blob pair's two base runs and two change-build "
+                         "runs and print B0, the change pair and the section 41.5 decision")
     ap.add_argument("--blob", action="store_true",
                     help="with --update-cells: the blob map's update pair (METHODOLOGY.md section 41, "
                          "#1575) on its own, writing baseline_concurrent_update_cells_blob.json")
@@ -3296,6 +3469,11 @@ def main() -> int:
             raise InstrumentError("--change-build applies to --update-cells only")
         if args.blob and not args.update_cells:
             raise InstrumentError("--blob applies to --update-cells only")
+        if args.update_blob_fix is not None:
+            if (args.update_fix is not None or args.update_cells or args.blob_peak or args.step2_gate
+                    or args.run2 or args.write_assets or args.check_assets or args.check_sync32_steps):
+                raise InstrumentError("--update-blob-fix reads artifacts and cannot be combined with other modes")
+            return run_update_blob_fix([p for p in args.update_blob_fix.split(",") if p])
         if args.update_fix is not None:
             if (args.update_cells or args.blob_peak or args.step2_gate or args.run2 or args.write_assets
                     or args.check_assets or args.check_sync32_steps):
