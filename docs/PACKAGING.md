@@ -221,7 +221,7 @@ gh attestation verify expanse-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz \
 ```
 
 ### 2.7 Python Wheels (`pip install expanse-trie`) & PyPI Distribution
-Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels across Linux (`x86_64`, `aarch64`), macOS (`arm64`, `x86_64`), and Windows (`x86_64`).
+Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels (`cp310-abi3`, so Python 3.10 and newer) across Linux (`x86_64`, `aarch64`), macOS (`arm64`, `x86_64`), and Windows (`x86_64`).
 
 - **Package Configuration**: `pyproject.toml` using `maturin` backend (`bindings/python`).
 - **Python Crate**: `crates/expanse-py` exporting `expanse_trie._expanse`.

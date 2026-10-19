@@ -1,8 +1,7 @@
 # Top-level pins for the Python binding jobs on Python 3.10 and newer:
-# python.yml (3.10 and 3.12 rows), ci.yml test-python and nightly.yml.
-# The Python 3.8 row of python.yml installs py38/python-bindings-py38.txt
-# instead, because the pytest releases that fix GHSA-6w46-j5rx-g56g (9.0.3 and
-# later) need Python 3.10+.
+# python.yml (3.10 and 3.12 rows), ci.yml test-python, nightly.yml and
+# bench_baremetal.yml. pytest is held at 9.0.3 or newer, the releases that fix
+# GHSA-6w46-j5rx-g56g, which need Python 3.10+.
 #
 # One file serves every Python (3.10 to the newest matrix row) and OS those
 # jobs run on, and pip-compile drops a requirement whose environment marker is
